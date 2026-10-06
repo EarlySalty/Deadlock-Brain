@@ -1,0 +1,63 @@
+    Checking serde_core v1.0.228
+    Checking stable_deref_trait v1.2.1
+    Checking yoke v0.8.3
+    Checking zerovec v0.11.6
+    Checking serde v1.0.228
+    Checking smallvec v1.15.2
+    Checking tokio v1.52.3
+    Checking tinystr v0.8.3
+    Checking potential_utf v0.1.5
+    Checking icu_locale_core v2.2.0
+    Checking zerotrie v0.2.4
+    Checking typenum v1.20.1
+    Checking icu_collections v2.2.0
+    Checking generic-array v0.14.7
+    Checking icu_provider v2.2.0
+    Checking icu_properties v2.2.0
+    Checking icu_normalizer v2.2.0
+    Checking crypto-common v0.1.7
+    Checking block-buffer v0.10.4
+    Checking digest v0.10.7
+    Checking idna_adapter v1.2.2
+    Checking idna v1.1.0
+    Checking serde_json v1.0.150
+    Checking url v2.5.8
+   Compiling parking_lot_core v0.9.12
+   Compiling parking_lot v0.12.5
+   Compiling futures-intrusive v0.5.0
+    Checking hyper v1.10.1
+    Checking sha2 v0.10.9
+   Compiling either v1.16.0
+    Checking hyper-util v0.1.20
+   Compiling sqlx-core v0.8.6
+    Checking tower v0.5.3
+   Compiling rand v0.8.6
+    Checking async-compression v0.4.42
+    Checking tokio-rustls v0.26.4
+    Checking tokio-util v0.7.18
+    Checking serde_urlencoded v0.7.1
+   Compiling sqlx-postgres v0.8.6
+    Checking tower-http v0.6.11
+    Checking hyper-rustls v0.27.9
+    Checking hmac v0.12.1
+    Checking tokio-stream v0.1.18
+   Compiling sqlx-macros-core v0.8.6
+    Checking hkdf v0.12.4
+    Checking reqwest v0.12.28
+    Checking md-5 v0.10.6
+    Checking byteorder v1.5.0
+   Compiling sqlx-macros v0.8.6
+    Checking getrandom v0.4.3
+    Checking toml_datetime v0.6.11
+    Checking serde_spanned v0.6.9
+    Checking toml_edit v0.22.27
+    Checking sqlx v0.8.6
+    Checking tempfile v3.27.0
+    Checking nix v0.29.0
+    Checking brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-contracts)
+    Checking toml v0.8.23
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-builds)
+    Checking uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+    Checking brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-providers)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/deadlock-brain-core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 45s

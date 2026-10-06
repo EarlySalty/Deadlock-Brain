@@ -1,0 +1,222 @@
+diff --git a/.tasks/2026-10-03-luna-abo/BELEGPLAN.md b/.tasks/2026-10-03-luna-abo/BELEGPLAN.md
+index 70a8377..608a126 100644
+--- a/.tasks/2026-10-03-luna-abo/BELEGPLAN.md
++++ b/.tasks/2026-10-03-luna-abo/BELEGPLAN.md
+@@ -1,5 +1,7 @@
+ # Finale Prüfung und gemeinsame Abnahme
+ 
++Aktueller Vorrang: Der nachfolgende Nutzerbefund über blockierende FIFO-Öffnungen macht eine weitere enge Fixrunde erforderlich. Der aktuelle ungeprüfte Drei-Dateien-Stand und sein gesondert abzustimmender Prüfplan stehen in [FIFO-NACHSLOT.md](FIFO-NACHSLOT.md). Die unten genannte grüne Fixrunde 2 ist ein historischer Beleg für 940bb213; sie ist keine Freigabe des anschließenden FIFO-Fixes.
++
+ Fixrunde 2 ist compilerseitig vollständig geprüft: Format-, Compiler-, Tests und Clippy mit `-D warnings` sind grün, 657 Tests bestanden und 48 ignoriert. Der vollständige Quellinhalt steht in `FIXRUNDE-2-SNAPSHOT.tar` und `FIXRUNDE-2-MANIFEST.sha256`. Die folgenden noch offenen Schritte sind Gate, gemeinsame Integration und tatsächliche Laufzeitabnahme. Die erste Suite und Fixrunde 1 bleiben historische getrennte Artefakte.
+ 
+ ## Nächster eigener Slot
+diff --git a/.tasks/2026-10-03-luna-abo/UEBERGABE.md b/.tasks/2026-10-03-luna-abo/UEBERGABE.md
+index 7f8e3b7..17af666 100644
+--- a/.tasks/2026-10-03-luna-abo/UEBERGABE.md
++++ b/.tasks/2026-10-03-luna-abo/UEBERGABE.md
+@@ -1,5 +1,11 @@
+ # Deadlock Brain über das ChatGPT-Abo
+ 
++## Aktueller FIFO-Fixstand
++
++Der spätere Nutzerbefund blockiert den historischen Eigenhead `940bb2138d694ada783c2d7d8b4abecb4d20fbed` trotz seiner grünen Quellprüfung und Gate-ALLOW. Writerlose FIFO-Dateien konnten Config- und Credentialöffnungen vor der Dateitypprüfung blockieren. Der anschließende enge Fix betrifft ausschließlich Core `ai.rs`, `config.rs` und `pg_secrets.rs`. Er ist statisch ohne neue P1/P2 geprüft, aber noch nicht durch einen neuen Compiler-, Test- oder Gatelauf. Der vorhandene 657-Test-Beleg gilt ausschließlich für 940bb213. Beide Hostlocks sind frei und alle früheren Prüfprozesse beendet.
++
++Der neue [FIFO-Nachslotplan](FIFO-NACHSLOT.md) dokumentiert die sicheren Dateiöffnungen, die begrenzte Configlektüre, erhaltene Credential-FD-Semantik, das kleinere Aufrufertimeout und die eng begrenzte Folgesuite. Die synthetischen bwrap-/systemd-Hardlinkproben sind zusätzlich vor Ausführung abzustimmen. Dieser neue Stand erhält einen eigenen vollständigen Sourcefreeze und Eigencommit; keine Quellenprüfung oder C9-Gesamtfreigabe wird daraus vorweggenommen.
++
+ ## Prüfstand nach der ersten Suite
+ 
+ Die erste eingefrorene TOML-Suite ist beendet: `check`, `test` und `clippy` jeweils Exit 0 mit der im Repository festgelegten Toolchain 1.97.1, `--locked --offline -j 2` und den neun betroffenen Paketen. 657 Tests bestanden, 48 wurden als bestehende ignorierte Tests übersprungen. `SOURCE-MANIFEST.sha256` kennzeichnet die geprüften Dateiinhalte; `SOURCE-DIFF.patch` enthält den damaligen Diff der bereits getrackten Dateien. Dieses erste Artefakt ist kein vollständiges Inhaltsarchiv der damals neuen Dateien. Beide Hostlocks sind freigegeben; die abschließende Prozessprobe zeigte keinen aktiven Compiler.
+@@ -10,7 +16,7 @@ Auch mit den ergänzten Schaltern ist die tatsächliche Werkzeugfreiheit weiterh
+ 
+ Konkrete offene Abnahmegrenze: Für CLI 0.160.0 ist keine sichere native Telemetrie belegt, die ausschließlich `inference.tools[]` beim unveränderten OpenAI-/ChatGPT-Abo ausgibt. Rohrequest- oder Traceaufzeichnung ist wegen möglicher privater Promptfelder kein zulässiger Ersatz. Ein isolierter authfreier Loopback-Mock könnte nur seinen lokalen Lauf belegen; mögliche Unterschiede bei Provider, Modellmetadaten und Authpfad verhindern daraus eine Produktionsfreigabe. Der gebündelte gpt-6-luna-Katalog nennt unter anderem ein Freeform-Patchwerkzeug, Code Mode und experimentelle Clock-/Nachrichtenwerkzeuge. Die abschließende Gesamtfreigabe bleibt deshalb offen. Das Gate erhält diesen Befund ausdrücklich; ein grünes Quellgate allein ersetzt ihn nicht.
+ 
+-Maßgeblich ist Fixrunde 2. Ihre eigene Format-, Compiler-, Test- und Clippyprüfung ist grün: 657 Tests bestanden, 48 bestehende Tests ignoriert, Clippy mit `-D warnings`. Maintenance benutzt in `author.rs::codex_args` dieselbe `subscription_config_args()`-Funktion wie Legacy. ChatGPT-Login, OpenAI-Provider und Werkzeugschalter sind gemeinsam festgelegt. Modell, Reasoning, Ausgabeschema, Ergebnisdatei und Zeitlimit bleiben erhalten. C9 besitzt weiterhin TOML-, Registry-, Revalidierungs- und Starterhunks. Das anschließende Gate und die gemeinsame Laufzeitabnahme stehen noch aus.
++Die historische Fixrunde 2 hatte ihre eigene grüne Format-, Compiler-, Test- und Clippyprüfung: 657 Tests bestanden, 48 bestehende Tests ignoriert, Clippy mit `-D warnings`. Ihr Gate endete mit Exit 0 ALLOW und zwei NITs. Der Timeout-NIT wird im aktuellen FIFO-Fix mitbehoben; die tatsächliche Werkzeugfreiheit bleibt offen. Maintenance benutzt weiterhin dieselbe `subscription_config_args()`-Funktion wie Legacy. Modell, Reasoning, Ausgabeschema, Ergebnisdatei und Zeitlimit bleiben erhalten; C9 besitzt TOML-, Registry-, Revalidierungs- und Starterhunks.
+ 
+ Der bestehende Rust-Reviewer hat auch diesen engen Author-/Helperhunk statisch geprüft. Er meldet keine neuen P1- oder P2-Befunde und bestätigt die erhaltenen Authorvorgaben sowie konsistente einzelne `-c`-Argumentpaare. Dieser begrenzte Beleg ersetzt keine Compiler-, Gate-, Werkzeug- oder Abo-Laufzeitprüfung.
+ 
+diff --git a/rust/crates/deadlock-brain-core/src/ai.rs b/rust/crates/deadlock-brain-core/src/ai.rs
+index ba32d38..7c55958 100644
+--- a/rust/crates/deadlock-brain-core/src/ai.rs
++++ b/rust/crates/deadlock-brain-core/src/ai.rs
+@@ -137,7 +137,9 @@ impl AiClient {
+             &settings.cli_path,
+             &prompt,
+             &settings.model,
+-            std::time::Duration::from_secs(settings.timeout_seconds),
++            std::time::Duration::from_secs(
++                self.config.timeout_seconds.min(settings.timeout_seconds),
++            ),
+             settings.max_response_bytes,
+             request_payload
+                 .get("max_tokens")
+diff --git a/rust/crates/deadlock-brain-core/src/config.rs b/rust/crates/deadlock-brain-core/src/config.rs
+index 7a8a35f..66daf11 100644
+--- a/rust/crates/deadlock-brain-core/src/config.rs
++++ b/rust/crates/deadlock-brain-core/src/config.rs
+@@ -1,4 +1,11 @@
+-use std::{fs, path::PathBuf};
++use std::{
++    fs,
++    io::{self, Read},
++    os::unix::fs::OpenOptionsExt,
++    path::{Path, PathBuf},
++};
++
++use nix::fcntl::OFlag;
+ 
+ use serde::Deserialize;
+ 
+@@ -104,9 +111,48 @@ struct BotSettings {
+     settings: DataSettings,
+ }
+ 
++const MAX_CONFIG_BYTES: u64 = 256 * 1024;
++
++/// Öffnet ausschließlich reguläre Dateien, ohne an einer FIFO oder einem Symlink zu hängen.
++pub(crate) fn open_regular_file(path: &Path) -> io::Result<fs::File> {
++    let file = fs::OpenOptions::new()
++        .read(true)
++        .custom_flags((OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC).bits())
++        .open(path)?;
++    if !file.metadata()?.is_file() {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidInput,
++            "Es wird eine reguläre Datei benötigt.",
++        ));
++    }
++    Ok(file)
++}
++
++pub(crate) fn read_config_file(path: &Path) -> io::Result<Vec<u8>> {
++    let file = open_regular_file(path)?;
++    if file.metadata()?.len() > MAX_CONFIG_BYTES {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidData,
++            "Die normale Konfiguration überschreitet ihre Größengrenze.",
++        ));
++    }
++    let mut bytes = Vec::new();
++    file.take(MAX_CONFIG_BYTES + 1).read_to_end(&mut bytes)?;
++    if bytes.len() as u64 > MAX_CONFIG_BYTES {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidData,
++            "Die normale Konfiguration überschreitet ihre Größengrenze.",
++        ));
++    }
++    Ok(bytes)
++}
++
+ fn load_bot_settings(project_root: &std::path::Path) -> Result<BotSettings> {
+-    let text = fs::read_to_string(project_root.join("config/bot.toml"))?;
+-    let config: BotSettings = toml::from_str(&text).map_err(|_| {
++    let bytes = read_config_file(&project_root.join("config/bot.toml"))?;
++    let text = std::str::from_utf8(&bytes).map_err(|_| {
++        CoreError::ModelSelection("Ungültige Konfiguration in config/bot.toml".into())
++    })?;
++    let config: BotSettings = toml::from_str(text).map_err(|_| {
+         CoreError::ModelSelection("Ungültige Konfiguration in config/bot.toml".into())
+     })?;
+     validate_ai_settings(&config.ai)?;
+@@ -254,6 +300,41 @@ pub fn path_env(_name: &'static str, default: PathBuf) -> PathBuf {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn config_files_reject_fifo_symlink_and_oversize_without_blocking() {
++        let directory = tempfile::tempdir().unwrap();
++        let fifo = directory.path().join("writerless-config");
++        nix::unistd::mkfifo(
++            &fifo,
++            nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
++        )
++        .unwrap();
++        let (sender, receiver) = std::sync::mpsc::channel();
++        std::thread::spawn(move || sender.send(read_config_file(&fifo)).unwrap());
++        assert!(receiver
++            .recv_timeout(std::time::Duration::from_secs(1))
++            .unwrap()
++            .is_err());
++
++        let regular = directory.path().join("regular");
++        fs::write(&regular, b"synthetic-config").unwrap();
++        let file = open_regular_file(&regular).unwrap();
++        use std::os::fd::AsRawFd;
++        let descriptor_flags =
++            nix::fcntl::fcntl(file.as_raw_fd(), nix::fcntl::FcntlArg::F_GETFD).unwrap();
++        assert!(nix::fcntl::FdFlag::from_bits_retain(descriptor_flags)
++            .contains(nix::fcntl::FdFlag::FD_CLOEXEC));
++        let status_flags =
++            nix::fcntl::fcntl(file.as_raw_fd(), nix::fcntl::FcntlArg::F_GETFL).unwrap();
++        assert!(OFlag::from_bits_retain(status_flags).contains(OFlag::O_NONBLOCK));
++        let symlink = directory.path().join("symlink");
++        std::os::unix::fs::symlink(&regular, &symlink).unwrap();
++        assert!(read_config_file(&symlink).is_err());
++        assert!(read_config_file(directory.path()).is_err());
++        fs::write(&regular, vec![b'x'; MAX_CONFIG_BYTES as usize + 1]).unwrap();
++        assert!(read_config_file(&regular).is_err());
++    }
++
+     #[test]
+     fn installed_release_root_never_uses_build_source_or_current_directory() {
+         assert_eq!(
+diff --git a/rust/crates/deadlock-brain-core/src/pg_secrets.rs b/rust/crates/deadlock-brain-core/src/pg_secrets.rs
+index e5f6b25..4952e77 100644
+--- a/rust/crates/deadlock-brain-core/src/pg_secrets.rs
++++ b/rust/crates/deadlock-brain-core/src/pg_secrets.rs
+@@ -72,8 +72,6 @@ pub(super) async fn environment(path: &Path) -> Result<Vec<(String, Zeroizing<St
+ }
+ 
+ fn load_config(path: &Path) -> Result<Config> {
+-    let data =
+-        std::fs::read(path).map_err(|_| anyhow!("Infisical Konfiguration ist nicht lesbar."))?;
+     if path
+         .extension()
+         .is_some_and(|extension| extension == "toml")
+@@ -82,6 +80,8 @@ fn load_config(path: &Path) -> Result<Config> {
+             .map_err(|_| anyhow!("Bot-TOML-Konfiguration ist ungültig."))
+     } else {
+         // Bestehende explizite Legacy-Aufrufer behalten ihren Parser.
++        let data = crate::config::read_config_file(path)
++            .map_err(|_| anyhow!("Infisical Konfiguration ist nicht lesbar."))?;
+         serde_json::from_slice(&data).map_err(|_| anyhow!("Infisical Konfiguration ist ungültig."))
+     }
+ }
+@@ -205,7 +205,7 @@ fn load_credential_from(config: &Config, directory: Option<PathBuf>) -> Result<Z
+ }
+ 
+ fn read_credential_path(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
+-    let file = std::fs::File::open(path)
++    let file = crate::config::open_regular_file(path)
+         .map_err(|_| anyhow!("Infisical Runtime Credential ist nicht lesbar."))?;
+     read_credential(&file)
+ }
+@@ -240,6 +240,28 @@ mod tests {
+     use super::*;
+     use std::io::{Seek, Write};
+ 
++    #[test]
++    fn credential_paths_reject_writerless_fifo_and_symlink_without_blocking() {
++        let directory = tempfile::tempdir().unwrap();
++        let fifo = directory.path().join("writerless-credential");
++        nix::unistd::mkfifo(
++            &fifo,
++            nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
++        )
++        .unwrap();
++        let (sender, receiver) = std::sync::mpsc::channel();
++        std::thread::spawn(move || sender.send(read_credential_path(&fifo)).unwrap());
++        assert!(receiver
++            .recv_timeout(Duration::from_secs(1))
++            .unwrap()
++            .is_err());
++        let regular = directory.path().join("regular");
++        std::fs::write(&regular, b"synthetic-fixture").unwrap();
++        let symlink = directory.path().join("symlink");
++        std::os::unix::fs::symlink(&regular, &symlink).unwrap();
++        assert!(read_credential_path(&symlink).is_err());
++    }
++
+     #[test]
+     fn credential_reads_preserve_offset_and_allow_repeated_pool_setup() {
+         let mut file = tempfile::tempfile().unwrap();

@@ -1,0 +1,28 @@
+    Checking tokio-util v0.7.18
+    Checking hyper v1.10.1
+    Checking tower-http v0.6.11
+    Checking hyper-util v0.1.20
+    Checking sqlx-core v0.8.6
+    Checking hyper-rustls v0.27.9
+    Checking reqwest v0.12.28
+    Checking sqlx-postgres v0.8.6
+    Checking uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+    Checking brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-providers)
+    Checking tokio-postgres v0.7.18
+    Checking sqlx v0.8.6
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-builds)
+    Checking postgres v0.19.14
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/deadlock-brain-core)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-reasoner)
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-storage)
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-population)
+    Checking dbrain-learn v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-learn)
+    Checking dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-wiki)
+    Checking dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-sources)
+    Checking dbrain-enrich v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-enrich)
+    Checking dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-retrieval)
+    Checking brain-client v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-client)
+    Checking deadlock-brain v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/deadlock-brain)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 08s

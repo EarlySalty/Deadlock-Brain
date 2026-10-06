@@ -1,0 +1,4 @@
+[gpt-6.1-sol] ALLOW: No proven merge-blocking defect in the supplied diff.
+
+1. rust/crates/deadlock-brain-core/src/ai.rs:140 | NIT: `chat_value` ignores `AiConfig.timeout_seconds` and reloads the global timeout. | A caller’s shorter client timeout silently has no effect; the public configuration now misrepresents behavior.
+2. rust/crates/brain-providers/src/codex.rs:14 | NIT: Tool-free execution remains unproven for both the connector and Maintenance’s shared flags. | Event rejection happens after execution. The outstanding check is the actual generated `tools` array under the production invocation; static flags alone cannot settle this.

@@ -1,0 +1,7 @@
+Brain-Abo-Validatornachlauf abgeschlossen. Geprüfter Eigenhead 9d236af5ead09a221f290fe437e14ccaf77ba220, enger Coreconfig-Hunk: max_response_bytes mindestens 128, bestehender Grenztest ergänzt. Format Exit 0, gezielter Test Exit 0 mit genau einem bestandenen Test, bestehendes Delta-Gate Exit 0/ALLOW. Gatehash c29ee12bde1e37faaa1a936edd6914eeb893162ed0143ff69cb167daf362c1b1.
+
+Ergebnisakte: /home/nathanael/.worktrees/brain-luna-abo-20261003/.tasks/2026-10-03-luna-abo/VALIDATOR-ERGEBNIS.md, SHA256 3c29073b713d0246ddcadbe677d80e0487a019bf85e86131617f95dcec2ec022.
+
+Wrapper 1242168 / Session 14303 regulär Exit 0, eigene Kinder weg, FD9/8 geschlossen. Nachträgliche Gegenversuche beide tatsächlich Exit 1 bei fremdem Nachfolger; keine freien Locks und keine Gruppenfreigabe behauptet. Kein Release, Merge oder Deploy. Externe staged Tokenloader-Blobgrenze bleibt in der Akte gebunden, nichts Fremdes übernommen.
+
+Korrigierte synthetische Credentialprobe gemäß Plan b809af01 noch nicht ausgeführt. Frühere 14 Credentialversuche bleiben Namespace-BLOCK. Produktives tools[], Isolation und Persistenz offen; private CLI weiterhin gesperrt, kein harter CLI-Tokendeckel. Dialog35 bleibt separat ungeprüft, bis der tatsächliche gemeinsame Guide-/Serve-Kontext gebunden ist. Für seine Prüfung benötige ich den sauberen gemeinsamen Kontext mit den Guide-Abhängigkeiten; der Scratchport gilt nicht als Interfacebeleg.

@@ -1,0 +1,38 @@
+    Checking tokio v1.52.3
+    Checking brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-contracts)
+    Checking tokio-util v0.7.18
+    Checking hyper v1.10.1
+    Checking hyper-util v0.1.20
+    Checking tower v0.5.3
+    Checking tokio-rustls v0.26.4
+    Checking async-compression v0.4.42
+    Checking tower-http v0.6.11
+    Checking hyper-rustls v0.27.9
+    Checking reqwest v0.12.28
+    Checking tokio-stream v0.1.18
+    Checking sqlx-core v0.8.6
+    Checking brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-providers)
+    Checking uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+    Checking tokio-postgres v0.7.18
+    Checking sqlx-postgres v0.8.6
+    Checking postgres v0.19.14
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-reasoner)
+    Checking brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-policy)
+    Checking axum v0.8.9
+    Checking sqlx v0.8.6
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-builds)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/deadlock-brain-core)
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-normalize)
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-storage)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-population)
+    Checking dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-wiki)
+    Checking brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-kernel)
+    Checking dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-sources)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-retrieval)
+    Checking brain-api v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-api)
+    Checking dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+    Checking brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-ingestion)
+    Checking brain-jev v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-jev)
+    Checking brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-serve)
+    Checking brain-maintenance v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-maintenance)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 56.30s

@@ -1,0 +1,5 @@
+Eigener künftiger Hostprobevertrag ist an die zentral bestätigte Metadata-Ausnahme angepasst. Beleg: /home/nathanael/.worktrees/brain-luna-abo-20261003/.tasks/2026-10-03-luna-abo/HOSTPROBE-PRAEZISIERUNG.md, SHA256 f86180293e58b24f0acac4a986050c66573e4f30013f32b3c9889ca7db0eac7c.
+
+Eigener Bash-Helfer hostprobe.sh, SHA256 5433e6ba5a797541dd1e9e264359b8b88174b1bdc72030a153905e58264a72d1. Nur exakt sieben NUL-getrennte Argumentfelder des bestätigten cargo-metadata-Aufrufs mit absolutem Cargo.toml-Pfad sind ausgenommen. Argumentarrays bleiben im Speicher; unbekannte, zusätzliche oder nicht lesbare Angaben und aktive Compiler blockieren. Beide Locks und frische Vorprobe bleiben Pflicht.
+
+Syntaxprüfung Exit 0; ausschließlich synthetische Klassifikation Exit 0 mit vier Allowfällen und 17 Blockfällen. Keine Liveprobe und keine Compiler-, Credential- oder Dialogausführung. Quellhead 9d236af und historische Ergebnisakte unverändert. Dialog35 wartet weiter auf den geprüften sauberen gemeinsamen C9-/Guide-Kontext; Scratch e706 ist kein Interfacebeleg. Credentialplan b809af01 bleibt ohne Ausführungsfreigabe ungestartet.

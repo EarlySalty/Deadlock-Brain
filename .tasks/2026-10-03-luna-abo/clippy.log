@@ -1,0 +1,38 @@
+    Checking brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-contracts)
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-builds)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-reasoner)
+    Checking brain-jev v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-jev)
+    Checking brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-providers)
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-storage)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/deadlock-brain-core)
+warning: associated functions `invalid_integer_env` and `invalid_float_env` are never used
+  --> crates/deadlock-brain-core/src/error.rs:52:19
+   |
+51 | impl CoreError {
+   | -------------- associated functions in this implementation
+52 |     pub(crate) fn invalid_integer_env(
+   |                   ^^^^^^^^^^^^^^^^^^^
+...
+64 |     pub(crate) fn invalid_float_env(
+   |                   ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `deadlock-brain-core` (lib) generated 1 warning
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-population)
+    Checking brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-policy)
+    Checking brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-kernel)
+    Checking brain-client v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-client)
+    Checking dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-wiki)
+    Checking dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-sources)
+    Checking brain-api v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-api)
+    Checking brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-ingestion)
+    Checking dbrain-learn v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-learn)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-retrieval)
+    Checking dbrain-enrich v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-enrich)
+    Checking brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-serve)
+    Checking deadlock-brain v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/deadlock-brain)
+    Checking brain-maintenance v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-maintenance)
+warning: `deadlock-brain-core` (lib test) generated 1 warning (1 duplicate)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 53.61s

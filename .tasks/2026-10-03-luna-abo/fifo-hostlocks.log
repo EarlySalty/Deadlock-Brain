@@ -1,0 +1,8 @@
+2820716161:16006309 /proc/831418/fd/8
+2820716161:142952 /proc/831418/fd/9
+Beide flock-n-Gegenversuche bei gehaltenen Sperren: Exit 1
+               total        used        free      shared  buff/cache   available
+Mem:           49152       34759           0       14394       28786       14392
+Swap:              0           0           0
+Filesystem         Size  Used Avail Use% Mounted on
+/dev/ploop43048p1  1.7T  1.1T  474G  71% /

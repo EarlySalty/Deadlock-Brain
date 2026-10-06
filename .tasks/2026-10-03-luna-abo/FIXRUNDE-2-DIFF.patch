@@ -1,0 +1,2142 @@
+diff --git a/rust/Cargo.lock b/rust/Cargo.lock
+index dccf288..0f290ef 100644
+--- a/rust/Cargo.lock
++++ b/rust/Cargo.lock
+@@ -409,6 +409,7 @@ dependencies = [
+  "brain-contracts",
+  "brain-ingestion",
+  "brain-jev",
++ "brain-providers",
+  "brain-serve",
+  "brain-storage",
+  "chrono",
+@@ -443,12 +444,16 @@ dependencies = [
+ name = "brain-providers"
+ version = "0.1.0"
+ dependencies = [
++ "anyhow",
+  "brain-contracts",
+  "httpdate",
++ "nix",
+  "reqwest",
+  "serde",
+  "serde_json",
++ "tempfile",
+  "thiserror 1.0.69",
++ "tokio",
+ ]
+ 
+ [[package]]
+@@ -553,7 +558,6 @@ dependencies = [
+  "iana-time-zone",
+  "js-sys",
+  "num-traits",
+- "serde",
+  "wasm-bindgen",
+  "windows-link",
+ ]
+@@ -985,10 +989,10 @@ version = "0.1.0"
+ dependencies = [
+  "anyhow",
+  "brain-contracts",
++ "brain-providers",
+  "chrono",
+  "dbrain-builds",
+  "filedescriptor",
+- "fireworks-model-selection",
+  "hex",
+  "nix",
+  "reqwest",
+@@ -999,6 +1003,7 @@ dependencies = [
+  "tempfile",
+  "thiserror 1.0.69",
+  "tokio",
++ "toml",
+  "uplink-infisical-transport",
+  "zeroize",
+ ]
+@@ -1203,16 +1208,6 @@ version = "0.1.9"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
+ 
+-[[package]]
+-name = "fireworks-model-selection"
+-version = "0.1.0"
+-dependencies = [
+- "chrono",
+- "libc",
+- "serde",
+- "serde_json",
+-]
+-
+ [[package]]
+ name = "flate2"
+ version = "1.1.9"
+@@ -2764,6 +2759,15 @@ dependencies = [
+  "serde_core",
+ ]
+ 
++[[package]]
++name = "serde_spanned"
++version = "0.6.9"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
++dependencies = [
++ "serde",
++]
++
+ [[package]]
+ name = "serde_urlencoded"
+ version = "0.7.1"
+@@ -3381,6 +3385,47 @@ dependencies = [
+  "tokio",
+ ]
+ 
++[[package]]
++name = "toml"
++version = "0.8.23"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
++dependencies = [
++ "serde",
++ "serde_spanned",
++ "toml_datetime",
++ "toml_edit",
++]
++
++[[package]]
++name = "toml_datetime"
++version = "0.6.11"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c"
++dependencies = [
++ "serde",
++]
++
++[[package]]
++name = "toml_edit"
++version = "0.22.27"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
++dependencies = [
++ "indexmap",
++ "serde",
++ "serde_spanned",
++ "toml_datetime",
++ "toml_write",
++ "winnow",
++]
++
++[[package]]
++name = "toml_write"
++version = "0.1.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
++
+ [[package]]
+ name = "tower"
+ version = "0.5.3"
+@@ -4061,6 +4106,15 @@ version = "0.53.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
+ 
++[[package]]
++name = "winnow"
++version = "0.7.15"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
++dependencies = [
++ "memchr",
++]
++
+ [[package]]
+ name = "wit-bindgen"
+ version = "0.57.1"
+diff --git a/rust/crates/brain-maintenance/Cargo.toml b/rust/crates/brain-maintenance/Cargo.toml
+index d56a316..6160e0a 100644
+--- a/rust/crates/brain-maintenance/Cargo.toml
++++ b/rust/crates/brain-maintenance/Cargo.toml
+@@ -5,6 +5,7 @@ edition.workspace = true
+ 
+ [dependencies]
+ anyhow.workspace = true
++brain-providers = { path = "../brain-providers" }
+ brain-contracts = { path = "../brain-contracts" }
+ brain-ingestion = { path = "../brain-ingestion" }
+ brain-jev = { path = "../brain-jev" }
+diff --git a/rust/crates/brain-maintenance/src/author.rs b/rust/crates/brain-maintenance/src/author.rs
+index 09e2bd4..4ed0fd3 100644
+--- a/rust/crates/brain-maintenance/src/author.rs
++++ b/rust/crates/brain-maintenance/src/author.rs
+@@ -170,7 +170,7 @@ pub fn codex_args(
+     schema: &Path,
+     result: &Path,
+ ) -> Vec<String> {
+-    vec![
++    let mut args = vec![
+         "exec".into(),
+         "--model".into(),
+         config.codex.model.clone(),
+@@ -180,24 +180,9 @@ pub fn codex_args(
+             serde_json::to_string(&config.codex.reasoning_effort)
+                 .expect("String ist serialisierbar")
+         ),
+-        "-c".into(),
+-        "web_search=\"disabled\"".into(),
+-        "--disable".into(),
+-        "shell_tool".into(),
+-        "--disable".into(),
+-        "unified_exec".into(),
+-        "--disable".into(),
+-        "hooks".into(),
+-        "--disable".into(),
+-        "apps".into(),
+-        "--disable".into(),
+-        "plugins".into(),
+-        "--disable".into(),
+-        "multi_agent".into(),
+-        "--disable".into(),
+-        "multi_agent_v2".into(),
+-        "--disable".into(),
+-        "skill_search".into(),
++    ];
++    args.extend(brain_providers::codex::subscription_config_args());
++    args.extend([
+         "--ignore-user-config".into(),
+         "--ignore-rules".into(),
+         "--ephemeral".into(),
+@@ -212,7 +197,8 @@ pub fn codex_args(
+         "--output-last-message".into(),
+         result.to_string_lossy().into_owned(),
+         "-".into(),
+-    ]
++    ]);
++    args
+ }
+ 
+ async fn invoke<T: DeserializeOwned>(
+diff --git a/rust/crates/brain-maintenance/src/process.rs b/rust/crates/brain-maintenance/src/process.rs
+index e83f67f..9076c34 100644
+--- a/rust/crates/brain-maintenance/src/process.rs
++++ b/rust/crates/brain-maintenance/src/process.rs
+@@ -1,206 +1,2 @@
+-use anyhow::{bail, ensure, Context, Result};
+-use nix::{
+-    sys::signal::{killpg, Signal},
+-    unistd::Pid,
+-};
+-use std::os::unix::process::CommandExt;
+-use std::{path::Path, process::Stdio, time::Duration};
+-use tokio::{
+-    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+-    process::Command,
+-};
+-
+-async fn bounded_read(reader: impl AsyncRead + Unpin, max: usize) -> Result<Vec<u8>> {
+-    let mut bytes = Vec::new();
+-    reader
+-        .take((max + 1) as u64)
+-        .read_to_end(&mut bytes)
+-        .await?;
+-    ensure!(
+-        bytes.len() <= max,
+-        "Prozessausgabe überschreitet die Grenze"
+-    );
+-    Ok(bytes)
+-}
+-
+-struct ProcessGroup(Pid);
+-impl Drop for ProcessGroup {
+-    fn drop(&mut self) {
+-        match killpg(self.0, Signal::SIGKILL) {
+-            Ok(()) | Err(nix::errno::Errno::ESRCH) => {}
+-            Err(_) => eprintln!("Prozessgruppe konnte beim Abbruch nicht beendet werden"),
+-        }
+-    }
+-}
+-
+-pub async fn run(
+-    executable: &Path,
+-    args: &[String],
+-    cwd: &Path,
+-    input: &[u8],
+-    timeout_ms: u64,
+-    max_output: usize,
+-) -> Result<Vec<u8>> {
+-    let result = run_observed(executable, args, cwd, input, timeout_ms, max_output).await?;
+-    ensure!(
+-        result.exit_code == Some(0),
+-        "Prozess fehlgeschlagen, Exitcode {:?}",
+-        result.exit_code
+-    );
+-    Ok(result.output)
+-}
+-
+-pub struct ProcessResult {
+-    pub output: Vec<u8>,
+-    pub exit_code: Option<i32>,
+-}
+-
+-pub async fn run_observed(
+-    executable: &Path,
+-    args: &[String],
+-    cwd: &Path,
+-    input: &[u8],
+-    timeout_ms: u64,
+-    max_output: usize,
+-) -> Result<ProcessResult> {
+-    let mut command = Command::new(executable);
+-    command.as_std_mut().process_group(0);
+-    let mut child = command
+-        .args(args)
+-        .current_dir(cwd)
+-        .stdin(Stdio::piped())
+-        .stdout(Stdio::piped())
+-        .stderr(Stdio::piped())
+-        .kill_on_drop(true)
+-        .spawn()
+-        .context("Prozess konnte nicht gestartet werden")?;
+-    let _group = ProcessGroup(Pid::from_raw(i32::try_from(
+-        child.id().context("Prozess-ID fehlt")?,
+-    )?));
+-    let mut stdin = child.stdin.take().context("Prozess-Eingabe fehlt")?;
+-    let stdout = child.stdout.take().context("Prozess-Ausgabe fehlt")?;
+-    let stderr = child.stderr.take().context("Prozess-Fehlerkanal fehlt")?;
+-    let work = async {
+-        let write = async move {
+-            stdin.write_all(input).await?;
+-            stdin.shutdown().await?;
+-            drop(stdin);
+-            anyhow::Ok(())
+-        };
+-        let ((), output, _diagnostics, status) = tokio::try_join!(
+-            write,
+-            bounded_read(stdout, max_output),
+-            bounded_read(stderr, max_output),
+-            async { Ok::<_, anyhow::Error>(child.wait().await?) }
+-        )?;
+-        // Fremde Prozessausgabe wird nicht in Fehler oder Logs übernommen.
+-        Ok(ProcessResult {
+-            output,
+-            exit_code: status.code(),
+-        })
+-    };
+-    match tokio::time::timeout(Duration::from_millis(timeout_ms), work).await {
+-        Ok(result) => result,
+-        Err(_) => {
+-            match killpg(_group.0, Signal::SIGKILL) {
+-                Ok(()) | Err(nix::errno::Errno::ESRCH) => {}
+-                Err(_) => {
+-                    bail!("Prozesszeit überschritten; Prozessgruppe konnte nicht beendet werden")
+-                }
+-            }
+-            if let Err(error) = child.kill().await {
+-                ensure!(
+-                    matches!(
+-                        error.kind(),
+-                        std::io::ErrorKind::InvalidInput | std::io::ErrorKind::NotFound
+-                    ),
+-                    "Prozesszeit überschritten; Prozess konnte nicht beendet werden"
+-                );
+-            }
+-            bail!("Prozesszeit überschritten")
+-        }
+-    }
+-}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-    #[tokio::test]
+-    async fn stdin_is_closed_before_waiting_for_the_child() {
+-        let dir = tempfile::tempdir().unwrap();
+-        let output = run(
+-            Path::new("/bin/cat"),
+-            &[],
+-            dir.path(),
+-            b"harmloser Test",
+-            1000,
+-            100,
+-        )
+-        .await
+-        .unwrap();
+-        assert_eq!(output, b"harmloser Test");
+-    }
+-    #[tokio::test]
+-    async fn oversized_output_is_an_error() {
+-        let dir = tempfile::tempdir().unwrap();
+-        assert!(
+-            run(Path::new("/bin/cat"), &[], dir.path(), b"zu lang", 1000, 2)
+-                .await
+-                .is_err()
+-        );
+-    }
+-    #[tokio::test]
+-    async fn timeout_stops_wrapper_and_child_process() {
+-        let dir = tempfile::tempdir().unwrap();
+-        let pidfile = dir.path().join("child.pid");
+-        let args = vec![
+-            "-c".into(),
+-            "sleep 60 & printf '%s' \"$!\" > \"$1\"; wait".into(),
+-            "fixture".into(),
+-            pidfile.to_string_lossy().into_owned(),
+-        ];
+-        assert!(run(Path::new("/bin/sh"), &args, dir.path(), &[], 100, 100)
+-            .await
+-            .is_err());
+-        let pid: u32 = std::fs::read_to_string(pidfile).unwrap().parse().unwrap();
+-        tokio::time::sleep(Duration::from_millis(50)).await;
+-        if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+-            assert!(
+-                stat.contains(") Z "),
+-                "Kindprozess läuft nach Timeout weiter"
+-            );
+-        }
+-    }
+-    #[tokio::test]
+-    async fn dropping_the_future_stops_wrapper_and_child_process() {
+-        let dir = tempfile::tempdir().unwrap();
+-        let cwd = dir.path().to_owned();
+-        let pidfile = cwd.join("aborted.pid");
+-        let args = vec![
+-            "-c".into(),
+-            "sleep 60 & printf '%s' \"$!\" > \"$1\"; wait".into(),
+-            "fixture".into(),
+-            pidfile.to_string_lossy().into_owned(),
+-        ];
+-        let task =
+-            tokio::spawn(
+-                async move { run(Path::new("/bin/sh"), &args, &cwd, &[], 10_000, 100).await },
+-            );
+-        for _ in 0..100 {
+-            if pidfile.exists() {
+-                break;
+-            }
+-            tokio::time::sleep(Duration::from_millis(5)).await;
+-        }
+-        let pid: u32 = std::fs::read_to_string(&pidfile).unwrap().parse().unwrap();
+-        task.abort();
+-        assert!(task.await.unwrap_err().is_cancelled());
+-        tokio::time::sleep(Duration::from_millis(50)).await;
+-        if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+-            assert!(
+-                stat.contains(") Z "),
+-                "Kindprozess läuft nach Abbruch weiter"
+-            );
+-        }
+-    }
+-}
++//! Gemeinsamer Prozessrunner mit Begrenzung und Abbruch der gesamten Prozessgruppe.
++pub use brain_providers::process::*;
+diff --git a/rust/crates/brain-providers/Cargo.toml b/rust/crates/brain-providers/Cargo.toml
+index aff664a..18cc35f 100644
+--- a/rust/crates/brain-providers/Cargo.toml
++++ b/rust/crates/brain-providers/Cargo.toml
+@@ -15,4 +15,9 @@ serde_json.workspace = true
+ thiserror.workspace = true
+ httpdate = "1"
+ 
++tempfile.workspace = true
++anyhow.workspace = true
++nix = { version = "0.29", default-features = false, features = ["signal", "process"] }
++tokio = { workspace = true, features = ["macros", "process", "io-util", "sync"] }
++
+ [dev-dependencies]
+diff --git a/rust/crates/brain-providers/src/lib.rs b/rust/crates/brain-providers/src/lib.rs
+index e55cb7f..01070b4 100644
+--- a/rust/crates/brain-providers/src/lib.rs
++++ b/rust/crates/brain-providers/src/lib.rs
+@@ -30,8 +30,10 @@ pub struct PriceCeiling {
+ }
+ 
+ mod circuit;
++pub mod codex;
+ mod embeddings;
+ mod hardening;
++pub mod process;
+ mod transport;
+ 
+ impl std::fmt::Debug for ProviderConfig {
+@@ -396,3 +398,22 @@ mod tests {
+         assert!(debug.contains("<redacted>"));
+     }
+ }
++
++#[derive(Clone, Debug)]
++pub enum TextProvider {
++    Api(OpenAiCompatibleProvider),
++    Subscription(codex::CodexSubscriptionProvider),
++}
++impl AnswerProviderPort for TextProvider {
++    fn answer(
++        &self,
++        query: &Query,
++        context: &AuthorizedContext,
++        evidence: &[Evidence],
++    ) -> std::result::Result<ProviderAnswer, PortError> {
++        match self {
++            Self::Api(provider) => provider.answer(query, context, evidence),
++            Self::Subscription(provider) => provider.answer(query, context, evidence),
++        }
++    }
++}
+diff --git a/rust/crates/brain-providers/src/transport.rs b/rust/crates/brain-providers/src/transport.rs
+index bbc25f2..7ee6bb8 100644
+--- a/rust/crates/brain-providers/src/transport.rs
++++ b/rust/crates/brain-providers/src/transport.rs
+@@ -41,33 +41,7 @@ impl OpenAiCompatibleProvider {
+             usage.prompt_tokens,
+             usage.completion_tokens,
+         )?;
+-        #[derive(serde::Deserialize)]
+-        #[serde(deny_unknown_fields)]
+-        struct Grounded {
+-            text: String,
+-            cited_evidence_ids: Vec<String>,
+-        }
+-        let (text, cited_evidence_ids) = if evidence.is_empty() {
+-            (text, Vec::new())
+-        } else {
+-            let grounded: Grounded = serde_json::from_str(&text).map_err(|_| {
+-                ProviderError::InvalidResponse("grounded answer envelope missing".into())
+-            })?;
+-            let unique: std::collections::BTreeSet<_> =
+-                grounded.cited_evidence_ids.iter().collect();
+-            if grounded.text.trim().is_empty()
+-                || unique.is_empty()
+-                || unique.len() != grounded.cited_evidence_ids.len()
+-                || unique
+-                    .iter()
+-                    .any(|id| !evidence.iter().any(|e| &e.evidence_id == *id))
+-            {
+-                return Err(ProviderError::InvalidResponse(
+-                    "unknown, duplicate or missing citation".into(),
+-                ));
+-            }
+-            (grounded.text, grounded.cited_evidence_ids)
+-        };
++        let (text, cited_evidence_ids) = grounded_answer(text, evidence)?;
+         Ok(ProviderAnswer {
+             text,
+             cited_evidence_ids,
+@@ -247,3 +221,36 @@ impl OpenAiCompatibleProvider {
+         })
+     }
+ }
++
++pub(super) fn grounded_answer(
++    text: String,
++    evidence: &[brain_contracts::Evidence],
++) -> Result<(String, Vec<String>)> {
++    #[derive(serde::Deserialize)]
++    #[serde(deny_unknown_fields)]
++    struct Grounded {
++        text: String,
++        cited_evidence_ids: Vec<String>,
++    }
++    let (text, cited_evidence_ids) = if evidence.is_empty() {
++        (text, Vec::new())
++    } else {
++        let grounded: Grounded = serde_json::from_str(&text).map_err(|_| {
++            ProviderError::InvalidResponse("grounded answer envelope missing".into())
++        })?;
++        let unique: std::collections::BTreeSet<_> = grounded.cited_evidence_ids.iter().collect();
++        if grounded.text.trim().is_empty()
++            || unique.is_empty()
++            || unique.len() != grounded.cited_evidence_ids.len()
++            || unique
++                .iter()
++                .any(|id| !evidence.iter().any(|e| &e.evidence_id == *id))
++        {
++            return Err(ProviderError::InvalidResponse(
++                "unknown, duplicate or missing citation".into(),
++            ));
++        }
++        (grounded.text, grounded.cited_evidence_ids)
++    };
++    Ok((text, cited_evidence_ids))
++}
+diff --git a/rust/crates/brain-serve/src/config.rs b/rust/crates/brain-serve/src/config.rs
+index f4e89a9..61f7144 100644
+--- a/rust/crates/brain-serve/src/config.rs
++++ b/rust/crates/brain-serve/src/config.rs
+@@ -56,6 +56,8 @@ pub struct Release {
+ #[derive(Clone, Deserialize)]
+ #[serde(deny_unknown_fields)]
+ pub struct Provider {
++    #[serde(default)]
++    pub cli_path: Option<std::path::PathBuf>,
+     pub kind: ProviderKind,
+     pub base_url: String,
+     pub model: String,
+@@ -67,9 +69,10 @@ pub struct Provider {
+     pub pricing: Option<Pricing>,
+ }
+ 
+-#[derive(Clone, Copy, Deserialize)]
++#[derive(Clone, Copy, PartialEq, Eq, Deserialize)]
+ #[serde(rename_all = "snake_case")]
+ pub enum ProviderKind {
++    CodexCli,
+     OpenaiCompatible,
+ }
+ 
+@@ -240,6 +243,12 @@ impl Config {
+             "release",
+         )?;
+         let p = &self.provider;
++        if p.kind == ProviderKind::CodexCli {
++            require(
++                p.cli_path.as_ref().is_some_and(|path| path.is_absolute()),
++                "provider_cli",
++            )?;
++        }
+         let endpoint =
+             reqwest::Url::parse(&p.base_url).map_err(|_| Error::ConfigInvalid("provider"))?;
+         let loopback = endpoint.host_str().is_some_and(|host| {
+@@ -256,9 +265,9 @@ impl Config {
+                 && endpoint.query().is_none()
+                 && endpoint.fragment().is_none()
+                 && (endpoint.scheme() == "https" || (endpoint.scheme() == "http" && loopback))
+-                && (loopback || p.pricing.is_some())
++                && (p.kind == ProviderKind::CodexCli || loopback || p.pricing.is_some())
+                 && identifier(&p.model, 512)
+-                && secret_name(&p.api_key_env)
++                && (p.kind == ProviderKind::CodexCli || secret_name(&p.api_key_env))
+                 && (1..=8).contains(&p.retry_attempts)
+                 && p.retry_backoff_ms <= 10_000
+                 && (128..=8 * 1024 * 1024).contains(&p.max_response_bytes),
+diff --git a/rust/crates/brain-serve/src/secrets.rs b/rust/crates/brain-serve/src/secrets.rs
+index c6e9ee2..0db5d9c 100644
+--- a/rust/crates/brain-serve/src/secrets.rs
++++ b/rust/crates/brain-serve/src/secrets.rs
+@@ -1,5 +1,8 @@
+ //! One explicit Infisical snapshot supplies the configured secret references.
+-use crate::{config::DatabaseAuth, Config, Error};
++use crate::{
++    config::{DatabaseAuth, ProviderKind},
++    Config, Error,
++};
+ use brain_policy::{AuthGrant, CredentialRegistry};
+ use std::{
+     collections::{BTreeMap, BTreeSet},
+@@ -88,7 +91,12 @@ impl Secrets {
+     /// Injectable lookup uses the same validation for runtime snapshots and synthetic tests.
+     pub fn load(config: &Config, lookup: impl Fn(&str) -> Option<String>) -> Result<Self, Error> {
+         config.validate()?;
+-        let provider_key = required(&lookup, &config.provider.api_key_env, "provider", true)?;
++        let provider_key = match config.provider.kind {
++            ProviderKind::CodexCli => String::new(),
++            ProviderKind::OpenaiCompatible => {
++                required(&lookup, &config.provider.api_key_env, "provider", true)?
++            }
++        };
+         let postgres_password = match config.postgres.auth {
+             DatabaseAuth::Peer => None,
+             DatabaseAuth::Password => Some(required(
+diff --git a/rust/crates/brain-serve/src/service.rs b/rust/crates/brain-serve/src/service.rs
+index c30aeff..0ecd15c 100644
+--- a/rust/crates/brain-serve/src/service.rs
++++ b/rust/crates/brain-serve/src/service.rs
+@@ -14,7 +14,10 @@ use axum::{
+ use brain_contracts::{PortError, SnapshotReadPort};
+ use brain_kernel::{CachedKernel, Kernel};
+ use brain_policy::{CredentialRegistry, PolicyEngine};
+-use brain_providers::{OpenAiCompatibleProvider, PriceCeiling, ProviderConfig};
++use brain_providers::{
++    codex::CodexSubscriptionProvider, OpenAiCompatibleProvider, PriceCeiling, ProviderConfig,
++    TextProvider,
++};
+ use brain_storage::{LocalPgPoolStats, LocalPgReader};
+ use dbrain_retrieval::ReleaseRetriever;
+ use std::{
+@@ -46,7 +49,7 @@ impl Shutdown {
+ pub struct Prepared {
+     pub config: Config,
+     reader: LocalPgReader,
+-    provider: OpenAiCompatibleProvider,
++    provider: TextProvider,
+     credentials: CredentialRegistry,
+     analytics: Option<Arc<AnalyticsRuntime>>,
+     shutdown: Arc<Shutdown>,
+@@ -102,7 +105,19 @@ impl Prepared {
+             output_micros_per_token: price.output_micros_per_token,
+         });
+         let provider = match config.provider.kind {
+-            ProviderKind::OpenaiCompatible => OpenAiCompatibleProvider::new(provider_config),
++            ProviderKind::OpenaiCompatible => {
++                OpenAiCompatibleProvider::new(provider_config).map(TextProvider::Api)
++            }
++            ProviderKind::CodexCli => Ok(TextProvider::Subscription(CodexSubscriptionProvider {
++                executable: config
++                    .provider
++                    .cli_path
++                    .clone()
++                    .ok_or(Error::ProviderConfig)?,
++                model: config.provider.model.clone(),
++                timeout: Duration::from_millis(t.provider_ms),
++                max_response_bytes: config.provider.max_response_bytes,
++            })),
+         }
+         .map_err(|_| Error::ProviderConfig)?;
+         let analytics = config
+diff --git a/rust/crates/dbrain-learn/src/build_learning.rs b/rust/crates/dbrain-learn/src/build_learning.rs
+index 25d78dd..825cc00 100644
+--- a/rust/crates/dbrain-learn/src/build_learning.rs
++++ b/rust/crates/dbrain-learn/src/build_learning.rs
+@@ -484,9 +484,9 @@ pub async fn learn_analyze_next(pool: &PgPool, options: LearnAnalyzeNextOptions)
+         Some(&options.config.model),
+     )
+     .await?;
+-    if !options.dry_run && !options.config.api_key_present() {
++    if !options.dry_run && !options.config.subscription_configured() {
+         return Err(LearnError::InvalidInput(
+-            "Fireworks API key fehlt. Setze FIREWORK_API_KEY oder FIREWORKS_API_KEY.".to_string(),
++            "Der lokale OpenAI-Abo-Zugang ist nicht eingerichtet.".to_string(),
+         ));
+     }
+     let mut results = Vec::new();
+@@ -545,7 +545,8 @@ pub async fn learn_analyze_next(pool: &PgPool, options: LearnAnalyzeNextOptions)
+         "hero": options.hero,
+         "limit": options.limit,
+         "model": options.config.model,
+-        "api_key_present": options.config.api_key_present(),
++        "api_key_present": false,
++            "subscription_configured": options.config.subscription_configured(),
+         "pending_selected": targets.len(),
+         "results": results,
+     }))
+@@ -561,7 +562,10 @@ async fn run_single_build_learning_analysis(
+     let context = build_learning_context(pool, build_id).await?;
+     let request = build_ai_build_learning_request(&context, config)?;
+     let prompt_text = prompt_text_from_request(&request);
+-    let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
++    let endpoint = deadlock_brain_core::config::load_ai_settings()?
++        .cli_path
++        .to_string_lossy()
++        .into_owned();
+     if dry_run {
+         let note = save_build_learning_note(
+             pool,
+@@ -578,7 +582,8 @@ async fn run_single_build_learning_analysis(
+             "hero_name": get(&context, "build").and_then(|build| get(build, "hero_name")).cloned().unwrap_or(Value::Null),
+             "model": config.model,
+             "endpoint": endpoint,
+-            "api_key_present": config.api_key_present(),
++            "api_key_present": false,
++            "subscription_configured": config.subscription_configured(),
+             "note": note,
+         });
+         if include_request {
+diff --git a/rust/crates/dbrain-learn/src/error.rs b/rust/crates/dbrain-learn/src/error.rs
+index ee1c05f..445b732 100644
+--- a/rust/crates/dbrain-learn/src/error.rs
++++ b/rust/crates/dbrain-learn/src/error.rs
+@@ -15,7 +15,7 @@ pub enum LearnError {
+     #[error("{0}")]
+     InvalidInput(String),
+ 
+-    #[error("Fireworks response did not include message content.")]
++    #[error("Die KI-Antwort enthält keinen Text.")]
+     EmptyAiResponse,
+ }
+ 
+diff --git a/rust/crates/dbrain-learn/src/match_demo_learning.rs b/rust/crates/dbrain-learn/src/match_demo_learning.rs
+index f935140..c81f26c 100644
+--- a/rust/crates/dbrain-learn/src/match_demo_learning.rs
++++ b/rust/crates/dbrain-learn/src/match_demo_learning.rs
+@@ -91,10 +91,10 @@ pub async fn demo_analyze_match(pool: &PgPool, options: DemoAnalyzeMatchOptions)
+     let built = load_demo_context(pool, &account_id, &match_id).await?;
+     let request = build_demo_report_request(&built.context, &options.config)?;
+     let prompt_text = prompt_text_from_request(&request);
+-    let endpoint = format!(
+-        "{}/chat/completions",
+-        options.config.base_url.trim_end_matches('/')
+-    );
++    let endpoint = deadlock_brain_core::config::load_ai_settings()?
++        .cli_path
++        .to_string_lossy()
++        .into_owned();
+     if options.dry_run {
+         let note = save_demo_report_note(
+             pool,
+@@ -112,7 +112,8 @@ pub async fn demo_analyze_match(pool: &PgPool, options: DemoAnalyzeMatchOptions)
+             "match_id": match_id,
+             "model": options.config.model,
+             "endpoint": endpoint,
+-            "api_key_present": options.config.api_key_present(),
++            "api_key_present": false,
++            "subscription_configured": options.config.subscription_configured(),
+             "evidence_count": built.evidence_ids.len(),
+             "raw_evidence_count": built.context["evidence_registry"]["raw_count"],
+             "derived_evidence_count": built.context["evidence_registry"]["derived_count"],
+@@ -136,9 +137,7 @@ pub async fn demo_analyze_match(pool: &PgPool, options: DemoAnalyzeMatchOptions)
+         client.chat(&model_request)
+     })
+     .await
+-    .map_err(|error| {
+-        LearnError::InvalidInput(format!("Fireworks-Worker abgebrochen: {error}"))
+-    })??;
++    .map_err(|error| LearnError::InvalidInput(format!("KI-Aufruf abgebrochen: {error}")))??;
+     let raw_report = extract_ai_text(&response);
+     if raw_report.trim().is_empty() {
+         return Err(LearnError::EmptyAiResponse);
+@@ -1024,7 +1023,7 @@ fn parse_and_validate_model_report(
+ ) -> Result<Value> {
+     let mut report: Value = serde_json::from_str(raw.trim()).map_err(|error| {
+         LearnError::InvalidInput(format!(
+-            "Fireworks lieferte keinen einzelnen gueltigen JSON-Report: {error}"
++            "Die KI lieferte keinen einzelnen gültigen JSON-Report: {error}"
+         ))
+     })?;
+     if report.get("metadata") != Some(deterministic_metadata) {
+diff --git a/rust/crates/dbrain-learn/src/player_decision_learning.rs b/rust/crates/dbrain-learn/src/player_decision_learning.rs
+index 3081ca2..a15b3f7 100644
+--- a/rust/crates/dbrain-learn/src/player_decision_learning.rs
++++ b/rust/crates/dbrain-learn/src/player_decision_learning.rs
+@@ -258,9 +258,9 @@ pub async fn player_analyze_next(
+         Some(&options.config.model),
+     )
+     .await?;
+-    if !options.dry_run && !options.config.api_key_present() {
++    if !options.dry_run && !options.config.subscription_configured() {
+         return Err(LearnError::InvalidInput(
+-            "Fireworks API key fehlt. Setze FIREWORK_API_KEY oder FIREWORKS_API_KEY.".to_string(),
++            "Der lokale OpenAI-Abo-Zugang ist nicht eingerichtet.".to_string(),
+         ));
+     }
+     let mut results = Vec::new();
+@@ -313,7 +313,8 @@ pub async fn player_analyze_next(
+         "account_id": options.account_id,
+         "limit": options.limit,
+         "model": options.config.model,
+-        "api_key_present": options.config.api_key_present(),
++        "api_key_present": false,
++            "subscription_configured": options.config.subscription_configured(),
+         "pending_selected": targets.len(),
+         "results": results,
+     }))
+@@ -423,7 +424,10 @@ async fn run_single_player_match_analysis(
+     let context = build_player_match_decision_context(pool, account_id, match_id).await?;
+     let request = build_ai_player_match_decision_request(&context, config)?;
+     let prompt_text = prompt_text_from_request(&request);
+-    let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
++    let endpoint = deadlock_brain_core::config::load_ai_settings()?
++        .cli_path
++        .to_string_lossy()
++        .into_owned();
+     if dry_run {
+         let note = save_player_match_decision_note(
+             pool,
+@@ -442,7 +446,8 @@ async fn run_single_player_match_analysis(
+             "hero_name": get(&context, "hero_name").cloned().unwrap_or(Value::Null),
+             "model": config.model,
+             "endpoint": endpoint,
+-            "api_key_present": config.api_key_present(),
++            "api_key_present": false,
++            "subscription_configured": config.subscription_configured(),
+             "note": note,
+         });
+         if include_request {
+diff --git a/rust/crates/dbrain-population/src/db.rs b/rust/crates/dbrain-population/src/db.rs
+index 546378f..2f767fe 100644
+--- a/rust/crates/dbrain-population/src/db.rs
++++ b/rust/crates/dbrain-population/src/db.rs
+@@ -17,8 +17,7 @@ pub async fn assert_writable(pool: &PgPool) -> Result<()> {
+     let value: String = row.get("transaction_read_only");
+     if value == "on" {
+         return Err(anyhow!(
+-            "Die Datenbankverbindung ist read-only; population sync braucht Schreibrechte. Setze {} auf eine schreibbare Datenbank.",
+-            deadlock_brain_core::pg::DSN_ENV
++            "Die Datenbankverbindung hat nur Leserechte. population sync benötigt Schreibrechte für den in Infisical hinterlegten Brain-Zugang."
+         ));
+     }
+     Ok(())
+diff --git a/rust/crates/dbrain-reasoner/src/ai_roles.rs b/rust/crates/dbrain-reasoner/src/ai_roles.rs
+index e36e6dd..ada2f50 100644
+--- a/rust/crates/dbrain-reasoner/src/ai_roles.rs
++++ b/rust/crates/dbrain-reasoner/src/ai_roles.rs
+@@ -248,12 +248,9 @@ pub fn run_critic(client: &AiClient, build: &BuildObject) -> Result<CriticRespon
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use std::io::{BufRead, BufReader, Read, Write};
+-    use std::net::TcpListener;
+-    use std::time::Duration;
+ 
+     #[test]
+-    fn run_critic_validates_verdict_over_http() {
++    fn critic_request_and_response_preserve_verdict_contract() {
+         let build = BuildObject {
+             family: None,
+             variants: Vec::new(),
+@@ -269,51 +266,15 @@ mod tests {
+             rationale: String::new(),
+         };
+         for verdict in ["pass", "recompose", "maybe"] {
+-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+-            let mut settings = test_settings();
+-            settings.ai_base_url = format!("http://{}", listener.local_addr().unwrap());
+-            settings.ai_api_key = Some("test-key".to_string());
+-            let client = AiClient::from_settings(&settings).unwrap();
+-            let server = std::thread::spawn(move || {
+-                let (mut stream, _) = listener.accept().unwrap();
+-                stream
+-                    .set_read_timeout(Some(Duration::from_secs(5)))
+-                    .unwrap();
+-                stream
+-                    .set_write_timeout(Some(Duration::from_secs(5)))
+-                    .unwrap();
+-                let mut reader = BufReader::new(&mut stream);
+-                let mut line = String::new();
+-                reader.read_line(&mut line).unwrap();
+-                assert_eq!(line, "POST /chat/completions HTTP/1.1\r\n");
+-                let mut length = None;
+-                loop {
+-                    line.clear();
+-                    assert!(reader.read_line(&mut line).unwrap() > 0);
+-                    if line == "\r\n" {
+-                        break;
+-                    }
+-                    if let Some((name, value)) = line.split_once(':') {
+-                        if name.eq_ignore_ascii_case("content-length") {
+-                            length = Some(value.trim().parse::<usize>().unwrap());
+-                        }
+-                    }
+-                }
+-                let mut body = vec![0; length.unwrap()];
+-                reader.read_exact(&mut body).unwrap();
+-                let request: Value = serde_json::from_slice(&body).unwrap();
+-                assert!(request["messages"][1]["content"]
+-                    .as_str()
+-                    .unwrap()
+-                    .contains("Rolle Kritiker"));
+-                let response = json!({"choices": [{"message": {"content":
+-                    json!({"verdict": verdict, "issues": ["fixture issue"]}).to_string()
+-                }}]})
+-                .to_string();
+-                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+-            });
+-            let result = run_critic(&client, &build);
+-            server.join().unwrap();
++            let config = deadlock_brain_core::ai::AiConfig::from_settings(&test_settings());
++            let request = build_critic_request(&build, &config);
++            assert!(request.messages[1].content.contains("Rolle Kritiker"));
++            assert_eq!(
++                request.response_format.as_ref().unwrap()["type"],
++                "json_object"
++            );
++            let response = json!({"verdict": verdict, "issues": ["fixture issue"]}).to_string();
++            let result = parse_critic_response(&response);
+             if verdict == "maybe" {
+                 assert!(
+                     matches!(result, Err(ReasonerError::Ai(message)) if message.contains("verdict"))
+diff --git a/rust/crates/dbrain-retrieval/src/lib.rs b/rust/crates/dbrain-retrieval/src/lib.rs
+index a4771a1..fb287e5 100644
+--- a/rust/crates/dbrain-retrieval/src/lib.rs
++++ b/rust/crates/dbrain-retrieval/src/lib.rs
+@@ -304,7 +304,7 @@ pub enum RetrievalError {
+     #[error("IO error: {0}")]
+     Io(#[from] std::io::Error),
+ 
+-    #[error("Fireworks response did not include message content.")]
++    #[error("Die KI-Antwort enthält keinen Nachrichtentext.")]
+     EmptyAiResponse,
+ 
+     #[error("{0}")]
+@@ -1666,10 +1666,10 @@ pub async fn analysis_run_ai(
+         .unwrap_or_default();
+     let compact_context = compact_context_for_model(&review_context);
+     let request = core::ai::build_review_request(prompt, &compact_context, &options.config);
+-    let endpoint = format!(
+-        "{}/chat/completions",
+-        options.config.base_url.trim_end_matches('/')
+-    );
++    let endpoint = deadlock_brain_core::config::load_ai_settings()?
++        .cli_path
++        .to_string_lossy()
++        .into_owned();
+     let request_value = serde_json::to_value(&request)?;
+ 
+     if options.dry_run {
+@@ -1677,9 +1677,10 @@ pub async fn analysis_run_ai(
+             "dry_run": true,
+             "query": query,
+             "model": options.config.model,
+-            "base_url": options.config.base_url,
++            "provider": "openai_chatgpt_subscription",
+             "endpoint": endpoint,
+-            "api_key_present": options.config.api_key_present(),
++            "api_key_present": false,
++            "subscription_configured": options.config.subscription_configured(),
+             "request": request_value,
+         }));
+     }
+diff --git a/rust/crates/deadlock-brain-core/Cargo.toml b/rust/crates/deadlock-brain-core/Cargo.toml
+index d210837..4630050 100644
+--- a/rust/crates/deadlock-brain-core/Cargo.toml
++++ b/rust/crates/deadlock-brain-core/Cargo.toml
+@@ -9,7 +9,7 @@ path = "src/lib.rs"
+ 
+ [dependencies]
+ brain-contracts = { path = "../brain-contracts" }
+-fireworks-model-selection = { path = "../../vendor/fireworks-model-selection" }
++brain-providers = { path = "../brain-providers" }
+ anyhow.workspace = true
+ chrono.workspace = true
+ dbrain-builds = { path = "../dbrain-builds" }
+@@ -23,6 +23,7 @@ thiserror.workspace = true
+ filedescriptor = "0.8"
+ nix = { version = "0.29", default-features = false, features = ["fs"] }
+ tokio.workspace = true
++toml = "0.8"
+ uplink-infisical-transport = { path = "../../../../Deadlock-Bots/rust/vendor/uplink-infisical-transport" }
+ zeroize = "1"
+ 
+diff --git a/rust/crates/deadlock-brain-core/src/ai.rs b/rust/crates/deadlock-brain-core/src/ai.rs
+index 6444efc..ba32d38 100644
+--- a/rust/crates/deadlock-brain-core/src/ai.rs
++++ b/rust/crates/deadlock-brain-core/src/ai.rs
+@@ -1,15 +1,12 @@
+-use reqwest::blocking::Client;
+ use serde::{Deserialize, Serialize};
+ use serde_json::{json, Value};
+ 
+ use crate::{config::Settings, CoreError, Result};
+ 
+-pub const DEFAULT_SYSTEM_PROMPT: &str = "Du bist ein Deadlock-Analyseassistent fuer einen deutschen Discord. Nutze ausschliesslich den bereitgestellten Kontext. Behalte Namen von Items, Heroes, Abilities, Stats und Quellen exakt auf Englisch. Schreibe die Analyse auf Deutsch. Markiere Unsicherheiten und fehlende Daten klar. Erfinde keine Winrates, Pickrates oder Patchdetails.";
++pub const DEFAULT_SYSTEM_PROMPT: &str = "Du bist ein Deadlock-Analyseassistent für einen deutschen Discord. Nutze ausschließlich den bereitgestellten Kontext. Behalte Namen von Items, Heroes, Abilities, Stats und Quellen exakt auf Englisch. Schreibe die Analyse auf Deutsch. Markiere Unsicherheiten und fehlende Daten klar. Erfinde keine Winrates, Pickrates oder Patchdetails.";
+ 
+ #[derive(Clone)]
+ pub struct AiConfig {
+-    api_key: Option<String>,
+-    pub base_url: String,
+     pub model: String,
+     pub timeout_seconds: u64,
+     pub max_completion_tokens: u64,
+@@ -22,8 +19,6 @@ impl std::fmt::Debug for AiConfig {
+     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         formatter
+             .debug_struct("AiConfig")
+-            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+-            .field("base_url", &self.base_url)
+             .field("model", &self.model)
+             .field("timeout_seconds", &self.timeout_seconds)
+             .field("max_completion_tokens", &self.max_completion_tokens)
+@@ -42,8 +37,6 @@ impl AiConfig {
+ 
+     pub fn from_settings(settings: &Settings) -> Self {
+         Self {
+-            api_key: settings.ai_api_key.clone(),
+-            base_url: settings.ai_base_url.clone(),
+             model: settings.ai_model.clone(),
+             timeout_seconds: settings.ai_timeout_seconds,
+             max_completion_tokens: settings.ai_max_completion_tokens,
+@@ -53,18 +46,9 @@ impl AiConfig {
+         }
+     }
+ 
+-    pub fn api_key_present(&self) -> bool {
+-        self.api_key
+-            .as_ref()
+-            .map(|value| !value.trim().is_empty())
+-            .unwrap_or(false)
+-    }
+-
+-    fn api_key(&self) -> Result<&str> {
+-        self.api_key
+-            .as_deref()
+-            .filter(|value| !value.trim().is_empty())
+-            .ok_or(CoreError::MissingFireworksApiKey)
++    pub fn subscription_configured(&self) -> bool {
++        // Der lokale Abo-Login wird beim tatsächlichen Aufruf geprüft.
++        !self.model.trim().is_empty() && self.timeout_seconds > 0
+     }
+ }
+ 
+@@ -147,41 +131,55 @@ impl AiClient {
+     }
+ 
+     pub fn chat_value(&self, request_payload: &Value) -> Result<Value> {
+-        self.call_openai_compatible(request_payload)
+-    }
+-
+-    fn call_openai_compatible(&self, request_payload: &Value) -> Result<Value> {
+-        let config = self.config.clone();
+-        let request_payload = request_payload.clone();
+-        std::thread::spawn(move || call_openai_compatible_sync(&config, &request_payload))
+-            .join()
+-            .map_err(|_| {
+-                CoreError::Io(std::io::Error::other("Fireworks request thread panicked"))
+-            })?
++        let settings = crate::config::load_ai_settings()?;
++        let prompt = subscription_prompt(request_payload)?;
++        brain_providers::codex::complete_with_options(
++            &settings.cli_path,
++            &prompt,
++            &settings.model,
++            std::time::Duration::from_secs(settings.timeout_seconds),
++            settings.max_response_bytes,
++            request_payload
++                .get("max_tokens")
++                .and_then(Value::as_u64)
++                .or(Some(settings.ai_max_completion_tokens)),
++            request_payload
++                .get("reasoning_effort")
++                .and_then(Value::as_str)
++                .or(settings.ai_reasoning_effort.as_deref()),
++        )
++        .map_err(|error| CoreError::ModelSelection(error.to_string()))
+     }
+ }
+ 
+-fn call_openai_compatible_sync(config: &AiConfig, request_payload: &Value) -> Result<Value> {
+-    let client = Client::builder()
+-        .timeout(std::time::Duration::from_secs(config.timeout_seconds))
+-        .user_agent("DeadlockBrain/0.1")
+-        .build()?;
+-    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
+-    let api_key = config.api_key()?.to_string();
+-    let payload = selected_payload(request_payload, crate::model_resolver::model_for_request()?)?;
+-    let response = client
+-        .post(&url)
+-        .bearer_auth(&api_key)
+-        .json(&payload)
+-        .send()?;
+-    parse_response(response, "fireworks_openai_compatible")
+-}
+-
+-fn selected_payload(request: &Value, model: String) -> Result<Value> {
+-    let mut payload = request.clone();
+-    let object = payload.as_object_mut().ok_or(CoreError::InvalidAiRequest)?;
+-    object.insert("model".to_string(), json!(model));
+-    Ok(payload)
++fn subscription_prompt(request: &Value) -> Result<String> {
++    let object = request.as_object().ok_or(CoreError::InvalidAiRequest)?;
++    let messages = object
++        .get("messages")
++        .and_then(Value::as_array)
++        .filter(|messages| !messages.is_empty())
++        .ok_or(CoreError::InvalidAiRequest)?;
++    let mut prompt = String::new();
++    for message in messages {
++        let role = message
++            .get("role")
++            .and_then(Value::as_str)
++            .ok_or(CoreError::InvalidAiRequest)?;
++        let content = message
++            .get("content")
++            .and_then(Value::as_str)
++            .ok_or(CoreError::InvalidAiRequest)?;
++        prompt.push_str(&format!("[{role}]\n{content}\n\n"));
++    }
++    if object
++        .get("response_format")
++        .and_then(|format| format.get("type"))
++        .and_then(Value::as_str)
++        == Some("json_object")
++    {
++        prompt.push_str("Antworte ausschließlich mit einem gültigen JSON-Objekt ohne Markdown.\n");
++    }
++    Ok(prompt)
+ }
+ 
+ pub fn build_review_request(
+@@ -251,8 +249,8 @@ pub fn ai_usage_summary(response: &Value) -> Value {
+         "input_sensitive": response.get("input_sensitive").cloned().unwrap_or(Value::Null),
+         "output_sensitive": response.get("output_sensitive").cloned().unwrap_or(Value::Null),
+         "base_resp": response.get("base_resp").cloned().unwrap_or(Value::Null),
+-        "provider": response.get("_provider").cloned().unwrap_or_else(|| json!("fireworks")),
+-        "mode": response.get("_ai_mode").cloned().unwrap_or_else(|| json!("fireworks_openai_compatible")),
++        "provider": response.get("_provider").cloned().unwrap_or_else(|| json!("openai_chatgpt_subscription")),
++        "mode": response.get("_ai_mode").cloned().unwrap_or_else(|| json!("codex_local")),
+     })
+ }
+ 
+@@ -274,51 +272,27 @@ pub fn strip_thinking(text: &str) -> String {
+     remaining.trim().to_string()
+ }
+ 
+-fn parse_response(response: reqwest::blocking::Response, mode: &str) -> Result<Value> {
+-    let status = response.status();
+-    let body = response.text()?;
+-    if !status.is_success() {
+-        return Err(CoreError::HttpStatus {
+-            status,
+-            url: "Fireworks".to_string(),
+-            body: body.chars().take(1000).collect(),
+-        });
+-    }
+-    let mut value: Value = serde_json::from_str(&body)?;
+-    if let Some(object) = value.as_object_mut() {
+-        object.insert("_http_status".to_string(), json!(status.as_u16()));
+-        object.insert("_provider".to_string(), json!("fireworks"));
+-        object.insert("_ai_mode".to_string(), json!(mode));
+-    }
+-    Ok(value)
+-}
+-
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+ 
+     #[test]
+-    fn central_selection_overrides_stale_caller_model_and_changes_next_request() {
+-        let request = json!({"model": "obsolete", "messages": [], "reasoning_effort": "none"});
+-        for model in [
+-            "accounts/fireworks/models/deepseek-v4p1-flash",
+-            "accounts/fireworks/models/deepseek-v4p2-flash",
+-        ] {
+-            let payload = selected_payload(&request, model.into()).unwrap();
+-            assert_eq!(payload["model"], model);
+-            assert_eq!(payload["reasoning_effort"], "none");
+-        }
+-        assert_eq!(request["model"], "obsolete");
+-    }
+-
+-    #[test]
+-    fn invalid_payload_cannot_bypass_central_model() {
++    fn invalid_payload_cannot_bypass_subscription() {
+         assert!(matches!(
+-            selected_payload(&json!([]), "selected".into()),
++            subscription_prompt(&json!([])),
+             Err(CoreError::InvalidAiRequest)
+         ));
+     }
+ 
++    #[test]
++    fn prompt_preserves_messages_and_json_contract() {
++        let prompt = subscription_prompt(&json!({"model": "stale-model", "messages": [{"role": "system", "content": "Regeln"}, {"role": "user", "content": "Daten"}], "response_format": {"type": "json_object"}})).unwrap();
++        assert!(prompt.contains("[system]\nRegeln"));
++        assert!(prompt.contains("[user]\nDaten"));
++        assert!(prompt.contains("gültigen JSON-Objekt"));
++        assert!(!prompt.contains("stale-model"));
++    }
++
+     #[test]
+     fn strip_thinking_removes_hidden_blocks() {
+         assert_eq!(strip_thinking("a <think>secret</think> b"), "a  b");
+@@ -331,11 +305,9 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn serializes_fireworks_token_field() {
++    fn serializes_compatible_token_field() {
+         let config = AiConfig {
+-            api_key: Some("redacted".to_string()),
+-            base_url: "http://localhost".to_string(),
+-            model: "accounts/fireworks/models/deepseek-v4p1-flash".to_string(),
++            model: "configured-model".to_string(),
+             timeout_seconds: 1,
+             max_completion_tokens: 123,
+             temperature: 0.2,
+diff --git a/rust/crates/deadlock-brain-core/src/build_narration.rs b/rust/crates/deadlock-brain-core/src/build_narration.rs
+index f03e6a1..7c9ab02 100644
+--- a/rust/crates/deadlock-brain-core/src/build_narration.rs
++++ b/rust/crates/deadlock-brain-core/src/build_narration.rs
+@@ -21,7 +21,7 @@ So gehst du beim Begründen vor (Methodik, kein vorgegebenes Ergebnis):
+ - Schadensachse: prüfe, ob die damage_axis eines Items zur Achse des gewählten Pfades passt; liegt der Hauptwert daneben, bleibt er für diesen Build weitgehend wirkungslos.
+ - Gewichtung: lies prevalence_builds, winrate und lift_pp zusammen statt einzeln; eine einzelne Zahl trägt keine Aussage. sample_matches und confidence sagen dir, wie sehr du der Zahl traust.
+ - Ablauf: nutze buy_phase und synergy_with, um Kauf-Reihenfolge und Zusammenspiel zu erklären.";
+-pub const BUILD_NARRATION_USER_PROMPT: &str = "Erkläre den folgenden, bereits berechneten Build verständlich auf Deutsch. Geh die Phasen early/mid/late durch und begründe pro Kern-Item kurz, warum es hier passt — ausschließlich anhand der gelieferten Fakten. Schließe mit einem kurzen Hinweis auf alternative_paths, falls vorhanden. Knapp und konkret, kein Marketing.";
++pub const BUILD_NARRATION_USER_PROMPT: &str = "Erkläre den folgenden, bereits berechneten Build verständlich auf Deutsch. Geh die Phasen early/mid/late durch und begründe pro Kern-Item kurz, warum es hier anhand der gelieferten Fakten passt. Schließe mit einem kurzen Hinweis auf alternative_paths, falls vorhanden. Knapp und konkret, kein Marketing.";
+ 
+ #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+ pub struct ValidationResult {
+@@ -35,14 +35,14 @@ pub struct ValidationViolation {
+ }
+ 
+ pub fn narrate_build(ctx: &BuildContext) -> anyhow::Result<String> {
+-    let client = AiClient::from_env().context("load Fireworks client from environment")?;
++    let client = AiClient::from_env().context("Lokalen Abo-Connector laden")?;
+     let request = build_narration_request(ctx, client.config())?;
+     let response = client
+         .chat(&request)
+-        .context("call Fireworks build narration")?;
++        .context("Build-Erklärung über das Abo anfordern")?;
+     let text = extract_ai_text(&response);
+     if text.trim().is_empty() {
+-        return Err(anyhow!("empty Fireworks response"));
++        return Err(anyhow!("Die KI hat keine Build-Erklärung geliefert"));
+     }
+     Ok(text)
+ }
+diff --git a/rust/crates/deadlock-brain-core/src/config.rs b/rust/crates/deadlock-brain-core/src/config.rs
+index 3e68231..7a8a35f 100644
+--- a/rust/crates/deadlock-brain-core/src/config.rs
++++ b/rust/crates/deadlock-brain-core/src/config.rs
+@@ -1,15 +1,11 @@
+-use std::{
+-    collections::HashMap,
+-    env, fmt, fs,
+-    path::{Path, PathBuf},
+-};
++use std::{fs, path::PathBuf};
++
++use serde::Deserialize;
+ 
+ use crate::{CoreError, Result};
+ 
+ pub const DEFAULT_USER_AGENT: &str = "DeadlockBrain/0.1 contact=admin@earlysalty.com";
+ pub const DEFAULT_SHEET_ID: &str = "1fj9XMQmVUY0FY4cbozvB18PMBnpbdsaMFTZRLa74VRY";
+-pub const DEFAULT_FIREWORKS_MODEL: &str = "accounts/fireworks/models/deepseek-v4p1-flash";
+-pub const DEFAULT_FIREWORKS_BASE_URL: &str = "https://api.fireworks.ai/inference/v1";
+ 
+ #[derive(Clone)]
+ pub struct Settings {
+@@ -23,6 +19,7 @@ pub struct Settings {
+     pub wiki_enabled: bool,
+     pub wiki_min_delay_seconds: f64,
+     pub wiki_cache_ttl_seconds: u64,
++    // Diese Felder bleiben für bestehende Aufrufer leer. Der Abo-Zugang nutzt keine API-Schlüssel.
+     pub ai_api_key: Option<String>,
+     pub ai_base_url: String,
+     pub ai_model: String,
+@@ -33,43 +30,154 @@ pub struct Settings {
+     pub ai_use_token_plan: bool,
+ }
+ 
+-impl fmt::Debug for Settings {
+-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+-        formatter
+-            .debug_struct("Settings")
+-            .field("project_root", &self.project_root)
+-            .field("data_dir", &self.data_dir)
+-            .field("raw_dir", &self.raw_dir)
+-            .field("cache_dir", &self.cache_dir)
+-            .field("user_agent", &self.user_agent)
+-            .field("sheet_id", &self.sheet_id)
+-            .field("sheet_gid", &self.sheet_gid)
+-            .field("wiki_enabled", &self.wiki_enabled)
+-            .field("wiki_min_delay_seconds", &self.wiki_min_delay_seconds)
+-            .field("wiki_cache_ttl_seconds", &self.wiki_cache_ttl_seconds)
+-            .field(
+-                "ai_api_key",
+-                &self.ai_api_key.as_ref().map(|_| "<redacted>"),
+-            )
+-            .field("ai_base_url", &self.ai_base_url)
++impl std::fmt::Debug for Settings {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("Settings")
++            .field("ai_api_key", &"<redacted>")
+             .field("ai_model", &self.ai_model)
+-            .field("ai_timeout_seconds", &self.ai_timeout_seconds)
+-            .field("ai_max_completion_tokens", &self.ai_max_completion_tokens)
+-            .field("ai_temperature", &self.ai_temperature)
+-            .field("ai_top_p", &self.ai_top_p)
+-            .field("ai_use_token_plan", &self.ai_use_token_plan)
+-            .finish()
++            .finish_non_exhaustive()
++    }
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct AiSettings {
++    pub provider: String,
++    pub cli_path: PathBuf,
++    pub model: String,
++    pub timeout_seconds: u64,
++    pub max_response_bytes: usize,
++    pub ai_max_completion_tokens: u64,
++    // Kompatfelder des bisherigen Vertrags; die Abo-CLI bietet keine Samplingsteuerung.
++    pub ai_temperature: f64,
++    pub ai_top_p: f64,
++    pub ai_use_token_plan: bool,
++    pub ai_reasoning_effort: Option<String>,
++}
++
++pub fn load_ai_settings() -> Result<AiSettings> {
++    Ok(load_bot_settings(&repo_root())?.ai)
++}
++
++fn validate_ai_settings(settings: &AiSettings) -> Result<()> {
++    if settings.provider != "openai_chatgpt_subscription"
++        || !settings.cli_path.is_absolute()
++        || settings.model != "gpt-6-luna"
++        || settings.timeout_seconds == 0
++        || settings.max_response_bytes == 0
++        || !settings.ai_temperature.is_finite()
++        || !(0.0..=2.0).contains(&settings.ai_temperature)
++        || !settings.ai_top_p.is_finite()
++        || !(0.0..=1.0).contains(&settings.ai_top_p)
++        || settings.ai_use_token_plan
++        || settings
++            .ai_reasoning_effort
++            .as_deref()
++            .is_some_and(|effort| {
++                !["none", "minimal", "low", "medium", "high", "xhigh"].contains(&effort)
++            })
++    {
++        return Err(CoreError::ModelSelection(
++            "Ungültige Abo-Konfiguration in config/bot.toml".into(),
++        ));
++    }
++    Ok(())
++}
++
++#[derive(Default, Deserialize)]
++#[serde(default, deny_unknown_fields)]
++struct DataSettings {
++    data_dir: Option<PathBuf>,
++    user_agent: Option<String>,
++    sheet_id: Option<String>,
++    sheet_gid: Option<String>,
++    wiki_enabled: Option<bool>,
++    wiki_min_delay_seconds: Option<f64>,
++    wiki_cache_ttl_seconds: Option<u64>,
++}
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct BotSettings {
++    ai: AiSettings,
++    infisical: crate::pg::InfisicalConfig,
++    settings: DataSettings,
++}
++
++fn load_bot_settings(project_root: &std::path::Path) -> Result<BotSettings> {
++    let text = fs::read_to_string(project_root.join("config/bot.toml"))?;
++    let config: BotSettings = toml::from_str(&text).map_err(|_| {
++        CoreError::ModelSelection("Ungültige Konfiguration in config/bot.toml".into())
++    })?;
++    validate_ai_settings(&config.ai)?;
++    if !development_settings_allowed(project_root)
++        && (!config
++            .settings
++            .data_dir
++            .as_ref()
++            .is_some_and(|path| path.is_absolute())
++            || config
++                .settings
++                .user_agent
++                .as_ref()
++                .is_none_or(|value| value.trim().is_empty())
++            || config
++                .settings
++                .sheet_id
++                .as_ref()
++                .is_none_or(|value| value.trim().is_empty())
++            || config
++                .settings
++                .sheet_gid
++                .as_ref()
++                .is_none_or(|value| value.trim().is_empty())
++            || config.settings.wiki_enabled.is_none()
++            || config
++                .settings
++                .wiki_min_delay_seconds
++                .is_none_or(|value| !value.is_finite() || value < 0.0)
++            || config.settings.wiki_cache_ttl_seconds.is_none())
++    {
++        return Err(CoreError::ModelSelection(
++            "Installierte Lernjobs benötigen vollständige settings und einen absoluten data_dir in config/bot.toml"
++                .into(),
++        ));
+     }
++    Ok(config)
++}
++
++pub(crate) fn load_infisical_settings(
++    path: &std::path::Path,
++) -> Result<crate::pg::InfisicalConfig> {
++    let root = path
++        .parent()
++        .and_then(std::path::Path::parent)
++        .ok_or_else(|| CoreError::ModelSelection("Ungültiger Bot-TOML-Pfad".into()))?;
++    if path != root.join("config/bot.toml") {
++        return Err(CoreError::ModelSelection("Ungültiger Bot-TOML-Pfad".into()));
++    }
++    Ok(load_bot_settings(root)?.infisical)
+ }
+ 
+ pub fn repo_root() -> PathBuf {
++    if let Ok(executable) = std::env::current_exe() {
++        if executable.starts_with("/opt/deadlock-brain") {
++            if let Some(root) = installed_release_root(&executable) {
++                return root;
++            }
++        }
++        for ancestor in executable.ancestors().skip(1) {
++            if development_settings_allowed(ancestor) {
++                return ancestor.to_path_buf();
++            }
++        }
++    }
+     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+     for ancestor in manifest_dir.ancestors() {
+         if ancestor.join("data").is_dir() && ancestor.join("src/deadlock_brain").is_dir() {
+             return ancestor.to_path_buf();
+         }
+     }
+-
+     let mut fallback = manifest_dir.as_path();
+     for _ in 0..3 {
+         if let Some(parent) = fallback.parent() {
+@@ -79,153 +187,145 @@ pub fn repo_root() -> PathBuf {
+     fallback.to_path_buf()
+ }
+ 
++fn installed_release_root(executable: &std::path::Path) -> Option<PathBuf> {
++    let parent = executable.parent()?;
++    if parent.file_name().is_some_and(|name| name == "bin") {
++        parent.parent().map(std::path::Path::to_path_buf)
++    } else {
++        Some(parent.to_path_buf())
++    }
++}
++
+ pub fn default_data_dir() -> PathBuf {
+     repo_root().join("data")
+ }
+ 
++fn development_settings_allowed(project_root: &std::path::Path) -> bool {
++    !project_root.starts_with("/opt/deadlock-brain")
++        && project_root.join(".git").exists()
++        && project_root.join("rust/Cargo.toml").is_file()
++        && project_root.join("src/deadlock_brain").is_dir()
++}
++
+ pub fn load_settings() -> Result<Settings> {
+     let project_root = repo_root();
+-    let dotenv = DotEnv::load(&project_root.join(".env"))?;
+-    let data_dir = path_setting(
+-        &dotenv,
+-        "DEADLOCK_BRAIN_DATA_DIR",
+-        project_root.join("data"),
+-    );
+-    let fireworks_api_key = setting(&dotenv, "FIREWORK_API_KEY")
+-        .or_else(|| setting(&dotenv, "FIREWORKS_API_KEY"))
+-        .filter(|value| !value.trim().is_empty());
+-    let fireworks_base_url = setting(&dotenv, "FIREWORK_BASE_URL")
+-        .or_else(|| setting(&dotenv, "FIREWORKS_BASE_URL"))
+-        .unwrap_or_else(|| DEFAULT_FIREWORKS_BASE_URL.to_string());
+-
++    let data_settings = load_bot_settings(&project_root)?.settings;
++    let ai = load_ai_settings()?;
++    let data_dir = data_settings
++        .data_dir
++        .unwrap_or_else(|| project_root.join("data"));
++    let data_dir = if data_dir.is_absolute() {
++        data_dir
++    } else {
++        project_root.join(data_dir)
++    };
+     Ok(Settings {
+         project_root,
+         raw_dir: data_dir.join("raw"),
+         cache_dir: data_dir.join("cache"),
+         data_dir,
+-        user_agent: string_setting(&dotenv, "DEADLOCK_BRAIN_USER_AGENT", DEFAULT_USER_AGENT),
+-        sheet_id: string_setting(&dotenv, "DEADLOCK_STATS_SHEET_ID", DEFAULT_SHEET_ID),
+-        sheet_gid: string_setting(&dotenv, "DEADLOCK_STATS_SHEET_GID", "0"),
+-        wiki_enabled: bool_setting(&dotenv, "DEADLOCK_BRAIN_WIKI_ENABLED", false),
+-        wiki_min_delay_seconds: f64_setting(&dotenv, "DEADLOCK_BRAIN_WIKI_MIN_DELAY_SECONDS", 5.0)?,
+-        wiki_cache_ttl_seconds: u64_setting(
+-            &dotenv,
+-            "DEADLOCK_BRAIN_WIKI_CACHE_TTL_SECONDS",
+-            604_800,
+-        )?,
+-        ai_api_key: fireworks_api_key,
+-        ai_base_url: fireworks_base_url.trim_end_matches('/').to_string(),
+-        ai_model: DEFAULT_FIREWORKS_MODEL.to_string(),
+-        ai_timeout_seconds: u64_setting(&dotenv, "FIREWORKS_TIMEOUT_SECONDS", 300)?,
+-        ai_max_completion_tokens: u64_setting(&dotenv, "FIREWORKS_MAX_TOKENS", 16_000)?,
+-        ai_temperature: f64_setting(&dotenv, "FIREWORKS_TEMPERATURE", 0.2)?,
+-        ai_top_p: f64_setting(&dotenv, "FIREWORKS_TOP_P", 0.9)?,
+-        ai_use_token_plan: false,
++        user_agent: data_settings
++            .user_agent
++            .unwrap_or_else(|| DEFAULT_USER_AGENT.into()),
++        sheet_id: data_settings
++            .sheet_id
++            .unwrap_or_else(|| DEFAULT_SHEET_ID.into()),
++        sheet_gid: data_settings.sheet_gid.unwrap_or_else(|| "0".into()),
++        wiki_enabled: data_settings.wiki_enabled.unwrap_or(false),
++        wiki_min_delay_seconds: data_settings.wiki_min_delay_seconds.unwrap_or(5.0),
++        wiki_cache_ttl_seconds: data_settings.wiki_cache_ttl_seconds.unwrap_or(604_800),
++        ai_api_key: None,
++        ai_base_url: String::new(),
++        ai_model: ai.model,
++        ai_timeout_seconds: ai.timeout_seconds,
++        ai_max_completion_tokens: ai.ai_max_completion_tokens,
++        ai_temperature: ai.ai_temperature,
++        ai_top_p: ai.ai_top_p,
++        ai_use_token_plan: ai.ai_use_token_plan,
+     })
+ }
+ 
+-pub fn path_env(name: &'static str, default: PathBuf) -> PathBuf {
+-    env::var_os(name)
+-        .map(PathBuf::from)
+-        .filter(|value| !value.as_os_str().is_empty())
+-        .unwrap_or(default)
+-}
+-
+-fn path_setting(dotenv: &DotEnv, name: &'static str, default: PathBuf) -> PathBuf {
+-    setting(dotenv, name)
+-        .map(PathBuf::from)
+-        .filter(|value| !value.as_os_str().is_empty())
+-        .unwrap_or(default)
+-}
+-
+-fn string_setting(dotenv: &DotEnv, name: &'static str, default: &str) -> String {
+-    setting(dotenv, name).unwrap_or_else(|| default.to_string())
++// Bestehende Pfadaufrufer behalten ihre Standards, ohne Umgebungsvariablen zu lesen.
++pub fn path_env(_name: &'static str, default: PathBuf) -> PathBuf {
++    default
+ }
+ 
+-fn bool_setting(dotenv: &DotEnv, name: &'static str, default: bool) -> bool {
+-    setting(dotenv, name)
+-        .map(|value| {
+-            matches!(
+-                value.trim().to_ascii_lowercase().as_str(),
+-                "1" | "true" | "yes" | "on"
+-            )
+-        })
+-        .unwrap_or(default)
+-}
++#[cfg(test)]
++mod tests {
++    use super::*;
+ 
+-fn u64_setting(dotenv: &DotEnv, name: &'static str, default: u64) -> Result<u64> {
+-    match setting(dotenv, name) {
+-        Some(value) => value
+-            .parse::<u64>()
+-            .map_err(|error| CoreError::invalid_integer_env(name, value, error)),
+-        None => Ok(default),
++    #[test]
++    fn installed_release_root_never_uses_build_source_or_current_directory() {
++        assert_eq!(
++            installed_release_root(std::path::Path::new(
++                "/opt/deadlock-brain/maintenance-releases/revision/deadlock-brain"
++            )),
++            Some(PathBuf::from(
++                "/opt/deadlock-brain/maintenance-releases/revision"
++            ))
++        );
++        assert_eq!(
++            installed_release_root(std::path::Path::new(
++                "/opt/deadlock-brain/releases/revision/bin/deadlock-brain"
++            )),
++            Some(PathBuf::from("/opt/deadlock-brain/releases/revision"))
++        );
+     }
+-}
+ 
+-fn f64_setting(dotenv: &DotEnv, name: &'static str, default: f64) -> Result<f64> {
+-    match setting(dotenv, name) {
+-        Some(value) => value
+-            .parse::<f64>()
+-            .map_err(|error| CoreError::invalid_float_env(name, value, error)),
+-        None => Ok(default),
++    #[test]
++    fn repo_root_points_at_project() {
++        assert!(repo_root().join("rust").is_dir());
+     }
+-}
+-
+-fn setting(dotenv: &DotEnv, name: &'static str) -> Option<String> {
+-    env::var(name)
+-        .ok()
+-        .filter(|value| !value.trim().is_empty())
+-        .or_else(|| dotenv.get(name))
+-}
+ 
+-#[derive(Debug, Default)]
+-struct DotEnv {
+-    values: HashMap<String, String>,
+-}
+-
+-impl DotEnv {
+-    fn load(path: &Path) -> Result<Self> {
+-        if !path.exists() {
+-            return Ok(Self::default());
+-        }
+-        let mut values = HashMap::new();
+-        for line in fs::read_to_string(path)?.lines() {
+-            let stripped = line.trim();
+-            if stripped.is_empty() || stripped.starts_with('#') {
+-                continue;
+-            }
+-            let Some((key, value)) = stripped.split_once('=') else {
+-                continue;
++    #[test]
++    fn missing_job_settings_fail_outside_proven_development_checkout() {
++        let root = tempfile::tempdir().unwrap();
++        for job in ["sheet-sync", "build-data"] {
++            let job_root = root.path().join("legacy").join(job);
++            fs::create_dir_all(job_root.join("config")).unwrap();
++            assert!(load_bot_settings(&job_root).is_err());
++            fs::write(job_root.join("config/bot.toml"), b"invalid-toml").unwrap();
++            assert!(load_bot_settings(&job_root).is_err());
++            let template = if job == "sheet-sync" {
++                include_str!("../../../../ops/luna-abo/sheet-sync.bot.toml")
++            } else {
++                include_str!("../../../../ops/luna-abo/build-data.bot.toml")
+             };
+-            let key = key.trim();
+-            if key.is_empty() {
+-                continue;
+-            }
+-            let value = value
+-                .trim()
+-                .trim_matches('"')
+-                .trim_matches('\'')
+-                .to_string();
+-            values.insert(key.to_string(), value);
++            fs::write(job_root.join("config/bot.toml"), template).unwrap();
++            let config = load_bot_settings(&job_root).unwrap();
++            let expected = if job == "sheet-sync" {
++                "/home/nathanael/repos/Deadlock-Brain/data"
++            } else {
++                "/home/nathanael/.worktrees/brain-live-main/data"
++            };
++            assert_eq!(config.settings.data_dir, Some(PathBuf::from(expected)));
++            let incomplete = template
++                .lines()
++                .filter(|line| !line.starts_with("sheet_id ="))
++                .collect::<Vec<_>>()
++                .join("\n");
++            fs::write(job_root.join("config/bot.toml"), incomplete).unwrap();
++            assert!(load_infisical_settings(&job_root.join("config/bot.toml")).is_err());
++            fs::write(
++                job_root.join("config/bot.toml"),
++                template.replace(expected, "data"),
++            )
++            .unwrap();
++            assert!(load_bot_settings(&job_root).is_err());
++            fs::remove_file(job_root.join("config/bot.toml")).unwrap();
++            fs::create_dir(job_root.join("config/bot.toml")).unwrap();
++            assert!(load_bot_settings(&job_root).is_err());
+         }
+-        Ok(Self { values })
++        assert!(!development_settings_allowed(std::path::Path::new(
++            "/opt/deadlock-brain/maintenance-releases/revision/legacy/sheet-sync"
++        )));
++        assert!(development_settings_allowed(&repo_root()));
+     }
+ 
+-    fn get(&self, name: &str) -> Option<String> {
+-        self.values
+-            .get(name)
+-            .cloned()
+-            .filter(|value| !value.trim().is_empty())
+-    }
+-}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-
+     #[test]
+-    fn repo_root_points_at_project() {
+-        let root = repo_root();
+-        assert!(root.join("rust").is_dir());
++    fn ai_configuration_selects_subscription_luna() {
++        let settings = load_ai_settings().unwrap();
++        assert_eq!(settings.provider, "openai_chatgpt_subscription");
++        assert_eq!(settings.model, "gpt-6-luna");
+     }
+ }
+diff --git a/rust/crates/deadlock-brain-core/src/error.rs b/rust/crates/deadlock-brain-core/src/error.rs
+index ca43d60..a6d0aa3 100644
+--- a/rust/crates/deadlock-brain-core/src/error.rs
++++ b/rust/crates/deadlock-brain-core/src/error.rs
+@@ -1,4 +1,4 @@
+-use std::{num, time::SystemTimeError};
++use std::time::SystemTimeError;
+ 
+ use reqwest::StatusCode;
+ 
+@@ -48,30 +48,4 @@ pub enum CoreError {
+     MissingFireworksApiKey,
+ }
+ 
+-impl CoreError {
+-    pub(crate) fn invalid_integer_env(
+-        name: &'static str,
+-        value: String,
+-        error: num::ParseIntError,
+-    ) -> Self {
+-        Self::InvalidIntegerEnv {
+-            name,
+-            value,
+-            message: error.to_string(),
+-        }
+-    }
+-
+-    pub(crate) fn invalid_float_env(
+-        name: &'static str,
+-        value: String,
+-        error: num::ParseFloatError,
+-    ) -> Self {
+-        Self::InvalidFloatEnv {
+-            name,
+-            value,
+-            message: error.to_string(),
+-        }
+-    }
+-}
+-
+ pub type Result<T> = std::result::Result<T, CoreError>;
+diff --git a/rust/crates/deadlock-brain-core/src/lib.rs b/rust/crates/deadlock-brain-core/src/lib.rs
+index eee462c..aa02fa7 100644
+--- a/rust/crates/deadlock-brain-core/src/lib.rs
++++ b/rust/crates/deadlock-brain-core/src/lib.rs
+@@ -3,7 +3,7 @@
+ //! Gemeinsamer Kern fuer den schrittweisen Rust-Port von Deadlock-Brain.
+ //!
+ //! Diese Crate enthaelt nur Querschnittsvertraege: Pfade/Config,
+-//! HTTP/Fireworks, Postgres und gemeinsame Datenmodelle. Feature-Logik lebt in den
++//! Lokale Abo-KI, Postgres und gemeinsame Datenmodelle. Feature-Logik lebt in den
+ //! nachgelagerten `dbrain-*`-Crates.
+ 
+ pub mod ai;
+diff --git a/rust/crates/deadlock-brain-core/src/model_resolver.rs b/rust/crates/deadlock-brain-core/src/model_resolver.rs
+index 2e63102..d430834 100644
+--- a/rust/crates/deadlock-brain-core/src/model_resolver.rs
++++ b/rust/crates/deadlock-brain-core/src/model_resolver.rs
+@@ -1,11 +1,7 @@
+-//! Alle Text-KI-Aufrufe nutzen die zentral geprüfte Fireworks-Auswahl.
+-//! Der tägliche Katalogabruf und die Probe gehören ausschließlich zum Resolver-Dienst.
++//! Text-KI-Aufrufe nutzen das freigegebene Modell aus der normalen Konfiguration.
+ 
+-use crate::{CoreError, Result};
++use crate::Result;
+ 
+-/// Liest die atomare Auswahl vor jedem Aufruf neu, damit laufende Clients wechseln.
+-/// Fehlende oder ungültige Auswahl wird gemeldet, niemals durch ein ungeprüftes Modell ersetzt.
+ pub fn model_for_request() -> Result<String> {
+-    fireworks_model_selection::selected_model()
+-        .map_err(|error| CoreError::ModelSelection(error.to_string()))
++    Ok(crate::config::load_ai_settings()?.model)
+ }
+diff --git a/rust/crates/deadlock-brain-core/src/pg.rs b/rust/crates/deadlock-brain-core/src/pg.rs
+index a99eb06..2bb3a43 100644
+--- a/rust/crates/deadlock-brain-core/src/pg.rs
++++ b/rust/crates/deadlock-brain-core/src/pg.rs
+@@ -8,12 +8,10 @@ use std::{path::Path, str::FromStr, time::Duration};
+ #[path = "pg_secrets.rs"]
+ mod secrets;
+ 
++pub(crate) use secrets::Config as InfisicalConfig;
++
+ pub async fn pg_pool_read_only() -> Result<PgPool> {
+-    pg_pool_from_config(
+-        &crate::config::repo_root().join("config/infisical.json"),
+-        true,
+-    )
+-    .await
++    pg_pool_from_config(&crate::config::repo_root().join("config/bot.toml"), true).await
+ }
+ 
+ pub async fn infisical_environment(
+@@ -37,25 +35,11 @@ pub async fn pg_pool_from_config(path: &Path, read_only: bool) -> Result<PgPool>
+         .map_err(|_| anyhow!("Verbindung zur zentralen Postgres fehlgeschlagen."))
+ }
+ 
+-/// Env-Variable mit dem zentralen Postgres-DSN. Der Wert wird nie geloggt oder
+-/// ausgegeben (Secret-Hygiene).
+-pub const DSN_ENV: &str = "DEADLOCK_CENTRAL_DSN";
+-
+ /// Postgres-Schema mit den Brain-Tabellen.
+ pub const SCHEMA: &str = "brain";
+ 
+-/// Baut einen kleinen async Verbindungspool gegen die zentrale Postgres.
+-///
+-/// Das DSN kommt aus [`DSN_ENV`]. Weder das DSN noch die konkreten
+-/// Verbindungsdetails werden im Fehlerfall ausgegeben.
++/// Verwendet den vorhandenen Infisical-Zugang für schreibende Brain-Aufträge.
++/// Zugang und Datenbankrechte entsprechen dem bisherigen zentralen Zugang.
+ pub async fn pg_pool() -> Result<PgPool> {
+-    let dsn = std::env::var(DSN_ENV)
+-        .map_err(|_| anyhow!("{DSN_ENV} ist nicht gesetzt; DSN wird nicht ausgegeben."))?;
+-    PgPoolOptions::new()
+-        .max_connections(4)
+-        .connect(&dsn)
+-        .await
+-        .map_err(|_| {
+-            anyhow!("Verbindung zur zentralen Postgres fehlgeschlagen (DSN aus {DSN_ENV}).")
+-        })
++    pg_pool_from_config(&crate::config::repo_root().join("config/bot.toml"), false).await
+ }
+diff --git a/rust/crates/deadlock-brain-core/src/pg_secrets.rs b/rust/crates/deadlock-brain-core/src/pg_secrets.rs
+index 646edcd..e5f6b25 100644
+--- a/rust/crates/deadlock-brain-core/src/pg_secrets.rs
++++ b/rust/crates/deadlock-brain-core/src/pg_secrets.rs
+@@ -12,7 +12,7 @@ use zeroize::{Zeroize, Zeroizing};
+ 
+ #[derive(Deserialize)]
+ #[serde(deny_unknown_fields)]
+-struct Config {
++pub(crate) struct Config {
+     project_id: String,
+     environment: String,
+     secret_path: String,
+@@ -74,7 +74,16 @@ pub(super) async fn environment(path: &Path) -> Result<Vec<(String, Zeroizing<St
+ fn load_config(path: &Path) -> Result<Config> {
+     let data =
+         std::fs::read(path).map_err(|_| anyhow!("Infisical Konfiguration ist nicht lesbar."))?;
+-    serde_json::from_slice(&data).map_err(|_| anyhow!("Infisical Konfiguration ist ungültig."))
++    if path
++        .extension()
++        .is_some_and(|extension| extension == "toml")
++    {
++        crate::config::load_infisical_settings(path)
++            .map_err(|_| anyhow!("Bot-TOML-Konfiguration ist ungültig."))
++    } else {
++        // Bestehende explizite Legacy-Aufrufer behalten ihren Parser.
++        serde_json::from_slice(&data).map_err(|_| anyhow!("Infisical Konfiguration ist ungültig."))
++    }
+ }
+ 
+ async fn fetch_values(config: Config) -> Result<BTreeMap<String, Zeroizing<String>>> {
+@@ -162,18 +171,16 @@ fn valid_environment_name(name: &str) -> bool {
+ }
+ 
+ fn load_credential(config: &Config) -> Result<Zeroizing<Vec<u8>>> {
+-    if let Some(directory) = env::var_os("CREDENTIALS_DIRECTORY") {
+-        let path = PathBuf::from(directory).join(&config.credential_name);
+-        if path.is_file() {
+-            return read_credential_path(&path);
+-        }
+-    }
++    load_credential_from(
++        config,
++        env::var_os("CREDENTIALS_DIRECTORY").map(PathBuf::from),
++    )
++}
+ 
+-    if let Some(path) = env::var_os("INFISICAL_TOKEN_FILE") {
+-        let path = PathBuf::from(path);
+-        if path.is_file() {
+-            return read_credential_path(&path);
+-        }
++fn load_credential_from(config: &Config, directory: Option<PathBuf>) -> Result<Zeroizing<Vec<u8>>> {
++    if let Some(directory) = directory {
++        let path = directory.join(&config.credential_name);
++        return read_credential_path(&path);
+     }
+ 
+     if let Some(fd) = config.credential_fd.filter(|fd| *fd >= 3) {
+@@ -249,6 +256,28 @@ mod tests {
+         assert_eq!(file.stream_position().unwrap(), offset);
+     }
+ 
++    #[test]
++    fn missing_systemd_credential_never_falls_back_to_open_descriptor() {
++        use std::os::fd::AsRawFd;
++        let directory = tempfile::tempdir().unwrap();
++        let mut file = tempfile::tempfile().unwrap();
++        file.write_all(b"synthetic-fixture").unwrap();
++        let config = Config {
++            project_id: "fixture".into(),
++            environment: "fixture".into(),
++            secret_path: "/".into(),
++            credential_fd: Some(file.as_raw_fd()),
++            credential_name: "infisical-token".into(),
++            socket_path: "/unavailable".into(),
++            database_secret: "fixture".into(),
++        };
++        assert!(load_credential_from(&config, Some(directory.path().to_path_buf())).is_err());
++        assert_eq!(
++            load_credential_from(&config, None).unwrap().as_slice(),
++            b"synthetic-fixture"
++        );
++    }
++
+     #[test]
+     fn environment_names_are_strict() {
+         assert!(valid_environment_name("DEADLOCK_CENTRAL_DSN"));
+diff --git a/rust/crates/deadlock-brain/src/main.rs b/rust/crates/deadlock-brain/src/main.rs
+index 11b88d6..ddfc2c3 100644
+--- a/rust/crates/deadlock-brain/src/main.rs
++++ b/rust/crates/deadlock-brain/src/main.rs
+@@ -42,7 +42,9 @@ enum Commands {
+         about = "Stellt eine Frage ausschließlich über den typisierten brain-serve/BrainClient-Pfad."
+     )]
+     Answer(BrainAnswerArgs),
+-    #[command(about = "Zeigt das zentral geprüfte KI-Modell ohne Modellaufruf.")]
++    #[command(
++        about = "Zeigt das Abo-Modell und die lokalen Konfigurationspfade ohne Modellaufruf."
++    )]
+     AiModel,
+     #[command(about = "Zeigt lokale DB- und Source-Counts.")]
+     Status,
+@@ -438,7 +440,7 @@ enum LearnCommands {
+     ListBuilds(ListBuildsArgs),
+     #[command(
+         name = "analyze-build",
+-        about = "Laesst Fireworks/DeepSeek einen importierten Build als Trainingsbeispiel analysieren."
++        about = "Lässt die KI einen importierten Build als Trainingsbeispiel analysieren."
+     )]
+     AnalyzeBuild(AnalyzeBuildArgs),
+     #[command(
+@@ -528,7 +530,7 @@ enum PlayerCommands {
+     MatchContext(PlayerMatchContextArgs),
+     #[command(
+         name = "analyze-match",
+-        about = "Laesst Fireworks/DeepSeek ein Player-Match als Entscheidungsbeispiel analysieren."
++        about = "Lässt die KI ein Player-Match als Entscheidungsbeispiel analysieren."
+     )]
+     AnalyzeMatch(PlayerAnalyzeMatchArgs),
+     #[command(
+@@ -692,7 +694,7 @@ enum AnalysisCommands {
+     #[command(
+         name = "run-fireworks",
+         aliases = ["run-minimax", "run-ai"],
+-        about = "Ruft Fireworks/DeepSeek fuer einen Review-Kontext auf und speichert das Ergebnis."
++        about = "Ruft die KI für einen Review-Kontext auf und speichert das Ergebnis."
+     )]
+     RunAi(AnalysisRunAiArgs),
+     #[command(name = "list", about = "Listet gespeicherte Analyse-Notizen.")]
+@@ -729,10 +731,7 @@ struct AnalysisRunAiArgs {
+     temperature: Option<f64>,
+     #[arg(long = "top-p")]
+     top_p: Option<f64>,
+-    #[arg(
+-        long = "dry-run",
+-        help = "Baut nur den Fireworks-Request ohne API-Aufruf."
+-    )]
++    #[arg(long = "dry-run", help = "Baut nur die KI-Anfrage ohne Modellaufruf.")]
+     dry_run: bool,
+     #[arg(long)]
+     pretty: bool,
+@@ -1477,10 +1476,21 @@ fn main() {
+ fn run_from_cli() -> Result<()> {
+     let cli = Cli::parse();
+     match cli.command {
+-        Commands::AiModel => print_json(&json!({
+-            "provider": "fireworks",
+-            "model": deadlock_brain_core::model_resolver::model_for_request()?,
+-        })),
++        Commands::AiModel => {
++            let settings = config::load_settings()?;
++            print_json(&json!({
++                "provider": "openai_chatgpt_subscription",
++                "model": settings.ai_model,
++                "executable": std::env::current_exe()?,
++                "project_root": settings.project_root,
++                "ai_config": settings.project_root.join("config/bot.toml"),
++                "settings_config": settings.project_root.join("config/bot.toml"),
++                "infisical_config": settings.project_root.join("config/bot.toml"),
++                "data_dir": settings.data_dir,
++                "raw_dir": settings.raw_dir,
++                "cache_dir": settings.cache_dir,
++            }))
++        }
+         Commands::Population(args) => dbrain_population::run_population(args),
+         command => {
+             let runtime = tokio::runtime::Builder::new_current_thread()
+@@ -1776,10 +1786,10 @@ async fn run_build_eval(pool: &PgPool, settings: &Settings, args: BuildEvalArgs)
+     let playstyle = args.playstyle.map(BuildPlaystyle::as_str);
+     let build_context = dbrain_builds::build_context(pool, &args.hero, playstyle).await?;
+     let config = AiConfig::from_settings(settings);
+-    if !config.api_key_present() {
++    if !config.subscription_configured() {
+         return print_json(&json!({
+             "build_context": build_context,
+-            "notice": "Fireworks environment is not configured; skipping narration."
++            "notice": "Der lokale KI-Zugang ist nicht eingerichtet; die Beschreibung wird übersprungen."
+         }));
+     }
+ 
+@@ -1822,9 +1832,9 @@ async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs)
+     let candidates =
+         dbrain_builds::spec::build_candidate_set(&build_context, &corpus, &known_item_names);
+     let client = AiClient::from_settings(settings)?;
+-    if !client.config().api_key_present() {
++    if !client.config().subscription_configured() {
+         return Err(anyhow!(
+-            "Fireworks API-Key fehlt. Setze FIREWORK_API_KEY oder FIREWORKS_API_KEY; build-spec braucht das LLM."
++            "Der lokale OpenAI-Abo-Zugang fehlt; build-spec benötigt das konfigurierte Modell."
+         ));
+     }
+ 
+@@ -3544,11 +3554,14 @@ fn print_analysis_result(target: &str, result: &Value) {
+                     .and_then(Value::as_array)
+                     .map(Vec::len)
+                     .unwrap_or(0);
+-                println!("Fireworks dry-run: {}", display_value(get(result, "model")));
+-                println!("Endpoint: {}", display_value(get(result, "endpoint")));
++                println!("KI-Probelauf: {}", display_value(get(result, "model")));
++                println!(
++                    "Lokaler Connector: {}",
++                    display_value(get(result, "endpoint"))
++                );
+                 println!(
+-                    "API key present: {}",
+-                    if bool_value(get(result, "api_key_present")) {
++                    "Abo-Connector eingerichtet: {}",
++                    if bool_value(get(result, "subscription_configured")) {
+                         "yes"
+                     } else {
+                         "no"
+@@ -3559,7 +3572,7 @@ fn print_analysis_result(target: &str, result: &Value) {
+             }
+             let note = get(result, "note").unwrap_or(&Value::Null);
+             println!(
+-                "Fireworks analysis: note={} model={}",
++                "KI-Analyse: note={} model={}",
+                 display_value(get(note, "id")),
+                 display_value(get(result, "model"))
+             );
+@@ -3633,10 +3646,13 @@ fn print_learn_result(target: &str, result: &Value) {
+                     display_value(get(result, "build_id")),
+                     display_value(get(result, "model"))
+                 );
+-                println!("Endpoint: {}", display_value(get(result, "endpoint")));
+                 println!(
+-                    "API key present: {}",
+-                    if bool_value(get(result, "api_key_present")) {
++                    "Lokaler Connector: {}",
++                    display_value(get(result, "endpoint"))
++                );
++                println!(
++                    "Abo-Connector eingerichtet: {}",
++                    if bool_value(get(result, "subscription_configured")) {
+                         "yes"
+                     } else {
+                         "no"
+@@ -3679,8 +3695,8 @@ fn print_learn_result(target: &str, result: &Value) {
+                 }
+             );
+             println!(
+-                "API key present: {}",
+-                if bool_value(get(result, "api_key_present")) {
++                "Abo-Connector eingerichtet: {}",
++                if bool_value(get(result, "subscription_configured")) {
+                     "yes"
+                 } else {
+                     "no"
+@@ -3804,10 +3820,13 @@ fn print_player_result(target: &str, result: &Value) {
+                     display_or(get(result, "hero_name"), "-"),
+                     display_or(get(result, "hero_id"), "-")
+                 );
+-                println!("Endpoint: {}", display_value(get(result, "endpoint")));
+                 println!(
+-                    "API key present: {}",
+-                    if bool_value(get(result, "api_key_present")) {
++                    "Lokaler Connector: {}",
++                    display_value(get(result, "endpoint"))
++                );
++                println!(
++                    "Abo-Connector eingerichtet: {}",
++                    if bool_value(get(result, "subscription_configured")) {
+                         "yes"
+                     } else {
+                         "no"
+@@ -3856,8 +3875,8 @@ fn print_player_result(target: &str, result: &Value) {
+                 }
+             );
+             println!(
+-                "API key present: {}",
+-                if bool_value(get(result, "api_key_present")) {
++                "Abo-Connector eingerichtet: {}",
++                if bool_value(get(result, "subscription_configured")) {
+                     "yes"
+                 } else {
+                     "no"

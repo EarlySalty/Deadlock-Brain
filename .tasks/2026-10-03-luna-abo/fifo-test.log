@@ -1,0 +1,61 @@
+   Compiling tokio v1.52.3
+   Compiling nix v0.29.0
+   Compiling toml_datetime v0.6.11
+   Compiling hyper v1.10.1
+   Compiling tokio-util v0.7.18
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.20
+   Compiling async-compression v0.4.42
+   Compiling tokio-rustls v0.26.4
+   Compiling tower-http v0.6.11
+   Compiling tokio-stream v0.1.18
+   Compiling sqlx-core v0.8.6
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+   Compiling sqlx-postgres v0.8.6
+   Compiling serde_spanned v0.6.9
+   Compiling toml_edit v0.22.27
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-providers)
+   Compiling sqlx v0.8.6
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-builds)
+   Compiling toml v0.8.23
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/deadlock-brain-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 58s
+     Running unittests src/lib.rs (target/debug/deps/deadlock_brain_core-bcb0caa7033f1b9d)
+
+running 31 tests
+test ai::tests::strip_thinking_removes_hidden_blocks ... ok
+test ai::tests::serializes_compatible_token_field ... ok
+test ai::tests::prompt_preserves_messages_and_json_contract ... ok
+test ai::tests::extracts_openai_compatible_text ... ok
+test build_narration::tests::build_narration_prompt_contains_context_items ... ok
+test build_narration::tests::validate_narration_ignores_german_prose_and_keeps_text ... ok
+test config::tests::ai_configuration_selects_subscription_luna ... ok
+test build_narration::tests::validate_narration_allows_build_item_in_text ... ok
+test config::tests::installed_release_root_never_uses_build_source_or_current_directory ... ok
+test config::tests::repo_root_points_at_project ... ok
+test ai::tests::invalid_payload_cannot_bypass_subscription ... ok
+test build_narration::tests::validate_narration_flags_real_item_outside_context_without_changing_text ... ok
+test config::tests::config_files_reject_fifo_symlink_and_oversize_without_blocking ... ok
+test http::tests::rate_limits_are_retryable_server_responses ... ok
+test pg::secrets::tests::environment_names_are_strict ... ok
+test pg::secrets::tests::credential_paths_reject_writerless_fifo_and_symlink_without_blocking ... ok
+test pg::secrets::tests::credential_reads_preserve_offset_and_allow_repeated_pool_setup ... ok
+test pg::secrets::tests::missing_systemd_credential_never_falls_back_to_open_descriptor ... ok
+test config::tests::missing_job_settings_fail_outside_proven_development_checkout ... ok
+test http::bounded::tests::expired_absolute_deadline_never_connects ... ok
+test http::bounded::tests::rate_limit_dates_and_invalid_budgets ... ok
+test http::tests::no_redirect_get_returns_the_redirect_response ... ok
+test http::bounded::tests::absolute_deadline_blocks_retry_after_first_response ... ok
+test http::tests::allow_forbidden_returns_the_body_on_403 ... ok
+test http::bounded::tests::source_reads_preserve_compressed_bytes_without_changing_legacy_decoding ... ok
+test http::bounded::tests::preserves_bytes_and_safe_headers_without_cache ... ok
+test http::tests::post_json_sends_body_and_reads_response ... ok
+test http::bounded::tests::redirects_and_client_errors_are_not_retried ... ok
+test http::bounded::tests::bounded_retry_and_rate_limit_defer ... ok
+test http::bounded::tests::bounds_declared_and_chunked_bodies ... ok
+test http::bounded::tests::timeout_is_bounded ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+

@@ -1,0 +1,12 @@
+{
+  "ai_config": "/opt/deadlock-brain/fifo-audit/619dcb06d621f812699460427fa6d57fae056bb5/legacy/build-data/config/bot.toml",
+  "cache_dir": "/home/nathanael/.worktrees/brain-live-main/data/cache",
+  "data_dir": "/home/nathanael/.worktrees/brain-live-main/data",
+  "executable": "/opt/deadlock-brain/fifo-audit/619dcb06d621f812699460427fa6d57fae056bb5/legacy/build-data/deadlock-brain",
+  "infisical_config": "/opt/deadlock-brain/fifo-audit/619dcb06d621f812699460427fa6d57fae056bb5/legacy/build-data/config/bot.toml",
+  "model": "gpt-6-luna",
+  "project_root": "/opt/deadlock-brain/fifo-audit/619dcb06d621f812699460427fa6d57fae056bb5/legacy/build-data",
+  "provider": "openai_chatgpt_subscription",
+  "raw_dir": "/home/nathanael/.worktrees/brain-live-main/data/raw",
+  "settings_config": "/opt/deadlock-brain/fifo-audit/619dcb06d621f812699460427fa6d57fae056bb5/legacy/build-data/config/bot.toml"
+}

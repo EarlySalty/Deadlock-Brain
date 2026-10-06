@@ -1,0 +1,161 @@
+   Compiling tokio v1.52.3
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-reasoner)
+   Compiling tokio-util v0.7.18
+   Compiling hyper v1.10.1
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.20
+   Compiling tokio-rustls v0.26.4
+   Compiling async-compression v0.4.42
+   Compiling tower-http v0.6.11
+   Compiling hyper-rustls v0.27.9
+   Compiling tokio-stream v0.1.18
+   Compiling reqwest v0.12.28
+   Compiling sqlx-core v0.8.6
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-providers)
+   Compiling sqlx-postgres v0.8.6
+   Compiling tokio-postgres v0.7.18
+   Compiling postgres v0.19.14
+   Compiling sqlx v0.8.6
+   Compiling axum v0.8.9
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-builds)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/deadlock-brain-core)
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-storage)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-population)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-wiki)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-sources)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-api)
+   Compiling dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-ingestion)
+   Compiling brain-jev v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-jev)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/dbrain-retrieval)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-serve)
+   Compiling brain-maintenance v0.1.0 (/home/nathanael/.worktrees/brain-luna-abo-20261003/rust/crates/brain-maintenance)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 23s
+     Running unittests src/lib.rs (target/debug/deps/brain_maintenance-a5cd33498be0beeb)
+
+running 24 tests
+test author::tests::schemas_reject_extra_fields ... ok
+test config::tests::target_escape_and_environment_files_are_rejected ... ok
+test config::tests::branch_resolution_accepts_only_origin_refs ... ok
+test author::tests::reviewer_modes_preserve_normal_updates_and_allow_authorized_new_text ... ok
+test integration::runner::tests::postgres_local_query_skips_denied_documents_and_preserves_other_results ... ignored, Benötigt den ausdrücklich isolierten PostgreSQL-Prüfcluster; exklusiv ausführen
+test integration::runner::tests::postgres_paid_invalid_results_are_terminal_and_keep_private_receipts ... ignored, Benötigt den ausdrücklich isolierten PostgreSQL-Prüfcluster; exklusiv ausführen
+test integration::runner::tests::postgres_runner_private_basis_reset_and_rejected_review_resume ... ignored, Benötigt den ausdrücklich isolierten PostgreSQL-Prüfcluster; exklusiv ausführen
+test integration::runner::tests::postgres_selected_tick_claims_only_exact_job_and_unknown_id_claims_none ... ignored, Benötigt den ausdrücklich isolierten PostgreSQL-Prüfcluster; exklusiv ausführen
+test scanner::tests::sensitive_paths_and_data_are_never_exported ... ok
+test html::tests::text_only_extraction_keeps_caption_and_alt_and_excludes_script ... ok
+test html::tests::entities_and_active_content_are_rejected ... ok
+test html::tests::table_caption_keeps_text_without_active_attributes ... ok
+test author::tests::run_receipts_observe_real_exit_and_rejected_events ... ok
+test html::tests::unchanged_inline_style_allows_changed_text_but_rejects_attribute_changes ... ok
+test integration::artifacts::tests::content_addressed_artifacts_replay_without_overwrite_and_detect_damage ... ok
+test integration::scan_checkpoint::tests::raw_document_bytes_are_not_retained_in_scan_checkpoint ... ok
+test config::tests::output_paths_enforce_policy_and_unique_ownership ... ok
+test scanner::tests::platform_identifiers_in_code_remain_local ... ok
+test integration::config_writer::tests::config_lock_wait_keeps_tokio_worker_available ... ok
+test html::tests::table_header_scope_accepts_only_semantic_header_values ... ok
+test integration::config_writer::tests::operator_config_and_activation_share_lock_and_preserve_changed_rollback_basis ... ok
+test integration::runner::tests::local_operator_reloads_internal_scopes_without_provider_egress ... ok
+test integration::runner::tests::publication_release_identity_accepts_short_and_utf8_job_ids ... ok
+test author::tests::paid_results_are_durable_before_parsing_and_resume_never_pays_twice ... ok
+
+test result: ok. 20 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+     Running unittests src/bin/brain-maintain.rs (target/debug/deps/brain_maintain-c3ad1489227939b6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/workflow.rs (target/debug/deps/workflow-382dff0d1e351c40)
+
+running 14 tests
+test postgres_revocation_after_scan_blocks_actual_provider_dispatch ... ignored, requires dedicated /tmp/brain-maintenance-test-20261002/socket PostgreSQL fixture
+test codex_tool_events_are_rejected_even_on_successful_turns ... ok
+test persisted_scan_cannot_resume_after_registry_revoke ... ok
+test scan_references_keep_hashes_and_rehydrate_without_retaining_raw_text ... ok
+test source_rollback_creates_new_transition_but_unchanged_tick_has_none ... ok
+test legacy_core_html_release_projects_without_mutating_historical_provenance ... ok
+test provider_dispatch_rejects_foreign_or_unregistered_evidence ... ok
+test document_export_is_guarded_before_any_provider_call ... ok
+test resumed_proofs_and_changed_source_are_rejected_before_staging ... ok
+test export_approval_revocation_blocks_cached_review_and_feedback_before_call ... ok
+test staging_does_not_touch_canonical_docs_and_uses_document_policy ... ok
+test markdown_keep_retains_format_and_resume_path ... ok
+test code_only_migration_keeps_previous_private_text_local_and_binds_all_rights ... ok
+test pinned_source_ignores_dirty_checkout_and_doc_only_commits ... ok
+
+test result: ok. 13 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.83s
+
+     Running unittests src/lib.rs (target/debug/deps/brain_providers-c959bbb405f9f919)
+
+running 16 tests
+test circuit::tests::circuit_opens_allows_one_probe_and_recovers ... ok
+test circuit::tests::failed_probe_restarts_cooldown ... ok
+test hardening::tests::cost_overflow_fails_closed ... ok
+test codex::tests::refuses_zero_budget_before_starting_a_process ... ok
+test codex::tests::rejects_tool_events_and_incomplete_turns ... ok
+test tests::debug_redacts_token ... ok
+test hardening::tests::endpoint_and_price_are_explicit ... ok
+test codex::tests::accepts_completed_answers_and_rejects_excess_usage ... ok
+test process::tests::oversized_output_is_an_error ... ok
+test process::tests::stdin_is_closed_before_waiting_for_the_child ... ok
+test tests::zero_round_budget_blocks_before_network ... ok
+test tests::retries_rate_limit_and_parses_typed_response ... ok
+test tests::invalid_json_is_rejected_without_fallback ... ok
+test tests::request_budget_limits_retries_and_output_tokens ... ok
+test process::tests::dropping_the_future_stops_wrapper_and_child_process ... ok
+test process::tests::timeout_stops_wrapper_and_child_process ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/faults.rs (target/debug/deps/faults-815a5c079de0903e)
+
+running 7 tests
+test cancelled_provider_and_embedding_calls_never_open_a_connection ... ok
+test cost_input_and_egress_fail_before_any_socket ... ok
+test server_error_retries_but_retry_after_beyond_deadline_does_not ... ok
+test cancellation_during_first_provider_attempt_prevents_a_retry ... ok
+test embeddings_restore_indices_and_reject_duplicates_or_dimension_errors ... ok
+test authentication_redirect_and_missing_usage_do_not_retry ... ok
+test bounded_chunked_response_and_timeout_are_errors ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running unittests src/lib.rs (target/debug/deps/deadlock_brain_core-22bd402e94946458)
+
+running 29 tests
+test ai::tests::invalid_payload_cannot_bypass_subscription ... ok
+test config::tests::installed_release_root_never_uses_build_source_or_current_directory ... ok
+test ai::tests::serializes_compatible_token_field ... ok
+test ai::tests::prompt_preserves_messages_and_json_contract ... ok
+test config::tests::repo_root_points_at_project ... ok
+test ai::tests::extracts_openai_compatible_text ... ok
+test ai::tests::strip_thinking_removes_hidden_blocks ... ok
+test build_narration::tests::build_narration_prompt_contains_context_items ... ok
+test build_narration::tests::validate_narration_allows_build_item_in_text ... ok
+test build_narration::tests::validate_narration_flags_real_item_outside_context_without_changing_text ... ok
+test build_narration::tests::validate_narration_ignores_german_prose_and_keeps_text ... ok
+test http::tests::rate_limits_are_retryable_server_responses ... ok
+test pg::secrets::tests::credential_reads_preserve_offset_and_allow_repeated_pool_setup ... ok
+test pg::secrets::tests::environment_names_are_strict ... ok
+test pg::secrets::tests::missing_systemd_credential_never_falls_back_to_open_descriptor ... ok
+test config::tests::ai_configuration_selects_subscription_luna ... ok
+test config::tests::missing_job_settings_fail_outside_proven_development_checkout ... ok
+test http::bounded::tests::expired_absolute_deadline_never_connects ... ok
+test http::bounded::tests::rate_limit_dates_and_invalid_budgets ... ok
+test http::bounded::tests::absolute_deadline_blocks_retry_after_first_response ... ok
+test http::tests::no_redirect_get_returns_the_redirect_response ... ok
+test http::tests::post_json_sends_body_and_reads_response ... ok
+test http::bounded::tests::source_reads_preserve_compressed_bytes_without_changing_legacy_decoding ... ok
+test http::bounded::tests::bounds_declared_and_chunked_bodies ... ok
+test http::bounded::tests::preserves_bytes_and_safe_headers_without_cache ... ok
+test http::tests::allow_forbidden_returns_the_body_on_403 ... ok
+test http::bounded::tests::redirects_and_client_errors_are_not_retried ... ok
+test http::bounded::tests::bounded_retry_and_rate_limit_defer ... ok
+test http::bounded::tests::timeout_is_bounded ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+

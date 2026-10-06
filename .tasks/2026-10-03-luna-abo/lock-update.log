@@ -1,0 +1,8 @@
+     Locking 6 packages to latest compatible versions
+      Adding serde_spanned v0.6.9
+      Adding toml v0.8.23 (available: v1.1.6+spec-1.1.0)
+      Adding toml_datetime v0.6.11
+      Adding toml_edit v0.22.27
+      Adding toml_write v0.1.2
+      Adding winnow v0.7.15
+note: pass `--verbose` to see 123 unchanged dependencies behind latest
