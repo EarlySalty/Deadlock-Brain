@@ -63,6 +63,13 @@ pub(crate) fn validate_bound_manifest(
             .filter(|record| {
                 record.visibility == SourceVisibility::Public
                     && record.allowed_scopes.is_subset(&scopes)
+                    && (record.allowed_scopes == scopes
+                        || (!record.tombstone
+                            && !snapshot.heads.iter().any(|head| {
+                                head.source_id == record.source_id
+                                    && head.logical_id == record.logical_id
+                                    && head.tombstone
+                            })))
             })
             .collect();
         if !public.iter().any(|record| record.allowed_scopes == scopes)
@@ -483,6 +490,26 @@ mod binding_tests {
         origin.bind_record(&mut snapshot.revisions[0]).unwrap();
         snapshot.heads[0] = snapshot.revisions[0].clone();
         assert!(validate_bound_scope(&snapshot, "bot.public").is_ok());
+        let mut retired = snapshot.revisions[1].clone();
+        retired.logical_id = "retired-hero".into();
+        retired.revision = 2;
+        retired.tombstone = true;
+        snapshot
+            .release
+            .source_revisions
+            .get_mut(&retired.source_id)
+            .unwrap()
+            .insert(retired.logical_id.clone(), retired.revision);
+        snapshot.revisions.push(retired.clone());
+        snapshot.heads.push(retired);
+        assert!(validate_bound_scope(&snapshot, "bot.public").is_ok());
+        snapshot.revisions[2].tombstone = false;
+        snapshot.revisions[2].revision = 1;
+        snapshot.release.source_revisions.get_mut("git-game-facts-derived").unwrap().insert("retired-hero".into(), 1);
+        assert!(validate_bound_scope(&snapshot, "bot.public").is_ok());
+        let mut denied = snapshot.clone();
+        denied.heads[0].tombstone = true;
+        assert!(validate_bound_scope(&denied, "bot.public").is_err());
         snapshot.revisions[0].allowed_scopes = BTreeSet::from(["docs.public".into()]);
         let old_source = snapshot.revisions[0].source_id.clone();
         snapshot.revisions[0].source_id = "docs-c9-public:Deadlock-Docs".into();
