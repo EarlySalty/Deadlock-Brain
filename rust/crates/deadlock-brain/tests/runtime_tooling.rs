@@ -151,6 +151,75 @@ fn pull_uses_explicit_config_without_hidden_environment_overrides() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("never implicit HEAD"));
 }
 
+#[tokio::test]
+#[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+async fn enrichment_cli_exits_on_failed_batches_and_keeps_their_summary() {
+    let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").expect("scratch Postgres required");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&dsn)
+        .await
+        .expect("scratch Postgres");
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        cli()
+            .env("DEADLOCK_CENTRAL_DSN", &dsn)
+            .env("DEADLOCK_BRAIN_DATA_DIR", dir.path())
+            .env("FIREWORKS_BASE_URL", "http://127.0.0.1:1")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let args = ["enrich", "patch-impact", "--limit", "1"];
+    let empty = run(&args);
+    assert_eq!(empty.status.code(), Some(0));
+    let empty: Value = serde_json::from_slice(&empty.stdout).unwrap();
+    assert_eq!(empty["processed"], 0);
+    assert_eq!(empty["failed"], 0);
+
+    let event_id: i64 = sqlx::query_scalar(
+        "INSERT INTO brain.patch_events (legacy_patch_snapshot_id, patch_external_id, source_kind, line_index, entity_type, entity_name, change_type, raw_line, normalized_line, confidence, event_hash, created_at) VALUES (0, 'fixture-cli', 'patch_notes', 1, 'hero', 'FixtureCliBatch', 'buff', 'Cooldown increased from 10s to 12s', 'Cooldown increased from 10s to 12s', 1.0, 'fixture-cli-batch', now()) RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("fixture event");
+    let failed = run(&args);
+    assert_eq!(failed.status.code(), Some(1));
+    let summary: Value = serde_json::from_slice(&failed.stdout).unwrap();
+    assert_eq!(summary["processed"], 1);
+    assert_eq!(summary["success"], 0);
+    assert_eq!(summary["failed"], 1);
+    let (status, result_text): (String, String) = sqlx::query_as(
+        "SELECT status, result_text FROM brain.patch_impact_notes WHERE entity_name = 'FixtureCliBatch'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("saved diagnostic");
+    assert_eq!(status, "analysis_failed");
+    assert!(!result_text.is_empty());
+    let retry = run(&args);
+    assert_eq!(retry.status.code(), Some(1));
+    let retry: Value = serde_json::from_slice(&retry.stdout).unwrap();
+    assert_eq!(retry["processed"], 1);
+    assert_eq!(retry["failed"], 1);
+
+    let meta = run(&["enrich", "meta-trends"]);
+    assert_eq!(meta.status.code(), Some(1));
+    let meta: Value = serde_json::from_slice(&meta.stdout).unwrap();
+    assert_eq!(meta["processed"], 2);
+    assert_eq!(meta["success"], 0);
+    assert_eq!(meta["failed"], 2);
+    sqlx::query("DELETE FROM brain.patch_impact_notes WHERE entity_name = 'FixtureCliBatch'")
+        .execute(&pool)
+        .await
+        .expect("cleanup note");
+    sqlx::query("DELETE FROM brain.patch_events WHERE id = $1")
+        .bind(event_id)
+        .execute(&pool)
+        .await
+        .expect("cleanup event");
+}
+
 fn executable(path: &Path, content: &str) {
     fs::write(path, content).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
@@ -166,8 +235,6 @@ fn completion_runner_is_nonmutating_and_propagates_failure() {
     let script_text = fs::read_to_string(&script).unwrap();
     assert!(!script_text.contains("python3"));
     let before = git(&root, &["status", "--short"]);
-    // These stubs test orchestration and failure propagation, not Rust correctness.
-    // Real workspace and completion suites are run separately with the actual toolchain.
     for fail in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let tools = dir.path().join("tools");

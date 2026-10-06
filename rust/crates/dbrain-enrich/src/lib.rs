@@ -656,14 +656,14 @@ pub async fn save_patch_impact_note(
 
     let mut final_status = status.to_string();
     let mut insights_json = "{}".to_string();
-    if let Some(result_text) = result_text.filter(|text| !text.is_empty()) {
-        if final_status == "analysis_ready" {
-            let text = extract_json_text(result_text);
-            if serde_json::from_str::<Value>(&text).is_ok() {
-                insights_json = text;
-            } else {
-                final_status = "analysis_failed".to_string();
-            }
+    if final_status == "analysis_ready" {
+        if let Some(text) = result_text
+            .map(extract_json_text)
+            .filter(|text| serde_json::from_str::<Value>(text).is_ok())
+        {
+            insights_json = text;
+        } else {
+            final_status = "analysis_failed".to_string();
         }
     }
 
@@ -749,7 +749,7 @@ where
         match chat(&request_info.request) {
             Ok(response) => {
                 let result_text = extract_ai_text(&response);
-                save_patch_impact_note(
+                let note = save_patch_impact_note(
                     pool,
                     &context,
                     &request_info.prompt_text,
@@ -758,7 +758,11 @@ where
                     "analysis_ready",
                 )
                 .await?;
-                success += 1;
+                if note.status == "analysis_ready" {
+                    success += 1;
+                } else {
+                    failed += 1;
+                }
             }
             Err(error) => {
                 let result_text = error.to_string();
@@ -2003,6 +2007,22 @@ mod tests {
         assert!(insights.contains("\"trend\""));
         assert!(insights.contains("mixed"));
 
+        for result_text in [Some("not json"), Some(""), Some(" \n "), None] {
+            let failed = save_patch_impact_note(
+                &pool,
+                &context,
+                &request.prompt_text,
+                result_text,
+                &config.model,
+                "analysis_ready",
+            )
+            .await
+            .expect("save failed note");
+            assert_eq!(failed.status, "analysis_failed");
+            assert_eq!(failed.id, summary.id);
+            assert_eq!(failed.hash, summary.hash);
+        }
+
         sqlx::query("DELETE FROM brain.patch_impact_notes WHERE entity_name = $1")
             .bind(&entity_name)
             .execute(&pool)
@@ -2015,6 +2035,91 @@ mod tests {
             .execute(&pool)
             .await
             .expect("cleanup entity");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+    async fn patch_impact_batches_preserve_partial_results_and_retry_failed_notes() {
+        let pool = test_pool().await.expect("scratch Postgres required");
+        let snapshot_id = insert_snapshot(&pool).await;
+        let suffix = unique_suffix();
+        let names = ["Ready", "ProviderError", "InvalidResponse"]
+            .map(|name| format!("Fixture-{name}-{suffix}"));
+        let mut hashes = Vec::new();
+        for name in &names {
+            let hash = format!("batch-{name}");
+            insert_patch_event(
+                &pool,
+                snapshot_id,
+                name,
+                "Cooldown increased from 10s to 12s",
+                &hash,
+            )
+            .await;
+            hashes.push(hash);
+        }
+        let config = test_config();
+        let summary = run_patch_impact_batch_with_chat(&pool, &config, 10, |request| {
+            let prompt = &request.messages[0].content;
+            if prompt.contains(&names[1]) {
+                Err(EnrichError::Core(core::CoreError::MissingFireworksApiKey))
+            } else {
+                let content = if prompt.contains(&names[2]) {
+                    "not json"
+                } else {
+                    "{\"trend\":\"mixed\"}"
+                };
+                Ok(json!({"choices": [{"message": {"content": content}}]}))
+            }
+        })
+        .await
+        .expect("complete batch");
+        assert_eq!(summary.processed, 3);
+        assert_eq!(summary.success, 1);
+        assert_eq!(summary.failed, 2);
+        for (index, name) in names.iter().enumerate() {
+            let (id, status, text): (i64, String, String) = sqlx::query_as(
+                "SELECT id, status, result_text FROM brain.patch_impact_notes WHERE entity_name = $1",
+            )
+            .bind(name)
+            .fetch_one(&pool)
+            .await
+            .expect("saved note");
+            assert!(id > 0);
+            assert_eq!(
+                status,
+                if index == 0 {
+                    "analysis_ready"
+                } else {
+                    "analysis_failed"
+                }
+            );
+            assert!(!text.is_empty());
+        }
+        let retry = run_patch_impact_batch_with_chat(&pool, &config, 10, |_| {
+            Ok(json!({"choices": [{"message": {"content": "{\"trend\":\"mixed\"}"}}]}))
+        })
+        .await
+        .expect("retry batch");
+        assert_eq!(retry.processed, 2);
+        assert_eq!(retry.success, 2);
+        assert_eq!(retry.failed, 0);
+        let empty = run_patch_impact_batch_with_chat(&pool, &config, 10, |_| {
+            panic!("completed targets must not be called again")
+        })
+        .await
+        .expect("empty batch");
+        assert_eq!(empty.processed, 0);
+        assert_eq!(empty.failed, 0);
+        for (name, hash) in names.iter().zip(&hashes) {
+            sqlx::query("DELETE FROM brain.patch_impact_notes WHERE entity_name = $1")
+                .bind(name)
+                .execute(&pool)
+                .await
+                .expect("cleanup note");
+            cleanup_patch_event(&pool, hash).await;
+        }
+        cleanup_snapshot(&pool, snapshot_id).await;
     }
 
     #[tokio::test]
