@@ -149,6 +149,11 @@ impl OpenAiCompatibleProvider {
                 "provider usage missing" => "usage_missing",
                 "grounded answer envelope missing" => "grounded_envelope",
                 "unknown, duplicate or missing citation" => "citation_invalid",
+                "invalid provider context or query egress" => "context_egress_denied",
+                "evidence egress denied" => "evidence_egress_denied",
+                "request evidence denied" => "request_evidence_denied",
+                "invalid evidence" => "evidence_invalid",
+                "too many evidence items" => "evidence_count",
                 _ => "invalid_response",
             }
             .into(),
@@ -216,7 +221,8 @@ impl AnswerProviderPort for OpenAiCompatibleProvider {
         if context.budget.max_network_rounds == 0 || context.budget.max_output_tokens == 0 {
             return Err(PortError::BudgetExceeded);
         }
-        if hardening::authorize(query, context, evidence).is_err() {
+        if let Err(error) = hardening::authorize(query, context, evidence) {
+            self.report_failure(&error);
             return Err(PortError::InvalidResponse(
                 "provider context or egress denied".into(),
             ));
