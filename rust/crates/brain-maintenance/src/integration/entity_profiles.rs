@@ -53,6 +53,31 @@ pub(super) fn refresh_failure(error: &anyhow::Error) -> serde_json::Value {
         if let Some(database) = database.as_database_error() {
             status["sqlstate"] = serde_json::json!(database.code());
         }
+    } else if let Some(port) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<brain_contracts::PortError>())
+    {
+        let (class, sqlstate) = match port {
+            brain_contracts::PortError::Unavailable(message)
+                if message == "postgres_query_cancelled" =>
+            {
+                ("query_cancelled", Some("57014"))
+            }
+            brain_contracts::PortError::Unavailable(message)
+                if message == "postgres_lock_not_available" =>
+            {
+                ("lock_not_available", Some("55P03"))
+            }
+            brain_contracts::PortError::Unavailable(_) => ("unavailable", None),
+            brain_contracts::PortError::BudgetExceeded => ("budget_exceeded", None),
+            brain_contracts::PortError::InvalidResponse(_) => ("invalid_response", None),
+            _ => ("port_error", None),
+        };
+        status["cause"] = serde_json::json!("Steckbriefaktualisierung abgebrochen");
+        status["error_class"] = serde_json::json!(class);
+        if let Some(sqlstate) = sqlstate {
+            status["sqlstate"] = serde_json::json!(sqlstate);
+        }
     } else if let Some(io) = error.downcast_ref::<std::io::Error>() {
         status["cause"] = serde_json::json!(format!("Dateizugriff: {:?}", io.kind()));
     } else {
@@ -1190,6 +1215,44 @@ mod tests {
             .to_string()
             .contains("Nutzwert"));
         pool.close().await;
+    }
+
+    #[test]
+    fn refresh_failure_preserves_safe_nested_port_classes() {
+        for (port, class, sqlstate) in [
+            (
+                brain_contracts::PortError::Unavailable("postgres_query_cancelled".into()),
+                "query_cancelled",
+                Some("57014"),
+            ),
+            (
+                brain_contracts::PortError::Unavailable("postgres_lock_not_available".into()),
+                "lock_not_available",
+                Some("55P03"),
+            ),
+            (
+                brain_contracts::PortError::InvalidResponse(
+                    "SELECT privater_Nutzwert FROM geheime_Daten".into(),
+                ),
+                "invalid_response",
+                None,
+            ),
+            (
+                brain_contracts::PortError::Unavailable("privater_Nutzwert".into()),
+                "unavailable",
+                None,
+            ),
+        ] {
+            let error = anyhow::Error::new(port).context("privater_Nutzwert im Kontext");
+            let status = refresh_failure(&error);
+            assert_eq!(status["error_class"], class);
+            assert_eq!(
+                status.get("sqlstate").and_then(serde_json::Value::as_str),
+                sqlstate
+            );
+            assert!(!status.to_string().contains("privater_Nutzwert"));
+            assert!(!status.to_string().contains("SELECT"));
+        }
     }
 
     #[tokio::test]
