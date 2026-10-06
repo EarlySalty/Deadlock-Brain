@@ -12,10 +12,15 @@ use axum::{
     middleware::{self, Next},
     response::Response,
 };
-use brain_contracts::{PortError, SnapshotReadPort};
+use brain_contracts::{
+    AnswerProviderPort, AuthorizedContext, Evidence, PortError, ProviderAnswer, Query,
+    SnapshotReadPort,
+};
 use brain_kernel::{CachedKernel, Kernel};
 use brain_policy::{CredentialRegistry, PolicyEngine};
-use brain_providers::{OpenAiCompatibleProvider, PriceCeiling, ProviderConfig};
+use brain_providers::{
+    CodexSubscriptionProvider, OpenAiCompatibleProvider, PriceCeiling, ProviderConfig,
+};
 use brain_storage::{LocalPgPoolStats, LocalPgReader};
 use dbrain_retrieval::ReleaseRetriever;
 use std::{
@@ -116,10 +121,30 @@ impl Shutdown {
 
 /// Built before entering Tokio so reqwest's blocking client is created/dropped outside it.
 /// The retained provider clone also outlives all API workers during shutdown.
+#[derive(Clone)]
+enum AnswerProvider {
+    OpenAi(OpenAiCompatibleProvider),
+    Subscription(CodexSubscriptionProvider),
+}
+
+impl AnswerProviderPort for AnswerProvider {
+    fn answer(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> Result<ProviderAnswer, PortError> {
+        match self {
+            Self::OpenAi(provider) => provider.answer(query, context, evidence),
+            Self::Subscription(provider) => provider.answer(query, context, evidence),
+        }
+    }
+}
+
 pub struct Prepared {
     pub config: Config,
     reader: LocalPgReader,
-    provider: OpenAiCompatibleProvider,
+    provider: AnswerProvider,
     credentials: CredentialRegistry,
     internal_credentials: CredentialRegistry,
     analytics: Option<Arc<AnalyticsRuntime>>,
@@ -181,11 +206,16 @@ impl Prepared {
                     .collect(),
             )
             .map_err(|_| Error::ReaderConfig)?;
-        let mut provider_config = ProviderConfig::new(
-            provider_key,
-            &config.provider.base_url,
-            &config.provider.model,
-        );
+        let mut provider_config = match config.provider.kind {
+            ProviderKind::CodexSubscription => {
+                ProviderConfig::codex_subscription(&config.provider.base_url)
+            }
+            ProviderKind::OpenaiCompatible => ProviderConfig::new(
+                provider_key,
+                &config.provider.base_url,
+                &config.provider.model,
+            ),
+        };
         provider_config.timeout = Duration::from_millis(t.provider_ms);
         provider_config.retry_attempts = config.provider.retry_attempts;
         provider_config.retry_backoff = Duration::from_millis(config.provider.retry_backoff_ms);
@@ -195,7 +225,12 @@ impl Prepared {
             output_micros_per_token: price.output_micros_per_token,
         });
         let provider = match config.provider.kind {
-            ProviderKind::OpenaiCompatible => OpenAiCompatibleProvider::new(provider_config),
+            ProviderKind::OpenaiCompatible => {
+                OpenAiCompatibleProvider::new(provider_config).map(AnswerProvider::OpenAi)
+            }
+            ProviderKind::CodexSubscription => {
+                CodexSubscriptionProvider::new(provider_config).map(AnswerProvider::Subscription)
+            }
         }
         .map_err(|_| Error::ProviderConfig)?;
         let analytics = config

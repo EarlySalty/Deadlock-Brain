@@ -79,6 +79,7 @@ pub struct Provider {
     pub base_url: String,
     pub model: String,
     /// Historical JSON key; the value names the explicit Infisical snapshot entry.
+    #[serde(default)]
     pub api_key_env: String,
     pub retry_attempts: usize,
     pub retry_backoff_ms: u64,
@@ -90,6 +91,7 @@ pub struct Provider {
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
     OpenaiCompatible,
+    CodexSubscription,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -408,7 +410,20 @@ impl Config {
                 && (endpoint.scheme() == "https" || (endpoint.scheme() == "http" && loopback))
                 && (loopback || p.pricing.is_some())
                 && identifier(&p.model, 512)
-                && secret_name(&p.api_key_env)
+                && match p.kind {
+                    ProviderKind::OpenaiCompatible => secret_name(&p.api_key_env),
+                    ProviderKind::CodexSubscription => {
+                        p.api_key_env.is_empty()
+                            && p.model == "gpt-6-luna"
+                            && endpoint.host_str().is_some_and(|host| {
+                                host.trim_matches(['[', ']'])
+                                    .parse::<std::net::IpAddr>()
+                                    .is_ok_and(|ip| ip.is_loopback())
+                            })
+                            && p.retry_attempts == 1
+                            && p.pricing.is_none()
+                    }
+                }
                 && (1..=8).contains(&p.retry_attempts)
                 && p.retry_backoff_ms <= 10_000
                 && (128..=8 * 1024 * 1024).contains(&p.max_response_bytes),
@@ -498,7 +513,10 @@ impl Config {
                 "discord_consumers",
             )?;
         }
-        let mut names = BTreeSet::from([p.api_key_env.as_str()]);
+        let mut names = BTreeSet::new();
+        if !p.api_key_env.is_empty() {
+            names.insert(p.api_key_env.as_str());
+        }
         if let Some(name) = pg.password_env.as_deref() {
             require(names.insert(name), "secret_references")?;
         }

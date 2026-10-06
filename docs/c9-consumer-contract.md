@@ -43,3 +43,23 @@ Die Abnahme umfasst Scope-, Principal- und Release-Isolation, fehlende Releases,
 Die drei gemeinsam geänderten Serve-Dateien werden mit dem getrennten Brain-Provider-Eigenanteil kombiniert und vollständig geprüft. Der Peer verantwortet seine Provider-/Modellverdrahtung; C9 führt keinen eigenen Modellwechsel durch. Die lokale Codex-CLI hat keinen belegten harten Ausgabetokendeckel. Vorabbudget und nachträgliche Verbrauchsprüfung sind keine harte Deckelgarantie. Nullbudget, deaktiviertes Toolschema, Timeout, Prozessgruppen und Bytegrenzen benötigen Laufzeitbelege am finalen Peerstand. Der interne Operatorweg bleibt ohne LLM/Egress.
 
 Der konkrete Gruppenstatus, Pakethashes, Bootstrapentwurf und finalen Köpfe stehen im gemeinsamen Taskordner unter `C9-GRUPPENVERTRAG.json`, `DOCS-C9-VERTRAG.json` und den beiden Release-Manifesten. Ein Komponentengate ersetzt die gemeinsame Abnahme nicht. Vor Gruppen-ALLOW erfolgen kein produktiver Import, Grant, Serverstart oder Einzelmerge.
+# GPT Luna über das Abo
+
+Deadlock-Brain hat einen eigenen `CodexSubscriptionProvider` am bestehenden
+`AnswerProviderPort`. Er verwendet GPT Luna (`gpt-6-luna`) über die vorhandene
+Codex-Anmeldung mit ChatGPT-Abo. Die Anbieter-Konfiguration steht in
+`config/codex-subscription-provider.example.json`. Für diesen Weg wird kein
+API-Schlüssel geladen und keine bezahlte API als Ersatz angesprochen.
+
+Der Adapter spricht das Nachrichtenformat der vorhandenen Rust-Brücke
+`claude-code-proxy` 0.1.43 auf einer eigenen Loopback-Adresse. Die Dienstinstanz
+muss geerbte Modell-, Anbieter- und Transport-Overrides entfernen. Die Antwort
+allein bestätigt das effektive Modell nicht, da die Brücke den angefragten Namen
+zurückgibt. Die feste Modellroute und die isolierte Dienstkonfiguration sichern
+die Auswahl. Fremde Proxyinstanzen behalten ihre Konfiguration.
+
+Anfragen enthalten ausschließlich Systemtext und Nutzerdaten, keine Werkzeuge.
+Die Denktiefe ist `low`; Denkblöcke werden verworfen. Quellenprüfung,
+Berechtigungen, Egress und Nutzungsgrenzen bleiben im Brain. Das Abo hat keinen
+hinterlegten API-Tokenpreis. Die Brücke garantiert keine harte Obergrenze über
+`max_tokens`; gemeldete Nutzung oberhalb des Brain-Budgets wird verworfen.

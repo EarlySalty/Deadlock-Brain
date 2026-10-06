@@ -13,13 +13,14 @@ use thiserror::Error;
 #[derive(Clone)]
 pub struct ProviderConfig {
     api_key: String,
+    subscription: bool,
     pub base_url: String,
     pub model: String,
     pub timeout: Duration,
     pub retry_attempts: usize,
     pub retry_backoff: Duration,
     pub max_response_bytes: usize,
-    /// Explicit price ceiling. None is permitted only for a loopback fixture server.
+    /// Explizite Preisobergrenze. Ohne Preis nur Loopback-Testserver oder Abo-Brücke.
     pub pricing: Option<PriceCeiling>,
 }
 
@@ -57,6 +58,7 @@ impl ProviderConfig {
     ) -> Self {
         Self {
             api_key: api_key.into(),
+            subscription: false,
             base_url: base_url.into(),
             model: model.into(),
             timeout: Duration::from_secs(20),
@@ -65,6 +67,13 @@ impl ProviderConfig {
             max_response_bytes: 2 * 1024 * 1024,
             pricing: None,
         }
+    }
+
+    pub fn codex_subscription(base_url: impl Into<String>) -> Self {
+        let mut config = Self::new("", base_url, "gpt-6-luna");
+        config.subscription = true;
+        config.retry_attempts = 1;
+        config
     }
 }
 
@@ -94,6 +103,30 @@ pub struct OpenAiCompatibleProvider {
     config: ProviderConfig,
     circuit: std::sync::Arc<std::sync::Mutex<circuit::Circuit>>,
     reported_failures: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
+}
+
+/// Eigener Brain-Adapter für GPT Luna über die vorhandene Codex-Abo-Anmeldung.
+#[derive(Debug, Clone)]
+pub struct CodexSubscriptionProvider(OpenAiCompatibleProvider);
+
+impl CodexSubscriptionProvider {
+    pub fn new(config: ProviderConfig) -> Result<Self> {
+        if !config.subscription {
+            return Err(ProviderError::InvalidConfig);
+        }
+        OpenAiCompatibleProvider::new(config).map(Self)
+    }
+}
+
+impl AnswerProviderPort for CodexSubscriptionProvider {
+    fn answer(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> std::result::Result<ProviderAnswer, PortError> {
+        self.0.answer(query, context, evidence)
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -173,13 +206,28 @@ impl OpenAiCompatibleProvider {
     }
 
     pub fn new(config: ProviderConfig) -> Result<Self> {
-        if config.api_key.trim().is_empty()
+        if (!config.subscription && config.api_key.trim().is_empty())
             || config.base_url.trim().is_empty()
             || config.model.trim().is_empty()
         {
             return Err(ProviderError::InvalidConfig);
         }
         hardening::validate_endpoint(&config)?;
+        if config.subscription {
+            let url =
+                reqwest::Url::parse(&config.base_url).map_err(|_| ProviderError::InvalidConfig)?;
+            if !url.host_str().is_some_and(|host| {
+                host.trim_matches(['[', ']'])
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+            }) || config.model != "gpt-6-luna"
+                || !config.api_key.is_empty()
+                || config.retry_attempts != 1
+                || config.pricing.is_some()
+            {
+                return Err(ProviderError::InvalidConfig);
+            }
+        }
         let client = Client::builder()
             .timeout(config.timeout)
             .connect_timeout(config.timeout.min(Duration::from_secs(3)))
@@ -333,6 +381,52 @@ mod tests {
             }
         }
         String::from_utf8_lossy(&data).into_owned()
+    }
+
+    #[test]
+    fn subscription_uses_native_messages_without_credentials_or_tools() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_request(&mut stream);
+            assert!(request.starts_with("POST /v1/messages "));
+            assert!(!request.to_ascii_lowercase().contains("authorization:"));
+            let (_, body) = request.split_once("\r\n\r\n").unwrap();
+            let payload: serde_json::Value = serde_json::from_str(body).unwrap();
+            assert_eq!(payload["model"], "gpt-6-luna");
+            assert_eq!(payload["output_config"]["effort"], "low");
+            assert_eq!(payload["stream"], false);
+            assert!(payload["system"]
+                .as_str()
+                .unwrap()
+                .contains("cited_evidence_ids"));
+            assert_eq!(payload["messages"].as_array().unwrap().len(), 1);
+            assert_eq!(payload["tools"], serde_json::json!([]));
+            assert_eq!(payload["tool_choice"], serde_json::json!({"type":"none"}));
+            let response = r#"{"model":"gpt-6-luna","content":[{"type":"thinking","thinking":"Nicht ausgeben"},{"type":"text","text":"Antwort"}],"usage":{"input_tokens":12,"output_tokens":3}}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response.len(),
+                response
+            )
+            .unwrap();
+        });
+        let provider = CodexSubscriptionProvider::new(ProviderConfig::codex_subscription(format!(
+            "http://{address}/v1"
+        )))
+        .unwrap();
+        let answer = provider.answer(&query(), &context(), &[]).unwrap();
+        assert_eq!(answer.text, "Antwort");
+        assert_eq!(answer.usage.provider.as_deref(), Some("codex_subscription"));
+        server.join().unwrap();
+        assert!(
+            CodexSubscriptionProvider::new(ProviderConfig::codex_subscription(
+                "https://example.com/v1"
+            ))
+            .is_err()
+        );
     }
 
     #[test]

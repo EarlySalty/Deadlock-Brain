@@ -20,9 +20,18 @@ impl OpenAiCompatibleProvider {
         if self.config.model == "accounts/fireworks/models/deepseek-v4p1-flash" {
             json["reasoning_effort"] = serde_json::json!("none");
         }
-        let (bytes, charge) = self.transport_json("chat/completions", &mut json, context, true)?;
-        let parsed: ChatResponse = serde_json::from_slice(&bytes)
-            .map_err(|_| ProviderError::InvalidResponse("invalid chat schema".into()))?;
+        let route = if self.config.subscription {
+            "messages"
+        } else {
+            "chat/completions"
+        };
+        let (bytes, charge) = self.transport_json(route, &mut json, context, true)?;
+        let parsed: ChatResponse = if self.config.subscription {
+            subscription_response(&bytes)?
+        } else {
+            serde_json::from_slice(&bytes)
+                .map_err(|_| ProviderError::InvalidResponse("invalid chat schema".into()))?
+        };
         if parsed.model.as_deref() != Some(self.config.model.as_str()) || parsed.choices.len() != 1
         {
             return Err(ProviderError::InvalidResponse(
@@ -127,6 +136,30 @@ impl OpenAiCompatibleProvider {
         if chat {
             payload["max_tokens"] = serde_json::json!(output);
         }
+        if self.config.subscription {
+            if !chat || route != "messages" {
+                return Err(ProviderError::InvalidConfig);
+            }
+            let messages = payload["messages"]
+                .as_array()
+                .ok_or(ProviderError::InvalidConfig)?;
+            if messages.len() != 2
+                || messages[0]["role"] != "system"
+                || messages[1]["role"] != "user"
+            {
+                return Err(ProviderError::InvalidConfig);
+            }
+            *payload = serde_json::json!({
+                "model": self.config.model,
+                "system": messages[0]["content"],
+                "messages": [messages[1]],
+                "max_tokens": output,
+                "stream": false,
+                "tools": [],
+                "tool_choice": {"type": "none"},
+                "output_config": {"effort": "low"}
+            });
+        }
         let reserved_cost = hardening::cost(
             hardening::price(&self.config),
             input * attempts as u64,
@@ -141,11 +174,13 @@ impl OpenAiCompatibleProvider {
             lifetime
                 .check()
                 .map_err(|_| ProviderError::BudgetExceeded)?;
-            let request = self
-                .client
-                .post(&url)
-                .bearer_auth(&self.config.api_key)
-                .json(payload);
+            let request = self.client.post(&url);
+            let request = if self.config.subscription {
+                request.header("anthropic-version", "2023-06-01")
+            } else {
+                request.bearer_auth(&self.config.api_key)
+            }
+            .json(payload);
             // Payload encoding and retries spend time from the same original lifetime.
             lifetime
                 .check()
@@ -275,7 +310,14 @@ impl OpenAiCompatibleProvider {
             return Err(ProviderError::BudgetExceeded);
         }
         Ok(Usage {
-            provider: Some("openai_compatible".into()),
+            provider: Some(
+                if self.config.subscription {
+                    "codex_subscription"
+                } else {
+                    "openai_compatible"
+                }
+                .into(),
+            ),
             model: Some(self.config.model.clone()),
             input_tokens: input,
             output_tokens: output,
@@ -283,6 +325,50 @@ impl OpenAiCompatibleProvider {
             cost_micros: cost,
         })
     }
+}
+
+fn subscription_response(bytes: &[u8]) -> Result<ChatResponse> {
+    #[derive(serde::Deserialize)]
+    struct Response {
+        model: String,
+        content: Vec<Block>,
+        usage: SubscriptionUsage,
+    }
+    #[derive(serde::Deserialize)]
+    struct Block {
+        #[serde(rename = "type")]
+        kind: String,
+        text: Option<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct SubscriptionUsage {
+        input_tokens: u64,
+        output_tokens: u64,
+    }
+    let response: Response = serde_json::from_slice(bytes)
+        .map_err(|_| ProviderError::InvalidResponse("invalid chat schema".into()))?;
+    let mut text = String::new();
+    for block in response.content {
+        match block.kind.as_str() {
+            "text" => text.push_str(
+                &block
+                    .text
+                    .ok_or_else(|| ProviderError::InvalidResponse("invalid chat schema".into()))?,
+            ),
+            "thinking" => {}
+            _ => return Err(ProviderError::InvalidResponse("invalid chat schema".into())),
+        }
+    }
+    Ok(ChatResponse {
+        model: Some(response.model),
+        choices: vec![super::Choice {
+            message: super::ResponseMessage { content: text },
+        }],
+        usage: Some(super::ProviderUsage {
+            prompt_tokens: response.usage.input_tokens,
+            completion_tokens: response.usage.output_tokens,
+        }),
+    })
 }
 
 // Der Fehlertext bleibt im Prozess. Ausgegeben werden ausschließlich feste Klassen.

@@ -100,7 +100,12 @@ impl Secrets {
                 required(&lookup, &live.token_secret, "discord_live", true)
             })
             .transpose()?;
-        let provider_key = required(&lookup, &config.provider.api_key_env, "provider", true)?;
+        let provider_key = match config.provider.kind {
+            crate::config::ProviderKind::OpenaiCompatible => {
+                required(&lookup, &config.provider.api_key_env, "provider", true)?
+            }
+            crate::config::ProviderKind::CodexSubscription => String::new(),
+        };
         let postgres_password = match config.postgres.auth {
             DatabaseAuth::Peer => None,
             DatabaseAuth::Password => Some(required(
@@ -114,7 +119,10 @@ impl Secrets {
                 false,
             )?),
         };
-        let mut tokens = BTreeSet::from([provider_key.clone()]);
+        let mut tokens = BTreeSet::new();
+        if !provider_key.is_empty() {
+            tokens.insert(provider_key.clone());
+        }
         if let Some(password) = &postgres_password {
             if !tokens.insert(password.clone()) {
                 return Err(Error::SecretInvalid("duplicate"));
@@ -161,6 +169,32 @@ mod tests {
             "BRAIN_SERVE_API_TOKEN" => Some("synthetic-client-credential".into()),
             "BRAIN_SERVE_PG_PASSWORD" => Some("synthetic-database-credential".into()),
             _ => None,
+        }
+    }
+
+    #[test]
+    fn subscription_does_not_load_a_provider_secret() {
+        let mut value: serde_json::Value = serde_json::from_slice(CONFIG).unwrap();
+        value["provider"] = serde_json::from_slice(include_bytes!(
+            "../../../../config/codex-subscription-provider.example.json"
+        ))
+        .unwrap();
+        let config = Config::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+        let secrets = Secrets::load(&config, |name| {
+            assert_ne!(name, "BRAIN_SERVE_PROVIDER_API_KEY");
+            fixture(name)
+        })
+        .unwrap();
+        assert!(secrets.provider_key.is_empty());
+        for (field, invalid) in [
+            ("base_url", serde_json::json!("https://example.com/v1")),
+            ("model", serde_json::json!("gpt-6-sol")),
+            ("api_key_env", serde_json::json!("FIREWORK_API_KEY")),
+            ("retry_attempts", serde_json::json!(2)),
+        ] {
+            let mut invalid_config = value.clone();
+            invalid_config["provider"][field] = invalid;
+            assert!(Config::parse(&serde_json::to_vec(&invalid_config).unwrap()).is_err());
         }
     }
 
