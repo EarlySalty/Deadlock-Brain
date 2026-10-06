@@ -109,14 +109,6 @@ fn item_order<'a>(scored: &'a [ScoredItem], blocked: &[String]) -> Vec<&'a Score
     items
 }
 
-fn is_situation_item(item: &ScoredItem) -> bool {
-    is_shield(item)
-        || is_can_buy_one(item)
-        || is_tryhard(item)
-        || is_optional(item)
-        || is_counter(item)
-}
-
 #[derive(Default)]
 struct AuthorEvidence {
     core: std::collections::BTreeSet<i64>,
@@ -182,29 +174,11 @@ fn author_evidence(hero_id: i64, sources: &[crate::meta::AuthorBuildSource]) -> 
     evidence
 }
 
-fn core_candidates<'a>(
-    ordered: &[&'a ScoredItem],
-    authors: &AuthorEvidence,
-    population: Option<&crate::PopulationPrior>,
-) -> Vec<&'a ScoredItem> {
-    ordered
-        .iter()
-        .copied()
-        .filter(|item| {
-            let id = item.item.item_id;
-            if let Some(population) = population {
-                // Population-backed planning admits identity items, not all items
-                // with a positive score. Flex candidates are displayed separately.
-                if !population.is_empty() {
-                    return population.is_staple(id);
-                }
-                return authors.core.contains(&id);
-            }
-            // Explicit model-only callers have no empirical identity. Situational
-            // effects still cannot become core just by having a large scalar score.
-            !is_situation_item(item) || authors.core.contains(&id)
-        })
-        .collect()
+fn core_candidates<'a>(ordered: &[&'a ScoredItem]) -> Vec<&'a ScoredItem> {
+    // Die Mechaniksimulation entscheidet, ob ein Item im konkreten Inventar
+    // positiven Marginalwert hat. Population, Autoren-Builds und Flex-Klassen
+    // liefern Evidenz und Darstellung, aber keine Eintrittskarte für den Core.
+    ordered.to_vec()
 }
 
 fn item_why(item: &ScoredItem) -> String {
@@ -446,7 +420,7 @@ fn plan_core(
     let mut plan = crate::planner::plan_with_economy(
         hero,
         scored,
-        &core_candidates(&ordered, authors, population),
+        &core_candidates(&ordered),
         cfg,
         crate::planner::PlanningContext {
             layout,

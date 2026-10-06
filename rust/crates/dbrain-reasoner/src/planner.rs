@@ -81,7 +81,6 @@ struct Search<'a> {
     rules: &'a InventoryRules,
     combinations: &'a BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
     population: Option<&'a crate::PopulationPrior>,
-    prior_slot: BTreeMap<i64, f64>,
     cache: BTreeMap<EvaluationKey, Option<InventoryEvaluation>>,
     invalid_metrics: BTreeSet<String>,
     choices_cache: BTreeMap<ChoiceKey, Vec<PurchaseStep>>,
@@ -108,22 +107,14 @@ impl Search<'_> {
         let mechanic = step.marginal_value + step.marginal_value.abs() * observed;
         let population = self.population.map_or(0.0, |prior| {
             if prior.is_staple(id) {
-                prior.support(id, self.prior_slot.get(&id).copied().unwrap_or(0.0))
+                // Population bestätigt einen im aktuellen Inventar wirklich nützlichen Kauf.
+                // Sie darf keinen isolierten Itemwert über die konkrete Synergie stellen.
+                prior.support(id, step.marginal_value)
             } else {
                 0.0
             }
         });
         mechanic + population
-    }
-
-    fn is_priority_staple(&self, item_id: i64) -> bool {
-        self.population
-            .is_some_and(|prior| prior.is_staple(item_id))
-            && self.prior_slot.get(&item_id).copied().unwrap_or(0.0) > 0.0
-    }
-
-    fn is_priority_staple_step(&self, step: &PurchaseStep) -> bool {
-        self.is_priority_staple(step.transition.purchased_id) && step.marginal_value >= 0.0
     }
 
     fn evaluate(
@@ -210,7 +201,6 @@ impl Search<'_> {
         let mut choices = Vec::new();
         for candidate in candidates {
             let item = &candidate.item;
-            let forced = self.is_priority_staple(item.item_id);
             let mut transitions = Vec::new();
             let direct = inventory.preview_purchase(item, &self.catalog, self.rules, &[]);
             if let Some(transition) = direct
@@ -261,8 +251,7 @@ impl Search<'_> {
                     continue;
                 };
                 let marginal_value = evaluation.score - before;
-                let staple_rescue = forced && marginal_value >= 0.0;
-                if marginal_value <= before.abs().max(1.0) * 1e-9 && !staple_rescue {
+                if marginal_value <= before.abs().max(1.0) * 1e-9 {
                     continue;
                 }
                 let step = PurchaseStep {
@@ -283,14 +272,8 @@ impl Search<'_> {
             }
         }
         choices.sort_by(|left, right| {
-            let left_staple = self.is_priority_staple_step(left);
-            let right_staple = self.is_priority_staple_step(right);
-            right_staple
-                .cmp(&left_staple)
-                .then_with(|| {
-                    self.supported_value(right)
-                        .total_cmp(&self.supported_value(left))
-                })
+            self.supported_value(right)
+                .total_cmp(&self.supported_value(left))
                 .then_with(|| {
                     left.transition
                         .purchased_id
@@ -343,14 +326,6 @@ pub fn plan_with_economy(
         economy,
         population,
     } = context;
-    let prior_slot = population
-        .map(|_| {
-            catalog
-                .iter()
-                .map(|item| (item.item.item_id, item.score.per_slot_value))
-                .collect::<BTreeMap<_, _>>()
-        })
-        .unwrap_or_default();
     let mut search = Search {
         hero,
         cfg,
@@ -360,7 +335,6 @@ pub fn plan_with_economy(
         rules,
         combinations,
         population,
-        prior_slot,
         cache: BTreeMap::new(),
         invalid_metrics: BTreeSet::new(),
         choices_cache: BTreeMap::new(),
@@ -480,16 +454,11 @@ pub fn plan_with_economy(
                 beam.push((step, horizon));
             }
             beam.sort_by(|(left, l), (right, r)| {
-                let left_staple = search.is_priority_staple_step(left);
-                let right_staple = search.is_priority_staple_step(right);
-                right_staple
-                    .cmp(&left_staple)
-                    .then_with(|| r.total_cmp(l))
-                    .then_with(|| {
-                        left.transition
-                            .purchased_id
-                            .cmp(&right.transition.purchased_id)
-                    })
+                r.total_cmp(l).then_with(|| {
+                    left.transition
+                        .purchased_id
+                        .cmp(&right.transition.purchased_id)
+                })
             });
             let Some((mut step, buy_value)) = beam.into_iter().next() else {
                 plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Kein bezahlbarer Kauf mit positivem gemeinsamen Mehrwert; Geld bleibt verfügbar.".into() });
@@ -851,7 +820,6 @@ mod tests {
             rules: &rules,
             combinations: &combinations,
             population: None,
-            prior_slot: BTreeMap::new(),
             cache: BTreeMap::new(),
             invalid_metrics: BTreeSet::new(),
             choices_cache: BTreeMap::new(),
@@ -947,7 +915,6 @@ mod tests {
             rules: &rules,
             combinations: &combinations,
             population: None,
-            prior_slot: BTreeMap::new(),
             cache: BTreeMap::new(),
             invalid_metrics: BTreeSet::new(),
             choices_cache: BTreeMap::new(),
