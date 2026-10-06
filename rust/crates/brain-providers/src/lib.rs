@@ -93,6 +93,7 @@ pub struct OpenAiCompatibleProvider {
     client: Client,
     config: ProviderConfig,
     circuit: std::sync::Arc<std::sync::Mutex<circuit::Circuit>>,
+    reported_failures: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -130,6 +131,35 @@ struct ProviderUsage {
 }
 
 impl OpenAiCompatibleProvider {
+    fn report_failure(&self, error: &ProviderError) {
+        // Nur feste Fehlerklassen protokollieren, keine Antworten, URLs oder Zugangsdaten.
+        let category = match error {
+            ProviderError::HttpStatus { status } => format!("http_{}", status.as_u16()),
+            ProviderError::Http(error) if error.is_timeout() => "transport_timeout".into(),
+            ProviderError::Http(error) if error.is_connect() => "transport_connect".into(),
+            ProviderError::Http(_) => "transport".into(),
+            ProviderError::InvalidConfig => "invalid_config".into(),
+            ProviderError::BudgetExceeded => "budget_exceeded".into(),
+            ProviderError::CircuitOpen => "circuit_open".into(),
+            ProviderError::ResponseTooLarge => "response_too_large".into(),
+            ProviderError::InvalidResponse(message) => match message.as_str() {
+                "invalid chat schema" => "chat_schema",
+                "model or choice count mismatch" => "model_or_choice_mismatch",
+                "empty provider answer" => "empty_answer",
+                "provider usage missing" => "usage_missing",
+                "grounded answer envelope missing" => "grounded_envelope",
+                "unknown, duplicate or missing citation" => "citation_invalid",
+                _ => "invalid_response",
+            }
+            .into(),
+        };
+        if let Ok(mut reported) = self.reported_failures.lock() {
+            if reported.insert(category.clone()) {
+                eprintln!("Brain-Antwortprovider: Fehlerklasse {category}");
+            }
+        }
+    }
+
     pub fn new(config: ProviderConfig) -> Result<Self> {
         if config.api_key.trim().is_empty()
             || config.base_url.trim().is_empty()
@@ -148,6 +178,7 @@ impl OpenAiCompatibleProvider {
             client,
             config,
             circuit: std::sync::Arc::new(std::sync::Mutex::new(circuit::Circuit::default())),
+            reported_failures: Default::default(),
         })
     }
 
@@ -191,13 +222,16 @@ impl AnswerProviderPort for OpenAiCompatibleProvider {
             ));
         }
         self.with_circuit(|| self.request(query, context, evidence))
-            .map_err(|error| match error {
-                ProviderError::BudgetExceeded => PortError::BudgetExceeded,
-                ProviderError::InvalidResponse(message) => PortError::InvalidResponse(message),
-                ProviderError::ResponseTooLarge => {
-                    PortError::InvalidResponse("provider response too large".into())
+            .map_err(|error| {
+                self.report_failure(&error);
+                match error {
+                    ProviderError::BudgetExceeded => PortError::BudgetExceeded,
+                    ProviderError::InvalidResponse(message) => PortError::InvalidResponse(message),
+                    ProviderError::ResponseTooLarge => {
+                        PortError::InvalidResponse("provider response too large".into())
+                    }
+                    other => PortError::Unavailable(other.to_string()),
                 }
-                other => PortError::Unavailable(other.to_string()),
             })
     }
 }

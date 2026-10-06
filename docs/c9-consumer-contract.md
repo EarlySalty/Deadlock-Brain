@@ -14,6 +14,12 @@ Die normale Serverkonfiguration bindet authentifizierte Principals an feste Rele
 
 `BRAIN_SERVE_DOCS_PUBLIC_TOKEN` und `BRAIN_SERVE_SECOND_BRAIN_TOKEN` bezeichnen getrennte Infisical-Credentials. Vorhandene Twitch-Identität, Scopes und Standardrelease bleiben erhalten. Metadaten, Credentialnamen und Konfiguration enthalten keine Tokenwerte.
 
+## Discord-Spielwissen
+
+Der Discord-Bot fragt über `/v1/answer` mit `dl-bot/discord`, `bot.public` und der bestehenden Infisical-Referenz `DISCORD_BRAIN_CLIENT_TOKEN`. Damit er die aktuellen Spielprofile für seine Antworten erhält, braucht dieses Credential ausdrücklich `entity_profile_model_context=true`. Eine Freigabe für `docs-client/docs` gilt nur für diesen Consumer. Ohne die Discord-Freigabe durchsucht der Bot ausschließlich den gebundenen Dokumentrelease und kann trotz vorhandener Spielprofile keine passende Antwort finden.
+
+[`discord-credential.example.json`](../ops/brain-maintenance/discord-credential.example.json) zeigt den Eintrag für die bestehende `credentials`-Liste. Die Releasewerte müssen dem bereits veröffentlichten Wissensstand entsprechen. Der Dienst benötigt außerdem den vorhandenen `entity_profile_maintenance_config`-Pfad. Die Konfiguration wird über `brain-maintain write-serve-config` mit dem bisherigen SHA und dem gemeinsamen ConfigWriter geändert; anschließend wird `brain-serve.service` neu gestartet. Eine lokale Probe mit `deadlock-brain answer`, `bot.public` und derselben Discord-Secretreferenz prüft den öffentlichen Antwortpfad, ohne eine Discord-Nachricht zu senden. Tokens bleiben dabei im Infisical-Client und im Prozessspeicher.
+
 ## Interner Operatorweg
 
 `/v1/operator/query` wird ausschließlich an einem absoluten privaten Unixsocket registriert. Das Verzeichnis muss dem freigegebenen lokalen Benutzer gehören und Modus `0700` haben; der Socket hat `0600`. Der Listener prüft die tatsächliche Peer-UID über `SO_PEERCRED`. Vorhandene Socketpfade blockieren den Start. Der Client prüft Besitzer und Rechte erneut vor jeder Anfrage.

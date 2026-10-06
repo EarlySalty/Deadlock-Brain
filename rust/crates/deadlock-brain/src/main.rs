@@ -172,6 +172,8 @@ struct BrainAnswerArgs {
         help = "Expliziter brain-serve-Endpunkt; sonst aus der Client-Konfiguration."
     )]
     endpoint: Option<String>,
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..), help = "Discord-Autor-ID für eine lokale Probe des echten Bot-Antwortpfads.")]
+    discord_user_id: Option<u64>,
     #[arg(
         long = "scope",
         value_name = "SCOPE",
@@ -1485,10 +1487,11 @@ async fn run_brain_answer(args: &BrainAnswerArgs) -> Result<()> {
     }
     let client = brain_client::AsyncBrainClient::new_local(endpoint, &token, remaining)
         .context("BrainClient konnte nicht erstellt werden")?;
-    let response = client
-        .answer(&query)
-        .await
-        .context("brain-serve Anfrage fehlgeschlagen")?;
+    let response = match args.discord_user_id {
+        Some(user_id) => client.answer_for_discord(&query, user_id).await,
+        None => client.answer(&query).await,
+    }
+    .context("brain-serve Anfrage fehlgeschlagen")?;
     print_json(&response)
 }
 
