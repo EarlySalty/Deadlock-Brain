@@ -1,0 +1,19 @@
+[Unit]
+Description=Deadlock Brain-Site auf Loopback 8087
+After=network.target
+
+[Service]
+Type=simple
+LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
+ExecStart=/opt/deadlock-brain/maintenance-current/deadlock-brain-site --corpus-root %h/Documents/deadlock-build-corpus --infisical-config /etc/deadlock-brain/infisical-site.json --bind 127.0.0.1:8087
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+
+[Install]
+WantedBy=default.target

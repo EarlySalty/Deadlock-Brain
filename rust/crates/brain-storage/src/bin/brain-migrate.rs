@@ -1,12 +1,10 @@
-//! Administrative entrypoint, intentionally separate from service startup.
-//! Local Unix socket/peer auth only. No password, DSN, environment fallback, or secret file.
 use brain_contracts::store::STORE_VERSION;
 use brain_storage::{PgStore, CORE_SCHEMA_VERSION};
 use serde::Deserialize;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use std::{path::PathBuf, process::ExitCode, time::Duration};
 
-const USAGE: &str = "Aufruf: brain-migrate <check|up|check-entity-profiles|up-entity-profiles> --config <non-secret-local-postgres.json>";
+const USAGE: &str = "Aufruf: brain-migrate <check|up|check-entity-profiles|up-entity-profiles|check-site-comments|up-site-comments> --config <non-secret-local-postgres.json>";
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
@@ -38,16 +36,24 @@ async fn main() -> ExitCode {
     }
     if args.len() != 3
         || args[1] != "--config"
-        || !["check", "up", "check-entity-profiles", "up-entity-profiles"]
-            .iter()
-            .any(|command| args[0] == *command)
+        || ![
+            "check",
+            "up",
+            "check-entity-profiles",
+            "up-entity-profiles",
+            "check-site-comments",
+            "up-site-comments",
+        ]
+        .iter()
+        .any(|command| args[0] == *command)
     {
         eprintln!("{USAGE}");
         return ExitCode::FAILURE;
     }
     match run(
-        args[0] == "up" || args[0] == "up-entity-profiles",
+        args[0] == "up" || args[0] == "up-entity-profiles" || args[0] == "up-site-comments",
         args[0] == "check-entity-profiles" || args[0] == "up-entity-profiles",
+        args[0] == "check-site-comments" || args[0] == "up-site-comments",
         PathBuf::from(&args[2]),
     )
     .await
@@ -60,7 +66,12 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run(upgrade: bool, entity_profiles: bool, path: PathBuf) -> Result<(), String> {
+async fn run(
+    upgrade: bool,
+    entity_profiles: bool,
+    site_comments: bool,
+    path: PathBuf,
+) -> Result<(), String> {
     if std::env::var_os("PGOPTIONS").is_some() {
         return Err("ambient PGOPTIONS is not allowed; use the explicit local config".into());
     }
@@ -68,8 +79,6 @@ async fn run(upgrade: bool, entity_profiles: bool, path: PathBuf) -> Result<(), 
     let config: Config =
         serde_json::from_reader(file).map_err(|_| "invalid migration config JSON")?;
     config.validate()?;
-    // An explicit empty password prevents ambient credentials from being used. All connection
-    // coordinates are mandatory; this executable is for local peer-authenticated maintenance.
     let options = PgConnectOptions::new_without_pgpass()
         .host(&config.socket.to_string_lossy())
         .port(config.port)
@@ -85,14 +94,27 @@ async fn run(upgrade: bool, entity_profiles: bool, path: PathBuf) -> Result<(), 
         .await
         .map_err(|_| "local PostgreSQL connection failed (check peer auth and role)")?;
     let store = PgStore::new(pool.clone());
-    let result = match (entity_profiles, upgrade) {
-        (true, true) => store.migrate_entity_profiles().await,
-        (true, false) => store.check_entity_profile_schema().await,
-        (false, true) => store.migrate_core().await,
-        (false, false) => store.check_core_schema().await,
+    let result = match (entity_profiles, site_comments, upgrade) {
+        (true, _, true) => store.migrate_entity_profiles().await,
+        (true, _, false) => store.check_entity_profile_schema().await,
+        (_, true, true) => store.migrate_site_comments().await,
+        (_, true, false) => store.check_site_comments_schema().await,
+        (false, false, true) => store.migrate_core().await,
+        (false, false, false) => store.check_core_schema().await,
     };
     pool.close().await;
     result.map_err(|e| e.to_string())?;
+    if site_comments {
+        println!(
+            "Kommentarschema: {}",
+            if upgrade {
+                "Migration geprüft"
+            } else {
+                "Lesende Prüfung bestanden"
+            }
+        );
+        return Ok(());
+    }
     if entity_profiles {
         println!(
             "Spielprofilschema: {}",

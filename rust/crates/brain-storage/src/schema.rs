@@ -1,5 +1,3 @@
-//! Explicit owner-only migration and DDL-free service preflight.
-//! The historical SQL files stay immutable; one outer transaction owns the upgrade.
 use crate::{memory_repository::validate_release, pg_jobs::database_error, PgStore};
 use brain_contracts::{store::STORE_VERSION, CorpusRelease, PortError, SourceRecordV2};
 use sqlx::{PgConnection, Row};
@@ -14,6 +12,10 @@ const READ_HEADERS: &str =
 const READ_HEADER_WRITER: &str = include_str!(
     "../../../../scripts/migrations/2026-10-06-brain-source-read-header-writer-v1.sql"
 );
+const SITE_COMMENTS: &str =
+    include_str!("../../../../scripts/migrations/2026-10-06-brain-site-comments-v1.sql");
+const SITE_COMMENTS_SHAPE_PROBE: &str =
+    "SELECT id,group_key,text,ts FROM brain.site_comments_v1 LIMIT 0";
 const ENTITY_MIGRATIONS: [(&str, &str); 4] = [
     (
         include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"),
@@ -56,8 +58,6 @@ fn compatibility_error(_: sqlx::Error) -> PortError {
     )
 }
 
-// Not a general SQL parser: accept only our embedded, single-transaction files.
-// Never send their COMMIT through an outer sqlx transaction (partial upgrades!).
 fn body(sql: &str) -> Result<&str, PortError> {
     let (_, rest) = sql
         .split_once("BEGIN;")
@@ -94,7 +94,6 @@ async fn check_version(connection: &mut PgConnection) -> Result<(), PortError> {
     Ok(())
 }
 
-// Parse/plan only. Requires SELECT, never CREATE/ALTER, and reads no corpus rows.
 pub(crate) const SHAPE_PROBE: &str = "SELECT r.source_id,r.logical_id,r.revision,r.content_hash,r.tombstone,r.record_json,r.created_at,r.read_header_json,r.original_header_json,
     h.source_id,h.logical_id,h.revision,h.content_hash,h.tombstone,h.record_json,h.updated_at,h.read_header_json,
     c.release_id,c.knowledge_version,c.patch,c.release_json,c.created_at,
@@ -105,7 +104,6 @@ pub(crate) const SHAPE_PROBE: &str = "SELECT r.source_id,r.logical_id,r.revision
          brain.source_jobs_v1 j, brain.source_checkpoints_v1 p, brain.conversation_owners_v1 o
     LIMIT 0";
 
-// Vorhandene beschreibbare Spalten oder ersetzte Funktionen erfüllen den Vertrag nicht.
 pub(crate) const READ_HEADER_CONTRACT_PROBE: &str = "SELECT
     (SELECT count(*)=3 FROM (VALUES
         ('source_record_revisions','read_header_json','source_read_header_v1'),
@@ -144,6 +142,58 @@ async fn check_read_headers(connection: &mut PgConnection) -> Result<(), PortErr
 }
 
 impl PgStore {
+    pub async fn check_site_comments_schema(&self) -> Result<(), PortError> {
+        let mut tx = self.pool.begin().await.map_err(compatibility_error)?;
+        sqlx::raw_sql("SET TRANSACTION READ ONLY; SET LOCAL statement_timeout='5000ms'")
+            .execute(&mut *tx)
+            .await
+            .map_err(compatibility_error)?;
+        sqlx::query(SITE_COMMENTS_SHAPE_PROBE)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|_| invalid("Kommentarschema fehlt oder ist nicht lesbar"))?;
+        tx.commit().await.map_err(compatibility_error)
+    }
+
+    pub async fn migrate_site_comments(&self) -> Result<(), PortError> {
+        self.check_core_schema().await?;
+        let mut tx = self.pool.begin().await.map_err(migration_error)?;
+        sqlx::raw_sql(
+            "SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='60000ms';
+             SELECT pg_advisory_xact_lock(742110026112::bigint)",
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(migration_error)?;
+        let owner: bool = sqlx::query_scalar(
+            "SELECT pg_has_role(current_user,nspowner,'USAGE') FROM pg_namespace WHERE nspname='brain'",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(migration_error)?;
+        if !owner {
+            return Err(invalid(
+                "Kommentarmigration benötigt den vorhandenen Schemaowner",
+            ));
+        }
+        let exists: bool =
+            sqlx::query_scalar("SELECT to_regclass('brain.site_comments_v1') IS NOT NULL")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(migration_error)?;
+        if !exists {
+            sqlx::raw_sql(body(SITE_COMMENTS)?)
+                .execute(&mut *tx)
+                .await
+                .map_err(migration_error)?;
+        }
+        sqlx::query(SITE_COMMENTS_SHAPE_PROBE)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(migration_error)?;
+        tx.commit().await.map_err(migration_error)
+    }
+
     pub async fn check_entity_profile_schema(&self) -> Result<(), PortError> {
         self.check_core_schema().await?;
         let mut tx = self.pool.begin().await.map_err(compatibility_error)?;
@@ -203,8 +253,6 @@ impl PgStore {
         tx.commit().await.map_err(migration_error)
     }
 
-    /// Service startup preflight. SELECT-only; no automatic migration or repair.
-    /// Call before admitting traffic/jobs, including when the schema already exists.
     pub async fn check_core_schema(&self) -> Result<(), PortError> {
         let mut tx = self.pool.begin().await.map_err(compatibility_error)?;
         sqlx::raw_sql("SET TRANSACTION READ ONLY; SET LOCAL statement_timeout='5000ms'")
@@ -220,9 +268,6 @@ impl PgStore {
         tx.commit().await.map_err(compatibility_error)
     }
 
-    /// Explicit privileged maintenance operation. Never called by constructors/read paths.
-    /// Stop and externally fence every writer before backup and this call; the locks below
-    /// protect the transaction, not the post-COMMIT cutover from old/uncooperative binaries.
     pub async fn migrate_core(&self) -> Result<(), PortError> {
         let mut tx = self.pool.begin().await.map_err(migration_error)?;
         sqlx::raw_sql(
@@ -256,8 +301,6 @@ impl PgStore {
         .map_err(migration_error)?;
         validate_records(&mut tx).await?;
         validate_releases(&mut tx).await?;
-        // No source record, head, release, checkpoint, lease, or ACL is rewritten.
-        // In particular, source-wide legacy release maxima cannot be guessed into document pins.
         sqlx::raw_sql(body(VERSION)?)
             .execute(&mut *tx)
             .await
@@ -278,7 +321,6 @@ impl PgStore {
 }
 
 async fn validate_records(connection: &mut PgConnection) -> Result<(), PortError> {
-    // Bounded keyset pages, not a full in-memory copy of the corpus during maintenance.
     let mut cursor: Option<(String, String, i64)> = None;
     loop {
         let rows = sqlx::query(
@@ -397,7 +439,7 @@ mod tests {
     use super::*;
     #[test]
     fn embedded_migrations_have_exactly_one_outer_transaction() {
-        for sql in [V1, V2, VERSION] {
+        for sql in [V1, V2, VERSION, SITE_COMMENTS] {
             let body = body(sql).unwrap();
             assert!(!body.contains("BEGIN;"));
             assert!(!body.contains("COMMIT;"));
