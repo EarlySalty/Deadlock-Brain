@@ -11,6 +11,9 @@ const VERSION: &str =
     include_str!("../../../../scripts/migrations/2026-09-26-brain-core-compatibility-v2.sql");
 const READ_HEADERS: &str =
     include_str!("../../../../scripts/migrations/2026-10-06-brain-source-read-headers-v1.sql");
+const READ_HEADER_WRITER: &str = include_str!(
+    "../../../../scripts/migrations/2026-10-06-brain-source-read-header-writer-v1.sql"
+);
 const ENTITY_MIGRATIONS: [(&str, &str); 4] = [
     (
         include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"),
@@ -237,7 +240,7 @@ impl PgStore {
         if marked {
             check_version(&mut tx).await?;
         }
-        for migration in [V1, V2, READ_HEADERS] {
+        for migration in [V1, V2, READ_HEADERS, READ_HEADER_WRITER] {
             sqlx::raw_sql(body(migration)?)
                 .execute(&mut *tx)
                 .await

@@ -827,9 +827,9 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         entity_profile::{
             compact::compact_document,
             derivation::{
-                derive_git_profile, derived_policy, game_file_facts::extract_facts,
-                git_document_identity, git_evidence_identity, receipt_sha256, GitBlobEvidence,
-                GIT_DOCUMENT_CONTRACT,
+                derive_git_profile, derive_git_profile_from_evidence_cached, derived_policy,
+                game_file_facts::extract_facts, git_document_identity, git_evidence_identity,
+                receipt_sha256, GitBlobEvidence, GitProofBatchCache, GIT_DOCUMENT_CONTRACT,
             },
             project_entity_facts,
             semantic::semantic_projection,
@@ -993,6 +993,7 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         }
     };
     let mut documents = Vec::new();
+    let mut proof_cache = GitProofBatchCache::new();
     for (identity, original) in identities.iter().zip(&originals) {
         let bindings = store
             .stored_git_entity_bindings(&identity.entity_key, original)
@@ -1011,6 +1012,43 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
             &story,
         )
         .unwrap();
+        let (header_evidence, header_bindings) = store
+            .entity_derivation_inputs(
+                &original_release.release_id,
+                &operator,
+                &identity.entity_key,
+            )
+            .await
+            .unwrap();
+        assert_eq!(header_evidence.manifest.revisions.len(), originals.len());
+        assert_eq!(header_evidence.originals.len(), 1);
+        assert!(header_evidence.originals[0]
+            .document_header
+            .get("content")
+            .is_none());
+        assert!(header_evidence.originals[0]
+            .document_header
+            .get("facts")
+            .is_none());
+        let actual_blob = blob(original);
+        let (header_profile, header_receipt) = derive_git_profile_from_evidence_cached(
+            &identity.entity_key,
+            &header_evidence,
+            &operator,
+            &header_bindings,
+            &[&actual_blob],
+            &story,
+            &mut proof_cache,
+        )
+        .unwrap();
+        assert_eq!(
+            compact_document(&header_profile).unwrap(),
+            compact_document(&profile).unwrap()
+        );
+        assert_eq!(
+            receipt_sha256(&header_receipt).unwrap(),
+            receipt_sha256(&receipt).unwrap()
+        );
         let content = compact_document(&profile).unwrap();
         let mut document = SourceRecordV2 {
             source_id: "git-game-facts-derived".into(),

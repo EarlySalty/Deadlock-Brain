@@ -2127,16 +2127,18 @@ pub async fn refresh_entity_profile_documents(
         .await?;
     let mut profiles = Vec::new();
     let mut stored_documents = Vec::new();
+    let mut git_deriver = dbrain_sources::entity_binding::derivation::BatchDeriver::new();
     for key in keys {
         if git_semantic_keys.contains(&key) {
-            let verified = dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
-                store,
-                &original_release.release_id,
-                principal,
-                &key,
-                &repositories,
-            )
-            .await?;
+            let verified = git_deriver
+                .derive(
+                    store,
+                    &original_release.release_id,
+                    principal,
+                    &key,
+                    &repositories,
+                )
+                .await?;
             let record =
                 super::entity_profiles::persist_verified_git_profile(store, &verified).await?;
             profiles.push(verified.profile().clone());
