@@ -4,6 +4,9 @@ use brain_contracts::Budget;
 use serde::Deserialize;
 use std::{collections::BTreeSet, fs::File, io::Read, net::SocketAddr, path::Path};
 
+// Interne Readinessbindung, kein zusätzlicher Autorisierungsscope.
+pub(crate) const DOCS_ENTITY_PROFILE_BINDING: &str = "docs.public/entity_profiles";
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -79,6 +82,7 @@ pub struct Provider {
     pub base_url: String,
     pub model: String,
     /// Historical JSON key; the value names the explicit Infisical snapshot entry.
+    #[serde(default)]
     pub api_key_env: String,
     pub retry_attempts: usize,
     pub retry_backoff_ms: u64,
@@ -90,6 +94,7 @@ pub struct Provider {
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
     OpenaiCompatible,
+    CodexSubscription,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -276,6 +281,9 @@ impl Config {
     }
     pub(crate) fn bound_scope(&self, grant: &Credential) -> Option<String> {
         let release = grant.release.as_ref()?;
+        if grant.entity_profile_model_context && grant.scopes.contains("docs.public") {
+            return Some(DOCS_ENTITY_PROFILE_BINDING.into());
+        }
         if grant.actor_id == "second-brain"
             && grant.channel == "internal"
             && self.operator_docs_scope() == Some("bot.public")
@@ -408,7 +416,20 @@ impl Config {
                 && (endpoint.scheme() == "https" || (endpoint.scheme() == "http" && loopback))
                 && (loopback || p.pricing.is_some())
                 && identifier(&p.model, 512)
-                && secret_name(&p.api_key_env)
+                && match p.kind {
+                    ProviderKind::OpenaiCompatible => secret_name(&p.api_key_env),
+                    ProviderKind::CodexSubscription => {
+                        p.api_key_env.is_empty()
+                            && p.model == "gpt-6-luna"
+                            && endpoint.host_str().is_some_and(|host| {
+                                host.trim_matches(['[', ']'])
+                                    .parse::<std::net::IpAddr>()
+                                    .is_ok_and(|ip| ip.is_loopback())
+                            })
+                            && p.retry_attempts == 1
+                            && p.pricing.is_none()
+                    }
+                }
                 && (1..=8).contains(&p.retry_attempts)
                 && p.retry_backoff_ms <= 10_000
                 && (128..=8 * 1024 * 1024).contains(&p.max_response_bytes),
@@ -498,7 +519,10 @@ impl Config {
                 "discord_consumers",
             )?;
         }
-        let mut names = BTreeSet::from([p.api_key_env.as_str()]);
+        let mut names = BTreeSet::new();
+        if !p.api_key_env.is_empty() {
+            names.insert(p.api_key_env.as_str());
+        }
         if let Some(name) = pg.password_env.as_deref() {
             require(names.insert(name), "secret_references")?;
         }
@@ -637,6 +661,18 @@ mod entity_profile_tests {
         assert_eq!(
             enabled.credentials[0].provider_egress,
             baseline.credentials[0].provider_egress
+        );
+        assert_eq!(
+            enabled.bound_scope(&enabled.credentials[0]).as_deref(),
+            Some(super::DOCS_ENTITY_PROFILE_BINDING)
+        );
+        assert_eq!(
+            baseline.bound_scope(&baseline.credentials[0]).as_deref(),
+            Some("docs.public")
+        );
+        assert_ne!(
+            baseline.release_bindings_sha256(),
+            enabled.release_bindings_sha256()
         );
         for (field, replacement) in [
             ("actor_id", serde_json::json!("second-brain")),

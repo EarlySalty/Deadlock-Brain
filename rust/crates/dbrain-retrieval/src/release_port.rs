@@ -56,30 +56,56 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             .lock()
             .map_err(|_| PortError::Unavailable("retrieval index lock unavailable".into()))?;
         context.check_deadline()?;
-        if let Some(index) = indexes.get(&context.knowledge_release) {
+        let manifest = self.store.read_manifest_until(
+            &context.knowledge_release,
+            context.request_deadline.as_ref(),
+        )?;
+        check_release(&manifest.release, query, context)?;
+        let documents = manifest.authorized(&context.principal, false, false)?;
+        // Aktuelle Rechte und der Principal gehören zum Cachevertrag. Neue Freigaben
+        // bauen den Index neu auf, Sperren werden zusätzlich vor jeder Übergabe geprüft.
+        let mut index_principal = context.principal.clone();
+        let declared_scopes: BTreeSet<_> = manifest
+            .revisions
+            .iter()
+            .map(|record| &record.head)
+            .chain(&manifest.heads)
+            .flat_map(|record| record.allowed_scopes.iter())
+            .collect();
+        index_principal
+            .scopes
+            .retain(|scope| declared_scopes.contains(scope));
+        let cache_key = serde_json::to_string(&(
+            &context.knowledge_release,
+            &index_principal,
+            &manifest.heads,
+        ))
+        .map_err(|_| invalid("Indexrechte sind ungültig"))?;
+        if let Some(index) = indexes.get(&cache_key) {
             check_release(&index.release, query, context)?;
             return Ok(index.clone());
         }
-        let snapshot = self.snapshot(query, context)?;
-        // Validate ALL pins/revisions/heads; indexing is not scoped to the first caller.
-        // The result is deliberately discarded. No mutable head/authorization is cached.
-        snapshot.authorized(&context.principal, false)?;
-        let prose: Vec<_> = snapshot
-            .revisions
+        let prose: Vec<_> = self
+            .store
+            .read_documents_until(
+                &context.knowledge_release,
+                &documents,
+                context.request_deadline.as_ref(),
+            )?
             .into_iter()
             .filter(|r| {
                 !r.metadata.contains_key("domain_contract")
                     && r.metadata.get("kind").map(String::as_str) != Some("domain_input")
             })
             .collect();
-        let index = Arc::new(ChunkIndex::build(snapshot.release, prose)?);
+        let index = Arc::new(ChunkIndex::build(manifest.release, prose)?);
         context.check_deadline()?;
         if indexes.len() >= 4 {
             if let Some(key) = indexes.keys().next().cloned() {
                 indexes.remove(&key);
             }
         }
-        indexes.insert(context.knowledge_release.clone(), index.clone());
+        indexes.insert(cache_key, index.clone());
         Ok(index)
     }
     fn heads(
@@ -479,6 +505,96 @@ fn check_release(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod cache_scope_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Clone)]
+    struct CountingStore {
+        snapshot: CorpusSnapshot,
+        documents: Arc<AtomicUsize>,
+    }
+    impl SnapshotReadPort for CountingStore {
+        fn read_snapshot(&self, _: &str) -> Result<CorpusSnapshot, PortError> {
+            Ok(self.snapshot.clone())
+        }
+        fn read_documents_until(
+            &self,
+            _: &str,
+            _: &[DocumentRevision],
+            _: Option<&brain_contracts::RequestDeadline>,
+        ) -> Result<Vec<SourceRecordV2>, PortError> {
+            self.documents.fetch_add(1, Ordering::SeqCst);
+            Ok(self.snapshot.revisions.clone())
+        }
+    }
+
+    #[test]
+    fn consecutive_discord_request_scopes_reuse_the_corpus_index() {
+        let record = SourceRecordV2 {
+            source_id: "fixture".into(),
+            logical_id: "regel".into(),
+            revision: 1,
+            content_hash: "a".repeat(64),
+            content: "Eine öffentliche Spielregel".into(),
+            visibility: SourceVisibility::Public,
+            allowed_scopes: BTreeSet::from(["bot.public".into()]),
+            tombstone: false,
+            valid_from: None,
+            valid_to: None,
+            metadata: BTreeMap::new(),
+        };
+        let snapshot = CorpusSnapshot {
+            release: brain_contracts::CorpusRelease {
+                release_id: "release".into(),
+                knowledge_version: "wissen".into(),
+                patch: "patch".into(),
+                created_at_epoch: 1,
+                source_revisions: BTreeMap::from([(
+                    "fixture".into(),
+                    BTreeMap::from([("regel".into(), 1)]),
+                )]),
+            },
+            revisions: vec![record.clone()],
+            heads: vec![record],
+        };
+        let documents = Arc::new(AtomicUsize::new(0));
+        let retriever = ReleaseRetriever::new(
+            CountingStore {
+                snapshot,
+                documents: documents.clone(),
+            },
+            10,
+        );
+        let query: Query = serde_json::from_value(serde_json::json!({"request_id":"eins","conversation_id":"gespräch","text":"Spielregel","requested_scopes":["bot.public"]})).unwrap();
+        let mut context = AuthorizedContext {
+            principal: brain_contracts::Principal {
+                actor_id: "tester".into(),
+                channel: "discord".into(),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:eins".into()]),
+                provider_egress: BTreeSet::from(["public".into()]),
+            },
+            discord: None,
+            conversation_id: query.conversation_id.clone(),
+            knowledge_release: "release".into(),
+            deadline_ms: 1000,
+            budget: Default::default(),
+            request_deadline: None,
+        };
+        let first = retriever.index(&query, &context).unwrap();
+        context.principal.scopes.remove("discord.request:eins");
+        context
+            .principal
+            .scopes
+            .insert("discord.request:zwei".into());
+        let second = retriever.index(&query, &context).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(documents.load(Ordering::SeqCst), 1);
+    }
+}
+
 fn effective_head(
     record: &SourceRecordV2,
     head: Option<&DocumentHead>,

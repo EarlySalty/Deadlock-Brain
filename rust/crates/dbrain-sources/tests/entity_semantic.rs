@@ -1291,3 +1291,317 @@ fn document_receipt_rejects_stale_rights_forged_bindings_and_marker_only_claims(
     assert!(verify(&record, &fixture.snapshot, &bindings).is_err());
     assert!(verify(&record, &fixture.snapshot, &[]).is_err());
 }
+
+fn header_receipt_fixture(
+    fixture: &ReceiptFixture,
+) -> brain_storage::entity_profile::derivation::VerifiedOriginalEvidence {
+    use brain_contracts::{DocumentDescriptor, DocumentHead, ReleaseReadManifest};
+    use brain_storage::entity_profile::derivation::{
+        OriginalEvidenceHeader, VerifiedOriginalEvidence,
+    };
+    let mut manifest = ReleaseReadManifest::from_snapshot(&fixture.snapshot);
+    let compact_metadata = |metadata: &mut std::collections::BTreeMap<String, String>| {
+        metadata.retain(|key, _| {
+            key == brain_contracts::source::ORIGIN_METADATA_KEY
+                || matches!(key.as_str(), "egress" | "patch")
+        });
+    };
+    for descriptor in &mut manifest.revisions {
+        compact_metadata(&mut descriptor.head.metadata);
+    }
+    for head in &mut manifest.heads {
+        compact_metadata(&mut head.metadata);
+    }
+    let originals = fixture
+        .snapshot
+        .revisions
+        .iter()
+        .map(|record| {
+            let mut document_header: Value = serde_json::from_str(
+                &record.metadata[brain_storage::source_versions::DOCUMENT_METADATA_KEY],
+            )
+            .unwrap();
+            let header = document_header.as_object_mut().unwrap();
+            header.remove("content");
+            header.remove("facts");
+            let mut head = DocumentHead::from(record);
+            compact_metadata(&mut head.metadata);
+            OriginalEvidenceHeader {
+                descriptor: DocumentDescriptor {
+                    head,
+                    content_hash: record.content_hash.clone(),
+                },
+                document_header,
+            }
+        })
+        .collect();
+    VerifiedOriginalEvidence {
+        manifest,
+        originals,
+    }
+}
+
+#[test]
+fn header_receipt_preserves_exact_full_proof_without_archived_body() {
+    use brain_storage::entity_profile::derivation::{
+        derive_git_profile, derive_git_profile_from_evidence,
+        verify_git_document_receipt_from_evidence,
+    };
+    let fixture = receipt_fixture();
+    let evidence = header_receipt_fixture(&fixture);
+    let expected = derive_git_profile(
+        "hero_test",
+        &fixture.snapshot,
+        &fixture.operator,
+        &fixture.bindings,
+        &fixture.blobs,
+        &[],
+    )
+    .unwrap();
+    let actual = derive_git_profile_from_evidence(
+        "hero_test",
+        &evidence,
+        &fixture.operator,
+        &fixture.bindings,
+        &fixture.blobs,
+        &[],
+    )
+    .unwrap();
+    assert_eq!(actual, expected);
+    let record = derived_document(&actual.0, &actual.1);
+    assert_eq!(
+        verify_git_document_receipt_from_evidence(
+            &record,
+            &actual.1,
+            &evidence,
+            &fixture.operator,
+            &fixture.bindings,
+            &fixture.blobs,
+            &[]
+        )
+        .unwrap(),
+        actual.0
+    );
+    for header in &evidence.originals {
+        assert!(header.document_header.get("content").is_none());
+        assert!(header.document_header.get("facts").is_none());
+        assert!(!header
+            .descriptor
+            .head
+            .metadata
+            .contains_key(brain_storage::source_versions::DOCUMENT_METADATA_KEY));
+    }
+}
+
+#[test]
+fn header_receipt_rejects_blob_header_acl_binding_and_semantic_tampering() {
+    use brain_storage::entity_profile::derivation::derive_git_profile_from_evidence;
+    let fixture = receipt_fixture();
+    let evidence = header_receipt_fixture(&fixture);
+    let derive =
+        |evidence: &brain_storage::entity_profile::derivation::VerifiedOriginalEvidence,
+         bindings: &[brain_storage::entity_profile::derivation::StoredGitBinding],
+         blobs: &[brain_storage::entity_profile::derivation::GitBlobEvidence]| {
+            derive_git_profile_from_evidence(
+                "hero_test",
+                evidence,
+                &fixture.operator,
+                bindings,
+                blobs,
+                &[],
+            )
+        };
+    let mut blobs = fixture.blobs.clone();
+    blobs[0].bytes.push(b' ');
+    assert!(derive(&evidence, &fixture.bindings, &blobs).is_err());
+    let mut blobs = fixture.blobs.clone();
+    blobs[0].git_commit = "a".repeat(40);
+    assert!(derive(&evidence, &fixture.bindings, &blobs).is_err());
+    for field in [
+        "source_id",
+        "document_id",
+        "content_sha256",
+        "revision",
+        "observed_at",
+    ] {
+        let mut changed = evidence.clone();
+        changed.originals[0].document_header[field] = json!("verändert");
+        assert!(
+            derive(&changed, &fixture.bindings, &fixture.blobs).is_err(),
+            "{field}"
+        );
+    }
+    let mut changed = evidence.clone();
+    changed.originals[0].descriptor.content_hash = "a".repeat(64);
+    assert!(derive(&changed, &fixture.bindings, &fixture.blobs).is_err());
+    let mut changed = evidence.clone();
+    changed.manifest.heads[0].tombstone = true;
+    assert!(derive(&changed, &fixture.bindings, &fixture.blobs).is_err());
+    let mut changed = evidence.clone();
+    changed.originals.remove(0);
+    assert!(derive(&changed, &fixture.bindings, &fixture.blobs).is_err());
+    let mut bindings = fixture.bindings.clone();
+    bindings[0].original_fact.value = json!(999);
+    assert!(derive(&evidence, &bindings, &fixture.blobs).is_err());
+    let mut bindings = fixture.bindings.clone();
+    bindings[0].semantic_projection.as_mut().unwrap().predicate = "invented".into();
+    assert!(derive(&evidence, &bindings, &fixture.blobs).is_err());
+    let mut bindings = fixture.bindings.clone();
+    bindings[0].binding_identity.identity_evidence = vec!["unbelegt".into()];
+    assert!(derive(&evidence, &bindings, &fixture.blobs).is_err());
+}
+
+#[test]
+fn header_receipt_rejects_changed_private_receipt_and_output() {
+    use brain_storage::entity_profile::derivation::{
+        derive_git_profile_from_evidence, verify_git_document_receipt_from_evidence,
+    };
+    let fixture = receipt_fixture();
+    let evidence = header_receipt_fixture(&fixture);
+    let (profile, receipt) = derive_git_profile_from_evidence(
+        "hero_test",
+        &evidence,
+        &fixture.operator,
+        &fixture.bindings,
+        &fixture.blobs,
+        &[],
+    )
+    .unwrap();
+    let record = derived_document(&profile, &receipt);
+    let verify =
+        |record: &brain_contracts::SourceRecordV2,
+         receipt: &brain_storage::entity_profile::derivation::GitDocumentReceipt| {
+            verify_git_document_receipt_from_evidence(
+                record,
+                receipt,
+                &evidence,
+                &fixture.operator,
+                &fixture.bindings,
+                &fixture.blobs,
+                &[],
+            )
+        };
+    let mut changed = receipt.clone();
+    changed.original_release_id = "anderer-release".into();
+    assert!(verify(&record, &changed).is_err());
+    let mut changed = receipt.clone();
+    changed.fact_pins[0].raw_sha256 = "a".repeat(64);
+    let mut rebound = record.clone();
+    rebound.metadata.insert(
+        "brain.entity_projection.receipt_sha256".into(),
+        brain_storage::entity_profile::derivation::receipt_sha256(&changed).unwrap(),
+    );
+    assert!(verify(&rebound, &changed).is_err());
+    let mut changed = record.clone();
+    changed.content.push(' ');
+    assert!(verify(&changed, &receipt).is_err());
+}
+
+#[test]
+fn header_receipt_keeps_unrelated_archive_pin_without_hydrating_its_body() {
+    use brain_storage::entity_profile::derivation::derive_git_profile_from_evidence;
+    let fixture = receipt_fixture();
+    let mut evidence = header_receipt_fixture(&fixture);
+    let expected = derive_git_profile_from_evidence(
+        "hero_test",
+        &evidence,
+        &fixture.operator,
+        &fixture.bindings,
+        &fixture.blobs,
+        &[],
+    )
+    .unwrap();
+    let mut archive = evidence.manifest.revisions[0].clone();
+    archive.head.logical_id = "unbeteiligtes-roharchiv".into();
+    let key = brain_contracts::source::ORIGIN_METADATA_KEY;
+    let mut origin: Value = serde_json::from_str(&archive.head.metadata[key]).unwrap();
+    origin["data"]["identity"]["logical_id"] = json!(archive.head.logical_id);
+    archive
+        .head
+        .metadata
+        .insert(key.into(), serde_json::to_string(&origin).unwrap());
+    evidence
+        .manifest
+        .release
+        .source_revisions
+        .get_mut(&archive.head.source_id)
+        .unwrap()
+        .insert(archive.head.logical_id.clone(), archive.head.revision);
+    evidence.manifest.heads.push(archive.head.clone());
+    evidence.manifest.revisions.push(archive);
+    assert_eq!(evidence.originals.len(), 2);
+    assert_eq!(evidence.manifest.revisions.len(), 3);
+    assert_eq!(
+        derive_git_profile_from_evidence(
+            "hero_test",
+            &evidence,
+            &fixture.operator,
+            &fixture.bindings,
+            &fixture.blobs,
+            &[]
+        )
+        .unwrap(),
+        expected
+    );
+    evidence.manifest.heads.pop();
+    assert!(derive_git_profile_from_evidence(
+        "hero_test",
+        &evidence,
+        &fixture.operator,
+        &fixture.bindings,
+        &fixture.blobs,
+        &[]
+    )
+    .is_err());
+}
+
+#[test]
+fn batch_proof_cache_reuses_only_immutable_facts_and_checks_fresh_inputs() {
+    use brain_storage::entity_profile::derivation::{
+        derive_git_profile_from_evidence_cached, GitProofBatchCache,
+    };
+    let fixture = receipt_fixture();
+    let evidence = header_receipt_fixture(&fixture);
+    let mut cache = GitProofBatchCache::new();
+    let mut derive =
+        |evidence: &brain_storage::entity_profile::derivation::VerifiedOriginalEvidence,
+         bindings: &[brain_storage::entity_profile::derivation::StoredGitBinding],
+         blobs: &[brain_storage::entity_profile::derivation::GitBlobEvidence]| {
+            derive_git_profile_from_evidence_cached(
+                "hero_test",
+                evidence,
+                &fixture.operator,
+                bindings,
+                &blobs.iter().collect::<Vec<_>>(),
+                &[],
+                &mut cache,
+            )
+        };
+    let cold = derive(&evidence, &fixture.bindings, &fixture.blobs).unwrap();
+    let warm = derive(&evidence, &fixture.bindings, &fixture.blobs).unwrap();
+    assert_eq!(
+        serde_json::to_value(&cold.0).unwrap(),
+        serde_json::to_value(&warm.0).unwrap()
+    );
+    assert_eq!(cold.1, warm.1);
+    let mut changed = evidence.clone();
+    changed.manifest.heads[0].tombstone = true;
+    assert!(derive(&changed, &fixture.bindings, &fixture.blobs).is_err());
+    let mut changed = evidence.clone();
+    changed.manifest.release.source_revisions.clear();
+    assert!(derive(&changed, &fixture.bindings, &fixture.blobs).is_err());
+    let mut changed = evidence.clone();
+    changed.originals[0].document_header["metadata"]["parse_status"] = json!("verändert");
+    assert!(derive(&changed, &fixture.bindings, &fixture.blobs).is_err());
+    let mut changed = fixture.bindings.clone();
+    changed[0].original_fact.value = json!(999);
+    assert!(derive(&evidence, &changed, &fixture.blobs).is_err());
+    let mut changed = fixture.bindings.clone();
+    changed[0].semantic_projection.as_mut().unwrap().predicate = "unbelegt".into();
+    assert!(derive(&evidence, &changed, &fixture.blobs).is_err());
+    let mut changed = fixture.blobs.clone();
+    changed[0].bytes.push(b' ');
+    assert!(derive(&evidence, &fixture.bindings, &changed).is_err());
+    let warm = derive(&evidence, &fixture.bindings, &fixture.blobs).unwrap();
+    assert_eq!(cold.1, warm.1);
+}

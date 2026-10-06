@@ -6,6 +6,7 @@ use brain_contracts::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 
 type StoredGitBindingRow = (
     String,
@@ -52,6 +53,28 @@ fn bound_relative_pointer(
     let document: Value = serde_json::from_str(
         &binding.record.metadata[crate::source_versions::DOCUMENT_METADATA_KEY],
     )?;
+    bound_relative_pointer_from_facts(
+        fact,
+        binding.identity,
+        &binding.record.source_id,
+        &binding.record.logical_id,
+        document["facts"]
+            .as_array()
+            .ok_or_else(|| invalid("Originalfakten fehlen"))?,
+        relative_pointer,
+        None,
+    )
+}
+
+fn bound_relative_pointer_from_facts(
+    fact: &EntityProfileFact,
+    identity: &EntityIdentity,
+    source_id: &str,
+    logical_id: &str,
+    facts: &[Value],
+    relative_pointer: &str,
+    by_id: Option<&BTreeMap<String, usize>>,
+) -> Result<String> {
     let pointer = fact
         .qualifiers
         .get("source_pointer")
@@ -60,16 +83,16 @@ fn bound_relative_pointer(
         .ok_or_else(|| invalid("Vollständiger Originalpfad fehlt"))?;
     let evidence_prefix = format!(
         "{}:{}:{}:",
-        binding.record.source_id, binding.record.logical_id, fact.provenance.original_revision
+        source_id, logical_id, fact.provenance.original_revision
     );
     let matches_identity = |identifier: &str| {
-        std::iter::once(&binding.identity.entity_key)
-            .chain(std::iter::once(&binding.identity.name))
-            .chain(&binding.identity.aliases)
+        std::iter::once(&identity.entity_key)
+            .chain(std::iter::once(&identity.name))
+            .chain(&identity.aliases)
             .any(|name| name.to_lowercase() == identifier.to_lowercase())
     };
     let mut scopes = Vec::new();
-    for evidence in &binding.identity.identity_evidence {
+    for evidence in &identity.identity_evidence {
         let Some(reference) = evidence.strip_prefix(&evidence_prefix) else {
             continue;
         };
@@ -82,11 +105,13 @@ fn bound_relative_pointer(
                 scopes.push(reference.to_owned());
             }
         }
-        if let Some(identity_fact) = document["facts"].as_array().and_then(|facts| {
-            facts
+        let identity_fact = match by_id {
+            Some(index) => index.get(reference).and_then(|index| facts.get(*index)),
+            None => facts
                 .iter()
-                .find(|fact| fact["fact_id"].as_str() == Some(reference))
-        }) {
+                .find(|fact| fact["fact_id"].as_str() == Some(reference)),
+        };
+        if let Some(identity_fact) = identity_fact {
             let identity_pointer = identity_fact["qualifiers"]["source_pointer"]
                 .as_str()
                 .or_else(|| identity_fact["qualifiers"]["json_pointer"].as_str());
@@ -139,17 +164,8 @@ pub(crate) fn stat_key(value: &str) -> String {
     output.trim_matches('_').into()
 }
 
-pub fn semantic_projection(
-    fact: &EntityProfileFact,
-    relative_pointer: &str,
-    record: &SourceRecordV2,
-    binding_identity: &EntityIdentity,
-) -> Result<Option<SemanticProjection>> {
-    let binding = SemanticBinding {
-        record,
-        identity: binding_identity,
-    };
-    let numeric = fact.value.is_number()
+fn numeric_original(fact: &EntityProfileFact) -> bool {
+    fact.value.is_number()
         || (fact
             .qualifiers
             .get("numeric_representation")
@@ -158,13 +174,58 @@ pub fn semantic_projection(
             && fact
                 .value
                 .as_str()
-                .is_some_and(|text| serde_json::from_str::<serde_json::Number>(text).is_ok()));
-    if !numeric {
+                .is_some_and(|text| serde_json::from_str::<serde_json::Number>(text).is_ok()))
+}
+
+pub fn semantic_projection(
+    fact: &EntityProfileFact,
+    relative_pointer: &str,
+    record: &SourceRecordV2,
+    binding_identity: &EntityIdentity,
+) -> Result<Option<SemanticProjection>> {
+    if !numeric_original(fact) {
         return Ok(None);
     }
+    let binding = SemanticBinding {
+        record,
+        identity: binding_identity,
+    };
+    let relative = bound_relative_pointer(fact, binding, relative_pointer)?;
+    semantic_projection_verified(fact, relative_pointer, &relative)
+}
+
+pub(crate) fn semantic_projection_from_verified_original(
+    fact: &EntityProfileFact,
+    relative_pointer: &str,
+    source_id: &str,
+    logical_id: &str,
+    identity: &EntityIdentity,
+    facts: &[Value],
+    by_id: &BTreeMap<String, usize>,
+) -> Result<Option<SemanticProjection>> {
+    if !numeric_original(fact) {
+        return Ok(None);
+    }
+    let relative = bound_relative_pointer_from_facts(
+        fact,
+        identity,
+        source_id,
+        logical_id,
+        facts,
+        relative_pointer,
+        Some(by_id),
+    )?;
+    semantic_projection_verified(fact, relative_pointer, &relative)
+}
+
+fn semantic_projection_verified(
+    fact: &EntityProfileFact,
+    relative_pointer: &str,
+    proven_relative_pointer: &str,
+) -> Result<Option<SemanticProjection>> {
     if relative_pointer.is_empty()
         || !relative_pointer.starts_with('/')
-        || bound_relative_pointer(fact, binding, relative_pointer)? != relative_pointer
+        || proven_relative_pointer != relative_pointer
     {
         return Err(invalid(
             "Semantischer Blattpfad widerspricht dem Originalbeleg",

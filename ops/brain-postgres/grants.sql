@@ -27,6 +27,12 @@ DECLARE
   patch_table text;
   patch_sequence text;
 BEGIN
+  IF to_regprocedure('brain.source_read_header_v1(jsonb)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION brain.source_read_header_v1(jsonb) TO brain_ingest;
+  END IF;
+  IF to_regprocedure('brain.source_original_header_v1(jsonb)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION brain.source_original_header_v1(jsonb) TO brain_ingest;
+  END IF;
   IF to_regclass('patchnotes.changelog_posts') IS NOT NULL THEN
     GRANT USAGE ON SCHEMA patchnotes TO brain_ingest;
     GRANT SELECT ON patchnotes.changelog_posts TO brain_ingest;

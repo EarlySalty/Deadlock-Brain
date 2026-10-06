@@ -6,10 +6,7 @@ use axum::{
     routing::get,
     Router,
 };
-use brain_contracts::{
-    source::origin_from_record, CorpusRelease, CorpusSnapshot, Principal, SnapshotReadPort,
-    SourceVisibility,
-};
+use brain_contracts::{CorpusRelease, Principal, ReleaseReadManifest, SourceVisibility};
 use brain_storage::LocalPgReader;
 use std::{
     collections::BTreeSet,
@@ -31,46 +28,85 @@ pub(crate) struct Health {
     operator_socket: Option<std::path::PathBuf>,
 }
 
-pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Result<(), Error> {
+pub(crate) fn validate_bound_manifest(
+    snapshot: &ReleaseReadManifest,
+    scope: &str,
+) -> Result<(), Error> {
     if snapshot.revisions.is_empty() {
         return Err(Error::ReleaseUnavailable);
     }
-    if scope == "bot.public" {
-        let scopes = BTreeSet::from(["bot.public".into()]);
+    if scope == "bot.public" || scope == crate::config::DOCS_ENTITY_PROFILE_BINDING {
+        let authorization_scope = if scope == crate::config::DOCS_ENTITY_PROFILE_BINDING {
+            "docs.public"
+        } else {
+            "bot.public"
+        };
+        let scopes = BTreeSet::from([authorization_scope.into()]);
+        let docs_record_valid = |record: &brain_contracts::DocumentHead| {
+            authorization_scope != "docs.public"
+                || record.allowed_scopes.is_empty()
+                || (record.source_id == "docs-c9-public:Deadlock-Docs"
+                    && record
+                        .canonical_origin()
+                        .ok()
+                        .flatten()
+                        .is_some_and(|origin| {
+                            origin.policy.publication_allowed
+                                && origin.policy.provider_egress_allowed
+                                && !origin.policy.raw_retention_allowed
+                        }))
+        };
         let public: Vec<_> = snapshot
             .revisions
             .iter()
+            .map(|descriptor| &descriptor.head)
             .filter(|record| {
-                record.visibility == SourceVisibility::Public && record.allowed_scopes == scopes
+                record.visibility == SourceVisibility::Public
+                    && record.allowed_scopes.is_subset(&scopes)
+                    && (record.allowed_scopes == scopes
+                        || (!record.tombstone
+                            && !snapshot.heads.iter().any(|head| {
+                                head.source_id == record.source_id
+                                    && head.logical_id == record.logical_id
+                                    && head.tombstone
+                            })))
             })
             .collect();
-        if public.is_empty()
+        if !public.iter().any(|record| record.allowed_scopes == scopes)
             || public.iter().any(|record| {
                 record.tombstone
+                    || !docs_record_valid(record)
                     || !snapshot.heads.iter().any(|head| {
                         head.source_id == record.source_id
                             && head.logical_id == record.logical_id
                             && head.visibility == SourceVisibility::Public
-                            && head.allowed_scopes == scopes
+                            && head.allowed_scopes == record.allowed_scopes
                             && !head.tombstone
+                            && docs_record_valid(head)
                     })
             })
         {
             return Err(Error::ReleaseUnavailable);
         }
         let published = snapshot
-            .authorized_for_publication(&Principal {
-                actor_id: "brain-serve-readiness".into(),
-                channel: "health".into(),
-                scopes: scopes.clone(),
-                provider_egress: BTreeSet::new(),
-            })
+            .authorized(
+                &Principal {
+                    actor_id: "brain-serve-readiness".into(),
+                    channel: "health".into(),
+                    scopes: scopes.clone(),
+                    provider_egress: BTreeSet::new(),
+                },
+                false,
+                true,
+            )
             .map_err(|_| Error::ReleaseUnavailable)?;
         return if published.len() == public.len()
-            && published.iter().all(|record| {
-                record.visibility == SourceVisibility::Public
-                    && record.allowed_scopes == scopes
-                    && !record.tombstone
+            && public.iter().all(|record| {
+                published.iter().any(|pin| {
+                    pin.source_id == record.source_id
+                        && pin.logical_id == record.logical_id
+                        && pin.revision == record.revision
+                })
             }) {
             Ok(())
         } else {
@@ -83,8 +119,16 @@ pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Re
     } else {
         "second-brain-c9:Deadlock-2nd-Brain"
     };
-    for record in snapshot.revisions.iter().chain(&snapshot.heads) {
-        let origin = origin_from_record(record).map_err(|_| Error::ReleaseUnavailable)?;
+    for record in snapshot
+        .revisions
+        .iter()
+        .map(|descriptor| &descriptor.head)
+        .chain(&snapshot.heads)
+    {
+        let origin = record
+            .canonical_origin()
+            .map_err(|_| Error::ReleaseUnavailable)?
+            .ok_or(Error::ReleaseUnavailable)?;
         let internal_feed = !public
             && record
                 .source_id
@@ -126,7 +170,7 @@ pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Re
     Ok(())
 }
 
-pub(crate) fn validate_snapshot(snapshot: &CorpusSnapshot) -> Result<(), Error> {
+pub(crate) fn validate_manifest(snapshot: &ReleaseReadManifest) -> Result<(), Error> {
     snapshot
         .authorized(
             &Principal {
@@ -135,6 +179,7 @@ pub(crate) fn validate_snapshot(snapshot: &CorpusSnapshot) -> Result<(), Error> 
                 scopes: BTreeSet::new(),
                 provider_egress: BTreeSet::new(),
             },
+            false,
             false,
         )
         .map_err(|_| Error::ReleaseUnavailable)?;
@@ -219,17 +264,17 @@ impl Health {
                 }
                 for release in expected {
                     let actual = reader
-                        .read_snapshot(&release.release_id)
+                        .read_manifest(&release.release_id)
                         .map_err(|_| Error::ReaderUnavailable)?;
                     if actual.release != release {
                         return Err(Error::ReleaseUnavailable);
                     }
-                    validate_snapshot(&actual)?;
+                    validate_manifest(&actual)?;
                     for (_, scope) in bound_scopes
                         .iter()
                         .filter(|(id, _)| *id == release.release_id)
                     {
-                        validate_bound_scope(&actual, scope)?;
+                        validate_bound_manifest(&actual, scope)?;
                     }
                 }
                 reader
@@ -289,8 +334,12 @@ pub(crate) fn router(health: Arc<Health>) -> Router {
 #[cfg(test)]
 mod binding_tests {
     use super::*;
-    use brain_contracts::SourceRecordV2;
+    use brain_contracts::{CorpusSnapshot, SourceRecordV2};
     use std::collections::BTreeMap;
+
+    fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Result<(), Error> {
+        validate_bound_manifest(&ReleaseReadManifest::from_snapshot(snapshot), scope)
+    }
 
     fn maintenance_snapshot() -> CorpusSnapshot {
         let record = SourceRecordV2 {
@@ -381,5 +430,122 @@ mod binding_tests {
         changed.revisions[1].allowed_scopes = BTreeSet::from(["bot.public".into()]);
         changed.heads[1] = changed.revisions[1].clone();
         assert!(validate_bound_scope(&changed, "bot.public").is_err());
+    }
+
+    #[test]
+    fn public_profiles_cannot_replace_a_denied_scoped_document() {
+        use brain_contracts::{
+            source::*,
+            value::{Observed, UnknownReason},
+        };
+        let mut snapshot = maintenance_snapshot();
+        let record = &mut snapshot.revisions[0];
+        let mut origin = OriginArtifact {
+            identity: SourceIdentity {
+                source_id: record.source_id.clone(),
+                logical_id: record.logical_id.clone(),
+            },
+            source_revision: SourceRevision::Http {
+                body_sha256: record.content_hash.clone(),
+                etag: None,
+                last_modified: None,
+            },
+            raw_sha256: record.content_hash.clone(),
+            locator: "fixture://document".into(),
+            parser_revision: "fixture-v1".into(),
+            parser_family: "fixture".into(),
+            schema_version: Observed::unknown(UnknownReason::NotPresent),
+            schema_sha256: Observed::unknown(UnknownReason::NotPresent),
+            retrieved_at: Observed::unknown(UnknownReason::NotPresent),
+            source_time: Observed::unknown(UnknownReason::NotPresent),
+            language: Observed::unknown(UnknownReason::NotPresent),
+            origin_artifacts: BTreeSet::new(),
+            derivation_family: Observed::unknown(UnknownReason::NotPresent),
+            validity: GameValidity::unknown(),
+            policy: SourcePolicy {
+                visibility: record.visibility,
+                allowed_scopes: record.allowed_scopes.clone(),
+                authorization_ref: Observed::unknown(UnknownReason::NotPresent),
+                license: Observed::unknown(UnknownReason::NotPresent),
+                publication_allowed: false,
+                provider_egress_allowed: false,
+                raw_retention_allowed: false,
+            },
+        };
+        origin.bind_record(record).unwrap();
+        snapshot.heads[0] = record.clone();
+        let mut profile = record.clone();
+        profile.source_id = "git-game-facts-derived".into();
+        profile.logical_id = "hero".into();
+        profile.allowed_scopes.clear();
+        profile.metadata.clear();
+        snapshot.release.source_revisions.insert(
+            profile.source_id.clone(),
+            BTreeMap::from([(profile.logical_id.clone(), profile.revision)]),
+        );
+        snapshot.revisions.push(profile.clone());
+        snapshot.heads.push(profile);
+        assert!(validate_bound_scope(&snapshot, "bot.public").is_err());
+        origin.policy.publication_allowed = true;
+        origin.bind_record(&mut snapshot.revisions[0]).unwrap();
+        snapshot.heads[0] = snapshot.revisions[0].clone();
+        assert!(validate_bound_scope(&snapshot, "bot.public").is_ok());
+        let mut retired = snapshot.revisions[1].clone();
+        retired.logical_id = "retired-hero".into();
+        retired.revision = 2;
+        retired.tombstone = true;
+        snapshot
+            .release
+            .source_revisions
+            .get_mut(&retired.source_id)
+            .unwrap()
+            .insert(retired.logical_id.clone(), retired.revision);
+        snapshot.revisions.push(retired.clone());
+        snapshot.heads.push(retired);
+        assert!(validate_bound_scope(&snapshot, "bot.public").is_ok());
+        snapshot.revisions[2].tombstone = false;
+        snapshot.revisions[2].revision = 1;
+        snapshot
+            .release
+            .source_revisions
+            .get_mut("git-game-facts-derived")
+            .unwrap()
+            .insert("retired-hero".into(), 1);
+        assert!(validate_bound_scope(&snapshot, "bot.public").is_ok());
+        let mut denied = snapshot.clone();
+        denied.heads[0].tombstone = true;
+        assert!(validate_bound_scope(&denied, "bot.public").is_err());
+        snapshot.revisions[0].allowed_scopes = BTreeSet::from(["docs.public".into()]);
+        let old_source = snapshot.revisions[0].source_id.clone();
+        snapshot.revisions[0].source_id = "docs-c9-public:Deadlock-Docs".into();
+        let pins = snapshot
+            .release
+            .source_revisions
+            .remove(&old_source)
+            .unwrap();
+        snapshot
+            .release
+            .source_revisions
+            .insert(snapshot.revisions[0].source_id.clone(), pins);
+        origin.identity.source_id = snapshot.revisions[0].source_id.clone();
+        origin.policy.allowed_scopes = snapshot.revisions[0].allowed_scopes.clone();
+        origin.policy.provider_egress_allowed = true;
+        origin.bind_record(&mut snapshot.revisions[0]).unwrap();
+        snapshot.heads[0] = snapshot.revisions[0].clone();
+        assert!(validate_bound_scope(&snapshot, "docs.public").is_err());
+        assert!(
+            validate_bound_scope(&snapshot, crate::config::DOCS_ENTITY_PROFILE_BINDING).is_ok()
+        );
+        origin.policy.provider_egress_allowed = false;
+        origin.bind_record(&mut snapshot.heads[0]).unwrap();
+        assert!(
+            validate_bound_scope(&snapshot, crate::config::DOCS_ENTITY_PROFILE_BINDING).is_err()
+        );
+        origin.policy.provider_egress_allowed = true;
+        origin.policy.publication_allowed = false;
+        origin.bind_record(&mut snapshot.heads[0]).unwrap();
+        assert!(
+            validate_bound_scope(&snapshot, crate::config::DOCS_ENTITY_PROFILE_BINDING).is_err()
+        );
     }
 }

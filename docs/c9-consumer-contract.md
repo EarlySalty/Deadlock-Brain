@@ -18,6 +18,14 @@ Die normale Serverkonfiguration bindet authentifizierte Principals an feste Rele
 
 Der Discord-Bot fragt über `/v1/answer` mit `dl-bot/discord`, `bot.public` und der bestehenden Infisical-Referenz `DISCORD_BRAIN_CLIENT_TOKEN`. Damit er die aktuellen Spielprofile für seine Antworten erhält, braucht dieses Credential ausdrücklich `entity_profile_model_context=true`. Eine Freigabe für `docs-client/docs` gilt nur für diesen Consumer. Ohne die Discord-Freigabe durchsucht der Bot ausschließlich den gebundenen Dokumentrelease und kann trotz vorhandener Spielprofile keine passende Antwort finden.
 
+Der gebundene Release muss auch die veröffentlichten Spielprofile enthalten.
+Ein reiner Dokumentrelease reicht trotz gesetzter Modellfreigabe nicht aus.
+Interne Rohspielquellen bleiben intern. Der vorhandene Publisher erzeugt daraus
+geprüfte kompakte Dokumente unter `git-game-facts-derived` mit eigener Herkunft
+und Veröffentlichungsfreigabe. Bei einer Standard-Aktivierung folgen freigegebene
+Spielconsumer dem neuen Release, wenn ihre bisherige Bindung derselben Basis
+entspricht. Eigenständig gebundene Releases und andere Consumer bleiben erhalten.
+
 [`discord-credential.example.json`](../ops/brain-maintenance/discord-credential.example.json) zeigt den Eintrag für die bestehende `credentials`-Liste. Die Releasewerte müssen dem bereits veröffentlichten Wissensstand entsprechen. Der Dienst benötigt außerdem den vorhandenen `entity_profile_maintenance_config`-Pfad. Die Konfiguration wird über `brain-maintain write-serve-config` mit dem bisherigen SHA und dem gemeinsamen ConfigWriter geändert; anschließend wird `brain-serve.service` neu gestartet. Eine lokale Probe mit `deadlock-brain answer`, `bot.public` und derselben Discord-Secretreferenz prüft den öffentlichen Antwortpfad, ohne eine Discord-Nachricht zu senden. Tokens bleiben dabei im Infisical-Client und im Prozessspeicher.
 
 ## Interner Operatorweg
@@ -43,3 +51,23 @@ Die Abnahme umfasst Scope-, Principal- und Release-Isolation, fehlende Releases,
 Die drei gemeinsam geänderten Serve-Dateien werden mit dem getrennten Brain-Provider-Eigenanteil kombiniert und vollständig geprüft. Der Peer verantwortet seine Provider-/Modellverdrahtung; C9 führt keinen eigenen Modellwechsel durch. Die lokale Codex-CLI hat keinen belegten harten Ausgabetokendeckel. Vorabbudget und nachträgliche Verbrauchsprüfung sind keine harte Deckelgarantie. Nullbudget, deaktiviertes Toolschema, Timeout, Prozessgruppen und Bytegrenzen benötigen Laufzeitbelege am finalen Peerstand. Der interne Operatorweg bleibt ohne LLM/Egress.
 
 Der konkrete Gruppenstatus, Pakethashes, Bootstrapentwurf und finalen Köpfe stehen im gemeinsamen Taskordner unter `C9-GRUPPENVERTRAG.json`, `DOCS-C9-VERTRAG.json` und den beiden Release-Manifesten. Ein Komponentengate ersetzt die gemeinsame Abnahme nicht. Vor Gruppen-ALLOW erfolgen kein produktiver Import, Grant, Serverstart oder Einzelmerge.
+# GPT Luna über das Abo
+
+Deadlock-Brain hat einen eigenen `CodexSubscriptionProvider` am bestehenden
+`AnswerProviderPort`. Er verwendet GPT Luna (`gpt-6-luna`) über die vorhandene
+Codex-Anmeldung mit ChatGPT-Abo. Die Anbieter-Konfiguration steht in
+`config/codex-subscription-provider.example.json`. Für diesen Weg wird kein
+API-Schlüssel geladen und keine bezahlte API als Ersatz angesprochen.
+
+Der Adapter spricht das Nachrichtenformat der vorhandenen Rust-Brücke
+`claude-code-proxy` 0.1.43 auf einer eigenen Loopback-Adresse. Die Dienstinstanz
+muss geerbte Modell-, Anbieter- und Transport-Overrides entfernen. Die Antwort
+allein bestätigt das effektive Modell nicht, da die Brücke den angefragten Namen
+zurückgibt. Die feste Modellroute und die isolierte Dienstkonfiguration sichern
+die Auswahl. Fremde Proxyinstanzen behalten ihre Konfiguration.
+
+Anfragen enthalten ausschließlich Systemtext und Nutzerdaten, keine Werkzeuge.
+Die Denktiefe ist `low`; Denkblöcke werden verworfen. Quellenprüfung,
+Berechtigungen, Egress und Nutzungsgrenzen bleiben im Brain. Das Abo hat keinen
+hinterlegten API-Tokenpreis. Die Brücke garantiert keine harte Obergrenze über
+`max_tokens`; gemeldete Nutzung oberhalb des Brain-Budgets wird verworfen.

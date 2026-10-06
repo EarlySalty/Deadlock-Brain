@@ -9,6 +9,11 @@ const V1: &str = include_str!("../../../../scripts/migrations/2026-09-24-brain-c
 const V2: &str = include_str!("../../../../scripts/migrations/2026-09-25-brain-core-jobs-v2.sql");
 const VERSION: &str =
     include_str!("../../../../scripts/migrations/2026-09-26-brain-core-compatibility-v2.sql");
+const READ_HEADERS: &str =
+    include_str!("../../../../scripts/migrations/2026-10-06-brain-source-read-headers-v1.sql");
+const READ_HEADER_WRITER: &str = include_str!(
+    "../../../../scripts/migrations/2026-10-06-brain-source-read-header-writer-v1.sql"
+);
 const ENTITY_MIGRATIONS: [(&str, &str); 4] = [
     (
         include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"),
@@ -90,8 +95,8 @@ async fn check_version(connection: &mut PgConnection) -> Result<(), PortError> {
 }
 
 // Parse/plan only. Requires SELECT, never CREATE/ALTER, and reads no corpus rows.
-pub(crate) const SHAPE_PROBE: &str = "SELECT r.source_id,r.logical_id,r.revision,r.content_hash,r.tombstone,r.record_json,r.created_at,
-    h.source_id,h.logical_id,h.revision,h.content_hash,h.tombstone,h.record_json,h.updated_at,
+pub(crate) const SHAPE_PROBE: &str = "SELECT r.source_id,r.logical_id,r.revision,r.content_hash,r.tombstone,r.record_json,r.created_at,r.read_header_json,r.original_header_json,
+    h.source_id,h.logical_id,h.revision,h.content_hash,h.tombstone,h.record_json,h.updated_at,h.read_header_json,
     c.release_id,c.knowledge_version,c.patch,c.release_json,c.created_at,
     j.source_id,j.owner,j.fence,j.lease_until,j.state,j.updated_at,
     p.source_id,p.configuration,p.generation,p.checkpoint_json,p.batch_json,p.updated_at,
@@ -99,6 +104,44 @@ pub(crate) const SHAPE_PROBE: &str = "SELECT r.source_id,r.logical_id,r.revision
     FROM brain.source_record_revisions r, brain.source_record_heads h, brain.corpus_releases_v1 c,
          brain.source_jobs_v1 j, brain.source_checkpoints_v1 p, brain.conversation_owners_v1 o
     LIMIT 0";
+
+// Vorhandene beschreibbare Spalten oder ersetzte Funktionen erfüllen den Vertrag nicht.
+pub(crate) const READ_HEADER_CONTRACT_PROBE: &str = "SELECT
+    (SELECT count(*)=3 FROM (VALUES
+        ('source_record_revisions','read_header_json','source_read_header_v1'),
+        ('source_record_revisions','original_header_json','source_original_header_v1'),
+        ('source_record_heads','read_header_json','source_read_header_v1')) expected(relation,column_name,function_name)
+    JOIN pg_namespace n ON n.nspname='brain'
+    JOIN pg_class c ON c.relnamespace=n.oid AND c.relname=expected.relation
+    JOIN pg_attribute a ON a.attrelid=c.oid AND a.attname=expected.column_name AND NOT a.attisdropped
+    JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum
+    WHERE a.attgenerated='s' AND a.atttypid='jsonb'::regtype
+      AND pg_get_expr(d.adbin,d.adrelid) IN
+          (expected.function_name || '(record_json)', 'brain.' || expected.function_name || '(record_json)')
+      AND EXISTS(SELECT 1 FROM pg_depend dependency
+          JOIN pg_proc function ON function.oid=dependency.refobjid
+          JOIN pg_namespace function_namespace ON function_namespace.oid=function.pronamespace
+          WHERE dependency.classid='pg_attrdef'::regclass AND dependency.objid=d.oid
+            AND dependency.refclassid='pg_proc'::regclass
+            AND function_namespace.nspname='brain' AND function.proname=expected.function_name
+            AND function.pronargs=1 AND function.proargtypes[0]='jsonb'::regtype))
+    AND (SELECT count(*)=2 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname='brain' AND p.proname IN ('source_read_header_v1','source_original_header_v1')
+          AND p.pronargs=1 AND p.proargtypes[0]='jsonb'::regtype
+          AND p.prorettype='jsonb'::regtype AND p.provolatile='i' AND NOT p.prosecdef)";
+
+async fn check_read_headers(connection: &mut PgConnection) -> Result<(), PortError> {
+    let valid: bool = sqlx::query_scalar(READ_HEADER_CONTRACT_PROBE)
+        .fetch_one(connection)
+        .await
+        .map_err(compatibility_error)?;
+    if !valid {
+        return Err(invalid(
+            "Gespeicherte Leseheader erfüllen den Schemavertrag nicht",
+        ));
+    }
+    Ok(())
+}
 
 impl PgStore {
     pub async fn check_entity_profile_schema(&self) -> Result<(), PortError> {
@@ -173,6 +216,7 @@ impl PgStore {
             .fetch_all(&mut *tx)
             .await
             .map_err(compatibility_error)?;
+        check_read_headers(&mut tx).await?;
         tx.commit().await.map_err(compatibility_error)
     }
 
@@ -196,7 +240,7 @@ impl PgStore {
         if marked {
             check_version(&mut tx).await?;
         }
-        for migration in [V1, V2] {
+        for migration in [V1, V2, READ_HEADERS, READ_HEADER_WRITER] {
             sqlx::raw_sql(body(migration)?)
                 .execute(&mut *tx)
                 .await
@@ -228,6 +272,7 @@ impl PgStore {
             .fetch_all(&mut *tx)
             .await
             .map_err(migration_error)?;
+        check_read_headers(&mut tx).await?;
         tx.commit().await.map_err(migration_error)
     }
 }
