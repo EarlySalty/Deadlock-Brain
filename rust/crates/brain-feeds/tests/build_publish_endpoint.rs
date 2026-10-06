@@ -289,6 +289,53 @@ fn serve(listener: TcpListener, replies: Vec<Reply>) -> thread::JoinHandle<Vec<S
     })
 }
 
+#[test]
+fn dotted_request_ids_have_the_same_submit_and_status_contract() {
+    if isolated("dotted_request_ids_have_the_same_submit_and_status_contract") {
+        return;
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let mut request = request();
+    request.request_id = "build.1".into();
+    request.validate().unwrap();
+    let mut response: serde_json::Value = serde_json::from_str(&status_body()).unwrap();
+    response["request_id"] = serde_json::json!(request.request_id);
+    response["request_sha256"] = serde_json::json!(request.request_sha256().unwrap());
+    let response = serde_json::to_string(&response).unwrap();
+    let server = serve(listener, vec![
+        Reply { code: 202, body: response.clone(), location: None },
+        Reply { code: 200, body: response, location: None },
+    ]);
+    let client = client(&format!("http://{address}/gateway")).unwrap();
+    let submitted = client.submit(&request).unwrap();
+    assert_eq!(client.status(&request.request_id).unwrap(), submitted);
+    let seen = server.join().unwrap();
+    assert!(seen[0].head.starts_with("POST /gateway/builds/v1/publish HTTP/1.1\r\n"));
+    assert!(seen[1].head.starts_with("GET /gateway/builds/v1/publish/build.1 HTTP/1.1\r\n"));
+    assert!(seen[0].head.contains("idempotency-key: build.1\r\n"));
+}
+
+#[test]
+fn unsupported_request_ids_are_rejected_before_both_submit_and_status_io() {
+    if isolated("unsupported_request_ids_are_rejected_before_both_submit_and_status_io") {
+        return;
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let client = client(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    for id in [".", "..", "../escape", "x/y", "x?query", "x#fragment", "id with spaces", ""] {
+        let mut request = request();
+        request.request_id = id.into();
+        assert!(matches!(client.submit(&request), Err(PublishError::InvalidRequest)), "submit accepted {id:?}");
+        assert!(matches!(client.status(id), Err(PublishError::InvalidRequest)), "status accepted {id:?}");
+        assert_eq!(listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock,
+            "unsupported request ID must fail before transport");
+    }
+    let oversized = "a".repeat(129);
+    assert!(matches!(client.status(&oversized), Err(PublishError::InvalidRequest)));
+}
+
 fn round_trip(bind: &str, host: Option<&str>, base_path: &str, expected_path: &str) {
     let listener = TcpListener::bind(bind).unwrap();
     let address = listener.local_addr().unwrap();

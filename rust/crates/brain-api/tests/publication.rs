@@ -409,6 +409,93 @@ async fn publication_checks_transitive_domain_dependencies_without_changing_inte
 }
 
 #[tokio::test]
+async fn current_canonical_egress_revocation_invalidates_a_warm_release_index() {
+    for remove_origin in [false, true] {
+        let store = MemoryRepository::default();
+        let original = record("a", 1, true, false);
+        store.apply_record(original.clone()).unwrap();
+        publish(&store).await;
+        let retrieval = ReleaseRetriever::new(store.clone(), 10);
+        let q = query(AnswerProfile::Explain);
+        let hits = retrieval.retrieve(&q, &context()).unwrap();
+        assert_eq!(hits.len(), 1);
+        let mut revoked = original;
+        revoked.revision = 2;
+        if remove_origin {
+            revoked.metadata.remove(brain_contracts::source::ORIGIN_METADATA_KEY);
+        } else {
+            let mut origin = brain_contracts::source::origin_from_record(&revoked).unwrap();
+            origin.policy.provider_egress_allowed = false;
+            origin.bind_record(&mut revoked).unwrap();
+        }
+        store.apply_record(revoked).unwrap();
+        assert_eq!(retrieval.retrieve(&q, &context()).unwrap().len(), 1,
+            "provider egress revocation must not revoke internal reads");
+        assert!(retrieval.validate_evidence(&q, &context(), &hits, true).is_err(),
+            "current canonical egress revocation must reject pinned evidence; missing_origin={remove_origin}");
+    }
+}
+
+#[tokio::test]
+async fn publication_checks_metadata_dependencies_transitively_on_fresh_and_cached_answers() {
+    use brain_contracts::{domain::*, source::Versioned};
+    for nested in [false, true] {
+        for revoke_current in [false, true] {
+            let store = MemoryRepository::default();
+            let mut data = domain_fixture::records("r1", "p1", 1, "500");
+            let mut leaf = record("metadata-leaf", 1, revoke_current, false);
+            leaf.metadata.insert("patch".into(), "p1".into());
+            leaf.metadata.insert("mode".into(), "ranked".into());
+            let leaf_ref = domain_fixture::revision(&leaf);
+            let dependency_ref = if nested {
+                let mut intermediate = record("metadata-intermediate", 1, true, false);
+                intermediate.metadata.insert("patch".into(), "p1".into());
+                intermediate.metadata.insert("mode".into(), "ranked".into());
+                intermediate.metadata.insert(DOMAIN_DEPENDENCIES_METADATA_KEY.into(),
+                    serde_json::to_string(&Versioned::new(vec![leaf_ref.clone()])).unwrap());
+                let reference = domain_fixture::revision(&intermediate);
+                data.push(intermediate);
+                reference
+            } else {
+                leaf_ref.clone()
+            };
+            data.iter_mut().find(|r| r.logical_id == "fact-damage").unwrap().metadata.insert(
+                DOMAIN_DEPENDENCIES_METADATA_KEY.into(),
+                serde_json::to_string(&Versioned::new(vec![dependency_ref])).unwrap());
+            data.push(leaf.clone());
+            for record in data { store.apply_record(record).unwrap(); }
+            publish(&store).await;
+            let kernel = Kernel::new(ReleaseRetriever::new(store.clone(), 10), NoProvider);
+            let mut q = domain_fixture::query(&DomainRequest::Rule { rule_id: "fixture-dps".into() }, "p1");
+            q.conversation_id = "c1".into();
+            let internal = kernel.answer(&q, &context());
+            assert_eq!(internal.status, AnswerStatus::Answered);
+            let api = service(CachedKernel::new(kernel.clone(), 8, Duration::from_secs(30)));
+            if revoke_current {
+                assert_eq!(external(&api, &q).status, AnswerStatus::Answered);
+                assert_eq!(external(&api, &q).status, AnswerStatus::Answered);
+                leaf.revision = 2;
+                let mut origin = brain_contracts::source::origin_from_record(&leaf).unwrap();
+                origin.policy.publication_allowed = false;
+                origin.bind_record(&mut leaf).unwrap();
+                store.apply_record(leaf).unwrap();
+            }
+            denied(&external(&api, &q));
+            denied(&external(&service(kernel.clone()), &q));
+            let still_internal = kernel.answer(&q, &context());
+            assert_eq!(still_internal.status, AnswerStatus::Answered);
+            assert_eq!(still_internal.text, internal.text);
+            let proof: DomainAnswer = serde_json::from_str(&still_internal.citations[0].content).unwrap();
+            assert!(proof.inputs.iter().any(|input| input.source == leaf_ref),
+                "retain indirect dependencies in the complete internal proof");
+            if nested {
+                assert!(proof.inputs.iter().any(|input| input.source.source_id == "publication-metadata-intermediate"));
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn publication_fully_granted_facts_remain_successful() {
     let store = MemoryRepository::default();
     store.apply_record(record("a", 1, true, true)).unwrap();
