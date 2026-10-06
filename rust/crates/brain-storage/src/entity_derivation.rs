@@ -1,8 +1,6 @@
 use super::{
-    assemble_profile,
-    compact::compact_document,
-    invalid, project_entity_facts,
-    semantic::{project_semantic_fact, SemanticProjection},
+    assemble_profile, compact::compact_document, invalid, project_entity_facts,
+    semantic::SemanticProjection,
 };
 use crate::Result;
 use brain_contracts::{
@@ -64,6 +62,24 @@ pub struct GitBlobEvidence {
     pub git_commit: String,
     pub repository_url: String,
     pub bytes: Vec<u8>,
+}
+
+/// Getrennte Originalansicht ohne archivierten Dokumentkörper oder Faktenbaum.
+#[derive(Debug, Clone)]
+pub struct OriginalEvidenceHeader {
+    pub descriptor: brain_contracts::DocumentDescriptor,
+    pub document_header: Value,
+}
+
+/// Vollständiger Rechtebeweis mit den für diese Entität benötigten Originalheadern.
+#[derive(Debug, Clone)]
+pub struct VerifiedOriginalEvidence {
+    pub manifest: brain_contracts::ReleaseReadManifest,
+    pub originals: Vec<OriginalEvidenceHeader>,
+}
+
+pub fn git_evidence_identity(header: &OriginalEvidenceHeader) -> Result<(String, String, String)> {
+    git_header_identity(&header.document_header)
 }
 
 pub fn sha256(bytes: &[u8]) -> String {
@@ -177,6 +193,10 @@ pub fn git_document_identity(record: &SourceRecordV2) -> Result<(String, String,
             .get(crate::source_versions::DOCUMENT_METADATA_KEY)
             .ok_or_else(|| invalid("Originaldokument fehlt"))?,
     )?;
+    git_header_identity(&document)
+}
+
+fn git_header_identity(document: &Value) -> Result<(String, String, String)> {
     if document["source_kind"] != "game_file" {
         return Err(invalid("Git-Ableitung benötigt eine Git-Originalquelle"));
     }
@@ -212,286 +232,85 @@ pub fn derive_git_profile(
     blobs: &[GitBlobEvidence],
     live_story: &[brain_contracts::entity_profile::PatchStoryChange],
 ) -> Result<(EntityProfile, GitDocumentReceipt)> {
-    let authorized = snapshot
+    // Der vollständige Altvertrag prüft zusätzlich die archivierten Faktenmetadaten.
+    snapshot
         .authorized(operator, false)
         .map_err(|_| invalid("Frische Originalautorisierung fehlt"))?;
-    let mut rows: Vec<_> = bindings.iter().collect();
-    rows.sort_by(|a, b| {
-        (
-            &a.source_id,
-            &a.logical_id,
-            a.store_revision,
-            &a.original_fact.fact_id,
-        )
-            .cmp(&(
-                &b.source_id,
-                &b.logical_id,
-                b.store_revision,
-                &b.original_fact.fact_id,
-            ))
-    });
-    let mut seen = BTreeSet::new();
-    let mut blob_map = BTreeMap::new();
-    for blob in blobs {
-        if blob_map
-            .insert(
-                (&blob.source_id, &blob.logical_id, blob.store_revision),
-                blob,
+    let manifest = brain_contracts::ReleaseReadManifest::from_snapshot(snapshot);
+    let mut originals = Vec::new();
+    let mut archived_facts = Vec::new();
+    for record in &snapshot.revisions {
+        let selected: Vec<_> = bindings
+            .iter()
+            .filter(|binding| {
+                binding.source_id == record.source_id
+                    && binding.logical_id == record.logical_id
+                    && binding.store_revision == record.revision
+            })
+            .collect();
+        if selected.is_empty() {
+            continue;
+        }
+        if sha256(record.content.as_bytes()) != record.content_hash {
+            return Err(invalid(
+                "Archivierter Originalkörper widerspricht seinem Hash",
+            ));
+        }
+        let ids: Vec<_> = selected
+            .iter()
+            .map(|binding| binding.original_fact.fact_id.clone())
+            .collect();
+        let projected = project_entity_facts(record, &ids)?;
+        archived_facts.extend(projected.iter().cloned().map(|fact| {
+            (
+                record.source_id.clone(),
+                record.logical_id.clone(),
+                record.revision,
+                fact,
             )
-            .is_some()
-        {
-            return Err(invalid("Gitblobbeleg ist nicht eindeutig"));
-        }
-    }
-    let mut entity: Option<EntityIdentity> = None;
-    let mut facts = Vec::new();
-    let mut pins = Vec::new();
-    let mut unknowns = BTreeSet::new();
-    let mut originals_by_record = BTreeMap::new();
-    let mut verified_git = BTreeMap::new();
-    let mut blob_facts = BTreeMap::new();
-    for binding in rows {
-        let key = (
-            &binding.source_id,
-            &binding.logical_id,
-            binding.store_revision,
-        );
-        if !seen.insert((key, &binding.original_fact.fact_id)) {
-            return Err(invalid("Originalbindung ist nicht eindeutig"));
-        }
-        if !authorized
+        }));
+        if selected
             .iter()
-            .any(|record| (&record.source_id, &record.logical_id, record.revision) == key)
-        {
-            return Err(invalid("Originalbindung ist nicht mehr autorisiert"));
-        }
-        let record = snapshot
-            .revisions
-            .iter()
-            .find(|record| (&record.source_id, &record.logical_id, record.revision) == key)
-            .ok_or_else(|| invalid("Unveränderlicher Originalpin fehlt"))?;
-        if let std::collections::btree_map::Entry::Vacant(entry) = originals_by_record.entry(key) {
-            let ids: Vec<_> = bindings
-                .iter()
-                .filter(|candidate| {
-                    (
-                        &candidate.source_id,
-                        &candidate.logical_id,
-                        candidate.store_revision,
-                    ) == key
-                })
-                .map(|candidate| candidate.original_fact.fact_id.clone())
-                .collect();
-            let originals: BTreeMap<_, _> = project_entity_facts(record, &ids)?
-                .into_iter()
-                .map(|fact| (fact.fact_id.clone(), fact))
-                .collect();
-            entry.insert(originals);
-        }
-        let original = originals_by_record[&key]
-            .get(&binding.original_fact.fact_id)
-            .ok_or_else(|| invalid("Gespeicherter Originalfakt fehlt"))?;
-        if *original != binding.original_fact
-            || original.provenance.source_kind != ProfileSourceKind::GameFile
+            .zip(projected)
+            .any(|(binding, original)| binding.original_fact != original)
         {
             return Err(invalid(
                 "Gespeicherte Originalbindung widerspricht dem Git-Original",
             ));
         }
-        let identity = &binding.binding_identity;
-        if identity.entity_key != entity_key
-            || identity.name.trim().is_empty()
-            || identity.name.contains(['/', '\\', ':'])
-            || identity.name.chars().any(char::is_control)
-            || identity.identity_evidence.is_empty()
-            || entity.as_ref().is_some_and(|previous| {
-                previous.kind != identity.kind || previous.name != identity.name
-            })
-        {
-            return Err(invalid(
-                "Gespeicherte Git-Bindungsidentität widerspricht der Entität",
-            ));
-        }
-        if let std::collections::btree_map::Entry::Vacant(entry) = verified_git.entry(key) {
-            let (commit, repository, path) = git_document_identity(record)?;
-            let blob = blob_map
-                .get(&key)
-                .ok_or_else(|| invalid("Tatsächlicher Gitblobbeleg fehlt"))?;
-            let document: Value = serde_json::from_str(
-                &record.metadata[crate::source_versions::DOCUMENT_METADATA_KEY],
-            )?;
-            if blob.git_commit != commit
-                || blob.repository_url != repository
-                || blob.bytes != record.content.as_bytes()
-                || sha256(&blob.bytes) != record.content_hash
-                || document["metadata"]["original_sha256"] != record.content_hash
-            {
-                return Err(invalid(
-                    "Gitcommit, Upstream oder Originalblob widerspricht dem Beleg",
-                ));
-            }
-            let canonical_path = document["metadata"]["relative_path"]
-                .as_str()
-                .ok_or_else(|| invalid("Originalressourcenpfad fehlt"))?;
-            let canonical_blob_path = game_file_facts::canonical_resource_path(
-                document["metadata"]["source_layout"].as_str(),
-                &path,
-                true,
-            );
-            if canonical_path != canonical_blob_path {
-                return Err(invalid(
-                    "Originalressourcenpfad widerspricht dem Gitblobpfad",
-                ));
-            }
-            let content = std::str::from_utf8(&blob.bytes)
-                .map_err(|_| invalid("Gitblob ist kein belegter Originaltext"))?;
-            let (parsed, status) = game_file_facts::extract_facts(canonical_path, content);
-            if document["metadata"]["parse_status"] != status {
-                return Err(invalid("Originalparserstatus widerspricht dem Gitblob"));
-            }
-            let mut parsed_by_id = BTreeMap::new();
-            for fact in parsed {
-                let id = fact["fact_id"]
-                    .as_str()
-                    .ok_or_else(|| invalid("Originalparser liefert keine Faktidentität"))?
-                    .to_owned();
-                if parsed_by_id.insert(id, fact).is_some() {
-                    return Err(invalid("Originalblobfeld ist nicht eindeutig"));
-                }
-            }
-            blob_facts.insert(key, parsed_by_id);
-            entry.insert((commit, repository));
-        }
-        let parsed = blob_facts[&key]
-            .get(&original.fact_id)
-            .ok_or_else(|| invalid("Gebundenes Originalfeld fehlt im Gitblob"))?;
-        if parsed["subject"].as_str() != Some(original.subject.as_str())
-            || parsed["predicate"].as_str() != Some(original.predicate.as_str())
-            || (original.predicate == "file.kv_value"
-                && original.qualifiers.contains_key("json_pointer"))
-            || parsed["value"] != original.value
-            || parsed["source_span"].as_str() != original.provenance.source_span.as_deref()
-            || parsed["evidence_status"].as_str() != Some(original.evidence_status.as_str())
-            || parsed["qualifiers"]
-                .as_object()
-                .ok_or_else(|| invalid("Originalparserqualifier fehlen"))?
+        let mut document: Value =
+            serde_json::from_str(&record.metadata[crate::source_versions::DOCUMENT_METADATA_KEY])?;
+        let object = document
+            .as_object_mut()
+            .ok_or_else(|| invalid("Originaldokument fehlt"))?;
+        object.remove("content");
+        object.remove("facts");
+        originals.push(OriginalEvidenceHeader {
+            descriptor: manifest
+                .revisions
                 .iter()
-                .any(|(key, value)| {
-                    !(original.predicate == "file.kv_value"
-                        && key == "source_pointer"
-                        && !original.qualifiers.contains_key(key))
-                        && original.qualifiers.get(key) != Some(value)
+                .find(|descriptor| {
+                    descriptor.head.source_id == record.source_id
+                        && descriptor.head.logical_id == record.logical_id
+                        && descriptor.head.revision == record.revision
                 })
-        {
-            return Err(invalid(
-                "Gebundener Originalfakt widerspricht seinem Gitblobfeld",
-            ));
-        }
-        let (commit, repository) = &verified_git[&key];
-        if original.provenance.origin.raw_sha256 != record.content_hash {
-            return Err(invalid(
-                "Originalherkunft widerspricht dem tatsächlichen Gitblob",
-            ));
-        }
-        let combined = entity.get_or_insert_with(|| identity.clone());
-        for alias in &identity.aliases {
-            if !combined.aliases.contains(alias) {
-                combined.aliases.push(alias.clone());
-            }
-        }
-        let Some(semantic) = &binding.semantic_projection else {
-            continue;
-        };
-        let mut fact = project_semantic_fact(original, semantic, record, identity)?;
-        pins.push(FactPin {
-            source_id: record.source_id.clone(),
-            logical_id: record.logical_id.clone(),
-            store_revision: record.revision,
-            fact_id: original.fact_id.clone(),
-            raw_sha256: record.content_hash.clone(),
-            git_commit: commit.clone(),
-            repository_url: repository.clone(),
-            binding_identity: identity.clone(),
-            semantic_projection: semantic.clone(),
+                .ok_or_else(|| invalid("Originaldescriptor fehlt"))?
+                .clone(),
+            document_header: document,
         });
-        if fact.qualifiers.contains_key("semantic_scope") {
-            unknowns.insert(format!("Für {} fehlt eine belegte öffentliche Beschreibung der verschachtelten Variante oder Bedingung", fact.predicate));
-            continue;
-        }
-        for key in [
-            "references_resolved",
-            "type_flags",
-            "unit_status",
-            "unit_inferred",
-        ] {
-            fact.qualifiers.remove(key);
-        }
-        if fact
-            .unit
-            .as_ref()
-            .is_some_and(|unit| public_qualifier_text(&Value::String(unit.clone())).is_none())
-            || !public_statement_qualifiers(&fact.qualifiers)
-            || fact.qualifiers.iter().any(|(key, value)| {
-                !matches!(
-                    key.as_str(),
-                    "level" | "variant" | "condition" | "ability_name" | "numeric_representation"
-                ) || match value {
-                    Value::String(text) => {
-                        text.contains(['/', '\\', ':']) || text.chars().any(char::is_control)
-                    }
-                    Value::Number(_) => false,
-                    _ => true,
-                }
-            })
-        {
-            unknowns.insert(format!(
-                "Für {} fehlt eine belegte öffentliche Beschreibung der zusätzlichen Bedingungen",
-                fact.predicate
-            ));
-            continue;
-        }
-        fact.fact_id = format!("derived:{}", facts.len());
-        fact.subject = entity_key.into();
-        fact.provenance.origin.identity.source_id = "git-game-facts-derived".into();
-        fact.provenance.origin.identity.logical_id = entity_key.into();
-        fact.provenance.origin.source_revision = SourceRevision::Git {
-            commit: commit.clone(),
-        };
-        fact.provenance.origin.policy = derived_policy();
-        fact.provenance.origin.locator = "git-game-facts-derived".into();
-        fact.provenance.origin.origin_artifacts.clear();
-        fact.provenance.source_span = None;
-        fact.provenance.document_metadata.clear();
-        fact.provenance.license =
-            serde_json::json!({"authorization_ref":GIT_GAME_FACT_AUTHORIZATION});
-        fact.provenance.original_revision = commit.clone();
-        facts.push(fact);
     }
-    let mut entity = entity.ok_or_else(|| invalid("Freigegebene belegte Git-Zahlen fehlen"))?;
-    facts.retain(|fact| {
-        if consumer_statement_qualifiers(&entity, &fact.qualifiers) {
-            true
-        } else {
-            unknowns.insert(format!(
-                "Für {} fehlt eine belegte öffentliche Beschreibung der zusätzlichen Bedingungen",
-                fact.predicate
-            ));
-            false
-        }
-    });
-    let story = consumer_patch_story(&entity, live_story)?;
-    entity.aliases.clear();
-    entity.identity_evidence = vec![GIT_GAME_FACT_AUTHORIZATION.into()];
-    let mut profile = assemble_profile(entity, None, facts, story);
-    profile.unknowns.extend(unknowns);
-    let receipt = GitDocumentReceipt {
-        contract_version: GIT_DOCUMENT_CONTRACT.into(),
-        entity_key: entity_key.into(),
-        original_release_id: snapshot.release.release_id.clone(),
-        document_sha256: sha256(compact_document(&profile)?.as_bytes()),
-        fact_pins: pins,
-    };
-    Ok((profile, receipt))
+    derive_git_profile_evidence_core(
+        entity_key,
+        &VerifiedOriginalEvidence {
+            manifest,
+            originals,
+        },
+        operator,
+        bindings,
+        blobs,
+        live_story,
+        Some(&archived_facts),
+    )
 }
 
 pub fn verify_git_document_receipt(
@@ -502,6 +321,24 @@ pub fn verify_git_document_receipt(
     bindings: &[StoredGitBinding],
     blobs: &[GitBlobEvidence],
     live_story: &[brain_contracts::entity_profile::PatchStoryChange],
+) -> Result<EntityProfile> {
+    verify_receipt_core(record, receipt, &snapshot.release.release_id, || {
+        derive_git_profile(
+            &receipt.entity_key,
+            snapshot,
+            operator,
+            bindings,
+            blobs,
+            live_story,
+        )
+    })
+}
+
+fn verify_receipt_core(
+    record: &SourceRecordV2,
+    receipt: &GitDocumentReceipt,
+    release_id: &str,
+    derive: impl FnOnce() -> Result<(EntityProfile, GitDocumentReceipt)>,
 ) -> Result<EntityProfile> {
     record.validate()?;
     let origin = brain_contracts::source::origin_from_record(record)
@@ -523,7 +360,7 @@ pub fn verify_git_document_receipt(
         || record.visibility != SourceVisibility::Public
         || !record.allowed_scopes.is_empty()
         || receipt.contract_version != GIT_DOCUMENT_CONTRACT
-        || snapshot.release.release_id != receipt.original_release_id
+        || release_id != receipt.original_release_id
         || record.content_hash != receipt.document_sha256
         || sha256(record.content.as_bytes()) != receipt.document_sha256
         || record
@@ -540,14 +377,7 @@ pub fn verify_git_document_receipt(
             "Abgeleitetes Dokument widerspricht der privaten Quittung",
         ));
     }
-    let (profile, mut expected) = derive_git_profile(
-        &receipt.entity_key,
-        snapshot,
-        operator,
-        bindings,
-        blobs,
-        live_story,
-    )?;
+    let (profile, mut expected) = derive()?;
     for fresh in &mut expected.fact_pins {
         if let Some(pin) = receipt.fact_pins.iter().find(|pin| {
             pin.source_id == fresh.source_id
@@ -723,4 +553,418 @@ pub fn consumer_patch_story(
     }
     result.sort_by(|a, b| (&a.0, &a.2.stat_name, &a.1).cmp(&(&b.0, &b.2.stat_name, &b.1)));
     Ok(result.into_iter().map(|(_, _, change)| change).collect())
+}
+
+pub fn derive_git_profile_from_evidence(
+    entity_key: &str,
+    evidence: &VerifiedOriginalEvidence,
+    operator: &Principal,
+    bindings: &[StoredGitBinding],
+    blobs: &[GitBlobEvidence],
+    live_story: &[brain_contracts::entity_profile::PatchStoryChange],
+) -> Result<(EntityProfile, GitDocumentReceipt)> {
+    derive_git_profile_evidence_core(
+        entity_key, evidence, operator, bindings, blobs, live_story, None,
+    )
+}
+
+fn derive_git_profile_evidence_core(
+    entity_key: &str,
+    evidence: &VerifiedOriginalEvidence,
+    operator: &Principal,
+    bindings: &[StoredGitBinding],
+    blobs: &[GitBlobEvidence],
+    live_story: &[brain_contracts::entity_profile::PatchStoryChange],
+    archived_facts: Option<&[(String, String, u64, EntityProfileFact)]>,
+) -> Result<(EntityProfile, GitDocumentReceipt)> {
+    let authorized = evidence
+        .manifest
+        .authorized(operator, false, false)
+        .map_err(|_| invalid("Frische Originalautorisierung fehlt"))?;
+    let mut headers = BTreeMap::new();
+    for header in &evidence.originals {
+        let descriptor = &header.descriptor;
+        let key = (
+            &descriptor.head.source_id,
+            &descriptor.head.logical_id,
+            descriptor.head.revision,
+        );
+        let pinned = evidence
+            .manifest
+            .revisions
+            .iter()
+            .find(|pinned| {
+                (
+                    &pinned.head.source_id,
+                    &pinned.head.logical_id,
+                    pinned.head.revision,
+                ) == key
+            })
+            .ok_or_else(|| invalid("Originalheader ist nicht gepinnt"))?;
+        if serde_json::to_value(pinned)? != serde_json::to_value(descriptor)?
+            || headers.insert(key, header).is_some()
+        {
+            return Err(invalid("Originalheader widerspricht dem Manifest"));
+        }
+    }
+    let mut rows: Vec<_> = bindings.iter().collect();
+    rows.sort_by(|a, b| {
+        (
+            &a.source_id,
+            &a.logical_id,
+            a.store_revision,
+            &a.original_fact.fact_id,
+        )
+            .cmp(&(
+                &b.source_id,
+                &b.logical_id,
+                b.store_revision,
+                &b.original_fact.fact_id,
+            ))
+    });
+    let mut seen = BTreeSet::new();
+    let mut blob_map = BTreeMap::new();
+    for blob in blobs {
+        if blob_map
+            .insert(
+                (&blob.source_id, &blob.logical_id, blob.store_revision),
+                blob,
+            )
+            .is_some()
+        {
+            return Err(invalid("Gitblobbeleg ist nicht eindeutig"));
+        }
+    }
+    let mut entity: Option<EntityIdentity> = None;
+    let mut facts = Vec::new();
+    let mut pins = Vec::new();
+    let mut unknowns = BTreeSet::new();
+    let mut original_facts = BTreeMap::new();
+    let mut verified_git = BTreeMap::new();
+    let mut blob_facts = BTreeMap::new();
+    for binding in rows {
+        let key = (
+            &binding.source_id,
+            &binding.logical_id,
+            binding.store_revision,
+        );
+        if !seen.insert((key, &binding.original_fact.fact_id)) {
+            return Err(invalid("Originalbindung ist nicht eindeutig"));
+        }
+        if !authorized
+            .iter()
+            .any(|record| (&record.source_id, &record.logical_id, record.revision) == key)
+        {
+            return Err(invalid("Originalbindung ist nicht mehr autorisiert"));
+        }
+        let header = headers
+            .get(&key)
+            .ok_or_else(|| invalid("Unveränderlicher Originalheader fehlt"))?;
+        let record = &header.descriptor;
+        let document = &header.document_header;
+        let blob = blob_map
+            .get(&key)
+            .ok_or_else(|| invalid("Tatsächlicher Gitblobbeleg fehlt"))?;
+        if let std::collections::btree_map::Entry::Vacant(entry) = verified_git.entry(key) {
+            let (commit, repository, path) = git_evidence_identity(header)?;
+            if document.get("content").is_some()
+                || document.get("facts").is_some()
+                || document["contract_version"] != "wiki-spielwissen-v1"
+                || document["source_id"] != record.head.source_id
+                || document["document_id"] != record.head.logical_id
+                || document["content_sha256"] != record.content_hash
+                || blob.git_commit != commit
+                || blob.repository_url != repository
+                || sha256(&blob.bytes) != record.content_hash
+                || document["metadata"]["original_sha256"] != record.content_hash
+            {
+                return Err(invalid(
+                    "Gitblob oder Originalheader widerspricht dem Beleg",
+                ));
+            }
+            let canonical_path = document["metadata"]["relative_path"]
+                .as_str()
+                .ok_or_else(|| invalid("Originalressourcenpfad fehlt"))?;
+            if canonical_path
+                != game_file_facts::canonical_resource_path(
+                    document["metadata"]["source_layout"].as_str(),
+                    &path,
+                    true,
+                )
+            {
+                return Err(invalid(
+                    "Originalressourcenpfad widerspricht dem Gitblobpfad",
+                ));
+            }
+            let content = std::str::from_utf8(&blob.bytes)
+                .map_err(|_| invalid("Gitblob ist kein belegter Originaltext"))?;
+            let (parsed, status) = game_file_facts::extract_facts(canonical_path, content);
+            if document["metadata"]["parse_status"] != status {
+                return Err(invalid("Originalparserstatus widerspricht dem Gitblob"));
+            }
+            let mut ids = BTreeSet::new();
+            for parsed_fact in &parsed {
+                let id = parsed_fact["fact_id"]
+                    .as_str()
+                    .ok_or_else(|| invalid("Originalparser liefert keine Faktidentität"))?;
+                if !ids.insert(id) {
+                    return Err(invalid("Originalblobfeld ist nicht eindeutig"));
+                }
+            }
+            blob_facts.insert(key, parsed);
+            entry.insert((commit, repository));
+        }
+        let parsed = blob_facts[&key]
+            .iter()
+            .find(|fact| fact["fact_id"].as_str() == Some(binding.original_fact.fact_id.as_str()))
+            .ok_or_else(|| invalid("Gebundenes Originalfeld fehlt im Gitblob"))?;
+        let mut reconstructed = fact_from_original_header(header, parsed)?;
+        // Historische KV-Bindungen enthielten den heute ergänzten Pointer noch nicht.
+        if reconstructed.predicate == "file.kv_value"
+            && !binding
+                .original_fact
+                .qualifiers
+                .contains_key("source_pointer")
+        {
+            reconstructed.qualifiers.remove("source_pointer");
+        }
+        if let Some(archived) = archived_facts
+            .and_then(|facts| {
+                facts.iter().find(|(source, logical, revision, fact)| {
+                    (source, logical, *revision) == key
+                        && fact.fact_id == binding.original_fact.fact_id
+                })
+            })
+            .map(|(_, _, _, fact)| fact)
+        {
+            // Nur der vollständige Altvertrag darf zusätzlich archivierte Qualifier belegen.
+            if archived.subject != reconstructed.subject
+                || archived.predicate != reconstructed.predicate
+                || archived.value != reconstructed.value
+                || archived.evidence_status != reconstructed.evidence_status
+                || archived.provenance != reconstructed.provenance
+                || (archived.predicate == "file.kv_value"
+                    && archived.qualifiers.contains_key("json_pointer"))
+                || reconstructed
+                    .qualifiers
+                    .iter()
+                    .any(|(key, value)| archived.qualifiers.get(key) != Some(value))
+            {
+                return Err(invalid(
+                    "Gebundener Originalfakt widerspricht seinem Gitblobfeld",
+                ));
+            }
+            reconstructed = archived.clone();
+        }
+        if reconstructed != binding.original_fact {
+            return Err(invalid(
+                "Gespeicherte Originalbindung widerspricht dem Git-Original",
+            ));
+        }
+        original_facts.insert((key, binding.original_fact.fact_id.clone()), reconstructed);
+        let original = &original_facts[&(key, binding.original_fact.fact_id.clone())];
+        let identity = &binding.binding_identity;
+        if identity.entity_key != entity_key
+            || identity.name.trim().is_empty()
+            || identity.name.contains(['/', '\\', ':'])
+            || identity.name.chars().any(char::is_control)
+            || identity.identity_evidence.is_empty()
+            || entity.as_ref().is_some_and(|previous| {
+                previous.kind != identity.kind || previous.name != identity.name
+            })
+        {
+            return Err(invalid(
+                "Gespeicherte Git-Bindungsidentität widerspricht der Entität",
+            ));
+        }
+        let (commit, repository) = &verified_git[&key];
+        if original.provenance.origin.raw_sha256 != record.content_hash {
+            return Err(invalid(
+                "Originalherkunft widerspricht dem tatsächlichen Gitblob",
+            ));
+        }
+        let combined = entity.get_or_insert_with(|| identity.clone());
+        for alias in &identity.aliases {
+            if !combined.aliases.contains(alias) {
+                combined.aliases.push(alias.clone());
+            }
+        }
+        let Some(semantic) = &binding.semantic_projection else {
+            continue;
+        };
+        if super::semantic::semantic_projection_from_verified_original(
+            original,
+            &semantic.relative_pointer,
+            &record.head.source_id,
+            &record.head.logical_id,
+            identity,
+            &blob_facts[&key],
+        )?
+        .as_ref()
+            != Some(semantic)
+        {
+            return Err(invalid(
+                "Semantische Projektion widerspricht dem Originalfakt",
+            ));
+        }
+        let mut fact = original.clone();
+        fact.predicate = semantic.predicate.clone();
+        fact.qualifiers = semantic.qualifiers.clone();
+        fact.unit = semantic.unit.clone();
+        pins.push(FactPin {
+            source_id: record.head.source_id.clone(),
+            logical_id: record.head.logical_id.clone(),
+            store_revision: record.head.revision,
+            fact_id: original.fact_id.clone(),
+            raw_sha256: record.content_hash.clone(),
+            git_commit: commit.clone(),
+            repository_url: repository.clone(),
+            binding_identity: identity.clone(),
+            semantic_projection: semantic.clone(),
+        });
+        if fact.qualifiers.contains_key("semantic_scope") {
+            unknowns.insert(format!("Für {} fehlt eine belegte öffentliche Beschreibung der verschachtelten Variante oder Bedingung", fact.predicate));
+            continue;
+        }
+        for key in [
+            "references_resolved",
+            "type_flags",
+            "unit_status",
+            "unit_inferred",
+        ] {
+            fact.qualifiers.remove(key);
+        }
+        if fact
+            .unit
+            .as_ref()
+            .is_some_and(|unit| public_qualifier_text(&Value::String(unit.clone())).is_none())
+            || !public_statement_qualifiers(&fact.qualifiers)
+            || fact.qualifiers.iter().any(|(key, value)| {
+                !matches!(
+                    key.as_str(),
+                    "level" | "variant" | "condition" | "ability_name" | "numeric_representation"
+                ) || match value {
+                    Value::String(text) => {
+                        text.contains(['/', '\\', ':']) || text.chars().any(char::is_control)
+                    }
+                    Value::Number(_) => false,
+                    _ => true,
+                }
+            })
+        {
+            unknowns.insert(format!(
+                "Für {} fehlt eine belegte öffentliche Beschreibung der zusätzlichen Bedingungen",
+                fact.predicate
+            ));
+            continue;
+        }
+        fact.fact_id = format!("derived:{}", facts.len());
+        fact.subject = entity_key.into();
+        fact.provenance.origin.identity.source_id = "git-game-facts-derived".into();
+        fact.provenance.origin.identity.logical_id = entity_key.into();
+        fact.provenance.origin.source_revision = SourceRevision::Git {
+            commit: commit.clone(),
+        };
+        fact.provenance.origin.policy = derived_policy();
+        fact.provenance.origin.locator = "git-game-facts-derived".into();
+        fact.provenance.origin.origin_artifacts.clear();
+        fact.provenance.source_span = None;
+        fact.provenance.document_metadata.clear();
+        fact.provenance.license =
+            serde_json::json!({"authorization_ref":GIT_GAME_FACT_AUTHORIZATION});
+        fact.provenance.original_revision = commit.clone();
+        facts.push(fact);
+    }
+    let mut entity = entity.ok_or_else(|| invalid("Freigegebene belegte Git-Zahlen fehlen"))?;
+    facts.retain(|fact| {
+        if consumer_statement_qualifiers(&entity, &fact.qualifiers) {
+            true
+        } else {
+            unknowns.insert(format!(
+                "Für {} fehlt eine belegte öffentliche Beschreibung der zusätzlichen Bedingungen",
+                fact.predicate
+            ));
+            false
+        }
+    });
+    let story = consumer_patch_story(&entity, live_story)?;
+    entity.aliases.clear();
+    entity.identity_evidence = vec![GIT_GAME_FACT_AUTHORIZATION.into()];
+    let mut profile = assemble_profile(entity, None, facts, story);
+    profile.unknowns.extend(unknowns);
+    let receipt = GitDocumentReceipt {
+        contract_version: GIT_DOCUMENT_CONTRACT.into(),
+        entity_key: entity_key.into(),
+        original_release_id: evidence.manifest.release.release_id.clone(),
+        document_sha256: sha256(compact_document(&profile)?.as_bytes()),
+        fact_pins: pins,
+    };
+    Ok((profile, receipt))
+}
+
+pub fn verify_git_document_receipt_from_evidence(
+    record: &SourceRecordV2,
+    receipt: &GitDocumentReceipt,
+    evidence: &VerifiedOriginalEvidence,
+    operator: &Principal,
+    bindings: &[StoredGitBinding],
+    blobs: &[GitBlobEvidence],
+    live_story: &[brain_contracts::entity_profile::PatchStoryChange],
+) -> Result<EntityProfile> {
+    verify_receipt_core(
+        record,
+        receipt,
+        &evidence.manifest.release.release_id,
+        || {
+            derive_git_profile_from_evidence(
+                &receipt.entity_key,
+                evidence,
+                operator,
+                bindings,
+                blobs,
+                live_story,
+            )
+        },
+    )
+}
+
+fn fact_from_original_header(
+    header: &OriginalEvidenceHeader,
+    fact: &Value,
+) -> Result<EntityProfileFact> {
+    use brain_contracts::entity_profile::{PatchValidity, ProfileProvenance};
+    let origin = header
+        .descriptor
+        .head
+        .canonical_origin()
+        .map_err(|_| invalid("Quellherkunft fehlt"))?
+        .ok_or_else(|| invalid("Quellherkunft fehlt"))?;
+    let document = &header.document_header;
+    let text = |object: &Value, key: &str| {
+        object[key]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| invalid("Faktenfeld fehlt"))
+    };
+    Ok(EntityProfileFact {
+        fact_id: text(fact, "fact_id")?,
+        subject: text(fact, "subject")?,
+        predicate: text(fact, "predicate")?,
+        value: fact["value"].clone(),
+        unit: serde_json::from_value(fact["unit"].clone())?,
+        qualifiers: serde_json::from_value(fact["qualifiers"].clone())?,
+        evidence_status: text(fact, "evidence_status")?,
+        validity: PatchValidity::Unknown {
+            reason: "Quelle belegt keine Patchgrenzen".into(),
+        },
+        provenance: ProfileProvenance {
+            source_kind: ProfileSourceKind::GameFile,
+            origin,
+            original_revision: text(document, "revision")?,
+            observed_at: text(document, "observed_at")?,
+            source_span: serde_json::from_value(fact["source_span"].clone())?,
+            license: document["license"].clone(),
+            document_metadata: serde_json::from_value(document["metadata"].clone())?,
+        },
+    })
 }
