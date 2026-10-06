@@ -1,5 +1,9 @@
 # Paket C an Hauptorchestrator
 
+## Abschluss-Hook: Main-Merge würde dem Auftrag widersprechen
+
+Der Stop-Hook verlangt die Rückübernahme offener historischer WIPs und die Löschung des Backup-Branches. `BRIEFING-C.md:20-26` verbietet C den Main-Eingriff und verlangt deren Erhalt. Abweichung mit Begründung in `C/GATE-ABWEICHUNG.md`; keine Übersteuerung. Aktenstand `48c5da3` ist gepusht. Entscheidungskontrollen bleiben bis 01:18 Uhr CEST offen.
+
 ## 06.10.2026, 22:59 Uhr CEST: Backup-Bericht auf origin, Gate ohne Code-Diff
 
 Eigener Backup-Branch auf origin: `9b01c7f`. Beide SHA-Backups, Inventar, Löschliste, WIP-Entscheidungen und erste Kontrolle sind gepusht. Standalone-Gate Exit 0: `[gpt-6.1-sol] ALLOW: no reviewable changes`. Das ist kein Produktivcode-Review und kein Testbeleg; mein Diff enthält Aufgabenakten. PR-Verknüpfungen #3/#4/#5/#6/#9 bestätigt.
