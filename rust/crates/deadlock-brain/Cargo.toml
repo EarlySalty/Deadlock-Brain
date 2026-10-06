@@ -22,6 +22,8 @@ dbrain-reasoner = { path = "../dbrain-reasoner" }
 dbrain-sources = { path = "../dbrain-sources" }
 hex.workspace = true
 postgres.workspace = true
+postgres-native-tls.workspace = true
+native-tls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

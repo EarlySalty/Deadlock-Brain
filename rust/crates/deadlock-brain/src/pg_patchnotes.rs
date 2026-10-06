@@ -6,7 +6,7 @@ use anyhow::{anyhow, ensure, Result};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
 use postgres::types::ToSql;
-use postgres::{Client, NoTls, Transaction};
+use postgres::{Client, Transaction};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -16,6 +16,14 @@ const IMPORTER: &str = "deadlock_patchnotes_db_pg";
 const STEAM_APPID: u32 = 1_422_450;
 const STEAM_APPNEWS_API: &str = "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/";
 const STEAM_LOOKBACK_COUNT: u32 = 500;
+
+fn connect_postgres(dsn: &str) -> Result<Client> {
+    let connector = native_tls::TlsConnector::builder()
+        .build()
+        .map_err(|_| anyhow!("Postgres TLS connector could not be initialized."))?;
+    Client::connect(dsn, postgres_native_tls::MakeTlsConnector::new(connector))
+        .map_err(|_| anyhow!("Konnte zentrale Postgres-DB nicht oeffnen; DSN wird nicht ausgegeben."))
+}
 
 #[derive(Debug, Clone)]
 pub struct ImportPatchnoteOptions {
@@ -93,7 +101,7 @@ struct SteamPartnerEventResponse {
     event: Option<SteamPartnerEvent>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct PatchnoteRow {
     id: i64,
     title: Option<String>,
@@ -215,9 +223,7 @@ pub fn import_patchnote(http: &HttpClient, options: &ImportPatchnoteOptions) -> 
             options.dsn_env
         )
     })?;
-    let mut client = Client::connect(&dsn, NoTls).map_err(|_| {
-        anyhow!("Konnte zentrale Postgres-DB nicht oeffnen; DSN wird nicht ausgegeben.")
-    })?;
+    let mut client = connect_postgres(&dsn)?;
     ensure_pg_schema(&mut client)?;
     let index = load_entity_index(&mut client)?;
     import_one_patchnote(
@@ -259,6 +265,11 @@ fn import_one_patchnote(
         return Ok(summary_json(true, options, &prepared, PgWriteCounts::default()));
     }
     let mut tx = client.transaction()?;
+    let locked_patch = load_patchnote_for_update(&mut tx, patch_id)?;
+    ensure!(
+        locked_patch == patch,
+        "Patch source changed during import; refusing to replace events from a stale read. Retry the import."
+    );
     let run_id = begin_run(&mut tx)?;
     let document_id = upsert_source_document(&mut tx, &prepared)?;
     let snapshot_id = upsert_entity_snapshot(&mut tx, &prepared, document_id)?;
@@ -311,8 +322,9 @@ fn detect_patchnote_drift(
     // unveraendert. Keine Events -> neu. So blockiert nicht der Review, waehrend der
     // Sync faelschlich drift=false meldet.
     let base = r#"
-        SELECT c.id, c.title, c.raw_content,
-               e.ev, e.null_basis, e.distinct_basis, s.snap_raw
+        SELECT c.id, c.title, c.posted_at::text, c.raw_content,
+               e.ev, e.null_basis, e.distinct_basis,
+               s.snap_raw, s.snap_title, s.snap_source_posted_at
         FROM patchnotes.changelog_posts c
         LEFT JOIN LATERAL (
             SELECT count(*) AS ev,
@@ -323,7 +335,9 @@ fn detect_patchnote_drift(
             WHERE pe.patch_external_id = c.url
         ) e ON true
         LEFT JOIN LATERAL (
-            SELECT bs.payload->>'raw_content' AS snap_raw
+            SELECT bs.payload->>'raw_content' AS snap_raw,
+                   bs.payload->>'title' AS snap_title,
+                   bs.payload->>'source_posted_at' AS snap_source_posted_at
             FROM brain.entity_snapshots bs
             WHERE bs.id = e.one_basis
         ) s ON true
@@ -341,17 +355,22 @@ fn detect_patchnote_drift(
     for row in rows {
         let id: i64 = row.get(0);
         let title: Option<String> = row.get(1);
-        let current: Option<String> = row.get(2);
-        let events: i64 = row.get(3);
-        let null_basis: i64 = row.get(4);
-        let distinct_basis: i64 = row.get(5);
-        let stored: Option<String> = row.get(6);
+        let source_posted_at: Option<String> = row.get(2);
+        let current: Option<String> = row.get(3);
+        let events: i64 = row.get(4);
+        let null_basis: i64 = row.get(5);
+        let distinct_basis: i64 = row.get(6);
+        let stored: Option<String> = row.get(7);
+        let stored_title: Option<String> = row.get(8);
+        let stored_posted_at: Option<String> = row.get(9);
         let drift = if events == 0 {
             PatchnoteDrift::New
         } else if null_basis > 0 || distinct_basis != 1 {
-            // fehlende oder gemischte Basis: Reparaturimport noetig
             PatchnoteDrift::Changed
-        } else if stored.as_deref() == current.as_deref() {
+        } else if stored.as_deref() == current.as_deref()
+            && stored_title == title
+            && stored_posted_at == source_posted_at
+        {
             PatchnoteDrift::Unchanged
         } else {
             PatchnoteDrift::Changed
@@ -371,9 +390,7 @@ pub fn sync_patchnotes(http: &HttpClient, options: &SyncPatchnotesOptions) -> Re
             options.dsn_env
         )
     })?;
-    let mut client = Client::connect(&dsn, NoTls).map_err(|_| {
-        anyhow!("Konnte zentrale Postgres-DB nicht oeffnen; DSN wird nicht ausgegeben.")
-    })?;
+    let mut client = connect_postgres(&dsn)?;
     ensure_pg_schema(&mut client)?;
     let drift = detect_patchnote_drift(&mut client, options.limit)?;
     let new_ids: Vec<i64> = drift
@@ -444,8 +461,7 @@ pub struct RefreshOfficialOptions {
 pub fn refresh_official(http: &HttpClient, options: &RefreshOfficialOptions) -> Result<Value> {
     let dsn = env::var(&options.dsn_env)
         .map_err(|_| anyhow!("{} ist nicht gesetzt; DSN wird nicht ausgegeben.", options.dsn_env))?;
-    let mut client = Client::connect(&dsn, NoTls)
-        .map_err(|_| anyhow!("Konnte zentrale Postgres-DB nicht oeffnen; DSN wird nicht ausgegeben."))?;
+    let mut client = connect_postgres(&dsn)?;
     ensure_pg_schema(&mut client)?;
     let row = load_patchnote(&mut client, options.patch_id)?;
     let url = row
@@ -680,6 +696,32 @@ fn load_patchnote(client: &mut Client, patch_id: i64) -> Result<PatchnoteRow> {
             SELECT id, title, url, posted_at::text, raw_content, translated_content
             FROM patchnotes.changelog_posts
             WHERE id = $1
+            "#,
+            &[&patch_id],
+        )
+        .map_err(|error| anyhow!("Fehler beim Lesen von changelog_posts: {error}"))?;
+    let row = row.ok_or_else(|| anyhow!("Patchnote nicht gefunden: {patch_id}"))?;
+    Ok(PatchnoteRow {
+        id: row.get(0),
+        title: row.get(1),
+        url: row.get(2),
+        posted_at: row.get(3),
+        raw_content: row.get(4),
+        translated_content: row.get(5),
+    })
+}
+
+fn load_patchnote_for_update(
+    tx: &mut Transaction<'_>,
+    patch_id: i64,
+) -> Result<PatchnoteRow> {
+    let row = tx
+        .query_opt(
+            r#"
+            SELECT id, title, url, posted_at::text, raw_content, translated_content
+            FROM patchnotes.changelog_posts
+            WHERE id = $1
+            FOR UPDATE
             "#,
             &[&patch_id],
         )
@@ -965,6 +1007,7 @@ fn prepare_patch(
         "url": url,
         "changelog_url": row.url,
         "posted_at": posted_at_text,
+        "source_posted_at": row.posted_at,
         "raw_content": content,
         "translated_content": row.translated_content,
         "source_kind": source_kind,
@@ -980,6 +1023,7 @@ fn prepare_patch(
         "url": url,
         "changelog_url": row.url,
         "posted_at": posted_at_text,
+        "source_posted_at": row.posted_at,
         "raw_content": content,
         "translated_content": row.translated_content,
         "source_kind": source_kind,

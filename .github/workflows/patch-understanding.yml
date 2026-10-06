@@ -11,6 +11,7 @@ on:
       - 'scripts/migrations/2026-09-18-patch-evidence.sql'
       - 'scripts/migrations/2026-09-18-patch-evidence-followup.sql'
       - 'scripts/migrations/2026-09-18-patch-evidence-followup2.sql'
+      - 'scripts/migrations/2026-09-30-patch-evidence-basis.sql'
       - 'rust/crates/deadlock-brain/src/pg_patchnotes.rs'
       - 'rust/crates/deadlock-brain/src/main.rs'
       - 'rust/crates/deadlock-brain-yt/src/claims.rs'
@@ -76,11 +77,14 @@ jobs:
           OLD=scripts/migrations/2026-09-18-patch-evidence.sql
           NEW=scripts/migrations/2026-09-18-patch-evidence-followup.sql
           NEW2=scripts/migrations/2026-09-18-patch-evidence-followup2.sql
+          NEW3=scripts/migrations/2026-09-30-patch-evidence-basis.sql
           EXIST=tests/patch-understanding/schema-assertions.sql
           HIST=tests/patch-understanding/followup-history-assertions.sql
           CAP=tests/patch-understanding/followup-caption-assertions.sql
           IDENT=tests/patch-understanding/followup-identity-assertions.sql
           R4=tests/patch-understanding/followup2-r4-assertions.sql
+          BASIS=tests/patch-understanding/basis-assertions.sql
+          BASIS_SEED=tests/patch-understanding/basis-seed.sql
 
           mkdb() { psql -v ON_ERROR_STOP=1 -d postgres -c "DROP DATABASE IF EXISTS $1" >/dev/null; psql -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE $1" >/dev/null; }
           run() { psql -v ON_ERROR_STOP=1 -d "$1" -f "$2" >/dev/null; }
@@ -99,17 +103,18 @@ jobs:
           mkdb identold; run identold "$FIX"; run identold "$OLD"; expect_fail identold "$IDENT"
           # R4 needs the second migration present but unfixed to fail (identity move invalidates only the new source).
           mkdb r4old; run r4old "$FIX"; run r4old "$OLD"; run r4old "$NEW"; expect_fail r4old "$R4"
+          mkdb basisold; run basisold "$FIX"; run basisold "$OLD"; run basisold "$NEW"; run basisold "$NEW2"; expect_fail basisold "$BASIS"
+          mkdb basisfull; run basisfull "$FIX"; run basisfull "$OLD"; run basisfull "$NEW"; run basisfull "$NEW2"; run basisfull "$BASIS_SEED"; run basisfull "$NEW3"; run basisfull "$BASIS"
 
-          # Full fix: all three migrations pass every assertion suite (each on a fresh DB).
           for pair in "existing:$EXIST" "history:$HIST" "caption:$CAP" "identity:$IDENT" "r4:$R4"; do
             name=${pair%%:*}; suite=${pair#*:}
-            mkdb "full_$name"; run "full_$name" "$FIX"; run "full_$name" "$OLD"; run "full_$name" "$NEW"; run "full_$name" "$NEW2"; run "full_$name" "$suite"
+            mkdb "full_$name"; run "full_$name" "$FIX"; run "full_$name" "$OLD"; run "full_$name" "$NEW"; run "full_$name" "$NEW2"; run "full_$name" "$NEW3"; run "full_$name" "$suite"
           done
 
           # The followup migrations are idempotent.
-          mkdb idem; run idem "$FIX"; run idem "$OLD"; run idem "$NEW"; run idem "$NEW2"
+          mkdb idem; run idem "$FIX"; run idem "$OLD"; run idem "$NEW"; run idem "$NEW2"; run idem "$NEW3"
           b=$(psql -Atd idem -c 'select count(*) from brain.patch_evidence_revisions')
-          run idem "$NEW"; run idem "$NEW2"
+          run idem "$NEW"; run idem "$NEW2"; run idem "$NEW3"
           a=$(psql -Atd idem -c 'select count(*) from brain.patch_evidence_revisions')
           test "$b" = "$a"
   caption-integration:
@@ -142,6 +147,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence.sql
           psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence-followup.sql
           psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-18-patch-evidence-followup2.sql
+          psql -v ON_ERROR_STOP=1 -f scripts/migrations/2026-09-30-patch-evidence-basis.sql
       - name: Run the ignored caption integration test for real
         working-directory: rust
         env:
@@ -197,6 +203,21 @@ jobs:
           DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke "$BRAIN" pg sync-patchnotes --dsn-env DEADLOCK_CENTRAL_DSN > /tmp/cli-sync.json
           jq -e '.mode=="check" and .drift==false and (.writes==false) and (.unchanged==1)' /tmp/cli-sync.json >/dev/null
           echo "ok: matching source and event basis report no drift without writing"
+          psql -v ON_ERROR_STOP=1 -d cli_smoke -c "UPDATE patchnotes.changelog_posts SET title='Corrected source title' WHERE id=1"
+          DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke "$BRAIN" pg sync-patchnotes --dsn-env DEADLOCK_CENTRAL_DSN > /tmp/cli-sync-title.json
+          jq -e '.mode=="check" and .drift==true and (.changed==[1])' /tmp/cli-sync-title.json >/dev/null
+          if DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke "$BIN" review --patch patch_1 --snapshot-limit 400 > /tmp/cli-title.json 2>/tmp/cli-title.err; then
+            echo "FAIL: title drift should block review"; exit 1
+          fi
+          grep -q 'stored patch title differs from the title used to parse the events' /tmp/cli-title.err
+          psql -v ON_ERROR_STOP=1 -d cli_smoke -c "UPDATE patchnotes.changelog_posts SET title='Minor Update - 09-16-2026', posted_at='2026-09-17T20:16:43Z' WHERE id=1"
+          DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke "$BRAIN" pg sync-patchnotes --dsn-env DEADLOCK_CENTRAL_DSN > /tmp/cli-sync-date.json
+          jq -e '.mode=="check" and .drift==true and (.changed==[1])' /tmp/cli-sync-date.json >/dev/null
+          if DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke "$BIN" review --patch patch_1 --snapshot-limit 400 > /tmp/cli-date.json 2>/tmp/cli-date.err; then
+            echo "FAIL: publication-time drift should block review"; exit 1
+          fi
+          grep -q 'stored publication time differs from the time used to parse the events' /tmp/cli-date.err
+          echo "ok: title and publication-time corrections flag drift and block stale review contexts"
           # R6: changed source but stale event basis -> drift true and the review must block.
           DEADLOCK_CENTRAL_DSN=postgres://test:test@localhost:5432/cli_smoke_changed "$BRAIN" pg sync-patchnotes --dsn-env DEADLOCK_CENTRAL_DSN > /tmp/cli-sync-changed.json
           jq -e '.mode=="check" and .drift==true and (.changed==[1])' /tmp/cli-sync-changed.json >/dev/null

@@ -7,7 +7,8 @@ CREATE TABLE brain.patch_events(
     id bigserial PRIMARY KEY, event_hash text UNIQUE NOT NULL, patch_external_id text,
     patch_title text, patch_url text, posted_at timestamptz, source_kind text,
     entity_type text, entity_name text, subject text, change_type text,
-    raw_line text, old_value text, new_value text, created_at timestamptz DEFAULT now(), metadata jsonb DEFAULT '{}'
+    raw_line text, old_value text, new_value text, patch_snapshot_id bigint,
+    legacy_patch_snapshot_id bigint, created_at timestamptz DEFAULT now(), metadata jsonb DEFAULT '{}'
 );
 CREATE TABLE brain.knowledge_events(
     event_hash text PRIMARY KEY, event_source text, observed_at timestamptz,

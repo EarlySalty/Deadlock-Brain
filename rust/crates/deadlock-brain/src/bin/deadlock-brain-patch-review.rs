@@ -146,7 +146,7 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     let patch_id = patch.strip_prefix("patch_").context("Expected patch_<changelog_posts.id>")?.parse::<i64>()?;
     ensure!(patch_id > 0, "Patch ID must be positive");
     let mut tx = client.build_transaction().isolation_level(IsolationLevel::RepeatableRead).read_only(true).start()?;
-    let source_row = tx.query_opt("SELECT jsonb_build_object('id',id,'title',title,'url',url,'source_published_at',posted_at,'raw_content',raw_content)::text FROM patchnotes.changelog_posts WHERE id=$1", &[&patch_id])?.context("Patch source is missing")?;
+    let source_row = tx.query_opt("SELECT jsonb_build_object('id',id,'title',title,'url',url,'source_published_at',posted_at,'source_posted_at',posted_at::text,'raw_content',raw_content)::text FROM patchnotes.changelog_posts WHERE id=$1", &[&patch_id])?.context("Patch source is missing")?;
     let source: Value = serde_json::from_str(&source_row.get::<_, String>(0))?;
     ensure!(source.get("raw_content").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty()), "Original patch text is missing; translations or Creator claims are not a substitute");
     let published = source.get("source_published_at").and_then(Value::as_str).context("Patch publication timestamp is missing")?;
@@ -170,6 +170,8 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     // uebereinstimmt. Fehlende, mehrdeutige oder gemischte Basen (alt+neu) sowie
     // ein Text-Mismatch blockieren vor jedem Modellaufruf; nichts wird durchgereicht.
     let source_raw = source.get("raw_content").and_then(Value::as_str).unwrap_or_default();
+    let source_title = source.get("title").and_then(Value::as_str);
+    let source_posted_at = source.get("source_posted_at").and_then(Value::as_str);
     let basis = tx.query_one(
         "SELECT count(*) FILTER (WHERE patch_snapshot_id IS NULL)::bigint, \
                 count(DISTINCT patch_snapshot_id)::bigint, max(patch_snapshot_id) \
@@ -182,11 +184,20 @@ fn build_context(client: &mut Client, patch: &str, snapshot_limit: usize) -> Res
     ensure!(null_basis == 0, "Event basis incomplete: {null_basis} active events of this patch have no parse-basis snapshot; refusing an unverified context (no model call). Re-run the source refresh and full sync.");
     ensure!(distinct_basis <= 1, "Event basis is mixed: active events rest on {distinct_basis} different basis snapshots (old and new import combined); refusing a contradictory context (no model call). Re-run the full sync so all events share one basis.");
     let basis_id = one_basis.context("Event basis snapshot is missing for this patch")?;
-    let basis_raw: Option<String> = tx
-        .query_one("SELECT payload->>'raw_content' FROM brain.entity_snapshots WHERE id = $1", &[&basis_id])?
-        .get(0);
+    let basis = tx.query_one(
+        "SELECT payload->>'raw_content', payload->>'title', payload->>'source_posted_at' \
+         FROM brain.entity_snapshots WHERE id = $1",
+        &[&basis_id],
+    )?;
+    let basis_raw: Option<String> = basis.get(0);
+    let basis_title: Option<String> = basis.get(1);
+    let basis_posted_at: Option<String> = basis.get(2);
     ensure!(basis_raw.as_deref().unwrap_or_default() == source_raw,
         "Source revision and event basis disagree: the stored patch text differs from the snapshot the events were parsed from. Re-run the identity-checked source refresh and sync before analysis; refusing a contradictory context (no model call).");
+    ensure!(basis_title.as_deref() == source_title,
+        "Source revision and event basis disagree: the stored patch title differs from the title used to parse the events. Re-run the source refresh and sync before analysis; refusing a contradictory context (no model call).");
+    ensure!(basis_posted_at.as_deref() == source_posted_at,
+        "Source revision and event basis disagree: the stored publication time differs from the time used to parse the events. Re-run the source refresh and sync before analysis; refusing a contradictory context (no model call).");
     // Deterministische, nachvollziehbare Gameplay-Projektion statt stiller Kürzung.
     // Voller Patchtext und alle Events bleiben. Fuer jede vor der Publikation
     // beobachtete Entity werden nur Metadaten geladen; volle Payloads nur fuer die
