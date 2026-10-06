@@ -47,9 +47,7 @@ impl From<&SourceRecordV2> for DocumentHead {
 }
 impl DocumentHead {
     /// Validate the canonical policy projection without requiring a document body.
-    pub(crate) fn canonical_origin(
-        &self,
-    ) -> Result<Option<crate::source::OriginArtifact>, PortError> {
+    pub fn canonical_origin(&self) -> Result<Option<crate::source::OriginArtifact>, PortError> {
         use crate::source::{OriginArtifact, SourceRevision, Versioned, ORIGIN_METADATA_KEY};
         let Some(encoded) = self.metadata.get(ORIGIN_METADATA_KEY) else {
             return Ok(None);

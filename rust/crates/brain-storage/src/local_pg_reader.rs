@@ -390,7 +390,7 @@ pub struct LocalPgReader {
 
 type EntityOperator = dyn Fn() -> Result<brain_contracts::Principal, PortError> + Send + Sync;
 type EntityBlobReader = dyn Fn(
-        &brain_contracts::SourceRecordV2,
+        &crate::entity_profile::derivation::OriginalEvidenceHeader,
     ) -> Result<crate::entity_profile::derivation::GitBlobEvidence, PortError>
     + Send
     + Sync;
@@ -456,7 +456,7 @@ impl LocalPgReader {
     where
         O: Fn() -> Result<brain_contracts::Principal, PortError> + Send + Sync + 'static,
         B: Fn(
-                &brain_contracts::SourceRecordV2,
+                &crate::entity_profile::derivation::OriginalEvidenceHeader,
             ) -> Result<crate::entity_profile::derivation::GitBlobEvidence, PortError>
             + Send
             + Sync
@@ -528,10 +528,31 @@ impl LocalPgReader {
         uid: u32,
         record: &brain_contracts::SourceRecordV2,
     ) -> Result<(PathBuf, String, String, String, String), PortError> {
-        let config = entity_maintenance_config(config_path, uid)?;
         let (commit, origin, path) =
             crate::entity_profile::derivation::git_document_identity(record)
                 .map_err(|_| invalid("Originalgitbindung ist ungültig"))?;
+        Self::entity_repository_identity(config_path, uid, commit, origin, path)
+    }
+
+    pub fn entity_evidence_repository(
+        config_path: &Path,
+        uid: u32,
+        header: &crate::entity_profile::derivation::OriginalEvidenceHeader,
+    ) -> Result<(PathBuf, String, String, String, String), PortError> {
+        let (commit, origin, path) =
+            crate::entity_profile::derivation::git_evidence_identity(header)
+                .map_err(|_| invalid("Originalgitbindung ist ungültig"))?;
+        Self::entity_repository_identity(config_path, uid, commit, origin, path)
+    }
+
+    fn entity_repository_identity(
+        config_path: &Path,
+        uid: u32,
+        commit: String,
+        origin: String,
+        path: String,
+    ) -> Result<(PathBuf, String, String, String, String), PortError> {
+        let config = entity_maintenance_config(config_path, uid)?;
         let matching: Vec<_> = config
             .game_sources
             .iter()
@@ -659,6 +680,12 @@ impl LocalPgReader {
             return Err(invalid("unsupported core schema/store version"));
         }
         tx.query_schema(crate::schema::SHAPE_PROBE)?;
+        let rows = tx.query_schema(crate::schema::READ_HEADER_CONTRACT_PROBE)?;
+        if rows.len() != 1 || !rows[0].try_get::<_, bool>(0).map_err(error)? {
+            return Err(invalid(
+                "Gespeicherte Leseheader erfüllen den Schemavertrag nicht",
+            ));
+        }
         tx.commit()
     }
 
@@ -1109,6 +1136,75 @@ impl SnapshotReadPort for LocalPgReader {
     fn read_snapshot(&self, release_id: &str) -> Result<CorpusSnapshot, PortError> {
         self.read_snapshot_bounded(release_id, None)
     }
+    fn read_manifest_until(
+        &self,
+        release_id: &str,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<brain_contracts::ReleaseReadManifest, PortError> {
+        request_check(deadline)?;
+        let mut client = self.pool.acquire_until(deadline)?;
+        let mut tx = client.transaction(true, true)?;
+        let result = Self::read_manifest_tx(&mut tx, release_id)?;
+        request_check(deadline)?;
+        tx.commit()?;
+        request_check(deadline)?;
+        Ok(result)
+    }
+    fn read_documents_until(
+        &self,
+        release_id: &str,
+        documents: &[brain_contracts::DocumentRevision],
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<Vec<brain_contracts::SourceRecordV2>, PortError> {
+        if documents.len() > 10000 {
+            return Err(PortError::BudgetExceeded);
+        }
+        request_check(deadline)?;
+        let mut client = self.pool.acquire_until(deadline)?;
+        let mut tx = client.transaction(true, true)?;
+        let manifest = Self::read_manifest_tx(&mut tx, release_id)?;
+        let mut seen = std::collections::BTreeSet::new();
+        for key in documents {
+            if !seen.insert((&key.source_id, &key.logical_id))
+                || !manifest.revisions.iter().any(|record| {
+                    record.head.source_id == key.source_id
+                        && record.head.logical_id == key.logical_id
+                        && record.head.revision == key.revision
+                        && record.content_hash == key.content_hash
+                })
+            {
+                return Err(invalid("Dokumentschlüssel widerspricht dem Release"));
+            }
+        }
+        let keys = serde_json::to_value(documents)
+            .map_err(|_| invalid("Dokumentschlüssel sind ungültig"))?;
+        let rows = tx.query("SELECT r.record_json FROM jsonb_to_recordset($1::jsonb) AS k(source_id text,logical_id text,revision bigint) JOIN brain.source_record_revisions r ON r.source_id=k.source_id AND r.logical_id=k.logical_id AND r.revision=k.revision ORDER BY r.source_id,r.logical_id", &[&keys])?;
+        if rows.len() != documents.len() {
+            return Err(invalid("Angeforderte Dokumente fehlen"));
+        }
+        let mut records = Vec::new();
+        for row in rows {
+            request_check(deadline)?;
+            let record: brain_contracts::SourceRecordV2 =
+                serde_json::from_value(row.try_get(0).map_err(error)?)
+                    .map_err(|_| invalid("Dokument ist ungültig"))?;
+            record
+                .validate()
+                .map_err(|_| invalid("Dokumenthash ist ungültig"))?;
+            if !documents.iter().any(|key| {
+                key.source_id == record.source_id
+                    && key.logical_id == record.logical_id
+                    && key.revision == record.revision
+                    && key.content_hash == record.content_hash
+            }) {
+                return Err(invalid("Dokument widerspricht dem Pin"));
+            }
+            records.push(record);
+        }
+        tx.commit()?;
+        request_check(deadline)?;
+        Ok(records)
+    }
     fn read_heads_until(
         &self,
         documents: &[brain_contracts::DocumentRevision],
@@ -1176,37 +1272,91 @@ fn entity_source_visible(
 }
 
 impl LocalPgReader {
-    fn entity_snapshot_tx(
+    pub fn read_manifest(
+        &self,
+        release_id: &str,
+    ) -> Result<brain_contracts::ReleaseReadManifest, PortError> {
+        let mut client = self.pool.acquire_until(None)?;
+        let mut tx = client.transaction(true, true)?;
+        let manifest = Self::read_manifest_tx(&mut tx, release_id)?;
+        tx.commit()?;
+        Ok(manifest)
+    }
+
+    fn read_manifest_tx(
         tx: &mut connection::Transaction<'_>,
         release_id: &str,
-    ) -> Result<CorpusSnapshot, PortError> {
+    ) -> Result<brain_contracts::ReleaseReadManifest, PortError> {
         let release = Self::release_row(
             tx.query_opt(
                 "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
                 &[&release_id],
             )?
-            .ok_or_else(|| invalid("Originalrelease fehlt"))?,
+            .ok_or_else(|| invalid("Release fehlt"))?,
         )?;
         validate_release(&release)?;
+        if release.release_id != release_id {
+            return Err(invalid("Releaseidentität widerspricht dem Schlüssel"));
+        }
         let pins = serde_json::to_value(&release.source_revisions)
-            .map_err(|_| invalid("Originalpins sind ungültig"))?;
-        let rows = tx.query("SELECT r.record_json,h.record_json FROM jsonb_each($1::jsonb) s CROSS JOIN LATERAL jsonb_each_text(s.value) d JOIN brain.source_record_revisions r ON r.source_id=s.key AND r.logical_id=d.key AND r.revision=d.value::bigint JOIN brain.source_record_heads h ON h.source_id=r.source_id AND h.logical_id=r.logical_id ORDER BY r.source_id,r.logical_id", &[&pins])?;
-        let mut snapshot = CorpusSnapshot {
+            .map_err(|_| invalid("Releasepins sind ungültig"))?;
+        // Nur Rechte und Herkunft übertragen. Der gespeicherte Dokumentbaum bleibt unverändert.
+        let rows = tx.query("SELECT r.read_header_json,h.read_header_json->'head' FROM jsonb_each($1::jsonb) s CROSS JOIN LATERAL jsonb_each_text(s.value) d JOIN brain.source_record_revisions r ON r.source_id=s.key AND r.logical_id=d.key AND r.revision=d.value::bigint JOIN brain.source_record_heads h ON h.source_id=r.source_id AND h.logical_id=r.logical_id ORDER BY r.source_id,r.logical_id", &[&pins])?;
+        let mut manifest = brain_contracts::ReleaseReadManifest {
             release,
             revisions: Vec::new(),
             heads: Vec::new(),
         };
         for row in rows {
-            snapshot.revisions.push(
+            manifest.revisions.push(
                 serde_json::from_value(row.try_get(0).map_err(error)?)
-                    .map_err(|_| invalid("Originalrevision ist ungültig"))?,
+                    .map_err(|_| invalid("Revisionsmetadaten sind ungültig"))?,
             );
-            snapshot.heads.push(
+            manifest.heads.push(
                 serde_json::from_value(row.try_get(1).map_err(error)?)
-                    .map_err(|_| invalid("Originalhead ist ungültig"))?,
+                    .map_err(|_| invalid("Aktuelle Rechte sind ungültig"))?,
             );
         }
-        Ok(snapshot)
+        let sources: Vec<_> = manifest
+            .release
+            .source_revisions
+            .keys()
+            .filter(|source| source.starts_with("maintenance-docs:"))
+            .cloned()
+            .collect();
+        let policies = Self::current_maintenance_policies(tx, &sources)?;
+        for head in &mut manifest.heads {
+            Self::restrict_maintenance_head(head, &policies)?;
+        }
+        manifest.validate()?;
+        Ok(manifest)
+    }
+
+    fn entity_evidence_tx(
+        tx: &mut connection::Transaction<'_>,
+        release_id: &str,
+    ) -> Result<crate::entity_profile::derivation::VerifiedOriginalEvidence, PortError> {
+        Ok(
+            crate::entity_profile::derivation::VerifiedOriginalEvidence {
+                manifest: Self::read_manifest_tx(tx, release_id)?,
+                originals: Vec::new(),
+            },
+        )
+    }
+
+    fn original_header_tx(
+        tx: &mut connection::Transaction<'_>,
+        descriptor: &brain_contracts::DocumentDescriptor,
+    ) -> Result<crate::entity_profile::derivation::OriginalEvidenceHeader, PortError> {
+        let head = &descriptor.head;
+        let revision =
+            i64::try_from(head.revision).map_err(|_| invalid("Originalrevision ist zu groß"))?;
+        let row = tx.query_opt("SELECT original_header_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3", &[&head.source_id,&head.logical_id,&revision])?
+            .ok_or_else(|| invalid("Originalheader fehlt"))?;
+        Ok(crate::entity_profile::derivation::OriginalEvidenceHeader {
+            descriptor: descriptor.clone(),
+            document_header: row.try_get(0).map_err(error)?,
+        })
     }
 
     fn derived_entity_evidence(
@@ -1215,7 +1365,9 @@ impl LocalPgReader {
         request: EntityDocumentRequest<'_>,
     ) -> Result<Option<Vec<brain_contracts::Evidence>>, PortError> {
         use crate::entity_profile::{
-            derivation::{verify_git_document_receipt, GitDocumentReceipt, StoredGitBinding},
+            derivation::{
+                verify_git_document_receipt_from_evidence, GitDocumentReceipt, StoredGitBinding,
+            },
             semantic::SemanticProjection,
         };
         use brain_contracts::{
@@ -1284,12 +1436,14 @@ impl LocalPgReader {
             let receipt: GitDocumentReceipt = serde_json::from_str(&private)
                 .map_err(|_| invalid("Private Steckbriefquittung ist ungültig"))?;
             if !snapshots.contains_key(&receipt.original_release_id) {
-                let snapshot = Self::entity_snapshot_tx(tx, &receipt.original_release_id)?;
+                let snapshot = Self::entity_evidence_tx(tx, &receipt.original_release_id)?;
                 snapshots.insert(receipt.original_release_id.clone(), snapshot);
             }
-            let snapshot = &snapshots[&receipt.original_release_id];
-            let authorized = snapshot.authorized(&operator, false)?;
-            let original_pins = serde_json::to_value(&snapshot.release.source_revisions)
+            let snapshot = snapshots
+                .get_mut(&receipt.original_release_id)
+                .ok_or_else(|| invalid("Originalrelease fehlt"))?;
+            let authorized = snapshot.manifest.authorized(&operator, false, false)?;
+            let original_pins = serde_json::to_value(&snapshot.manifest.release.source_revisions)
                 .map_err(|_| invalid("Originalpins sind ungültig"))?;
             let rows = tx.query("SELECT f.source_id,f.logical_id,f.revision,f.fact_json,f.binding_identity_json,s.relative_pointer,s.semantic_predicate,s.semantic_qualifiers_json,s.semantic_unit FROM brain.entity_profile_facts_v1 f LEFT JOIN brain.entity_semantic_projections_v1 s USING(entity_key,source_id,logical_id,revision,fact_id) WHERE f.entity_key=$1 AND ($2::jsonb->f.source_id->>f.logical_id)::bigint=f.revision ORDER BY f.source_id,f.logical_id,f.revision,f.fact_id", &[&receipt.entity_key,&original_pins])?;
             let mut bindings = Vec::new();
@@ -1341,16 +1495,25 @@ impl LocalPgReader {
                 let binding_identity =
                     entity_binding_identity(&receipt.entity_key, row.try_get(4).map_err(error)?)?;
                 if seen.insert((source_id.clone(), logical_id.clone(), revision)) {
-                    let original = snapshot
+                    let descriptor = snapshot
+                        .manifest
                         .revisions
                         .iter()
                         .find(|record| {
-                            record.source_id == source_id
-                                && record.logical_id == logical_id
-                                && record.revision == revision as u64
+                            record.head.source_id == source_id
+                                && record.head.logical_id == logical_id
+                                && record.head.revision == revision as u64
                         })
                         .ok_or_else(|| invalid("Originalrevision fehlt"))?;
-                    blobs.push((access.blob)(original)?);
+                    let original = Self::original_header_tx(tx, descriptor)?;
+                    blobs.push((access.blob)(&original)?);
+                    if !snapshot.originals.iter().any(|previous| {
+                        previous.descriptor.head.source_id == source_id
+                            && previous.descriptor.head.logical_id == logical_id
+                            && previous.descriptor.head.revision == revision as u64
+                    }) {
+                        snapshot.originals.push(original);
+                    }
                 }
                 bindings.push(StoredGitBinding {
                     source_id,
@@ -1392,7 +1555,7 @@ impl LocalPgReader {
                         .map_err(|_| invalid("DB-Patchänderung ist ungültig"))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let profile = verify_git_document_receipt(
+            let profile = verify_git_document_receipt_from_evidence(
                 &record, &receipt, snapshot, &operator, &bindings, &blobs, &story,
             )
             .map_err(|_| invalid("Steckbrief widerspricht den frischen Originalbelegen"))?;
@@ -1600,7 +1763,7 @@ impl LocalPgReader {
         // A single statement snapshot, bounded key lookup; never fetch record bodies or release pins.
         let rows = client
             .query(
-                "SELECT jsonb_build_object('source_id',h.source_id,'logical_id',h.logical_id,'revision',h.revision,'visibility',h.record_json->'visibility','allowed_scopes',h.record_json->'allowed_scopes','tombstone',h.record_json->'tombstone','metadata',h.record_json->'metadata') FROM jsonb_to_recordset($1::jsonb) AS k(source_id text, logical_id text) JOIN brain.source_record_heads h ON h.source_id=k.source_id AND h.logical_id=k.logical_id ORDER BY h.source_id,h.logical_id",
+                "SELECT h.read_header_json->'head' FROM jsonb_to_recordset($1::jsonb) AS k(source_id text,logical_id text) JOIN brain.source_record_heads h ON h.source_id=k.source_id AND h.logical_id=k.logical_id ORDER BY h.source_id,h.logical_id",
                 &[&keys],
             )?;
         let sources: Vec<_> = documents

@@ -828,7 +828,8 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
             compact::compact_document,
             derivation::{
                 derive_git_profile, derived_policy, game_file_facts::extract_facts,
-                git_document_identity, receipt_sha256, GitBlobEvidence, GIT_DOCUMENT_CONTRACT,
+                git_document_identity, git_evidence_identity, receipt_sha256, GitBlobEvidence,
+                GIT_DOCUMENT_CONTRACT,
             },
             project_entity_facts,
             semantic::semantic_projection,
@@ -1071,6 +1072,37 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
     store.publish_release(&release).await.unwrap();
     let scopes = Arc::new(Mutex::new(operator.scopes.clone()));
     let fresh_scopes = scopes.clone();
+    let stored_headers: Vec<(serde_json::Value, serde_json::Value)> = sqlx::query_as(
+        "SELECT read_header_json,original_header_json FROM brain.source_record_revisions WHERE source_id=$1",
+    ).bind(&originals[0].source_id).fetch_all(&pool).await.unwrap();
+    assert_eq!(stored_headers.len(), originals.len());
+    for (descriptor, original_header) in stored_headers {
+        assert!(descriptor["head"]["metadata"]
+            .get("wiki-spielwissen.document")
+            .is_none());
+        assert!(original_header.get("content").is_none());
+        assert!(original_header.get("facts").is_none());
+    }
+    assert!(sqlx::query(
+        "UPDATE brain.source_record_heads SET read_header_json='{}'::jsonb WHERE source_id=$1"
+    )
+    .bind(&originals[0].source_id)
+    .execute(&pool)
+    .await
+    .is_err());
+    let original_blobs: BTreeMap<_, _> = originals
+        .iter()
+        .map(|record| {
+            (
+                (
+                    record.source_id.clone(),
+                    record.logical_id.clone(),
+                    record.revision,
+                ),
+                blob(record),
+            )
+        })
+        .collect();
     sqlx::raw_sql("CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN")
         .execute(&pool).await.unwrap();
     let grants = include_str!("../../../../ops/brain-postgres/grants.sql")
@@ -1094,15 +1126,25 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
                     })
                 },
                 move |record| {
-                    let (commit, repository, _path) = git_document_identity(record)
+                    let (commit, repository, _path) = git_evidence_identity(record)
                         .map_err(|_| PortError::InvalidResponse("Fixture-Gitbeleg fehlt".into()))?;
+                    let head = &record.descriptor.head;
+                    let original = original_blobs
+                        .get(&(
+                            head.source_id.clone(),
+                            head.logical_id.clone(),
+                            head.revision,
+                        ))
+                        .ok_or_else(|| {
+                            PortError::InvalidResponse("Fixture-Gitblob fehlt".into())
+                        })?;
                     Ok(GitBlobEvidence {
-                        source_id: record.source_id.clone(),
-                        logical_id: record.logical_id.clone(),
-                        store_revision: record.revision,
+                        source_id: head.source_id.clone(),
+                        logical_id: head.logical_id.clone(),
+                        store_revision: head.revision,
                         git_commit: commit,
                         repository_url: repository,
-                        bytes: record.content.as_bytes().to_vec(),
+                        bytes: original.bytes.clone(),
                     })
                 },
             )
@@ -1309,6 +1351,15 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
             .unwrap()
             .is_empty()
     );
+    sqlx::query(
+        "ALTER TABLE brain.source_record_heads ALTER COLUMN read_header_json DROP EXPRESSION",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(store.check_core_schema().await.is_err());
+    assert!(tokio::task::block_in_place(|| reader.check_core_schema()).is_err());
+    assert!(store.migrate_core().await.is_err());
     tokio::task::block_in_place(|| drop((retriever, reader)));
     pool.close().await;
 }

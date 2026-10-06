@@ -14,7 +14,6 @@ use axum::{
 };
 use brain_contracts::{
     AnswerProviderPort, AuthorizedContext, Evidence, PortError, ProviderAnswer, Query,
-    SnapshotReadPort,
 };
 use brain_kernel::{CachedKernel, Kernel};
 use brain_policy::{CredentialRegistry, PolicyEngine};
@@ -66,7 +65,7 @@ fn entity_profile_reader(
         },
         move |record| {
             let (repository_path, commit, registered_origin, repository_url, path) =
-                LocalPgReader::entity_profile_repository(
+                LocalPgReader::entity_evidence_repository(
                     &blob_config,
                     entity_profile_effective_uid()?,
                     record,
@@ -89,9 +88,9 @@ fn entity_profile_reader(
                 )
             })?;
             Ok(brain_storage::entity_profile::derivation::GitBlobEvidence {
-                source_id: record.source_id.clone(),
-                logical_id: record.logical_id.clone(),
-                store_revision: record.revision,
+                source_id: record.descriptor.head.source_id.clone(),
+                logical_id: record.descriptor.head.logical_id.clone(),
+                store_revision: record.descriptor.head.revision,
                 git_commit: commit,
                 repository_url,
                 bytes,
@@ -298,7 +297,7 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
         })?;
         reader.check_permissions().map_err(startup_database_error)?;
         let snapshot = reader
-            .read_snapshot(&release_id)
+            .read_manifest(&release_id)
             .map_err(|error| match error {
                 PortError::InvalidResponse(_) => Error::ReleaseUnavailable,
                 other => startup_database_error(other),
@@ -312,12 +311,12 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
         {
             return Err(Error::ConfigInvalid("analytics_patch"));
         }
-        health::validate_snapshot(&snapshot)?;
+        health::validate_manifest(&snapshot)?;
         let mut releases = vec![snapshot.release];
         for (expected, scope) in client_releases {
             let client_snapshot =
                 reader
-                    .read_snapshot(&expected.id)
+                    .read_manifest(&expected.id)
                     .map_err(|error| match error {
                         PortError::InvalidResponse(_) => Error::ReleaseUnavailable,
                         other => startup_database_error(other),
@@ -325,9 +324,9 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
             if client_snapshot.release.knowledge_version != expected.knowledge_version {
                 return Err(Error::KnowledgeVersion);
             }
-            health::validate_snapshot(&client_snapshot)?;
+            health::validate_manifest(&client_snapshot)?;
             if let Some(scope) = scope {
-                health::validate_bound_scope(&client_snapshot, &scope)?;
+                health::validate_bound_manifest(&client_snapshot, &scope)?;
             }
             if !releases.contains(&client_snapshot.release) {
                 releases.push(client_snapshot.release);

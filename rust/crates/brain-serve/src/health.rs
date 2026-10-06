@@ -6,10 +6,7 @@ use axum::{
     routing::get,
     Router,
 };
-use brain_contracts::{
-    source::origin_from_record, CorpusRelease, CorpusSnapshot, Principal, SnapshotReadPort,
-    SourceVisibility,
-};
+use brain_contracts::{CorpusRelease, Principal, ReleaseReadManifest, SourceVisibility};
 use brain_storage::LocalPgReader;
 use std::{
     collections::BTreeSet,
@@ -31,7 +28,10 @@ pub(crate) struct Health {
     operator_socket: Option<std::path::PathBuf>,
 }
 
-pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Result<(), Error> {
+pub(crate) fn validate_bound_manifest(
+    snapshot: &ReleaseReadManifest,
+    scope: &str,
+) -> Result<(), Error> {
     if snapshot.revisions.is_empty() {
         return Err(Error::ReleaseUnavailable);
     }
@@ -40,6 +40,7 @@ pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Re
         let public: Vec<_> = snapshot
             .revisions
             .iter()
+            .map(|descriptor| &descriptor.head)
             .filter(|record| {
                 record.visibility == SourceVisibility::Public && record.allowed_scopes == scopes
             })
@@ -59,19 +60,18 @@ pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Re
             return Err(Error::ReleaseUnavailable);
         }
         let published = snapshot
-            .authorized_for_publication(&Principal {
-                actor_id: "brain-serve-readiness".into(),
-                channel: "health".into(),
-                scopes: scopes.clone(),
-                provider_egress: BTreeSet::new(),
-            })
+            .authorized(
+                &Principal {
+                    actor_id: "brain-serve-readiness".into(),
+                    channel: "health".into(),
+                    scopes: scopes.clone(),
+                    provider_egress: BTreeSet::new(),
+                },
+                false,
+                true,
+            )
             .map_err(|_| Error::ReleaseUnavailable)?;
-        return if published.len() == public.len()
-            && published.iter().all(|record| {
-                record.visibility == SourceVisibility::Public
-                    && record.allowed_scopes == scopes
-                    && !record.tombstone
-            }) {
+        return if published.len() == public.len() {
             Ok(())
         } else {
             Err(Error::ReleaseUnavailable)
@@ -83,8 +83,16 @@ pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Re
     } else {
         "second-brain-c9:Deadlock-2nd-Brain"
     };
-    for record in snapshot.revisions.iter().chain(&snapshot.heads) {
-        let origin = origin_from_record(record).map_err(|_| Error::ReleaseUnavailable)?;
+    for record in snapshot
+        .revisions
+        .iter()
+        .map(|descriptor| &descriptor.head)
+        .chain(&snapshot.heads)
+    {
+        let origin = record
+            .canonical_origin()
+            .map_err(|_| Error::ReleaseUnavailable)?
+            .ok_or(Error::ReleaseUnavailable)?;
         let internal_feed = !public
             && record
                 .source_id
@@ -126,7 +134,7 @@ pub(crate) fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Re
     Ok(())
 }
 
-pub(crate) fn validate_snapshot(snapshot: &CorpusSnapshot) -> Result<(), Error> {
+pub(crate) fn validate_manifest(snapshot: &ReleaseReadManifest) -> Result<(), Error> {
     snapshot
         .authorized(
             &Principal {
@@ -135,6 +143,7 @@ pub(crate) fn validate_snapshot(snapshot: &CorpusSnapshot) -> Result<(), Error> 
                 scopes: BTreeSet::new(),
                 provider_egress: BTreeSet::new(),
             },
+            false,
             false,
         )
         .map_err(|_| Error::ReleaseUnavailable)?;
@@ -219,17 +228,17 @@ impl Health {
                 }
                 for release in expected {
                     let actual = reader
-                        .read_snapshot(&release.release_id)
+                        .read_manifest(&release.release_id)
                         .map_err(|_| Error::ReaderUnavailable)?;
                     if actual.release != release {
                         return Err(Error::ReleaseUnavailable);
                     }
-                    validate_snapshot(&actual)?;
+                    validate_manifest(&actual)?;
                     for (_, scope) in bound_scopes
                         .iter()
                         .filter(|(id, _)| *id == release.release_id)
                     {
-                        validate_bound_scope(&actual, scope)?;
+                        validate_bound_manifest(&actual, scope)?;
                     }
                 }
                 reader
@@ -289,8 +298,12 @@ pub(crate) fn router(health: Arc<Health>) -> Router {
 #[cfg(test)]
 mod binding_tests {
     use super::*;
-    use brain_contracts::SourceRecordV2;
+    use brain_contracts::{CorpusSnapshot, SourceRecordV2};
     use std::collections::BTreeMap;
+
+    fn validate_bound_scope(snapshot: &CorpusSnapshot, scope: &str) -> Result<(), Error> {
+        validate_bound_manifest(&ReleaseReadManifest::from_snapshot(snapshot), scope)
+    }
 
     fn maintenance_snapshot() -> CorpusSnapshot {
         let record = SourceRecordV2 {

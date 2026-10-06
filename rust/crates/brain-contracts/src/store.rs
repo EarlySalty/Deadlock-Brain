@@ -166,6 +166,41 @@ pub trait SnapshotReadPort: Send + Sync {
     }
 
     fn read_snapshot(&self, release_id: &str) -> StoreResult<CorpusSnapshot>;
+    fn read_manifest_until(
+        &self,
+        release_id: &str,
+        deadline: Option<&crate::RequestDeadline>,
+    ) -> StoreResult<crate::ReleaseReadManifest> {
+        let snapshot = self.read_snapshot_until(release_id, deadline)?;
+        Ok(crate::ReleaseReadManifest::from_snapshot(&snapshot))
+    }
+    /// Echte unveränderliche Dokumente, deren Schlüssel zuvor im Manifest geprüft wurden.
+    fn read_documents_until(
+        &self,
+        release_id: &str,
+        documents: &[crate::DocumentRevision],
+        deadline: Option<&crate::RequestDeadline>,
+    ) -> StoreResult<Vec<SourceRecordV2>> {
+        let snapshot = self.read_snapshot_until(release_id, deadline)?;
+        documents
+            .iter()
+            .map(|key| {
+                snapshot
+                    .revisions
+                    .iter()
+                    .find(|record| {
+                        record.source_id == key.source_id
+                            && record.logical_id == key.logical_id
+                            && record.revision == key.revision
+                            && record.content_hash == key.content_hash
+                    })
+                    .cloned()
+                    .ok_or_else(|| {
+                        PortError::InvalidResponse("Angefordertes Dokument fehlt".into())
+                    })
+            })
+            .collect()
+    }
     /// Request adapters override this to bound pool/statement waits as well as handoffs.
     fn read_snapshot_until(
         &self,

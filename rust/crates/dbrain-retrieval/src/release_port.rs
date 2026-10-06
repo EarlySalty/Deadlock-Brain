@@ -56,30 +56,45 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             .lock()
             .map_err(|_| PortError::Unavailable("retrieval index lock unavailable".into()))?;
         context.check_deadline()?;
-        if let Some(index) = indexes.get(&context.knowledge_release) {
+        let manifest = self.store.read_manifest_until(
+            &context.knowledge_release,
+            context.request_deadline.as_ref(),
+        )?;
+        check_release(&manifest.release, query, context)?;
+        let documents = manifest.authorized(&context.principal, false, false)?;
+        // Aktuelle Rechte und der Principal gehören zum Cachevertrag. Neue Freigaben
+        // bauen den Index neu auf, Sperren werden zusätzlich vor jeder Übergabe geprüft.
+        let cache_key = serde_json::to_string(&(
+            &context.knowledge_release,
+            &context.principal,
+            &manifest.heads,
+        ))
+        .map_err(|_| invalid("Indexrechte sind ungültig"))?;
+        if let Some(index) = indexes.get(&cache_key) {
             check_release(&index.release, query, context)?;
             return Ok(index.clone());
         }
-        let snapshot = self.snapshot(query, context)?;
-        // Validate ALL pins/revisions/heads; indexing is not scoped to the first caller.
-        // The result is deliberately discarded. No mutable head/authorization is cached.
-        snapshot.authorized(&context.principal, false)?;
-        let prose: Vec<_> = snapshot
-            .revisions
+        let prose: Vec<_> = self
+            .store
+            .read_documents_until(
+                &context.knowledge_release,
+                &documents,
+                context.request_deadline.as_ref(),
+            )?
             .into_iter()
             .filter(|r| {
                 !r.metadata.contains_key("domain_contract")
                     && r.metadata.get("kind").map(String::as_str) != Some("domain_input")
             })
             .collect();
-        let index = Arc::new(ChunkIndex::build(snapshot.release, prose)?);
+        let index = Arc::new(ChunkIndex::build(manifest.release, prose)?);
         context.check_deadline()?;
         if indexes.len() >= 4 {
             if let Some(key) = indexes.keys().next().cloned() {
                 indexes.remove(&key);
             }
         }
-        indexes.insert(context.knowledge_release.clone(), index.clone());
+        indexes.insert(cache_key, index.clone());
         Ok(index)
     }
     fn heads(
