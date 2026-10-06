@@ -1554,3 +1554,54 @@ fn header_receipt_keeps_unrelated_archive_pin_without_hydrating_its_body() {
     )
     .is_err());
 }
+
+#[test]
+fn batch_proof_cache_reuses_only_immutable_facts_and_checks_fresh_inputs() {
+    use brain_storage::entity_profile::derivation::{
+        derive_git_profile_from_evidence_cached, GitProofBatchCache,
+    };
+    let fixture = receipt_fixture();
+    let evidence = header_receipt_fixture(&fixture);
+    let mut cache = GitProofBatchCache::new();
+    let mut derive =
+        |evidence: &brain_storage::entity_profile::derivation::VerifiedOriginalEvidence,
+         bindings: &[brain_storage::entity_profile::derivation::StoredGitBinding],
+         blobs: &[brain_storage::entity_profile::derivation::GitBlobEvidence]| {
+            derive_git_profile_from_evidence_cached(
+                "hero_test",
+                evidence,
+                &fixture.operator,
+                bindings,
+                &blobs.iter().collect::<Vec<_>>(),
+                &[],
+                &mut cache,
+            )
+        };
+    let cold = derive(&evidence, &fixture.bindings, &fixture.blobs).unwrap();
+    let warm = derive(&evidence, &fixture.bindings, &fixture.blobs).unwrap();
+    assert_eq!(
+        serde_json::to_value(&cold.0).unwrap(),
+        serde_json::to_value(&warm.0).unwrap()
+    );
+    assert_eq!(cold.1, warm.1);
+    let mut changed = evidence.clone();
+    changed.manifest.heads[0].tombstone = true;
+    assert!(derive(&changed, &fixture.bindings, &fixture.blobs).is_err());
+    let mut changed = evidence.clone();
+    changed.manifest.release.source_revisions.clear();
+    assert!(derive(&changed, &fixture.bindings, &fixture.blobs).is_err());
+    let mut changed = evidence.clone();
+    changed.originals[0].document_header["metadata"]["parse_status"] = json!("verändert");
+    assert!(derive(&changed, &fixture.bindings, &fixture.blobs).is_err());
+    let mut changed = fixture.bindings.clone();
+    changed[0].original_fact.value = json!(999);
+    assert!(derive(&evidence, &changed, &fixture.blobs).is_err());
+    let mut changed = fixture.bindings.clone();
+    changed[0].semantic_projection.as_mut().unwrap().predicate = "unbelegt".into();
+    assert!(derive(&evidence, &changed, &fixture.blobs).is_err());
+    let mut changed = fixture.blobs.clone();
+    changed[0].bytes.push(b' ');
+    assert!(derive(&evidence, &fixture.bindings, &changed).is_err());
+    let warm = derive(&evidence, &fixture.bindings, &fixture.blobs).unwrap();
+    assert_eq!(cold.1, warm.1);
+}

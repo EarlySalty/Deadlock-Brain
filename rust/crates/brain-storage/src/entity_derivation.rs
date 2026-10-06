@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 #[path = "game_file_facts.rs"]
 pub mod game_file_facts;
@@ -62,6 +63,83 @@ pub struct GitBlobEvidence {
     pub git_commit: String,
     pub repository_url: String,
     pub bytes: Vec<u8>,
+}
+
+type ParsedGitCacheKey = (String, String, String, String, String, &'static str);
+
+/// Nur unveränderliche Parserergebnisse innerhalb eines Importlaufs, keine Rechte.
+#[derive(Debug, Default)]
+pub struct GitProofBatchCache {
+    parsed: BTreeMap<ParsedGitCacheKey, Arc<ParsedGitFacts>>,
+    retained_bytes: usize,
+}
+
+#[derive(Debug)]
+struct ParsedGitFacts {
+    facts: Vec<Value>,
+    by_id: BTreeMap<String, usize>,
+    status: String,
+}
+
+impl GitProofBatchCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn remember(&mut self, key: ParsedGitCacheKey, parsed: &Arc<ParsedGitFacts>) {
+        const MAX_RETAINED_BYTES: usize = 256 * 1024 * 1024;
+        fn value_bytes(value: &Value) -> usize {
+            match value {
+                Value::String(text) => text.capacity(),
+                Value::Array(values) => values
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<Value>())
+                    .saturating_add(
+                        values
+                            .iter()
+                            .map(value_bytes)
+                            .fold(0usize, usize::saturating_add),
+                    ),
+                Value::Object(values) => values
+                    .iter()
+                    .map(|(key, value)| {
+                        160usize
+                            .saturating_add(key.capacity())
+                            .saturating_add(value_bytes(value))
+                    })
+                    .fold(0usize, usize::saturating_add),
+                _ => 0,
+            }
+        }
+        let bytes = parsed
+            .facts
+            .capacity()
+            .saturating_mul(std::mem::size_of::<Value>())
+            .saturating_add(
+                parsed
+                    .facts
+                    .iter()
+                    .map(value_bytes)
+                    .fold(0usize, usize::saturating_add),
+            )
+            .saturating_add(
+                parsed
+                    .by_id
+                    .keys()
+                    .map(|key| 96usize.saturating_add(key.capacity()))
+                    .fold(0usize, usize::saturating_add),
+            );
+        // Verdrängung ändert keine Belege. Große Ergebnisse werden bei Bedarf erneut geparst.
+        if bytes > MAX_RETAINED_BYTES {
+            return;
+        }
+        if self.retained_bytes.saturating_add(bytes) > MAX_RETAINED_BYTES {
+            self.parsed.clear();
+            self.retained_bytes = 0;
+        }
+        self.parsed.insert(key, Arc::clone(parsed));
+        self.retained_bytes += bytes;
+    }
 }
 
 /// Getrennte Originalansicht ohne archivierten Dokumentkörper oder Faktenbaum.
@@ -307,9 +385,10 @@ pub fn derive_git_profile(
         },
         operator,
         bindings,
-        blobs,
+        &blobs.iter().collect::<Vec<_>>(),
         live_story,
         Some(&archived_facts),
+        &mut GitProofBatchCache::new(),
     )
 }
 
@@ -564,18 +643,42 @@ pub fn derive_git_profile_from_evidence(
     live_story: &[brain_contracts::entity_profile::PatchStoryChange],
 ) -> Result<(EntityProfile, GitDocumentReceipt)> {
     derive_git_profile_evidence_core(
-        entity_key, evidence, operator, bindings, blobs, live_story, None,
+        entity_key,
+        evidence,
+        operator,
+        bindings,
+        &blobs.iter().collect::<Vec<_>>(),
+        live_story,
+        None,
+        &mut GitProofBatchCache::new(),
     )
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn derive_git_profile_from_evidence_cached(
+    entity_key: &str,
+    evidence: &VerifiedOriginalEvidence,
+    operator: &Principal,
+    bindings: &[StoredGitBinding],
+    blobs: &[&GitBlobEvidence],
+    live_story: &[brain_contracts::entity_profile::PatchStoryChange],
+    cache: &mut GitProofBatchCache,
+) -> Result<(EntityProfile, GitDocumentReceipt)> {
+    derive_git_profile_evidence_core(
+        entity_key, evidence, operator, bindings, blobs, live_story, None, cache,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn derive_git_profile_evidence_core(
     entity_key: &str,
     evidence: &VerifiedOriginalEvidence,
     operator: &Principal,
     bindings: &[StoredGitBinding],
-    blobs: &[GitBlobEvidence],
+    blobs: &[&GitBlobEvidence],
     live_story: &[brain_contracts::entity_profile::PatchStoryChange],
     archived_facts: Option<&[(String, String, u64, EntityProfileFact)]>,
+    cache: &mut GitProofBatchCache,
 ) -> Result<(EntityProfile, GitDocumentReceipt)> {
     let authorized = evidence
         .manifest
@@ -696,28 +799,50 @@ fn derive_git_profile_evidence_core(
                     "Originalressourcenpfad widerspricht dem Gitblobpfad",
                 ));
             }
-            let content = std::str::from_utf8(&blob.bytes)
-                .map_err(|_| invalid("Gitblob ist kein belegter Originaltext"))?;
-            let (parsed, status) = game_file_facts::extract_facts(canonical_path, content);
-            if document["metadata"]["parse_status"] != status {
-                return Err(invalid("Originalparserstatus widerspricht dem Gitblob"));
-            }
-            let mut ids = BTreeSet::new();
-            for parsed_fact in &parsed {
-                let id = parsed_fact["fact_id"]
-                    .as_str()
-                    .ok_or_else(|| invalid("Originalparser liefert keine Faktidentität"))?;
-                if !ids.insert(id) {
-                    return Err(invalid("Originalblobfeld ist nicht eindeutig"));
+            // Der Schlüssel enthält keine Autorisierung; diese wurde oben frisch geprüft.
+            let cache_key = (
+                repository.clone(),
+                commit.clone(),
+                path.clone(),
+                record.content_hash.clone(),
+                canonical_path.to_owned(),
+                "game-file-facts-v1",
+            );
+            let parsed = if let Some(parsed) = cache.parsed.get(&cache_key) {
+                Arc::clone(parsed)
+            } else {
+                let content = std::str::from_utf8(&blob.bytes)
+                    .map_err(|_| invalid("Gitblob ist kein belegter Originaltext"))?;
+                let (facts, status) = game_file_facts::extract_facts(canonical_path, content);
+                let mut by_id = BTreeMap::new();
+                for (index, fact) in facts.iter().enumerate() {
+                    let id = fact["fact_id"]
+                        .as_str()
+                        .ok_or_else(|| invalid("Originalparser liefert keine Faktidentität"))?;
+                    if by_id.insert(id.to_owned(), index).is_some() {
+                        return Err(invalid("Originalblobfeld ist nicht eindeutig"));
+                    }
                 }
+                let parsed = Arc::new(ParsedGitFacts {
+                    facts,
+                    by_id,
+                    status,
+                });
+                cache.remember(cache_key, &parsed);
+                parsed
+            };
+            if document["metadata"]["parse_status"] != parsed.status {
+                return Err(invalid("Originalparserstatus widerspricht dem Gitblob"));
             }
             blob_facts.insert(key, parsed);
             entry.insert((commit, repository));
         }
-        let parsed = blob_facts[&key]
-            .iter()
-            .find(|fact| fact["fact_id"].as_str() == Some(binding.original_fact.fact_id.as_str()))
+        let parsed_facts = &blob_facts[&key];
+        let index = parsed_facts
+            .by_id
+            .get(&binding.original_fact.fact_id)
             .ok_or_else(|| invalid("Gebundenes Originalfeld fehlt im Gitblob"))?;
+        let parsed = &parsed_facts.facts[*index];
         let mut reconstructed = fact_from_original_header(header, parsed)?;
         // Historische KV-Bindungen enthielten den heute ergänzten Pointer noch nicht.
         if reconstructed.predicate == "file.kv_value"
@@ -798,7 +923,8 @@ fn derive_git_profile_evidence_core(
             &record.head.source_id,
             &record.head.logical_id,
             identity,
-            &blob_facts[&key],
+            &blob_facts[&key].facts,
+            &blob_facts[&key].by_id,
         )?
         .as_ref()
             != Some(semantic)

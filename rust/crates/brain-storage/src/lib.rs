@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod domain_reader;
+mod entity_derivation_store;
 pub mod entity_profile;
 mod local_pg_reader;
 mod memory_repository;

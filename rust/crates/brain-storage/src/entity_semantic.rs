@@ -6,6 +6,7 @@ use brain_contracts::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 
 type StoredGitBindingRow = (
     String,
@@ -61,6 +62,7 @@ fn bound_relative_pointer(
             .as_array()
             .ok_or_else(|| invalid("Originalfakten fehlen"))?,
         relative_pointer,
+        None,
     )
 }
 
@@ -71,6 +73,7 @@ fn bound_relative_pointer_from_facts(
     logical_id: &str,
     facts: &[Value],
     relative_pointer: &str,
+    by_id: Option<&BTreeMap<String, usize>>,
 ) -> Result<String> {
     let pointer = fact
         .qualifiers
@@ -102,10 +105,13 @@ fn bound_relative_pointer_from_facts(
                 scopes.push(reference.to_owned());
             }
         }
-        if let Some(identity_fact) = facts
-            .iter()
-            .find(|fact| fact["fact_id"].as_str() == Some(reference))
-        {
+        let identity_fact = match by_id {
+            Some(index) => index.get(reference).and_then(|index| facts.get(*index)),
+            None => facts
+                .iter()
+                .find(|fact| fact["fact_id"].as_str() == Some(reference)),
+        };
+        if let Some(identity_fact) = identity_fact {
             let identity_pointer = identity_fact["qualifiers"]["source_pointer"]
                 .as_str()
                 .or_else(|| identity_fact["qualifiers"]["json_pointer"].as_str());
@@ -195,6 +201,7 @@ pub(crate) fn semantic_projection_from_verified_original(
     logical_id: &str,
     identity: &EntityIdentity,
     facts: &[Value],
+    by_id: &BTreeMap<String, usize>,
 ) -> Result<Option<SemanticProjection>> {
     if !numeric_original(fact) {
         return Ok(None);
@@ -206,6 +213,7 @@ pub(crate) fn semantic_projection_from_verified_original(
         logical_id,
         facts,
         relative_pointer,
+        Some(by_id),
     )?;
     semantic_projection_verified(fact, relative_pointer, &relative)
 }
