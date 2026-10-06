@@ -80,6 +80,71 @@ mod tests {
             assert!(manifest.validate().is_err());
         }
     }
+
+    #[test]
+    fn versioned_provider_origin_requires_a_current_grant() {
+        use crate::{
+            source::*,
+            value::{Observed, UnknownReason},
+        };
+        let mut manifest = fixture();
+        let descriptor = &mut manifest.revisions[0];
+        let origin = OriginArtifact {
+            identity: SourceIdentity {
+                source_id: descriptor.head.source_id.clone(),
+                logical_id: descriptor.head.logical_id.clone(),
+            },
+            source_revision: SourceRevision::Http {
+                body_sha256: descriptor.content_hash.clone(),
+                etag: None,
+                last_modified: None,
+            },
+            raw_sha256: descriptor.content_hash.clone(),
+            locator: "fixture://document".into(),
+            parser_revision: "fixture-v1".into(),
+            parser_family: "fixture".into(),
+            schema_version: Observed::unknown(UnknownReason::NotPresent),
+            schema_sha256: Observed::unknown(UnknownReason::NotPresent),
+            retrieved_at: Observed::unknown(UnknownReason::NotPresent),
+            source_time: Observed::unknown(UnknownReason::NotPresent),
+            language: Observed::unknown(UnknownReason::NotPresent),
+            origin_artifacts: BTreeSet::new(),
+            derivation_family: Observed::unknown(UnknownReason::NotPresent),
+            validity: GameValidity::unknown(),
+            policy: SourcePolicy {
+                visibility: descriptor.head.visibility,
+                allowed_scopes: descriptor.head.allowed_scopes.clone(),
+                authorization_ref: Observed::unknown(UnknownReason::NotPresent),
+                license: Observed::unknown(UnknownReason::NotPresent),
+                publication_allowed: true,
+                provider_egress_allowed: true,
+                raw_retention_allowed: false,
+            },
+        };
+        descriptor.head.metadata.insert(
+            ORIGIN_METADATA_KEY.into(),
+            serde_json::to_string(&Versioned::new(origin)).unwrap(),
+        );
+        let principal = Principal {
+            actor_id: "akteur".into(),
+            channel: "kanal".into(),
+            scopes: BTreeSet::new(),
+            provider_egress: BTreeSet::from(["public".into()]),
+        };
+        assert_eq!(
+            manifest.authorized(&principal, false, false).unwrap().len(),
+            1
+        );
+        assert!(manifest
+            .authorized(&principal, true, false)
+            .unwrap()
+            .is_empty());
+        manifest.heads[0].metadata = manifest.revisions[0].head.metadata.clone();
+        assert_eq!(
+            manifest.authorized(&principal, true, false).unwrap().len(),
+            1
+        );
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -178,6 +243,12 @@ impl ReleaseReadManifest {
             let revision = &descriptor.head;
             let current = heads[&(&revision.source_id, &revision.logical_id)];
             if !revision.allowed(principal, provider) || !current.allowed(principal, provider) {
+                continue;
+            }
+            if provider
+                && revision.canonical_origin()?.is_some()
+                && current.canonical_origin()?.is_none()
+            {
                 continue;
             }
             if publication {

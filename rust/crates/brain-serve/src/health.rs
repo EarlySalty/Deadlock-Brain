@@ -42,17 +42,18 @@ pub(crate) fn validate_bound_manifest(
             .iter()
             .map(|descriptor| &descriptor.head)
             .filter(|record| {
-                record.visibility == SourceVisibility::Public && record.allowed_scopes == scopes
+                record.visibility == SourceVisibility::Public
+                    && record.allowed_scopes.is_subset(&scopes)
             })
             .collect();
-        if public.is_empty()
+        if !public.iter().any(|record| record.allowed_scopes == scopes)
             || public.iter().any(|record| {
                 record.tombstone
                     || !snapshot.heads.iter().any(|head| {
                         head.source_id == record.source_id
                             && head.logical_id == record.logical_id
                             && head.visibility == SourceVisibility::Public
-                            && head.allowed_scopes == scopes
+                            && head.allowed_scopes == record.allowed_scopes
                             && !head.tombstone
                     })
             })
@@ -71,7 +72,14 @@ pub(crate) fn validate_bound_manifest(
                 true,
             )
             .map_err(|_| Error::ReleaseUnavailable)?;
-        return if published.len() == public.len() {
+        return if published.len() == public.len()
+            && public.iter().all(|record| {
+                published.iter().any(|pin| {
+                    pin.source_id == record.source_id
+                        && pin.logical_id == record.logical_id
+                        && pin.revision == record.revision
+                })
+            }) {
             Ok(())
         } else {
             Err(Error::ReleaseUnavailable)
@@ -394,5 +402,65 @@ mod binding_tests {
         changed.revisions[1].allowed_scopes = BTreeSet::from(["bot.public".into()]);
         changed.heads[1] = changed.revisions[1].clone();
         assert!(validate_bound_scope(&changed, "bot.public").is_err());
+    }
+
+    #[test]
+    fn public_profiles_cannot_replace_a_denied_scoped_document() {
+        use brain_contracts::{
+            source::*,
+            value::{Observed, UnknownReason},
+        };
+        let mut snapshot = maintenance_snapshot();
+        let record = &mut snapshot.revisions[0];
+        let mut origin = OriginArtifact {
+            identity: SourceIdentity {
+                source_id: record.source_id.clone(),
+                logical_id: record.logical_id.clone(),
+            },
+            source_revision: SourceRevision::Http {
+                body_sha256: record.content_hash.clone(),
+                etag: None,
+                last_modified: None,
+            },
+            raw_sha256: record.content_hash.clone(),
+            locator: "fixture://document".into(),
+            parser_revision: "fixture-v1".into(),
+            parser_family: "fixture".into(),
+            schema_version: Observed::unknown(UnknownReason::NotPresent),
+            schema_sha256: Observed::unknown(UnknownReason::NotPresent),
+            retrieved_at: Observed::unknown(UnknownReason::NotPresent),
+            source_time: Observed::unknown(UnknownReason::NotPresent),
+            language: Observed::unknown(UnknownReason::NotPresent),
+            origin_artifacts: BTreeSet::new(),
+            derivation_family: Observed::unknown(UnknownReason::NotPresent),
+            validity: GameValidity::unknown(),
+            policy: SourcePolicy {
+                visibility: record.visibility,
+                allowed_scopes: record.allowed_scopes.clone(),
+                authorization_ref: Observed::unknown(UnknownReason::NotPresent),
+                license: Observed::unknown(UnknownReason::NotPresent),
+                publication_allowed: false,
+                provider_egress_allowed: false,
+                raw_retention_allowed: false,
+            },
+        };
+        origin.bind_record(record).unwrap();
+        snapshot.heads[0] = record.clone();
+        let mut profile = record.clone();
+        profile.source_id = "git-game-facts-derived".into();
+        profile.logical_id = "hero".into();
+        profile.allowed_scopes.clear();
+        profile.metadata.clear();
+        snapshot.release.source_revisions.insert(
+            profile.source_id.clone(),
+            BTreeMap::from([(profile.logical_id.clone(), profile.revision)]),
+        );
+        snapshot.revisions.push(profile.clone());
+        snapshot.heads.push(profile);
+        assert!(validate_bound_scope(&snapshot, "bot.public").is_err());
+        origin.policy.publication_allowed = true;
+        origin.bind_record(&mut snapshot.revisions[0]).unwrap();
+        snapshot.heads[0] = snapshot.revisions[0].clone();
+        assert!(validate_bound_scope(&snapshot, "bot.public").is_ok());
     }
 }
