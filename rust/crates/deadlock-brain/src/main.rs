@@ -2031,12 +2031,14 @@ async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
                 },
             )
             .await?;
-            if args.pretty {
-                print_learn_result("analyze-next", &result);
-                Ok(())
-            } else {
-                print_json(&result)
-            }
+            finish_batch_result(&result, |result| {
+                if args.pretty {
+                    print_learn_result("analyze-next", result);
+                    Ok(())
+                } else {
+                    print_json(result)
+                }
+            })
         }
     }
 }
@@ -3213,12 +3215,14 @@ async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
                 },
             )
             .await?;
-            if args.pretty {
-                print_player_result("analyze-next", &result);
-                Ok(())
-            } else {
-                print_json(&result)
-            }
+            finish_batch_result(&result, |result| {
+                if args.pretty {
+                    print_player_result("analyze-next", result);
+                    Ok(())
+                } else {
+                    print_json(result)
+                }
+            })
         }
         PlayerCommands::FetchDemo(args) => {
             let http =
@@ -3576,11 +3580,14 @@ async fn run_enrich(pool: &PgPool, settings: &Settings, target: EnrichCommands) 
             print_json(&dbrain_normalize::enrich_legacy_entities(pool, args.rebuild).await?)
         }
         EnrichCommands::PatchImpact(args) => {
-            print_json(&run_patch_impact(pool, settings, args).await?)
+            let result = run_patch_impact(pool, settings, args).await?;
+            finish_batch_result(&result, print_json)
         }
         EnrichCommands::MetaTrends => {
             let config = ai_config(settings, None, None, None, None);
-            print_json(&dbrain_enrich::run_meta_trend_analysis(pool, &config).await?)
+            let result =
+                serde_json::to_value(dbrain_enrich::run_meta_trend_analysis(pool, &config).await?)?;
+            finish_batch_result(&result, print_json)
         }
     }
 }
@@ -3611,7 +3618,7 @@ async fn run_patch_impact(
         let client = AiClient::new(config.clone())?;
         let response = client.chat(&request_info.request)?;
         let result_text = extract_ai_text(&response);
-        dbrain_enrich::save_patch_impact_note(
+        let note = dbrain_enrich::save_patch_impact_note(
             pool,
             &context,
             &request_info.prompt_text,
@@ -3620,7 +3627,8 @@ async fn run_patch_impact(
             "analysis_ready",
         )
         .await?;
-        Ok(json!({"processed": 1, "success": 1, "failed": 0, "hero": hero}))
+        let success = usize::from(note.status == "analysis_ready");
+        Ok(json!({"processed": 1, "success": success, "failed": 1 - success, "hero": hero}))
     } else {
         Ok(serde_json::to_value(
             dbrain_enrich::run_patch_impact_batch(pool, &config, args.limit).await?,
@@ -3690,6 +3698,31 @@ fn usize_to_i64(value: usize) -> i64 {
 
 fn bounded_limit(value: usize) -> i64 {
     usize_to_i64(value).clamp(1, 500)
+}
+
+fn finish_batch_result(result: &Value, emit: impl FnOnce(&Value) -> Result<()>) -> Result<()> {
+    emit(result)?;
+    let failed = get(result, "failed").and_then(Value::as_u64).unwrap_or(0);
+    let failed_rows = get(result, "results")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter(|row| {
+                    matches!(
+                        str_value(get(row, "status")),
+                        Some("error" | "analysis_failed")
+                    )
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    if failed > 0 || failed_rows > 0 {
+        anyhow::bail!(
+            "Batch fehlgeschlagen: {} Schritte fehlgeschlagen. Teilergebnisse bleiben erhalten.",
+            failed.max(failed_rows as u64)
+        );
+    }
+    Ok(())
 }
 
 fn print_json<T: Serialize + ?Sized>(value: &T) -> Result<()> {
@@ -4810,6 +4843,55 @@ fn capitalize(value: &str) -> String {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    #[test]
+    fn batch_failure_keeps_the_complete_output_before_returning_an_error() {
+        for result in [
+            json!({"processed": 3, "success": 2, "failed": 1}),
+            json!({"processed": 2, "success": 0, "failed": 2}),
+            json!({"results": [
+                {"status": "analysis_ready", "note_id": 42},
+                {"status": "error", "error": "fixture"}
+            ]}),
+            json!({"results": [{"status": "analysis_failed"}]}),
+        ] {
+            let mut output = None;
+            let outcome = finish_batch_result(&result, |value| {
+                output = Some(value.clone());
+                Ok(())
+            });
+            assert!(outcome.is_err());
+            assert_eq!(output.as_ref(), Some(&result));
+        }
+    }
+
+    #[test]
+    fn successful_empty_and_dry_run_batches_remain_successful() {
+        for result in [
+            json!({"processed": 3, "success": 3, "failed": 0}),
+            json!({"processed": 0, "success": 0, "failed": 0, "message": "no targets pending"}),
+            json!({"results": [{"status": "analysis_ready"}]}),
+            json!({"dry_run": true, "results": [{"status": "context_ready"}]}),
+            json!({"dry_run": true, "request": {}}),
+            json!({"results": []}),
+        ] {
+            let mut output = None;
+            finish_batch_result(&result, |value| {
+                output = Some(value.clone());
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(output.as_ref(), Some(&result));
+        }
+    }
+
+    #[test]
+    fn batch_output_errors_are_propagated() {
+        assert!(finish_batch_result(&json!({"failed": 0}), |_| {
+            Err(io::Error::from(ErrorKind::BrokenPipe).into())
+        })
+        .is_err());
+    }
 
     #[test]
     fn wissensabfragen_erzwingen_read_only() {
