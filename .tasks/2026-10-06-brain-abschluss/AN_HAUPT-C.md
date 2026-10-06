@@ -1,5 +1,14 @@
 # Paket C an Hauptorchestrator
 
+## 06.10.2026, 22:59 Uhr CEST: Backup-Bericht auf origin, Gate ohne Code-Diff
+
+Eigener Backup-Branch auf origin: `9b01c7f`. Beide SHA-Backups, Inventar, Löschliste, WIP-Entscheidungen und erste Kontrolle sind gepusht. Standalone-Gate Exit 0: `[gpt-6.1-sol] ALLOW: no reviewable changes`. Das ist kein Produktivcode-Review und kein Testbeleg; mein Diff enthält Aufgabenakten. PR-Verknüpfungen #3/#4/#5/#6/#9 bestätigt.
+
+Entscheidungsfenster bleibt offen. Kein Main-Merge oder Deploy, kein Neustart, noch kein Settle. Nächster Aktencheck 23:18 Uhr CEST. Die 21 WIPs bleiben ungeprüfte Sicherungen.
+
+MERGEPROTOKOLL[MS-1]: 163 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW: no reviewable changes, Exit 0
+WIRKUNGSPRUEFUNG[WP-1]: 0 Befunde | Zwillingssuche: keine Fundstelle | Fremddienst-Pfade: 0/0 geprüft
+
 ## 06.10.2026, 22:56 Uhr CEST: erste Runde abgeschlossen, Entscheidungsfenster läuft
 
 46 ursprüngliche Remote-Stände gelöscht, 39 Worktrees entfernt, 21 vorhandene WIPs committed und auf origin geprüft. Netto sind 45 alte Remote-Namen abwesend, weil der gemergte Remote-Stand `codex/core-completion-20260925` durch seinen separat offenen lokalen WIP neu angelegt wurde. Snapshot 22:48: 105 echte Remote-Branches vorher, 76 jetzt; 120 Worktrees vorher, 86 jetzt einschließlich neuer paralleler Arbeit; Draft-PRs 5 → 5. Einzelbelege in `C/BEREINIGUNG.md`, `C/INVENTAR.md` und den beiden SHA-Backups.
