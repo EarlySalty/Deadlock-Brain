@@ -185,7 +185,35 @@ impl OpenAiCompatibleProvider {
                     let status = response.status();
                     if status == StatusCode::PRECONDITION_FAILED {
                         let category = hardening::read_bounded(response, 4096)
-                            .map(|bytes| precondition_category(&bytes))
+                            .map(|bytes| {
+                                let body = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+                                for indicator in [
+                                    "credit",
+                                    "balance",
+                                    "funds",
+                                    "billing",
+                                    "payment",
+                                    "limit",
+                                    "quota",
+                                    "budget",
+                                    "exceed",
+                                    "reached",
+                                    "zero",
+                                    "billing-account",
+                                    "pay-as-you-go",
+                                    "organization",
+                                    "disabled",
+                                    "suspended",
+                                    "inactive",
+                                ] {
+                                    if body.contains(indicator) {
+                                        self.report_category(format!(
+                                            "http_412_indicator_{indicator}"
+                                        ));
+                                    }
+                                }
+                                precondition_category(&bytes)
+                            })
                             .unwrap_or("unknown");
                         self.report_category(format!("http_412_{category}"));
                         return Err(ProviderError::HttpStatus { status });
