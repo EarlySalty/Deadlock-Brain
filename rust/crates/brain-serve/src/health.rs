@@ -35,8 +35,27 @@ pub(crate) fn validate_bound_manifest(
     if snapshot.revisions.is_empty() {
         return Err(Error::ReleaseUnavailable);
     }
-    if scope == "bot.public" {
-        let scopes = BTreeSet::from(["bot.public".into()]);
+    if scope == "bot.public" || scope == crate::config::DOCS_ENTITY_PROFILE_BINDING {
+        let authorization_scope = if scope == crate::config::DOCS_ENTITY_PROFILE_BINDING {
+            "docs.public"
+        } else {
+            "bot.public"
+        };
+        let scopes = BTreeSet::from([authorization_scope.into()]);
+        let docs_record_valid = |record: &brain_contracts::DocumentHead| {
+            authorization_scope != "docs.public"
+                || record.allowed_scopes.is_empty()
+                || (record.source_id == "docs-c9-public:Deadlock-Docs"
+                    && record
+                        .canonical_origin()
+                        .ok()
+                        .flatten()
+                        .is_some_and(|origin| {
+                            origin.policy.publication_allowed
+                                && origin.policy.provider_egress_allowed
+                                && !origin.policy.raw_retention_allowed
+                        }))
+        };
         let public: Vec<_> = snapshot
             .revisions
             .iter()
@@ -49,12 +68,14 @@ pub(crate) fn validate_bound_manifest(
         if !public.iter().any(|record| record.allowed_scopes == scopes)
             || public.iter().any(|record| {
                 record.tombstone
+                    || !docs_record_valid(record)
                     || !snapshot.heads.iter().any(|head| {
                         head.source_id == record.source_id
                             && head.logical_id == record.logical_id
                             && head.visibility == SourceVisibility::Public
                             && head.allowed_scopes == record.allowed_scopes
                             && !head.tombstone
+                            && docs_record_valid(head)
                     })
             })
         {
@@ -462,5 +483,37 @@ mod binding_tests {
         origin.bind_record(&mut snapshot.revisions[0]).unwrap();
         snapshot.heads[0] = snapshot.revisions[0].clone();
         assert!(validate_bound_scope(&snapshot, "bot.public").is_ok());
+        snapshot.revisions[0].allowed_scopes = BTreeSet::from(["docs.public".into()]);
+        let old_source = snapshot.revisions[0].source_id.clone();
+        snapshot.revisions[0].source_id = "docs-c9-public:Deadlock-Docs".into();
+        let pins = snapshot
+            .release
+            .source_revisions
+            .remove(&old_source)
+            .unwrap();
+        snapshot
+            .release
+            .source_revisions
+            .insert(snapshot.revisions[0].source_id.clone(), pins);
+        origin.identity.source_id = snapshot.revisions[0].source_id.clone();
+        origin.policy.allowed_scopes = snapshot.revisions[0].allowed_scopes.clone();
+        origin.policy.provider_egress_allowed = true;
+        origin.bind_record(&mut snapshot.revisions[0]).unwrap();
+        snapshot.heads[0] = snapshot.revisions[0].clone();
+        assert!(validate_bound_scope(&snapshot, "docs.public").is_err());
+        assert!(
+            validate_bound_scope(&snapshot, crate::config::DOCS_ENTITY_PROFILE_BINDING).is_ok()
+        );
+        origin.policy.provider_egress_allowed = false;
+        origin.bind_record(&mut snapshot.heads[0]).unwrap();
+        assert!(
+            validate_bound_scope(&snapshot, crate::config::DOCS_ENTITY_PROFILE_BINDING).is_err()
+        );
+        origin.policy.provider_egress_allowed = true;
+        origin.policy.publication_allowed = false;
+        origin.bind_record(&mut snapshot.heads[0]).unwrap();
+        assert!(
+            validate_bound_scope(&snapshot, crate::config::DOCS_ENTITY_PROFILE_BINDING).is_err()
+        );
     }
 }

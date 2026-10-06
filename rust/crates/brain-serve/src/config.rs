@@ -4,6 +4,9 @@ use brain_contracts::Budget;
 use serde::Deserialize;
 use std::{collections::BTreeSet, fs::File, io::Read, net::SocketAddr, path::Path};
 
+// Interne Readinessbindung, kein zusätzlicher Autorisierungsscope.
+pub(crate) const DOCS_ENTITY_PROFILE_BINDING: &str = "docs.public/entity_profiles";
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -278,6 +281,9 @@ impl Config {
     }
     pub(crate) fn bound_scope(&self, grant: &Credential) -> Option<String> {
         let release = grant.release.as_ref()?;
+        if grant.entity_profile_model_context && grant.scopes.contains("docs.public") {
+            return Some(DOCS_ENTITY_PROFILE_BINDING.into());
+        }
         if grant.actor_id == "second-brain"
             && grant.channel == "internal"
             && self.operator_docs_scope() == Some("bot.public")
@@ -655,6 +661,18 @@ mod entity_profile_tests {
         assert_eq!(
             enabled.credentials[0].provider_egress,
             baseline.credentials[0].provider_egress
+        );
+        assert_eq!(
+            enabled.bound_scope(&enabled.credentials[0]).as_deref(),
+            Some(super::DOCS_ENTITY_PROFILE_BINDING)
+        );
+        assert_eq!(
+            baseline.bound_scope(&baseline.credentials[0]).as_deref(),
+            Some("docs.public")
+        );
+        assert_ne!(
+            baseline.release_bindings_sha256(),
+            enabled.release_bindings_sha256()
         );
         for (field, replacement) in [
             ("actor_id", serde_json::json!("second-brain")),
