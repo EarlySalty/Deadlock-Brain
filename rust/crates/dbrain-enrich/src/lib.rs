@@ -718,7 +718,7 @@ pub async fn run_patch_impact_batch(
     limit: usize,
 ) -> Result<PatchImpactBatchSummary> {
     let client = AiClient::new(config.clone())?;
-    run_patch_impact_batch_with_chat(pool, config, limit, |request| {
+    run_patch_impact_batch_with_chat(pool, client.config(), limit, |request| {
         Ok(client.chat(request)?)
     })
     .await
@@ -793,7 +793,7 @@ pub async fn run_meta_trend_analysis(
     config: &AiConfig,
 ) -> Result<MetaTrendSummary> {
     let client = AiClient::new(config.clone())?;
-    run_meta_trend_analysis_with_chat(pool, config, |request| Ok(client.chat(request)?)).await
+    run_meta_trend_analysis_with_chat(pool, client.config(), |request| Ok(client.chat(request)?)).await
 }
 
 pub async fn run_meta_trend_analysis_with_chat<F>(
@@ -1820,8 +1820,8 @@ mod tests {
     }
 
     fn test_config() -> AiConfig {
-        let mut settings = deadlock_brain_core::config::load_settings().expect("settings");
-        settings.ai_api_key = None;
+        let global = deadlock_brain_core::bot_config::BotConfig::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../config/bot.toml")).expect("test config");
+        let mut settings = deadlock_brain_core::config::Settings::from_config(global, None);
         settings.ai_model = "accounts/fireworks/models/deepseek-v4-flash".to_string();
         AiConfig::from_settings(&settings)
     }

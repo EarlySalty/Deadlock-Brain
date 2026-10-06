@@ -8,6 +8,8 @@ pub const DEFAULT_SYSTEM_PROMPT: &str = "Du bist ein Deadlock-Analyseassistent f
 
 #[derive(Clone)]
 pub struct AiConfig {
+    global: std::sync::Arc<crate::bot_config::BotConfig>,
+    requested_pin: Option<String>,
     api_key: Option<String>,
     pub base_url: String,
     pub model: String,
@@ -42,6 +44,8 @@ impl AiConfig {
 
     pub fn from_settings(settings: &Settings) -> Self {
         Self {
+            global: std::sync::Arc::clone(&settings.global),
+            requested_pin: (!settings.ai_model.is_empty()).then(|| settings.ai_model.clone()),
             api_key: settings.ai_api_key.clone(),
             base_url: settings.ai_base_url.clone(),
             model: settings.ai_model.clone(),
@@ -51,6 +55,13 @@ impl AiConfig {
             top_p: settings.ai_top_p,
             use_token_plan: settings.ai_use_token_plan,
         }
+    }
+
+    /// Bewusster Pin für einen einzelnen CLI-Anwendungsfall. Ein widersprechender
+    /// zentraler TOML-Pin wird vor jedem Anbieterzugriff als Konflikt abgelehnt.
+    pub fn set_requested_model(&mut self, model: String) {
+        self.requested_pin = Some(model.clone());
+        self.model = model;
     }
 
     pub fn api_key_present(&self) -> bool {
@@ -123,11 +134,36 @@ impl ChatCompletionRequest {
 #[derive(Debug, Clone)]
 pub struct AiClient {
     config: AiConfig,
+    resolution: Option<std::sync::Arc<crate::model_resolver::Resolution>>,
 }
 
 impl AiClient {
-    pub fn new(config: AiConfig) -> Result<Self> {
-        Ok(Self { config })
+    pub fn new(mut config: AiConfig) -> Result<Self> {
+        if !config.api_key_present() {
+            // Prompt builders and the existing non-AI fallback remain usable. chat()
+            // still fails visibly and before network I/O when no credential exists.
+            return Ok(Self { config, resolution: None });
+        }
+        if config.base_url.trim_end_matches('/') != config.global.ai().base_url.trim_end_matches('/')
+            || !(1..=3600).contains(&config.timeout_seconds)
+            || !(1..=131_072).contains(&config.max_completion_tokens)
+            || !config.temperature.is_finite() || !(0.0..=2.0).contains(&config.temperature)
+            || !config.top_p.is_finite() || config.top_p <= 0.0 || config.top_p > 1.0
+        {
+            return Err(CoreError::InvalidAiOverrides);
+        }
+        let credential = zeroize::Zeroizing::new(config.api_key()?.to_owned());
+        let policy = crate::model_resolver::Policy::new(
+            std::sync::Arc::clone(&config.global), config.requested_pin.as_deref(), &credential,
+        )?;
+        let resolution = std::thread::spawn(move || crate::model_resolver::resolve(policy, &credential))
+            .join().map_err(|_| CoreError::NoVerifiedModel)??;
+        config.model = resolution.verified.model.clone();
+        Ok(Self { config, resolution: Some(std::sync::Arc::new(resolution)) })
+    }
+
+    pub fn selection_status(&self) -> Option<&crate::model_resolver::Resolution> {
+        self.resolution.as_deref()
     }
 
     pub fn from_settings(settings: &Settings) -> Result<Self> {
@@ -147,6 +183,21 @@ impl AiClient {
     }
 
     pub fn chat_value(&self, request_payload: &Value) -> Result<Value> {
+        self.config.api_key()?;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| CoreError::NoVerifiedModel)?.as_secs();
+        let verified = &self.resolution.as_ref().ok_or(CoreError::NoVerifiedModel)?.verified;
+        if now < verified.checked_at || now >= verified.expires_at || self.config.model != verified.model {
+            return Err(CoreError::NoVerifiedModel);
+        }
+        if request_payload.get("model").and_then(Value::as_str) != Some(self.config.model.as_str()) {
+            return Err(CoreError::ModelSnapshotMismatch);
+        }
+        if request_payload.get("max_tokens").and_then(Value::as_u64)
+            .is_none_or(|n| n == 0 || n > self.config.max_completion_tokens)
+        {
+            return Err(CoreError::InvalidAiOverrides);
+        }
         self.call_openai_compatible(request_payload)
     }
 
@@ -162,43 +213,19 @@ impl AiClient {
 }
 
 fn call_openai_compatible_sync(config: &AiConfig, request_payload: &Value) -> Result<Value> {
+    let api_key = config.api_key()?;
     let client = Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(config.timeout_seconds))
-        .user_agent("DeadlockBrain/0.1")
-        .build()?;
+        .user_agent(&config.global.http().user_agent)
+        .build().map_err(|_| CoreError::AiResponse { status: 0, kind: "Clientaufbau" })?;
     let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
-    let api_key = config.api_key()?.to_string();
-    let mut payload = request_payload.clone();
-    if let Some(object) = payload.as_object_mut() {
-        object.insert(
-            "model".to_string(),
-            json!(crate::model_resolver::model_for_request(&config.model)),
-        );
-    }
-    let response = client
-        .post(&url)
-        .bearer_auth(&api_key)
-        .json(&payload)
-        .send()?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND
-        && crate::model_resolver::explicit_model().is_none()
-    {
-        if let Some(model) =
-            crate::model_resolver::resolve_after_not_found(&config.base_url, &api_key)
-        {
-            if let Some(object) = payload.as_object_mut() {
-                object.insert("model".to_string(), json!(model));
-            }
-            return client
-                .post(&url)
-                .bearer_auth(&api_key)
-                .json(&payload)
-                .send()
-                .map_err(Into::into)
-                .and_then(|response| parse_response(response, "fireworks_openai_compatible"));
-        }
-    }
-    parse_response(response, "fireworks_openai_compatible")
+    // The request and immutable client use the same previously verified model.
+    // No 404 fallback, ENV override, or mutation of the request model.
+    let response = client.post(&url).bearer_auth(api_key).json(request_payload).send()
+        .map_err(|error| CoreError::AiResponse { status: 0, kind: if error.is_timeout() { "Timeout" } else { "Transport" } })?;
+    parse_response(response, "fireworks_openai_compatible", &config.model)
 }
 
 pub fn build_review_request(
@@ -291,21 +318,37 @@ pub fn strip_thinking(text: &str) -> String {
     remaining.trim().to_string()
 }
 
-fn parse_response(response: reqwest::blocking::Response, mode: &str) -> Result<Value> {
+fn parse_response(response: reqwest::blocking::Response, mode: &str, expected_model: &str) -> Result<Value> {
+    use std::io::Read;
+    const MAX_BYTES: u64 = 16 * 1024 * 1024;
     let status = response.status();
-    let body = response.text()?;
     if !status.is_success() {
-        return Err(CoreError::HttpStatus {
-            status,
-            url: "Fireworks".to_string(),
-            body: body.chars().take(1000).collect(),
-        });
+        return Err(CoreError::AiResponse { status: status.as_u16(), kind: "Anbieterfehler" });
     }
-    let mut value: Value = serde_json::from_str(&body)?;
+    let mut body = Vec::new();
+    response.take(MAX_BYTES + 1).read_to_end(&mut body)
+        .map_err(|_| CoreError::AiResponse { status: status.as_u16(), kind: "Antworttransport" })?;
+    if body.len() as u64 > MAX_BYTES {
+        return Err(CoreError::AiResponse { status: status.as_u16(), kind: "Antwort zu groß" });
+    }
+    let mut value: Value = serde_json::from_slice(&body)
+        .map_err(|_| CoreError::AiResponse { status: status.as_u16(), kind: "Ungültiges Antwortformat" })?;
+    let reported = value.get("model").and_then(Value::as_str);
+    if reported != Some(expected_model) && reported != expected_model.strip_prefix("accounts/fireworks/models/") {
+        return Err(CoreError::ModelSnapshotMismatch);
+    }
+    let choices = value.get("choices").and_then(Value::as_array)
+        .ok_or(CoreError::AiResponse { status: status.as_u16(), kind: "Fehlende Antwort" })?;
+    if choices.len() != 1 || choices[0].get("finish_reason").and_then(Value::as_str) != Some("stop")
+        || extract_ai_text(&value).trim().is_empty()
+    {
+        return Err(CoreError::AiResponse { status: status.as_u16(), kind: "Leere oder unvollständige Antwort" });
+    }
     if let Some(object) = value.as_object_mut() {
         object.insert("_http_status".to_string(), json!(status.as_u16()));
         object.insert("_provider".to_string(), json!("fireworks"));
         object.insert("_ai_mode".to_string(), json!(mode));
+        object.insert("_verified_model".to_string(), json!(expected_model));
     }
     Ok(value)
 }
@@ -328,6 +371,8 @@ mod tests {
     #[test]
     fn serializes_fireworks_token_field() {
         let config = AiConfig {
+            global: crate::bot_config::BotConfig::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../config/bot.toml")).unwrap(),
+            requested_pin: None,
             api_key: Some("redacted".to_string()),
             base_url: "http://localhost".to_string(),
             model: "accounts/fireworks/models/deepseek-v4-flash".to_string(),

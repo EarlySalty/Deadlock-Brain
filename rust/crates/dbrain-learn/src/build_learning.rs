@@ -591,6 +591,8 @@ async fn run_single_build_learning_analysis(
     }
 
     let client = AiClient::new(config.clone())?;
+    let config = client.config();
+    let request = build_ai_build_learning_request(&context, config)?;
     let response = client.chat(&request)?;
     let result_text = extract_ai_text(&response);
     if result_text.is_empty() {

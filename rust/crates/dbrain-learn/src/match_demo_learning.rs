@@ -1997,6 +1997,7 @@ mod tests {
 
     fn model_config() -> AiConfig {
         AiConfig::from_settings(&Settings {
+            global: deadlock_brain_core::bot_config::BotConfig::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../config/bot.toml")).expect("test config"),
             project_root: PathBuf::from("/tmp/demo-report-test"),
             data_dir: PathBuf::from("/tmp/demo-report-test/data"),
             raw_dir: PathBuf::from("/tmp/demo-report-test/raw"),

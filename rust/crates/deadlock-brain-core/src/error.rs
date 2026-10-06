@@ -1,9 +1,27 @@
-use std::{num, time::SystemTimeError};
+use std::time::SystemTimeError;
 
 use reqwest::StatusCode;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
+    #[error(transparent)]
+    Config(#[from] crate::bot_config::ConfigError),
+
+    #[error(transparent)]
+    ModelSelection(#[from] crate::model_resolver::SelectionError),
+
+    #[error("KI-Anfrageparameter sind ungültig oder widersprechen dem freigegebenen Endpunkt.")]
+    InvalidAiOverrides,
+
+    #[error("Fireworks-Anfrage fehlgeschlagen: {kind}, HTTP {status}. Antwortinhalte werden nicht ausgegeben.")]
+    AiResponse { status: u16, kind: &'static str },
+
+    #[error("Der KI-Pfad hat kein freigegebenes, geprüftes Modell. Es wurde keine KI-Anfrage gesendet.")]
+    NoVerifiedModel,
+
+    #[error("Anfragemodell und Client-Momentaufnahme stimmen nicht überein. Es wurde keine KI-Anfrage gesendet.")]
+    ModelSnapshotMismatch,
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -16,20 +34,6 @@ pub enum CoreError {
     #[error("system clock error: {0}")]
     Time(#[from] SystemTimeError),
 
-    #[error("invalid integer env {name}={value:?}: {message}")]
-    InvalidIntegerEnv {
-        name: &'static str,
-        value: String,
-        message: String,
-    },
-
-    #[error("invalid float env {name}={value:?}: {message}")]
-    InvalidFloatEnv {
-        name: &'static str,
-        value: String,
-        message: String,
-    },
-
     #[error("invalid HTTP header {name:?}: {message}")]
     InvalidHeader { name: String, message: String },
 
@@ -40,34 +44,8 @@ pub enum CoreError {
         body: String,
     },
 
-    #[error("Fireworks API-Key fehlt. Setze FIREWORK_API_KEY oder FIREWORKS_API_KEY.")]
+    #[error("Fireworks-Zugang fehlt im geschützten Infisical-Bootstrap.")]
     MissingFireworksApiKey,
-}
-
-impl CoreError {
-    pub(crate) fn invalid_integer_env(
-        name: &'static str,
-        value: String,
-        error: num::ParseIntError,
-    ) -> Self {
-        Self::InvalidIntegerEnv {
-            name,
-            value,
-            message: error.to_string(),
-        }
-    }
-
-    pub(crate) fn invalid_float_env(
-        name: &'static str,
-        value: String,
-        error: num::ParseFloatError,
-    ) -> Self {
-        Self::InvalidFloatEnv {
-            name,
-            value,
-            message: error.to_string(),
-        }
-    }
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;

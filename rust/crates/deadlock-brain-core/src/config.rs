@@ -1,10 +1,6 @@
-use std::{
-    collections::HashMap,
-    env, fmt, fs,
-    path::{Path, PathBuf},
-};
+use std::{fmt, path::{Path, PathBuf}, sync::Arc};
 
-use crate::{CoreError, Result};
+use crate::{bot_config::{BotConfig, DEFAULT_CONFIG_PATH}, Result};
 
 pub const DEFAULT_USER_AGENT: &str = "DeadlockBrain/0.1 contact=admin@earlysalty.com";
 pub const DEFAULT_SHEET_ID: &str = "1fj9XMQmVUY0FY4cbozvB18PMBnpbdsaMFTZRLa74VRY";
@@ -13,6 +9,7 @@ pub const DEFAULT_FIREWORKS_BASE_URL: &str = "https://api.fireworks.ai/inference
 
 #[derive(Clone)]
 pub struct Settings {
+    pub global: Arc<BotConfig>,
     pub project_root: PathBuf,
     pub data_dir: PathBuf,
     pub raw_dir: PathBuf,
@@ -65,164 +62,62 @@ impl fmt::Debug for Settings {
     }
 }
 
+/// Installationswurzel nur für Legacy-Werkzeuge ohne eigene Config-Option.
+/// Produktive Aufrufer verwenden ausschließlich die Pfade ihrer validierten Momentaufnahme.
 pub fn repo_root() -> PathBuf {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest_dir.ancestors() {
-        if ancestor.join("data").is_dir() && ancestor.join("src/deadlock_brain").is_dir() {
-            return ancestor.to_path_buf();
-        }
-    }
-
-    let mut fallback = manifest_dir.as_path();
-    for _ in 0..3 {
-        if let Some(parent) = fallback.parent() {
-            fallback = parent;
-        }
-    }
-    fallback.to_path_buf()
+    Path::new(DEFAULT_CONFIG_PATH).parent().and_then(Path::parent)
+        .expect("absolute install path").to_path_buf()
 }
 
 pub fn default_data_dir() -> PathBuf {
     repo_root().join("data")
 }
 
+impl Settings {
+    /// Reine Übergabe bereits validierter Betriebswerte. Keine ENV-Leser, kein I/O.
+    /// Das Secret wird vom vorhandenen Infisical-Bootstrap getrennt übergeben.
+    pub fn from_config(config: Arc<BotConfig>, ai_api_key: Option<String>) -> Self {
+        let paths = config.paths();
+        let ai = config.ai();
+        Self {
+            global: Arc::clone(&config),
+            project_root: paths.project_root.clone(),
+            data_dir: paths.data_dir.clone(),
+            raw_dir: paths.data_dir.join("raw"),
+            cache_dir: paths.data_dir.join("cache"),
+            user_agent: config.http().user_agent.clone(),
+            sheet_id: config.sheet().id.clone(),
+            sheet_gid: config.sheet().gid.clone(),
+            wiki_enabled: config.wiki().enabled,
+            wiki_min_delay_seconds: config.wiki().min_delay_seconds,
+            wiki_cache_ttl_seconds: config.wiki().cache_ttl_seconds,
+            ai_api_key,
+            ai_base_url: ai.base_url.trim_end_matches('/').to_owned(),
+            // Ohne Pin erfolgt kein Rückfall auf einen einkompilierten Alias.
+            // Der Auswahlmanager muss ein geprüftes Modell bereitstellen.
+            ai_model: ai.pin.clone().unwrap_or_default(),
+            ai_timeout_seconds: ai.timeout_seconds,
+            ai_max_completion_tokens: ai.max_completion_tokens,
+            ai_temperature: ai.temperature,
+            ai_top_p: ai.top_p,
+            ai_use_token_plan: false,
+        }
+    }
+}
+
+/// Kompatibler Einstieg für Bibliotheksaufrufer. Betriebswerte kommen nur aus der
+/// zentralen Datei. Dienste mit --config reichen dieselbe Momentaufnahme direkt weiter.
 pub fn load_settings() -> Result<Settings> {
-    let project_root = repo_root();
-    let dotenv = DotEnv::load(&project_root.join(".env"))?;
-    let data_dir = path_setting(
-        &dotenv,
-        "DEADLOCK_BRAIN_DATA_DIR",
-        project_root.join("data"),
-    );
-    let fireworks_api_key = setting(&dotenv, "FIREWORK_API_KEY")
-        .or_else(|| setting(&dotenv, "FIREWORKS_API_KEY"))
-        .filter(|value| !value.trim().is_empty());
-    let fireworks_base_url = setting(&dotenv, "FIREWORK_BASE_URL")
-        .or_else(|| setting(&dotenv, "FIREWORKS_BASE_URL"))
-        .unwrap_or_else(|| DEFAULT_FIREWORKS_BASE_URL.to_string());
-    let fireworks_model = setting(&dotenv, "FIREWORK_MODEL")
-        .or_else(|| setting(&dotenv, "FIREWORKS_MODEL"))
-        .unwrap_or_else(|| DEFAULT_FIREWORKS_MODEL.to_string());
+    let config = BotConfig::load(Path::new(DEFAULT_CONFIG_PATH))?;
+    Ok(Settings::from_config(config, fireworks_api_key()))
+}
 
-    Ok(Settings {
-        project_root,
-        raw_dir: data_dir.join("raw"),
-        cache_dir: data_dir.join("cache"),
-        data_dir,
-        user_agent: string_setting(&dotenv, "DEADLOCK_BRAIN_USER_AGENT", DEFAULT_USER_AGENT),
-        sheet_id: string_setting(&dotenv, "DEADLOCK_STATS_SHEET_ID", DEFAULT_SHEET_ID),
-        sheet_gid: string_setting(&dotenv, "DEADLOCK_STATS_SHEET_GID", "0"),
-        wiki_enabled: bool_setting(&dotenv, "DEADLOCK_BRAIN_WIKI_ENABLED", false),
-        wiki_min_delay_seconds: f64_setting(&dotenv, "DEADLOCK_BRAIN_WIKI_MIN_DELAY_SECONDS", 5.0)?,
-        wiki_cache_ttl_seconds: u64_setting(
-            &dotenv,
-            "DEADLOCK_BRAIN_WIKI_CACHE_TTL_SECONDS",
-            604_800,
-        )?,
-        ai_api_key: fireworks_api_key,
-        ai_base_url: fireworks_base_url.trim_end_matches('/').to_string(),
-        ai_model: fireworks_model,
-        ai_timeout_seconds: u64_setting(&dotenv, "FIREWORKS_TIMEOUT_SECONDS", 300)?,
-        ai_max_completion_tokens: u64_setting(&dotenv, "FIREWORKS_MAX_TOKENS", 16_000)?,
-        ai_temperature: f64_setting(&dotenv, "FIREWORKS_TEMPERATURE", 0.2)?,
-        ai_top_p: f64_setting(&dotenv, "FIREWORKS_TOP_P", 0.9)?,
-        ai_use_token_plan: false,
+/// Ausschließlich Secret-Namen aus dem vorhandenen Infisical-Prozessbootstrap.
+/// Keine .env-Datei, keine Modell-/Endpunkt-/Timeout-Variablen und keine Ausgabe.
+pub fn fireworks_api_key() -> Option<String> {
+    ["FIREWORK_API_KEY", "FIREWORKS_API_KEY"].into_iter().find_map(|name| {
+        std::env::var(name).ok().filter(|value| !value.trim().is_empty())
     })
-}
-
-pub fn path_env(name: &'static str, default: PathBuf) -> PathBuf {
-    env::var_os(name)
-        .map(PathBuf::from)
-        .filter(|value| !value.as_os_str().is_empty())
-        .unwrap_or(default)
-}
-
-fn path_setting(dotenv: &DotEnv, name: &'static str, default: PathBuf) -> PathBuf {
-    setting(dotenv, name)
-        .map(PathBuf::from)
-        .filter(|value| !value.as_os_str().is_empty())
-        .unwrap_or(default)
-}
-
-fn string_setting(dotenv: &DotEnv, name: &'static str, default: &str) -> String {
-    setting(dotenv, name).unwrap_or_else(|| default.to_string())
-}
-
-fn bool_setting(dotenv: &DotEnv, name: &'static str, default: bool) -> bool {
-    setting(dotenv, name)
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(default)
-}
-
-fn u64_setting(dotenv: &DotEnv, name: &'static str, default: u64) -> Result<u64> {
-    match setting(dotenv, name) {
-        Some(value) => value
-            .parse::<u64>()
-            .map_err(|error| CoreError::invalid_integer_env(name, value, error)),
-        None => Ok(default),
-    }
-}
-
-fn f64_setting(dotenv: &DotEnv, name: &'static str, default: f64) -> Result<f64> {
-    match setting(dotenv, name) {
-        Some(value) => value
-            .parse::<f64>()
-            .map_err(|error| CoreError::invalid_float_env(name, value, error)),
-        None => Ok(default),
-    }
-}
-
-fn setting(dotenv: &DotEnv, name: &'static str) -> Option<String> {
-    env::var(name)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| dotenv.get(name))
-}
-
-#[derive(Debug, Default)]
-struct DotEnv {
-    values: HashMap<String, String>,
-}
-
-impl DotEnv {
-    fn load(path: &Path) -> Result<Self> {
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        let mut values = HashMap::new();
-        for line in fs::read_to_string(path)?.lines() {
-            let stripped = line.trim();
-            if stripped.is_empty() || stripped.starts_with('#') {
-                continue;
-            }
-            let Some((key, value)) = stripped.split_once('=') else {
-                continue;
-            };
-            let key = key.trim();
-            if key.is_empty() {
-                continue;
-            }
-            let value = value
-                .trim()
-                .trim_matches('"')
-                .trim_matches('\'')
-                .to_string();
-            values.insert(key.to_string(), value);
-        }
-        Ok(Self { values })
-    }
-
-    fn get(&self, name: &str) -> Option<String> {
-        self.values
-            .get(name)
-            .cloned()
-            .filter(|value| !value.trim().is_empty())
-    }
 }
 
 #[cfg(test)]
@@ -230,8 +125,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn repo_root_points_at_project() {
-        let root = repo_root();
-        assert!(root.join("rust").is_dir());
+    fn validated_snapshot_reaches_existing_settings_consumers() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("bot.toml");
+        let text = include_str!("../../../../config/bot.toml")
+            .replacen("timeout_seconds = 300", "timeout_seconds = 347", 1)
+            .replacen("max_completion_tokens = 16000", "max_completion_tokens = 4321", 1)
+            .replacen("gid = \"0\"", "gid = \"71\"", 1)
+            .replacen("cache_ttl_seconds = 604800", "cache_ttl_seconds = 1234", 1);
+        std::fs::write(&path, text).unwrap();
+        let config = BotConfig::load(&path).unwrap();
+        let settings = Settings::from_config(Arc::clone(&config), None);
+        let ai = crate::ai::AiConfig::from_settings(&settings);
+        assert_eq!(ai.timeout_seconds, 347);
+        assert_eq!(ai.max_completion_tokens, 4321);
+        assert_eq!(settings.sheet_gid, "71");
+        assert_eq!(settings.wiki_cache_ttl_seconds, 1234);
+        assert_eq!(settings.project_root, config.paths().project_root);
+        assert_eq!(settings.raw_dir, config.paths().data_dir.join("raw"));
+        assert!(ai.model.is_empty());
+        assert!(!ai.api_key_present());
     }
 }

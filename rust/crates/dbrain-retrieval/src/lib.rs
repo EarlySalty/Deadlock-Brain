@@ -1510,6 +1510,9 @@ pub async fn analysis_run_ai(
     }
 
     let client = core::ai::AiClient::new(options.config.clone())?;
+    let mut options = options;
+    options.config = client.config().clone();
+    let request = core::ai::build_review_request(prompt, &compact_context, &options.config);
     let response = client.chat(&request)?;
     let result_text = core::ai::extract_ai_text(&response);
     if result_text.is_empty() {

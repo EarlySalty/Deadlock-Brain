@@ -29,12 +29,16 @@ mod pg_steam_news;
 #[derive(Debug, Parser)]
 #[command(name = "deadlock-brain")]
 struct Cli {
+    #[arg(long, global = true, default_value = deadlock_brain_core::bot_config::DEFAULT_CONFIG_PATH)]
+    config: PathBuf,
     #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    #[command(about = "Prüft die zentrale TOML und zeigt redigierte Betriebswerte ohne Datenbank- oder Anbieterzugriff.")]
+    ConfigCheck,
     #[command(about = "Zeigt lokale DB- und Source-Counts.")]
     Status,
     #[command(about = "Baut einen kompakten Datenkontext fuer eine Entity-Frage.")]
@@ -1112,20 +1116,23 @@ fn main() {
 
 fn run_from_cli() -> Result<()> {
     let cli = Cli::parse();
+    // Alle Befehle validieren zuerst, auch Population und rein lesende Diagnosen.
+    // Vor diesem Punkt gibt es keine Clients, Verzeichniserstellung oder Secret-Leser.
+    let global = deadlock_brain_core::bot_config::BotConfig::load(&cli.config)?;
     match cli.command {
+        Commands::ConfigCheck => print_json(&global.redacted_status()),
         Commands::Population(args) => dbrain_population::run_population(args),
         command => {
+            let settings = Settings::from_config(global, config::fireworks_api_key());
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()?;
-            runtime.block_on(run(Cli { command }))
+            runtime.block_on(run(command, settings))
         }
     }
 }
 
-async fn run(cli: Cli) -> Result<()> {
-    let Cli { command } = cli;
-    let settings = config::load_settings()?;
+async fn run(command: Commands, settings: Settings) -> Result<()> {
     let command = match command {
         Commands::Pg { target } => {
             // Alle `pg`-Befehle nutzen synchrone Crates (`postgres` bzw. der
@@ -1298,6 +1305,9 @@ async fn run(cli: Cli) -> Result<()> {
         Commands::Normalize { target } => run_normalize(&pool, target).await,
         Commands::Parse { target } => run_parse(&pool, target).await,
         Commands::Enrich { target } => run_enrich(&pool, &settings, target).await,
+        Commands::ConfigCheck => {
+            unreachable!("ConfigCheck wird vor allgemeiner Pool-Ausführung ausgeführt.")
+        }
         Commands::Population(_) => {
             unreachable!("Population wird vor allgemeiner Pool-Ausfuehrung ausgefuehrt.")
         }
@@ -1589,12 +1599,7 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
                 config,
             };
             let seed_path = args.seed_path.unwrap_or_else(|| {
-                config::path_env(
-                    "DEADLOCK_REASONER_SEED_PATH",
-                    settings
-                        .project_root
-                        .join(".tasks/2026-09-12-build-reasoner/referenz"),
-                )
+                settings.global.paths().reasoner_seed_dir.clone()
             });
             let build = dbrain_reasoner::reason_build_with_options(
                 &ctx,
@@ -1664,12 +1669,7 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
                 config,
             };
             let seed_path = args.seed_path.unwrap_or_else(|| {
-                config::path_env(
-                    "DEADLOCK_REASONER_SEED_PATH",
-                    settings
-                        .project_root
-                        .join(".tasks/2026-09-12-build-reasoner/referenz"),
-                )
+                settings.global.paths().reasoner_seed_dir.clone()
             });
             let report = dbrain_reasoner::reason_backtest_with_options(
                 &ctx,
@@ -2295,7 +2295,7 @@ fn ai_config(
 ) -> AiConfig {
     let mut config = AiConfig::from_settings(settings);
     if let Some(model) = model {
-        config.model = model;
+        config.set_requested_model(model);
     }
     if let Some(max_completion_tokens) = max_completion_tokens {
         config.max_completion_tokens = max_completion_tokens;

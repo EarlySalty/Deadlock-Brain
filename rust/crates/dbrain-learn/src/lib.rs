@@ -88,6 +88,7 @@ mod tests {
 
     fn test_ai_config() -> AiConfig {
         let settings = Settings {
+            global: deadlock_brain_core::bot_config::BotConfig::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../config/bot.toml")).expect("test config"),
             project_root: PathBuf::from("/tmp/dbrain-learn-test"),
             data_dir: PathBuf::from("/tmp/dbrain-learn-test/data"),
             raw_dir: PathBuf::from("/tmp/dbrain-learn-test/raw"),

@@ -52,6 +52,7 @@ retry_backoff_milliseconds = 600
 page_size = 100
 max_pages = 100
 probe_budget_seconds = 300
+catalog_budget_seconds = 120
 
 [builds]
 # Bestehende Stichprobengrenzen; Spielstände und gelernte Builds bleiben in Postgres.

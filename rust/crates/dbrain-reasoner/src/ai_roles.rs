@@ -361,6 +361,7 @@ mod tests {
 
     fn test_settings() -> deadlock_brain_core::config::Settings {
         deadlock_brain_core::config::Settings {
+            global: deadlock_brain_core::bot_config::BotConfig::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../config/bot.toml")).expect("test config"),
             project_root: "/tmp/reasoner-test".into(),
             data_dir: "/tmp/reasoner-test/data".into(),
             raw_dir: "/tmp/reasoner-test/raw".into(),

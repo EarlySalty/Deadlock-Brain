@@ -108,6 +108,7 @@ pub struct Selection {
     pub page_size: u16,
     pub max_pages: u16,
     pub probe_budget_seconds: u64,
+    pub catalog_budget_seconds: u64,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -449,6 +450,7 @@ fn validate(d: &Document) -> Result<()> {
         3600,
         "ai.selection.probe_budget_seconds",
     )?;
+    range(s.catalog_budget_seconds, 1, 3600, "ai.selection.catalog_budget_seconds")?;
     for (value, field) in [
         (d.builds.min_matches, "builds.min_matches"),
         (
