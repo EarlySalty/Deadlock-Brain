@@ -158,10 +158,17 @@ impl OpenAiCompatibleProvider {
             }
             .into(),
         };
-        if let Ok(mut reported) = self.reported_failures.lock() {
-            if reported.insert(category.clone()) {
-                eprintln!("Brain-Antwortprovider: Fehlerklasse {category}");
-            }
+        self.report_category(category);
+    }
+
+    fn report_category(&self, category: String) {
+        let first = self
+            .reported_failures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(category.clone());
+        if first {
+            eprintln!("Brain-Antwortprovider: Fehlerklasse {category}");
         }
     }
 

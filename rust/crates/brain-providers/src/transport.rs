@@ -182,9 +182,15 @@ impl OpenAiCompatibleProvider {
                     requested_delay = hardening::retry_after(&response)?.unwrap_or_default();
                 }
                 Ok(response) => {
-                    return Err(ProviderError::HttpStatus {
-                        status: response.status(),
-                    })
+                    let status = response.status();
+                    if status == StatusCode::PRECONDITION_FAILED {
+                        let category = hardening::read_bounded(response, 4096)
+                            .map(|bytes| precondition_category(&bytes))
+                            .unwrap_or("unknown");
+                        self.report_category(format!("http_412_{category}"));
+                        return Err(ProviderError::HttpStatus { status });
+                    }
+                    return Err(ProviderError::HttpStatus { status });
                 }
                 Err(error) => {
                     if !error.is_connect() && !error.is_timeout() {
@@ -248,5 +254,62 @@ impl OpenAiCompatibleProvider {
             network_rounds: charge.rounds,
             cost_micros: cost,
         })
+    }
+}
+
+// Der Fehlertext bleibt im Prozess. Ausgegeben werden ausschließlich feste Klassen.
+fn precondition_category(bytes: &[u8]) -> &'static str {
+    let body = String::from_utf8_lossy(bytes).to_ascii_lowercase();
+    if [
+        "billing",
+        "payment",
+        "credit",
+        "balance",
+        "account disabled",
+        "account suspended",
+    ]
+    .iter()
+    .any(|word| body.contains(word))
+    {
+        "account_or_billing"
+    } else if ["api key", "api_key", "permission", "unauthorized"]
+        .iter()
+        .any(|word| body.contains(word))
+    {
+        "api_key_policy"
+    } else if ["parameter", "reasoning", "max_tokens", "token limit"]
+        .iter()
+        .any(|word| body.contains(word))
+    {
+        "request_parameter"
+    } else if ["moderation", "policy", "firewall"]
+        .iter()
+        .any(|word| body.contains(word))
+    {
+        "provider_policy"
+    } else if body.contains("deploy") {
+        "deployment_required"
+    } else if ["model", "license", "terms"]
+        .iter()
+        .any(|word| body.contains(word))
+    {
+        "model_disabled_or_access"
+    } else {
+        "unknown"
+    }
+}
+
+#[cfg(test)]
+mod precondition_tests {
+    #[test]
+    fn specific_rejections_take_precedence_over_model_mentions() {
+        assert_eq!(
+            super::precondition_category(b"model deployment does not support reasoning parameter"),
+            "request_parameter"
+        );
+        assert_eq!(
+            super::precondition_category(b"model blocked by policy"),
+            "provider_policy"
+        );
     }
 }
