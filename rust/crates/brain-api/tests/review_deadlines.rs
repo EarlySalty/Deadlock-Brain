@@ -402,3 +402,34 @@ fn queued_blocking_worker_cannot_restart_expired_budget() {
         assert_eq!(server.calls.load(Ordering::SeqCst), 0);
     });
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rejected_partial_bodies_close_even_without_client_connection_close() {
+    let server = Server::new(100, None).await;
+    for (token, expected) in [("fixture-token", 504), ("wrong-token", 401)] {
+        let mut stream = TcpStream::connect(server.address).await.unwrap();
+        stream.write_all(format!("POST /v1/answer HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: 1024\r\n\r\n{{").as_bytes()).await.unwrap();
+        // No Connection: close from the client: an unread/rejected body must not
+        // leave an unbounded drain/keepalive operation after releasing admission.
+        status(
+            &response(&mut stream, Duration::from_millis(400)).await,
+            expected,
+        );
+    }
+    assert_eq!(server.calls.load(Ordering::SeqCst), 0);
+    let mut normal = request(server.address, "normal").await;
+    status(&response(&mut normal, Duration::from_secs(1)).await, 200);
+    server.finish().await;
+}
+
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn invalid_service_deadlines_fail_closed_instead_of_being_clamped() {
+    for budget in [0, 60001] {
+        let server = Server::new(budget, None).await;
+        let mut stream = request(server.address, "normal").await;
+        status(&response(&mut stream, Duration::from_millis(400)).await, 504);
+        assert_eq!(server.calls.load(Ordering::SeqCst), 0);
+        server.finish().await;
+    }
+}

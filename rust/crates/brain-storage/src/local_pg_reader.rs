@@ -5,9 +5,13 @@ use brain_contracts::{
     store::{ConversationOwnershipPort, STORE_VERSION},
     CorpusRelease, CorpusSnapshot, PortError, SnapshotReadPort,
 };
-use postgres::{Client, Config, IsolationLevel, NoTls, Row};
+use tokio_postgres::Row;
+mod connection;
+use connection::Client;
 #[cfg(test)]
 mod review_deadline;
+#[cfg(test)]
+mod review_startup;
 mod wait_queue;
 use std::{
     ops::{Deref, DerefMut},
@@ -78,13 +82,10 @@ impl PooledClient {
         &mut self,
         deadline: Option<&brain_contracts::RequestDeadline>,
     ) -> Result<(), PortError> {
-        prepare_budget(
-            self.client
-                .as_mut()
-                .expect("pooled PostgreSQL client missing before drop"),
-            &self.pool.config,
-            deadline,
-        )
+        self.client
+            .as_mut()
+            .expect("pooled PostgreSQL client missing before drop")
+            .set_deadline(deadline)
     }
 }
 
@@ -93,38 +94,6 @@ fn request_check(deadline: Option<&brain_contracts::RequestDeadline>) -> Result<
         deadline.check()?;
     }
     Ok(())
-}
-
-fn bounded_timeout(
-    configured: Duration,
-    deadline: Option<&brain_contracts::RequestDeadline>,
-) -> Result<Duration, PortError> {
-    let remaining = match deadline {
-        Some(deadline) => configured.min(deadline.remaining()?),
-        None => configured,
-    };
-    // PostgreSQL's zero means unlimited, not expired. Never round a sub-ms budget to zero.
-    if remaining.as_millis() == 0 {
-        return Err(PortError::BudgetExceeded);
-    }
-    Ok(remaining)
-}
-
-fn prepare_budget(
-    client: &mut impl postgres::GenericClient,
-    config: &ConnectionConfig,
-    deadline: Option<&brain_contracts::RequestDeadline>,
-) -> Result<(), PortError> {
-    let statement = bounded_timeout(config.statement_timeout, deadline)?;
-    let lock = bounded_timeout(config.lock_timeout, deadline)?.min(statement);
-    client
-        .batch_execute(&format!(
-            "SET statement_timeout='{}ms'; SET lock_timeout='{}ms'",
-            statement.as_millis(),
-            lock.as_millis()
-        ))
-        .map_err(error)?;
-    request_check(deadline)
 }
 
 impl Deref for PooledClient {
@@ -166,7 +135,7 @@ impl Drop for PooledClient {
     }
 }
 
-fn error(_: postgres::Error) -> PortError {
+fn error(_: tokio_postgres::Error) -> PortError {
     PortError::Unavailable("local PostgreSQL operation failed".into())
 }
 
@@ -219,21 +188,7 @@ impl ClientPool {
         &self,
         deadline: Option<&brain_contracts::RequestDeadline>,
     ) -> Result<Client, PortError> {
-        let mut config = Config::new();
-        config
-            .host_path(&self.config.socket)
-            .port(self.config.port)
-            .user(&self.config.user)
-            .dbname(&self.config.database)
-            .application_name("deadlock-brain-reader")
-            .connect_timeout(bounded_timeout(self.config.connect_timeout, deadline)?);
-        if let Some(password) = &self.config.password {
-            config.password(password);
-        }
-        request_check(deadline)?;
-        let client = config.connect(NoTls).map_err(error)?;
-        request_check(deadline)?;
-        Ok(client)
+        Client::connect(&self.config, deadline)
     }
 
     fn acquire(self: &Arc<Self>) -> Result<PooledClient, PortError> {
@@ -470,17 +425,11 @@ impl LocalPgReader {
     /// SELECT-only service startup preflight using the same bounded runtime pool.
     pub fn check_core_schema(&self) -> Result<(), PortError> {
         let mut client = self.pool.acquire()?;
-        let mut tx = client
-            .build_transaction()
-            .read_only(true)
-            .start()
-            .map_err(error)?;
-        let rows = tx
-            .query(
-                "SELECT schema_version, store_contract FROM brain.core_schema_version",
-                &[],
-            )
-            .map_err(error)?;
+        let mut tx = client.transaction(true, false)?;
+        let rows = tx.query(
+            "SELECT schema_version, store_contract FROM brain.core_schema_version",
+            &[],
+        )?;
         if rows.len() != 1 {
             return Err(invalid("unsupported core schema/store version"));
         }
@@ -489,8 +438,8 @@ impl LocalPgReader {
         if schema_version != crate::schema::CORE_SCHEMA_VERSION || store_version != STORE_VERSION {
             return Err(invalid("unsupported core schema/store version"));
         }
-        tx.query(crate::schema::SHAPE_PROBE, &[]).map_err(error)?;
-        tx.commit().map_err(error)
+        tx.query(crate::schema::SHAPE_PROBE, &[])?;
+        tx.commit()
     }
 
     pub fn check_permissions(&self) -> Result<(), PortError> {
@@ -500,8 +449,7 @@ impl LocalPgReader {
                 "SELECT has_table_privilege(current_user, 'brain.conversation_owners_v1', 'SELECT')
                     AND has_table_privilege(current_user, 'brain.conversation_owners_v1', 'INSERT')",
                 &[],
-            )
-            .map_err(error)?;
+            )?;
         let allowed: bool = row.try_get(0).map_err(error)?;
         if allowed {
             Ok(())
@@ -569,8 +517,7 @@ impl LocalPgReader {
             .query(
                 "SELECT jsonb_build_object('source_id',h.source_id,'logical_id',h.logical_id,'revision',h.revision,'visibility',h.record_json->'visibility','allowed_scopes',h.record_json->'allowed_scopes','tombstone',h.record_json->'tombstone','metadata',h.record_json->'metadata') FROM jsonb_to_recordset($1::jsonb) AS k(source_id text, logical_id text) JOIN brain.source_record_heads h ON h.source_id=k.source_id AND h.logical_id=k.logical_id ORDER BY h.source_id,h.logical_id",
                 &[&keys],
-            )
-            .map_err(error)?;
+            )?;
         rows.iter()
             .map(|row| {
                 let head: brain_contracts::DocumentHead =
@@ -589,19 +536,13 @@ impl LocalPgReader {
     ) -> Result<CorpusSnapshot, PortError> {
         let mut client = self.pool.acquire_until(deadline)?;
         request_check(deadline)?;
-        let mut tx = client
-            .build_transaction()
-            .isolation_level(IsolationLevel::RepeatableRead)
-            .read_only(true)
-            .start()
-            .map_err(error)?;
-        prepare_budget(&mut tx, &self.pool.config, deadline)?;
+        let mut tx = client.transaction(true, true)?;
+        request_check(deadline)?;
         let row = tx
             .query_opt(
                 "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
                 &[&release_id],
-            )
-            .map_err(error)?
+            )?
             .ok_or_else(|| invalid("unknown release"))?;
         let release = Self::release_row(row)?;
         validate_release(&release)?;
@@ -610,8 +551,8 @@ impl LocalPgReader {
         }
         let pins = serde_json::to_value(&release.source_revisions)
             .map_err(|_| invalid("invalid release pins"))?;
-        prepare_budget(&mut tx, &self.pool.config, deadline)?;
-        let rows=tx.query("SELECT r.record_json,h.record_json FROM jsonb_each($1::jsonb) s CROSS JOIN LATERAL jsonb_each_text(s.value) d JOIN brain.source_record_revisions r ON r.source_id=s.key AND r.logical_id=d.key AND r.revision=d.value::bigint JOIN brain.source_record_heads h ON h.source_id=r.source_id AND h.logical_id=r.logical_id ORDER BY r.source_id,r.logical_id",&[&pins]).map_err(error)?;
+        request_check(deadline)?;
+        let rows=tx.query("SELECT r.record_json,h.record_json FROM jsonb_each($1::jsonb) s CROSS JOIN LATERAL jsonb_each_text(s.value) d JOIN brain.source_record_revisions r ON r.source_id=s.key AND r.logical_id=d.key AND r.revision=d.value::bigint JOIN brain.source_record_heads h ON h.source_id=r.source_id AND h.logical_id=r.logical_id ORDER BY r.source_id,r.logical_id",&[&pins])?;
         let mut revisions = Vec::new();
         let mut heads = Vec::new();
         for row in rows {
@@ -635,7 +576,7 @@ impl LocalPgReader {
             return Err(invalid("incomplete release snapshot"));
         }
         request_check(deadline)?;
-        tx.commit().map_err(error)?;
+        tx.commit()?;
         request_check(deadline)?;
         Ok(CorpusSnapshot {
             release,
@@ -676,23 +617,22 @@ impl LocalPgReader {
         }
         let mut client = self.pool.acquire_until(deadline)?;
         request_check(deadline)?;
-        let mut tx = client.transaction().map_err(error)?;
-        prepare_budget(&mut tx, &self.pool.config, deadline)?;
-        tx.execute("INSERT INTO brain.conversation_owners_v1(conversation_id,actor_id) VALUES($1,$2) ON CONFLICT(conversation_id) DO NOTHING",&[&conversation,&actor]).map_err(error)?;
-        prepare_budget(&mut tx, &self.pool.config, deadline)?;
+        let mut tx = client.transaction(false, false)?;
+        request_check(deadline)?;
+        tx.execute("INSERT INTO brain.conversation_owners_v1(conversation_id,actor_id) VALUES($1,$2) ON CONFLICT(conversation_id) DO NOTHING",&[&conversation,&actor])?;
+        request_check(deadline)?;
         let owner: String = tx
             .query_one(
                 "SELECT actor_id FROM brain.conversation_owners_v1 WHERE conversation_id=$1",
                 &[&conversation],
-            )
-            .map_err(error)?
+            )?
             .try_get(0)
             .map_err(error)?;
         if owner != actor {
             return Err(invalid("conversation owner mismatch"));
         }
         request_check(deadline)?;
-        tx.commit().map_err(error)?;
+        tx.commit()?;
         request_check(deadline)
     }
 }
