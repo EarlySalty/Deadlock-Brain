@@ -261,6 +261,38 @@ impl OpenAiCompatibleProvider {
 fn precondition_category(bytes: &[u8]) -> &'static str {
     let body = String::from_utf8_lossy(bytes).to_ascii_lowercase();
     if [
+        "account disabled",
+        "account suspended",
+        "account is disabled",
+        "account is suspended",
+    ]
+    .iter()
+    .any(|word| body.contains(word))
+    {
+        "account_disabled"
+    } else if (["credit", "balance", "funds"]
+        .iter()
+        .any(|word| body.contains(word)))
+        && [
+            "insufficient",
+            "negative",
+            "exhausted",
+            "depleted",
+            "not enough",
+            "too low",
+            "out of credits",
+            "no remaining",
+        ]
+        .iter()
+        .any(|word| body.contains(word))
+    {
+        "credit_insufficient"
+    } else if ["payment required", "payment method", "billing not enabled"]
+        .iter()
+        .any(|word| body.contains(word))
+    {
+        "payment_required"
+    } else if [
         "billing",
         "payment",
         "credit",
@@ -310,6 +342,14 @@ mod precondition_tests {
         assert_eq!(
             super::precondition_category(b"model blocked by policy"),
             "provider_policy"
+        );
+        assert_eq!(
+            super::precondition_category(b"Account has insufficient credit balance"),
+            "credit_insufficient"
+        );
+        assert_eq!(
+            super::precondition_category(b"accounts/fireworks/models/example request rejected"),
+            "model_disabled_or_access"
         );
     }
 }
