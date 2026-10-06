@@ -2,8 +2,6 @@
 Description=Deadlock Brain build data refresh
 After=network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=1800
-StartLimitBurst=6
 
 [Service]
 Type=oneshot
@@ -12,8 +10,6 @@ Environment=INFISICAL_CONFIG_FILE=%h/.config/deadlock-bots/infisical.conf
 Environment=DEADLOCK_BRAIN_ROOT=%h/.worktrees/brain-live-main
 LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
 ExecStart=/usr/bin/bash %h/.worktrees/brain-live-main/scripts/run_build_data_with_infisical.sh
-Restart=on-failure
-RestartSec=90
 
 [Install]
 WantedBy=default.target

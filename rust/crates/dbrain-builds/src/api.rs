@@ -118,13 +118,14 @@ impl DeadlockApiClient {
 
     fn get_json_once<T: DeserializeOwned>(&self, url: &str) -> std::result::Result<T, FetchError> {
         let response = self.client.get(url).send().map_err(|error| FetchError {
-            retryable: true,
+            retryable: is_retryable_transport_error(&error, false),
             source: anyhow::Error::new(error).context(format!("GET {url} fehlgeschlagen")),
         })?;
         let status = response.status();
-        let retryable_status = status.as_u16() == 429 || status.is_server_error();
+        let retryable_status =
+            status.as_u16() == 408 || status.as_u16() == 429 || status.is_server_error();
         let body = response.text().map_err(|error| FetchError {
-            retryable: true,
+            retryable: is_retryable_transport_error(&error, true),
             source: anyhow::Error::new(error)
                 .context(format!("GET {url} Body konnte nicht gelesen werden")),
         })?;
@@ -141,6 +142,10 @@ impl DeadlockApiClient {
                 .context(format!("GET {url} lieferte kein gueltiges JSON")),
         })
     }
+}
+
+fn is_retryable_transport_error(error: &reqwest::Error, reading_body: bool) -> bool {
+    error.is_timeout() || error.is_connect() || (reading_body && error.is_body())
 }
 
 struct FetchError {
@@ -160,18 +165,22 @@ mod tests {
         },
     };
 
-    fn spawn_flaky_json_server(failures_before_ok: u32, fail_status: &str) -> (String, Arc<AtomicU32>) {
+    fn spawn_flaky_json_server(
+        failures_before_ok: u32,
+        fail_status: &str,
+        max_requests: u32,
+    ) -> (String, Arc<AtomicU32>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/items", listener.local_addr().unwrap());
         let hits = Arc::new(AtomicU32::new(0));
         let hits_for_thread = hits.clone();
         let fail_status = fail_status.to_string();
         thread::spawn(move || {
-            for stream in listener.incoming() {
-                let mut stream = stream.unwrap();
+            for hit in 1..=max_requests {
+                let (mut stream, _) = listener.accept().unwrap();
                 let mut request = [0_u8; 1024];
                 let _ = stream.read(&mut request);
-                let hit = hits_for_thread.fetch_add(1, Ordering::SeqCst) + 1;
+                hits_for_thread.fetch_add(1, Ordering::SeqCst);
                 if hit <= failures_before_ok {
                     let body = b"temporarily unavailable";
                     write!(
@@ -197,10 +206,27 @@ mod tests {
     }
 
     #[test]
+    fn retries_connection_errors() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let error = Client::new()
+            .get(format!("http://{address}/items"))
+            .send()
+            .unwrap_err();
+        assert!(is_retryable_transport_error(&error, false));
+    }
+
+    #[test]
+    fn does_not_retry_invalid_request_errors() {
+        let error = Client::new().get("not a URL").send().unwrap_err();
+        assert!(!is_retryable_transport_error(&error, false));
+    }
+
+    #[test]
     fn retries_server_errors_then_returns_json() {
-        let (url, hits) = spawn_flaky_json_server(2, "503 Service Unavailable");
-        let client =
-            DeadlockApiClient::with_retry("deadlock-brain-test", 4, Duration::from_millis(1))
+        let (url, hits) = spawn_flaky_json_server(2, "503 Service Unavailable", 3);
+        let client = DeadlockApiClient::with_retry("deadlock-brain-test", 4, Duration::ZERO)
                 .unwrap();
         let value: serde_json::Value = client.get_json(&url).unwrap();
         assert_eq!(value["ok"], true);
@@ -208,13 +234,32 @@ mod tests {
     }
 
     #[test]
+    fn retries_request_timeout_then_returns_json() {
+        let (url, hits) = spawn_flaky_json_server(1, "408 Request Timeout", 2);
+        let client = DeadlockApiClient::with_retry("deadlock-brain-test", 3, Duration::ZERO)
+            .unwrap();
+        let value: serde_json::Value = client.get_json(&url).unwrap();
+        assert_eq!(value["ok"], true);
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
     fn does_not_retry_client_errors() {
-        let (url, hits) = spawn_flaky_json_server(3, "404 Not Found");
-        let client =
-            DeadlockApiClient::with_retry("deadlock-brain-test", 4, Duration::from_millis(1))
-                .unwrap();
+        let (url, hits) = spawn_flaky_json_server(3, "404 Not Found", 1);
+        let client = DeadlockApiClient::with_retry("deadlock-brain-test", 4, Duration::ZERO)
+            .unwrap();
         let error = client.get_json::<serde_json::Value>(&url).unwrap_err();
         assert!(error.to_string().contains("HTTP 404"));
         assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn stops_after_retry_attempt_limit() {
+        let (url, hits) = spawn_flaky_json_server(3, "503 Service Unavailable", 3);
+        let client = DeadlockApiClient::with_retry("deadlock-brain-test", 3, Duration::ZERO)
+            .unwrap();
+        let error = client.get_json::<serde_json::Value>(&url).unwrap_err();
+        assert!(error.to_string().contains("HTTP 503"));
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
     }
 }
