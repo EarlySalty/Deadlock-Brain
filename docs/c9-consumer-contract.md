@@ -18,6 +18,14 @@ Die normale Serverkonfiguration bindet authentifizierte Principals an feste Rele
 
 Der Discord-Bot fragt über `/v1/answer` mit `dl-bot/discord`, `bot.public` und der bestehenden Infisical-Referenz `DISCORD_BRAIN_CLIENT_TOKEN`. Damit er die aktuellen Spielprofile für seine Antworten erhält, braucht dieses Credential ausdrücklich `entity_profile_model_context=true`. Eine Freigabe für `docs-client/docs` gilt nur für diesen Consumer. Ohne die Discord-Freigabe durchsucht der Bot ausschließlich den gebundenen Dokumentrelease und kann trotz vorhandener Spielprofile keine passende Antwort finden.
 
+Der gebundene Release muss auch die veröffentlichten Spielprofile enthalten.
+Ein reiner Dokumentrelease reicht trotz gesetzter Modellfreigabe nicht aus.
+Interne Rohspielquellen bleiben intern. Der vorhandene Publisher erzeugt daraus
+geprüfte kompakte Dokumente unter `git-game-facts-derived` mit eigener Herkunft
+und Veröffentlichungsfreigabe. Bei einer Standard-Aktivierung folgen freigegebene
+Spielconsumer dem neuen Release, wenn ihre bisherige Bindung derselben Basis
+entspricht. Eigenständig gebundene Releases und andere Consumer bleiben erhalten.
+
 [`discord-credential.example.json`](../ops/brain-maintenance/discord-credential.example.json) zeigt den Eintrag für die bestehende `credentials`-Liste. Die Releasewerte müssen dem bereits veröffentlichten Wissensstand entsprechen. Der Dienst benötigt außerdem den vorhandenen `entity_profile_maintenance_config`-Pfad. Die Konfiguration wird über `brain-maintain write-serve-config` mit dem bisherigen SHA und dem gemeinsamen ConfigWriter geändert; anschließend wird `brain-serve.service` neu gestartet. Eine lokale Probe mit `deadlock-brain answer`, `bot.public` und derselben Discord-Secretreferenz prüft den öffentlichen Antwortpfad, ohne eine Discord-Nachricht zu senden. Tokens bleiben dabei im Infisical-Client und im Prozessspeicher.
 
 ## Interner Operatorweg

@@ -86,6 +86,16 @@ impl ActivationTarget {
                 };
                 let mut public_docs_bound = false;
                 for (index, grant) in config.credentials.iter().enumerate() {
+                    let profile_consumer = grant.entity_profile_model_context
+                        && (grant.scopes
+                            == std::collections::BTreeSet::from(["bot.public".into()])
+                            || grant.scopes
+                                == std::collections::BTreeSet::from(["docs.public".into()]))
+                        && grant.provider_egress
+                            == std::collections::BTreeSet::from(["public".into()]);
+                    if profile_consumer && grant.release.as_ref().is_some_and(matches_current) {
+                        value["credentials"][index]["release"] = pin.clone();
+                    }
                     if grant.actor_id == "docs-client"
                         && grant.channel == "docs"
                         && grant.scopes == std::collections::BTreeSet::from(["bot.public".into()])
@@ -151,6 +161,34 @@ mod tests {
             attempts[4].duration_since(attempts[3]),
             Duration::from_secs(21)
         );
+    }
+
+    #[test]
+    fn freigegebene_spielconsumer_folgen_nur_ihrer_gemeinsamen_basis() {
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../../../config/brain-serve.example.json"
+        ))
+        .unwrap();
+        let base = value["release"].clone();
+        let independent = json!({"id":"anderer-stand","knowledge_version":"anderes-wissen"});
+        value["entity_profile_maintenance_config"] = json!("/tmp/brain-maintenance.json");
+        value["credentials"] = json!([
+            {"token_env":"DISCORD_BRAIN_CLIENT_TOKEN","actor_id":"dl-bot","channel":"discord","scopes":["bot.public"],"provider_egress":["public"],"entity_profile_model_context":true,"release":base},
+            {"token_env":"BRAIN_DOCS_TOKEN","actor_id":"docs-client","channel":"docs","scopes":["docs.public"],"provider_egress":["public"],"entity_profile_model_context":true,"release":base},
+            {"token_env":"OTHER_GAME_TOKEN","actor_id":"other-game","channel":"game","scopes":["bot.public"],"provider_egress":["public"],"entity_profile_model_context":true,"release":independent},
+            {"token_env":"OTHER_DOCS_TOKEN","actor_id":"other-docs","channel":"docs","scopes":["docs.public"],"provider_egress":["public"],"release":base}
+        ]);
+        let config = brain_serve::Config::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+        let next = json!({"id":"spiel-next","knowledge_version":"spiel-wissen-next"});
+        ActivationTarget::Standard
+            .replace_pin(&mut value, &config, next.clone())
+            .unwrap();
+        assert_eq!(value["release"], next);
+        assert_eq!(value["credentials"][0]["release"], next);
+        assert_eq!(value["credentials"][1]["release"], next);
+        assert_eq!(value["credentials"][2]["release"], independent);
+        assert_eq!(value["credentials"][3]["release"], base);
+        brain_serve::Config::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
     }
 
     #[test]

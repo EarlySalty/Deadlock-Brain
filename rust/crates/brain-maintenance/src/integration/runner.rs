@@ -1851,7 +1851,6 @@ impl Runner {
         let status = json!({"checked_at":chrono::Utc::now().to_rfc3339(),"active_release":active.release.id,
             "jobs":jobs,"registered_repositories":config.repositories.len(),
             "pending_sources":self.store.maintenance_sources().await?.iter().filter(|r|r.policy.is_none()).count()});
-        self.write_status(&status)?;
         Ok(status)
     }
 
