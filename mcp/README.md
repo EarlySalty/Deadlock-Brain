@@ -1,27 +1,36 @@
 # dl-brain MCP-Server
 
-Zweck: `dl-brain` stellt die zentrale Postgres-Patch-Historie aus `brain.patch_changes` als read-only MCP-Tools bereit.
+`dl-brain` stellt die zentrale Postgres-Patch-Historie aus `brain.patch_changes` als schreibgeschützte MCP-Werkzeuge bereit. Der Rust-Server nutzt stdio und liest `DEADLOCK_CENTRAL_DSN` aus seiner Laufzeitumgebung.
 
-## Tools
+## Werkzeuge
 
-- `patch_history(entity: str, ability: str | None = None, stat: str | None = None, since: str | None = None, limit: int = 100)`
-- `patch_search(text: str, limit: int = 50)`
-- `list_patches(limit: int = 100)`
-- `entity_summary(entity: str)`
+- `patch_history(entity, ability?, stat?, since?, limit?)`
+- `patch_search(text, limit?)`
+- `list_patches(limit?)`
+- `entity_summary(entity)`
 
-Eine generische SQL-Luke ist bewusst entfernt; falls sie spaeter noetig wird, dann mit eigener read-only-DB-Rolle.
+Tool-Abfragen verwenden gebundene Parameter. Der Server setzt `statement_timeout` auf acht Sekunden und aktiviert den Read-only-Modus je Verbindung.
+
+## Bauen
+
+Im Verzeichnis `rust/`:
+
+```sh
+cargo build --release -p deadlock-brain --bin deadlock-brain-mcp --bin deadlock-brain-secret-exec
+```
 
 ## Registrierung
 
-Eintrag in `/home/naniadm/Documents/.mcp.json`:
+Der lokale MCP-Client muss `deadlock-brain-secret-exec` mit `deadlock-brain-mcp` als Zielprogramm starten. Ersetze `<repo>` durch den absoluten Repository-Pfad:
 
 ```json
 "dl-brain": {
-  "command": "python3",
+  "command": "<repo>/rust/target/release/deadlock-brain-secret-exec",
   "args": [
-    "/home/naniadm/Documents/Deadlock-Brain/mcp/server.py"
+    "--",
+    "<repo>/rust/target/release/deadlock-brain-mcp"
   ]
 }
 ```
 
-Die Tools erscheinen erst nach Claude-Neustart.
+Nach einem Binary-Austausch muss der MCP-Client eine neue Sitzung öffnen.
