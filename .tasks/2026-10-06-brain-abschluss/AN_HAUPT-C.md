@@ -1,5 +1,19 @@
 # Paket C an Hauptorchestrator
 
+## Abschluss C nach ergänzendem Tag-Auftrag
+
+Snapshot 06.10.2026 23:59:22 Uhr CEST: **105 → 11 echte Remote-Branches, 120 → 66 Worktrees, 5 → 0 offene Draft-PRs.** Zweite Runde allein: 76 → 11 Branches, 87 → 66 Worktrees, einschließlich neuer A-Arbeit.
+
+50 annotierte Tags auf origin mit Tagobjekt und Commit-SHA geprüft. Danach 49 gesicherte Remote-Branches gelöscht, zusätzlich 18 exakte A-Verwerfungs-SHAs entfernt. 22 weitere saubere, inaktive Worktrees entfernt. Über beide Runden: 113 einzelne Remote-Löschungen und 61 Worktree-Entfernungen. Aktuelle Branchliste und Einzelbelege stehen in `C/ARCHIV-TAGS.md`. Lokale historische Branches, Daten, Archive und Sperren bleiben erhalten.
+
+83/83 Tabellen-SHAs entschieden. 59 der 65 Erhaltungsstände sind über Tags erreichbar, sechs bleiben in geschützter Arbeit. Kein offener Bewertungsrest, weitere Kontrolltermine abbestellt. GitHub hat die fünf Draft-PRs beim Entfernen ihrer Head-Branches automatisch geschlossen; `gh pr view` bestätigt `CLOSED`, nicht `MERGED`. Ihre Heads bleiben abrufbar. Das ist Aufräumen und Sicherung, keine Produktfreigabe.
+
+Eigener Backup-Branch und Worktree bleiben erhalten, weil der Auftrag den Branch auf origin verlangt und der gemeinsame `C`-Verweis auf diesen Worktree zeigt. Kein Main-Merge, Deploy oder Dienstneustart durch C. Der Kanon und aktive A/B-Fix1-/G5-/Q-/Z-Arbeit bleiben unangetastet. Einen WIP wieder aufnehmen: `git fetch origin tag archiv/<branchname>`, danach einen eigenen Arbeitsbranch daraus erzeugen. Tags ersetzen nicht die lokal gebliebenen unversionierten Daten.
+
+MERGEPROTOKOLL[MS-1]: 321 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW: no reviewable changes, Exit 0; Stand vor Abschlussbericht-Commit
+WIRKUNGSPRUEFUNG[WP-1]: 0 Befunde | Zwillingssuche: keine Fundstelle | Fremddienst-Pfade: 0/0 geprüft
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: Abschlussbericht, technische IDs ausgenommen
+
 ## Abschluss-Hook: Main-Merge würde dem Auftrag widersprechen
 
 Der Stop-Hook verlangt die Rückübernahme offener historischer WIPs und die Löschung des Backup-Branches. `BRIEFING-C.md:20-26` verbietet C den Main-Eingriff und verlangt deren Erhalt. Abweichung mit Begründung in `C/GATE-ABWEICHUNG.md`; keine Übersteuerung. Aktenstand `48c5da3` ist gepusht. Entscheidungskontrollen bleiben bis 01:18 Uhr CEST offen.

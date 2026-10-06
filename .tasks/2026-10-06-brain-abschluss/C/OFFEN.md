@@ -1,5 +1,11 @@
 # Paket C: Entscheidungen für Paket A
 
+## Ausführung durch C, Snapshot 06.10.2026 23:59:22 Uhr CEST
+
+83/83 SHA-Zeilen entschieden. Nach dem ergänzenden Auftrag liegen nicht laufende Erhaltungsstände als 50 geprüfte annotierte Tags auf origin, statt als offene Remote-Branches. 59 der 65 Erhaltungs-SHAs sind über diese Tags erreichbar, sechs bleiben in geschützter A-/Kanon-/G5-/Q-/Z-Arbeit. 18 Verwerfungsentscheidungen wurden für den exakten alten Remote-SHA ausgeführt. Die Entscheidungen unten bleiben unverändert als historische Akte erhalten.
+
+Tag-Namen, Ausführung, Rückholweg und vorher/nachher-Zahlen: [ARCHIV-TAGS.md](ARCHIV-TAGS.md). Kein pauschaler Main-Merge, keine Freigabe der geretteten Produktstände.
+
 Stand: 06.10.2026, 22:14 Uhr CEST. Entscheidung bitte in der letzten Spalte als `übernehmen` oder `verwerfen` eintragen. Gleicher SHA bedeutet dieselbe Entscheidung für die im [Backup](BACKUP-SHAS.txt) aufgeführten lokalen und Remote-Aliase. Die achtstelligen SHA-Präfixe sind im Backup eindeutig und dort vollständig ausgeschrieben.
 
 Basis: `origin/main` = `d6131cc52711a3e8b02d299704244f8d7dbdbce6`. Jeder Eintrag unten hat `merge-base --is-ancestor` Exit 1 und mindestens eine `+`-Zeile in `git cherry`. Das ist ein konservativer Restbestand, kein Beweis, dass die jeweilige Funktion auf main fehlt. Alte Dokumente und anders integrierte Änderungen können Patch-Unterschiede verursachen.
