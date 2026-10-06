@@ -15,11 +15,13 @@ use crate::{
 use anyhow::{ensure, Context, Result};
 use brain_contracts::{
     maintenance::*,
-    source::{origin_from_record, SourceRevision},
-    DocumentStorePort, PortError,
+    source::{origin_from_record, OriginArtifact, SourceRevision, Versioned, ORIGIN_METADATA_KEY},
+    AnswerProfile, AuthorizedContext, DocumentStorePort, Evidence, PortError, Query, RetrievalPort,
+    SnapshotReadPort,
 };
 use brain_ingestion::document_set::{prepare_document_batch, CoreDocument, DocumentSetSource};
-use brain_storage::PgStore;
+use brain_storage::{LocalPgReader, PgStore};
+use dbrain_retrieval::ReleaseRetriever;
 use serde_json::json;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::{collections::BTreeMap, io::Write, path::Path, time::Duration};
@@ -63,10 +65,10 @@ pub struct Runner {
     store: PgStore,
     artifacts: Artifacts,
     jev: Zeroizing<String>,
+    postgres_password: Option<Zeroizing<String>>,
     owner: String,
 }
 
-/// Prüft Rechte und Belege, bevor der Provider überhaupt aufgerufen wird.
 pub async fn guarded_provider_dispatch<T, F, Fut>(
     store: &PgStore,
     config: &MaintenanceConfig,
@@ -195,6 +197,118 @@ fn local_job_spec(
     spec
 }
 
+fn local_query_output<S, F>(
+    retriever: &ReleaseRetriever<S>,
+    query: &Query,
+    context: &AuthorizedContext,
+    refresh_context: F,
+) -> Result<serde_json::Value>
+where
+    S: SnapshotReadPort,
+    F: FnOnce() -> Result<AuthorizedContext>,
+{
+    let mut groups: Vec<(brain_contracts::DocumentRevision, Vec<Evidence>)> = Vec::new();
+    for evidence in retriever.retrieve(query, context)? {
+        let document = evidence
+            .provenance
+            .as_ref()
+            .context("query_chunk_provenance")?
+            .document
+            .clone();
+        if let Some((_, items)) = groups.iter_mut().find(|(key, _)| *key == document) {
+            items.push(evidence);
+        } else if groups.len() < 3 {
+            groups.push((document, vec![evidence]));
+        }
+    }
+    let maintenance: BTreeMap<_, _> = if groups
+        .iter()
+        .any(|(document, _)| document.source_id.starts_with("maintenance-docs:"))
+    {
+        retriever
+            .snapshot(query, context)?
+            .revisions
+            .into_iter()
+            .filter(|record| {
+                record.source_id.starts_with("maintenance-docs:")
+                    && groups.iter().any(|(document, _)| {
+                        document.source_id == record.source_id
+                            && document.logical_id == record.logical_id
+                            && document.revision == record.revision
+                    })
+            })
+            .map(|record| {
+                (
+                    (record.source_id.clone(), record.logical_id.clone()),
+                    record,
+                )
+            })
+            .collect()
+    } else {
+        BTreeMap::new()
+    };
+    let mut selected = Vec::new();
+    let mut results = Vec::new();
+    for (document, evidence) in groups {
+        context.check_deadline()?;
+        let first = evidence.first().context("query_evidence_missing")?;
+        let provenance = first
+            .provenance
+            .as_ref()
+            .context("query_chunk_provenance")?;
+        let (source_revision, text, text_sha256) =
+            if document.source_id.starts_with("maintenance-docs:") {
+                let record = maintenance
+                    .get(&(document.source_id.clone(), document.logical_id.clone()))
+                    .context("query_document_pin")?;
+                ensure!(
+                    record.content_hash == document.content_hash
+                        && digest(record.content.as_bytes()) == document.content_hash,
+                    "query_document_hash"
+                );
+                let origin = origin_from_record(record).map_err(anyhow::Error::msg)?;
+                let (text, hash) = if document_is_html(&record.metadata) {
+                    let projection =
+                        dbrain_retrieval::html_projection::project_html(&record.content)?;
+                    (projection.text, projection.semantic_sha256)
+                } else {
+                    (record.content.clone(), record.content_hash.clone())
+                };
+                (Some(origin.source_revision), text, hash)
+            } else {
+                let origin: Option<Versioned<OriginArtifact>> = provenance
+                    .metadata
+                    .get(ORIGIN_METADATA_KEY)
+                    .map(|encoded| serde_json::from_str(encoded))
+                    .transpose()?;
+                (
+                    origin.map(|origin| origin.data.source_revision),
+                    first.content.clone(),
+                    digest(first.content.as_bytes()),
+                )
+            };
+        results.push(json!({
+            "logical_id": document.logical_id,
+            "source_sha": source_revision,
+            "document_sha256": document.content_hash,
+            "text_sha256": text_sha256,
+            "text": text,
+            "evidence": evidence,
+        }));
+        selected.extend(evidence);
+    }
+    let fresh = refresh_context()?;
+    fresh.check_deadline()?;
+    if !selected.is_empty() {
+        retriever.validate_evidence(query, &fresh, &selected, false)?;
+    }
+    Ok(json!({
+        "release_id": context.knowledge_release,
+        "actor_id": fresh.principal.actor_id,
+        "results": results,
+    }))
+}
+
 impl Runner {
     pub async fn open(runtime: RuntimeConfig) -> Result<Self> {
         let config = load_maintenance(&runtime.maintenance_config)?;
@@ -216,10 +330,14 @@ impl Runner {
             .password("")
             .ssl_mode(sqlx::postgres::PgSslMode::Disable)
             .options([("statement_timeout", "120000"), ("lock_timeout", "10000")]);
-        if pg.auth == brain_serve::config::DatabaseAuth::Password {
+        let postgres_password = if pg.auth == brain_serve::config::DatabaseAuth::Password {
             let name = pg.password_env.as_deref().context("postgres_secret_name")?;
-            options = options.password(snapshot.get(name).context("postgres_secret_missing")?);
-        }
+            let password = snapshot.get(name).context("postgres_secret_missing")?;
+            options = options.password(password);
+            Some(password.clone())
+        } else {
+            None
+        };
         let pool = PgPoolOptions::new()
             .max_connections(pg.max_connections)
             .acquire_timeout(Duration::from_secs(30))
@@ -238,6 +356,7 @@ impl Runner {
             runtime,
             artifacts,
             jev,
+            postgres_password,
             owner,
         })
     }
@@ -1413,7 +1532,6 @@ impl Runner {
             }
             let plan =
                 ActivationPlan::prepare(&self.runtime, &self.artifacts, &release, &config_writer)?;
-            // Aktivierungsjournal wird als normaler, noch unveröffentlichter Checkpoint persistiert.
             let journal = plan.journal_ref().to_owned();
             self.store
                 .set_maintenance_artifact(lease, "activation", &journal)
@@ -1686,61 +1804,58 @@ impl Runner {
         self.status().await
     }
 
-    /// Lokaler Betriebspfad. Die Unix-Identität kommt vom Prozess, niemals aus Eingaben.
     pub async fn query(&self, text: &str) -> Result<serde_json::Value> {
         let uid = self.require_operator()?;
         ensure!(!text.trim().is_empty() && text.len() <= 2048, "query_size");
         let serve = brain_serve::Config::load(&self.runtime.serve_config)?;
-        let snapshot = self.store.snapshot(&serve.release.id).await?;
         let principal = local_operator_principal(uid, &self.runtime.maintenance_config)?;
-        let records = snapshot.authorized(&principal, false)?;
-        let registrations = self.store.maintenance_sources().await?;
-        let words: Vec<_> = text
-            .to_lowercase()
-            .split_whitespace()
-            .map(str::to_owned)
-            .collect();
-        let mut matches = Vec::new();
-        for record in records {
-            if !record.source_id.starts_with("maintenance-docs:") {
-                continue;
-            }
-            let Some(current) = registrations
-                .iter()
-                .find(|r| r.source_id == record.source_id)
-            else {
-                continue;
-            };
-            if current.policy.is_none() {
-                continue;
-            }
-            let origin = origin_from_record(&record).map_err(anyhow::Error::msg)?;
-            if current.policy.as_ref() != Some(&origin.policy) {
-                continue;
-            }
-            let (text, text_sha256) = if document_is_html(&record.metadata) {
-                let projection = dbrain_retrieval::html_projection::project_html(&record.content)?;
-                (projection.text, projection.semantic_sha256)
-            } else {
-                (record.content.clone(), digest(record.content.as_bytes()))
-            };
-            let lower = text.to_lowercase();
-            let score = words
-                .iter()
-                .filter(|word| lower.contains(word.as_str()))
-                .count();
-            if score > 0 {
-                matches.push((
-                    score,
-                    json!({"logical_id":record.logical_id,"source_sha":origin.source_revision,
-                "document_sha256":record.content_hash,"text_sha256":text_sha256,"text":text}),
-                ));
-            }
+        let conversation_id = format!(
+            "local-query-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_micros()
+        );
+        let query = Query {
+            request_id: conversation_id.clone(),
+            conversation_id: conversation_id.clone(),
+            text: text.into(),
+            requested_scopes: Default::default(),
+            profile: AnswerProfile::Explain,
+            patch: None,
+            mode: None,
+            domain: None,
+        };
+        let context = AuthorizedContext {
+            principal,
+            conversation_id,
+            knowledge_release: serve.release.id.clone(),
+            deadline_ms: serve.timeouts.request_ms,
+            budget: (&serve.budgets).into(),
+            request_deadline: None,
         }
-        matches.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-        Ok(
-            json!({"release_id":snapshot.release.release_id,"actor_id":principal.actor_id,
-            "results":matches.into_iter().take(3).map(|(_,value)|value).collect::<Vec<_>>()}),
-        )
+        .with_request_deadline()
+        .into_owned();
+        let pg = &self.runtime.postgres;
+        let reader = LocalPgReader::new(&pg.socket_dir, pg.port, &pg.username, &pg.database)?
+            .with_pool_options(
+                self.postgres_password
+                    .as_ref()
+                    .map(|password| password.to_string()),
+                Duration::from_millis(serve.timeouts.postgres_connect_ms),
+                Duration::from_millis(serve.timeouts.postgres_statement_ms),
+                Duration::from_millis(serve.timeouts.postgres_lock_ms),
+                pg.max_connections,
+                Duration::from_millis(serve.timeouts.postgres_pool_wait_ms),
+            )?;
+        let config_path = self.runtime.maintenance_config.clone();
+        tokio::task::spawn_blocking(move || {
+            let retriever = ReleaseRetriever::new(reader, serve.retrieval.limit);
+            local_query_output(&retriever, &query, &context, || {
+                let mut fresh = context.clone();
+                let uid = require_operator_config(&config_path)?;
+                fresh.principal = local_operator_principal(uid, &config_path)?;
+                Ok(fresh)
+            })
+        })
+        .await?
     }
 }

@@ -3,9 +3,10 @@ use serde::de::{DeserializeSeed, Error as _, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::io::{BufRead, Cursor};
+use std::io::{BufRead, Cursor, Read, Seek, SeekFrom};
 
 pub const KNOWLEDGE_CONTRACT_VERSION: &str = "wiki-spielwissen-v1";
 
@@ -325,30 +326,58 @@ pub fn validate_knowledge_jsonl(
     if !errors.is_empty() {
         return Err(KnowledgeValidationErrors { errors });
     }
-    Ok(classify_documents(documents))
+    classify_documents(documents).map_err(|error| KnowledgeValidationErrors {
+        errors: vec![error],
+    })
 }
 
-fn classify_documents(documents: Vec<LocatedKnowledgeDocument>) -> ValidatedKnowledgeInput {
-    let mut revisions: BTreeMap<(&str, &str), usize> = BTreeMap::new();
-    let mut identities: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut duplicates = Vec::new();
-    let mut conflicts = Vec::new();
-    for (index, record) in documents.iter().enumerate() {
+#[derive(Debug, Clone, Copy)]
+pub struct KnowledgeStreamLimits {
+    pub max_line_bytes: usize,
+    pub max_input_bytes: u64,
+    pub max_document_lines: usize,
+    pub max_index_bytes: usize,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct KnowledgeLineRange {
+    pub start: u64,
+    pub end_exclusive: u64,
+    pub line: usize,
+}
+
+#[derive(Debug)]
+pub struct ValidatedKnowledgeStream {
+    pub document_lines: usize,
+    pub input_bytes: u64,
+    pub index_bytes: usize,
+    pub duplicate_lines: Vec<KnowledgeInputDuplicate>,
+    pub conflicts: Vec<KnowledgeInputConflict>,
+}
+
+#[derive(Default)]
+struct KnowledgeClassifier<P> {
+    identities: BTreeMap<String, (usize, KnowledgeSourceKind, String)>,
+    revisions: BTreeMap<(String, String), P>,
+    duplicates: Vec<KnowledgeInputDuplicate>,
+    conflicts: Vec<KnowledgeInputConflict>,
+    index_bytes: usize,
+}
+
+impl<P> KnowledgeClassifier<P> {
+    fn observe<'a>(
+        &mut self,
+        record: &LocatedKnowledgeDocument,
+        position: P,
+        maximum: usize,
+        mut read_first: impl FnMut(
+            &P,
+        ) -> Result<
+            Cow<'a, LocatedKnowledgeDocument>,
+            KnowledgeValidationError,
+        >,
+    ) -> Result<(), KnowledgeValidationError> {
         let document = &record.document;
-        if let Some(first_index) = identities.get(document.document_id.as_str()) {
-            let first = &documents[*first_index];
-            if first.document.source_id != document.source_id
-                || first.document.source_kind != document.source_kind
-            {
-                conflicts.push(input_conflict(
-                    first,
-                    record,
-                    KnowledgeConflictKind::SourceIdentityMismatch,
-                ));
-            }
-        } else {
-            identities.insert(&document.document_id, index);
-        }
         let revision_identity = if document.source_kind == KnowledgeSourceKind::Wiki
             && document.revision.bytes().all(|byte| byte.is_ascii_digit())
         {
@@ -356,42 +385,231 @@ fn classify_documents(documents: Vec<LocatedKnowledgeDocument>) -> ValidatedKnow
         } else {
             document.revision.as_str()
         };
-        let key = (document.document_id.as_str(), revision_identity);
-        if let Some(first_index) = revisions.get(&key) {
-            let first = &documents[*first_index];
+        let cost = document
+            .document_id
+            .len()
+            .saturating_mul(3)
+            .saturating_add(document.source_id.len())
+            .saturating_add(document.revision.len().saturating_mul(3))
+            .saturating_add(512);
+        self.index_bytes = self
+            .index_bytes
+            .checked_add(cost)
+            .filter(|bytes| *bytes <= maximum)
+            .ok_or_else(|| {
+                issue(
+                    record.line,
+                    "$",
+                    "Begrenzter Identitäts-/Revisionsindex ist voll",
+                )
+            })?;
+        if let Some((first_line, source_kind, source_id)) =
+            self.identities.get(&document.document_id)
+        {
+            if source_id != &document.source_id || *source_kind != document.source_kind {
+                self.conflicts.push(KnowledgeInputConflict {
+                    first_line: *first_line,
+                    line: record.line,
+                    document_id: document.document_id.clone(),
+                    revision: document.revision.clone(),
+                    kind: KnowledgeConflictKind::SourceIdentityMismatch,
+                });
+            }
+        } else {
+            self.identities.insert(
+                document.document_id.clone(),
+                (
+                    record.line,
+                    document.source_kind,
+                    document.source_id.clone(),
+                ),
+            );
+        }
+        let key = (document.document_id.clone(), revision_identity.to_owned());
+        if let Some(first_position) = self.revisions.get(&key) {
+            let first = read_first(first_position)?;
             if first.document.content_sha256 != document.content_sha256 {
-                conflicts.push(input_conflict(
-                    first,
+                self.conflicts.push(input_conflict(
+                    &first,
                     record,
                     KnowledgeConflictKind::ContentMismatch,
                 ));
+            } else if same_document_representation(document, &first.document) {
+                self.duplicates.push(KnowledgeInputDuplicate {
+                    first_line: first.line,
+                    line: record.line,
+                });
             } else {
-                let mut comparable = document.clone();
-                comparable
-                    .observed_at
-                    .clone_from(&first.document.observed_at);
-                if comparable == first.document {
-                    duplicates.push(KnowledgeInputDuplicate {
-                        first_line: first.line,
-                        line: record.line,
-                    });
-                } else {
-                    conflicts.push(input_conflict(
-                        first,
-                        record,
-                        KnowledgeConflictKind::RepresentationMismatch,
-                    ));
-                }
+                self.conflicts.push(input_conflict(
+                    &first,
+                    record,
+                    KnowledgeConflictKind::RepresentationMismatch,
+                ));
             }
         } else {
-            revisions.insert(key, index);
+            self.revisions.insert(key, position);
         }
+        Ok(())
     }
-    ValidatedKnowledgeInput {
+}
+
+fn same_document_representation(a: &KnowledgeDocument, b: &KnowledgeDocument) -> bool {
+    a.contract_version == b.contract_version
+        && a.source_kind == b.source_kind
+        && a.source_id == b.source_id
+        && a.document_id == b.document_id
+        && a.source_locator == b.source_locator
+        && a.title == b.title
+        && a.language == b.language
+        && a.revision == b.revision
+        && a.content_sha256 == b.content_sha256
+        && a.content == b.content
+        && a.evidence_status == b.evidence_status
+        && a.license == b.license
+        && a.metadata == b.metadata
+        && a.facts == b.facts
+}
+
+fn classify_documents(
+    documents: Vec<LocatedKnowledgeDocument>,
+) -> Result<ValidatedKnowledgeInput, KnowledgeValidationError> {
+    let mut classifier = KnowledgeClassifier::<usize>::default();
+    for (index, record) in documents.iter().enumerate() {
+        classifier.observe(record, index, usize::MAX, |first| {
+            Ok(Cow::Borrowed(&documents[*first]))
+        })?;
+    }
+    Ok(ValidatedKnowledgeInput {
         documents,
-        duplicates,
-        conflicts,
+        duplicates: classifier.duplicates,
+        conflicts: classifier.conflicts,
+    })
+}
+
+fn read_knowledge_line(
+    input: &mut impl BufRead,
+    bytes: &mut Vec<u8>,
+    maximum: usize,
+    line: usize,
+) -> Result<usize, KnowledgeValidationError> {
+    bytes.clear();
+    let length = input
+        .take(maximum as u64 + 1)
+        .read_until(b'\n', bytes)
+        .map_err(|_| issue(line, "$", "Eingabe konnte nicht gelesen werden"))?;
+    if length > maximum {
+        return Err(issue(
+            line,
+            "$",
+            "Dokumentzeile überschreitet die begrenzte Singletongröße",
+        ));
     }
+    Ok(length)
+}
+
+fn parse_knowledge_line(
+    bytes: &[u8],
+    line: usize,
+) -> Result<LocatedKnowledgeDocument, KnowledgeValidationError> {
+    let text = std::str::from_utf8(bytes).map_err(|_| issue(line, "$", "Ungültiges UTF-8"))?;
+    Ok(LocatedKnowledgeDocument {
+        line,
+        document: parse_document(text, line)?,
+    })
+}
+
+pub fn validate_knowledge_jsonl_seekable(
+    mut input: impl BufRead + Seek,
+    limits: KnowledgeStreamLimits,
+    mut visit: impl FnMut(
+        &LocatedKnowledgeDocument,
+        KnowledgeLineRange,
+        &[u8],
+    ) -> Result<(), KnowledgeValidationError>,
+) -> Result<ValidatedKnowledgeStream, KnowledgeValidationError> {
+    if limits.max_line_bytes == 0
+        || limits.max_line_bytes == usize::MAX
+        || limits.max_input_bytes == 0
+        || limits.max_document_lines == 0
+        || limits.max_index_bytes == 0
+    {
+        return Err(issue(
+            0,
+            "$",
+            "Streaminggrenzen müssen endlich und größer als null sein",
+        ));
+    }
+    input
+        .seek(SeekFrom::Start(0))
+        .map_err(|_| issue(0, "$", "Eingabesicherung ist nicht seekfähig"))?;
+    let mut classifier = KnowledgeClassifier::<KnowledgeLineRange>::default();
+    let mut bytes = Vec::new();
+    let mut reread = Vec::new();
+    let mut lines = 0usize;
+    let mut start = 0u64;
+    loop {
+        let line = lines + 1;
+        let length = read_knowledge_line(&mut input, &mut bytes, limits.max_line_bytes, line)?;
+        if length == 0 {
+            break;
+        }
+        if lines == limits.max_document_lines {
+            return Err(issue(
+                line,
+                "$",
+                "Maximale Anzahl historischer Dokumentzeilen überschritten",
+            ));
+        }
+        let end = start
+            .checked_add(length as u64)
+            .filter(|end| *end <= limits.max_input_bytes)
+            .ok_or_else(|| {
+                issue(
+                    line,
+                    "$",
+                    "Eingabesicherung überschreitet die Gesamtbytegrenze",
+                )
+            })?;
+        let record = parse_knowledge_line(&bytes, line)?;
+        let range = KnowledgeLineRange {
+            start,
+            end_exclusive: end,
+            line,
+        };
+        classifier.observe(&record, range, limits.max_index_bytes, |first| {
+            input
+                .seek(SeekFrom::Start(first.start))
+                .map_err(|_| issue(line, "$", "Originalzeile kann nicht nachgelesen werden"))?;
+            let length =
+                read_knowledge_line(&mut input, &mut reread, limits.max_line_bytes, first.line)?;
+            if length as u64 != first.end_exclusive - first.start {
+                return Err(issue(
+                    line,
+                    "$",
+                    "Nachgelesene Originalzeile hat eine andere Länge",
+                ));
+            }
+            let original = parse_knowledge_line(&reread, first.line)?;
+            input.seek(SeekFrom::Start(end)).map_err(|_| {
+                issue(
+                    line,
+                    "$",
+                    "Streamingposition kann nicht wiederhergestellt werden",
+                )
+            })?;
+            Ok(Cow::Owned(original))
+        })?;
+        visit(&record, range, &bytes)?;
+        lines += 1;
+        start = end;
+    }
+    Ok(ValidatedKnowledgeStream {
+        document_lines: lines,
+        input_bytes: start,
+        index_bytes: classifier.index_bytes,
+        duplicate_lines: classifier.duplicates,
+        conflicts: classifier.conflicts,
+    })
 }
 
 fn input_conflict(
@@ -417,7 +635,8 @@ fn parse_document(text: &str, line: usize) -> Result<KnowledgeDocument, Knowledg
         .end()
         .map_err(|error| issue(line, "$", format!("Ungültiges JSON: {error}")))?;
     validate_shape(&value, line)?;
-    let document: KnowledgeDocument = serde_json::from_value(value)
+    drop(value);
+    let document: KnowledgeDocument = serde_json::from_str(text)
         .map_err(|error| issue(line, "$", format!("Ungültiger Vertragstyp: {error}")))?;
     document.validate(line)?;
     Ok(document)

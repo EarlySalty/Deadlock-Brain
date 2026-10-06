@@ -31,6 +31,7 @@ mod hybrid_port;
 pub mod knowledge_projection;
 mod release_port;
 
+pub use chunk_index::{preflight_release_index, ReleaseIndexProof};
 pub use contract_port::LexicalRetriever;
 pub use game_wiki::{
     default_game_wiki_dir, load_hero_dossier, rebuild_game_wiki, search_game_wiki,

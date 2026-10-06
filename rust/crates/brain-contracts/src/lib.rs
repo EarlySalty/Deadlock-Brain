@@ -15,6 +15,7 @@ pub mod external;
 pub mod feeds;
 pub mod lexical;
 pub mod maintenance;
+pub mod postgres;
 pub mod provider_input;
 pub mod public_api;
 pub mod replay;

@@ -152,6 +152,41 @@ async fn setup() -> (
     RepositoryConfig,
     scanner::ScanResult,
 ) {
+    setup_postgres(
+        "/tmp/brain-maintenance-test-20261002/socket",
+        55447,
+        "brain_maintenance_test",
+        false,
+    )
+    .await
+}
+
+async fn setup_local_query() -> (
+    tempfile::TempDir,
+    Runner,
+    MaintenanceConfig,
+    RepositoryConfig,
+    scanner::ScanResult,
+) {
+    let socket = std::env::var("BRAIN_CORE_TEST_PG_SOCKET")
+        .expect("Eigener PostgreSQL-Scratchsocket muss ausdrücklich gesetzt sein");
+    assert!(Path::new(&socket).is_absolute());
+    assert!(socket.ends_with("/.core-test-pg"));
+    setup_postgres(&socket, 55439, "brain_core_test", true).await
+}
+
+async fn setup_postgres(
+    socket: &str,
+    port: u16,
+    username: &str,
+    prepare_schema: bool,
+) -> (
+    tempfile::TempDir,
+    Runner,
+    MaintenanceConfig,
+    RepositoryConfig,
+    scanner::ScanResult,
+) {
     let (dir, mut config, repo) = fixture();
     let private = dir.path().join("private");
     fs::create_dir_all(private.join("internal")).unwrap();
@@ -167,15 +202,36 @@ async fn setup() -> (
         .max_connections(4)
         .connect_with(
             PgConnectOptions::new_without_pgpass()
-                .host("/tmp/brain-maintenance-test-20261002/socket")
-                .port(55447)
-                .username("brain_maintenance_test")
+                .host(socket)
+                .port(port)
+                .username(username)
                 .database("postgres")
                 .password(""),
         )
         .await
         .unwrap();
+    if prepare_schema {
+        let identity: (String, String, Option<String>, String) = sqlx::query_as(
+            "SELECT current_user::text,current_database()::text,inet_server_addr()::text,current_setting('port')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            identity,
+            (
+                "brain_core_test".into(),
+                "postgres".into(),
+                None,
+                "55439".into()
+            )
+        );
+    }
     let store = PgStore::new(pool);
+    if prepare_schema {
+        store.migrate_core().await.unwrap();
+        store.migrate_maintenance().await.unwrap();
+    }
     store.check_maintenance_schema().await.unwrap();
     let release_id = format!("runner-fixture-{}", chrono::Utc::now().timestamp_micros());
     store
@@ -204,6 +260,15 @@ async fn setup() -> (
     runtime["serve_config"] = json!(serve_path);
     runtime["artifact_dir"] = json!(dir.path().join("artifacts"));
     runtime["status_file"] = json!(dir.path().join("status.json"));
+    runtime["postgres"] = json!({
+        "socket_dir": socket,
+        "port": port,
+        "username": username,
+        "database": "postgres",
+        "auth": "peer",
+        "password_env": null,
+        "max_connections": 2,
+    });
     let runtime: RuntimeConfig = serde_json::from_value(runtime).unwrap();
     let artifacts = Artifacts::open(&runtime.artifact_dir).unwrap();
     let runner = Runner {
@@ -211,6 +276,7 @@ async fn setup() -> (
         store,
         artifacts,
         jev: Zeroizing::new("fixture-unused".into()),
+        postgres_password: None,
         owner: release_id,
     };
     let config = load_maintenance(&runner.runtime.maintenance_config).unwrap();
@@ -513,12 +579,239 @@ fn rejection(
     }
 }
 
+fn query_knowledge_import() -> dbrain_sources::knowledge_import::PreparedKnowledgeImport {
+    use dbrain_sources::knowledge_import::{prepare_knowledge_jsonl, ImportGrant, ImportPolicy};
+    let content = "Originalmarker ohne Zahlen.";
+    let mut document = json!({
+        "contract_version": "wiki-spielwissen-v1",
+        "source_kind": "wiki",
+        "source_id": "query-wiki",
+        "document_id": "wiki:query-wiki:page:123",
+        "source_locator": "https://example.org/Query",
+        "title": "Query",
+        "language": "de",
+        "revision": "7",
+        "observed_at": "2026-10-03T12:00:00Z",
+        "content_sha256": digest(content.as_bytes()),
+        "content": content,
+        "evidence_status": "source_statement",
+        "license": {
+            "name": "unverified",
+            "url": null,
+            "attribution": "Prüfquelle",
+            "redistribution_allowed": false,
+        },
+        "metadata": {},
+        "facts": [],
+    });
+    document["facts"] = serde_json::from_str(
+        r#"[
+            {"fact_id":"cooldown-a","subject":"hero:Wächter","predicate":"ability.cooldown","value":20.000010800000002,"unit":"seconds","evidence_status":"extracted_value","source_span":"Query:cooldown-a","qualifiers":{}},
+            {"fact_id":"cooldown-b","subject":"hero:Wächter","predicate":"ability.cooldown","value":55.555555555555564,"unit":"seconds","evidence_status":"extracted_value","source_span":"Query:cooldown-b","qualifiers":{}}
+        ]"#,
+    )
+    .unwrap();
+    let policy = ImportPolicy {
+        sources: BTreeMap::from([(
+            "query-wiki".into(),
+            ImportGrant {
+                internal_read_allowed: true,
+                raw_retention_allowed: true,
+                publication_allowed: false,
+                provider_egress_allowed: false,
+                authorization_ref: Some("operator:query-fixture".into()),
+                provenance_evidence_ref: Some("evidence:query-fixture".into()),
+                allowed_scopes: BTreeSet::from(["internal_knowledge".into()]),
+            },
+        )]),
+    };
+    prepare_knowledge_jsonl(
+        std::io::Cursor::new(serde_json::to_vec(&document).unwrap()),
+        &policy,
+        "query-fixture-v1",
+    )
+    .unwrap()
+}
+
+fn assert_local_knowledge_result(
+    output: &serde_json::Value,
+    record: &brain_contracts::SourceRecordV2,
+) {
+    let results = output["results"].as_array().unwrap();
+    assert_eq!(results.len(), 1);
+    let result = &results[0];
+    assert_eq!(result["logical_id"], record.logical_id);
+    assert_eq!(result["document_sha256"], record.content_hash);
+    assert_eq!(result["source_sha"]["kind"], "wiki");
+    assert_eq!(result["source_sha"]["page_id"], 123);
+    assert_eq!(result["source_sha"]["revision_id"], 7);
+    assert_eq!(
+        result["text_sha256"],
+        digest(result["text"].as_str().unwrap().as_bytes())
+    );
+    let evidence = result["evidence"].as_array().unwrap();
+    assert_eq!(evidence.len(), 2);
+    let mut values = BTreeMap::new();
+    for item in evidence {
+        let fact: serde_json::Value =
+            serde_json::from_str(item["content"].as_str().unwrap()).unwrap();
+        let id = fact["fact_id"].as_str().unwrap();
+        assert_eq!(fact["unit"], "seconds");
+        assert_eq!(fact["evidence_status"], "extracted_value");
+        assert_eq!(fact["source_span"], format!("Query:{id}"));
+        values.insert(id.to_owned(), fact["value"].to_string());
+        assert_eq!(item["source_id"], record.source_id);
+        assert_eq!(item["revision"], record.revision);
+        assert_eq!(item["visibility"], "internal");
+        assert_eq!(
+            item["provenance"]["document"]["content_hash"],
+            record.content_hash
+        );
+        assert_eq!(
+            item["provenance"]["source_locator"],
+            "https://example.org/Query"
+        );
+        let metadata = &item["provenance"]["metadata"];
+        assert_eq!(metadata["wiki-spielwissen.original_revision"], "7");
+        assert_eq!(metadata["fact_id"], id);
+        assert_eq!(metadata["byte_basis"], "wiki-spielwissen-semantic-utf8");
+        let origin: Versioned<OriginArtifact> =
+            serde_json::from_str(metadata[ORIGIN_METADATA_KEY].as_str().unwrap()).unwrap();
+        assert!(!origin.data.policy.publication_allowed);
+        assert!(!origin.data.policy.provider_egress_allowed);
+        assert!(origin.data.policy.raw_retention_allowed);
+    }
+    assert_eq!(values["cooldown-a"], "20.000010800000002");
+    assert_eq!(values["cooldown-b"], "55.555555555555564");
+}
+
 #[tokio::test]
-#[ignore = "Benötigt den ausdrücklich isolierten PostgreSQL-Prüfcluster; exklusiv ausführen"]
+async fn local_query_keeps_exact_facts_and_rechecks_scopes_and_current_heads() {
+    let (dir, mut config, _) = fixture();
+    config.internal_doc_scopes.extend([
+        "internal_knowledge".into(),
+        "source.review:query-wiki".into(),
+    ]);
+    let config_path = dir.path().join("maintenance.json");
+    fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let prepared = query_knowledge_import();
+    let record = prepared.records()[0].record.clone();
+    let store = brain_storage::MemoryRepository::default();
+    store.apply_record(record.clone()).unwrap();
+    let release = store
+        .release_from_heads("query-knowledge", "query-fixture", "fixture")
+        .unwrap();
+    store.publish(&release).await.unwrap();
+    let query = Query {
+        request_id: "local-query-fixture".into(),
+        conversation_id: "local-query-fixture".into(),
+        text: "Wächter cooldown".into(),
+        requested_scopes: BTreeSet::new(),
+        profile: AnswerProfile::Explain,
+        patch: None,
+        mode: None,
+        domain: None,
+    };
+    let context = AuthorizedContext {
+        principal: local_operator_principal(1000, &config_path).unwrap(),
+        conversation_id: query.conversation_id.clone(),
+        knowledge_release: release.release_id.clone(),
+        deadline_ms: 30000,
+        budget: brain_contracts::Budget::default(),
+        request_deadline: None,
+    }
+    .with_request_deadline()
+    .into_owned();
+    let retriever = ReleaseRetriever::new(store.clone(), 6);
+    let output = local_query_output(&retriever, &query, &context, || Ok(context.clone())).unwrap();
+    assert_local_knowledge_result(&output, &record);
+    assert_eq!(output["actor_id"], "unix:1000");
+    assert_eq!(output["release_id"], release.release_id);
+    assert!(local_query_output(&retriever, &query, &context, || {
+        config.internal_doc_scopes = BTreeSet::from(["internal_docs".into()]);
+        fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+        let mut fresh = context.clone();
+        fresh.principal = local_operator_principal(1000, &config_path).unwrap();
+        Ok(fresh)
+    })
+    .is_err());
+    let mut restricted = context.clone();
+    restricted.principal = local_operator_principal(1000, &config_path).unwrap();
+    let empty =
+        local_query_output(&retriever, &query, &restricted, || Ok(restricted.clone())).unwrap();
+    assert!(empty["results"].as_array().unwrap().is_empty());
+    assert!(local_query_output(&retriever, &query, &context, || {
+        let mut deleted = record.clone();
+        deleted.revision += 1;
+        deleted.tombstone = true;
+        store.apply_record(deleted).unwrap();
+        Ok(context.clone())
+    })
+    .is_err());
+}
+
+#[tokio::test]
+#[ignore = "Benötigt eigenen PostgreSQL-Scratchcluster: BRAIN_CORE_TEST_PG_SOCKET"]
+async fn postgres_local_knowledge_query_keeps_exact_facts_and_internal_provenance() {
+    let (_dir, runner, mut config, _repo, _scan) = setup_local_query().await;
+    config.internal_doc_scopes.extend([
+        "internal_knowledge".into(),
+        "source.review:query-wiki".into(),
+    ]);
+    fs::write(
+        &runner.runtime.maintenance_config,
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    let prepared = query_knowledge_import();
+    let record = prepared.records()[0].record.clone();
+    let imported = runner
+        .store
+        .import_source_versions(prepared.records())
+        .await
+        .unwrap();
+    assert!(imported.committed);
+    assert!(imported.conflicts.is_empty());
+    let release = CorpusRelease {
+        release_id: format!("knowledge-query-{}", runner.owner),
+        knowledge_version: "query-fixture".into(),
+        patch: "fixture".into(),
+        created_at_epoch: 1,
+        source_revisions: BTreeMap::from([(
+            record.source_id.clone(),
+            BTreeMap::from([(record.logical_id.clone(), record.revision)]),
+        )]),
+    };
+    runner.store.publish_release(&release).await.unwrap();
+    let mut serve: serde_json::Value =
+        serde_json::from_slice(&fs::read(&runner.runtime.serve_config).unwrap()).unwrap();
+    serve["release"] =
+        json!({"id": release.release_id, "knowledge_version": release.knowledge_version});
+    fs::write(
+        &runner.runtime.serve_config,
+        serde_json::to_vec(&serve).unwrap(),
+    )
+    .unwrap();
+    let output = runner.query("Wächter cooldown").await.unwrap();
+    assert_local_knowledge_result(&output, &record);
+    assert_eq!(output["actor_id"], "unix:1000");
+    assert_eq!(output["release_id"], release.release_id);
+    config.internal_doc_scopes = BTreeSet::from(["internal_docs".into()]);
+    fs::write(
+        &runner.runtime.maintenance_config,
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    let empty = runner.query("Wächter cooldown").await.unwrap();
+    assert!(empty["results"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+#[ignore = "Benötigt eigenen PostgreSQL-Scratchcluster: BRAIN_CORE_TEST_PG_SOCKET"]
 async fn postgres_local_query_skips_denied_documents_and_preserves_other_results() {
     use brain_contracts::DocumentStorePort;
     use brain_ingestion::document_set::prepare_document_batch;
-    let (_dir, runner, _config, repo, scan) = setup().await;
+    let (_dir, runner, _config, repo, scan) = setup_local_query().await;
     let mut batches = Vec::new();
     let mut pins = BTreeMap::new();
     for case in ["allowed", "missing", "revoked", "changed"] {
@@ -595,6 +888,21 @@ async fn postgres_local_query_skips_denied_documents_and_preserves_other_results
     let hits = result["results"].as_array().unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0]["logical_id"], "internal/allowed.html");
+    assert_eq!(hits[0]["source_sha"]["kind"], "git");
+    assert_eq!(hits[0]["source_sha"]["commit"], scan.source_sha);
+    assert_eq!(hits[0]["text"], "Gemeinsamer Prüfbeleg allowed");
+    assert_eq!(
+        hits[0]["text_sha256"],
+        digest(hits[0]["text"].as_str().unwrap().as_bytes())
+    );
+    let evidence = hits[0]["evidence"].as_array().unwrap();
+    assert_eq!(evidence.len(), 1);
+    assert_eq!(evidence[0]["logical_id"], "internal/allowed.html");
+    assert_eq!(evidence[0]["provenance"]["release_id"], release.release_id);
+    assert_eq!(
+        evidence[0]["provenance"]["document"]["content_hash"],
+        hits[0]["document_sha256"]
+    );
     assert_eq!(result["release_id"], release.release_id);
 }
 

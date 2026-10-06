@@ -148,6 +148,63 @@ fn ranges(text: &str, atomic: bool) -> Vec<(usize, usize)> {
     result
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ReleaseIndexProof {
+    pub documents: usize,
+    pub indexed_documents: usize,
+    pub projected_bytes: usize,
+    pub chunks: usize,
+}
+
+pub fn preflight_release_index(
+    release: CorpusRelease,
+    records: Vec<SourceRecordV2>,
+) -> Result<ReleaseIndexProof, PortError> {
+    brain_storage::validate_release(&release)?;
+    let documents = release
+        .source_revisions
+        .values()
+        .map(BTreeMap::len)
+        .sum::<usize>();
+    let mut seen = BTreeSet::new();
+    for record in &records {
+        record
+            .validate()
+            .map_err(|_| PortError::InvalidResponse("invalid preflight revision".into()))?;
+        if release
+            .source_revisions
+            .get(&record.source_id)
+            .and_then(|pins| pins.get(&record.logical_id))
+            != Some(&record.revision)
+            || !seen.insert((&record.source_id, &record.logical_id))
+        {
+            return Err(PortError::InvalidResponse(
+                "preflight records differ from exact release pins".into(),
+            ));
+        }
+    }
+    if seen.len() != documents {
+        return Err(PortError::InvalidResponse(
+            "preflight is missing pinned revisions".into(),
+        ));
+    }
+    drop(seen);
+    let prose = records
+        .into_iter()
+        .filter(|record| {
+            !record.metadata.contains_key("domain_contract")
+                && record.metadata.get("kind").map(String::as_str) != Some("domain_input")
+        })
+        .collect();
+    let index = ChunkIndex::build(release, prose)?;
+    Ok(ReleaseIndexProof {
+        documents,
+        indexed_documents: index.records.len(),
+        projected_bytes: index.texts.iter().map(|text| text.text().len()).sum(),
+        chunks: index.chunks.len(),
+    })
+}
+
 impl ChunkIndex {
     pub fn build(
         release: CorpusRelease,
@@ -521,6 +578,59 @@ impl ChunkIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn release_preflight_uses_exact_pins_and_the_same_index_counts() {
+        let record = SourceRecordV2 {
+            source_id: "legacy".into(),
+            logical_id: "document".into(),
+            revision: 2,
+            content_hash: format!("{:x}", Sha256::digest("Überliefert".as_bytes())),
+            content: "Überliefert".into(),
+            visibility: brain_contracts::SourceVisibility::Internal,
+            allowed_scopes: BTreeSet::new(),
+            tombstone: false,
+            valid_from: None,
+            valid_to: None,
+            metadata: BTreeMap::new(),
+        };
+        let release = CorpusRelease {
+            release_id: "preflight".into(),
+            knowledge_version: "knowledge".into(),
+            patch: "patch".into(),
+            created_at_epoch: 1,
+            source_revisions: BTreeMap::from([(
+                "legacy".into(),
+                BTreeMap::from([("document".into(), 2)]),
+            )]),
+        };
+        let index = ChunkIndex::build(release.clone(), vec![record.clone()]).unwrap();
+        let proof = preflight_release_index(release.clone(), vec![record.clone()]).unwrap();
+        assert_eq!(proof.documents, 1);
+        assert_eq!(proof.indexed_documents, index.records.len());
+        assert_eq!(proof.projected_bytes, index.texts[0].text().len());
+        assert_eq!(proof.chunks, index.chunks.len());
+        assert!(preflight_release_index(release.clone(), Vec::new()).is_err());
+        assert!(
+            preflight_release_index(release.clone(), vec![record.clone(), record.clone()]).is_err()
+        );
+        let mut newer = record.clone();
+        newer.revision = 3;
+        assert!(preflight_release_index(release.clone(), vec![newer]).is_err());
+        let mut excessive = release.clone();
+        excessive.source_revisions.insert(
+            "many".into(),
+            (0..10_000).map(|id| (id.to_string(), 1)).collect(),
+        );
+        assert!(preflight_release_index(excessive, vec![record.clone()]).is_err());
+        let mut domain = record;
+        domain.metadata.insert("kind".into(), "domain_input".into());
+        let proof = preflight_release_index(release, vec![domain]).unwrap();
+        assert_eq!(proof.documents, 1);
+        assert_eq!(proof.indexed_documents, 0);
+        assert_eq!(proof.projected_bytes, 0);
+        assert_eq!(proof.chunks, 0);
+    }
+
     #[test]
     fn projected_budget_stops_before_requesting_later_documents() {
         let mut projected = 0;

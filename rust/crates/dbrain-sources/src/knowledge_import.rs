@@ -339,12 +339,10 @@ fn prepare_record(
         },
         validity: GameValidity::unknown(),
     };
-    let mut canonical = document.clone();
-    canonical.facts.sort_by(|a, b| a.fact_id.cmp(&b.fact_id));
     let mut metadata = BTreeMap::from([
         (
             DOCUMENT_METADATA_KEY.into(),
-            serde_json::to_string(&canonical).map_err(|_| {
+            serde_json::to_string(document).map_err(|_| {
                 KnowledgeImportError::Invalid("Dokumentmetadaten sind ungültig".into())
             })?,
         ),
@@ -665,6 +663,183 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires isolated PostgreSQL Unix socket: BRAIN_CORE_TEST_PG_SOCKET"]
+    async fn exact_numbers_survive_import_postgres_retry_and_canonical_projection() {
+        use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+        let socket =
+            std::env::var("BRAIN_CORE_TEST_PG_SOCKET").expect("explicit scratch socket required");
+        assert!(socket.ends_with("/.core-test-pg"));
+        assert!(std::path::Path::new(&socket).is_absolute());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(
+                PgConnectOptions::new_without_pgpass()
+                    .host(&socket)
+                    .port(55439)
+                    .username("brain_core_test")
+                    .database("postgres")
+                    .password(""),
+            )
+            .await
+            .unwrap();
+        let identity: (String, String, Option<String>, String) = sqlx::query_as(
+            "SELECT current_user::text,current_database()::text,inet_server_addr()::text,current_setting('port')",
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            identity,
+            (
+                "brain_core_test".into(),
+                "postgres".into(),
+                None,
+                "55439".into()
+            )
+        );
+        let store = PgStore::new(pool.clone());
+        store.migrate_core().await.unwrap();
+        let source = format!(
+            "numeric-import-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let mut document = input("456", "unverified", false).documents()[0]
+            .document
+            .clone();
+        document.source_id = source.clone();
+        document.document_id = format!("wiki:{source}:page:123");
+        document.content = "{\"number\":20.000010800000002,\"other\":55.555555555555564,\"integer\":18446744073709551616001}".into();
+        document.content_sha256 = sha256_content(&document.content);
+        let precise: serde_json::Value = serde_json::from_str("20.000010800000002").unwrap();
+        let other: serde_json::Value = serde_json::from_str("55.555555555555564").unwrap();
+        let integer: serde_json::Value = serde_json::from_str("18446744073709551616001").unwrap();
+        document.facts[0].value = precise.clone();
+        document.facts[0]
+            .qualifiers
+            .insert("other".into(), other.clone());
+        document.metadata.insert("integer".into(), integer.clone());
+        let mut grant = policy().sources.remove("fixture").unwrap();
+        grant.publication_allowed = false;
+        grant.provider_egress_allowed = false;
+        grant.allowed_scopes.insert("knowledge:read".into());
+        let policy = ImportPolicy {
+            sources: BTreeMap::from([(source.clone(), grant)]),
+        };
+        let bytes = serde_json::to_string(&document).unwrap();
+        let validated = validate_knowledge_jsonl_str(&bytes).unwrap();
+        let first = import_prepared_knowledge(
+            &store,
+            prepare_validated_knowledge(&validated, &policy, "exact-numbers-v1").unwrap(),
+        )
+        .await
+        .unwrap();
+        assert!(first.complete);
+        let repeated = import_prepared_knowledge(
+            &store,
+            prepare_validated_knowledge(&validated, &policy, "exact-numbers-v1").unwrap(),
+        )
+        .await
+        .unwrap();
+        assert!(repeated.complete);
+        assert_eq!(repeated.storage.unchanged, 1);
+        let value: serde_json::Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2")
+            .bind(&source).bind(&document.document_id).fetch_one(&pool).await.unwrap();
+        let head: SourceRecordV2 = serde_json::from_value(value).unwrap();
+        assert_eq!(head.revision, 456);
+        let base = brain_contracts::CorpusRelease {
+            release_id: format!("{source}-base"),
+            knowledge_version: "k1".into(),
+            patch: "p1".into(),
+            created_at_epoch: 1,
+            source_revisions: BTreeMap::new(),
+        };
+        store.publish_release(&base).await.unwrap();
+        let target = brain_contracts::CorpusRelease {
+            release_id: format!("{source}-release"),
+            knowledge_version: "k2".into(),
+            patch: "p1".into(),
+            created_at_epoch: 2,
+            source_revisions: BTreeMap::from([(
+                source.clone(),
+                BTreeMap::from([(document.document_id.clone(), 456)]),
+            )]),
+        };
+        store
+            .publish_imported_heads_checked(
+                &base.release_id,
+                std::slice::from_ref(&source),
+                &target,
+                std::slice::from_ref(&head),
+            )
+            .await
+            .unwrap();
+        let mut retry = target.clone();
+        retry.created_at_epoch = 999;
+        store
+            .publish_imported_heads_checked(
+                &base.release_id,
+                std::slice::from_ref(&source),
+                &retry,
+                std::slice::from_ref(&head),
+            )
+            .await
+            .unwrap();
+        let snapshot = store.snapshot(&target.release_id).await.unwrap();
+        assert_eq!(snapshot.release, target);
+        let retained = &snapshot.revisions[0];
+        assert_eq!(retained.content, document.content);
+        assert_eq!(retained.content_hash, document.content_sha256);
+        let decoded: KnowledgeDocument =
+            serde_json::from_str(&retained.metadata[DOCUMENT_METADATA_KEY]).unwrap();
+        assert_eq!(decoded.facts[0].value, precise);
+        assert!(decoded.facts[0].value.is_number());
+        assert_eq!(decoded.facts[0].qualifiers["other"], other);
+        assert_eq!(decoded.metadata["integer"], integer);
+        assert_eq!(decoded.license, document.license);
+        let origin = brain_contracts::source::origin_from_record(retained).unwrap();
+        assert!(!origin.policy.publication_allowed);
+        assert!(!origin.policy.provider_egress_allowed);
+        let proof =
+            dbrain_retrieval::preflight_release_index(target, snapshot.revisions.clone()).unwrap();
+        assert_eq!(proof.documents, 1);
+        let projection = dbrain_retrieval::knowledge_projection::project_knowledge(retained)
+            .unwrap()
+            .unwrap();
+        assert!(projection.text.contains("20.000010800000002"));
+        assert!(projection.text.contains("55.555555555555564"));
+        pool.close().await;
+    }
+
+    #[test]
+    fn prepared_metadata_preserves_original_fact_order_and_conflicts() {
+        let original = input("456", "unverified", false);
+        let mut document = original.documents()[0].document.clone();
+        let mut second = document.facts[0].clone();
+        second.fact_id = "aaa-first-if-sorted".into();
+        document.facts.push(second);
+        let encoded = serde_json::to_string(&document).unwrap();
+        let validated = validate_knowledge_jsonl_str(&encoded).unwrap();
+        let prepared = prepare_validated_knowledge(&validated, &policy(), "parser-v1").unwrap();
+        let retained: KnowledgeDocument =
+            serde_json::from_str(&prepared.records()[0].record.metadata[DOCUMENT_METADATA_KEY])
+                .unwrap();
+        assert_eq!(retained.facts, document.facts);
+        document.facts.reverse();
+        let reordered = serde_json::to_string(&document).unwrap();
+        let combined = validate_knowledge_jsonl_str(&format!("{encoded}\n{reordered}")).unwrap();
+        assert_eq!(
+            combined.conflicts()[0].kind,
+            KnowledgeConflictKind::RepresentationMismatch
+        );
+        let prepared = prepare_validated_knowledge(&combined, &policy(), "parser-v1").unwrap();
+        assert_ne!(
+            prepared.records()[0].record.metadata[DOCUMENT_METADATA_KEY],
+            prepared.records()[1].record.metadata[DOCUMENT_METADATA_KEY]
+        );
     }
 
     #[test]

@@ -1,4 +1,3 @@
-//! Strict, non-secret configuration. Unknown fields and incomplete sections are errors.
 use crate::Error;
 use brain_contracts::Budget;
 use serde::Deserialize;
@@ -21,30 +20,11 @@ pub struct Config {
 
 impl std::fmt::Debug for Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Even invalid input can contain a mistakenly pasted secret in a non-secret field.
         f.debug_struct("Config").finish_non_exhaustive()
     }
 }
 
-#[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Postgres {
-    pub socket_dir: std::path::PathBuf,
-    pub port: u16,
-    pub username: String,
-    pub database: String,
-    pub auth: DatabaseAuth,
-    /// Historical JSON key; the value is an Infisical secret name, never an ENV lookup.
-    pub password_env: Option<String>,
-    pub max_connections: u32,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DatabaseAuth {
-    Peer,
-    Password,
-}
+pub use brain_contracts::postgres::{DatabaseAuth, Postgres};
 
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -59,7 +39,6 @@ pub struct Provider {
     pub kind: ProviderKind,
     pub base_url: String,
     pub model: String,
-    /// Historical JSON key; the value names the explicit Infisical snapshot entry.
     pub api_key_env: String,
     pub retry_attempts: usize,
     pub retry_backoff_ms: u64,
@@ -148,7 +127,6 @@ pub struct Analytics {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Credential {
-    /// Historical JSON key retained for config compatibility; names an Infisical secret.
     pub token_env: String,
     pub actor_id: String,
     pub channel: String,
@@ -205,7 +183,6 @@ impl Config {
 
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
         require(bytes.len() <= 64 * 1024, "size")?;
-        // Never expose serde's error: it can include input values.
         let config: Self = serde_json::from_slice(bytes).map_err(|_| Error::ConfigSyntax)?;
         config.validate()?;
         Ok(config)

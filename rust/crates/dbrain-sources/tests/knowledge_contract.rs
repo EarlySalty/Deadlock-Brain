@@ -522,6 +522,211 @@ fn source_text_is_retained_as_data_and_never_executed() {
     assert_eq!(input.documents()[0].document.content, content);
 }
 
+#[test]
+fn exact_json_numbers_survive_shape_check_streaming_from_value_and_observation_retry() {
+    use dbrain_sources::knowledge_contract::validate_knowledge_jsonl_seekable;
+    for lexeme in [
+        "20.000010800000002",
+        "55.555555555555564",
+        "18446744073709551616001",
+        "0.123456789012345678901234567890",
+        "1.23E003",
+        "-0",
+    ] {
+        let expected: Value = serde_json::from_str(lexeme).unwrap();
+        assert!(expected.is_number());
+        let mut value = wiki();
+        let content = format!("{{\"original\":{lexeme}}}");
+        value["content"] = json!(content);
+        value["content_sha256"] = json!(sha256_content(&content));
+        let mut precise_fact = fact();
+        precise_fact["value"] = expected.clone();
+        precise_fact["qualifiers"] = json!({"number": expected.clone()});
+        value["facts"] = json!([precise_fact]);
+        value["metadata"] = json!({"number": expected.clone()});
+        let mut observed = value.clone();
+        observed["observed_at"] = json!("2026-10-04T12:00:00Z");
+        let bytes = jsonl(&[value, observed]).into_bytes();
+        let full = validate_knowledge_jsonl(Cursor::new(&bytes)).unwrap();
+        assert_eq!(full.duplicates().len(), 1);
+        assert!(full.conflicts().is_empty());
+        for record in full.documents() {
+            assert_eq!(record.document.facts[0].value, expected);
+            assert!(record.document.facts[0].value.is_number());
+            assert_eq!(record.document.facts[0].qualifiers["number"], expected);
+            assert_eq!(record.document.metadata["number"], expected);
+            assert_eq!(record.document.content, content);
+            let retained: KnowledgeDocument =
+                serde_json::from_value(serde_json::to_value(&record.document).unwrap()).unwrap();
+            assert_eq!(retained, record.document);
+        }
+        let streamed = validate_knowledge_jsonl_seekable(
+            Cursor::new(&bytes),
+            stream_limits(bytes.len()),
+            |record, _, _| {
+                assert_eq!(record.document.facts[0].value, expected);
+                assert_eq!(record.document.content, content);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(streamed.duplicate_lines.as_slice(), full.duplicates());
+        assert!(streamed.conflicts.is_empty());
+    }
+}
+
+fn stream_limits(bytes: usize) -> dbrain_sources::knowledge_contract::KnowledgeStreamLimits {
+    dbrain_sources::knowledge_contract::KnowledgeStreamLimits {
+        max_line_bytes: bytes.max(1),
+        max_input_bytes: bytes.max(1) as u64,
+        max_document_lines: 100_000,
+        max_index_bytes: 64 * 1024 * 1024,
+    }
+}
+
+#[test]
+fn seekable_validation_matches_full_classification_and_exact_original_lines() {
+    use dbrain_sources::knowledge_contract::validate_knowledge_jsonl_seekable;
+    let mut first = wiki();
+    first["revision"] = json!("7");
+    first["facts"] = json!([fact()]);
+    let mut observed = first.clone();
+    observed["observed_at"] = json!("2026-10-04T12:00:00Z");
+    let mut alias = first.clone();
+    alias["revision"] = json!("07");
+    let mut conflicting = first.clone();
+    conflicting["content"] = json!("Abweichender Inhalt");
+    conflicting["content_sha256"] = json!(sha256_content("Abweichender Inhalt"));
+    let mut changed_source = game();
+    changed_source["source_id"] = json!("other-game-source");
+    changed_source["revision"] = json!("new-version");
+    let bytes = format!(
+        " \t{}\r\n{}\n{}\n{}\n{}\n{}  ",
+        first,
+        observed,
+        alias,
+        conflicting,
+        game(),
+        changed_source
+    )
+    .into_bytes();
+    let full = validate_knowledge_jsonl(Cursor::new(&bytes)).unwrap();
+    let mut documents = Vec::new();
+    let mut original = Vec::new();
+    let stream = validate_knowledge_jsonl_seekable(
+        Cursor::new(&bytes),
+        stream_limits(bytes.len()),
+        |record, range, line| {
+            assert_eq!(
+                line,
+                &bytes[range.start as usize..range.end_exclusive as usize]
+            );
+            assert_eq!(record.line, range.line);
+            original.extend_from_slice(line);
+            documents.push(record.clone());
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(original, bytes);
+    assert_eq!(documents, full.documents());
+    assert_eq!(stream.duplicate_lines, full.duplicates());
+    assert_eq!(stream.conflicts, full.conflicts());
+    assert_eq!(stream.document_lines, 6);
+    assert_eq!(stream.input_bytes, bytes.len() as u64);
+    assert_eq!(documents[0].document.revision, "7");
+    assert_eq!(documents[2].document.revision, "07");
+}
+
+#[test]
+fn seekable_validation_keeps_cross_partition_duplicate_and_fact_order_conflict() {
+    use dbrain_sources::knowledge_contract::validate_knowledge_jsonl_seekable;
+    let mut first = wiki();
+    let mut other_fact = fact();
+    other_fact["fact_id"] = json!("another");
+    first["facts"] = json!([fact(), other_fact]);
+    let mut rows = vec![first.clone()];
+    for revision in 1..=1_001 {
+        let mut next = first.clone();
+        next["revision"] = json!(format!("version-{revision}"));
+        rows.push(next);
+    }
+    let mut duplicate = first.clone();
+    duplicate["observed_at"] = json!("2026-10-04T12:00:00Z");
+    rows.push(duplicate);
+    first["facts"].as_array_mut().unwrap().reverse();
+    rows.push(first);
+    let bytes = jsonl(&rows).into_bytes();
+    let full = validate_knowledge_jsonl(Cursor::new(&bytes)).unwrap();
+    let stream = validate_knowledge_jsonl_seekable(
+        Cursor::new(&bytes),
+        stream_limits(bytes.len()),
+        |_, _, _| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(stream.duplicate_lines, full.duplicates());
+    assert_eq!(stream.conflicts, full.conflicts());
+    assert_eq!(stream.duplicate_lines[0].first_line, 1);
+    assert_eq!(stream.duplicate_lines[0].line, 1_003);
+    assert_eq!(
+        stream.conflicts[0].kind,
+        KnowledgeConflictKind::RepresentationMismatch
+    );
+    assert_eq!(stream.conflicts[0].line, 1_004);
+}
+
+#[test]
+fn seekable_validation_enforces_line_total_history_and_index_bounds_before_visit() {
+    use dbrain_sources::knowledge_contract::validate_knowledge_jsonl_seekable;
+    let bytes = wiki().to_string().into_bytes();
+    assert!(validate_knowledge_jsonl_seekable(
+        Cursor::new(&bytes),
+        stream_limits(bytes.len()),
+        |_, _, _| Ok(())
+    )
+    .is_ok());
+    for boundary in ["line", "total", "index", "zero"] {
+        let mut limits = stream_limits(bytes.len());
+        match boundary {
+            "line" => limits.max_line_bytes -= 1,
+            "total" => limits.max_input_bytes -= 1,
+            "index" => limits.max_index_bytes = 1,
+            _ => limits.max_document_lines = 0,
+        }
+        let mut visited = false;
+        assert!(
+            validate_knowledge_jsonl_seekable(Cursor::new(&bytes), limits, |_, _, _| {
+                visited = true;
+                Ok(())
+            })
+            .is_err()
+        );
+        assert!(!visited);
+    }
+    let two = jsonl(&[wiki(), wiki()]).into_bytes();
+    let mut limits = stream_limits(two.len());
+    limits.max_document_lines = 1;
+    let mut count = 0;
+    let error = validate_knowledge_jsonl_seekable(Cursor::new(two), limits, |_, _, _| {
+        count += 1;
+        Ok(())
+    })
+    .unwrap_err();
+    assert_eq!(count, 1);
+    assert_eq!(error.line, 2);
+    for bytes in [
+        vec![0xff],
+        b"{\"metadata\":{\"same\":1,\"same\":2}}".to_vec(),
+    ] {
+        assert!(validate_knowledge_jsonl_seekable(
+            Cursor::new(&bytes),
+            stream_limits(bytes.len()),
+            |_, _, _| Ok(())
+        )
+        .is_err());
+    }
+}
+
 struct BrokenReader;
 
 impl Read for BrokenReader {

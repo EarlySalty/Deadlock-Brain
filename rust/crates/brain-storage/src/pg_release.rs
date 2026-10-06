@@ -53,7 +53,72 @@ async fn publish_release_tx(
     Ok(())
 }
 
+fn reuse_imported_timestamp(
+    proposed: &CorpusRelease,
+    stored: CorpusRelease,
+) -> Result<CorpusRelease, PortError> {
+    validate_release(&stored)?;
+    if stored.created_at_epoch < 0 {
+        return Err(invalid("invalid imported release timestamp"));
+    }
+    let mut comparable = proposed.clone();
+    comparable.created_at_epoch = stored.created_at_epoch;
+    if comparable != stored {
+        return Err(invalid("immutable imported release conflict"));
+    }
+    Ok(stored)
+}
+
+async fn imported_release_retry_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    proposed: &CorpusRelease,
+) -> Result<CorpusRelease, PortError> {
+    let stored = sqlx::query(
+        "SELECT release_id,knowledge_version,patch,release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
+    )
+    .bind(&proposed.release_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(database_error)?;
+    match stored {
+        Some(row) => {
+            let release: CorpusRelease =
+                serde_json::from_value(row.try_get("release_json").map_err(database_error)?)
+                    .map_err(|_| invalid("invalid imported retry release"))?;
+            if row
+                .try_get::<String, _>("release_id")
+                .map_err(database_error)?
+                != release.release_id
+                || row
+                    .try_get::<String, _>("knowledge_version")
+                    .map_err(database_error)?
+                    != release.knowledge_version
+                || row.try_get::<String, _>("patch").map_err(database_error)? != release.patch
+            {
+                return Err(invalid("imported retry release columns disagree"));
+            }
+            reuse_imported_timestamp(proposed, release)
+        }
+        None => Ok(proposed.clone()),
+    }
+}
+
 impl PgStore {
+    pub async fn imported_release_for_retry(
+        &self,
+        proposed: &CorpusRelease,
+    ) -> Result<CorpusRelease, PortError> {
+        validate_release(proposed)?;
+        let mut tx = self.pool.begin().await.map_err(database_error)?;
+        sqlx::query("SET TRANSACTION READ ONLY")
+            .execute(&mut *tx)
+            .await
+            .map_err(database_error)?;
+        let release = imported_release_retry_tx(&mut tx, proposed).await?;
+        tx.commit().await.map_err(database_error)?;
+        Ok(release)
+    }
+
     pub async fn reuse_maintenance_revision(
         &self,
         lease: &MaintenanceLease,
@@ -242,17 +307,27 @@ impl PgStore {
         let mut expected = BTreeMap::new();
         let mut selected_pins: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
         for record in expected_heads {
-            record.validate().map_err(|_| invalid("invalid expected imported head"))?;
+            record
+                .validate()
+                .map_err(|_| invalid("invalid expected imported head"))?;
             if sources.contains(&record.source_id) {
                 if record.tombstone {
                     return Err(invalid("imported source contains a tombstone"));
                 }
                 brain_contracts::source::origin_from_record(record)
                     .map_err(|_| invalid("invalid imported source provenance"))?;
-                selected_pins.entry(record.source_id.clone()).or_default()
+                selected_pins
+                    .entry(record.source_id.clone())
+                    .or_default()
                     .insert(record.logical_id.clone(), record.revision);
             }
-            if expected.insert((record.source_id.clone(), record.logical_id.clone()), record.clone()).is_some() {
+            if expected
+                .insert(
+                    (record.source_id.clone(), record.logical_id.clone()),
+                    record.clone(),
+                )
+                .is_some()
+            {
                 return Err(invalid("duplicate expected imported head"));
             }
         }
@@ -262,8 +337,12 @@ impl PgStore {
         let mut tx = self.pool.begin().await.map_err(database_error)?;
         let base_value: serde_json::Value = sqlx::query_scalar(
             "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1 FOR SHARE",
-        ).bind(base_release_id).fetch_optional(&mut *tx).await.map_err(database_error)?
-            .ok_or_else(|| invalid("imported base release missing"))?;
+        )
+        .bind(base_release_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(database_error)?
+        .ok_or_else(|| invalid("imported base release missing"))?;
         let base: CorpusRelease = serde_json::from_value(base_value)
             .map_err(|_| invalid("invalid imported base release"))?;
         validate_release(&base)?;
@@ -275,16 +354,29 @@ impl PgStore {
             pins.insert(source.clone(), selected_pins[source].clone());
         }
         if pins != release.source_revisions {
-            return Err(invalid("imported release changed preserved pins or selected head set"));
+            return Err(invalid(
+                "imported release changed preserved pins or selected head set",
+            ));
         }
-        let pin_keys: BTreeSet<_> = pins.iter().flat_map(|(source, documents)| {
-            documents.keys().map(move |logical| (source.clone(), logical.clone()))
-        }).collect();
+        let pin_keys: BTreeSet<_> = pins
+            .iter()
+            .flat_map(|(source, documents)| {
+                documents
+                    .keys()
+                    .map(move |logical| (source.clone(), logical.clone()))
+            })
+            .collect();
         if expected.keys().cloned().collect::<BTreeSet<_>>() != pin_keys {
-            return Err(invalid("expected imported heads do not cover exact release"));
+            return Err(invalid(
+                "expected imported heads do not cover exact release",
+            ));
         }
-        let locked_sources: BTreeSet<_> = base.source_revisions.keys().cloned()
-            .chain(sources.iter().cloned()).collect();
+        let locked_sources: BTreeSet<_> = base
+            .source_revisions
+            .keys()
+            .cloned()
+            .chain(sources.iter().cloned())
+            .collect();
         for source in &locked_sources {
             lock_source(&mut tx, source).await.map_err(database_error)?;
         }
@@ -296,23 +388,37 @@ impl PgStore {
             let source: String = row.try_get("source_id").map_err(database_error)?;
             let logical: String = row.try_get("logical_id").map_err(database_error)?;
             let revision: i64 = row.try_get("revision").map_err(database_error)?;
-            let record: SourceRecordV2 = serde_json::from_value(row.try_get("record_json").map_err(database_error)?)
-                .map_err(|_| invalid("invalid stored imported head"))?;
-            record.validate().map_err(|_| invalid("stored imported head violates contract"))?;
+            let record: SourceRecordV2 =
+                serde_json::from_value(row.try_get("record_json").map_err(database_error)?)
+                    .map_err(|_| invalid("invalid stored imported head"))?;
+            record
+                .validate()
+                .map_err(|_| invalid("stored imported head violates contract"))?;
             brain_contracts::source::origin_from_record(&record)
                 .map_err(|_| invalid("invalid stored imported provenance"))?;
-            if revision <= 0 || record.source_id != source || record.logical_id != logical
+            if revision <= 0
+                || record.source_id != source
+                || record.logical_id != logical
                 || record.revision != revision as u64
-                || record.content_hash != row.try_get::<String, _>("content_hash").map_err(database_error)?
-                || record.tombstone != row.try_get::<bool, _>("tombstone").map_err(database_error)?
-                || record.tombstone || actual.insert((source, logical), record).is_some()
+                || record.content_hash
+                    != row
+                        .try_get::<String, _>("content_hash")
+                        .map_err(database_error)?
+                || record.tombstone
+                    != row
+                        .try_get::<bool, _>("tombstone")
+                        .map_err(database_error)?
+                || record.tombstone
+                || actual.insert((source, logical), record).is_some()
             {
                 return Err(invalid("stored imported head columns disagree"));
             }
         }
-        let selected_expected: BTreeMap<_, _> = expected.iter()
+        let selected_expected: BTreeMap<_, _> = expected
+            .iter()
             .filter(|((source, _), _)| sources.contains(source))
-            .map(|(key, record)| (key.clone(), record.clone())).collect();
+            .map(|(key, record)| (key.clone(), record.clone()))
+            .collect();
         if actual != selected_expected {
             return Err(invalid("imported source heads changed before release"));
         }
@@ -324,7 +430,9 @@ impl PgStore {
             if !sources.contains(&head.source_id)
                 && expected.get(&(head.source_id.clone(), head.logical_id.clone())) != Some(head)
             {
-                return Err(invalid("preserved current head or ACL changed before release"));
+                return Err(invalid(
+                    "preserved current head or ACL changed before release",
+                ));
             }
         }
         let pin_json = serde_json::to_value(&pins).map_err(|_| invalid("invalid imported pins"))?;
@@ -348,26 +456,46 @@ impl PgStore {
                 OR h.record_json->>'tombstone' IS DISTINCT FROM h.tombstone::text
         )").bind(&pin_json).fetch_one(&mut *tx).await.map_err(database_error)?;
         if inconsistent {
-            return Err(invalid("imported release revision or current ACL inconsistent"));
+            return Err(invalid(
+                "imported release revision or current ACL inconsistent",
+            ));
         }
-        publish_release_tx(&mut tx, release).await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(format!("core-release:{}", release.release_id))
+            .execute(&mut *tx)
+            .await
+            .map_err(database_error)?;
+        let release = imported_release_retry_tx(&mut tx, release).await?;
+        publish_release_tx(&mut tx, &release).await?;
         let readback = snapshot_tx(&mut tx, &release.release_id).await?;
-        if readback.release != *release || readback.heads.iter().any(|head| {
-            expected.get(&(head.source_id.clone(), head.logical_id.clone())) != Some(head)
-        }) {
+        if readback.release != release
+            || readback.heads.iter().any(|head| {
+                expected.get(&(head.source_id.clone(), head.logical_id.clone())) != Some(head)
+            })
+        {
             return Err(invalid("imported release readback mismatch"));
         }
         for record in readback.revisions.iter().chain(&readback.heads) {
-            record.validate().map_err(|_| invalid("invalid imported snapshot record"))?;
-            if record.metadata.contains_key(brain_contracts::source::ORIGIN_METADATA_KEY) {
+            record
+                .validate()
+                .map_err(|_| invalid("invalid imported snapshot record"))?;
+            if record
+                .metadata
+                .contains_key(brain_contracts::source::ORIGIN_METADATA_KEY)
+            {
                 brain_contracts::source::origin_from_record(record)
                     .map_err(|_| invalid("invalid imported snapshot provenance"))?;
             }
         }
-        let _ = readback.authorized(&brain_contracts::Principal {
-            actor_id: "release-validation".into(), channel: "internal".into(),
-            scopes: BTreeSet::new(), provider_egress: BTreeSet::new(),
-        }, false)?;
+        let _ = readback.authorized(
+            &brain_contracts::Principal {
+                actor_id: "release-validation".into(),
+                channel: "internal".into(),
+                scopes: BTreeSet::new(),
+                provider_egress: BTreeSet::new(),
+            },
+            false,
+        )?;
         let count = readback.revisions.len();
         tx.commit().await.map_err(database_error)?;
         Ok(count)
@@ -761,5 +889,9 @@ async fn snapshot_tx(
             heads.push(current);
         }
     }
-    Ok(CorpusSnapshot { release, revisions, heads })
+    Ok(CorpusSnapshot {
+        release,
+        revisions,
+        heads,
+    })
 }
