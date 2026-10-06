@@ -1,4 +1,3 @@
-//! HTTP adapter only; binding sockets and runtime activation are explicit caller decisions.
 use super::{deadline_response, json_error, ApiResponse, ApiService};
 use axum::{
     body::to_bytes,
@@ -23,7 +22,6 @@ pub fn router<K: AnswerKernelPort + 'static>(service: ApiService<K>) -> Router {
         .fallback(|| async { respond(json_error(404, "not_found", "Route nicht verfügbar")) })
         .with_state(Arc::new(HttpState {
             service,
-            // The same permit bounds body readers, queued workers and active workers.
             slots: Arc::new(Semaphore::new(64)),
         }))
 }
@@ -50,7 +48,6 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
     request: Request,
     retrieval: bool,
 ) -> Response {
-    // Request is not a body extractor: no body is polled before admission/authentication.
     let deadline = RequestDeadline::after(Duration::from_millis(
         state.service.deadline_ms.clamp(1, 60000),
     ));
@@ -93,6 +90,13 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
+    if headers.get_all("x-discord-user-id").iter().count() > 1 {
+        return respond(json_error(
+            400,
+            "invalid_request",
+            "Anfrageidentität ist uneindeutig",
+        ));
+    }
     let discord_user = headers
         .get("x-discord-user-id")
         .and_then(|value| value.to_str().ok())
@@ -118,7 +122,6 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
         if deadline.check().is_err() {
             return deadline_response();
         }
-        // Enforce the same byte limit for Content-Length and streamed/chunked requests.
         let body = match to_bytes(body, 64 * 1024).await {
             Ok(body) => body,
             Err(_) => return json_error(413, "payload_too_large", "Request ist zu groß"),
@@ -127,7 +130,6 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
             return deadline_response();
         }
         let worker = tokio::task::spawn_blocking(move || {
-            // A client timeout/drop cannot release an executing or queued worker's permit.
             let _permit = permit;
             if retrieval {
                 state

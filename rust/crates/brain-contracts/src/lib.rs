@@ -15,6 +15,7 @@ pub mod entity_profile;
 pub mod external;
 pub mod feeds;
 pub mod internal_api;
+pub mod invite;
 pub mod lexical;
 pub mod maintenance;
 pub mod postgres;

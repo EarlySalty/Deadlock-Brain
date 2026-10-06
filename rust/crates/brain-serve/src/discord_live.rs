@@ -277,6 +277,39 @@ impl DiscordLive {
         context: &AuthorizedContext,
         channel_id: Option<u64>,
     ) -> Result<(Instant, Evidence), PortError> {
+        let arguments = channel_id
+            .map(|channel_id| json!({"channel_id":channel_id}))
+            .unwrap_or_else(|| json!({}));
+        let (expires, mut item) = evidence(
+            serde_json::from_str(&self.call_tool(context, "public_server_facts", arguments)?)
+                .map_err(|_| denied())?,
+        )?;
+        let request = context.discord.as_ref().ok_or_else(denied)?;
+        item.allowed_scopes = BTreeSet::from([request.scope.clone()]);
+        Ok((expires, item))
+    }
+
+    fn read_self_invite(
+        &self,
+        context: &AuthorizedContext,
+    ) -> Result<brain_contracts::invite::SelfInviteStatus, PortError> {
+        let request = context.discord.as_ref().ok_or_else(denied)?;
+        if request.user_id.is_none_or(|id| id == 0)
+            || request.request_id.is_empty()
+            || request.request_id.len() > 128
+        {
+            return Err(denied());
+        }
+        serde_json::from_str(&self.call_tool(context, "self_invite_status", json!({}))?)
+            .map_err(|_| denied())
+    }
+
+    fn call_tool(
+        &self,
+        context: &AuthorizedContext,
+        tool: &str,
+        arguments: Value,
+    ) -> Result<String, PortError> {
         context.check_deadline()?;
         if context.budget.max_network_rounds == 0 {
             return Err(PortError::BudgetExceeded);
@@ -292,7 +325,7 @@ impl DiscordLive {
         }
         let mut response = builder
             .timeout(context.remaining_time()?.min(Duration::from_secs(15)))
-            .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"public_server_facts","arguments":channel_id.map(|channel_id| json!({"channel_id":channel_id})).unwrap_or_else(|| json!({}))}}))
+            .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":tool,"arguments":arguments}}))
             .send().map_err(|_| unavailable())?.error_for_status().map_err(|_| unavailable())?;
         let mut bytes = Vec::new();
         response
@@ -306,23 +339,19 @@ impl DiscordLive {
         }
         let rpc: Value = serde_json::from_slice(&bytes).map_err(|_| unavailable())?;
         let result = &rpc["result"];
-        if rpc["id"] != 1
+        if rpc["jsonrpc"] != "2.0"
+            || rpc.get("error").is_some()
+            || rpc["id"] != 1
             || result["isError"] != false
             || result["content"].as_array().is_none_or(|c| c.len() != 1)
             || result["content"][0]["type"] != "text"
         {
             return Err(unavailable());
         }
-        let (expires, mut item) = evidence(
-            serde_json::from_str(
-                result["content"][0]["text"]
-                    .as_str()
-                    .ok_or_else(unavailable)?,
-            )
-            .map_err(|_| denied())?,
-        )?;
-        item.allowed_scopes = BTreeSet::from([request.scope.clone()]);
-        Ok((expires, item))
+        result["content"][0]["text"]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(unavailable)
     }
 }
 
@@ -433,6 +462,59 @@ impl<R> DiscordRetriever<R> {
         remaining.budget.max_input_tokens = ceiling as u32;
         Ok(remaining)
     }
+    fn retrieve_invite(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> Result<(Vec<Evidence>, Usage), PortError> {
+        use brain_contracts::invite::{status_evidence, InviteStatus, SelfInviteStatus};
+        if !allowed(query, context, false) {
+            return Err(denied());
+        }
+        let request = context.discord.as_ref().ok_or_else(denied)?;
+        if request.request_id != query.request_id
+            || !context.principal.scopes.contains(&request.scope)
+        {
+            return Err(denied());
+        }
+        context.check_deadline()?;
+        let mut usage = Usage::default();
+        let status = if request.user_id.is_none_or(|id| id == 0) {
+            SelfInviteStatus {
+                status: InviteStatus::Unknown,
+                at: None,
+            }
+        } else if let Some(live) = &self.live {
+            if context.budget.max_network_rounds == 0 {
+                return Err(PortError::BudgetExceeded);
+            }
+            usage.network_rounds = 1;
+            match live.read_self_invite(context) {
+                Ok(status) => status,
+                Err(PortError::Unavailable(_) | PortError::InvalidResponse(_)) => {
+                    SelfInviteStatus {
+                        status: InviteStatus::Unavailable,
+                        at: None,
+                    }
+                }
+                Err(error) => return Err(error),
+            }
+        } else {
+            SelfInviteStatus {
+                status: InviteStatus::Unavailable,
+                at: None,
+            }
+        };
+        let items = vec![status_evidence(&status, request.scope.clone())?];
+        let expires = Instant::now() + context.remaining_time()?;
+        let key = observation_key(query, context)?;
+        let mut observations = self.observations.lock().map_err(|_| unavailable())?;
+        let now = Instant::now();
+        observations.retain(|_, (expires, _)| now < *expires);
+        observations.insert(key, (expires, items.clone()));
+        Ok((items, usage))
+    }
+
     fn validate_live(
         &self,
         query: &Query,
@@ -440,7 +522,22 @@ impl<R> DiscordRetriever<R> {
         items: &[Evidence],
         provider: bool,
     ) -> Result<(), PortError> {
-        if !allowed(query, context, provider) || !relevant(query) {
+        let invite = items
+            .iter()
+            .any(|item| item.source_id == brain_contracts::invite::SOURCE);
+        if invite {
+            brain_contracts::invite::projection(query, items)?;
+        }
+        if !allowed(query, context, provider)
+            || (!invite && !relevant(query))
+            || (invite
+                && !context.discord.as_ref().is_some_and(|request| {
+                    request.request_id == query.request_id
+                        && items.iter().all(|item| {
+                            item.allowed_scopes == BTreeSet::from([request.scope.clone()])
+                        })
+                }))
+        {
             return Err(denied());
         }
         context.check_deadline()?;
@@ -470,6 +567,9 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<(Vec<Evidence>, Usage), PortError> {
+        if brain_contracts::invite::requested(query) {
+            return self.retrieve_invite(query, context);
+        }
         let (mut items, mut usage) = self.inner.retrieve_with_usage(query, context)?;
         if relevant(query) && allowed(query, context, false) {
             if let Some(live) = &self.live {
@@ -558,10 +658,18 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
         if evidence.is_empty() {
             return Err(denied());
         }
+        if brain_contracts::invite::requested(query)
+            || evidence
+                .iter()
+                .any(|item| item.source_id == brain_contracts::invite::SOURCE)
+        {
+            brain_contracts::invite::projection(query, evidence)?;
+            return self.validate_live(query, context, evidence, provider);
+        }
         let (live, stored): (Vec<_>, Vec<_>) = evidence
             .iter()
             .cloned()
-            .partition(|e| e.source_id == SOURCE);
+            .partition(|e| e.source_id == SOURCE || e.source_id == brain_contracts::invite::SOURCE);
         if !stored.is_empty() {
             self.inner
                 .validate_evidence(query, context, &stored, provider)?;
@@ -580,10 +688,18 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
         if evidence.is_empty() {
             return Err(denied());
         }
+        if brain_contracts::invite::requested(query)
+            || evidence
+                .iter()
+                .any(|item| item.source_id == brain_contracts::invite::SOURCE)
+        {
+            brain_contracts::invite::projection(query, evidence)?;
+            return self.validate_live(query, context, evidence, false);
+        }
         let (live, stored): (Vec<_>, Vec<_>) = evidence
             .iter()
             .cloned()
-            .partition(|e| e.source_id == SOURCE);
+            .partition(|e| e.source_id == SOURCE || e.source_id == brain_contracts::invite::SOURCE);
         if !stored.is_empty() {
             self.inner.validate_publication(query, context, &stored)?;
         }
@@ -593,6 +709,10 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "discord_live/invite_tests.rs"]
+mod invite_tests;
 
 #[cfg(test)]
 mod tests {

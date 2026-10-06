@@ -42,6 +42,14 @@ pub(super) fn authorize(
             "invalid provider context or query egress".into(),
         ));
     }
+    if brain_contracts::invite::requested(query)
+        || evidence
+            .iter()
+            .any(|item| item.source_id == brain_contracts::invite::SOURCE)
+    {
+        brain_contracts::invite::projection(query, evidence)
+            .map_err(|_| ProviderError::InvalidResponse("request evidence denied".into()))?;
+    }
     if evidence.len() > 100 {
         return Err(ProviderError::InvalidResponse(
             "too many evidence items".into(),

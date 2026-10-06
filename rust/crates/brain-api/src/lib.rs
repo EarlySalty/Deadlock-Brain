@@ -58,7 +58,6 @@ where
         self
     }
 
-    /// Ausschließlich der Server bindet authentifizierte Identitäten an Releases.
     pub fn with_release_bindings(
         mut self,
         bindings: std::collections::BTreeMap<(String, String), String>,
@@ -196,8 +195,6 @@ where
         if deadline.check().is_err() {
             return deadline_response();
         }
-        // `/v1/answer` always publishes externally. This purpose is not a Query
-        // field, scope, header or credential option the client can downgrade.
         if context.principal.scopes.contains("bot.public") {
             use std::io::Read;
             let mut nonce = [0u8; 32];
@@ -230,6 +227,7 @@ where
                 scope,
             });
         }
+        let query = brain_contracts::invite::project_query(&query);
         let answer = self.kernel.answer_for_publication(&query, &context);
         if deadline.check().is_err() {
             return deadline_response();
@@ -406,6 +404,93 @@ mod tests {
             .contains("private")
             && context.discord.as_ref().unwrap().request_id == query.request_id));
         task.abort();
+    }
+
+    #[tokio::test]
+    async fn invite_frage_wird_vor_dem_kernel_ohne_personendaten_projiziert() {
+        struct RecordingKernel(Arc<std::sync::Mutex<Vec<(Query, AuthorizedContext)>>>);
+        impl AnswerKernelPort for RecordingKernel {
+            fn answer_for_publication(
+                &self,
+                query: &Query,
+                context: &AuthorizedContext,
+            ) -> AnswerResponse {
+                self.answer(query, context)
+            }
+            fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push((query.clone(), context.clone()));
+                FixedKernel {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                }
+                .answer(query, context)
+            }
+        }
+        let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let policy = PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
+            "test-consumer",
+            "dl-bot",
+            "discord",
+            scopes(&["bot.public"]),
+            scopes(&["public"]),
+        )]));
+        let service = ApiService::new(
+            policy,
+            RecordingKernel(calls.clone()),
+            "release",
+            2000,
+            Budget::default(),
+        )
+        .with_discord_consumers(BTreeSet::from([("dl-bot".into(), "discord".into())]));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router(service)).await.unwrap();
+        });
+        let client = brain_client::AsyncBrainClient::new_local(
+            &format!("http://{address}"),
+            "test-consumer",
+            std::time::Duration::from_secs(2),
+        )
+        .unwrap();
+        let mut raw = query(&["bot.public"]);
+        raw.text =
+            "Einladungsstatus von Fremdname, Steamcode 123456, Chatkontext Geheimtext?".into();
+        raw.profile = AnswerProfile::Fact;
+        raw.patch = Some("Privatname".into());
+        raw.mode = Some("Geheimtext".into());
+        client.answer_for_discord(&raw, 42).await.unwrap();
+        client.answer(&raw).await.unwrap();
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.append("x-discord-user-id", "42".parse().unwrap());
+        headers.append("x-discord-user-id", "99".parse().unwrap());
+        let invalid = reqwest::Client::new()
+            .post(format!("http://{address}/v1/answer"))
+            .bearer_auth("test-consumer")
+            .headers(headers)
+            .json(&raw)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(invalid.status().as_u16(), 400);
+        let recorded = calls.lock().unwrap();
+        assert_eq!(recorded.len(), 2);
+        for (query, context) in recorded.iter() {
+            assert_eq!(query.text, brain_contracts::invite::QUESTION);
+            assert_eq!(query.profile, AnswerProfile::Explain);
+            assert!(query.patch.is_none() && query.mode.is_none() && query.domain.is_none());
+            assert_eq!(query.requested_scopes, raw.requested_scopes);
+            assert_eq!(
+                context.principal.provider_egress,
+                scopes(&["public", "discord_request"])
+            );
+            assert!(!context.principal.provider_egress.contains("private"));
+        }
+        assert_eq!(recorded[0].1.discord.as_ref().unwrap().user_id, Some(42));
+        assert_eq!(recorded[1].1.discord.as_ref().unwrap().user_id, None);
+        server.abort();
     }
 
     #[derive(Clone)]
