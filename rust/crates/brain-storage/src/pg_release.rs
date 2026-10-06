@@ -600,16 +600,16 @@ impl PgStore {
             WHERE r.source_id IS NULL OR h.source_id IS NULL OR c.source_id IS NULL
                 OR h.revision<r.revision OR h.record_json IS DISTINCT FROM c.record_json
                 OR h.content_hash IS DISTINCT FROM c.content_hash OR h.tombstone IS DISTINCT FROM c.tombstone
-                OR r.record_json->>'source_id' IS DISTINCT FROM r.source_id
-                OR r.record_json->>'logical_id' IS DISTINCT FROM r.logical_id
-                OR r.record_json->>'revision' IS DISTINCT FROM r.revision::text
-                OR r.record_json->>'content_hash' IS DISTINCT FROM r.content_hash
-                OR r.record_json->>'tombstone' IS DISTINCT FROM r.tombstone::text
-                OR h.record_json->>'source_id' IS DISTINCT FROM h.source_id
-                OR h.record_json->>'logical_id' IS DISTINCT FROM h.logical_id
-                OR h.record_json->>'revision' IS DISTINCT FROM h.revision::text
-                OR h.record_json->>'content_hash' IS DISTINCT FROM h.content_hash
-                OR h.record_json->>'tombstone' IS DISTINCT FROM h.tombstone::text
+                OR r.read_header_json#>>'{head,source_id}' IS DISTINCT FROM r.source_id
+                OR r.read_header_json#>>'{head,logical_id}' IS DISTINCT FROM r.logical_id
+                OR r.read_header_json#>>'{head,revision}' IS DISTINCT FROM r.revision::text
+                OR r.read_header_json->>'content_hash' IS DISTINCT FROM r.content_hash
+                OR r.read_header_json#>>'{head,tombstone}' IS DISTINCT FROM r.tombstone::text
+                OR h.read_header_json#>>'{head,source_id}' IS DISTINCT FROM h.source_id
+                OR h.read_header_json#>>'{head,logical_id}' IS DISTINCT FROM h.logical_id
+                OR h.read_header_json#>>'{head,revision}' IS DISTINCT FROM h.revision::text
+                OR h.read_header_json->>'content_hash' IS DISTINCT FROM h.content_hash
+                OR h.read_header_json#>>'{head,tombstone}' IS DISTINCT FROM h.tombstone::text
         )").bind(&pin_json).fetch_one(&mut *tx).await.map_err(database_error)?;
         if inconsistent {
             return Err(invalid(

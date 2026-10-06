@@ -14,8 +14,13 @@ pub(crate) async fn lock_source(
         .await?;
     Ok(())
 }
-pub(crate) fn database_error(_: sqlx::Error) -> PortError {
-    PortError::Unavailable("Postgres storage operation failed".into())
+pub(crate) fn database_error(error: sqlx::Error) -> PortError {
+    let cause = match error.as_database_error().and_then(|error| error.code()) {
+        Some(code) if code == "57014" => "postgres_query_cancelled",
+        Some(code) if code == "55P03" => "postgres_lock_not_available",
+        _ => "Postgres storage operation failed",
+    };
+    PortError::Unavailable(cause.into())
 }
 fn invalid(message: &str) -> PortError {
     PortError::InvalidResponse(message.into())
