@@ -176,7 +176,7 @@ mod tests {
             {"token_env":"DISCORD_BRAIN_CLIENT_TOKEN","actor_id":"dl-bot","channel":"discord","scopes":["bot.public"],"provider_egress":["public"],"entity_profile_model_context":true,"release":base},
             {"token_env":"BRAIN_DOCS_TOKEN","actor_id":"docs-client","channel":"docs","scopes":["docs.public"],"provider_egress":["public"],"entity_profile_model_context":true,"release":base},
             {"token_env":"OTHER_GAME_TOKEN","actor_id":"other-game","channel":"game","scopes":["bot.public"],"provider_egress":["public"],"entity_profile_model_context":true,"release":independent},
-            {"token_env":"OTHER_DOCS_TOKEN","actor_id":"other-docs","channel":"docs","scopes":["docs.public"],"provider_egress":["public"],"release":base}
+            {"token_env":"OTHER_CONSUMER_TOKEN","actor_id":"other-consumer","channel":"reader","scopes":["bot.public"],"provider_egress":["public"],"release":base}
         ]);
         let config = brain_serve::Config::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
         let next = json!({"id":"spiel-next","knowledge_version":"spiel-wissen-next"});
