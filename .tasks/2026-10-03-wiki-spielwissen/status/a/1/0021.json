@@ -1,0 +1,29 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 21,
+  "zeit": "2026-10-03T08:54:25Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Zweiter tatsächlicher Cargo-Start test7 am03.10.2026 um08:46:45UTC, bq7qmhz1w/PID4010218 unter beiden Locks/frischer freier NonZombie-Probe. Tatsächlicher Exit101 vor Tests wegen json!-Makro-Rekursionsgrenze in normalize.rs:599. A hat vollständigen echten pruefharness-a/test-7.log gelesen, Compiler empfiehlt recursion_limit=256 im eigenen Harness-Crateroot.",
+    "Vier eingefrorene Modulhashs vor/nach exakt Fix5, Worker meldet LOCKS_CLOSED/PID verschwunden/Startwächter bufttpckj Exit0. Nur eigener Harness-Crateroot und enge Formatierung korrigiert werden, keine Moduländerung/Fix6, kein neuer Worker oder Doppelwriter. Vorhandenen unerledigten Datenauftrag fortgeführt, Retest offen.",
+    "Integrationsanforderung an C2 in UEBERGABE/AN_HAUPT: ausreichend hohe Rekursionsgrenze des eigenen aktuellen Crateroot bei produktiver Modulregistrierung prüfen/gegebenenfalls übernehmen. A ändert keine produktive lib.rs/Manifeste und behauptet keinen Defekt der ungeprüften frischen C2-Basis.",
+    "Unabhängige vollständige Fix5-Nachprüfung6 bleibt statisch tragfähig, beide Kerne behoben, null bestätigte Restdefekte, alle41Definitionen/öffentliche/Harnessaufrufer gelesen und vor/nach vier Hashs unverändert. Kein ALLOW/Compiler/Test/Crash/Datenbeweis daraus, Rohbericht intern REVIEW-LOCAL-6.md.",
+    "test4 ab06:47:12UTC Exit101 eigener Harness-Kindmodulpfad erhalten. test5/test6 nie Cargo.41Regressionen weiterhin0 ausgeführt, keine grüne/rote Testbaseline. Null bestätigte normalisierte Vertragsdokumente/Fakten, keine vollständige Normalisierung/Wiederholung, DB-Import/Commit/Push/Deploy.",
+    "Originale/echter Core/Harness/eigenes Lockfile erhalten, stabile folgende Wartetasks nicht timerbedingt stoppen. Beide Hostlocks/frische NonZombie/-j1 unverändert. Bei notwendig werdendem neuem Modulfix vor Fix6 Ursache/Restfunde/begrenzten Vorschlag an Haupt eskalieren.",
+    "Fünf historische Archive und zwölf Original-API-Artikel bleiben Quellenbestand, keine Laufzahlen/heutige Vollabdeckung. C2 alleiniger Gate/Integrator/Deployer und bestehende bounded-Anbindung, fremder Altbranch unverändert."
+  ],
+  "blocker": [
+    "Tatsächlicher Harness-Retest nach Compilerempfehlung und erfolgreiche Compiler-/Test-/Gesamtdaten-/Wiederholungsprüfung weiterhin offen.",
+    "HTTP403/Managed Challenge begrenzt aktuelles allpages, historische Archive keine heutige Vollabdeckung.",
+    "C2 prüft bestehende Reader-Anbindung/Laufzeitgrenze, gemeinsamen Crateroot und Registrierung; A baut keinen zweiten Corepfad."
+  ],
+  "naechster_schritt": "Denselben echten Datenauftrag nach engem eigenen Harness-Craterootfix bis erfolgreicher Compiler-/Test-/Gesamtdaten-/Wiederholungsprüfung fortführen; Freeze/stabile Wartetasks bewahren, keine ungeprüften Importe oder automatische Fix6."
+}

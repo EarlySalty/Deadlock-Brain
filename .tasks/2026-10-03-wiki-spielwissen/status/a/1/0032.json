@@ -1,0 +1,28 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 32,
+  "zeit": "2026-10-03T12:01:43Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Einziger eigener Fixer6 meldet tatsächliche ungefilterte Suite Exit0:47passed/0failed/0ignored/0filtered. Echte XML-Normalisierung/WikiSpool/JSONL/from_value/Wiederholung erhält beide betroffenen Dezimalwerte sowie lange Dezimal- und große Integerwerte als Value::Number. Vollständige Parent-Logübernahme folgt Endbericht; kein korrigierter Vollbestand aus engem Testbeweis abgeleitet.",
+    "Exakte bestätigte lokale Featurekonfiguration: serde_json={version=1.0,features=[arbitrary_precision]}, bestehende aufgelöste Version1.0.151 unverändert. Tatsächlich gebauter Zielgraph arbitrary_precision/default/raw_value/std, raw_value war bereits vorher aktiv. Kein Versions- oder Lockfilewechsel. FEATURE-VERTRAG-FIX6.md/AN_HAUPT.md melden diese Requirement über Root an C3, produktive gemeinsame Manifeste unberührt.",
+    "Typenwirkung: interne dezimale Stringhaltung in Number, JSON-Ausgabe weiterhin number und kein Value::String. Verbraucher nicht nach as_f64/eigenen Floattypen überführen. Number-PartialEq darstellungsabhängig; Exponenten/ganzzahliges-0 kanonisiert, ursprüngliche Lexeme im unveränderten content/Hash erhalten. C3 prüft tatsächlichen Import/PostgreSQL/Leser nach sicherem Ende eigener eingefrorener Prüffolge.",
+    "Alter Freeze/sieben Erhaltungskopien/47Originalinputs/alte normalisierte Ausgaben/altes Binary bleiben erhalten. Stabiler eigener Wrapper b1ce07b8l hatte beide Locks/frische NonZombie-Probe frei; selektives eigenes Format0. Clippy/Debugbau/konkretes Archivbeispiel und endgültiger Fix6-Freeze noch nicht als abgeschlossen behauptet.",
+    "Root-Punkt45 autorisiert enge Fix6. Eigene Übergaben/Register/Handoff nachgeführt. Neuer getrennt korrigierter Gesamtbestand, volle Faktenwert-/Original-/Identitäts-/Wiederholungsprüfung und frische unabhängige Abnahme weiterhin offen; keine Modulcommit-/Import-/Gate-/Produktivfreigabe."
+  ],
+  "blocker": [
+    "Enger Testbeweis47passed ist keine korrigierte Gesamtbestandsabnahme; 282alte Abweichungen weiterhin nicht importfreigegeben.",
+    "Abschließende Fix6-Prüfungen/finalerFreeze und unabhängige Nachprüfung offen, kein paralleler Writer oder Inputwechsel.",
+    "Produktive gemeinsame Feature-/Verbraucherintegration und PostgreSQL-/Leserbeweis bleiben C3.",
+    "Historische Wiki-Abdeckung keine aktuelle Vollabdeckung, getrennte Challengebelege keine Importinputs."
+  ],
+  "naechster_schritt": "Tatsächlichen Abschluss desselben Fixers6 samt vollständigen Logs/Freeze übernehmen. Bestätigte Featureanforderung über Root sichern. Anschließend frische unabhängige Nachprüfung und getrennten korrigierten Volllauf aus denselben Originalen samt vollständiger Zahlenwert-/Original-/Identitäts-/Wiederholungsprüfung, danach neue Eigenabnahme und eigener Modulcommit."
+}

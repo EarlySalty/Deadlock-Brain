@@ -1,0 +1,30 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 25,
+  "zeit": "2026-10-03T09:41:34Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Zusätzliche ausdrücklich beauftragte aktuelle öffentliche Abdeckungsprüfung abgeschlossen. Rechercheworker abda370e560228f5d las alle zwölf Originalsidecars/Antworten erneut: historische Captures02.05.2026, identifizierte Revisionen07.04.-01.05.2026, keine heutigen Artikelcapturen. A las AKTUELLE-ABDECKUNG.md/BeobachtungsJSON und zusätzlich Mechanics-Sidecar fetched_at1777734027, per date als2026-05-02T15:00:27Z bestätigt.",
+    "Neue reguläre öffentliche Probe: robots.txt03.10.2026 09:25:15UTC HTTP403/ManagedChallenge; Mechanics-Revisions-API03.10.2026 09:27:59UTC HTTP403/ManagedChallenge, keine Artikel/Revisionen.164Sekunden Abstand, maxlag5, keine Auth/Cookies/Sonderheader/Redirectfolgen/Retrys. Nach Challenges keine Variantenretry/weiterenTitel/geratenenSitemapnamen oder Proxy/Browserwechsel.",
+    "Keine auswertbaren aktuellen Robots/benannte erlaubte Sitemap in geprüften Belegen, kein aktuelles Inventar oder neue erfolgreiche Artikelcapturen. Ausdrücklich kein Beweis einer Sperre aller öffentlichenEinzelseiten oder aktuellerVollabdeckung aus Stichprobe, bekannteallpages nicht wiederholt.",
+    "Neue Challenge-/Messbelege nur getrennt unter /home/nathanael/.local/share/deadlock-brain/wiki-spielwissen/2026-10-03/a-live-coverage/, keine Artikelinputs/Imports. Bodyhashs erst nach lokaler Tooltranskription/Base64-Ablage, Erhaltungsgrenze im Bericht offen, kein unabhängiger Netzbytevergleich behauptet. Module/Harness/47alteInputs/Originalhashliste unverändert.",
+    "Derselbe Datenworker a8cb651c3dd98f7a1 über keine neuen Importinputs informiert und ursprünglichen vollständigen Offline-Daten-/Originalhash-/Wiederholungsauftrag unverändert erhalten. Letzte tatsächliche Wrapperprobe09:24:14UTC: bt0vqxqzj/PID86988 stabil am ersten Hostlock, FD9/data-1.log fehlen, damals kein Datenstart. Keine Timerpause oder neue Implementierung.",
+    "Bisher echte Tests43passed/0failed/0ignored/0filtered,Clippy0,Debugbau0 unverändert. Gesamtfmt1 nur unverändertes fremdesutil52, eigeneModulefmt0; Parent las Logs/utilHEADdiff0. Fix5-Freeze/unabhängige vollständige Familienprüfung6 ohne Restdefekte, kein allgemeinesALLOW/Crashbeweis. Null bestätigte normalisierteDokumente/Fakten/ganzeWiederholung oder Imports/Git/Deploy.",
+    "Kurze UEBERGABE/AN_HAUPT/HANDOFF/REGISTER nachgeführt, Zusatz-Task4 abgeschlossen; RohberichtAKTUELLE-ABDECKUNG lokal. C2 alleiniger finaler Gate/Integrator/Deployer/existierendeReader-/Craterootprüfung. Vor neuerModulfix6 begründet anHaupt, fremderAltbranch unberührt."
+  ],
+  "blocker": [
+    "Vorhandener Offline-Gesamtdaten-/Originalhash-/Wiederholungsbeweis und unabhängigeDatenabnahme weiterhin offen; stabilen Datenwrapper erhalten.",
+    "Heutige konkrete robots-/Mechanics-API-Proben403/Challenge, keine neuen aktuellenArtikel/Inventar; historischeQuellen keine heutigeVollabdeckung, keine globaleEinzelseitensperre belegt.",
+    "Gesamtfmt1 nur unverändertes fremdesutil52 außerhalbA-Eigentum, eigeneModulefmt0; ehrlicheAbgrenzung anC2.",
+    "C2 prüft produktiveRegistrierung/Crateroot/existierendeReader-Anbindung, A verändert gemeinsameDateien nicht."
+  ],
+  "naechster_schritt": "Bestehenden vollständigen Offline-Daten-/Originalhash-/Wiederholungsauftrag unverändert bis unabhängigerAbnahme fortführen. Abdeckungsprobe beendet/keine weiterengesperrtenVarianten, neueMessbelege keineImportinputs, stabileWartetasks/Fix5 erhalten."
+}

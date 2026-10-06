@@ -1,0 +1,30 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 23,
+  "zeit": "2026-10-03T09:16:16Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Prüfwrapper bobg0akq7/PID4138464 vollständig09:09:16UTC beendet, LOCKS_CLOSED/eigene PID verschwunden, vier Source-/Harnesshashs vor/nach unverändert. Test8 Exit0/43passed/0failed/0ignored/0filtered,41 unveränderte Wiki-Modulregressionen plus zwei util-Tests ungefiltert/--include-ignored, beide Hostlocks/frische Probe/-j1.",
+    "Clippy aller Targets ab09:02:43UTC Exit0, Debugbau ab09:08:16UTC Exit0. Parent las echte clippy-1.log/build-1.log vollständig. Clippy enthält erwartete unbenutzte Offline-Harnesspfade und eine nichtblockierende collapsible_if-Anregung wiki_inventory.rs:455; keine Warnungsunterdrückung oder Modulfix.",
+    "Gesamt cargo fmt --check ab09:09:16UTC Exit1 ausschließlich util.rs:52 außerhalb A-Eigentum. Parent las vollständigen fmt-1.log und git diff --exit-code HEAD auf genau util.rs ergab0/unverändert. Selektiver Formatcheck vierModule0/eigenermain.rs eng formatiert. Fremde util/Core/lib.rs unangetastet; kein pauschal vollständig grüner Gesamtcheck behauptet.",
+    "Vollständigen Offline-Gesamtdaten-/Originaltext-Revisionshash-/vollständigen Wiederholungsauftrag mit tatsächlich gebautem Harness demselben vorhandenen Datenworker freigegeben. Keine neue Implementierung/Doppelwriter, Start/Laufwerte noch offen; fünfArchive/zwölfAPI-Captures Quellenbestand, null bestätigte normalisierteDokumente/Fakten oder Wiederholungsbeweise.",
+    "Fix5-Freeze und unabhängige ganze Familiennachprüfung6 ohne Restdefekte unverändert, kein allgemeines ALLOW/Crashbeweis. Öffentliche Herkunft/private Budgetfälle getrennt. Sourcehashs/FIX-5/REVIEW-LOCAL-6 und tatsächliche frühere test4/test7CompilerExit101 erhalten.",
+    "TESTNACHWEIS[TW-1]: 43 passed, 0 ignored | Baseline: nicht gemessen rot. Testbaselinefehler nicht behauptet. UEBERGABE/REGISTER/HANDOFF/AN_HAUPT nachgeführt, Rohberichte intern.",
+    "Stabile Wartetasks erhalten, Hostlockregeln unverändert. Vor etwaiger Modulfix6 Ursache/Restfunde/begrenzten Vorschlag an Haupt eskalieren. C2 alleiniger finaler Gate/Integrator/Deployer und vorhandene bounded-Anbindung/produktiver Crateroot, keine ungeprüften Imports/Git/Deploy oder fremder Altbranch."
+  ],
+  "blocker": [
+    "Vollständiger echter Normalisierungs-/Originalhash-/Wiederholungsbeweis und finale unabhängige Datenabnahme noch offen.",
+    "Gesamtfmt1 in unverändertem fremdem util.rs:52 außerhalb A-Eigentum, eigeneModulefmt0; Abweichung an C2, A formatiert keine fremden Pfade.",
+    "HTTP403/Managed Challenge begrenzt aktuelles allpages, historische Archive keine heutige Vollabdeckung.",
+    "C2 prüft produktive Registrierung/Crateroot und bestehende Reader-Anbindung, A verändert gemeinsame Dateien nicht."
+  ],
+  "naechster_schritt": "Denselben freigegebenen Offline-Gesamtdaten-/Originalhash-/vollständigen Wiederholungsauftrag bis unabhängiger Datenabnahme fortführen. Freeze/stabile Wartetasks bewahren, Fremdformatabweichung ehrlich melden, keine ungeprüften Imports oder automatische Fix6."
+}

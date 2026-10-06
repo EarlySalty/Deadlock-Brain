@@ -1,0 +1,30 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 18,
+  "zeit": "2026-10-03T07:54:16Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Ausdrücklich gewünschte gesamte Familienprüfung5 abgeschlossen: Dokument/Herkunft/Konflikt/Quellenbindung/Checkpoint/Veröffentlichung von Write/Rename/Sync bis Bestätigung und Wiederholung systematisch gelesen.37 Testdefinitionen gelesen, Fix4-Hashs vor/nach identisch. Öffentliche Elternsync-Retrylücken von Fix4 statisch geschlossen.",
+    "Zwei verifizierte Restfunde: öffentlicher Verlust zusätzlicher Autoren-/Contributor-/Capture-/Lizenzbelege bei bereits vorhandenem Konflikttext; veralteter Budgetzähler nach sichtbarer Installation/Syncfehler beim Retry desselben privaten Spoolobjekts. Öffentliche API/XML öffnen neu und zählen korrekt, kein öffentlicher Budgetüberschreitungsnachweis. A hat aktuelle konkrete Speicherpfade nachgelesen und Herkunftsverlust bestätigt.",
+    "Kurze geprüfte Pfadmatrix und echte Laufbeweise in bereiche/a/UEBERGABE.md. Rohbericht REVIEW-LOCAL-5.md bleibt bei A, keine Rohberichte an Haupt.",
+    "Nur wegen notwendigem öffentlichem Herkunftsfix test-6-Wrapper b66lshqbc/PID3660876 vor erstem Lock/Cargo geordnet beendet. Sicherer Punkt07:49:43UTC: PID verschwunden, eigene FD8/9 geschlossen, keine eigenen Compilerkinder, Startwächter b8reh2cuz Exit0/OWN_WRAPPER_ENDED_WITHOUT_CARGO. Keine Timerpause oder fremden Prozesse/Branches.",
+    "Frischer enger Fixer5 abab37f9cd78dcae8 nach sicherer Pause gestartet, nur storage/tests/FIX-5.md. Bestehender Fix4-Eigenanteil/37Regressionen und derselbe korrigierte Datenauftrag bleiben erhalten; kein Neubau/Doppelwriter/konkurrierender Compiler.",
+    "Tatsächliche Läufe unverändert: test-4-Cargo ab06:47:12UTC unter beiden Locks/frischer Probe Exit101 nur eigener Harnesspfad, null Tests. Harness korrigiert, test5/test6 nie Cargo. Null normalisierte Vertragsdokumente/Fakten oder vollständige Wiederholung. Originalarchive/Core/Harness/Lockfile gesichert.",
+    "Quellenstand fünf historische Archive plus zwölf API-Artikel, keine neuen Laufzahlen. C2 alleiniger finaler Gate/Integrator/Deployer und Besitzer vorhandener get_bounded-Anbindung."
+  ],
+  "blocker": [
+    "Enger Familienfix5 für bestätigten öffentlichen Herkunftsverlust und abgegrenzte Same-Spool-Budgetkonsistenz noch aktiv; neuer Freeze/Nachprüfung ausstehend.",
+    "Tatsächlicher erneuter Compiler-/Test-/vollständiger Normalisierungs-/Wiederholungslauf weiterhin offen.",
+    "HTTP403/Managed Challenge begrenzt aktuelles allpages, historische Archive keine heutige Vollabdeckung.",
+    "C2 prüft bestehende bounded-Reader-Anbindung/Laufzeitgrenze und gemeinsame Registrierung; A baut keinen zweiten Corepfad."
+  ],
+  "naechster_schritt": "Engen Familienfix bis belegtem Freeze nachhalten; danach denselben erhaltenen Rust-Prüf-/Gesamtdatenauftrag fortsetzen, vollständige Quellen-/Revisionshashs und Wiederholung belegen und unabhängig prüfen. Nur kurze Pfadabdeckung/echte Laufbeweise an Haupt."
+}

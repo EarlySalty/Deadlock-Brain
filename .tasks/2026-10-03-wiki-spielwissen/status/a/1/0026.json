@@ -1,0 +1,29 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 26,
+  "zeit": "2026-10-03T09:47:37Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Tatsächlicher vollständiger Offline-Datenstart03.10.2026 09:46:17UTC im selben erhaltenen Wrapper bt0vqxqzj/PID86988 durch bestehenden Datenworker a8cb651c3dd98f7a1. Beide Locks gehalten/frische NonZombie-Probe frei, genau ursprüngliche47Inputs/fünfArchive/zwölfhistorischeCaptures, keine neuea-live-coverage-Belege aufgenommen.",
+    "Eigenesmain.rs und allevierOriginalmodule selektiverfmt-check Exit0. Gesamtfmt1 im unveränderten fremdenutil52 bleibt getrennt. Vier Modulhashs exakt Fix5, Harnessquellhash d358ec15a692aeb57cbbd7f05e62be4eaa85217c3b5eaf59db4a63fc23f201fd. Tatsächlich gebaute Debug-Harness SHA25683349db303f5661ba4c6f0ac156b4ec14ab93e36bf85d36b90aa67b163d48578.",
+    "VorStart15.984MiB RAM verfügbar/549GiB frei. data-1.log09:46:28UTC noch0Bytes, kein abgeschlossener Lauf/Exit/normalisierteGesamtzahlen/ganzeWiederholung daraus behauptet. Stabile laufende Arbeit unverändert erhalten, kein Timerabbruch/Doppelwriter.",
+    "Bisher echte Tests43passed/0failed/0ignored/0filtered,Clippy0,Debugbau0 und unveränderteHashs. Fix5 vollständig unabhängig statisch nachgeprüft ohne Restdefekte, kein allgemeinesALLOW/Crashbeweis oderFix6. Originale/echterCore/Lockfile/Harness/ältereCompilerExit101 erhalten.",
+    "Zusätzliche öffentliche Abdeckung abgeschlossen: zwölf Originalcapturen02.05.2026/Revisionen07.04.-01.05.2026, heutigerobots09:25:15UTC/MechanicsAPI09:27:59UTC jeweils403Challenge, danach gestoppt. Null neueaktuelleArtikel/Inventar, keine pauschaleEinzelseitensperre/Vollabdeckung. GetrennteMessbelege keineImportinputs, Transkriptionsgrenze offen.",
+    "KurzeUEBERGABE/AN_HAUPT/HANDOFF/REGISTER aktuellerDatenstart, Rohberichte intern. Noch keine finaleDaten-/SHA-Abnahme/DB-Imports/Commit/Push/Merge/Deploy. C2 finalerGate/Integrator/Deployer/existierendeReader-/Craterootprüfung, fremderAltbranch unberührt, vor neuerModulfix6 begründet anHaupt."
+  ],
+  "blocker": [
+    "Tatsächlicher vollständiger Offline-Datenlauf läuft seit09:46:17UTC, Abschluss/Originaltext-Revisionshash-/ganzeWiederholungsbeweise und unabhängigeDatenabnahme noch offen.",
+    "Heutige konkreteöffentlicheProben403Challenge, historischeQuellen keine heutigeVollabdeckung, keine globaleEinzelseitensperre behauptet.",
+    "Gesamtfmt1 nur unverändertes fremdesutil52 außerhalbA-Eigentum, eigeneModule/mainfmt0, ehrlicheAbgrenzung anC2.",
+    "C2 prüft produktiveRegistrierung/Crateroot/existierendeReader-Anbindung, A verändert gemeinsameDateien nicht."
+  ],
+  "naechster_schritt": "Denselben tatsächlich laufenden vollständigen Offline-Daten-/Originalhash-/Wiederholungsauftrag unverändert bis Abschluss nachhalten, anschließend echteErgebnisse unabhängig abnehmen. Fix5/Inputnenner/stabileArbeit erhalten, keine neuenChallengebelege importieren oderTimerpause/automatischeFix6."
+}

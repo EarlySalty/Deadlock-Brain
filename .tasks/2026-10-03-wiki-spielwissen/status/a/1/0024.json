@@ -1,0 +1,30 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 24,
+  "zeit": "2026-10-03T09:24:20Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Zusätzlicher genuine Hauptauftrag zur aktuellen öffentlichen Wiki-Abdeckung aufgenommen: zwölf Original-API-Captures anhand tatsächlicher Originalabruf-/Revisionszeiten prüfen; allpages403 allein kein Beweis aller Einzelseitensperren. Regulär erlaubte öffentliche Sitemap-/bekannteArtikelwege unter Robots/Limits prüfen, kein Proxywechsel/Challengeumgehen/gesperrte Variantenretry.",
+    "Frischer eigener Rechercheworker abda370e560228f5d gemäß BRIEFING-AKTUELLE-ABDECKUNG.md gestartet, Sol höchstens high/medium, keine weiteren Agenten/fremden Sessions. Ergebnis noch offen, Berichtseigentum AKTUELLE-ABDECKUNG.md. Neue heutige öffentliche Rohcaptures nur getrennt unter /home/nathanael/.local/share/deadlock-brain/wiki-spielwissen/2026-10-03/a-live-coverage/, kein Write im alten a-Root, keine Parserimplementierung/Module/Harness-/Inputänderung.",
+    "Spätere neue Captures erst nach erhaltenem bisherigen Offline-Lauf an bestehenden Sammler übergeben, nicht in laufenden Input/Nenner aufnehmen. Bisher keine zusätzliche heutige Artikelabdeckung bestätigt oder Vollabdeckung aus Stichprobe behauptet.",
+    "Derselbe erhaltene Datenworker a8cb651c3dd98f7a1 bestätigt tatsächliche Probe09:24:14UTC: stabiler Datenwrapper bt0vqxqzj/PID86988 am ersten Hostlock, FD9 noch nicht geöffnet/data-1.log fehlt, kein Datenstart. Alle47 ursprünglichen Inputs/Hashliste/eingefrorenenModule/korrigierterHarness erhalten, getrennte Recherche nicht zugemischt, kein Timerabbruch.",
+    "Tatsächliche Checks unverändert: test8 Exit0/43passed/0failed/0ignored/0filtered,Clippy0,Debugbau0, Source-/Harnesshashs vor/nach gleich, LOCKS_CLOSED. Gesamtfmt1 nur unverändertes fremdes util.rs:52, eigeneModulefmt0. Parent las echte Logs und utilHEADdiff0, keine fremde Formatänderung/Warnungsunterdrückung.",
+    "Fix5-Freeze/unabhängige vollständige Familiennachprüfung6 ohne Restdefekte erhalten, kein allgemeines ALLOW/Crashbeweis oder Fix6. Noch null bestätigte normalisierteDokumente/Fakten/ganzeWiederholung oder Imports/Git/Deploy. REGISTER/UEBERGABE/HANDOFF/AN_HAUPT aktuelle Ergänzung, Rohberichte intern.",
+    "C2 alleiniger finaler Gate/Integrator/Deployer, bestehende bounded-Anbindung/produktiverCrateroot dort prüfen. Fremder Altbranch unberührt. Vor notwendiger neuer Modulfix6 begründet an Haupt eskalieren."
+  ],
+  "blocker": [
+    "Ergebnis aktueller zusätzlicher öffentlicher Abdeckungsprobe noch offen, bisheriger Quellenbestand historische Archive/zwölf Captures, keine neue heutige Vollabdeckung bewiesen.",
+    "Vorhandener stabiler Datenwrapper wartet am ersten Hostlock; vollständige Offline-Normalisierung/Originalhash-/Wiederholungsprüfung und unabhängige Datenabnahme offen.",
+    "Gesamtfmt1 nur unverändertes fremdes util.rs:52 außerhalb A-Eigentum, eigeneModulefmt0; ehrliche Abgrenzung an C2.",
+    "C2 prüft produktive Registrierung/Crateroot/Reader-Anbindung, A verändert gemeinsame Dateien nicht."
+  ],
+  "naechster_schritt": "Getrennte reguläre öffentliche Abdeckungsprobe mit tatsächlicher UTC/Status/Ergebnis nachhalten und bestehende Offline-Gesamtdatenprüfung unverändert fortführen. Neue Captures niemals in laufenden Bestand mischen, spätere Übergabe nur an bestehenden Sammler; stabile Wartetasks/Fix5 erhalten."
+}

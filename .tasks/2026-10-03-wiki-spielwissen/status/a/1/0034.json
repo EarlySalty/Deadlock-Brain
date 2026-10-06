@@ -1,0 +1,28 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 34,
+  "zeit": "2026-10-03T12:53:04Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Vier vorhandene Originalkommentare exakt wiederhergestellt; zur Erhaltungskopie bleibt nur der erlaubte collapsible_if-Fix. Echter Prüftask b2uij1qxl abgeschlossen, Wrapper1172649 beendet, beide Locks geschlossen. Native finale Checks: selektives Format0,47Tests ungefiltert/0failed/0ignored/0filtered/Exit0, Clippy aller Targets mit-Dclippy::all0, Debugbau0. Gesamtformat1 nur im unveränderten fremden util.rs:52.",
+    "Parent bestätigte neuen endgültigen Datenfreeze selbst:15Source-/Erhaltungsdateien und3Binaryhashs OK. Hauptmodul915ea72b8c96881fa510195c400685d90ed07de97765c93f99fd7e78f14f8fee, Datenbinary818a9f5ac81cfe2104bf3fd82b1b493ff458d68a8800f9bf17bff3a66857baf5. Normalizer/Storage/bisherigeTests/Harness/Manifest/Lockfile unverändert. VorigerFix6-Code/Binary zusätzlich bytegleich erhalten.",
+    "Einziger korrigierter Datenwrapper tatsächlich als Task brbdh9mfm/PID1199101 seit12:48:22UTC gestartet. Parent las aktuelles data-fix6.log mit WRAPPER_PID/WRAPPER_START und bestätigte lebenden eigenen Wrapper per ps. Noch kein LOCKS_ACQUIRED oder HARNESS_START: wartet blockierend auf erste Hostlock, Datennormalisierung noch nicht begonnen. Kein Datenresultat aus Wrapperstart abgeleitet.",
+    "Derselbe einzige Operator a8a6b9fa414745406 führt bestehenden Auftrag bis komplettem korrigiertem Werte-/Original-/Identitäts-/Wiederholungsbeweis fort. Ziel getrennt a/normalized-fix6, gleiche47Originalinputs, Source und Targets eingefroren. Kein Zweitwriter, weitere Sourceänderung, Parser oder neue Sammlung. Stabiler Task wird nicht timerbedingt beendet.",
+    "Root-Punkte45/47 und bestätigter Featurevertrag übernommen. Alte Ausgaben/Freezes/Binaries/Inputs bleiben erhalten, alter282-Abweichungsbestand nicht importfreigegeben. Nach sicherem vollständigem Datenende frische unabhängige Abnahme und eigener Modulcommit. C3 gemeinsame Manifeste/DB/Leser/Gate/Integration/Deploy. Kurze natürliche UEBERGABE/AN_HAUPT auf echte Taskmeldung aktualisiert."
+  ],
+  "blocker": [
+    "Eigener stabiler Datenwrapper wartet auf erste Hostlock; Wartezeit ist kein Fehler oder Ablaufdatum. Noch kein tatsächlicher Harnessstart.",
+    "Vollständiger korrigierter Faktenwert-/Originaltext-/Identitäts-/Wiederholungsbeweis aller Quellen und frische unabhängige Abnahme fehlen; enge Belege47Tests/einArchivdokument reichen nicht.",
+    "Alter Faktenbestand weiter gesperrt, kein Modulcommit oder Importgrün. Produktiver gemeinsamer Import/PostgreSQL/Leser bleibt C3.",
+    "Historische Wiki-Abdeckung keine aktuelle Vollabdeckung; Challengebelege keine neuen Inputs."
+  ],
+  "naechster_schritt": "Denselben lebenden Task brbdh9mfm erhalten, nach Lockübernahme tatsächlichen HARNESS_START und UTC-Zeit melden. Vollständigen getrennten korrigierten Lauf bis allen Faktenwerten/Originaltexten/Identitäten und ganzen Wiederholungen führen, echte Exits/Hashs/Kinderfreigabe übernehmen. Danach frische unabhängige Datenabnahme und eigener Modulcommit, keine zweite Verarbeitung."
+}

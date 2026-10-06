@@ -1,0 +1,27 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 37,
+  "zeit": "2026-10-03T14:14:17Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Tatsächlicher korrigierter Vollharness bwrrp3l2b abgeschlossen: Start 13:32:11 UTC, Ende 13:57:09 UTC, Harness-Exit 0, Wrapper-Exit 0, beide Locks geschlossen. A las das komplette data-fix6.log einschließlich Endmarkern. Eigene Wrapper- und Binary-PIDs um 14:11:58 UTC zusätzlich nicht mehr vorhanden; Erfolg folgt aus echtem Endbeleg, nicht aus fehlenden PIDs.",
+    "A prüfte alle sechs echten strukturierten Resultate gesondert: keine unerwarteten Resultate, kein run_error oder normalization_error. 38.273 Dokumentversionen, 1.109.153 originalwertgleiche Fakten, darunter 130.107 JSON-Zahlen. Alle sechs vollständigen Wiederholungen byteidentisch, 38.261 XML-Originalrevisionen und zwölf API-Texte exakt. Alle Inventar- und Content-Complete-Flags false.",
+    "A maß sämtliche sechs fertigen documents.jsonl-Hashes unabhängig. Sie stimmen mit den Laufbelegen überein. Hauptbestand SHA-256 32cdbc98fc8692812c879b7682f17c2493fd622e67fe25fe00b853a8956e65e9. Endlog bestätigt 47 Originalinputs, Source-/Binaryfreezes, alten target- und normalized-Bestand sowie Featuretarget einschließlich Erhaltungsmetadaten unverändert.",
+    "Derselbe einzige Operator a8a6b9fa414745406 führt noch ausschließlich die beauftragten administrativen Vollvertrags-, Größen- und Altbestandvergleiche aller Fakten sowie seinen Endbericht aus. Keine weitere Verarbeitung oder Sourceänderung, kein Zweitwriter. Frisches unabhängiges Abnahmebriefing vorbereitet, Prüfer noch nicht gestartet; Start erst nach sicherer vollständiger Operatorübergabe.",
+    "UEBERGABE, AN_HAUPT und Bereichsregister auf echten Vollharnessabschluss aktualisiert. Alter Faktenbestand mit 282 Abweichungen bleibt gesperrt. Root-Punkt 51 unverändert: A-Harness 1.0.151 eingefroren, C produktiv 1.0.150 mit arbitrary_precision und getrenntem Verbraucherbeweis. Nur C3 produktive Integration, Gate und Deploy."
+  ],
+  "blocker": [
+    "Administrative Vollvertrags-, Größen- und Altbestand-Endbelege sowie vollständiger Operatorbericht noch offen.",
+    "Frische unabhängige Gesamt-Datenabnahme und eigener lokaler Modulcommit fehlen; noch keine Importfreigabe oder produktive Aussage.",
+    "Historische Quellenabdeckung ist keine heutige Vollabdeckung; öffentliche Weitergaberechte weiterhin begrenzt."
+  ],
+  "naechster_schritt": "Denselben Operator seine beauftragten administrativen Endbelege sicher abschließen lassen und tatsächliche vollständige Übergabe übernehmen. Danach frische unabhängige Gesamt-Datenabnahme starten; bei bestandener Abnahme nur eigene vier Module lokal committen und exakten SHA an Root übergeben."
+}

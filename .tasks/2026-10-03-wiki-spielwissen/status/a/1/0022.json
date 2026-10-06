@@ -1,0 +1,29 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 22,
+  "zeit": "2026-10-03T09:03:59Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Erster echter erfolgreicher Testlauf: vorhandener Datenworker a8cb651c3dd98f7a1, test8 bobg0akq7/PID4138464 ab09:02:26UTC unter beiden Hostlocks/frischer NonZombie-Probe. Echter Exit0/43passed/0failed/0ignored/0filtered, alle41 unveränderten Modulregressionen plus zwei util-Tests ungefiltert/--include-ignored. A las vollständigen tatsächlichen pruefharness-a/test-8.log.",
+    "Wörtlicher Befehl: /home/nathanael/.cargo/bin/cargo test --offline --locked --manifest-path /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/pruefharness-a/Cargo.toml -j 1 -- --include-ignored. Keine ENV-Defaults. TESTNACHWEIS[TW-1]: 43 passed, 0 ignored | Baseline: nicht gemessen rot. Keine vorbestehende rote Testbaseline behauptet.",
+    "Vier Modulhashs beim Start exakt Fix5-Freeze. Eigener Harness nur recursion_limit=256/enge main.rs-Formatierung, Hash d358ec15a692aeb57cbbd7f05e62be4eaa85217c3b5eaf59db4a63fc23f201fd, keine Moduländerung/Fix6. test4/test7Exit101 als tatsächliche frühere Compilerresultate erhalten.",
+    "Clippy aller Targets tatsächlich09:02:43UTC nach grünem Test im selben vorhandenen Wrapper gestartet, läuft noch. Debugbau/Format folgen nur bei Erfolg. Kein vollständiger Compiler-/Checkabschluss oder echter Gesamtdaten-/Wiederholungsbeweis behauptet.",
+    "Unabhängige vollständige Fix5-Prüfung6 bleibt statisch tragfähig ohne Restdefekte, vor/nach vier Hashs identisch. Alle41Definitionen und tatsächliche öffentliche/Harnessaufrufer gelesen, kein ALLOW/Crashbeweis, öffentliche Herkunft/private Budgetfälle getrennt. REVIEW-LOCAL-6.md intern, kurze UEBERGABE/REGISTER/HANDOFF/AN_HAUPT nachgeführt.",
+    "Fünf Archive/zwölf Original-API-Captures bleiben Quellenbestand, weiterhin null bestätigte normalisierte Vertragsdokumente/Fakten oder vollständige Wiederholung. Keine DB-Imports/Git/Deploy. Vorhandenen Datenauftrag/Originale/Core/Harness/Lockfile erhalten, stabile Wartetasks nicht timerbedingt stoppen, beide Locks/frische NonZombie/-j1 verpflichtend.",
+    "C2 prüft ausreichende Rekursionsgrenze bei produktiver Registrierung im eigenen aktuellen Crateroot sowie vorhandene bounded-Anbindung, finaler Gate/Integrator/Deployer. A kein zweiter Corepfad, keine produktive lib.rs/Manifeste oder fremder Altbranch. Vor etwaiger neuer Modulfix6 begründet an Haupt eskalieren."
+  ],
+  "blocker": [
+    "Clippy/Debugbau/Format sowie vollständiger echter Normalisierungs-/Originalhash-/Wiederholungsbeweis und finale unabhängige Datenabnahme noch offen.",
+    "HTTP403/Managed Challenge begrenzt aktuelles allpages, historische Archive keine heutige Vollabdeckung.",
+    "C2 prüft aktuelle produktive Registrierung/Crateroot und bestehende Reader-Anbindung, A verändert gemeinsame Dateien nicht."
+  ],
+  "naechster_schritt": "Denselben vorhandenen echten Compiler-/Gesamtdaten-/Originalhash-/vollständigen Wiederholungsauftrag bis unabhängiger Datenabnahme fortführen, stabile Wartetasks/Fix5-Freeze erhalten, keine ungeprüften Importe oder automatische Fix6."
+}

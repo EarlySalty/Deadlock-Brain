@@ -1,0 +1,30 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 28,
+  "zeit": "2026-10-03T10:25:06Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Erster tatsächlich vollständig abgeschlossener Quellenbeweis10:23:32UTC: Hauptarchivdeadlock.wiki20250415,4.417verschiedeneSeiten/22.742Revisionen-Dokumente/1.109.153Fakten/722.950.493JSONL-Bytes. A las vollständige normalized/deadlock.wiki-20250415-history/run-evidence.json.",
+    "Alle22.742Originalrevisions-Inhaltshashs exakt passend,0fehlendeOriginalversionen/13identischeDoppelrevisionblöcke. GanzezweiteVerarbeitung byteidentisch. Parent maß fertigenJSONL-SHA10:25:06UTC unabhängig:7e6c7b2e0dc50049bd4a02a93aff5a94ca2ba0351056c1559b5df1b131cbc63c.",
+    "KomprimierterArchivSHAbea69e14f1ec35b8bbfe157b3cf9cf362f888e2321e9aa5a46a03c1670120825, XMLSHA4a64288c2776b46a3722054aa4fe7f61cae167b1f5e3d4125c94080c37ab240e/177.037.503XML-Bytes exaktRecherchebelege. TatsächlichehistorischeNamespace-ID-Nenner stimmen mitModulbericht, inventory_complete/content_completefalse/keineheutigeVollabdeckung.",
+    "Derselbe Gesamtprozess253357/Wrapper86988 seit09:46:17UTC läuft für übrigevierArchive/zwölfhistorischeCaptures unverändert weiter, keinGesamtabschluss/finaleDatenSHA-Abnahme oderImportfreigabe. Alle47altenInputs/Fix5/Harness erhalten, keinea-live-coverage-Belege zugemischt oderTimerpause/zweiteImplementierung.",
+    "Bisher echteTests43passed/0failed/0ignored/0filtered,Clippy0,Debugbau0, eigeneModule/mainfmt0/Gesamtfmt1unverändertesfremdesutil52 ehrlich. Fix5unabhängig vollständigstatisch ohneRestdefekte geprüft, keinallgemeinesALLOW/Crashbeweis/Modulfix6.",
+    "ZusatzaktuelleAbdeckung abgeschlossen: zwölfOriginalcapturenMay2/RevisionenApril7-May1, heutigerobots09:25:15UTC/MechanicsAPI09:27:59UTC beide403Challenge/gestoppt, keineaktuellenArtikel/Inventar/globalenSperr-oderVollabdeckungsbehauptungen. GetrennteMessbelege keineImportinputs.",
+    "UEBERGABE/AN_HAUPT/HANDOFF/REGISTER tatsächlicherQuellenabschluss nachgeführt, Rohberichteintern. Root/C3alleinigeIntegration/Gate/Deploy lautPunkt41, C2beendet. FinaleEigencommits/Imports/Merge/Push/Deploy noch nicht erfolgt, fremderAltbranch unberührt; vor neuerModulfix6 begründet anRoot."
+  ],
+  "blocker": [
+    "Hauptarchiv abgeschlossen/geprüft/wiederholt, übrigevierArchive/zwölfhistorischeCaptures und Gesamtprozessabschluss/finaleunabhängigeDatenabnahme weiteroffen.",
+    "HistorischeArchivabdeckung keineheutigeVollabdeckung; heutigezulässigeProbe403Challenge/keineneuenArtikel, keineglobaleEinzelseitensperre behauptet.",
+    "Gesamtfmt1nur unverändertesfremdesutil52 außerhalbA-Eigentum, eigeneModule/mainfmt0; ehrlicheAbgrenzung anC3.",
+    "C3prüft produktiveRegistrierung/Crateroot/existierendeReader-/Import-/Releasegrenzen; Averändert gemeinsameDateiennicht."
+  ],
+  "naechster_schritt": "Denselben tatsächlichlaufenden übrigen Volllauf bis echtem Gesamtabschluss/allenOriginalhashs/ganzenWiederholungsbeweisen fortführen. Erst danach finaleAbnahme/Eigencommits/kurzeÜbergabe fürRoot+C3; stabilenProzess/Inputbestand/Fix5 erhalten, keineImportfreigabe aus Teilabschluss."
+}

@@ -1,0 +1,29 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 27,
+  "zeit": "2026-10-03T10:08:13Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Erstes tatsächliches HauptJSONL-Veröffentlichungsereignis im unveränderten vollständigen Offline-Lauf: Workerprobe10:06:41UTC/Parentstat10:08:13UTC bestätigen /home/nathanael/.local/share/deadlock-brain/wiki-spielwissen/2026-10-03/a/normalized/deadlock.wiki-20250415-history/documents.jsonl mit722.950.493Bytes. Keine Dateiinhalte/ungeprüfteSummen daraus abgeleitet.",
+    "Eigener Wrapper86988/Kind253357 laut Worker10:06:41UTC aktiv, KindRSS2.870.016KiB/data1log0Bytes. VollständigeOriginal-/Revisionshashverifikation/gesamteWiederholung weiterlaufend, keine fertigenDokument/Fakten/Hashgesamtzahlen/Abschluss oderImportfreigabe aus bloßerExistenz. StabileArbeit seit09:46:17UTC unverändert, beideLocks/frischeProbe beimStart, keinTimerabbruch.",
+    "C3-Routing aus gelesenemPunkt41 übernommen: C2beendet, C3Paketc/Versuch3/Produzentteil-c/Sessionf83cb4c1-e8c2-4f44-8e83-ada61c2b246a/Solhigh übernimmt denselben gesichertenStand, einzigerIntegrator/Deployer. Root hat Capturezeiten/Datenstart zentralgesichert/anC3gemeldet, A keine direktefremdeSessionkoordination oder neueWorker/Inputs.",
+    "Genau47alteInputbelege/fünfArchive/zwölfhistorischeCaptures/Harnessquelle/Fix5 unverändert; getrennteaktuelleChallengebelege keineImportinputs. TatsächlichesDebugbinarySHA83349db303f5661ba4c6f0ac156b4ec14ab93e36bf85d36b90aa67b163d48578. Tests43/0/0/0,Clippy0,Debugbau0, eigeneModule/mainfmt0/Gesamtfmt1fremdesutil52 ehrlich abgegrenzt.",
+    "Fix5 vollständig unabhängig statisch nachgeprüft ohneRestdefekte, keinallgemeinesALLOW/Crashbeweis oderFix6. ZusatzöffentlicheAbdeckung abgeschlossen: historischeCapturesMay2/RevisionenApril7-May1, heutigerobots09:25:15UTC/MechanicsAPI09:27:59UTC jeweils403/Challenge/gestoppt, keine neuenArtikel/Inventar/pauschaleEinzelseitensperre/Vollabdeckung.",
+    "UEBERGABE/REGISTER/HANDOFF/AN_HAUPT neuerVeröffentlichungsstand/C3nachgeführt, Rohberichteintern. EigenegeprüfteAbschlusscommits/DB-Imports/Merge/Push/Deploy und finaleDatenabnahme noch nicht erfolgt, fremderAltbranch unangetastet. Vor nötigerModulfix6 begründet anRoot eskalieren."
+  ],
+  "blocker": [
+    "Tatsächlichlaufender vollständigerOffline-Daten-/Originalhash-/Wiederholungsbeweis noch nicht abgeschlossen, ersteDateiveröffentlichung keinefinaleAbnahme/Importfreigabe.",
+    "Heutige konkreteöffentlicheProben403/Challenge, historischeQuellen keineheutigeVollabdeckung, globaleEinzelseitensperre nichtbehauptet.",
+    "Gesamtfmt1nur unverändertesfremdesutil52 außerhalbA-Eigentum, eigeneModule/mainfmt0, ehrlicheAbgrenzung anC3.",
+    "C3prüft produktiveRegistrierung/Crateroot/existierendeReader-Anbindung und tatsächlicheImport-/Releasegrenzen, Averändert gemeinsameDateiennicht."
+  ],
+  "naechster_schritt": "Denselben tatsächlichlaufenden Volllauf/ganzeOriginal-/Revisionshashverifikation und Wiederholung unverändert bis echtemAbschluss nachhalten; erst danach geprüfteGesamtzahlen/ArtefaktSHA/kurzeÜbergabe anRootfürC3 und unabhängigeDatenabnahme. KeineImportfreigabe aus bloßerDateiexistenz."
+}

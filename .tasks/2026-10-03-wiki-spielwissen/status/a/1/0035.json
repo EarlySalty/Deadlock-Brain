@@ -1,0 +1,27 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 35,
+  "zeit": "2026-10-03T13:15:43Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Vorstartversuch brbdh9mfm endete um 13:01:30 UTC mit Wrapper-Exit 1. Fehlendes /usr/bin/time verursachte Startaufruf-Exit 127; der Harness wurde nicht ausgeführt. A las das vollständige erhaltene data-fix6-prestart.log. Der dortige HARNESS_START-Marker bezeichnet nur den gescheiterten Startaufruf.",
+    "Vorstartlog bestätigt alle 47 Originale, Source- und Binaryfreezes, beide Targets, den alten normalisierten Bestand sowie Erhaltungsmetadaten erneut unverändert. Beide Locks geschlossen. Kein korrigierter Ausgabebestand aus diesem Versuch behauptet.",
+    "Derselbe einzige Operator a8a6b9fa414745406 führt den unveränderten Auftrag mit vorhandener Bash-Zeitmessung fort. Einziger aktueller Task bwrrp3l2b, Wrapper 1297541, seit 13:04:18 UTC. A bestätigte den lebenden eigenen Wrapper per ps. Laut Operator und aktuellem Startlog wartet er auf die erste Hostlock, noch keine Datennormalisierung.",
+    "Vier Originalkommentare sind exakt wiederhergestellt; endgültiger Freeze mit 15 Dateien und drei Binaryhashs von A bestätigt. 47 Tests bestanden, Clippy mit -D clippy::all, Debugbau und eigene Formatprüfung erfolgreich. Gesamtformatprüfung scheitert allein am unveränderten fremden util.rs. Keine weitere Sourceänderung oder zweite Implementierung.",
+    "Ziel bleibt normalized-fix6 aus denselben 47 Originalinputs. Alte Fakten mit 282 Zahlenwertabweichungen bleiben gesperrt. Nach echtem vollständigem Werte-, Originaltext-, Identitäts- und Wiederholungsbeweis folgen frische unabhängige Abnahme und eigener lokaler Modulcommit. Root-Wache um 13:10 UTC mit echtem Endbeleg und erneut bestätigtem Ersatzwrapper beantwortet. Punkt 51 übernommen: C behält produktiv serde_json 1.0.150 mit arbitrary_precision, A-Harness bleibt unverändert auf 1.0.151; C prüft Verbraucherwirkung getrennt. Bereichsregister, kurze Übergabe, HANDOFF und Taskbeschreibungen nachgeführt."
+  ],
+  "blocker": [
+    "Einziger stabiler Wrapper wartet auf die erste Hostlock; Wartezeit ist kein Laufzeitfehler oder Ablaufdatum.",
+    "Vollständiger korrigierter Gesamtwertebeweis und frische unabhängige Datenabnahme fehlen; enge Tests und ein Archivdokument reichen nicht.",
+    "Kein Modulcommit, Importgrün, Merge oder Deploy durch A. Historische Abdeckung ist keine aktuelle Wiki-Vollabdeckung."
+  ],
+  "naechster_schritt": "Denselben einzigen Task bwrrp3l2b erhalten. Tatsächliche erfolgreiche Binaryausführung nach Lockübernahme belegen, vollständigen korrigierten Bestand und alle Wiederholungen prüfen, reale Exits sowie Original- und Erhaltungsnachweise übernehmen. Danach frische unabhängige Datenabnahme und eigener Modulcommit."
+}

@@ -1,0 +1,32 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 29,
+  "zeit": "2026-10-03T11:11:52Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "ja",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Tatsächliches Ende des erhaltenen Gesamtloops übernommen: bt0vqxqzj, Start 09:46:17 UTC, Ende 10:35:46 UTC, Datenexit 0, Originalhashcheck 0, LOCKS_CLOSED, endgültiger Werkzeugexit 0. Parent las vollständiges eigenes Shelloutput und data-1.log; Erfolg nicht aus fehlenden PIDs abgeleitet.",
+    "Sechs fertige Spools aus fünf Originalarchiven und zwölf historischen Captures: 38.273 Dokumentversionen, 1.109.153 Fakten, 851.125.808 JSONL-Bytes. Parent bestätigte alle sechs vollständigen JSONL-SHAs separat. Alle 38.261 XML-Originalrevisionshashs und zwölf API-Originaltexte exakt, null fehlende Versionen, 13 identische doppelte XML-Revisionsblöcke. Alle sechs ganzen zweiten Verarbeitungen byteidentisch.",
+    "Alle 47 ursprünglichen Inputdateien, vier Fix5-Module, Harness und ausgeführtes Debugbinary vor/nach unverändert. Eigene Wrapper und Kinder nach echtem Ende beendet, FD8/9 geschlossen, zusätzliche Workerprobe 10:47:28 UTC bestätigt Freigabe. Kein neuer Verarbeitungslauf, Inputwechsel oder Modulfix.",
+    "Tatsächliche Tests: 43 passed, 0 failed, 0 ignored, 0 filtered; Clippy aller Targets 0, Debugbau 0, selektives Format eigener Dateien 0. Gesamtformatprüfung 1 ausschließlich im unveränderten fremden util.rs:52, Parent HEAD-Diff dort 0. Warnungen nicht unterdrückt, kein -D warnings-, Stromausfall- oder Produktivbeweis behauptet.",
+    "Vollständige Vertragsprüfung aller Dokumente und Fakten 0; null globale ID-/Revisionsschlüsseldubletten; redistribution_allowed überall false. Maximalzeile 4.763.003 UTF-8-Bytes ohne LF, 4.763.004 mit LF. Gesamtbeleg normalized/harness-run-summary.json; ergänzende Vertrags-, Legacy-Original- und Größenbelege im eigenen pruefharness-a.",
+    "Datenworker a8cb651c3dd98f7a1 endgültig abgeschlossen, DATENLAUF.md durch Parent übernommen. Frische unabhängige Eigenabnahme7 a0cfedf24bce1d03e abgeschlossen: fertig N, Fix nötig J. Vollständiger Faktenwertvergleich meldet 282 numerische Abweichungen; Parent bestätigte zwei Beispiele selbst. Originaltexte unverändert. REVIEW-LOCAL-7.md sichert Befund und begrenzten Vorschlag. Kein Fix6 gestartet.",
+    "Historische Archivvollübernahme ist keine heutige Vollabdeckung: alle complete-Flags false, Einseitenquelle kein bewiesener Spielkorpus. Zwölf API-Captures vom 02.05.2026; heutige getrennte robots-/Mechanics-Proben beide 403, danach gestoppt. Keine aktuellen Artikel oder globale Einzelseitensperre behauptet; Challengebelege keine Importinputs.",
+    "UEBERGABE.md, AN_HAUPT.md, HANDOFF.md und eigenes REGISTER.md auf tatsächlichen Gesamtabschluss nachgeführt. A liefert nach tragfähiger Eigenabnahme einen eigenen lokalen Modulcommit; nur C3 besitzt Registrierung, Reader-/Importprüfung, Gate, Merge, Push, Deploy und Live-Prüfung. Fremder Altbranch unverändert."
+  ],
+  "blocker": [
+    "Eigenabnahme7 blockiert die Übergabe: 282 numerische Fakten weichen vom Original-JSON ab. normalize.rs:586 liest in serde_json::Value; :902-916 gibt den eingelesenen Wert weiter. Bestehender Harness beweist Originaltext und Faktenzahl, bisher nicht jede Zahlenwertgleichheit. Kein eigener Modulcommit oder Import vor Auflösung.",
+    "Vor Fix6 zwingend Root-Entscheidung: begrenzter Präzisionserhalt über bestehenden serde_json-Pfad, gemeinsame Manifest-/Verbraucherzuständigkeit bei C3, keine zweite Parserimplementierung oder Epsilon-Toleranz. A startet keinen sechsten Fixer automatisch.",
+    "Aktuelle vollständige Wiki-Inventarisierung bleibt unbelegt; historische Quellen und heutige begrenzte öffentliche Probe getrennt.",
+    "Gesamtformatprüfung 1 im unveränderten fremden util.rs:52 außerhalb A-Eigentum; eigene selektive Formatprüfung 0.",
+    "C3 prüft produktive Registrierung, Rekursionsgrenze, bestehenden bounded Reader, reale Importgrößen und anschließende DB-/Brain-Anbindung."
+  ],
+  "naechster_schritt": "Konkreten Präzisionsbefund und begrenzten Fix6-Vorschlag über AN_HAUPT.md/UEBERGABE.md an Root eskalieren. Entscheidung zur sechsten Fixrunde und C3s Manifest-/Verbraucherzuständigkeit abwarten. Bestehenden Freeze, Originale und Ausgaben erhalten; kein neuer Worker, Verarbeitungslauf, Modulcommit oder ungeprüfter Import. Eigenabnahme7 ist nicht bestanden, kein Gate-ALLOW behauptet."
+}

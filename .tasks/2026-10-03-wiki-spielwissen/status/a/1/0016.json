@@ -1,0 +1,30 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 16,
+  "zeit": "2026-10-03T07:25:17Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Enger Fix4 abgeschlossen und eingefroren. Native Rückmeldung in bereiche/a/FIX-4.md durch A gesichert, keine zusätzliche Prüfung. Elternsync vor wiederholter Erfolgs-/Konfliktbestätigung und enge Zwillinge laut Fixer korrigiert.",
+    "Alle vier endgültigen SHA256 von A tatsächlich unabhängig mit sha256sum bestätigt. wiki_inventory.rs/normalize.rs bytegleich; storage.rsf48f4819534870b1aa8b2c1f0042f82d1d1ca1b1056242e55dc6632271d4daea; tests.rsa0d7cb81ce90c7a729c4ac6e92fbe02d3b670ff5e473a307935589adaf26c6d1.",
+    "33 bestehende Regressionen laut Fixer bytegleich erhalten, vier neue echte-Datei-/Nach-Rename-/Hardlink-Fehlerregressionen geschrieben, damit37 geschrieben. Gezielter Formatcheck Exit0; keine tatsächliche Ausführung oder unabhängige Gesamtfreigabe.",
+    "Derselbe vorhandene korrigierte Rust-Datenauftrag wieder freigegeben, kein Neubau oder Doppelwriter. Vier Hashs vom Datenworker07:25:37UTC nochmals bestätigt. Neuer stabiler Wrapper b66lshqbc/PID3660876 wartet für test-6.log auf beide Locks, ungefiltertes cargo test --offline -j1 -- --include-ignored. Kein bestätigter neuer Compilerstart.",
+    "Einziger bisheriger tatsächlicher test-4-Cargo-Aufruf ab06:47:12UTC unter beiden Locks/frischer Probe endete Exit101 wegen eigener Harnesspfade, null Tests. Harness korrigiert. test-5 vor Cargo nur für konkreten P2-Fix beendet, sicherer Punkt07:08:16UTC, keine Timerabbrüche oder fremden Prozesse/Branches.",
+    "Quellen unverändert fünf gesicherte Archive und zwölf API-Artikel; tatsächliche normalisierte Vertragsdokumente/Fakten weiterhin0, keine vollständige Wiederholung oder DB-Import. Originale außerhalb Git.",
+    "Aktuelle kurze UEBERGABE.md, AN_HAUPT.md, REGISTER.md, HANDOFF.md. C2 alleiniger Integrator/Gate-/Deployer; bestehender bounded-Reader dort prüfen. Fremder Altbranch aus Stop-Hook nach Punkt10 unberührt."
+  ],
+  "blocker": [
+    "Tatsächlicher erneuter Compiler-/Test-/vollständiger Normalisierungs-/Wiederholungslauf noch ausstehend.",
+    "Unabhängige Nachprüfung des neuen Fix4-Snapshots und endgültige Code-/Quellen-/Daten-/SHA-Abnahme fehlen noch.",
+    "HTTP403/Managed Challenge begrenzt aktuelle allpages; historische Archive keine heutige Vollabdeckung.",
+    "C2 prüft vorhandene get_bounded-Anbindung/Laufzeitgrenze, kein neuer Corepfad."
+  ],
+  "naechster_schritt": "Bestehenden stabilen Rust-Prüf-/Datenauftrag fortführen und echten Ausgang sichern; vollständige Archive und API-Captures normalisieren/wiederholen und danach unabhängig verifizieren. Nur geprüfte lokale Eigencommits an C2 liefern."
+}

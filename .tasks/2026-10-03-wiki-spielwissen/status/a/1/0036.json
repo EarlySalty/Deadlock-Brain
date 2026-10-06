@@ -1,0 +1,27 @@
+{
+  "auftrag": "2026-10-03-wiki-spielwissen",
+  "paket": "a",
+  "versuch": 1,
+  "sequenz": 36,
+  "zeit": "2026-10-03T13:47:21Z",
+  "produzent": "teil-a",
+  "phase": "aktiv",
+  "gebaut": "nein",
+  "reviewt": "nein",
+  "gemergt": "nein",
+  "live": "nein",
+  "sha": "2734c2da4e814ff79953e8e825275b0216a6af16",
+  "nachweise": [
+    "Einziger korrigierter Datenlauf tatsächlich seit 13:32:11 UTC gestartet: Task bwrrp3l2b, Wrapper 1297541, Binaryprozess 1445792. A las vollständiges aktuelles data-fix6.log: beide Locks erworben, Originalhashcheck erfolgreich, endgültige Quellen- und Binaryfreezes bestätigt, frische NonZombie-Probe mit Exit 0.",
+    "A bestätigte um 13:43:24 UTC die tatsächliche Binaryausführung. /proc/1445792/exe zeigt exakt den eingefrorenen target-fix6/debug/wiki-pruefharness-a; direkt gemessener SHA-256 818a9f5ac81cfe2104bf3fd82b1b493ff458d68a8800f9bf17bff3a66857baf5 stimmt mit endgültigem Freeze überein. Dies belegt Ausführung, keinen erfolgreichen Datenabschluss.",
+    "Derselbe einzige Operator a8a6b9fa414745406 arbeitet unverändert weiter. Operatorprobe um 13:44:07 UTC bestätigt einen Thread und getrennten angelegten normalized-fix6-Root. Noch kein Endexit, Gesamtergebnis oder fertiger Gesamtwerte- und Wiederholungsbeweis. Kein Zweitwriter, neuer Parser, Inputwechsel oder Sourcefix.",
+    "Source, Targets und 47 Originalinputs bleiben eingefroren. Vier Originalkommentare exakt restauriert; 47 Tests, Clippy mit -D clippy::all, Debugbau und eigene Formatprüfung bestanden. Gesamtformatprüfung scheitert allein am unveränderten fremden util.rs. Alte Ausgaben, Freezes und Binaries bleiben erhalten; alter Faktenbestand mit 282 Zahlenwertabweichungen gesperrt.",
+    "Root-Punkt 51 unverändert: lokaler Harness serde_json 1.0.151 bleibt eingefroren; C behält produktiv 1.0.150 mit arbitrary_precision und prüft seine Verbraucherwirkung getrennt. UEBERGABE, AN_HAUPT, Bereichsregister, HANDOFF und Tasks auf tatsächlichen Datenstart nachgeführt. Nur C3 integriert, prüft produktiven Import und deployt."
+  ],
+  "blocker": [
+    "Vollständige korrigierte Faktenwerte, Originaltexte, Identitäten, sechs ganze Wiederholungen und tatsächlicher Datenabschluss noch offen.",
+    "Frische unabhängige Gesamt-Datenabnahme und eigener lokaler Modulcommit folgen erst nach sicherem vollständigem Beweis. Kein Importgrün aus Tests, Prozessausführung oder einem Archivdokument.",
+    "Historische Quellenabdeckung ist keine heutige Wiki-Vollabdeckung; Rechte und Complete-Flags bleiben begrenzt."
+  ],
+  "naechster_schritt": "Denselben einzigen laufenden Task bis zum vollständigen korrigierten Werte-, Originaltext-, Identitäts- und Wiederholungsbeweis erhalten. Tatsächliche sechs Ergebnisse, Fehlerfreiheit, Exits, Original- und Erhaltungsnachweise sowie eigene Kinder- und Lockfreigabe übernehmen. Danach frische unabhängige Datenabnahme und eigener Modulcommit."
+}
