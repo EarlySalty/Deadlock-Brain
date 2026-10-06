@@ -691,6 +691,14 @@ impl Runner {
             let sha = fresh_sources
                 .get(&source.repository_id)
                 .context("entity_profile_source_fetch_failed")?;
+            scanner::materialize_game_source(
+                &repo.path,
+                &repo.origin,
+                sha,
+                &source.paths.iter().cloned().collect::<Vec<_>>(),
+                &config.bounds,
+            )
+            .await?;
             let pinned = dbrain_sources::git_source::PinnedRepository::open(&repo.path, sha)?;
             pinned.require_origin(&[&repo.origin])?;
             imports.push(

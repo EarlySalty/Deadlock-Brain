@@ -93,6 +93,88 @@ pub async fn resolve_ref(repo: &Path, reference: &str, bounds: &Bounds) -> Resul
     Ok(sha)
 }
 
+/// Der registrierte Online-Leseweg füllt fehlende Blobs eines Partial-Clones.
+/// Der nachfolgende gepinnte Parser behält sein Netzwerkverbot.
+pub async fn materialize_game_source(
+    repo: &Path,
+    origin: &str,
+    commit: &str,
+    prefixes: &[String],
+    bounds: &Bounds,
+) -> Result<()> {
+    validate_commit(commit)?;
+    let pinned = PinnedRepository::open(repo, commit)?;
+    pinned.require_origin(&[origin])?;
+    let mut files = BTreeMap::new();
+    for prefix in prefixes {
+        safe_relative(prefix)?;
+        let mut args = vec![
+            "--no-optional-locks".into(),
+            "--no-replace-objects".into(),
+            "-c".into(),
+            "core.hooksPath=/dev/null".into(),
+            "--literal-pathspecs".into(),
+            "ls-tree".into(),
+            "-r".into(),
+            "-z".into(),
+            commit.into(),
+            "--".into(),
+            prefix.clone(),
+        ];
+        let tree = process::run(
+            Path::new("/usr/bin/git"),
+            &args,
+            repo,
+            &[],
+            bounds.git_timeout_ms,
+            1024 * 1024,
+        )
+        .await?;
+        let entries: Vec<_> = tree
+            .split(|byte| *byte == 0)
+            .filter(|entry| !entry.is_empty())
+            .collect();
+        ensure!(
+            entries.len() <= dbrain_sources::git_source::MAX_GIT_FILES,
+            "game_source_file_limit"
+        );
+        for entry in entries {
+            let entry = std::str::from_utf8(entry)?;
+            let (header, path) = entry.split_once('\t').context("game_source_tree_record")?;
+            safe_relative(path)?;
+            let fields: Vec<_> = header.split_whitespace().collect();
+            ensure!(
+                fields.len() == 3
+                    && matches!(fields[0], "100644" | "100755")
+                    && fields[1] == "blob",
+                "game_source_blob_required"
+            );
+        }
+        args.insert(8, "-l".into());
+        process::run(
+            Path::new("/usr/bin/git"),
+            &args,
+            repo,
+            &[],
+            bounds.git_timeout_ms,
+            1024 * 1024,
+        )
+        .await?;
+        for blob in pinned.files(prefix)? {
+            files.insert(blob.path, blob.size);
+        }
+    }
+    ensure!(
+        files.len() <= dbrain_sources::git_source::MAX_GIT_FILES
+            && files
+                .values()
+                .try_fold(0usize, |total, size| total.checked_add(*size))
+                .is_some_and(|total| total <= dbrain_sources::git_source::MAX_GIT_TOTAL_BYTES),
+        "game_source_snapshot_limit"
+    );
+    Ok(())
+}
+
 pub fn discover(config: &MaintenanceConfig) -> Result<Vec<DiscoveredRepository>> {
     config.validate()?;
     let mut known: BTreeSet<_> = config
@@ -500,6 +582,87 @@ pub(crate) fn read_private_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn partial_clone_wird_vor_offline_parser_nur_im_registrierten_pfad_gefuellt() {
+        let directory = tempfile::tempdir().unwrap();
+        let upstream = directory.path().join("upstream");
+        let clone = directory.path().join("clone");
+        std::fs::create_dir(&upstream).unwrap();
+        let git = |cwd: &Path, args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .current_dir(cwd)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            String::from_utf8(output.stdout).unwrap()
+        };
+        git(&upstream, &["init", "-q"]);
+        git(&upstream, &["config", "uploadpack.allowFilter", "true"]);
+        git(
+            &upstream,
+            &["config", "uploadpack.allowAnySHA1InWant", "true"],
+        );
+        std::fs::create_dir(upstream.join("scripts")).unwrap();
+        std::fs::write(upstream.join("scripts/game.vdata"), "Spielquelle").unwrap();
+        std::fs::write(upstream.join("anderer-pfad.txt"), "Nicht importieren").unwrap();
+        git(&upstream, &["add", "."]);
+        git(
+            &upstream,
+            &[
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-qm",
+                "Fixture",
+            ],
+        );
+        let commit = git(&upstream, &["rev-parse", "HEAD"]).trim().to_owned();
+        let origin = format!("file://{}", upstream.display());
+        git(
+            directory.path(),
+            &[
+                "clone",
+                "-q",
+                "--filter=blob:none",
+                "--no-checkout",
+                &origin,
+                "clone",
+            ],
+        );
+        let pinned = PinnedRepository::open(&clone, &commit).unwrap();
+        assert!(pinned.files("scripts").is_err());
+        let bounds = Bounds {
+            max_repositories: 1,
+            max_files: 100,
+            max_blob_bytes: 8388608,
+            max_bundle_bytes: 33554432,
+            max_output_bytes: 1048576,
+            git_timeout_ms: 10000,
+        };
+        assert!(materialize_game_source(
+            &clone,
+            "file:///nicht-die-quelle",
+            &commit,
+            &["scripts".into()],
+            &bounds
+        )
+        .await
+        .is_err());
+        assert!(pinned.files("scripts").is_err());
+        materialize_game_source(&clone, &origin, &commit, &["scripts".into()], &bounds)
+            .await
+            .unwrap();
+        let files = pinned.files("scripts").unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            pinned.read_blob(&files[0].path).unwrap(),
+            "Spielquelle".as_bytes()
+        );
+        assert!(pinned.files("anderer-pfad.txt").is_err());
+    }
     #[test]
     fn sensitive_paths_and_data_are_never_exported() {
         for path in [
