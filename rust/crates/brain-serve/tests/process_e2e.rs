@@ -256,7 +256,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
             source_id: "c1-fixture".into(),
             logical_id: "abrams".into(),
             revision: 1,
-            content_hash: "c1-fixture-hash".into(),
+            content_hash: format!("{:x}", Sha256::digest(b"Abrams has a verified fixture.")),
             content: "Abrams has a verified fixture.".into(),
             visibility: SourceVisibility::Public,
             allowed_scopes: BTreeSet::new(),
@@ -326,7 +326,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
                 source_id: source.into(),
                 logical_id: id.into(),
                 revision: 1,
-                content_hash: format!("fixture-{id}"),
+                content_hash: format!("{:x}", Sha256::digest(content.as_bytes())),
                 content: content.into(),
                 visibility,
                 allowed_scopes: BTreeSet::from([scope.into()]),
@@ -356,7 +356,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         content: "Hero: Egressprobe\nmax health: 777\n".into(),
         content_hash: String::new(),
         visibility: SourceVisibility::Public,
-        allowed_scopes: BTreeSet::from(["bot.public".into()]),
+        allowed_scopes: BTreeSet::from(["fixture.cache".into()]),
         tombstone: false,
         valid_from: None,
         valid_to: None,
@@ -416,7 +416,10 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
         source_id: "fixture-game".into(),
         logical_id: "asset/hero/1/starting_stats.max_health.value".into(),
         revision: 1,
-        content_hash: "fixture-guardian-conflict".into(),
+        content_hash: format!(
+            "{:x}",
+            Sha256::digest(b"Hero: Abrams\nAliases: Guardian\nmax health: 650\n")
+        ),
         content: "Hero: Abrams\nAliases: Guardian\nmax health: 650\n".into(),
         visibility: SourceVisibility::Public,
         allowed_scopes: BTreeSet::from(["game.public".into()]),
@@ -926,7 +929,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
             source_id: "fixture-game".into(),
             logical_id: "asset/hero/25/starting_stats.max_health.value".into(),
             revision: 2,
-            content_hash: "fixture-revoked-health".into(),
+            content_hash: format!("{:x}", Sha256::digest(b"Hero: Warden\nmax health: 770\n")),
             content: "Hero: Warden\nmax health: 770\n".into(),
             visibility: SourceVisibility::Private,
             allowed_scopes: BTreeSet::from(["brain.internal".into()]),
@@ -957,7 +960,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
             source_id: "fixture-game".into(),
             logical_id: "asset/hero/25/starting_stats.stamina.value".into(),
             revision: 2,
-            content_hash: "fixture-deleted-stamina".into(),
+            content_hash: format!("{:x}", Sha256::digest(b"")),
             content: String::new(),
             visibility: SourceVisibility::Public,
             allowed_scopes: BTreeSet::from(["game.public".into()]),
@@ -1065,6 +1068,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     // Reuse a real process, answer cache, lexical index and immutable release pin.
     // Publication remains allowed: only canonical provider egress is withdrawn.
     let mut warm_config = config.clone();
+    warm_config["credentials"][0]["scopes"] = json!(["fixture.cache", "game.public"]);
     warm_config["kernel"]["cache_entries"] = json!(8);
     warm_config["kernel"]["cache_ttl_ms"] = json!(60_000);
     let mut warm_service = Service::spawn(&warm_config, &environment);
@@ -1073,6 +1077,7 @@ async fn binary_loopback_health_readiness_shutdown_and_no_fallback() {
     common::assert_ready(&warm_address);
     let mut warm_query = query("egress-only-warm");
     warm_query.text = "Egressprobe max health 777".into();
+    warm_query.requested_scopes = BTreeSet::from(["fixture.cache".into()]);
     let calls_before = provider.calls.load(Ordering::SeqCst);
     let positive = ask(&warm_address, API_TOKEN, warm_query.clone())
         .await

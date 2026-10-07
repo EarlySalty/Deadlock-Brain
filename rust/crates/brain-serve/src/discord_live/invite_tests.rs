@@ -204,8 +204,14 @@ fn alle_statuswerte_durchlaufen_den_kernel_und_beide_echten_providertransporte()
             DiscordRetriever::new(NoOtherSource, Some(source)),
             ActualProvider(provider),
         );
-        for status in statuses {
-            let response = kernel.answer_for_publication(&query(), &context());
+        for (index, status) in statuses.into_iter().enumerate() {
+            let mut request = query();
+            if index % 2 == 0 {
+                request.text =
+                    "Bin ich eingeladen? Chatkontext Fremdname und Steamcode 123456, Geheimtext"
+                        .into();
+            }
+            let response = kernel.answer_for_publication(&request, &context());
             assert_eq!(response.status, AnswerStatus::Answered);
             assert_eq!(response.text, format!("Status {status}"));
             assert_eq!(response.usage.network_rounds, 2);
@@ -214,6 +220,55 @@ fn alle_statuswerte_durchlaufen_den_kernel_und_beide_echten_providertransporte()
         }
         server.join().unwrap();
     }
+}
+
+#[test]
+fn normale_fragen_behalten_den_inneren_retriever_ohne_statusabruf() {
+    struct Ordinary(Query, Arc<std::sync::atomic::AtomicUsize>);
+    impl RetrievalPort for Ordinary {
+        fn retrieve(
+            &self,
+            request: &Query,
+            _: &AuthorizedContext,
+        ) -> Result<Vec<Evidence>, PortError> {
+            assert_eq!(request, &self.0);
+            self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(Vec::new())
+        }
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let source = live(&listener);
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let texts = [
+        "Wie kann ich eine Einladung verschicken?",
+        "Wie wird eine Einladung verschickt?",
+        "Welche FPS bekomme ich in Deadlock?",
+        "Welche FPS bekomm ich in Deadlock?",
+        "Wie funktioniert der Invite-Bot?",
+        "Wo kann ich eine Einladung verschicken?",
+        "Warum kann ich keine Einladung verschicken?",
+        "Erkläre mir, wie ich eine Einladung verschicken kann.",
+        "Sind Einladungen noch verfügbar?",
+        "Hat der Invite-Bot noch offene Aufgaben?",
+    ];
+    for text in texts {
+        let mut request = query();
+        request.text = text.into();
+        let adapter = DiscordRetriever::new(
+            Ordinary(request.clone(), calls.clone()),
+            Some(source.clone()),
+        );
+        let (items, usage) = adapter.retrieve_with_usage(&request, &context()).unwrap();
+        assert!(items.is_empty());
+        assert_eq!(usage.network_rounds, 0);
+        assert!(adapter.observations.lock().unwrap().is_empty());
+    }
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), texts.len());
+    listener.set_nonblocking(true).unwrap();
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
 }
 
 #[test]

@@ -36,57 +36,70 @@ fn timestamp<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String
 }
 
 pub fn requested(query: &Query) -> bool {
-    let text = query.text.to_lowercase();
-    let invite = [
-        "einlad",
-        "invite",
-        "beta-zugang",
-        "betazugang",
-        "zugang zu deadlock",
-    ]
-    .iter()
-    .any(|term| text.contains(term));
+    let lower = query.text.to_lowercase();
+    let text = lower.split(['?', '\n']).next().unwrap_or_default().trim();
+    let subject = text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("invitebot", "")
+        .replace("invite-bot", "")
+        .replace("invite bot", "")
+        .replace("einladungsbot", "")
+        .replace("einladungs-bot", "")
+        .replace("einladungs bot", "");
+    let invite = ["einlad", "eingelad", "invite", "beta-zugang", "betazugang"]
+        .iter()
+        .any(|term| subject.contains(term));
     let procedural = [
-        "wie bekomme",
-        "wie bekomm",
-        "wie bekommt",
-        "wie erhalte",
-        "wie erhält",
-        "wie kann",
-        "wie funktioniert",
-        "wie werde",
-        "wie wird",
-        "how can",
-        "how do",
-        "how to",
+        "wie ", "how ", "welche ", "welcher ", "welches ", "which ", "was ", "what ", "wer ",
+        "who ", "kann ", "darf ", "dürfen ", "can i ", "can one ", "may i ",
     ]
     .iter()
-    .any(|term| text.trim_start().starts_with(term));
-    let explicit_status = [
-        "status",
-        "schon",
-        "noch nicht",
-        "verschick",
-        "versand",
-        "versandt",
-        "gesendet",
-        "aussteh",
-        "pending",
-        "fehler",
-        "failed",
-        "warte",
-        "waiting",
-        "sent",
-        "missing",
+    .any(|term| text.starts_with(term));
+    let own = text.split(|c: char| !c.is_alphanumeric()).any(|word| {
+        matches!(
+            word,
+            "mein" | "meine" | "meinen" | "meinem" | "meiner" | "meines" | "my"
+        )
+    });
+    let status_read = own
+        && text.contains("status")
+        && ([
+            "wie ist",
+            "wie steht",
+            "wie sieht",
+            "was ist",
+            "what is",
+            "how is",
+        ]
+        .iter()
+        .any(|term| text.starts_with(term))
+            || ["sehen", "prüfen", "nachschauen", "check"]
+                .iter()
+                .any(|term| text.contains(term))
+            || ["wie bekomme", "wie erhalte", "how do i get"]
+                .iter()
+                .any(|term| text.starts_with(term)));
+    let status_check = [
+        "ob ich eingeladen",
+        "ob ich schon eingeladen",
+        "whether i was invited",
+        "whether i have been invited",
+        "if i was invited",
+        "if i have been invited",
+        "if my invite was sent",
     ]
     .iter()
-    .any(|term| text.contains(term));
-    if procedural
-        && !explicit_status
-        && !text.contains("ob ")
-        && !text.contains("whether")
-        && !text.contains("if my")
-    {
+    .any(|term| text.contains(term))
+        || text.starts_with("was i invited");
+    let action = text.split(|c: char| !c.is_alphanumeric()).any(|word| {
+        matches!(
+            word,
+            "verschicken" | "versenden" | "senden" | "einladen" | "inviten" | "ändern"
+        )
+    });
+    if action || (procedural && !status_read && !status_check) {
         return false;
     }
     let status = [
@@ -95,8 +108,6 @@ pub fn requested(query: &Query) -> bool {
         "wo bleibt",
         "wo ist",
         "where is",
-        "schon",
-        "noch",
         "verschick",
         "versand",
         "versandt",
@@ -134,15 +145,13 @@ pub fn requested(query: &Query) -> bool {
     .iter()
     .any(|term| text.contains(term));
     (invite && status)
-        || (text.contains("deadlock")
-            && [
-                "bekomme ich",
-                "bekomm ich",
-                "habe ich zugang",
-                "hab ich zugang",
-            ]
-            .iter()
-            .any(|term| text.contains(term)))
+        || [
+            "wann bekomme ich deadlock",
+            "wann bekomm ich deadlock",
+            "habe ich zugang zu deadlock",
+            "hab ich zugang zu deadlock",
+        ]
+        .contains(&text)
 }
 
 pub fn project_query(query: &Query) -> Query {
@@ -271,8 +280,47 @@ mod tests {
             "Wie funktioniert der Invite-Bot?",
             "Wie werde ich zu Deadlock eingeladen?",
             "Wie wird man eingeladen?",
+            "Wie kann ich eine Einladung verschicken?",
+            "Kann ich eine Einladung verschicken?",
+            "Darf ich Einladungen verschicken?",
+            "Can I have an invite?",
+            "Wie wird eine Einladung verschickt?",
+            "Wie viele Einladungen kann ich verschicken?",
+            "Wer verschickt Einladungen?",
+            "Wo kann ich eine Einladung verschicken?",
+            "Warum kann ich keine Einladung verschicken?",
+            "Erkläre mir, wie ich eine Einladung verschicken kann.",
+            "Sind Einladungen noch verfügbar?",
+            "Sind Einladungen schon verfügbar?",
+            "Hat der Invite-Bot noch offene Aufgaben?",
+            "Who has sent invites?",
+            "Welche Fehler gibt es beim Versand von Einladungen?",
+            "How can I send an invite?",
+            "How do I fix a failed invite?",
+            "Welche FPS bekomme ich in Deadlock?",
+            "Welche FPS bekomm ich in Deadlock?",
+            "Wie bekomme ich Deadlock?",
+            "Wann bekomme ich Deadlock-Skins?",
+            "Wann bekomme ich Deadlock Updates?",
+            "Habe ich Zugang zum Deadlock-Server?",
+            "Was kann Abrams? Chatkontext: Ist meine Einladung verschickt?",
+            "Was kann ich tun, wenn meine Einladung noch aussteht?",
+            "Was bedeutet Invite-Status pending?",
+            "What can I do if my invite is missing?",
+            "Wie ist ein Einladungsstatus aufgebaut?",
+            "Wie ist der Status einer Gemeinschaftseinladung aufgebaut?",
+            "Wie kann ich den Status meiner Einladung ändern?",
+            "Ist der Invite-Bot schon online?",
+            "Ist der Invitebot schon online?",
+            "Ist der Invite  Bot schon online?",
+            "Ist der Invite Bot schon online?",
+            "Ist der Einladungsbot schon online?",
+            "Ist der Einladungs-Bot schon online?",
+            "Ist der Einladungs Bot schon online?",
+            "Habe ich schon Zugang zu Deadlock-Wiki?",
         ] {
             let ordinary = query(text);
+            assert!(!requested(&ordinary), "{text}");
             assert_eq!(project_query(&ordinary), ordinary);
         }
         for text in [
@@ -281,19 +329,26 @@ mod tests {
             "Where is my invite?",
             "Ist der Invite schon verschickt?",
             "Wie ist mein Invite-Status?",
+            "Was ist mein Invite-Status?",
+            "Hat der Invite-Bot mich schon eingeladen?",
+            "Hat der Invite Bot mich schon eingeladen?",
             "Wie kann ich meinen Invite-Status sehen?",
+            "Kann ich meinen Invite-Status sehen?",
             "Wie bekomme ich den Status meiner gesendeten Einladung?",
             "Wann bekomme ich Deadlock?",
+            "Wann bekomm ich Deadlock?",
+            "Habe ich Zugang zu Deadlock?",
             "Ich warte auf eine Einladung.",
             "Hat Fremdname die Einladung erhalten, Steamcode 123456?",
             "Did Fremdname get an invite?",
+            "Did you send my invite?",
             "Bin ich eingeladen?",
             "Bin ich eingeladen? Chatkontext Fremdname: Wie kann ich eine Einladung erhalten?",
             "Wurde Fremdname eingeladen, Steamcode 123456?",
             "Was I invited?",
             "Wie kann ich prüfen, ob ich eingeladen bin?",
         ] {
-            assert!(requested(&query(text)));
+            assert!(requested(&query(text)), "{text}");
         }
     }
 
