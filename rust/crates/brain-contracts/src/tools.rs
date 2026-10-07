@@ -906,6 +906,20 @@ pub trait ToolExecutionPort: Send + Sync {
             .map_err(PortFailure::from)
     }
 
+    fn validate_build_plan(
+        &self,
+        _query: &Query,
+        _context: &AuthorizedContext,
+        _game_context: &PinnedGameContext,
+        _request: &BuildPlanRequest,
+        _execution: &ToolExecution,
+        _purpose: crate::store::AnswerPurpose,
+    ) -> Result<(), PortError> {
+        Err(PortError::Unavailable(
+            "Deterministische Buildprüfung fehlt".into(),
+        ))
+    }
+
     fn validate_dependencies(
         &self,
         _query: &Query,

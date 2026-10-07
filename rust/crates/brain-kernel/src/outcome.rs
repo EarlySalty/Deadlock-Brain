@@ -7,6 +7,7 @@ pub(super) struct KernelAnswer {
     pub accounting: UsageAccounting,
     pub dependencies: Arc<[Evidence]>,
     pub tool_dependencies: Arc<[ToolEvidenceDependency]>,
+    pub build_executions: Arc<[brain_contracts::ToolExecution]>,
 }
 impl From<AnswerResponse> for KernelAnswer {
     fn from(answer: AnswerResponse) -> Self {
@@ -14,6 +15,7 @@ impl From<AnswerResponse> for KernelAnswer {
             accounting: UsageAccounting::observed(answer.usage.clone()),
             dependencies: answer.citations.clone().into(),
             tool_dependencies: Arc::from([]),
+            build_executions: Arc::from([]),
             answer,
         }
     }
@@ -65,6 +67,52 @@ impl KernelAnswer {
             );
             for evidence in &dependency.evidence {
                 bytes = bytes.saturating_add(evidence_bytes(evidence));
+            }
+        }
+        for execution in self.build_executions.iter() {
+            bytes = bytes.saturating_add(std::mem::size_of::<brain_contracts::ToolExecution>());
+            bytes = bytes.saturating_add(json_bytes(&execution.result.result));
+            bytes = bytes.saturating_add(
+                execution
+                    .result
+                    .evidence_ids
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<String>()),
+            );
+            bytes = bytes.saturating_add(execution.result.call_id.capacity());
+            bytes = bytes.saturating_add(
+                execution
+                    .dependencies
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<ToolEvidenceDependency>()),
+            );
+            for value in [&execution.usage.provider, &execution.usage.model]
+                .into_iter()
+                .flatten()
+            {
+                bytes = bytes.saturating_add(value.capacity());
+            }
+            for id in &execution.result.evidence_ids {
+                bytes = bytes.saturating_add(id.capacity());
+            }
+            for dependency in &execution.dependencies {
+                bytes = bytes.saturating_add(json_bytes(dependency.request.arguments()));
+                let typed_bytes = serde_json::to_value(dependency.request.subrequest())
+                    .map(|value| json_bytes(&value))
+                    .unwrap_or(usize::MAX);
+                bytes = bytes.saturating_add(typed_bytes);
+                if let Some(pin) = &dependency.game_context {
+                    bytes = bytes.saturating_add(pin.mechanic_revision.capacity());
+                }
+                bytes = bytes.saturating_add(
+                    dependency
+                        .evidence
+                        .capacity()
+                        .saturating_mul(std::mem::size_of::<Evidence>()),
+                );
+                for evidence in &dependency.evidence {
+                    bytes = bytes.saturating_add(evidence_bytes(evidence));
+                }
             }
         }
         for value in [
@@ -177,6 +225,7 @@ mod tests {
             accounting: UsageAccounting::default(),
             dependencies: vec![dependency].into(),
             tool_dependencies: Arc::from([]),
+            build_executions: Arc::from([]),
         };
         assert!(outcome.retained_bytes() >= bytes);
         let reused = outcome.clone();

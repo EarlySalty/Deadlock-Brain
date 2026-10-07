@@ -121,6 +121,21 @@ pub(super) fn validate_tool_evidence(
     Ok(())
 }
 
+pub(super) fn has_build_citation<'a>(
+    executions: &[brain_contracts::ToolExecution],
+    mut cited_ids: impl Iterator<Item = &'a str>,
+) -> bool {
+    cited_ids.any(|id| {
+        executions.iter().any(|execution| {
+            execution
+                .result
+                .evidence_ids
+                .iter()
+                .any(|evidence_id| evidence_id == id)
+        })
+    })
+}
+
 pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     kernel: &Kernel<R, P>,
     query: &Query,
@@ -136,6 +151,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     };
     let mut accounting = UsageAccounting::default();
     let mut dependencies = Vec::<ToolEvidenceDependency>::new();
+    let mut build_executions = Vec::<brain_contracts::ToolExecution>::new();
     let mut conversation = ToolConversation::default();
     let mut evidence = Vec::<Evidence>::new();
     let mut seen_calls = BTreeSet::new();
@@ -156,6 +172,14 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                 session,
                 &dependencies,
                 ToolValidationPurpose::Provider,
+                purpose,
+            )?;
+            kernel.validate_build_executions(
+                query,
+                &next,
+                session,
+                &dependencies,
+                &build_executions,
                 purpose,
             )?;
             let input = grounded_turn_input_ceiling(
@@ -240,6 +264,25 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         ToolValidationPurpose::Provider,
                         purpose,
                     )?;
+                    kernel.validate_build_executions(
+                        query,
+                        &next,
+                        session,
+                        &dependencies,
+                        &build_executions,
+                        purpose,
+                    )?;
+                    if query.profile == brain_contracts::AnswerProfile::Build
+                        && !insufficient
+                        && !has_build_citation(
+                            &build_executions,
+                            answer.cited_evidence_ids.iter().map(String::as_str),
+                        )
+                    {
+                        return Err(PortError::Unavailable(
+                            "Geprüftes Build-Ergebnis fehlt".into(),
+                        ));
+                    }
                     remaining(context, &accounting.charged(), elapsed())
                         .ok_or(PortError::BudgetExceeded)?;
                     return Ok(answer);
@@ -297,6 +340,11 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
                         execution.validate_for(call, &request, session.game_context.as_ref())?;
+                        if request.name() == brain_contracts::ToolName::BuildPlan
+                            && !execution.result.is_error
+                        {
+                            build_executions.push(execution.clone());
+                        }
                         dependencies.extend(execution.dependencies);
                         let next = remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
@@ -365,6 +413,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                 accounting: accounting.clone(),
                 dependencies: std::sync::Arc::from([]),
                 tool_dependencies: dependencies.into(),
+                build_executions: build_executions.into(),
             }
         }
         Err(error) => response(
@@ -736,5 +785,6 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         accounting,
         dependencies: evidence.into(),
         tool_dependencies: std::sync::Arc::from([]),
+        build_executions: std::sync::Arc::from([]),
     }
 }

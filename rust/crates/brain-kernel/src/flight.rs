@@ -471,6 +471,7 @@ mod retained_pack_tests {
                         .into(),
                         accounting: UsageAccounting::default(),
                         tool_dependencies: Arc::from([]),
+                        build_executions: Arc::from([]),
                     }
                 })
                 .unwrap()
