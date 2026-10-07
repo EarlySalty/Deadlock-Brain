@@ -2204,6 +2204,29 @@ mod requested_build_tests {
     }
 
     #[test]
+    fn saved_regular_publication_requires_matching_build_provenance() {
+        assert!(SavedPublication::new(saved_request())
+            .unwrap()
+            .regular_build()
+            .is_err());
+        let build: dbrain_reasoner::BuildObject = serde_json::from_value(json!({
+            "hero_id":25,"hero_name":"Warden","patch_tag":"fixture-patch","name":"Mechanikprüfung",
+            "core":[{"item_id":1,"name":"Item 1","tier":1,"buy_phase":"Core","why":"Mechanik",
+                "confidence":"High","imbue_target":null,"sell_priority":null,
+                "sources":[{"kind":"Mechanic","detail":"API-Spielwert"}]}],
+            "situations":[],"ability_order":[{"ability_id":101,"currency_type":2,"delta":-1}],
+            "confidence":"Low","rationale":"Mechanikprüfung","family":null,"variants":[],"family_discovery":null
+        })).unwrap();
+        let mut saved = SavedPublication::new(publish_request(&build, false).unwrap()).unwrap();
+        saved.build = Some(serde_json::to_value(&build).unwrap());
+        assert!(saved.regular_build().unwrap().is_some());
+        saved.build.as_mut().unwrap()["core"][0]["why"] = json!("Andere Beschreibung");
+        assert!(saved.regular_build().is_err());
+        let review = SavedPublication::new(publish_request(&build, true).unwrap()).unwrap();
+        assert!(review.regular_build().unwrap().is_none());
+    }
+
+    #[test]
     fn saved_publication_is_atomic_read_only_and_never_overwrites_an_existing_request() {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let dir = tempfile::tempdir().unwrap();
@@ -2498,6 +2521,8 @@ const MAX_PUBLISH_STATE_BYTES: u64 = 300 * 1024;
 struct SavedPublication {
     request_sha256: String,
     request: brain_contracts::feeds::BuildPublishRequest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    build: Option<Value>,
 }
 
 impl SavedPublication {
@@ -2507,6 +2532,7 @@ impl SavedPublication {
                 .request_sha256()
                 .map_err(|_| anyhow!("Veröffentlichungsanfrage ist ungültig."))?,
             request,
+            build: None,
         };
         saved.validate()?;
         Ok(saved)
@@ -2525,6 +2551,24 @@ impl SavedPublication {
             return Err(invalid());
         }
         Ok(())
+    }
+
+    fn regular_build(&self) -> Result<Option<dbrain_reasoner::BuildObject>> {
+        self.validate()?;
+        if self.request.caller == "deadlock-brain-review"
+            && self.request.build_name.starts_with("[REVIEW] ")
+        {
+            return Ok(None);
+        }
+        let build: dbrain_reasoner::BuildObject = serde_json::from_value(
+            self.build.clone().context("Gespeicherte Anfrage enthält keine Build-Provenienz. Bitte einen aktuellen Build berechnen.")?,
+        ).map_err(|_| anyhow!("Gespeicherte Build-Provenienz ist ungültig."))?;
+        if publish_request(&build, false)? != self.request {
+            anyhow::bail!(
+                "Gespeicherter Build stimmt nicht mit der Veröffentlichungsanfrage überein."
+            );
+        }
+        Ok(Some(build))
     }
 
     fn read(path: &std::path::Path) -> Result<Self> {
@@ -2774,6 +2818,7 @@ fn select_publish_token(
 }
 
 async fn publish_build_http(
+    pool: &PgPool,
     build: &dbrain_reasoner::BuildObject,
     review: bool,
     connection: &PublishConnectionArgs,
@@ -2782,13 +2827,18 @@ async fn publish_build_http(
     if !(1..=120).contains(&wait_seconds) {
         anyhow::bail!("Wartezeit muss zwischen 1 und 120 Sekunden liegen.");
     }
-    let saved = SavedPublication::new(publish_request(build, review)?)?;
+    if !review {
+        dbrain_reasoner::publish::validate_publish_current(pool, build).await?;
+    }
+    let mut saved = SavedPublication::new(publish_request(build, review)?)?;
+    saved.build = Some(serde_json::to_value(build)?);
     let request_path = saved.default_path()?;
     saved.persist(&request_path)?;
-    publish_saved_http(saved, request_path, connection, wait_seconds).await
+    publish_saved_http(Some(pool), saved, request_path, connection, wait_seconds).await
 }
 
 async fn publish_saved_http(
+    pool: Option<&PgPool>,
     saved: SavedPublication,
     request_path: PathBuf,
     connection: &PublishConnectionArgs,
@@ -2804,6 +2854,18 @@ async fn publish_saved_http(
         "Gespeicherte Veröffentlichungsanfrage: {}",
         request_path.display()
     );
+    let build = saved.regular_build()?;
+    if let Some(build) = build {
+        let owned_pool;
+        let pool = match pool {
+            Some(pool) => pool,
+            None => {
+                owned_pool = deadlock_brain_core::pg::pg_pool_read_only().await?;
+                &owned_pool
+            }
+        };
+        dbrain_reasoner::publish::validate_publish_current(pool, &build).await?;
+    }
     let request = saved.request;
     let endpoint = connection.endpoint.clone();
     tokio::task::spawn_blocking(move || {
@@ -2857,6 +2919,7 @@ async fn resume_publication_with<F: std::future::Future<Output = Result<Publicat
 async fn run_publish_resume(args: &PublishResumeArgs) -> Result<()> {
     let publication = resume_publication_with(args, |saved, request_path| {
         publish_saved_http(
+            None,
             saved,
             request_path,
             &args.publish_connection,
@@ -2902,8 +2965,14 @@ async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool)
         return blocked_requested_build(&build.hero_name, alternative_variants, print_json);
     }
     let selected_family = build.family.as_ref().map(|family| family.label.clone());
-    let publication =
-        publish_build_http(&build, review, &args.publish_connection, args.wait_seconds).await?;
+    let publication = publish_build_http(
+        pool,
+        &build,
+        review,
+        &args.publish_connection,
+        args.wait_seconds,
+    )
+    .await?;
     print_json(&json!({
         "status": publication.status,
         "publication": publication,
@@ -2982,8 +3051,14 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
             .await?;
             let publication = if args.publish {
                 Some(
-                    publish_build_http(&build, false, &args.publish_connection, args.wait_seconds)
-                        .await?,
+                    publish_build_http(
+                        pool,
+                        &build,
+                        false,
+                        &args.publish_connection,
+                        args.wait_seconds,
+                    )
+                    .await?,
                 )
             } else {
                 None
