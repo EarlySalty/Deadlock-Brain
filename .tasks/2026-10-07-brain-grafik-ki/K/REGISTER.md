@@ -1,6 +1,6 @@
 # K: Register
 
-Auftraggeber: a711a4d2-1cad-4120-97ac-8b648567172b. Produzent: teil-k, Versuch 1.
+Auftraggeber jetzt Delegator 481426fe-b477-42b3-91c6-901811fcba1d, Haupt-Orchestrator d3a1741e-82bc-4a48-865b-2845c663dca7. Produzent teil-k, Versuch 1, derselbe Lauf. Frühere Auftraggeber-ID a711a4d2-1cad-4120-97ac-8b648567172b gilt für historische Einträge.
 
 | Bereich | Worktree | Branch | Anfangs-HEAD | Zustand |
 | --- | --- | --- | --- | --- |
@@ -32,8 +32,13 @@ Tatsächlicher nativer Workflow-Agentenlauf belegt unter /home/nathanael/.claude
 | nativer Agent | Botaufgabenvertrag / ab6fbc939a468226d | geerbt Sol 6.1 / high | ausschließlich neue bot_tasks.rs und bot_tasks_contract.rs | abgeschlossen; unexportiert/unverdrahtet, kein Providerbau |
 | nativer Agent | Guide-Prüffix / a4b6b44515d088ad4 | geerbt Sol 6.1 / high | ausschließlich Bots-K modglue.rs, eigene Prüfaufrufe | abgeschlossen; 58 passed/0 failed/0 ignored, Compiler/Format 0, Clippy 58 Befunde |
 | nativer Agent | Guide-Macro-Lintfix / a087d253d7f0e8589 | geerbt Sol 6.1 / high | ausschließlich neue is_public-Signatur/Impl/Callsites in Bots-K modglue.rs | abgeschlossen; Compiler/Format 0, Tests58/0/0, Clippy wieder57 wie Baseline, finaler Gate ALLOW |
-| nativer Agent | H-Integration/Randfix / ad9015ecebebc29f1 | geerbt Sol 6.1 / high | ausschließlich bestätigte Renderer-/Test-/Previewdateien in Brain-K plus maintenance/lib-Modulexport | aktiv; kein Neubau, keine G-Änderung |
-| nativer Agent | Site-/Artefaktnaht / af4b87bee7168749f | geerbt Sol 6.1 / high | ausschließlich Site mod.rs, neuer compare.rs falls vertraglich belegt, targeted Site tests.rs | aktiv; kein Schema-/G-Ersatz, Publikation bei fehlendem Beleg geschlossen |
+| nativer Agent | H-Integration/Randfix / ad9015ecebebc29f1 | geerbt Sol 6.1 / high | ausschließlich bestätigte Renderer-/Test-/Previewdateien in Brain-K plus maintenance/lib-Modulexport | abgeschlossen; 36 scoped Tests, Compiler/Format/striktes scoped Clippy +1.97.1 bestanden; K-Commit 2ed1a6b7 auf origin, regulärer Gate biueh719w Exit0 ALLOW |
+| nativer Agent | Site-/Artefaktnaht / af4b87bee7168749f | geerbt Sol 6.1 / high | bestehende Rechte-/Speichernaht lesend | abgeschlossen, 0 Produktdateien; Schlussfolgerung zur G-Artefaktquittung vom Hauptorchestrator korrigiert |
+| nativer Agent | K-Artefaktbau / ab219fb00896aa7ba | geerbt / high | neue K-Artefaktmodule Maintenance/Storage, additive eigene Migration, notwendige Site-Anbindung; G-Draft nur lesend | aktiv, Briefing K/BRIEFING-ARTEFAKT.md; keine G-Artefaktquittung abwarten, keine Veröffentlichung ohne freigegebenen echten G-Eingang |
+
+| nativer Agent | H-Footer-NIT / a40307d90f7bb8bdb | geerbt / high | ausschließlich hero_compare_render.rs und Renderer-Tests, K/H-FOOTER-FIX.md | aktiv, neues Quellenbeleg-Breitendelta nach H-Gate ALLOW |
+| nativer Agent | Botplattform-NIT / a6f53254e217b2724 | geerbt / high | ausschließlich eigene bot_tasks.rs und bot_tasks_contract.rs | abgeschlossen, 20 passed/0 failed/0 ignored, Compiler/Format/striktes Clippy Exit0; K-Commit1efd2782 auf origin, regulärer Gate b1nu0s42p ALLOW ohne NIT |
+| nativer Agent | Zentrale Nutzerantworten / a3ae7ec03ae030f32 | geerbt / high | vorhandene Consumeradapter in Bots-K/Twitch-K, kein aktiver G-/Conciergebereich | aktiv, neue Priorität gemäß K/BRIEFING-ZENTRALANTWORT.md; tatsächliche Privat-/Providergrenzen nicht lockern |
 
 H-Quelle vom Hauptorchestrator bestätigt und zur Teilintegration angenommen: Code26859fda4b5e77a29b3af4cea0411d304a04eb2f, Nachweis-HEAD65f33cb1aadef755db0d2ff6631342d04fa398b3 auf origin. H-Worktree bleibt read-only und für K erhalten. H-Nachweise sind keine eigene Zahlen-/Liveabnahme. Nach Ende der vorigen Tasks gelöschte Wache7e018b31 durch neue eigene sessiongebundene Wache5a15bd24 für aktive Integration ersetzt; sieben Tage Höchstlaufzeit.
 

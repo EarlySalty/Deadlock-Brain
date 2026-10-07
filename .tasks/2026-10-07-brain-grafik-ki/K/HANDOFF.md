@@ -1,35 +1,33 @@
-# K: Gesicherter Resume-Stand
+# K: Fortsetzung desselben Auftrags
 
-07.10.2026. Session `988eeaea-28ee-424c-b362-e250610cde91`, Auftraggeber `a711a4d2-1cad-4120-97ac-8b648567172b`, Produzent teil-k, Versuch 1. API-Streamabbruch geordnet im selben Stand fortgesetzt. Verworfener Toolinput hatte keine Wirkung. Kein Reset, Ersatzthread, Modellwechsel oder Doppelworker. Eigene KI-/Site-/Guidefixer abgeschlossen; nach bestätigter H-Lieferung zwei disjunkte Integrationsworker aktiv. Frühere Wache `7e018b31` gelöscht, neue sessiongebundene 20-Minuten-Wache `5a15bd24`, Höchstlaufzeit sieben Tage. Kein Settle vor integriertem Abschluss.
+Session 988eeaea-28ee-424c-b362-e250610cde91, Produzent teil-k, Versuch 1. Autorisierte Übernahme durch Delegator 481426fe-b477-42b3-91c6-901811fcba1d, Haupt-Orchestrator d3a1741e-82bc-4a48-865b-2845c663dca7. Neue Akten .tasks/2026-10-07-brain-fertigstellung-astra/AUFTRAG.md und PAKETE.md sowie A/EIN-BRAIN.md gelesen. Derselbe native Lauf, kein Reset, Ersatzthread oder Sessionkontakt. API-Streamabbruch früher geordnet fortgesetzt; verworfener Toolinput hatte keine Wirkung.
 
-## Eigene Worktrees und Sicherung
+## Gesicherter Featurestand
 
-- Brain `/home/nathanael/.worktrees/brain-k-ki-20261007`, `feat/brain-k-ki-20261007`: auf origin gesichert `7e8fc641` isolierter Botvertrag, `56d1e77d` bestätigter Rust-Siteport, Aktencheckpoint `d43af42c`. Finaler Aktencommit folgt auf diese Quelle; nichts produktiv umgeschaltet.
-- Bots `/home/nathanael/.worktrees/bots-k-guide-20261007`, `feat/bots-k-guide-20261007`: auf origin gesichert `79142c34` Privatguard/Fixfixtures und `8745a0eb` reine synchrone Kanalsichtbarkeit. Workingtree sauber, ausschließlich modglue.rs geändert.
-- Twitch `/home/nathanael/.worktrees/twitch-k-ki-20261007`, `feat/twitch-k-ki-20261007`: Start `0452e03c`, kein Produktdiff.
+Brain /home/nathanael/.worktrees/brain-k-ki-20261007, feat/brain-k-ki-20261007, HEAD 2ed1a6b7 auf origin: 7e8fc641 isolierter Botvertrag, 56d1e77d bestätigter Siteport, 99cbf1f8 Aktencheckpoint und 2ed1a6b7 bestätigte H-Integration mit zwei Randfixes. Regulärer H-Gate biueh719w Exit 0: [gpt-6.1-sol] ALLOW: No merge-blocking defect found in the supplied diff. Log /tmp/k-h-integration-gate-20261007.log. Neuer NIT für lange CJK-SVG-Footer in eigener frischer Fixrunde, nicht ursprüngliche H-Randfixrunde wiederholen.
 
-Eigenen unveränderten Botbaselineworktree auf `56571e40` nach leerem Status inklusive ignored entfernt. Keine fremden Worktrees oder kanonischen HEADs angefasst. Keine Branchlöschung oder Mainintegration.
+Bots /home/nathanael/.worktrees/bots-k-guide-20261007, feat/bots-k-guide-20261007, HEAD 8745a0eb auf origin, sauber: Privatguard und synchrone reine Kanalsichtbarkeit. Twitch /home/nathanael/.worktrees/twitch-k-ki-20261007, feat/twitch-k-ki-20261007, Start 0452e03c, bisher ohne Produktdiff. Kanonische und fremde Worktrees/HEADs nicht verändern. Brain-origin/main frisch geprüft f6f5cef6, Bots-origin/main nach Fetch 56571e40.
 
-## Eigene Beweise
+Vertrag 58, Site 3, Guide 58 und H 36 scoped Tests bestanden, null ignoriert. Summe155, keine vollständige Reposuite. H mit +1.97.1, scoped Compiler/Format/striktes Clippy grün. Bots-Clippy57 wie echte Baseline57; Siteabhängigkeitsclippy4 wie echte Baseline4. Beide bleiben rot, kein Gesamtgrün behaupten. Neue Screenshotabnahme mangels Browserhost nicht möglich. H-Synthbilder sind kein echter G-/Livebeweis. Kein Main-/Deploy-/Runtimeabschluss.
 
-Vertrag 58 passed/0 failed/0 ignored; Site drei echte isolierte HTTP-/Postgres-Fälle bestanden, null ignoriert; Guide 58 passed/0 failed/0 ignored/272 filtered. Format/Compiler grün. Vertragsclippy und Site-only-Clippy grün. Siteabhängigkeitsclippy vier Befunde, unveränderte Baseline ebenfalls vier. Bot-only-Clippy 57 async_trait-Macro-Lints, unveränderte Baseline ebenfalls 57; eigener neuer Lint und zwei eigene Testfehler behoben, keine Unterdrückung. Kein grünes Gesamtclippy behauptet.
+## Aktive native Worker, nicht duplizieren
 
-Reguläre Gates für isolierten Vertrag, Site und finalen Guide jeweils `[gpt-6.1-sol] ALLOW`. Logs `/tmp/k-contract-gate-20261007.log`, `/tmp/k-site-gate-20261007.log`, `/tmp/k-guide-final-gate-20261007.log`. Prüfberichte in K/KI-VERTRAG-BAU.md, K/SITE-BERICHT.md und K/GUIDE-BERICHT.md. Keine produktive Discord-/Modellprobe oder Grafikzahlenabnahme.
+- ab219fb00896aa7ba: K-eigene Artefakthülle/PG/Site, K/BRIEFING-ARTEFAKT.md und K/ARTEFAKT-BAU.md. G-Draft ausschließlich lesend. Kein Git-Schreiben.
+- a40307d90f7bb8bdb: neuer SVG-Footer-NIT, ausschließlich Renderer und Renderer-Tests, K/H-FOOTER-FIX.md. Keine Exports/Manifeste/Storage-/Siteänderungen, kein Git-Schreiben.
+- a6f53254e217b2724: eigener isolierter Botplattform-NIT, ausschließlich bot_tasks.rs und bot_tasks_contract.rs, K/BOT-PLATTFORM-FIX.md. Kein aktiver G-Dateischreiber oder Modulexport, kein Git-Schreiben.
 
-## Verbindlicher Zuschnitt und fehlender Vertrag
+H-Fixer ad9015ecebebc29f1 und früherer Siteworker af4b87bee7168749f abgeschlossen. Höchstens drei native high-Agenten mit disjunkten Schreibpfaden. Haupt-K allein sichert/integriert. Sessionwache5a15bd24, höchstens sieben Tage; keine zusätzliche Wache nötig.
 
-Pate = Brain = Concierge, Serverguide als Fähigkeit derselben Hilfe. Menschliches Patenprogramm bleibt unangetastet. Keine zweite Persona, breiten Kontakte oder ungeklärte persönliche Speicherung.
+## Eigentum und Produktgrenzen
 
-`K-KLARSTELLUNG-TITEL.md` gilt: kein gesonderter Titelgenerator, neue UI/Route oder zweiter Titelpfad. Vorhandene Wrapper ohne Stil enthalten weiter Historie/Rang/Community-/Livekontext; kein zulässiger nichtpersonalisierter Produktionsfall belegt. Titel bleibt Datenschutz-/Providerabhängigkeit. Keine still gestrichenen Eingaben oder private Remoteverarbeitung; Loopbackproxy zählt remote. Privater FAQ/shared_answers-Pfad unverändert und nicht sicher freigegeben.
+G liefert Berechnung, strukturierte Reihen, Szenario, Version und belegte Werkzeug-/Quellenabhängigkeiten. K baut Artefakthülle, Artefakt-ID, HTML/SVG-Bindung, Veröffentlichungsquittung, Postgres-Anbindung, Rechte, Auslieferung und Botdarstellung. Keine G-Artefaktquittung abwarten. Neue eigene K-Module und nötige reguläre additive Migration erlaubt, angewandte Migrationen unverändert. Keine steckbriefspezifischen Speicherwege zweckentfremden. Reales G-WIP nur lesend für den Anschluss, nicht kopieren oder als verifiziert übernehmen. Ohne freigegebenen echten G-Eingang keine Veröffentlichung oder Livebeweis.
 
-Nach erneutem Fetch Brain-origin/main weiterhin `f6f5cef6`. Geprüfter integrierter G-Vertrag fehlt. Letzte autorisierte G-Akte nennt Dokumentcheckpoint `5c2afa66`, keine bestätigte Mainproduktabnahme. H-Quelle inzwischen bestätigt und angenommen: Code `26859fda4b5e77a29b3af4cea0411d304a04eb2f`, Nachweis-HEAD `65f33cb1aadef755db0d2ff6631342d04fa398b3` auf origin. H-Übergabe in H/AN_HAUPT-H.md und H/ANSCHLUSS.md, kein root-AN_HAUPT-H.md. H-34-Tests, ALLOW und synthetische Desktop-/Mobilsichtung sind externe Teilnachweise, noch kein echter G-/Livebeweis.
+Neue Priorität: zentrale Antworten in Discord-Erwähnung/DM und Twitch, Pocket/Haze, Coaching/Paten/Selbstbild, eigener Invite-Status, ehrlicher Ausfall. P0 separat. H bleibt vorhandener Input. Keine eigenen neuen Botantworten oder zweiter Provider-/Antwort-/Rechenkern. Altwege bis live belegtem Ersatz erhalten, nicht ohne Nutzerfreigabe löschen. Pate = Brain = Concierge, keine menschliche Vermittlung bauen. Kein neuer Titelgenerator oder still gekürzter persönlicher Titelfall.
 
-Aktiv und nicht duplizieren: `ad9015ecebebc29f1` integriert drei bestätigte H-Quell-/Test-/Previewdateien samt K-Export und behebt lange SVG-Namen sowie U+FFFE/U+FFFF. Disjunkt `af4b87bee7168749f` besitzt Site mod.rs, ggf. neuen compare.rs und targeted Site tests.rs; nur vertraglich belegte bestehende Postgres-/Rechte-/Widerrufsnaht, kein neues G-Schema oder erfundener Publikationserfolg. Keine fremden WIP- oder alternativen Zahlenquellen, kein zweiter Provider/Rechenkern. Kein Wartefenster auf fremde Builds/Deploy-SHAs oder Sessionkontakt.
+Private FAQ/DM nicht sicher nennen. Lokaler Clienttransport beweist keine lokale Verarbeitung: dl-brain/src/brain_api.rs:95-105 sendet via bestehenden Client; brain-serve/src/config.rs:80-98 und400-436 unterscheiden keine vertrauenswürdige tatsächliche Inferenzlokalität. provider_input.rs:31 übernimmt query.text unverändert. Aktive G-Dateien nicht parallel ändern. Nutzer-/Communitydaten nicht remote oder über Loopbackproxy senden, Modelle/Timeouts unverändert. Invite nur freigegebene eigene Enum-/Zeit-Minimalprojektion, keine IDs/Namen/Auditrohzeilen/Rohfrage.
 
-## Resume-Auftrag
+## Fortsetzung
 
-1. Gegen zuständige geprüfte integrierte G-Lieferung und bestätigten H-SHA exportieren/verdrahten. NIT zur plattformbezogenen Guidefähigkeitsanzeige und alten menschlichen Patenprompt in provider_input.rs:31 nach G-Eigentumsübergabe korrigieren, nicht vorher parallel schreiben.
-2. Gleiche echte Zahlen, Version, Mechanikrevision, angewandte Bedingungen, Quellen und Rechte bis H-Darstellung/Site/Bots herstellen. Speicherung, Widerruf und Abruf-/Cacheprüfung belegen; keine Modelllinks oder abgeschalteten allgemeinen Linkfilter. Normalen Siteproduktionsstart über vorhandene Config/Rollen/Tablebereitschaft prüfen, keine ungefragte Kommentar-/DB-Erweiterung.
-3. Gemeinsame H/K-Abnahme, lokaler Gate, regulärer origin/main-Deploy, Neustart, echte Liveprüfung und Cleanup. Bei echtem BLOCK frischer nativer Fixer je Runde; Transportfehler ist kein BLOCK. Erst danach settle.
-
-Bis dahin verifizierte Featurearbeit erhalten und fehlende Lieferung konkret melden. Kein neuer Titelersatz, kein G-WIP, keine Fakeevidenz, synthetische Vorschau oder Dummyantwort als Fertigbeweis. AN_HAUPT-K.md ist die aktuelle Fachübergabe.
+1. Aktive eigene Rückgaben prüfen, gezielte Compiler-/Format-/Clippy-/Suitebeweise, Sourcecheckpoints mit regulärem Gate und Featurepush sichern. Bei echtem BLOCK je Runde frischer nativer Fixer, keine Modellwürfelung.
+2. Nach freiem Agentenslot vorrangig bestehende Discord-/Twitch-Consumer gegen aktuellen geprüften G-Featurevertrag anschließen, private Verarbeitungsgrenze nicht lockern. Genau verbleibende Datei-/Vertragsabhängigkeiten in AN_HAUPT-K.md. Keine zentralen Register/TODO-Edits oder Sessionkontakte.
+3. Writer/Reader gemeinsam abnehmen, regulärer Gate ALLOW, Main-Merge/Push HEAD:main, serialisierter origin/main-Deploy, Neustart, Prozess-/SHA-/Health-/Journalbeleg und echte Kanalproben. Twitch `deploy-twitch-release --pruefen` sobald vorhanden. Cleanup und `settle --selbst` erst ganz am Ende.
