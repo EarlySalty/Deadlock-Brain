@@ -100,11 +100,11 @@ pub fn grounded_messages(query: &Query, evidence: &[Evidence]) -> Vec<ChatMessag
 }
 
 pub fn grounded_input_ceiling(query: &Query, evidence: &[Evidence]) -> u64 {
-    transport_input_ceiling(
-        &json!({"messages":grounded_messages(query, evidence)}),
-        true,
-    )
-    .unwrap_or(u64::MAX)
+    let input = |format| {
+        grounded_turn_input_ceiling(query, evidence, &[], &ToolConversation::default(), format)
+            .unwrap_or(u64::MAX)
+    };
+    input(ToolWireFormat::Native).max(input(ToolWireFormat::OpenAiCompatible))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,9 +177,15 @@ pub fn grounded_turn_payload(
             json!({"type":"function", "function":{"name":definition.name, "description":definition.description, "parameters":definition.input_schema}})
         }
     }).collect();
-    let mut payload = json!({"messages":messages, "tools":tools});
+    let mut payload = json!({"messages":messages});
     if native {
         payload["system"] = json!(grounded[0].content);
+        payload["tool_choice"] = json!({"type":if tools.is_empty() {"none"} else {"auto"}});
+        payload["output_config"] = json!({"effort":"low"});
+        payload["tools"] = json!(tools);
+    } else if !tools.is_empty() {
+        payload["tools"] = json!(tools);
+        payload["tool_choice"] = json!("auto");
     }
     Ok(payload)
 }

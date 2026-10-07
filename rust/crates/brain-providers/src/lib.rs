@@ -260,18 +260,6 @@ impl OpenAiCompatibleProvider {
         payload["model"] = serde_json::json!(self.config.model);
         payload["max_tokens"] = serde_json::json!(context.budget.max_output_tokens);
         payload["stream"] = serde_json::json!(false);
-        if self.config.subscription {
-            payload["tool_choice"] =
-                serde_json::json!({"type":if tools.is_empty() {"none"} else {"auto"}});
-            payload["output_config"] = serde_json::json!({"effort":"low"});
-        } else if tools.is_empty() {
-            payload
-                .as_object_mut()
-                .ok_or(ProviderError::InvalidConfig)?
-                .remove("tools");
-        } else {
-            payload["tool_choice"] = serde_json::json!("auto");
-        }
         if self.config.model == "accounts/fireworks/models/deepseek-v4p1-flash" {
             payload["reasoning_effort"] = serde_json::json!("none");
         }

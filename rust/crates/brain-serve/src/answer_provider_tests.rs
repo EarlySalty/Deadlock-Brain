@@ -1,6 +1,9 @@
 use super::{AnswerProvider, AnswerProviderPort};
 use brain_contracts::{
-    provider_input::{grounded_turn_input_ceiling, ToolWireFormat},
+    provider_input::{
+        grounded_input_ceiling, grounded_turn_input_ceiling, transport_input_ceiling,
+        ToolWireFormat,
+    },
     Accounted, AuthorizedContext, Budget, Evidence, EvidenceKind, ModelBlock, PortError, Principal,
     ProviderFinishReason, ProviderTurn, Query, RequestDeadline, SourceVisibility, ToolCall,
     ToolConversation, ToolDefinition, ToolMessage, ToolName, ToolResult, UsageAccounting,
@@ -240,9 +243,11 @@ fn beide_enumzweige_delegieren_alle_vier_methoden_ueber_http() {
         for method in 0..4 {
             let (provider, server) = fixture(branch, "200 OK", branch.response(false, false));
             let query = query();
-            let context = context();
-            let original = context.clone();
             let evidence = [evidence("e1"), evidence("uncited")];
+            let mut context = context();
+            context.budget.max_input_tokens =
+                u32::try_from(grounded_input_ceiling(&query, &evidence)).unwrap();
+            let original = context.clone();
             let turn = match method {
                 0 => ProviderTurn::from(provider.answer(&query, &context, &evidence).unwrap()),
                 1 => {
@@ -279,6 +284,19 @@ fn beide_enumzweige_delegieren_alle_vier_methoden_ueber_http() {
             assert_eq!(answer.cited_evidence_ids, ["e1"]);
             assert_eq!(answer.usage.network_rounds, 1);
             let payload = server.join().unwrap();
+            let counted = transport_input_ceiling(&payload, true).unwrap();
+            assert_eq!(
+                counted,
+                grounded_turn_input_ceiling(
+                    &query,
+                    &evidence,
+                    &[],
+                    &ToolConversation::default(),
+                    branch.wire(),
+                )
+                .unwrap()
+            );
+            assert!(counted <= u64::from(context.budget.max_input_tokens));
             let body: Value = serde_json::from_str(
                 payload["messages"][usize::from(matches!(branch, Branch::OpenAi))]["content"]
                     .as_str()
@@ -301,24 +319,25 @@ fn beide_enumzweige_erhalten_werkzeuge_und_die_gesamte_historie() {
             for tool_response in [false, true] {
                 let (provider, server) =
                     fixture(branch, "200 OK", branch.response(tool_response, false));
-                let context = context();
+                let mut context = context();
                 let evidence = [evidence("e1"), evidence("uncited")];
                 let tools = tools();
                 let history = history();
+                let expected = grounded_turn_input_ceiling(
+                    &query(),
+                    &evidence,
+                    &tools,
+                    &history,
+                    branch.wire(),
+                )
+                .unwrap();
+                context.budget.max_input_tokens = u32::try_from(expected).unwrap();
                 let turn = if accounted {
                     let Accounted { value, accounting } = provider
                         .answer_turn_accounted(&query(), &context, &evidence, &tools, &history)
                         .unwrap();
                     assert_accounting(&accounting);
-                    let expected = grounded_turn_input_ceiling(
-                        &query(),
-                        &evidence,
-                        &tools,
-                        &history,
-                        branch.wire(),
-                    )
-                    .unwrap();
-                    assert!(accounting.charged().input_tokens >= expected);
+                    assert_eq!(accounting.charged().input_tokens, expected);
                     value
                 } else {
                     provider
@@ -337,6 +356,17 @@ fn beide_enumzweige_erhalten_werkzeuge_und_die_gesamte_historie() {
                     assert_eq!(turn.into_answer().unwrap().cited_evidence_ids, ["e1"]);
                 }
                 let payload = server.join().unwrap();
+                assert_eq!(transport_input_ceiling(&payload, true).unwrap(), expected);
+                match branch {
+                    Branch::OpenAi => {
+                        assert_eq!(payload["tool_choice"], "auto");
+                        assert!(payload.get("output_config").is_none());
+                    }
+                    Branch::Subscription => {
+                        assert_eq!(payload["tool_choice"], json!({"type":"auto"}));
+                        assert_eq!(payload["output_config"], json!({"effort":"low"}));
+                    }
+                }
                 assert_eq!(payload["tools"].as_array().unwrap().len(), 1);
                 let messages = payload["messages"].as_array().unwrap();
                 assert_eq!(
@@ -401,7 +431,16 @@ fn beide_enumzweige_erhalten_reservierung_bei_fehlender_http_abrechnung() {
 fn beide_enumzweige_erlauben_den_geprueften_erstturn_ohne_werkzeugbelege() {
     for branch in [Branch::OpenAi, Branch::Subscription] {
         let (provider, server) = fixture(branch, "200 OK", branch.response(true, false));
-        let context = context();
+        let mut context = context();
+        let expected = grounded_turn_input_ceiling(
+            &query(),
+            &[],
+            &tools(),
+            &ToolConversation::default(),
+            branch.wire(),
+        )
+        .unwrap();
+        context.budget.max_input_tokens = u32::try_from(expected).unwrap();
         let original = context.clone();
         let accounted = provider
             .answer_turn_accounted(
@@ -421,6 +460,8 @@ fn beide_enumzweige_erlauben_den_geprueften_erstturn_ohne_werkzeugbelege() {
             }
         ));
         let payload = server.join().unwrap();
+        assert_eq!(transport_input_ceiling(&payload, true).unwrap(), expected);
+        assert_eq!(accounted.accounting.charged().input_tokens, expected);
         assert_eq!(payload["tools"].as_array().unwrap().len(), 1);
         assert_eq!(
             payload["messages"].as_array().unwrap().len(),
@@ -478,6 +519,31 @@ fn beide_enumzweige_pruefen_erstturnrechte_und_die_urspruengliche_deadline() {
                 Some(&UsageAccounting::default())
             );
             assert_eq!(context, original);
+        }
+        for (definitions, conversation) in [
+            (vec![], ToolConversation::default()),
+            (tools(), ToolConversation::default()),
+            (tools(), history()),
+        ] {
+            let evidence = [evidence("e1")];
+            let mut context = context();
+            let expected = grounded_turn_input_ceiling(
+                &query(),
+                &evidence,
+                &definitions,
+                &conversation,
+                branch.wire(),
+            )
+            .unwrap();
+            context.budget.max_input_tokens = u32::try_from(expected - 1).unwrap();
+            let failure = provider
+                .answer_turn_accounted(&query(), &context, &evidence, &definitions, &conversation)
+                .unwrap_err();
+            assert_eq!(failure.error, PortError::BudgetExceeded);
+            assert_eq!(
+                failure.accounting.as_deref(),
+                Some(&UsageAccounting::default())
+            );
         }
         let mut unbound = context();
         unbound.request_deadline = None;
