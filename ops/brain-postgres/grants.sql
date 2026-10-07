@@ -1,10 +1,10 @@
 \set ON_ERROR_STOP on
 \connect :"db"
 BEGIN;
-REVOKE ALL ON ALL TABLES IN SCHEMA brain FROM brain_ingest, brain_service, brain_readonly, brain_site;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA brain FROM brain_ingest, brain_service, brain_readonly, brain_site;
+REVOKE ALL ON ALL TABLES IN SCHEMA brain FROM brain_ingest, brain_service, brain_readonly;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA brain FROM brain_ingest, brain_service, brain_readonly;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA brain FROM PUBLIC;
-GRANT USAGE ON SCHEMA brain TO brain_ingest, brain_service, brain_readonly, brain_site;
+GRANT USAGE ON SCHEMA brain TO brain_ingest, brain_service, brain_readonly;
 
 GRANT SELECT ON ALL TABLES IN SCHEMA brain TO brain_readonly;
 
@@ -27,9 +27,16 @@ DECLARE
   patch_table text;
   patch_sequence text;
 BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'brain_site') THEN
+    REVOKE ALL ON ALL TABLES IN SCHEMA brain FROM brain_site;
+    REVOKE ALL ON ALL SEQUENCES IN SCHEMA brain FROM brain_site;
+    GRANT USAGE ON SCHEMA brain TO brain_site;
+    IF to_regclass('brain.site_comments_v1') IS NOT NULL THEN
+      GRANT SELECT, INSERT ON brain.site_comments_v1 TO brain_site;
+      GRANT USAGE ON SEQUENCE brain.site_comments_v1_id_seq TO brain_site;
+    END IF;
+  END IF;
   IF to_regclass('brain.site_comments_v1') IS NOT NULL THEN
-    GRANT SELECT, INSERT ON brain.site_comments_v1 TO brain_site;
-    GRANT USAGE ON SEQUENCE brain.site_comments_v1_id_seq TO brain_site;
     REVOKE ALL ON brain.site_comments_v1 FROM brain_readonly;
   END IF;
   IF to_regprocedure('brain.source_read_header_v1(jsonb)') IS NOT NULL THEN
