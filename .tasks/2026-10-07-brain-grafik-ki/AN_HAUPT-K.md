@@ -1,50 +1,47 @@
 # K: Fachübergabe an Hauptorchestrator
 
-Status: aktiv, Versuch 1. Auftraggeber: a711a4d2-1cad-4120-97ac-8b648567172b.
+Produzent teil-k, Versuch 1. Auftraggeber a711a4d2-1cad-4120-97ac-8b648567172b. Stand: verifizierte Featurearbeit gesichert, bestätigte H-Lieferung zur isolierten Integration angenommen. Gemeinsamer G-Anschluss bleibt Codeabhängigkeit, kein falscher Abschluss.
 
-## Präzisierung bestätigt
+## Gesicherte Quellen und Beweise
 
-Pate, Concierge und Deadlock Brain sind eine persönliche KI-Hilfe. Serverguide ist deren Fähigkeit. Menschliche Vermittlung, Rollen, Übernahmen und entsprechende Nein-/Anfragepfade sind vollständig aus K entfernt. Keine eigenen Produktänderungen daran entstanden. Erster Rechercheworkflow mit veraltetem Teilauftrag gestoppt. Aktueller Workflow und Briefings enthalten die Korrektur. Keine zweite Persona, keine breiten Kontaktserien, keine ungeklärte Gedächtnisablage.
+| Teilstand | Repo/Feature-SHA | Eigene Nachweise | Regulärer Gate |
+| --- | --- | --- | --- |
+| Unexportierter typisierter Botaufgabenvertrag | Brain 7e8fc641 | 58 passed, 0 failed, 0 ignored; Format/Compiler/striktes Clippy Exit 0 | [gpt-6.1-sol] ALLOW |
+| Selektiv übernommener bestätigter Rust-Siteport | Brain 56d1e77d | 3 echte isolierte HTTP-/Postgres-Fälle bestanden, 0 ignored; Format/Compiler/Site-only-Clippy Exit 0 | [gpt-6.1-sol] ALLOW |
+| Öffentlicher Guide mit privatem Eingangs-/Zustellguard | Bots 8745a0eb, aufbauend auf79142c34 | 58 passed, 0 failed, 0 ignored, 272 filtered; Format/Compiler Exit 0 | [gpt-6.1-sol] ALLOW |
 
-## Konkrete Anschlussgrenze vor Produktänderung
+Auf origin/feat/brain-k-ki-20261007 und origin/feat/bots-k-guide-20261007 gesichert. Gemeinsame Produktabnahme, Main-Merge, Deploy, Neustart und Livebeweis fehlen. Twitch hat keinen Produktdiff. Keine G/H/E/F/I-Produktdatei oder kanonische Arbeitskopie geändert. Kein PR, Actions oder Nutzerstimme-Post.
 
-Brain-K startet auf f6f5cef65f1f946113f0b8216c6475f6d38ec928. Frisch geholtes origin/main enthält weder `brain-contracts/src/tools.rs` noch den erhaltenen Vollguide oder Rust-Siteport. Gs aktuelle `AN_HAUPT-G.md`, Kopf und 09:00-Abschnitt, benennt ungemergten Produkt-WIP und aktive Vertrags-/Provider-/Kernel-Fortsetzung G-K-R1. Keine fertige G-Vertragsabnahme oder Mainintegration behauptet.
+Clippy nicht pauschal grün: Siteabhängigkeiten vier Befunde gegenüber vier in unveränderter Baseline. Bot-only-Clippy57 async_trait-Macro-Lints gegenüber57 am unveränderten Anfang56571e40. Eigenen zusätzlichen Lint und zwei echte eigene Testregressionen behoben, keine Lintunterdrückung oder fremde Crateänderung. Temporären eigenen Baselineworktree nach leerem Status inklusive ignored entfernt.
 
-Der jetzige `AnswerProviderPort::answer(Query, AuthorizedContext, Evidence)` in `brain-contracts/src/lib.rs:510` und öffentliche `/v1/answer` sind wissensgebundene Antwortverträge. `brain-serve/src/service.rs` komponiert einen einzigen konfigurierten Antwortprovider. `brain-providers/src/transport.rs:14` ist privater grounded-Transport; Abozweig akzeptiert genau System/User, keine Tools. Damit darf ein Twitch-Titelentwurf weder als verstecktes Query-Steuerprotokoll noch mit erfundenen Evidenzen noch pauschal auf Luna angebunden werden.
+Rohbelege: `/tmp/k-contract-verification-20261007.log`, `/tmp/k-contract-gate-20261007.log`, `/tmp/k-site-tests-20261007.log`, `/tmp/k-site-gate-20261007.log`, `/tmp/k-bots-sol-fix-{fmt,check,tests,clippy}-20261007.log`, `/tmp/k-bots-clippy-baseline-20261007.log`, `/tmp/k-guide-final-gate-20261007.log`. Finale Gateantwort für8745a0eb: `[gpt-6.1-sol] ALLOW: No merge-blocking defect found in the supplied diff and revision-specific context.` Fachberichte in K/KI-VERTRAG-BAU.md, K/SITE-BERICHT.md und K/GUIDE-BERICHT.md.
 
-Benötigte Abhängigkeit: geprüfter integrierter G-Vertrag, anschließend enger typisierter Generierungsanschluss mit aufgabengebundener bestehender Modell-/Budget-/Timeoutkonfiguration. K baut keine parallele Providerimplementierung und kopiert keinen G-WIP. Eigene Botzustände und der erhaltene Rust-Siteport werden inzwischen disjunkt vorbereitet. Die konkrete Twitch-Fassade wird vom nativen high-Worker gegen den vorhandenen Titelpfad nachgelesen.
+TESTNACHWEIS[TW-1]: 119 passed, 0 ignored | Baseline: 2 rot
 
-Im aktuellen `brain-contracts/src/provider_input.rs:31` enthält der bestehende Antwortprompt noch ein menschliches Patenangebot und trennt Paten von Coaching. Dieser Prompt muss beim gemeinsamen Anschluss die aktuelle Bedeutung Pate=Brain=Concierge einhalten. K verändert den aktiven G-Vertrags-/Providerbereich derzeit nicht parallel. Das ist keine Freigabe, menschliche Patenmechanik im Bot zu ändern.
+119 ist die Summe der drei abgeschlossenen scoped Suites58+3+58, keine vollständige reposweite Suite. Baseline2 bezeichnet ausschließlich die zwischenzeitlichen eigenen56/2-Guidefehler, inzwischen repariert, keine unveränderte origin/main-Testsuite. Clippy-Baselinezahlen stehen getrennt oben.
 
-Ein Loopback-Abo-Proxy ist remote Modellverarbeitung. Öffentliche Antwortfälle sind damit möglich; private Guide-/DM-/Profilinhalte benötigen einen tatsächlich lokalen freigegebenen Provider oder müssen vor dem Modellaufruf gesperrt bleiben. Keine Config-/Datenschutzlockerung.
+## Verbindlicher Produktzuschnitt
 
-## Native Arbeit
+Pate = Brain = Concierge, dieselbe persönliche KI-Hilfe. Serverguide ist deren Fähigkeit. Menschliche Vermittlung, Rollen, Übernahmen und menschliche Anfrage-/Neinpfade bleiben draußen. Keine zweite Persona, breite Kontaktserien oder ungeklärte persönliche Speicherung.
 
-Nachweise und IDs: `K/REGISTER.md`. Tatsächliche Agentenstarts stehen in wf_d31d25f0-fca/journal.jsonl. Zwei Workflowworker (Guidebau, Twitch-Vertrag) plus ein nativer Siteport-Worker, insgesamt höchstens drei. Alle geerbt Sol 6.1 high. Keine Modell-/Settingsänderung. Alte kanonische Checkouts und E/F/I/G/H-Schreibbereiche unangetastet.
+K-KLARSTELLUNG-TITEL.md umgesetzt: kein gesonderter Titelgenerator, keine neue UI/Route oder zweiter Titelpfad. Wrapper ohne Stil enthalten weiter Historie, Community-Benchmarks, Rang und optional Livekontext; include_live=false entfernt die übrigen persönlichen Daten nicht. Kein geeigneter vorhandener nichtpersonalisierter Produktionsfall belegt. Der bestehende personalisierte Einstieg `/twitch/api/v2/title/suggest` bleibt ungemigriert; Titel-Cutover ist Datenschutz-/Providerabhängigkeit, keine still gekürzte Eingabe oder vorgetäuschte Parität.
 
-Gebaut: isolierter Botaufgabenvertrag, bestätigter Siteport und eigener Discord-Privatguard. Reviewt: Botvertrag und Siteport isoliert ALLOW; Botgate noch offen. Gemergt: nein. Deployt/live: nein. Keine gemeinsame Produktabnahme oder KI-Cutover behauptet.
+Öffentlicher Guide behält den bestehenden Brainclient und `/v1/answer`; gebaut ist der lokale Privat-/Zustellguard, kein neuer verdrahteter Botaufgabenendpunkt. Private oder ungeklärte Eingänge werden vor Modellconsumer gesperrt. Privater FAQ/shared_answers-Restpfad unverändert und nicht als sicher freigegeben. Loopbackproxy zählt remote; kein neuer Anbieter oder Modellwechsel. Normale Zustimmung/Ablehnung bleibt, keine DMs oder Kontaktprogramme aktiviert.
 
-## 10:11: Fallauswahl und technischer Anschluss präzisiert
+## Konkrete Anschlussblocker und Resume
 
-- Öffentlicher Discord-Guide ist der Erstfall. Der bestehende private FAQ-Chat mit Verlauf wird nicht an den öffentlichen Brainvertrag gehängt. Private DMs brauchen einen tatsächlich lokalen freigegebenen Provider; die eigene Botfortsetzung begrenzt diesen Eingang vor Remote-Modellanfrage.
-- Twitch: kein gesonderter Titelgenerator. Gemäß K-KLARSTELLUNG-TITEL.md darf ausschließlich ein bereits vorhandener zulässiger nichtpersonalisierter Teilfall im selben Completionpfad ohne Funktionsverlust zentralisiert werden. Auch die vorhandenen Wrapper ohne Stilparameter übergeben Historie, Community-Benchmarks, Rang und optional Livekontext; include_live=false entfernt die übrigen persönlichen Daten nicht. Bisher kein geeigneter Produktionsfall belegt. Titel-Cutover bleibt Datenschutz-/Providerabhängigkeit, keine still gekürzte Eingabe oder vorgetäuschte Parität. `K/TWITCH-VERTRAG.md` dokumentiert den bestehenden Einstieg und seine Limits.
-- Konkrete Abhängigkeit für G-Anschluss: typisierter Generierungsport plus validierte per-Aufgabe-Auswahlbindung im bestehenden Provider. `/v1/answer` und promptbasierte Modellvorgaben ersetzen das nicht. Keine neue Providerimplementierung oder Credentials-/Modelloverrides auf dem Wire. `K/ANSCHLUSSBEDARF.md` enthält Paritäts-/Rechtegrenzen.
-- Der tatsächliche native high-Workflow ist abgeschlossen, beide Rückgaben nicht leer. Zwei Guideanläufe hatten technische CWD-/Aliasfehler und keine Produktwirkung. Frischer nativer Worker startet mit korrekt nachgelesener Arbeitskopie und nativen Vorreads für eigene Editdateien. Keine Settings-/Berechtigungsänderung.
+1. Nach erneutem frischem Fetch weiterhin Brain-origin/main f6f5cef6. Geprüfter integrierter G-Vertrag fehlt. Letzte autorisierte G-Akte nennt Dokumentcheckpoint5c2afa66 und laufenden Produktabschluss. AnswerProviderPort/Query/PublicAnswer ersetzt keinen typisierten Generierungsport mit bestehender pro-Aufgabe-Fireworksbindung, Budget und Completiondeadline. Kein G-WIP kopieren oder Parallelprovider bauen.
+2. H-Teilübergabe durch Hauptorchestrator bestätigt und als vorhandener Integrationsinput angenommen: Code 26859fda4b5e77a29b3af4cea0411d304a04eb2f, Nachweis-HEAD 65f33cb1aadef755db0d2ff6631342d04fa398b3 auf origin. H/AN_HAUPT-H.md und H/ANSCHLUSS.md gelesen, keine neue Rendererimplementierung. Frischer nativer Fixer ad9015ecebebc29f1 übernimmt die drei bestätigten Quell-/Test-/Previewdateien und K-Modulexport; behebt lange Heldennamen im SVG sowie XML-unzulässige U+FFFE/U+FFFF. Zweiter disjunkter Worker af4b87bee7168749f untersucht/integriert ausschließlich vorhandene Site-/Postgres-Artefaktnaht, soweit bestehender geprüfter Vertrag echte Rechte-/Widerrufsprüfung erlaubt, ohne G-Schema oder Herkunft zu erfinden. H-34-Tests, Code-Gate ALLOW und synthetische Sichtprobe bleiben H-Nachweise, kein echter G-/Livebeweis. Gemeinsame Zahlen-/Quellen-/Rechte-/Speicher-/Auslieferungsabnahme bleibt an fehlenden integrierten G-Vertrag gebunden.
+3. Vor Verdrahtung Guidefähigkeitsanzeige plattformbezogen machen; bestehender Brainprompt in provider_input.rs:31 enthält noch menschliches Patenangebot, erst nach Übergabe des aktiven G-Bereichs korrigieren. Normaler Siteproduktionsstart mit vorhandener Config/Rollen-/Tabellenbereitstellung bleibt unbelegt, Tests benötigen PostgreSQL16 unter /usr/lib/postgresql/16/bin. Keine ungefragte Kommentar-/DB-Erweiterung.
 
-Dokumentcheckpoint 8af5cca5 auf origin/feat/brain-k-ki-20261007 gesichert. Nur K-Akten und ein Statusereignis, keine Produktabnahme. Native Sourcearbeit blieb unstaged.
+Nächster Integrationsschritt ist Export/Verdrahtung gegen den geprüften integrierten G-Stand und bestätigten H-SHA, danach gemeinsame H/K-Abnahme, lokaler Gate, regulärer origin/main-Deploy und echte Liveprüfung. Bis dahin eigene integrierbare Worktrees/Branches erhalten. Kein fremdes Build-/Deploy-Wartefenster oder Sessionkontakt.
 
-MERGEPROTOKOLL[MS-1]: 4 Git-Schritte einzeln | Anläufe: 0 | Gate: kein Main-Merge, Dokumentcheckpoint auf Featurebranch
+## Technische Fortsetzung und Arbeitsstand
 
-## Geordnete technische Fortsetzung und eigene Quellencheckpoints
+API-Streamabbruch in Session988eeaea-28ee-424c-b362-e250610cde91 geordnet fortgesetzt. Verworfener Toolinput nicht ausgeführt; kein Gate-BLOCK oder Kontingentbeleg. Eigene Worker-/Gitstände geprüft, keine Doppelstarts, kein Reset oder Ersatzthread. Eigene KI-/Site-/Guidefixer abgeschlossen. Nach bestätigter H-Teilübergabe zwei disjunkte native H-/Siteworker aktiv. Frühere Wache7e018b31 gelöscht, neue sessiongebundene 20-Minuten-Wache5a15bd24 für diese eigenen Tasks, automatische Höchstlaufzeit sieben Tage. Kein Task-Settle oder fremdes Wartefenster. HANDOFF.md hält den exakten Resume-Stand.
 
-API-Streamabbruch im selben nativen Stand fortgesetzt; verworfener Toolinput hatte keine Wirkung. Kein Reset, Modellwechsel oder zusätzlicher T3-Thread. Ursprüngliche Worker abgeschlossen, keine Doppelstarts.
+Kein Altproduktpfad gelöscht oder produktiv ersetzt. Eigener unveränderter Baselineworktree entfernt; drei eigene Featureworktrees bleiben erhalten. Keine Produkt-URL oder Livegrafik verfügbar, daher kein erfundener Bedien-/Livebeweis.
 
-`7e8fc641` und `56d1e77d` auf origin/feat/brain-k-ki-20261007: isolierter unexportierter Botvertrag und selektiver bestätigter Rust-Siteport. Eigene Prüfungen 58 Vertragsfälle und drei echte isolierte HTTP-/Postgres-Sitefälle bestanden, null ignoriert. Reguläre Gates für beide Sourcecommits `[gpt-6.1-sol] ALLOW`, Logs `/tmp/k-contract-gate-20261007.log` und `/tmp/k-site-gate-20261007.log`. Das ist kein Main-, Produktions- oder H/K-Gesamtbeweis. NITs und Startvoraussetzungen in K/KI-VERTRAG-BAU.md und K/SITE-BERICHT.md.
+MERGEPROTOKOLL[MS-1]: 12 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW für isolierten Vertrag, Site und finalen Guide; vier Quellencheckpoints auf Featurebranches, kein Main-Merge
 
-Bots-K-Compiler bestand. Eigene Guide-Suite: 56 passed, 2 failed, 0 ignored, 272 filtered; Clippy am zusätzlich ausgewählten DB-Paket rot. Frischer nativer Prüffixer a4b6b44515d088ad4 besitzt ausschließlich modglue.rs, keine fremde Crate. Noch kein Botcommit oder Produktionsänderung. K/GUIDE-BERICHT.md und K/HANDOFF.md sichern exakte Fortsetzung.
-
-Konkrete Liefergrenze unverändert: nach frischem Fetch Brain-main f6f5cef6, G-Übergabe nur Dokumentcheckpoint 5c2afa66 und aktiver Produktabschluss. H noch ohne bestätigten finalen Feature-SHA oder freigegebenes echtes G-Ergebnis. Keine WIP-Kopie und kein Parallelprovider. Nach eigenem Guideprüfabschluss verifizierten Teilstand erhalten; gemeinsamer Anschluss erst gegen die zuständigen geprüften Lieferungen.
-
-MERGEPROTOKOLL[MS-1]: 6 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW für isolierten Vertrag und Site; zwei Featurecheckpoints, kein Main-Merge
-
-Wache 20 Minuten: eigener sessiongebundener Job 7e018b31. Er endet spätestens nach sieben Tagen und wird beim Abschluss gelöscht.
+Die12 Schritte bezeichnen add/commit/push der vier Quellencheckpoints, jeweils eigener Bash-Aufruf. Dokumentcheckpoints sind separat auf dem Brainfeature gesichert.

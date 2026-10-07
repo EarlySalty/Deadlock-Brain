@@ -16,4 +16,22 @@ Scoped Suite b979drlm4 mit Slot 2: derselbe moderne Cargo, `test --locked --mani
 
 Clippy b3q6eefm2 Exit 101, Log `/tmp/k-bots-clippy-20261007.log`: mitausgewähltes dl-central-db-Ziel, platform_connections.rs:30 explicit_auto_deref. Keine Baselinebehauptung ohne Vergleich und keine fremde Crate ändern. Frischer Fixer a4b6b44515d088ad4 besitzt ausschließlich modglue.rs und prüft nach Ursachekorrektur die Bot-only-Auswahl mit qualifiziertem vorhandenen Dependencyfeature.
 
-Kein Botcommit, Gate, Push, Deploy oder Livebeweis bis Prüfabschluss. Keine produktive Datenschutzgesamtfreigabe.
+## Eigener Prüffix und Quellencheckpoint
+
+Fixer a4b6b44515d088ad4 änderte nur dieselbe modglue.rs: Limit-Testzustand nach Aufwärmen festgehalten; Guidecache direkt aktualisiert, weil ein gesetzter OnceLock nicht durch link_cache ersetzt wird; echte Textkanal-Fixture. Private Guards und negative Fälle erhalten.
+
+Unter durchgehend gehaltener Slot-1-Sperre: Format und Compiler Exit 0, Suite 58 passed, 0 failed, 0 ignored, 272 filtered. Log `/tmp/k-bots-fixer-tests-r2-20261007.log`. Befehl `SQLX_OFFLINE=true /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/bots-k-guide-20261007/rust/Cargo.toml --locked --jobs 3 -p dl-bot --features dl-central-db/testing --bin dl-bot modglue::tests:: -- --include-ignored`. Das vorhandene qualifizierte Dependencyfeature ist nachweislich aktiv; keine Manifeständerung.
+
+TESTNACHWEIS[TW-1]: 58 passed, 0 ignored | Baseline: 2 rot
+
+Diese Baseline bezeichnet ausschließlich den eigenen vorherigen WIP-Lauf 56/2, nicht origin/main. Striktes Bot-only-Clippy bleibt Exit 101: 58 double_must_use-Befunde aus async_trait, davon neun in modglue.rs; Log `/tmp/k-bots-fixer-clippy-r2-20261007.log`. Keine Unterdrückung und keine fremde Crate geändert. Eigener unveränderter detached Baselineworktree auf 56571e40: gleiche Compiler-/Lintkonfiguration, vorhandenes Target, Slot 2, Lauf b3y19m5le Exit 101. Gemessen 57 Befunde, acht in modglue.rs und 49 außerhalb; Log `/tmp/k-bots-clippy-baseline-20261007.log`. Baselineworktree nach leerem Status inklusive ignored wieder entfernt. Damit genau ein eigener neuer Macro-Lint, nicht alle 58 als alt gewertet. Frischer Fixer a087d253d7f0e8589 prüft ausschließlich die neue reine Cache-Sichtbarkeitsmethode auf synchrone Signatur, ohne Lintunterdrückung oder Fremdänderung.
+
+Quellencheckpoint `79142c34` auf origin/feat/bots-k-guide-20261007. Compiler und Tests belegen den lauffähigen Teilstand, nicht grünes Gesamtclippy. Regulärer Guidegate be6og8uve Exit 0, Log `/tmp/k-guide-gate-20261007.log`: `[gpt-6.1-sol] ALLOW: No blocking defect found in the supplied diff and revision snapshots.`
+
+## Finale eigene Prüfung
+
+Fixer a087d253d7f0e8589 abgeschlossen: ausschließlich is_public in Trait und beiden Implementierungen synchronisiert, drei awaits entfernt. Pure Cacheprüfung bleibt vor Consumer und erneut vor Versand; andere Methoden und alle Tests unverändert. Quellencheckpoint `8745a0eb` auf Botfeature-origin, Workingtree sauber.
+
+Unter gehaltenem Slot 1: Format/Compiler Exit 0, 58 passed, 0 failed, 0 ignored, 272 filtered. Logs `/tmp/k-bots-sol-fix-{fmt,check,tests,clippy}-20261007.log`. Compiler1.99, SQLX_OFFLINE=true, bestehendes Target und sccache, `--locked --jobs 3 -p dl-bot --features dl-central-db/testing --bin dl-bot modglue::tests:: -- --include-ignored`. Clippy57 statt58, acht in modglue.rs und49 außerhalb, exakt wie sauber gemessene unveränderte57-Baseline; weiterhin Exit101 und nicht grün.
+
+Finaler vollständiger Guidegate btz4txfon für8745a0eb gegen56571e40, Exit 0: `[gpt-6.1-sol] ALLOW: No merge-blocking defect found in the supplied diff and revision-specific context.` Log `/tmp/k-guide-final-gate-20261007.log`. Kein Main-Merge, Deploy oder Livebeweis. Keine produktive Datenschutzgesamtfreigabe.
