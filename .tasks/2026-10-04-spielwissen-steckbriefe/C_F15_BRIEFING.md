@@ -1,0 +1,31 @@
+# C-F15: Sichtbarer Importfehler und dessen konkrete Ursache
+
+[Orchestrator] Blatt-Worker von D5 T3 6b670366-ae14-4fc8-bbfb-f6d1027a8371, Kopf Grok 31575951-23e7-4dd9-b1af-8700f7ff45fe. Keine weiteren Agenten oder Threads. Bericht ausschließlich C_F15_AN_D5.md im zentralen Aufgabenordner, Steuerung C_F15_VON_D5.md, bis diese vorhanden ist gilt dieses Briefing. Keine direkte Nachricht an Kopf, D1 oder W1. Humanizer und no-em-dashes für alle eigenen deutschen Texte anwenden, echte Umlaute, keine Gedankenstriche.
+
+BRIEFING[WB-1]: Pflichtteile 5/5 | Timer 20 min | Worktree: /home/nathanael/.worktrees/brain-spielwissen-c-importerror-20261005
+
+## Auftrag und Bestand
+
+Zuerst DELEGATOR-REGELN.md und VON_HAUPT.md 05:16 sowie 04:36 lesen. Neueste Steuerung erlaubt genau einen frischen Fixer: echten verschluckten Importfehler sichtbar machen und ausschließlich seine konkrete Ursache beheben, damit der vorhandene normale Import den aktuellen GameTracking-Ref e0b9830a7f69726c933da90446e669ad276e73f8 speichert. Kein zweiter Importweg, kein Feed, kein Schema/DDL und keine Patchtabellenänderung. canonical_raw_dir bleibt aus, NIT ungebaut, Grenzen unverändert. Wiki/A4 und Intervalle bleiben Stufe 2.
+
+Eigener sauberer Worktree und Branch fix/brain-spielwissen-c-importerror-20261005 ab vollständig erhaltenem origin/main e036fbdea7236cac41033f3b7dffda76f31fd12e. Alle vorherigen Rechte-/Receipt-/Blob-/Modell-/Discord-/SDK-/Providerfixe erhalten. Du bist nicht allein im Codebestand. W1 besitzt Main/Deploy/produktive Migrationen/Grants/ConfigWriter/Patchobjekte und arbeitet an der Auslieferung. Fremde Änderungen nicht zurücksetzen; keine W1-Datei oder Produktivkonfiguration ändern.
+
+Bestand zuerst mit vorhandenem Graphify und konkretem Lesen, keinen Graph neu bauen. D5 hat den gelieferten Code gelesen: integration/runner.rs:659 verwirft Err(_) von refresh_entity_profiles und schreibt nur ENTITY_PROFILE_REFRESH_FAILED. integration/entity_profiles.rs:refresh_git_knowledge nutzt PinnedRepository, vorhandenen Extractor, validiert JSONL, ImportPolicy und import_prepared_knowledge. Dieser gemeinsame Weg bleibt bestehen.
+
+Aktueller W1-Bericht: /home/nathanael/repos/Deadlock-Brain/.tasks/2026-10-03-brain-fertigstellung/welle1/w1/DOCS-TON-AN_D1.md 05:03:51. Ein normaler produktiver Tick speichert 17 JSON-Dokumente/78.749 Fakten am Ref 46c3fd0cfbf2108f48123e1dddd59e416db1b7ee, endet dennoch Exit 0 mit Sammelfehler. GameTracking-Dokumente, Profile, Quittungen und Aktivierung null. Genaue Fehlerursache bislang unbelegt, nicht raten. W1 hat den regulären Restore der originalen Patch-/Katalogtabellen, Originalview und vollständigen Grantlauf mit Exit 0 erledigt; kein Ersatzschema nötig.
+
+Readonly Originale: deadlock-data /home/nathanael/repos/Deadlock-Brain/data/external/deadlock-data, aktueller Master 46c3fd0c; GameTracking /home/nathanael/.local/share/deadlock-brain/source-cache/GameTracking-Deadlock, Master e0b9830a. Nur data/json beziehungsweise game/citadel/pak01_dir/scripts. W1-Messung 17 Blobs/4.160.029 Bytes und 95 Blobs/11.237.591 Bytes, größter GameTrackingblob 7.540.728 Bytes. GitSourcegrenzen MAX_GIT_FILES 2048/MAX_SOURCE_BYTES 8.388.608/MAX_GIT_TOTAL_BYTES 33.554.432; extraction.max_file_bytes 8.388.608. Kein Limit erhöhen oder Prüfung umgehen. Keine Änderung oder Fetch in diesen fremden Originalcheckouts; tatsächliche Pins lesend bestätigen.
+
+## Eigentum und kleinster Weg
+
+Alleinige Produktzuständigkeit zunächst rust/crates/brain-maintenance/src/integration/runner.rs und integration/entity_profiles.rs samt unmittelbar nötiger vorhandener Regression in brain-maintenance. Echte Ursache zuerst am bestehenden Aufruf mit tatsächlichen gepinnten Originalen lokal belegen und früh mit Fehlertext/Fundstelle melden. Der betroffene Importpfad läuft im eigenen lokalen PostgreSQL-Testcluster, keine produktiven Imports oder Timerstarts. Exakte zusätzlich nötige Produktpfade an D5 melden und vor Änderung Eigentum übernehmen; keine spekulative Parser-/Storageänderung oder Refaktorierung. D5 klärt innerhalb desselben laufenden Auftrags die eng nötige Zuweisung.
+
+Den tatsächlichen Fehler am bestehenden internen Betriebsweg sichtbar machen; dessen Ursache und Quellenschritt nachvollziehbar, keine Secretwerte, Rawinhalte oder SQL-Nutzdaten ausgeben. Bestehende Fehler-/Statuswege wiederverwenden. Keine diagnostische Rohinformation in Modellantworten oder öffentliche Profile aufnehmen. Sammelcode allein reicht nicht. Keine stille Fallbackfreigabe, keine Lücke aus inventory.gaps ignorieren, keine Fakten/Assertions abschwächen, keine zweite Parsingsemantik.
+
+## Beweis und Übergabe
+
+Gezielter normaler Import der tatsächlichen gepinnten GameTracking-Originale speichert Dokumente unter exakt e0b9830a mit bestehenden Grenzen; JSON-Importweg erhalten. Ursache vor Fix belegt, danach derselbe Weg grün. Vorhandene sinnvolle Regression zeigt sichtbaren echten Fehler, keine spiegelnde Zusatztestsuite. Keine Modellantwort oder Produktionsaktion durch dich. Falls eine andere Ursache oder benötigter größerer Umfang auftaucht, konkret melden und nicht nebenbei bauen.
+
+Rust only, keine Code-Kommentare, keine ENV-Konfiguration, Infisical/FD unverändert, Secrets nie ausgeben. Nur betroffene Crates nach /home/nathanael/Documents/.tasks/2026-10-02-offene-branches/HOSTPROBE.md: drei Slots, drei Jobs, /home/nathanael/.cargo/bin/cargo +1.97.1, gemeinsamer Target /home/nathanael/repos/Deadlock-Brain/rust/target. fmt ohne Sperre, eigene Testcluster beenden und Slots freigeben. Früh committen und nach grünem Schritt Branch pushen. Bericht nur Befehl/Exit/Testzahl/SHA plus echte Ursache/Übergabe.
+
+Einziger Reviewer ist normales `gate_hook.py --review` auf exakt aktuellem origin/main und vollständigem End-SHA. Vor Gate frisch fetch und tatsächliches Main prüfen, derzeit e036fbde. BLOCK unverändert an D5, keine Eigenfixrunde; Exit 2 genau eine unveränderte Wiederholung, dann an D5. Kein zusätzlicher Reviewer. Nach ALLOW gepushten sauberen Stand samt konkreten Belegen und unverändertem bisherigen Einsatzplan in W1/EINGANG.md liefern, bestehende Einträge erhalten. W1 allein Main/Deploy/normaler Tick und Liveprüfung. Kein eigener Mainpush oder produktiver Eingriff. Worktree/Branch bis Integration und Livebeleg erhalten. Nach vollständiger fachlicher Übergabe Turn beenden, D5 settlet.

@@ -1,0 +1,1 @@
+04.10.2026, 09:40 Uhr: Freigegebener normaler 65000-ms-Configweg benötigt die bestätigten minimalen vorhandenen Validator-/Editoränderungen. W6 nichts geändert/gesettelt, W1 wartet auf wirksame Config und übernimmt danach Inhaltsabnahme; kein paralleler Sourcebau auf deinen Consumerpfaden.

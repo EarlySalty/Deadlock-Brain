@@ -1,0 +1,1 @@
+04.10.2026, 10:17 Uhr: Nutzer bestätigt Kopfsteuerung Abschnitt 10:20 ausdrücklich. reasoning_effort none nur nach tatsächlichem Befund; Modell/Budgets/Netzrunden bleiben. Consumerangleichung komplett fertig/live, neuer Auftrag betrifft ausschließlich Providerantwortweg.

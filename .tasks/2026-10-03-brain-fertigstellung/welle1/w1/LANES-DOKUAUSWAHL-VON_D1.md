@@ -1,0 +1,1 @@
+04.10.2026, 11:01 Uhr: Einziger verbleibender Sourceauftrag ist bestätigte Relevanzauswahl der normalen Lanes-Frage. Provider jetzt answered/5,984 Sekunden, Consumer65000 komplett live; dort kein weiterer Umfang. Keine Antwortlisten oder bloße Promptkorrektur für fehlende passende Doku.

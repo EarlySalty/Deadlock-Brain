@@ -1,0 +1,17 @@
+# A-E: Ein Brain, gemeinsamer Antwortweg
+
+Neue verbindliche Nutzerentscheidung in `../VON_HAUPT.md`, Punkt 1 und 3: Bots führen Mechanik aus; das gemeinsame Brain formuliert Antworten. Priorität 1 neben den Steckbriefen. Paket A erstellt `EIN-BRAIN.md`, bindet den echten Invite-Status als lesenden Brain-Skill an den bestehenden Discord-Antwortweg und zieht weitere Antwortpfade nach Nutzen um. Gewollte funktionierende Antworten bleiben bis zum live belegten Ersatz erhalten; die gemeldete fehlerhafte verspätete Lounge-Antwort darf B sofort unabhängig von A entfernen. Keine zweite Brain-Route, kein neuer Bot-LLM-Connector, kein eigenes Invite-Wording. Paket B repariert Mechanik/Frische, A verändert keinen B-Dateibesitz. Die ausdrückliche Minimalfreigabe für eigenen Invite-Status als Enum plus Zeitpunkt steht inzwischen in `INVITE-VERTRAG.md` und VON_HAUPT.md, keine Steam-IDs/Namen/Fremddaten.
+
+## Inventur, Versuch 1
+
+Zwei native read-only Blatt-Worker. Keine Code-, Config-, DB-, Dienst- oder Gitmutationen. Keine weiteren Agenten/T3-Threads, kein ListAgents oder SendMessage. Kein EnterWorktree. Graphify zuerst, dann konkrete Fundstelle lesen. Alte Akte `.tasks/2026-09-19-unified-community-game-ai` nur als Hinweis prüfen, nicht als aktuelle Laufzeit verkaufen. Eigene Rückgabe, Root-Akte schreibt allein Paket A.
+
+A-E1 besitzt die Inventur von Deadlock-Bots und Twitch-Bot: Concierge, Serverguide, Invite-Lounge, Twitch-Antworten, Patchnotes-Bot, Pitches, eigene LLM-Aufrufe und feste Antworttexte in dl-bot/tb-bot einschließlich Crate-Nebenpfaden. Tatsächliche Repo- und Main-/Live-SHAs bestimmen. Je Pfad: Ort mit Zeile, Wirkung/Nutzeranlass, bereits Brain ja/nein/teilweise, aktiv oder nur vorhanden, vorhandener gemeinsamer Anschluss, Umbauweg und Nutzenpriorität. Mechanische Karten/Buttons von erklärenden Antworttexten trennen, beide transparent erfassen. Nicht pauschal jeden String zum kaputten Alternativbrain erklären.
+
+A-E2 besitzt die Inventur des vorhandenen Brain-Skill-/Request-/Sourcevertrags und der Invite-Statusquelle in Brain/Bots/Steam: bestehenden Brain-Consumer, Personenzuordnung/Rechte, `steam.beta_invite_audit` oder die tatsächliche Quelle, echte Statussemantik und Schreibproduzenten, bestehende Betriebs-/Secret-/PG-Rolle. Nur lesende begrenzte Metadaten oder aggregierte Statusabfragen, keine Communityrohtexte an externe Modelle oder in Bericht. Prüfen, ob ein passender Skill schon vorhanden ist. Konkreter minimaler Anschluss an den gemeinsamen Antwortweg mit Statusfrische, intern stabilen Belegen/IDs, Fehler/Unbekannt statt falschem Erfolg, keine neuen Audit-/Statusspeicher. B-Mechanikdateien nur lesen. Nach ausdrücklicher Nutzerfreigabe nur eigenen Invite-Status als Enum plus Zeitpunkt über den bestehenden Provider senden, keine Steam-IDs/Namen/Fremddaten und keine unbereinigten Frage-/Kontextdaten. Identität/Rechte vor der Projektion prüfen. Keine neue lokale oder externe Modellwahl, kein Connector oder Zeitlimitwechsel. `INVITE-VERTRAG.md` ist verbindlich.
+
+## Rückgabe
+
+Strukturiert mit Fundstellen, Main/Laufzeitstand, Pfaden/Verträgen, Wiederverwendung und offenen Voraussetzungen. Keine Reviewerrolle, keine Codeänderung. Paket A bestimmt danach tatsächliches Implementierungseigentum in getrenntem Worktree. Wache nach 20 Minuten, spätestens nach 30 Minuten. Auftraggeber Paket-A-Session `2c7de4c9-bac4-43ad-b91a-f8ac889f09b4`, Hauptorchestrator `3fcd8f71-443e-48ae-825c-527eb52fbe56`; Bericht nur über Akte.
+
+BRIEFING[WB-1]: Pflichtteile 5/5 | Timer 20 min | Worktree: hauptbaum

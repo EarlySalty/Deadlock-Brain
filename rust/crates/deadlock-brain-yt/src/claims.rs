@@ -7,12 +7,23 @@ use sqlx::Row;
 
 use crate::queue::Video;
 
-pub const MODEL: &str = "gemini-web";
-pub const PROMPT_VERSION: &str = "youtube_claims_de_v2";
+pub const MODEL: &str = "fireworks-rust-transcript";
+pub const PROMPT_VERSION: &str = "youtube_claims_de_v3";
+pub const LEGACY_MODEL: &str = "gemini-web";
+pub const LEGACY_PROMPT_VERSION: &str = "youtube_claims_de_v2";
 
-pub const GEMINI_PROMPT_TEMPLATE: &str = r#"Schau dir dieses YouTube-Video von einem Deadlock-Creator genau an: {URL}
+pub const TRANSCRIPT_PROMPT_TEMPLATE: &str = r#"Extrahiere aus dem folgenden YouTube-Transkript konkrete Deadlock-Gameplay-Erkenntnisse. Ignoriere Smalltalk, Intros, Werbung und Spendenaufrufe.
 
-Fasse anschließend zusammen, welche konkreten Gameplay-Erkenntnisse der Creator vermittelt – zum Beispiel Item-Builds, Item-Timings, Hero-Matchups, Mechaniken, Combos oder Meta-Einschätzungen. Ignoriere Smalltalk, Intros, Werbung und Spendenaufrufe. Antworte auf Deutsch in klaren Stichpunkten."#;
+Video: {TITLE}
+URL: {URL}
+
+Transkript:
+{TRANSCRIPT}
+
+Gib ausschließlich JSON zurück:
+{"claims":[{"entity":"Hero, Item oder Fähigkeit","claim_type":"build|item_timing|matchup|mechanic|combo|meta","assertion":"klarer deutscher Satz","patch_context":null,"confidence":0.0}]}
+
+Wenn das Transkript kein konkretes Deadlock-Gameplay-Wissen enthält, gib {"claims":[]} zurück."#;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Claim {
@@ -23,8 +34,18 @@ pub struct Claim {
     pub confidence: f64,
 }
 
-pub fn build_prompt(url: &str) -> String {
-    GEMINI_PROMPT_TEMPLATE.replace("{URL}", url)
+pub fn build_transcript_prompt(video: &Video, transcript: &str) -> String {
+    TRANSCRIPT_PROMPT_TEMPLATE
+        .replace("{TITLE}", &video.title)
+        .replace("{URL}", &video.url)
+        .replace("{TRANSCRIPT}", transcript)
+}
+
+pub fn response_explicitly_has_empty_claims(response_text: &str) -> bool {
+    parse_json_value(response_text)
+        .and_then(|value| value.get("claims").cloned())
+        .and_then(|claims| claims.as_array().cloned())
+        .is_some_and(|claims| claims.is_empty())
 }
 
 pub fn parse_model_claims(response_text: &str) -> Vec<Claim> {
@@ -124,7 +145,10 @@ pub async fn save_claims(
             "patch_context": &claim.patch_context,
             "verifier": "not_run",
         }))?;
-        let provider_metadata_json = serde_json::to_string(&json!({ "worker": "gemini_browser" }))?;
+        let provider_metadata_json = serde_json::to_string(&json!({
+            "worker": "rust_transcript_model",
+            "provider": "fireworks"
+        }))?;
         sqlx::query!(
             r#"
             INSERT INTO brain.youtube_learning_claims(
@@ -191,8 +215,11 @@ pub async fn query_claims(pool: &PgPool, entity: &str) -> anyhow::Result<Vec<Cla
         FROM brain.youtube_learning_claims c
         JOIN brain.youtube_videos v ON v.video_id=c.video_id
         WHERE lower(c.entity_name)=lower($1)
-          AND c.prompt_version=$2
-          AND COALESCE(c.model, '')=COALESCE($3, '')
+          AND (
+            (c.prompt_version=$2 AND COALESCE(c.model, '')=COALESCE($3, ''))
+            OR
+            (c.prompt_version=$4 AND COALESCE(c.model, '')=COALESCE($5, ''))
+          )
           AND COALESCE(v.metadata->>'needs_claim_revalidation','') <> 'true'
         ORDER BY v.published_at DESC NULLS LAST, c.created_at DESC
         "#,
@@ -200,6 +227,8 @@ pub async fn query_claims(pool: &PgPool, entity: &str) -> anyhow::Result<Vec<Cla
     .bind(entity)
     .bind(PROMPT_VERSION)
     .bind(MODEL)
+    .bind(LEGACY_PROMPT_VERSION)
+    .bind(LEGACY_MODEL)
     .fetch_all(pool)
     .await?;
 

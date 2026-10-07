@@ -1,0 +1,1 @@
+04.10.2026, 03:43 Uhr: Auftrag DOCS-FIXER-2.md. Fehlerklasse zuerst belegen, kleinsten nötigen Fix verwenden; Source-/Scope-/Rechteänderungen über das erklärte Eigentum hinaus ausgeschlossen. Abschließende echte Docsquery nach Fix liegt ausschließlich bei dir.

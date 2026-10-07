@@ -1,19 +1,21 @@
 use std::{
-    fs,
     io::Read,
-    path::Path,
-    process::{Command, Stdio},
     time::Duration,
 };
 
 use anyhow::{ensure, Context};
+use reqwest::{
+    blocking::{Client, Response},
+    header::ACCEPT_LANGUAGE,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPool;
-use wait_timeout::ChildExt;
 
-const DEFAULT_YT_DLP_TIMEOUT_SECONDS: u64 = 120;
-const MAX_CAPTION_BYTES: u64 = 16 * 1024 * 1024;
+const DEFAULT_YOUTUBE_TIMEOUT_SECONDS: u64 = 30;
+const MAX_CAPTION_BYTES: usize = 16 * 1024 * 1024;
+const MAX_WATCH_PAGE_BYTES: usize = 12 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 pub struct FetchTranscriptsSummary {
@@ -190,76 +192,201 @@ pub async fn fetch_transcripts(pool: &PgPool, limit: usize) -> anyhow::Result<Fe
 
 fn fetch_caption_for_video(video: &VideoForTranscript) -> anyhow::Result<Option<CaptionData>> {
     ensure!(valid_video_id(&video.video_id), "invalid YouTube video ID");
-    let temp = tempfile::tempdir()?;
-    let log_path = temp.path().join("download.log");
-    let log = fs::File::create(&log_path)?;
-    let mut child = Command::new(yt_dlp_bin())
-        .args(["--ignore-config", "--no-update", "--no-warnings", "--no-progress", "--no-playlist",
-               "--skip-download", "--write-subs", "--write-auto-subs", "--sub-langs", "en.*",
-               "--sub-format", "json3", "-o"])
-        .arg(temp.path().join(format!("{}.%(ext)s", video.video_id)))
-        .arg(format!("https://www.youtube.com/watch?v={}", video.video_id))
-        .stdin(Stdio::null()).stdout(Stdio::from(log.try_clone()?)).stderr(Stdio::from(log))
-        .spawn().context("could not start yt-dlp")?;
-    let timeout = Duration::from_secs(yt_dlp_timeout_seconds());
-    let status = match child.wait_timeout(timeout) {
-        Ok(Some(status)) => status,
-        other => {
-            let _ = child.kill();
-            let _ = child.wait();
-            match other {
-                Ok(None) => anyhow::bail!("yt-dlp timeout after {}s", timeout.as_secs()),
-                Err(_) => anyhow::bail!("could not wait for yt-dlp"),
-                _ => unreachable!(),
-            }
-        }
+    let client = Client::builder()
+        .user_agent("DeadlockBrain/0.1")
+        .timeout(Duration::from_secs(youtube_timeout_seconds()))
+        .build()
+        .context("could not create YouTube HTTP client")?;
+    let watch_url = format!("https://www.youtube.com/watch?v={}", video.video_id);
+    let watch = client
+        .get(&watch_url)
+        .header(ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+        .send()
+        .context("could not fetch YouTube watch page")?;
+    ensure!(
+        watch.status().is_success(),
+        "YouTube watch page returned HTTP {}",
+        watch.status().as_u16()
+    );
+    let watch_bytes = read_response_limited(watch, MAX_WATCH_PAGE_BYTES, "watch page")?;
+    let watch_html = String::from_utf8(watch_bytes).context("YouTube watch page is not UTF-8")?;
+    let Some((base_url, source_kind)) = select_english_caption_track(&watch_html)? else {
+        return Ok(None);
     };
-    let mut output = String::new();
-    fs::File::open(log_path)?.take(64 * 1024).read_to_string(&mut output)?;
-    let selected = select_caption_file(temp.path(), &video.video_id, &output)?;
-    if let Some((path, source_kind)) = selected {
-        ensure!(fs::metadata(&path)?.len() <= MAX_CAPTION_BYTES, "caption exceeds size limit");
-        let raw_json = fs::read_to_string(path)?;
-        let segments = parse_json3_segments(&raw_json)?;
-        let transcript_text = segments.iter().map(|part| part.text.as_str()).collect::<Vec<_>>().join(" ");
-        return Ok(Some(CaptionData { source_kind, transcript_text, raw_json, segments }));
+    let caption_url = if base_url.contains("fmt=") {
+        base_url
+    } else {
+        format!("{base_url}&fmt=json3")
+    };
+    let caption = client
+        .get(caption_url)
+        .header(ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+        .send()
+        .context("could not fetch YouTube caption track")?;
+    ensure!(
+        caption.status().is_success(),
+        "YouTube caption track returned HTTP {}",
+        caption.status().as_u16()
+    );
+    let raw_bytes = read_response_limited(caption, MAX_CAPTION_BYTES, "caption")?;
+    let raw_json = String::from_utf8(raw_bytes).context("YouTube caption is not UTF-8")?;
+    let segments = parse_json3_segments(&raw_json)?;
+    let transcript_text = segments
+        .iter()
+        .map(|part| part.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    Ok(Some(CaptionData {
+        source_kind,
+        transcript_text,
+        raw_json,
+        segments,
+    }))
+}
+
+fn read_response_limited(
+    mut response: Response,
+    limit: usize,
+    label: &str,
+) -> anyhow::Result<Vec<u8>> {
+    if let Some(length) = response.content_length() {
+        ensure!(length <= limit as u64, "{label} exceeds size limit");
     }
-    if status.success() || looks_like_no_captions(&output) { return Ok(None); }
-    anyhow::bail!("yt-dlp failed without a usable English caption (exit code {:?})", status.code())
+    let mut bytes = Vec::with_capacity(
+        response
+            .content_length()
+            .unwrap_or_default()
+            .min(limit as u64) as usize,
+    );
+    response
+        .take(limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("could not read YouTube {label}"))?;
+    ensure!(bytes.len() <= limit, "{label} exceeds size limit");
+    Ok(bytes)
 }
 
 fn valid_video_id(id: &str) -> bool {
     id.len() == 11 && id.bytes().all(|ch| ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_')
 }
 
-fn select_caption_file(dir: &Path, video_id: &str, output: &str) -> anyhow::Result<Option<(std::path::PathBuf, CaptionSourceKind)>> {
+fn select_english_caption_track(
+    watch_html: &str,
+) -> anyhow::Result<Option<(String, CaptionSourceKind)>> {
+    let player = extract_initial_player_response(watch_html)
+        .context("YouTube player response is missing")?;
+    let Some(tracks) = player
+        .pointer("/captions/playerCaptionsTracklistRenderer/captionTracks")
+        .and_then(Value::as_array)
+    else {
+        return Ok(None);
+    };
+
     let mut candidates = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let path = entry?.path();
-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue; };
-        let Some(language) = name.strip_prefix(&format!("{video_id}.")).and_then(|value| value.strip_suffix(".json3")) else { continue; };
-        if !matches!(language, "en" | "en-orig") { continue; }
-        let kind = infer_source_kind(output, name);
-        candidates.push((kind.priority(), u8::from(language != "en"), path.clone(), kind));
+    for track in tracks {
+        let Some(language) = track.get("languageCode").and_then(Value::as_str) else {
+            continue;
+        };
+        if language != "en" && !language.starts_with("en-") {
+            continue;
+        }
+        let Some(base_url) = track.get("baseUrl").and_then(Value::as_str) else {
+            continue;
+        };
+        let automatic = track.get("kind").and_then(Value::as_str) == Some("asr")
+            || track
+                .get("vssId")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value.starts_with("a."));
+        let source_kind = if automatic {
+            CaptionSourceKind::Auto
+        } else {
+            CaptionSourceKind::Manual
+        };
+        candidates.push((
+            source_kind.priority(),
+            u8::from(language != "en"),
+            base_url.to_string(),
+            source_kind,
+        ));
     }
-    candidates.sort_by(|a,b| (&a.0, &a.1, &a.2).cmp(&(&b.0, &b.1, &b.2)));
-    Ok(candidates.into_iter().next().map(|(_, _, path, kind)| (path, kind)))
+    candidates.sort_by(|left, right| {
+        (&left.0, &left.1, &left.2).cmp(&(&right.0, &right.1, &right.2))
+    });
+    Ok(candidates
+        .into_iter()
+        .next()
+        .map(|(_, _, base_url, source_kind)| (base_url, source_kind)))
 }
 
-fn infer_source_kind(output: &str, file_name: &str) -> CaptionSourceKind {
-    let mut manual_seen = false;
-    for line in output.lines().filter(|line| line.contains(file_name)) {
-        let lower = line.to_ascii_lowercase();
-        if lower.contains("automatic subtitles") { return CaptionSourceKind::Auto; }
-        if lower.contains("subtitles") { manual_seen = true; }
+fn extract_initial_player_response(watch_html: &str) -> Option<Value> {
+    const MARKERS: [&str; 4] = [
+        "var ytInitialPlayerResponse =",
+        "ytInitialPlayerResponse =",
+        "window[\"ytInitialPlayerResponse\"] =",
+        "\"ytInitialPlayerResponse\":",
+    ];
+    for marker in MARKERS {
+        let mut search_from = 0;
+        while let Some(relative) = watch_html[search_from..].find(marker) {
+            let marker_end = search_from + relative + marker.len();
+            let Some(object_offset) = watch_html[marker_end..].find('{') else {
+                break;
+            };
+            let object_start = marker_end + object_offset;
+            if let Some(raw) = extract_json_object(&watch_html[object_start..]) {
+                if let Ok(value) = serde_json::from_str(raw) {
+                    return Some(value);
+                }
+            }
+            search_from = marker_end;
+        }
     }
-    if manual_seen { CaptionSourceKind::Manual } else { CaptionSourceKind::Auto }
+    None
 }
 
-fn looks_like_no_captions(output: &str) -> bool {
-    let lower = output.to_ascii_lowercase();
-    ["has no subtitles", "has no automatic captions", "no automatic captions", "there are no subtitles", "no subtitles for the requested languages"]
-        .iter().any(|pattern| lower.contains(pattern))
+fn extract_json_object(input: &str) -> Option<&str> {
+    let bytes = input.as_bytes();
+    if bytes.first().copied() != Some(b'{') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, byte) in bytes.iter().copied().enumerate() {
+        if in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match byte {
+                b'\\' => escaped = true,
+                b'"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return input.get(..=index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn youtube_timeout_seconds() -> u64 {
+    std::env::var("YOUTUBE_HTTP_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_YOUTUBE_TIMEOUT_SECONDS)
+        .clamp(1, 120)
 }
 
 pub fn parse_json3_segments(raw: &str) -> anyhow::Result<Vec<CaptionSegment>> {
@@ -317,11 +444,6 @@ async fn save_transcript(pool: &PgPool, video_id: &str, caption: &CaptionData) -
 }
 
 fn stable_hash_text(content: &str) -> String { hex::encode(Sha256::digest(content.as_bytes())) }
-fn yt_dlp_bin() -> String { std::env::var("YT_DLP_BIN").unwrap_or_else(|_| "yt-dlp".to_string()) }
-fn yt_dlp_timeout_seconds() -> u64 {
-    std::env::var("YT_DLP_TIMEOUT_SECONDS").ok().and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_YT_DLP_TIMEOUT_SECONDS).clamp(1, 600)
-}
 
 #[cfg(test)]
 mod tests {
@@ -367,13 +489,22 @@ mod tests {
         assert_eq!(parse_json3_segments(first).unwrap()[0].text, parse_json3_segments(&second).unwrap()[0].text);
     }
     #[test]
-    fn caption_selection_prefers_manual_english_and_rejects_translations() {
-        let temp = tempfile::tempdir().unwrap();
-        for name in ["abc.en.json3", "abc.en-orig.json3", "abc.de.json3", "abc.en-de.json3"] { fs::write(temp.path().join(name), "{}").unwrap(); }
-        let output = "[info] Writing video automatic subtitles to: abc.en-orig.json3\n[info] Writing video subtitles to: abc.en.json3";
-        let (path, kind) = select_caption_file(temp.path(), "abc", output).unwrap().unwrap();
-        assert_eq!(path.file_name().unwrap(), "abc.en.json3");
+    fn caption_selection_prefers_manual_english_and_rejects_non_english_tracks() {
+        let html = r#"<script>var ytInitialPlayerResponse = {"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[
+            {"baseUrl":"https://captions.test/auto?x=1","languageCode":"en","kind":"asr","vssId":"a.en"},
+            {"baseUrl":"https://captions.test/de?x=1","languageCode":"de","vssId":".de"},
+            {"baseUrl":"https://captions.test/manual?x=1","languageCode":"en","vssId":".en"}
+        ]}}};</script>"#;
+        let (url, kind) = select_english_caption_track(html).unwrap().unwrap();
+        assert_eq!(url, "https://captions.test/manual?x=1");
         assert_eq!(kind, CaptionSourceKind::Manual);
+    }
+
+    #[test]
+    fn player_response_extractor_handles_braces_inside_strings() {
+        let html = r#"var ytInitialPlayerResponse = {"videoDetails":{"title":"a } brace"},"captions":null}; window.x=1;"#;
+        let value = extract_initial_player_response(html).unwrap();
+        assert_eq!(value.pointer("/videoDetails/title").and_then(Value::as_str), Some("a } brace"));
     }
     #[test]
     fn downloader_uses_validated_id_not_database_url() {

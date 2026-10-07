@@ -1,7 +1,7 @@
 use serde::Serialize;
 use sqlx::postgres::PgPool;
 
-use crate::{claims, db, gemini, queue};
+use crate::{claims, db, model, queue};
 
 #[derive(Debug, Serialize)]
 pub struct IngestSummary {
@@ -42,10 +42,8 @@ pub async fn run_ingest_after_discover(
     };
 
     for video in videos {
-        let prompt = claims::build_prompt(&video.url);
-        match gemini::analyze_url(&video.url, &prompt) {
-            Ok(response_text) => {
-                let parsed_claims = claims::parse_model_claims(&response_text);
+        match model::analyze_video(pool, &video).await {
+            Ok((response_text, parsed_claims, prompt)) => {
                 let saved =
                     claims::save_claims(pool, &video, &parsed_claims, &prompt, &response_text)
                         .await?;
@@ -66,8 +64,25 @@ pub async fn run_ingest_after_discover(
                 });
             }
             Err(error) if error.kind.pauses_run() => {
-                gemini::send_pause_alert(error.kind, &error.message);
-                anyhow::bail!("gemini ingest paused on {}: {}", video.video_id, error);
+                anyhow::bail!("YouTube claim ingest paused on {}: {}", video.video_id, error);
+            }
+            Err(error)
+                if matches!(
+                    error.kind,
+                    model::AnalysisErrorKind::MissingTranscript
+                        | model::AnalysisErrorKind::TranscriptTooLarge
+                ) =>
+            {
+                let status = error.kind.status();
+                queue::mark_success(pool, &video.video_id, status).await?;
+                summary.processed += 1;
+                summary.videos.push(VideoRunSummary {
+                    video_id: video.video_id,
+                    title: video.title,
+                    status: status.to_string(),
+                    claims_saved: 0,
+                    error_kind: Some(error.kind.to_string()),
+                });
             }
             Err(error) => {
                 queue::mark_failed(

@@ -1,0 +1,13 @@
+# W5b-Brain-Übergabe nach ALLOW
+
+EINGANG.md enthält jetzt W5b-ALLOW: Source 7da630186fe7d55a7eef4156192dcac78002b008, Base frisch geprüft 8a88767a5dd95e1500cdf500c4d19e8c9e68fc5f, Branch fix/brain-discord-members-live-20261004. Gate Exit 0/ALLOW, 102 Tests, Clippy/fmt/diff Exit 0. Den nicht blockierenden Adapter-NIT nicht ausbauen. Der Sourceowner hat den stabilen Client-/ConfigWriter-Vertrag und Secretreferenz übergeben.
+
+Prüfe zuerst echte D5-Eingänge mit Priorität 1. Falls keine neue geprüfte D5-Übergabe vorliegt, integriere W5b jetzt geordnet im geplanten frischen eigenen Worktree brain-w5b-integration-20261004, Branch integrate/brain-w5b-20261004. Nur geprüfte Sourceübernahme; Konflikte oder erforderliche Sourceanpassung an D1b, damit der Sourceowner sie prüft. main/Branch normal pushen und gemeinsamen CLI-/Serve-Release regulär bauen. Keine zusätzliche Source oder neue Gate-NITs.
+
+W5b-Bots-Gate auf 9413e935 läuft noch. Die normale Braininstallation, ConfigWriter-Umstellung auf den engen Discord-Endpunkt und die neue Discord-Consumerzulassung müssen mit seinem tatsächlichen Bots-ALLOW/Deploy koordiniert werden. Releasebau kann bereits erfolgen; keinen Client auf einen noch nicht live bereitgestellten Endpunkt umschalten. W5b meldet normal deployten Bots-SHA/Endpunkt an D1b, danach finaler normaler Brain-Install-/ConfigWriter-Schritt. Keine allgemeine Bearerfallbacklösung.
+
+Konkreter Übergabevertrag laut EINGANG: discord_live.token_secret=DISCORD_PUBLIC_FACTS_TOKEN; trusted_discord_consumers enthält ausschließlich den tatsächlichen dl-bot-Grant mit channel discord, dessen Credential genau scopes bot.public und provider_egress public verwendet. Bestehender gemeinsamer Maintenance-Release bleibt. Eigener dl-bot/discord-Servicezugang über Infisical/FD und ConfigWriter wie beauftragt, keine Klartextwerte. Den konkreten Endpunktpfad /mcp/public und Secretreferenzen mit dem tatsächlichen neuen Parser prüfen, normale ConfigWriter-SHA-Sperre verwenden.
+
+Nach beiden normalen Deployteilen alle Herkunfts-/Readinessbelege, konkrete SHAs/Zeiten im Tageslauf und engen Grantvertrag melden. Danach führt W5b genau eine normale Lanes-Backendfrage zur Inhaltsabnahme aus. Keine eigene neue Nutzerfrage oder zusätzlicher Modellprobelauf; D1b gibt nach brauchbarer Antwort die Kopfprobe frei. W6 wird mit geprüftem Client-SHA und getrennten Folgedateien weitergeführt.
+
+Du bist nicht allein, fremde Änderungen erhalten. Bestehendes Tagesfenster fortführen; keine Legacyabschaltung, zusätzliche Monitorarchitektur, Modell- oder Budgetänderung. humanizer/no-em-dashes anwenden, keine weiteren Threads.

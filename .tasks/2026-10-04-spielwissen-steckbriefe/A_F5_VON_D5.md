@@ -1,0 +1,1 @@
+04.10.2026, 16:36 Uhr: Einziger neuer Gate-BLOCK ist die fehlende Entitätsarttrennung in entity_patch_story. Vier ausdrücklich übergebene Budgetimport-/Sichtbarkeitsdateien erhalten und Clippy-Fix abschließen. Kein Neubau, keine NITs, keine Intervall-/C-Arbeit. Beide neue inaktive Migrationen unverändert, exaktes Endgate gegen 8a88767. A3 folgt nach ALLOW.

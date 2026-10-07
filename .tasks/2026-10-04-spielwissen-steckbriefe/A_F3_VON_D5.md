@@ -1,0 +1,1 @@
+04.10.2026, 15:44 Uhr: Ausschließlich die drei BLOCKING-Befunde aus A-F2-Gate auf 6a0615a beheben. Vorhandene Arbeit erhalten, exaktes Endgate gegen 8a88767. C besitzt Publish, du nur write_report und betroffene Dauerhaftigkeit; kein Publikationsersatz und keine NIT-Arbeit. A3 wartet auf ALLOW.

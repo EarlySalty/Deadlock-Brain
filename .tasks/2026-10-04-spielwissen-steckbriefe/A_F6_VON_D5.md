@@ -1,0 +1,1 @@
+04.10.2026, 16:53 Uhr: Ausschließlich falsche KV1-Konflikte ohne vollständigen Eltern-/Feldpfad aus letztem Gate beheben. Echte numerische Widersprüche desselben Feldes und Originalbelege erhalten. Keine NITs, keine A3-/C-Arbeit, alte und neue übergebene Migrationen unverändert. Exaktes Endgate gegen 8a88767. A3 folgt nach ALLOW.

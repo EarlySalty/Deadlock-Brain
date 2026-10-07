@@ -551,36 +551,48 @@ async fn upsert_video(
 
 pub async fn select_next_videos(pool: &PgPool, limit: usize) -> anyhow::Result<Vec<Video>> {
     let limit = i64::try_from(limit.max(1)).unwrap_or(i64::MAX);
-    let rows = sqlx::query!(
-        r#"
-        SELECT video_id, title, url, channel_title,
-               published_at::text AS "published_at?", learning_status
-        FROM brain.youtube_videos
-        WHERE learning_status IN ('queued', 'failed', 'missing_transcript')
-          AND video_id NOT IN (
-            SELECT video_id FROM brain.youtube_learning_claims
-            WHERE prompt_version=$1 AND COALESCE(model, '')=COALESCE($2, '')
-          )
-        ORDER BY published_at DESC NULLS LAST, discovered_at DESC
-        LIMIT $3
-        "#,
-        claims::PROMPT_VERSION,
-        claims::MODEL,
-        limit,
-    )
-    .fetch_all(pool)
-    .await?;
+    let rows: Vec<(String, String, String, Option<String>, Option<String>, String)> =
+        sqlx::query_as(
+            r#"
+            SELECT v.video_id, v.title, v.url, v.channel_title,
+                   v.published_at::text, v.learning_status
+            FROM brain.youtube_videos v
+            WHERE v.learning_status IN ('queued', 'failed', 'missing_transcript')
+              AND v.transcript_status='ready'
+              AND NOT EXISTS (
+                SELECT 1
+                FROM brain.youtube_learning_claims c
+                WHERE c.video_id=v.video_id
+                  AND (
+                    (c.prompt_version=$1 AND COALESCE(c.model, '')=COALESCE($2, ''))
+                    OR
+                    (c.prompt_version=$3 AND COALESCE(c.model, '')=COALESCE($4, ''))
+                  )
+              )
+            ORDER BY v.published_at DESC NULLS LAST, v.discovered_at DESC
+            LIMIT $5
+            "#,
+        )
+        .bind(claims::PROMPT_VERSION)
+        .bind(claims::MODEL)
+        .bind(claims::LEGACY_PROMPT_VERSION)
+        .bind(claims::LEGACY_MODEL)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
 
     Ok(rows
         .into_iter()
-        .map(|row| Video {
-            video_id: row.video_id,
-            title: row.title,
-            url: row.url,
-            channel_title: row.channel_title,
-            published_at: row.published_at,
-            learning_status: row.learning_status,
-        })
+        .map(
+            |(video_id, title, url, channel_title, published_at, learning_status)| Video {
+                video_id,
+                title,
+                url,
+                channel_title,
+                published_at,
+                learning_status,
+            },
+        )
         .collect())
 }
 
@@ -617,7 +629,7 @@ async fn update_status_with_metadata(
     if !metadata.is_object() {
         metadata = json!({});
     }
-    metadata["gemini_ingest"] = json!({
+    metadata["claim_ingest"] = json!({
         "status": status,
         "kind": kind,
         "message": message,
@@ -656,7 +668,7 @@ mod tests {
             &pool,
             &success_id,
             &feed_key,
-            "missing",
+            "ready",
             "queued",
             Some("2999-01-01T00:00:00Z"),
             "{}",

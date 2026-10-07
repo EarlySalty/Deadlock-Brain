@@ -1,0 +1,33 @@
+# C-F16: Belegter Live-Abbruch der Profilaktualisierung
+
+[Orchestrator] Blatt-Worker von D5 T3 6b670366-ae14-4fc8-bbfb-f6d1027a8371, Kopf Grok 31575951-23e7-4dd9-b1af-8700f7ff45fe. Keine weiteren Agenten oder Threads. Bericht ausschließlich C_F16_AN_D5.md im zentralen Aufgabenordner, Steuerung C_F16_VON_D5.md, bis vorhanden gilt dieses Briefing. Keine direkte Nachricht an Kopf/D1/W1. Humanizer/no-em-dashes für deutsche Texte anwenden, echte Umlaute, keine Gedankenstriche.
+
+BRIEFING[WB-1]: Pflichtteile 5/5 | Timer 20 min | Worktree: /home/nathanael/.worktrees/brain-spielwissen-c-liveprofile-20261005
+
+## Ziel und Grenzen
+
+Zuerst DELEGATOR-REGELN.md, VON_HAUPT.md 08:43 und 05:16 sowie C_F15_AN_D5.md lesen. Genau ein frischer Fixer für den Live-Abbruch der Profile. Erst Fehlertext des existierenden Live-Ticks lesend prüfen und tatsächliche Ursache lokal belegen. Ist es derselbe bereits behobene Allokationsabbruch, stoppen und den konkreten Unterschied zwischen C-F15-Originalprobe und Live-Tick melden, keine zweite Codeänderung auf Verdacht. Ist es eine neue Ursache, nur diese beheben. Kein NITbau, zusätzliche Härtung oder fremder Fix.
+
+Alle Grenzen bleiben, canonical_raw_dir bei beiden Quellen aus. Kein zweiter Feed/Importer/Parser, Schema/DDL/Patchobjekt-/Migrations-/Grantänderung. Kein produktiver Import, Zusatztick, Modellaufruf, Timer-/Dienst-/Konfigurationswechsel oder Stop fremder Prozesse durch dich. W1 allein Main/Deploy/Produktivaktionen, eigene Bäume/Branches bis Livebeleg erhalten. Wiki/A4/Intervalle bleiben Stufe 2.
+
+## Stand und Bestand zuerst
+
+Eigener sauberer Worktree /home/nathanael/.worktrees/brain-spielwissen-c-liveprofile-20261005, Branch fix/brain-spielwissen-c-liveprofile-20261005, tatsächliches aktuelles origin/main e56e075d486a75f83f4954b58d8113588082d3f1. Derselbe Stand ist live. C-F15 ist fertig/gesettelt und bekommt keine Nachricht. Alle bisherigen Main-/SDK-/Discord-/Provider-/Modell-/Receipt-/Blob-/BindingScopefixe erhalten. Du bist nicht allein im Codebestand, keine fremden Änderungen zurücksetzen.
+
+W1-Bericht /home/nathanael/repos/Deadlock-Brain/.tasks/2026-10-03-brain-fertigstellung/welle1/w1/DOCS-TON-AN_D1.md 08:34/06:23: normale automatische Ticks wiederholen ENTITY_PROFILE_REFRESH_FAILED, Ursache nur „Steckbriefaktualisierung abgebrochen“. 17 JSON- und 95 GameTracking-Originaldokumente liegen, Patchimporte status=ok, Profile/Bindungen/Projektionen/Quittungen/HTML null, gemeinsamer Wissenspin unverändert. Keine drei Modellantworten oder Aktivierung. Letzter grüner lokaler Import C-F15: 95 Dokumente/232.808 Fakten am Pin e0b9830a7f69726c933da90446e669ad276e73f8, 17/78.749 exakt 46c3fd0cfbf2108f48123e1dddd59e416db1b7ee. Diese Importprobe ist kein Beleg für den nachfolgenden Profilpfad.
+
+Vorhandenes Graphify abfragen, kein Graphneubau, aktuelle Dateien lesen. D5 hat konkreten Bestand bereits geprüft: runner.rs:refresh_entity_profiles importiert beide Gitquellen, refresh_patch_history, lädt Serve-Standardrelease und lokalen Operator, ruft gemeinsamen refresh_entity_profile_documents und anschließend vorhandene Aktivierung. entity_profiles.rs:refresh_failure erkennt GitKnowledgeStep/Validierung/SQL/I/O, für sonstige Fehler gibt es nur generischen Text. Kein konkreter Allokationsgrund im gelesenen W1-Livebefund, Ursache nicht raten.
+
+Liveinformationen nur lesend am vorhandenen Betriebsweg: Runtime /etc/deadlock-brain/maintenance-runtime.json, Statuspfad ist Feld status_file; ausschließlich benötigte nicht geheime Felder/isolated_errors selektiv lesen. Bestehendes erstes Tickjournal ~/.cache/brain-c-f15-first-tick.log. Keine vollständige Secret-/Credential-/Konfiguration ausgeben, Infisical/FD unverändert. W1 hat regulären Originalrestore/Originalview und vollen Grantlauf erledigt; aktuelles Fachschema unverändert.
+
+Readonly Quellen: /home/nathanael/repos/Deadlock-Brain/data/external/deadlock-data, /home/nathanael/.local/share/deadlock-brain/source-cache/GameTracking-Deadlock. Tatsächliche aktuelle Livepins aus gespeichertem Status/Originalmetadaten eng ermitteln, keine alten Pins als heutige Aktualität ausgeben. Kein Fetch/Checkout/Mutation in fremden Originalbäumen. Canonical-Katalog wurde historisch restauriert und dient nur Identifikatoren, Profilzahlen kommen aus frisch geprüften Originalen. Keine Aliase oder Spielwerte raten.
+
+## Eigentum und Beweis
+
+Zunächst alleinige Produktzuständigkeit rust/crates/brain-maintenance/src/integration/runner.rs und integration/entity_profiles.rs samt unmittelbar nötiger vorhandener Regression. Reproduktion am gemeinsamen vorhandenen Profilpfad mit eigenem lokalem ScratchPg. Zuerst konkreten Fehler und Quellenschritt vor Fix an D5 melden. Bei benötigtem zusätzlichen Produktpfad genaue Datei/Fundstelle und belegte Ursache melden, erst nach Eigentumszuweisung ändern. Keine zweite Vorprüfungsallokationskorrektur auf Verdacht. Falls generische Diagnose den tatsächlichen Fehler nicht verfügbar macht, lokalen vorhandenen Aufruf zur konkreten Ermittlung verwenden; keine breite Diagnosearchitektur.
+
+Gezielter Vorher-/Nachherbeleg muss die konkrete neue Ursache zeigen und denselben normalen Profilpfad nach Fix bis tatsächlicher Speicherung von Profil/Bindungen/Projektion/Quittung erfolgreich ausführen. Vorhandene Original-/Scope-/Frische-/Blob-/Modellprüfungen erhalten. Keine Guardabschwächung, ausgelassenen Fakten, stillen Fallbacks oder Budgeterhöhung. Lokale Tests mit echten passenden Daten am relevanten Produktionsschritt statt nur erneutem Quellenimport. Fehlende Daten nicht erfinden; bei schwerem oder fremdem Problem konkret eskalieren und stoppen.
+
+Rust only, keine Code-Kommentare oder ENV-Konfiguration, Secrets nie ausgeben. Nur betroffene Crates nach /home/nathanael/Documents/.tasks/2026-10-02-offene-branches/HOSTPROBE.md: drei Slots/drei Jobs, /home/nathanael/.cargo/bin/cargo +1.97.1 und gemeinsamer Target /home/nathanael/repos/Deadlock-Brain/rust/target. fmt ohne Sperre, eigene Testcluster beenden/Slot freigeben. Früh committen, nach grünem Schritt Branch pushen. Bericht nur Befehl/Exit/Testzahl/SHA plus Ursache, Eigentumsbedarf und nötige Übergabe.
+
+Einziger Reviewer normales `gate_hook.py --review` gegen nach frischem Fetch tatsächliches origin/main, derzeit e56e075d, vollständiger End-SHA. BLOCK unverändert an D5, keine Eigenrunde; Exit 2 genau eine unveränderte Wiederholung. Kein weiterer Reviewer. Nach ALLOW sauberen gepushten Stand samt vollständigem bisherigen Einsatzplan in W1/EINGANG.md ergänzen, bestehende Einträge erhalten. Kein eigener Mainpush/Deploy. Nach fachlicher Übergabe Turn beenden, D5 settlet. Auch bei Diagnose ohne Fix konkrete Belege übergeben und geordnet beenden.

@@ -1,0 +1,1 @@
+Nur F5-BLOCK zur Git-Ableitung in gemischten Releases korrigieren, frühe geprüfte kompatible Folge an D5 melden, exaktes Fachgate abschließen. Grundbestand 022ed84 bleibt ALLOW und W1 geliefert. C hat vorigen Fachstand 1a5ad0b übernommen. Wiki/A4/erweiterte Intervalle und beide NITs bleiben Stufe 2 bzw. ungebaut. Keine andere Fachdatei- oder Verbraucherarbeit.

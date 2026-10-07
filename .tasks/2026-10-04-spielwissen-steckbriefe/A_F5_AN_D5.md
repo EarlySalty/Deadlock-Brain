@@ -1,0 +1,36 @@
+04.10.2026, 16:50 Uhr: Endgate Exit 1, BLOCK auf cbf857ddff2ce28d704ffd6e30895739660bf48b. Arbeit gemäß Briefing gestoppt. Keine Reparatur, Wiederholung, Folgebeauftragung oder W1-Übergabe nach BLOCK; kein ALLOW für A3.
+Einziger neuer BLOCKING-Befund: entity_profile.rs:118 gruppiert KV1-Fakten ohne vollständigen Elternpfad. Bei `a { damage 10 } b { damage 20 }` entstehen gleiche Prädikate, Einheiten und Qualifier (`source_key=damage`, `occurrence=0`), dadurch ein falscher Konflikt zwischen unterschiedlichen Feldern. Das Gate nennt als zweite Stelle den KV1-Zweig von game_files.rs::extract_facts, der entry.pointer nicht in die Vergleichsqualifier übernimmt. Keine eigene Änderung daran.
+Der ursprüngliche A-F5-Befund zur Trennung der Patchhistorie wird im neuen Urteil nicht mehr als BLOCKING genannt. NIT zur deaktivierten Publishhilfe bleibt ungebaut. Vollständiges unverändertes Urteil: /tmp/brain-spielwissen-a-f5-gate-20261004.log.
+`python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-spielwissen-db-20261004 --base 8a88767a5dd95e1500cdf500c4d19e8c9e68fc5f --head cbf857ddff2ce28d704ffd6e30895739660bf48b`: Exit 1, Testzahl 0, SHA cbf857ddff2ce28d704ffd6e30895739660bf48b, einziger Reviewer gpt-6.1-sol.
+Gepushte A-F5-Commits: 08212a8211b1bca4cea69443186831b5d5504aea übernimmt exakt den freigegebenen Budgetdiff; cbf857ddff2ce28d704ffd6e30895739660bf48b trennt Patchgeschichte nach vorhandener Art und benanntem Identitätsfeld und erweitert die bestehende echte PG-Regression.
+Prüfstand auf diesem End-SHA: 249 Tests bestanden, neun ignoriert, Exit 0; Clippy, fmt, diff und Push Exit 0. Befehle und Protokolle unten. Branch und Worktree sauber erhalten, alle HOSTPROBE-Slots freigegeben. Beide inaktiven Migrationen unverändert gegenüber edc2c161.
+A3-Persistenz/Intervalle, C-Gesamtanschluss, normale Livewerte und automatischer Patchdurchlauf offen. Main und Braindeploy ausschließlich W1. Alle eigenen Texte mit humanizer und no-em-dashes geprüft.
+
+04.10.2026, 16:50 Uhr, Timerstand: Gepushter End-SHA cbf857ddff2ce28d704ffd6e30895739660bf48b, Arbeitsbaum sauber. Alle erforderlichen Prüfungen beendet und grün; HOSTPROBE-Slots freigegeben.
+Einmalige Gatewiederholung seit 16:44 Uhr noch ohne Urteil. Kein weiterer Reviewer, keine Änderung oder neue Prüfung nach Gatebeginn. Protokoll /tmp/brain-spielwissen-a-f5-gate-20261004.log.
+Noch kein ALLOW und keine W1-Übergabe. Offen bleiben A3-Persistenz/Intervalle, C-Gesamtanschluss, normale Livewerte und automatischer Patchdurchlauf. Main und Deploy ausschließlich W1.
+
+04.10.2026, 16:45 Uhr: Alle erforderlichen Prüfungen grün, einziges Endgate auf cbf857ddff2ce28d704ffd6e30895739660bf48b läuft noch. Keine Änderung nach Gatebeginn, Branch gepusht und sauber.
+`/home/nathanael/.cargo/bin/cargo clippy --manifest-path rust/Cargo.toml --jobs 3 -p brain-storage -p dbrain-sources --all-targets --no-deps --target-dir /home/nathanael/repos/Deadlock-Brain/rust/target -- -D warnings`: Exit 0, Testzahl 0, SHA cbf857ddff2ce28d704ffd6e30895739660bf48b, /tmp/brain-a-f5-clippy.log. HOSTPROBE-Slot freigegeben.
+Bibliotheken und bestehende PG-Regression: Exit 0, 249 bestanden, neun ignoriert. Frühere 36 Integrations-/Vertragsprüfungen aus A-F4 bleiben dokumentiert; diesmal nur betroffene Prüfungen ausgeführt.
+Beide inaktiven Migrationen gegenüber edc2c161 unverändert. Texte mit humanizer geprüft; `python3 /home/nathanael/.codex/skills/no-em-dashes/scripts/check_em_dashes.py A_F5_AN_D5.md`: Exit 0, Testzahl 0.
+A3-Persistenz/Intervalle, C-Gesamtanschluss, normale Livewerte und automatischer Patchdurchlauf bleiben offen. W1-Übergabe erst nach ALLOW, Main und Braindeploy ausschließlich W1.
+
+04.10.2026, 16:40 Uhr: Übergabe und Steuerung gelesen. HEAD edc2c161 übernommen, vier WIP-Dateien exakt geprüft und in 08212a8211b1bca4cea69443186831b5d5504aea abgeschlossen.
+Übergebener Clippy-Befehl: `/home/nathanael/.cargo/bin/cargo clippy --manifest-path rust/Cargo.toml --jobs 3 -p brain-storage -p dbrain-sources --all-targets --no-deps --target-dir /home/nathanael/repos/Deadlock-Brain/rust/target -- -D warnings`, A-F4 Exit 0, Testzahl 0, Ausgangs-SHA edc2c161 plus exakt übernommener Diff.
+`git diff --check` und `git commit`: Exit 0, Testzahl 0, SHA 08212a8211b1bca4cea69443186831b5d5504aea. Push läuft.
+Graphify-Bestand gelesen: ensure_patch_changes_view in store.rs, bestehende MCP-Historie gefunden. Tatsächliche View hat entity_type, entity_name und ability_name; kein entity_kind. Schmale lesende Rust-Abfrage über Infisical/FD für vorhandene Arten läuft vor Readeränderung.
+Keine Unteragenten, fremden Änderungen, Migrationen oder Produktivschreibzugriffe. Kein ALLOW und keine W1-Übergabe.
+
+04.10.2026, 16:43 Uhr: Budgetcommit 08212a8211b1bca4cea69443186831b5d5504aea gepusht, `git push origin feat/brain-spielwissen-db-20261004`: Exit 0, Testzahl 0.
+`/tmp/brain-a-f5-history-inventory 5</run/user/1000/credentials/brain-serve.service/infisical-token`: Exit 0, Testzahl 0, SHA 08212a8211b1bca4cea69443186831b5d5504aea. Nur lesender Rust-/Infisical-/FD-Zugriff, Felder und Arten in /tmp/brain-a-f5-history-inventory.log.
+Viewfeld heißt entity_type. Vorhanden: hero 7.382 Zeilen, davon 2.364 mit ability_name; ability 1.198, davon 98; item 3.606, davon 568. Auch interne und weitere Kategorien vorhanden; keine ungeprüfte semantische Bridge ergänzt.
+Readeränderung: Hero/Item über entity_type und entity_name; Ability über eigene ability-Identität oder ability_name einer hero-Zeile. Namen und Aliase bleiben ohne Beachtung der Großschreibung lesbar. Datum, Quellen, Belege und Originaltextrechte unverändert.
+Bestehende echte PG-Regression um gleichnamige Arten und Aliase, zugehörige Fähigkeit, Zugriffssperre und historischen Readervertrag erweitert. Betroffene Tests laufen mit HOSTPROBE-Slot, `--jobs 3` und `--test-threads=1`. Beide Migrationen unverändert.
+
+04.10.2026, 16:44 Uhr: Korrekturcommit cbf857ddff2ce28d704ffd6e30895739660bf48b gepusht. Steuerung unverändert gelesen, Arbeitsbaum sauber.
+`/home/nathanael/.cargo/bin/cargo test --manifest-path rust/Cargo.toml --jobs 3 -p brain-storage -p dbrain-sources --lib --test entity_profiles --target-dir /home/nathanael/repos/Deadlock-Brain/rust/target -- --test-threads=1`: Exit 0, 249 bestanden, neun ignoriert, SHA cbf857ddff2ce28d704ffd6e30895739660bf48b, /tmp/brain-a-f5-tests.log.
+`cargo fmt --manifest-path rust/Cargo.toml -p brain-storage -p dbrain-sources -- --check`, `git diff --check`, `git commit` und `git push origin feat/brain-spielwissen-db-20261004`: jeweils Exit 0, Testzahl 0, SHA cbf857ddff2ce28d704ffd6e30895739660bf48b.
+Erster Gateaufruf enthielt versehentlich den falschen SHA cbf857d48e95ebed9cd5fea3e4e6e8de1815350f und endete Exit 2 ohne Urteil; Protokoll /tmp/brain-spielwissen-a-f5-gate-20261004-exit2.log. Einmalige Wiederholung mit bestätigtem SHA läuft, keine Codeänderung.
+Endgate: `python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-spielwissen-db-20261004 --base 8a88767a5dd95e1500cdf500c4d19e8c9e68fc5f --head cbf857ddff2ce28d704ffd6e30895739660bf48b`, /tmp/brain-spielwissen-a-f5-gate-20261004.log.
+All-Targets-Clippy läuft auf demselben SHA. Keine W1-Übergabe vor ALLOW und grünem Clippy.

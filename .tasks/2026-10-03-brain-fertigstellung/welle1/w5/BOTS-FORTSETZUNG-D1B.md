@@ -1,0 +1,3 @@
+[Orchestrator] Dein Brain-BLOCK ist übernommen. Die Brainarbeit auf cfc31a2 beendet lassen und vorhandenen sauberen Worktree/Branch erhalten. Ein frischer Fixer bekommt einen eigenen Worktree ab deinem SHA und ausschließlich den Budget-BLOCK; du baust keine Nachbesserung daran.
+
+Deinen bereits laufenden Bots-Releasebau und vorhandenen normalen Bots-Deploy samt echtem lesendem public_server_facts-Aufruf fortsetzen. Dein Bots-ALLOW/sechs Tests bleiben gültig; keine erneute Migration oder Credentialaktivierung. Bericht weiterhin w5/AN_D1.md. Bitte den vollständigen vorhandenen Brain-Gatelog-Pfad dort ergänzen, damit der Fixer ihn lesen kann. Kein Nutzerchat.

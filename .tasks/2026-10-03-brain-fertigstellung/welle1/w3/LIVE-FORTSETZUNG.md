@@ -1,0 +1,17 @@
+[Orchestrator] BRIEFING[WB-1]: Pflichtteile 5/5 | Timer 20 min | Worktree: /home/nathanael/.worktrees/steam-publish-fertig
+
+# W3: Echter Steam-Publish nach Brain-Deploy
+
+Blatt-Worker, keine Unteragenten oder weiteren Threads. Auftraggeber D1 `01a10326-e5e6-7633-8d59-a02d13110fd4`, Hauptsession T3 `92efdb66-6e7e-495c-873e-32f2912c2fa2`. Lies die Bauakte `/home/nathanael/repos/Deadlock-Brain/.tasks/2026-10-03-brain-fertigstellung/DELEGATOR-REGELN.md`, `PLAN-NEU.md`, `welle1/w3/BRIEFING.md`, die neueste Meldung in `welle1/w3/AN_D1.md`, `VON_D1.md` und `welle1/w1/AN_D1.md`.
+
+Vorgänger `a2315897-cdfd-4eba-b51c-32d050a6f3ca` ist laut read stopped und wird nicht wieder aufgenommen. Übernimm dessen vorhandenen Stand, nicht neu bauen. Eigentum: `/home/nathanael/.worktrees/steam-publish-fertig`, Branch `feat/steam-publish-fertig-20261003`, main und installierter Release `4a5c4ff3a38e9a4bf7fe2dbf8de882b00700233d`. Vor Zugriff tatsächlichen Git- und Dienststand prüfen. Du bist nicht allein im Dateisystem; fremde Änderungen erhalten, keine parallelen Änderungen und keine fremden Prozesse beenden.
+
+Steam-Merge/Push/Gate/Deploy bereits Exit 0, 27 gezielte Tests grün, striktes Clippy mit Rust 1.97.1 grün. Drei Dienste steam-core, steam-core-2, steam-bot laufen auf dem Release, Health 8782/8783/8784 grün, Steam und GC verbunden. Kein eigener Codefix ist aktuell beauftragt. Brain ist jetzt tatsächlich live: CLI und Serve gemeinsam `2913bf1d9f7a19d5b04dc0ee2b048b6e16d38730`, brain-release install Exit 0 und ready. Der echte Antwortweg hat noch provider_error, den W1 eingrenzt. Docs-Scopefrage wird separat geklärt.
+
+Ziel ist genau ein echter Brain-Buildpublish mit positiver Valve-hero_build_id. Nutze den vorhandenen Produktionsweg `deadlock-brain reason build ... --publish` und die freigegebenen bestehenden Eingaben aus dem ursprünglichen Briefing; keine Ersatz-/Fake-ID, keine direkte DB-Manipulation und kein zusätzlicher Sender. Belege die ID aus echtem DONE beziehungsweise steam_tasks BUILD_PUBLISH_ORIGINAL. Bestehende Code-5-/429-Backoffgrenzen einhalten, nicht durch Wiederholungen umgehen. Keine neue Konfiguration oder Quellenannahme erfinden.
+
+Falls Brain den Versuch wegen provider_error oder fehlender Daten verhindert, redigierten konkreten Fehler in AN_D1.md melden; notwendige Brainänderung nur über welle1/w1/EINGANG.md an W1, nicht selbst in Brain bauen. Auf W1s angekündigten Fix innerhalb dieses offenen Auftrags warten und danach sinnvoll einmal prüfen. Keine minutenlange Schlafschleife; bei dauerhaft fehlender Abhängigkeit Turn geordnet beenden und Stand zur Fortsetzung sichern. Keine erneuten Builds/Tests unveränderter Steam-Crates. Unvorhergesehener nötiger Steamfix zunächst D1 melden; Gate-BLOCK geht an frischen Fixer.
+
+Fertigbeleg: bestehender main-/Release-SHA, konkret ausgeführter Publishbefehl ohne Secretwerte, Exit, echte positive hero_build_id, zugehöriger Status. Eigene neue Worktrees erst nach SHA-Backup/Abschluss aufräumen; übernommener Worktree bleibt erhalten. Secrets ausschließlich Infisical/FD, keine ENV-Konfiguration, keine Werte in Modell, Argumenten oder Dateien. Rust only, keine Code-Kommentare, keine angewandten Migrationen ändern, keine Community-Ankündigung.
+
+Routing ausschließlich welle1/w3/AN_D1.md, neueste Meldung oben, je Meldung höchstens fünf Zeilen. Vor jeder Meldung VON_D1.md lesen. Fragen nur an D1 über Dateien. humanizer und no-em-dashes auf alle eigenen Texte anwenden, natürliches Deutsch mit echten Umlauten und ohne Gedankenstriche.
