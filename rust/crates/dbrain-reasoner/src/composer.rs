@@ -355,11 +355,33 @@ pub fn compose_build_with_sources(
     blocked: &[String],
     meta: &crate::meta::MetaIndexWithSources,
 ) -> crate::Result<BuildObject> {
+    compose_build_with_sources_and_constraints(
+        hero,
+        scored,
+        deltas,
+        cfg,
+        blocked,
+        meta,
+        &Default::default(),
+    )
+    .map(|(build, _)| build)
+}
+
+pub fn compose_build_with_sources_and_constraints(
+    hero: &HeroModel,
+    scored: &[ScoredItem],
+    deltas: &[PatchDelta],
+    cfg: &ReasonerConfig,
+    blocked: &[String],
+    meta: &crate::meta::MetaIndexWithSources,
+    constraints: &crate::planner::PlanningConstraints<'_>,
+) -> crate::Result<(BuildObject, crate::planner::PurchasePlan)> {
+    constraints.check()?;
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
     let (order, source, notes) = planning_order(meta, hero, cfg);
     authors.skill_notes = notes;
     authors.ability_order = order.clone();
-    let mut build = compose_build_with_author_evidence(
+    let (mut build, plan) = compose_build_with_author_evidence_and_constraints(
         hero,
         scored,
         deltas,
@@ -371,6 +393,7 @@ pub fn compose_build_with_sources(
             &authors,
             Some(&meta.population),
         ),
+        constraints,
     )?;
     build.ability_order = order;
     build.rationale = format!(
@@ -403,7 +426,8 @@ pub fn compose_build_with_sources(
             };
         }
     }
-    Ok(build)
+    constraints.check()?;
+    Ok((build, plan))
 }
 
 pub fn purchase_plan_with_sources(
@@ -437,6 +461,17 @@ fn plan_core(
     blocked: &[String],
     context: PlanContext<'_>,
 ) -> crate::Result<crate::planner::PurchasePlan> {
+    plan_core_with_constraints(hero, scored, cfg, blocked, context, &Default::default())
+}
+
+fn plan_core_with_constraints(
+    hero: &HeroModel,
+    scored: &[ScoredItem],
+    cfg: &ReasonerConfig,
+    blocked: &[String],
+    context: PlanContext<'_>,
+    constraints: &crate::planner::PlanningConstraints<'_>,
+) -> crate::Result<crate::planner::PurchasePlan> {
     let (layout, combinations, authors, population) = context;
     let catalog = scored
         .iter()
@@ -444,7 +479,7 @@ fn plan_core(
         .collect::<Vec<_>>();
     let rules = crate::inventory::InventoryRules::from_catalog(&catalog)?;
     let ordered = item_order(scored, blocked);
-    let mut plan = crate::planner::plan_with_economy(
+    let mut plan = crate::planner::plan_with_constraints(
         hero,
         scored,
         &core_candidates(&ordered, authors, population),
@@ -457,7 +492,8 @@ fn plan_core(
             economy: &crate::planner::EconomyPolicy::default(),
             population,
         },
-    );
+        constraints,
+    )?;
     plan.assumptions.extend(authors.skill_notes.iter().cloned());
     Ok(plan)
 }
@@ -525,9 +561,30 @@ fn compose_build_with_author_evidence(
     blocked: &[String],
     context: PlanContext<'_>,
 ) -> crate::Result<BuildObject> {
+    compose_build_with_author_evidence_and_constraints(
+        hero,
+        scored,
+        deltas,
+        cfg,
+        blocked,
+        context,
+        &Default::default(),
+    )
+    .map(|(build, _)| build)
+}
+
+fn compose_build_with_author_evidence_and_constraints(
+    hero: &HeroModel,
+    scored: &[ScoredItem],
+    deltas: &[PatchDelta],
+    cfg: &ReasonerConfig,
+    blocked: &[String],
+    context: PlanContext<'_>,
+    constraints: &crate::planner::PlanningConstraints<'_>,
+) -> crate::Result<(BuildObject, crate::planner::PurchasePlan)> {
     let (_layout, combinations, authors, population) = context;
     let ordered = item_order(scored, blocked);
-    let plan = plan_core(hero, scored, cfg, blocked, context)?;
+    let plan = plan_core_with_constraints(hero, scored, cfg, blocked, context, constraints)?;
     let selected = plan
         .steps
         .iter()
@@ -694,8 +751,6 @@ fn compose_build_with_author_evidence(
             items: counters,
         });
     }
-    // Retain unknown effects across the entire purchase curve, including an
-    // early item sold later. Strong statistical support cannot hide these.
     let unknown_effects = plan
         .steps
         .iter()
@@ -703,14 +758,13 @@ fn compose_build_with_author_evidence(
         .chain(&plan.final_evaluation.unknown_effects)
         .cloned()
         .collect::<std::collections::BTreeSet<_>>();
-    // Optional unbought counters do not invalidate the core. Unknown effects in
-    // an actually purchased state do cap overall confidence, not unrelated items.
     let build_confidence = if unknown_effects.is_empty() {
         confidence(&core)
     } else {
         Confidence::Low
     };
-    Ok(BuildObject {
+    constraints.check()?;
+    Ok((BuildObject {
         family: None,
         variants: Vec::new(),
         family_discovery: None,
@@ -726,11 +780,111 @@ fn compose_build_with_author_evidence(
             .chain(unknown_effects.iter()).cloned()
             .chain(plan.final_evaluation.scenarios.iter().map(|scenario| format!("Ablauf {}: {}. {:.0} Schüsse, {} Nachladungen, {:.1} Sekunden Kanalzeit; Fähigkeiten {:?}.", scenario.name, scenario.sequence.join(" → "), scenario.shots, scenario.reloads, scenario.channel_seconds, scenario.casts)))
             .collect::<Vec<_>>().join(" "),
-    })
+    }, plan))
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn tool_budget_and_imbues_are_applied_to_the_single_purchase_plan() {
+        use brain_contracts::tools::{BuildPlanRequest, ToolImbue, ToolPlaystyle};
+        let mut hero = skill_validation_hero();
+        hero.abilities[0].base_effect = 20.0;
+        hero.abilities[1].base_effect = 200.0;
+        let mut first = item(1, "Gebundenes Item", 50.0, false, &[]);
+        first.item.cost = 800;
+        first.item.imbueable = true;
+        first
+            .item
+            .properties
+            .insert("CooldownReduction".into(), 50.0);
+        let mut second = item(2, "Weiterer Kauf", 20.0, false, &[]);
+        second.item.cost = 800;
+        let items = vec![first.item, second.item];
+        let meta = population_context();
+        let config = ReasonerConfig::default();
+        let deadline = brain_contracts::RequestDeadline::after(std::time::Duration::from_secs(60));
+        let request = BuildPlanRequest {
+            hero_id: hero.hero_id as u64,
+            playstyle: ToolPlaystyle::Weapon,
+            budget: Some(800),
+            imbues: vec![ToolImbue {
+                item_id: 1,
+                ability_id: 101,
+            }],
+        };
+        let planned = crate::plan_build_with_request(
+            &hero,
+            &items,
+            &meta,
+            &[],
+            &[],
+            &config,
+            crate::BuildRequestContext {
+                request: &request,
+                deadline: &deadline,
+            },
+        )
+        .unwrap();
+        assert_eq!(planned.build.core.len(), 1);
+        assert_eq!(planned.build.core[0].item_id, 1);
+        assert_eq!(planned.build.core[0].imbue_target, Some(101));
+        assert_eq!(planned.purchase_plan.steps.len(), 1);
+        let step = &planned.purchase_plan.steps[0];
+        assert_eq!(step.transition.after.spent_souls, 800);
+        assert_eq!(step.imbue_targets.get(&1), Some(&101));
+        assert_eq!(planned.purchase_plan.final_evaluation, step.evaluation);
+        let structured = serde_json::to_value(&planned.purchase_plan).unwrap();
+        assert_eq!(structured["steps"][0]["transition"]["purchased_id"], 1);
+        assert!(structured["final_evaluation"]["score"].is_number());
+        let mut low_budget = request.clone();
+        low_budget.budget = Some(799);
+        let low = crate::plan_build_with_request(
+            &hero,
+            &items,
+            &meta,
+            &[],
+            &[],
+            &config,
+            crate::BuildRequestContext {
+                request: &low_budget,
+                deadline: &deadline,
+            },
+        )
+        .unwrap();
+        assert!(low.build.core.is_empty());
+        assert!(low.purchase_plan.steps.is_empty());
+        let mut invalid = request.clone();
+        invalid.imbues[0].ability_id = 999;
+        assert!(crate::plan_build_with_request(
+            &hero,
+            &items,
+            &meta,
+            &[],
+            &[],
+            &config,
+            crate::BuildRequestContext {
+                request: &invalid,
+                deadline: &deadline
+            }
+        )
+        .is_err());
+        deadline.cancel();
+        assert!(crate::plan_build_with_request(
+            &hero,
+            &items,
+            &meta,
+            &[],
+            &[],
+            &config,
+            crate::BuildRequestContext {
+                request: &request,
+                deadline: &deadline
+            }
+        )
+        .is_err());
+    }
+
     fn skill_validation_hero() -> HeroModel {
         let mut hero = hero();
         hero.hero_id = 700;
@@ -1634,8 +1788,6 @@ mod tests {
             &layout(&[(1, 3), (2, 6), (3, 2), (4, 8)], 7),
         )
         .unwrap();
-        // Category names in a source are not truth. The same numeric mechanics
-        // must produce exactly the same purchases/categories after renaming.
         let mut renamed = scored.clone();
         for item in &mut renamed {
             item.item.name = format!("neutral {}", item.item.item_id);

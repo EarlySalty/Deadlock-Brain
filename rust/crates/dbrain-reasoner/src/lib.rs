@@ -94,6 +94,64 @@ pub struct PlannedBuild {
     pub variant_scores: BTreeMap<String, Vec<ScoredItem>>,
     pub hero: HeroModel,
     pub deltas: Vec<PatchDelta>,
+    pub purchase_plan: planner::PurchasePlan,
+}
+
+pub struct BuildRequestContext<'a> {
+    pub request: &'a brain_contracts::tools::BuildPlanRequest,
+    pub deadline: &'a brain_contracts::RequestDeadline,
+}
+
+pub fn plan_build_with_request(
+    hero: &HeroModel,
+    items: &[ItemModel],
+    meta: &meta::MetaIndexWithSources,
+    events: &[Value],
+    snapshots: &[PatchSnapshot],
+    config: &ReasonerConfig,
+    context: BuildRequestContext<'_>,
+) -> Result<PlannedBuild> {
+    let request = context.request;
+    if i64::try_from(request.hero_id).ok() != Some(hero.hero_id) {
+        return Err(ReasonerError::Data(
+            "Buildanfrage gehört nicht zu diesem Helden.".into(),
+        ));
+    }
+    let mut imbues = BTreeMap::new();
+    for imbue in &request.imbues {
+        let item_id = i64::try_from(imbue.item_id)
+            .map_err(|_| ReasonerError::Data("Ungültige Itembindung.".into()))?;
+        let ability_id = i64::try_from(imbue.ability_id)
+            .map_err(|_| ReasonerError::Data("Ungültige Itembindung.".into()))?;
+        if item_id <= 0 || ability_id <= 0 || imbues.insert(item_id, ability_id).is_some() {
+            return Err(ReasonerError::Data(
+                "Ungültige oder doppelte Itembindung.".into(),
+            ));
+        }
+    }
+    let budget = request
+        .budget
+        .map(i64::try_from)
+        .transpose()
+        .map_err(|_| ReasonerError::Data("Ungültiges Buildbudget.".into()))?;
+    let constraints = planner::PlanningConstraints {
+        budget,
+        imbues,
+        deadline: Some(context.deadline),
+    };
+    plan_build_with_family_policy(
+        hero,
+        items,
+        meta,
+        events,
+        snapshots,
+        config,
+        PlanningOptions {
+            family_policy: &families::FamilyPolicy::for_patch(events, config),
+            playstyle: Playstyle::parse(Some(request.playstyle.as_str()))?,
+            constraints: &constraints,
+        },
+    )
 }
 
 pub fn plan_build(
@@ -126,6 +184,7 @@ pub fn plan_build_with_playstyle(
         PlanningOptions {
             family_policy: &families::FamilyPolicy::for_patch(events, config),
             playstyle: Playstyle::parse(requested_playstyle)?,
+            constraints: &Default::default(),
         },
     )
 }
@@ -133,6 +192,7 @@ pub fn plan_build_with_playstyle(
 struct PlanningOptions<'a> {
     family_policy: &'a families::FamilyPolicy,
     playstyle: Option<Playstyle>,
+    constraints: &'a planner::PlanningConstraints<'a>,
 }
 
 fn plan_build_with_family_policy(
@@ -144,6 +204,7 @@ fn plan_build_with_family_policy(
     config: &ReasonerConfig,
     options: PlanningOptions<'_>,
 ) -> Result<PlannedBuild> {
+    options.constraints.check()?;
     let mut hero = hero.clone();
     let mut items = items.to_vec();
     let mut deltas = patch::compute_patch_delta_with_snapshots(&hero, events, snapshots);
@@ -175,13 +236,15 @@ fn plan_build_with_family_policy(
         })
         .unwrap_or_default();
     finish_scores(&mut scored);
-    let mut build = composer::compose_build_with_sources(
+    options.constraints.check()?;
+    let (mut build, purchase_plan) = composer::compose_build_with_sources_and_constraints(
         &hero,
         &scored,
         &deltas,
         config,
         &blocked,
         planning_context,
+        options.constraints,
     )?;
     if let Some(style) = options.playstyle {
         scored.retain(|item| style.allows_item(&hero, &item.item));
@@ -198,6 +261,7 @@ fn plan_build_with_family_policy(
         variant_scores: BTreeMap::new(),
         hero,
         deltas,
+        purchase_plan,
     })
 }
 
@@ -249,6 +313,7 @@ pub async fn reason_build_for_playstyle_with_options(
             PlanningOptions {
                 family_policy: &family_policy,
                 playstyle,
+                constraints: &Default::default(),
             },
         )?;
         let PlannedBuild {
@@ -270,8 +335,6 @@ pub async fn reason_build_for_playstyle_with_options(
             );
             if let Some(client) = ctx.ai.as_ref() {
                 if let Ok(critic) = ai_roles::run_critic(client, &build) {
-                    // AI criticism is explanatory only. It cannot remove or add
-                    // purchases, alter bindings, or recompute numeric families.
                     if !critic.issues.is_empty() {
                         build.rationale = append_text(
                             &build.rationale,

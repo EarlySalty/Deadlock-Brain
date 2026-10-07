@@ -8,6 +8,52 @@ use crate::inventory::{Inventory, InventoryRules, PurchaseTransition};
 use crate::progression::{at_souls, ProgressionEvidence};
 use crate::{AbilityStep, CoreLayoutStats, HeroModel, ItemModel, ReasonerConfig, ScoredItem};
 
+#[derive(Default)]
+pub struct PlanningConstraints<'a> {
+    pub budget: Option<i64>,
+    pub imbues: BTreeMap<i64, i64>,
+    pub deadline: Option<&'a brain_contracts::RequestDeadline>,
+}
+
+impl PlanningConstraints<'_> {
+    pub fn check(&self) -> crate::Result<()> {
+        if let Some(deadline) = self.deadline {
+            deadline.check().map_err(|_| {
+                crate::ReasonerError::Data(
+                    "Buildplanung abgebrochen oder Zeitbudget abgelaufen.".into(),
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    fn validate(&self, hero: &HeroModel, catalog: &[ScoredItem]) -> crate::Result<()> {
+        self.check()?;
+        if self.budget.is_some_and(|budget| budget <= 0) {
+            return Err(crate::ReasonerError::Data(
+                "Buildbudget muss positiv sein.".into(),
+            ));
+        }
+        for (item_id, ability_id) in &self.imbues {
+            if !catalog.iter().any(|candidate| {
+                candidate.item.item_id == *item_id
+                    && candidate.item.imbueable
+                    && candidate.item.shopable
+                    && !candidate.item.disabled
+            }) || !hero
+                .abilities
+                .iter()
+                .any(|ability| ability.ability_id == *ability_id && *ability_id > 0)
+            {
+                return Err(crate::ReasonerError::Data(
+                    "Ungültige Itembindung für diesen Helden.".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 const BEAM_WIDTH: usize = 4;
 type EvaluationKey = (i64, Vec<i64>, Vec<(i64, i64)>);
 
@@ -85,6 +131,7 @@ struct Search<'a> {
     invalid_metrics: BTreeSet<String>,
     choices_cache: BTreeMap<ChoiceKey, Vec<PurchaseStep>>,
     progression_cache: BTreeMap<i64, (HeroModel, ProgressionEvidence)>,
+    constraints: Option<&'a PlanningConstraints<'a>>,
 }
 
 impl Search<'_> {
@@ -121,6 +168,12 @@ impl Search<'_> {
         earned: i64,
         bindings: &BTreeMap<i64, i64>,
     ) -> Option<InventoryEvaluation> {
+        if self
+            .constraints
+            .is_some_and(|constraints| constraints.check().is_err())
+        {
+            return None;
+        }
         let (hero, progression) = self
             .progression_cache
             .entry(earned)
@@ -198,6 +251,12 @@ impl Search<'_> {
             .collect::<Vec<_>>();
         let mut choices = Vec::new();
         for candidate in candidates {
+            if self
+                .constraints
+                .is_some_and(|constraints| constraints.check().is_err())
+            {
+                return Vec::new();
+            }
             let item = &candidate.item;
             let mut transitions = Vec::new();
             let direct = inventory.preview_purchase(item, &self.catalog, self.rules, &[]);
@@ -238,8 +297,12 @@ impl Search<'_> {
                                 .iter()
                                 .any(|ability| ability.ability_id == *target)
                         });
-                    if let Some(target) =
-                        crate::mechanics::imbue_target(item, hero, self.cfg).or(observed)
+                    if let Some(target) = self
+                        .constraints
+                        .and_then(|constraints| constraints.imbues.get(&item.item_id).copied())
+                        .or_else(|| {
+                            crate::mechanics::imbue_target(item, hero, self.cfg).or(observed)
+                        })
                     {
                         next_bindings.insert(item.item_id, target);
                     }
@@ -316,6 +379,42 @@ pub fn plan_with_economy(
     cfg: &ReasonerConfig,
     context: PlanningContext<'_>,
 ) -> PurchasePlan {
+    plan_with_economy_inner(hero, catalog, candidates, cfg, context, None)
+}
+
+pub fn plan_with_constraints(
+    hero: &HeroModel,
+    catalog: &[ScoredItem],
+    candidates: &[&ScoredItem],
+    cfg: &ReasonerConfig,
+    context: PlanningContext<'_>,
+    constraints: &PlanningConstraints<'_>,
+) -> crate::Result<PurchasePlan> {
+    constraints.validate(hero, catalog)?;
+    let mut economy = context.economy.clone();
+    if let Some(budget) = constraints.budget {
+        economy.checkpoints.retain(|point| *point <= budget);
+        if economy.checkpoints.last().copied() != Some(budget) {
+            economy.checkpoints.push(budget);
+        }
+    }
+    let context = PlanningContext {
+        economy: &economy,
+        ..context
+    };
+    let plan = plan_with_economy_inner(hero, catalog, candidates, cfg, context, Some(constraints));
+    constraints.check()?;
+    Ok(plan)
+}
+
+fn plan_with_economy_inner(
+    hero: &HeroModel,
+    catalog: &[ScoredItem],
+    candidates: &[&ScoredItem],
+    cfg: &ReasonerConfig,
+    context: PlanningContext<'_>,
+    constraints: Option<&PlanningConstraints<'_>>,
+) -> PurchasePlan {
     let PlanningContext {
         layout,
         rules,
@@ -337,6 +436,7 @@ pub fn plan_with_economy(
         invalid_metrics: BTreeSet::new(),
         choices_cache: BTreeMap::new(),
         progression_cache: BTreeMap::new(),
+        constraints,
     };
     let mut plan=PurchasePlan { steps:Vec::new(), final_evaluation:evaluate_inventory(hero,&[],cfg), ability_order:order.to_vec(),saving_decisions:Vec::new(), assumptions:vec![
         "Feste globale Seelen-Checkpoints, unabhängig von Kandidatenpreisen. Kostenbänder erzwingen keine Käufe; ausschließlich die zugelassenen Identitätskäufe konkurrieren um das vorhandene Geld. Sparen bleibt eine bewertete Alternative.".into(),
@@ -358,9 +458,6 @@ pub fn plan_with_economy(
     let mut inventory = Inventory::default();
     let mut bindings = BTreeMap::new();
     let mut used = BTreeSet::new();
-    // Production supplies an empirical context, even when it is empty. Its
-    // historic layout is never a quota. Explicit low-level layout callers keep
-    // their requested upper bounds for diagnostics/backwards compatibility.
     let mut remaining = if population.is_some() {
         let mut counts = BTreeMap::new();
         for candidate in candidates {
@@ -377,6 +474,9 @@ pub fn plan_with_economy(
             .collect()
     };
     for (index, earned) in economy.checkpoints.iter().copied().enumerate() {
+        if constraints.is_some_and(|constraints| constraints.check().is_err()) {
+            return plan;
+        }
         if remaining.values().all(|count| *count == 0) {
             break;
         }
@@ -462,8 +562,6 @@ pub fn plan_with_economy(
                 plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Kein bezahlbarer Kauf mit positivem gemeinsamen Mehrwert; Geld bleibt verfügbar.".into() });
                 break;
             };
-            // Population support is already part of both horizons. It must not
-            // override the same-state comparison by bypassing the saving option.
             if save_value > buy_value + before.score.abs().max(1.0) * 1e-9 {
                 plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Sparen ermöglicht am nächsten Checkpoint den stärkeren gemeinsamen Zustand als Kauf plus Folgeentscheidung.".into() });
                 break;
@@ -860,6 +958,7 @@ mod tests {
             invalid_metrics: BTreeSet::new(),
             choices_cache: BTreeMap::new(),
             progression_cache: BTreeMap::new(),
+            constraints: None,
         };
         let before = search.evaluate(&inventory, 3200, &bindings).unwrap();
         let choices = search.choices(
@@ -955,6 +1054,7 @@ mod tests {
             invalid_metrics: BTreeSet::new(),
             choices_cache: BTreeMap::new(),
             progression_cache: BTreeMap::new(),
+            constraints: None,
         };
         let choices = search.choices(
             &before,
