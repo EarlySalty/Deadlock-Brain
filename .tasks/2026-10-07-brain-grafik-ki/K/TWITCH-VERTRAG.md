@@ -26,8 +26,12 @@ Completion innerhalb generate_title_personalized_with, nach Zielrechten und Limi
 
 ## Entscheidung und Restumfang
 
-K wählt für die erste öffentliche Welle einen gesonderten nichtpersonalisierten Deadlock-Titelentwurf mit ausschließlich freigegebenen öffentlichen Spielfakten und festen serverseitigen Anweisungen. Keine Nutzerkennungen, Co-Streamerbeziehungen, Stilpräferenzen, History, Feedback, Performance oder privaten Live-/Sessiontexte an Remoteprovider. Lokale verbotene-Phrasen-Filter dürfen nachgelagert bleiben. Der vorhandene personalisierte Titelpfad bleibt unverändert und wird nicht als migriert gemeldet.
+Abnahmepräzisierung des Hauptorchestrators: Kein gesonderter öffentlicher Titelgenerator neben dem personalisierten Feature. Der frühere Vorschlag wird verworfen, kein Produktcode dafür gebaut. K prüft ausschließlich, ob im bestehenden Titel-Completionpfad bereits ein wirklich nichtpersonalisierter zulässiger Teilfall existiert. Nur dieser darf ohne Funktionsverlust über denselben Einstieg zentralisiert werden. Keine neue UI/Route und kein zweiter Titelpfad. Wenn kein solcher Fall belegt ist, bleibt der Titel-Cutover ausdrücklich eine Datenschutz-/Providerabhängigkeit; Eingaben nicht still streichen und keine Parität behaupten.
 
 Benötigt vor Verdrahtung: typisierte Brain-Titelfähigkeit, serverseitige Bindung an denselben validierten Fireworks-Auswahlstand pro Request, bestehende 240-Sekunden-Completionfristen und Ausgabelimits, gemessene Usage/Retryparität. Keine Modell-/Credentialoverrides vom Wireclient, kein zweiter Connector, kein Prompt-Steuerprotokoll in Query.text. Gs aktiven Provider-/Kernelbereich nicht parallel ändern. Ohne diese Abhängigkeit keine scheinbar funktionierende Fassade einschalten.
 
-BESTAND[BS-1]: teilweise | Fundort: rust/crates/tb-chat/src/title_ai.rs:769 | Anknüpfung: vorhandener Titel-Completionpfad und tb-llm-Auswahl/Accounting
+## Fokussierte Teilfallprüfung
+
+`tb-chat/src/title_ai.rs:734,884,951`: build_title_prompt, generate_title_with und generate_title delegieren trotz leerer Stil-/Feedbackparameter an den personalisierten Pfad. Historie, Community-Titelwissen, Rang und optionaler Livekontext bleiben Eingaben. `tb-dashboard-api/src/handlers/title.rs:559` verwendet generate_title_personalized mit Präferenzen, Feedback, Historie, Rang und Livezustand. include_live=false entfernt weder Rang noch Historie, Stil und Feedback. Die Wrapper sind damit kein nachgewiesener nichtpersonalisierter Produktionsfall. Auf den überprüften vorhandenen Eingängen ist kein geeigneter Teilfall belegt; Titel-Cutover bleibt offen. Kein Produktcode oder neuer Pfad entstanden.
+
+BESTAND[BS-1]: teilweise | Fundort: rust/crates/tb-chat/src/title_ai.rs:884 | Anknüpfung: vorhandener personalisierter Completionpfad und tb-llm-Auswahl/Accounting; nichtpersonalisierter zulässiger Teilfall nicht belegt

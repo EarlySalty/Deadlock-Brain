@@ -14,6 +14,8 @@ Ergebnis: Format/Compiler/striktes Clippy Exit 0. Bestehende Unitfälle 17, neue
 
 TESTNACHWEIS[TW-1]: 58 passed, 0 ignored | Baseline: 0 rot
 
+Quellencheckpoint `7e8fc641` auf origin/feat/brain-k-ki-20261007. Regulärer Gate bntlu2ld3, Exit 0, Log `/tmp/k-contract-gate-20261007.log`: `[gpt-6.1-sol] ALLOW: No merge-blocking defect in this isolated, unexported contract.` Ein NIT bleibt vor Verdrahtung offen: Status für den Guide plattformbezogen machen, da Twitch keine Guideaufgabe erlaubt. Keine erneute Modellwahl oder Gateübersteuerung.
+
 ## Anschluss bleibt offen
 
 Das Modul ist nicht exportiert oder verdrahtet. Clientlabels und boolesche Freigaben sind kein Beleg realer Herkunft. Erst nach geprüftem integriertem G-Stand registrierten Dienst, tatsächliche Kanal-/Eingangsherkunft, Verarbeitungsort sowie erneute Zustellrechte anbinden. Kein Dummyerfolg, Direktmodellfallback oder zweite Providerimplementierung. Diese isolierte Vorbereitung erfüllt noch keinen KI-Cutover.

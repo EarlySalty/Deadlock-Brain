@@ -7,7 +7,9 @@ Dies ist der Integrationsbedarf, kein bereits implementierter oder freigegebener
 | Fähigkeit | Eingabe | Ergebnis | Modellweg |
 | --- | --- | --- | --- |
 | Öffentliches Discord-Guidewissen | Bewusste Frage aus zulässigem öffentlichem Kanal, bestehende Personen-/Zustellrechte lokal | vorhandene PublicAnswerResponse samt Wissensstand/öffentlichen Belegen | vorhandener Brain-Antwortweg; keine privaten FAQ-Verläufe/DMs |
-| Öffentlicher Deadlock-Titelentwurf | typisierte öffentliche Spiel-/Aktivitätsauswahl, keine persönlichen Texte/Kennungen/History | primary_title, alternatives, title_analysis als typisierte Felder, Wissensabruf optional | vorhandene validierte Fireworks-Auswahl für title_ai je Request, keine Lunaumstellung |
+| Bestehender Twitch-Titelteilfall, falls zulässig belegt | ausschließlich vorhandener nichtpersonalisierter Kontext, kein stilles Entfernen nötiger Inputs | bestehende primary_title, alternatives, title_analysis, Wissensabruf optional | vorhandene validierte Fireworks-Auswahl für title_ai je Request, keine Lunaumstellung |
+
+Kein neuer öffentlicher Titelgenerator, keine neue UI/Route und kein zweiter Titelpfad. Ohne bereits bestehenden geeigneten Teilfall bleibt Titel-Cutover offen. Der gemeinsame typisierte Vertrag wird vorbereitet, nicht als bereits verdrahtete Fähigkeit ausgegeben.
 
 Private persönliche Hilfe ist keine dritte aktivierte Fähigkeit dieser Welle. Ohne tatsächlich lokalen freigegebenen Provider bleibt private Modellverarbeitung gesperrt. Serverguide bleibt Fähigkeit des einen Brain; keine zweite Persona.
 
@@ -21,7 +23,7 @@ Vertragsversion, Request-ID und Ergebnisart vor Ausgabe prüfen. Unbekannte Fäh
 
 UseCase title_ai, Ledgerzweck title, Temperatur 0.8, Ausgabelimit 900 und Completiondeadline 240 Sekunden. Zwei 429-Retries, Wartezeit maximal fünf Sekunden innerhalb derselben Deadline. Eventueller zweiter Completionversuch bleibt eine eigene gemessene Ausführung mit ursprünglicher fachlicher Zulässigkeit. Unbekannte Usage nicht als null buchen. Ein ausgewähltes Modell wird pro Request gebunden, nicht zwischen Retry-/Folgeturns neu ausgelost.
 
-Lokale Rate-Limits, Zielrechte, verbotene-Phrasen-Filter, Thinking-/Ausgabebereinigung, Dashboardmapping, Feedback, OAuth und Helixeffekte bleiben am bestehenden Botpfad. Die erste öffentliche Fähigkeit übernimmt keine gespeicherten Stile, Performance-/Historiedaten oder Co-Streamerbeziehungen. Der bestehende personalisierte Titelweg bleibt ungemeldeter Restumfang, nicht still als vollständig migriert ausgegeben.
+Lokale Rate-Limits, Zielrechte, verbotene-Phrasen-Filter, Thinking-/Ausgabebereinigung, Dashboardmapping, Feedback, OAuth und Helixeffekte bleiben am bestehenden Botpfad. Gespeicherte Stile, Performance-/Historiedaten, private Livekontexte und Co-Streamerbeziehungen bleiben außerhalb eines öffentlichen Providerauftrags. Sind sie für den vorhandenen Teilfall nötig, ist dieser ohne lokalen Providervertrag nicht migrierbar. Ein parallel weiterlaufender Direktmodellweg ist kein fertiger Cutover.
 
 ## Voraussetzung
 

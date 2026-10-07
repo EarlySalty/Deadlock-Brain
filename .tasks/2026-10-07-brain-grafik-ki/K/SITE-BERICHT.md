@@ -26,4 +26,6 @@ Eigener K-Nachlauf b4muxk6af: Cargo 1.99, Slot 2, `--locked --jobs 3 -p deadlock
 
 TESTNACHWEIS[TW-1]: 3 passed, 0 ignored | Baseline: 0 rot
 
+Quellencheckpoint `56d1e77d` auf origin/feat/brain-k-ki-20261007. Regulärer Gate bg166de71, Exit 0, Log `/tmp/k-site-gate-20261007.log`: `[gpt-6.1-sol] ALLOW: No confirmed merge-blocking defect in the supplied diff.` Offene NITs: Produktionsstart mit pg_pool_from_config und normaler Rollen-/Tabellenbereitstellung nicht belegt; isolierte Tests brauchen PostgreSQL 16 unter `/usr/lib/postgresql/16/bin`. Kein Deploybeweis aus diesem ALLOW.
+
 BESTAND[BS-1]: teilweise | Fundort: /home/nathanael/.worktrees/brain-a-site-20261006/rust/crates/deadlock-brain/src/bin/deadlock-brain-site.rs:1 | Anknüpfung: vorhandener Rust-Siteport und feste Assetauslieferung
