@@ -1,5 +1,19 @@
 # Paket I: E Gate-Runden
 
+## Runde 21: die eine fachliche URL-Runde tatsächlich ausgeführt
+
+Fixer 15 c0e38302cd85c9c650ca07f658af037cedb81124, Basis 9d17ee52. Bestehende Suite 558 passed/25 ignored, explizite erweiterte Scratch-PG-Probe 1 passed/0 ignored mit 12 positiven und 7 negativen Identitätsfällen. Format, Compiler und striktes Clippy einschließlich brain-serve Exit 0. Bericht FIXER-15-BERICHT.md. Kein Main-Push oder Deploy, keine zweite Discovery-Fixrunde.
+
+Begrenzter Selbst-Gate mit unverändert Claude Opus 5.5, Exit 1; Original /tmp/brain-fixer15-self-gate-opus55.log:
+
+```text
+BLOCK: A store URL does not match an existing Steam event URL for the same patch.
+1. `rust/crates/deadlock-brain/src/pg_patchnotes/api_sync.rs:149 | BLOCKING: Reverse Steam alias is missing | When the feed supplies `/news/app/1422450/view/G` but the stored URL is `/app/1422450/event/G`, `identities` contains only the store URL. The lookup misses the existing ID and creates a new one. The reverse case, including query and trailing-slash variants, is covered by the newly added but ignored test.`
+```
+
+Nach BLOCK zuerst Status/log bestätigt, danach Graphify und tatsächliche Quelle geprüft. Der Community-Ereignisalias wird in Zeilen 150 bis 154 ausdrücklich ergänzt. Die genannte Richtung wurde in der echten PG-Probe ausdrücklich ausgeführt und bestand. Konkreter Befund somit nicht bestätigt, Gateurteil dennoch BLOCK, kein ALLOW daraus abgeleitet. Der vom Nutzer anschließend vorgeschriebene gemeinsame Gesamt-Gate gegen aktuellen main bleibt ein eigener noch ausstehender Integrationsschritt. Kein unveränderter Retry des begrenzten Selbst-Gates und kein sofortiger Discovery-Schnitt aus einer nicht bestätigten Behauptung.
+
+
 ## Runde 17: Fixer 12 ALLOW für HTML-Token und bestehende Patch-ID
 
 Frischer nativer Fixer 12 liefert `b70dc6b6af35aeef26139993a7b515ed575f81e4`, auf eigenem Featurebranch gepusht. Erhält tatsächliche Originalbindung und Netzgrenzen; beseitigt den berechtigten HTML-Linktextrest und verwendet kanonische URL auch zur bestehenden Post-ID-Zuordnung. Nur die beiden vorhandenen Patchquelldateien geändert. Beide tatsächlichen Regressionen jeweils vor Korrektur 1 failed, Exit 101. Vollständige Cratesuite 152 passed, 0 failed, 3 ignored; explizite echte isolierte Scratch-PG-Post-ID-Probe 1 passed, 0 failed, 0 ignored, 116 filtered. Diese zwei Lauf-Auswahlen getrennt, nicht als ein einziger Gesamtlog ausgegeben. Compiler, Format und striktes Clippy Exit 0.

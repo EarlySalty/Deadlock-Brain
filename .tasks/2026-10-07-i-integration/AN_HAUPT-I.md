@@ -1,5 +1,13 @@
 # Paket I: Fachrückgabe nach Gesamt-BLOCK und verweigertem Fixerzugriff
 
+## Aktive frische Fortsetzung vom 07.10.2026
+
+I b17d5729 übernimmt unverändert E/F. Session- und MCP-Root jetzt tatsächlich E-Worktree: ctx_execute_file hat pg_patchnotes.rs regulär gelesen. Fixer 15 läuft als einziger frischer nativer Kontext für die eine fachliche URL-Runde. Keine Gesamtfreigabe, Merge- oder Livebehauptung. Neueste parallele Fertigstellungsentscheidung gelesen; F beginnt nach Spiegel-Merge, nicht nach G-main. Vorher-/Rootnachweise: FORTSETZUNG-START-20261007.md.
+
+**Neue begrenzte Schutzablehnung:** Aktueller G-Hauptbericht außerhalb E-MCP-Projektroot über ctx_execute_file verweigert. Nicht über andere Werkzeuge oder Gitextraktion nachgelesen, keine Schutzänderung. E-Arbeit läuft unabhängig weiter. Die schon regulär gelesenen G-Verträge nennen bislang keinen gesicherten konsumierbaren S3-Abschluss.
+
+**Vertragsfrage beantwortet:** VON-DELEGATOR-G-VERTRAGSSTATUS.md regulär im eigenen Aufgabenbereich gelesen. Kein gesicherter konsumierbarer S3-Commit bestätigt; S1 bd83d7ab und Antwortport nicht als vollständiger F-Rechenvertrag ausgeben. Kein gesperrter Bericht kopiert oder erneut gelesen. F beginnt direkt nach Spiegel-Merge mit eigenem Budget-/Imbue-/Abbruch-/Belegbereich. Tatsächlichen G-Vertrag nach gesicherter geordneter Lieferung integrieren, nicht auf G-main warten. analytics_runtime-Freigabe bleibt eine ausdrückliche Dateiübergabe. Keine offene Produktentscheidung aus dieser Frage.
+
 ## Neue qualifizierte Rückgabe nach Nutzernachtrag 20:30
 
 Neuester tatsächlicher Auftrag ersetzt die sofortige Schnittreihenfolge: genau eine frische URL-/Bestands-ID-Fixrunde, anschließend tatsächlicher gemeinsamer Gesamt-Gate mit bisherigem Urteilmodell. Bei ALLOW vollständigen gemeinsamen Spiegel-/Discovery-Scope liefern, Discovery erst bei neuem inhaltlichem Fund ausgliedern. Keine weitere Discovery-Fixschleife, kein zweiter paralleler Fixer.

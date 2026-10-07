@@ -1,6 +1,24 @@
 # Paket I: Register
 
-## Aktueller Vorrangstand nach Nutzernachtrag 20:30
+## Frische Fortsetzung vom 07.10.2026
+
+status: aktiv. I-Thread b17d5729-a475-4bcb-8fc9-0aa6103d4555 übernimmt den bestehenden Auftrag. Alter I-Thread 8827da25-c1f8-44f2-bef8-f3a7b7dd3137 und frühere Hauptsession d3a1741e bleiben gestoppt. Keine Sessionkontakte.
+
+Sessionstart direkt im zugewiesenen E-Worktree durch Harness bestätigt. pwd /home/nathanael/.worktrees/brain-e-deadlock-api, Branch feat/brain-deadlock-api-daten, HEAD 9d17ee52ec898d52ed7c9e78feae596ad086487a, sauber vor eigener neuer Akte. MCP ctx_execute_file hat REGISTER.md und pg_patchnotes.rs aus diesem Root regulär gelesen; frühere MCP-Rootablehnung für diese Hauptsession damit nicht erneut eingetreten. Keine Rechte- oder Hookänderung. Tatsächliche Effort-/UltraCode-Startoption ist im übergebenen Laufzeitkontext nicht ausgewiesen; kein Aktivierungsbeweis behauptet.
+
+Übernommene eigene Bäume regulär bestätigt: Integrationskandidat feat/brain-i-integration-blocked-20261007 auf 501d3725e691c713f4b04468fd9d6b77977ae91c, F feat/brain-build-publish-ohne-matchgrenze auf 46fd86743589910d7b92a7223bdd6ab0dcf2b7c8, beide sauber. Vorbereitungsbranch erhalten, keine Rücksetzung.
+
+Einziger frischer nativer Fixer 15 a7bef6f8941fa27b9 läuft im E-Arbeitsbaum, Briefing FIXER-15-AUFTRAG.md. Schreibbereich pg_patchnotes.rs, pg_patchnotes/api_sync.rs und eigener Bericht; Hauptsession schreibt nur eigene Akten und vorbereitet getrennte Integration/Liveprüfung. Native coder mit geerbtem Modell, kein Sonnet-/Fable-Override. Keine neue T3-Sitzung. Timer 30 min. Einziger I-Statusproduzent ist diese Hauptsession.
+
+Fixer 15 bestätigte regulären Quellzugriff und lieferte erste uncommittierte Lookup-/Scratch-Regressionsänderung. Falsche Werkzeugwahl für /tmp/brain-fixer15-tests.log führte zur MCP-Projektrootablehnung; Suite danach beendet, keine Testzahlen oder Freigabe. Derselbe native Fixer wurde zur Fortsetzung derselben noch unvollständigen Runde angewiesen: Logs ausschließlich über den bereits ausdrücklich vom Nutzer freigegebenen normalen Read-Pfad prüfen, wie schon im Startauftrag verlangt. Keine neuen Rechte, Hooks, Wrapper, neuen Worker oder zweite fachliche Runde. Wenn normaler Read selbst verweigert wird, echte Ablehnung zurückgeben und stoppen. Native coder schreibt gemäß eigener Rollenbegrenzung keinen Bericht; Hauptsession übernimmt die Akten. Bisher rustfmt und Diffcheck Exit 0, kein Commit oder Gate. Eigene Scratch-PG-Instanz vom ersten Versuch beendet.
+
+
+Neueste Entscheidung ENTSCHEIDUNG-PARALLEL-FERTIGSTELLEN.md gelesen: I/G/K parallel in getrennten Bereichen, F direkt nach Spiegel-Merge gegen dann aktuellen main und gesicherten geprüften G-Vertrag. Keine fremden Sessions oder Docs verwalten, analytics_runtime erst ausdrücklich als Datei freigeben. Die eine URL-Fixrunde und Discovery-Fallback nur bei neuem inhaltlichem Fund bleiben unverändert. Noch kein neuer Test/Gate/ALLOW, Merge oder Livebeweis.
+
+## Fachliche Runde und gemeinsame Integration
+
+Fixer 15 beendet, keine aktiven eigenen nativen Kinder. Ergebnis c0e38302cd85c9c650ca07f658af037cedb81124, ausschließlich api_sync.rs. Suite 558 passed/25 ignored, erweiterte echte Scratch-PG-Probe 1 passed/0 ignored; Format/Compiler/Clippy Exit 0. Begrenzter Selbst-Gate Claude Opus 5.5 BLOCK, ursprünglicher Aliasbefund durch tatsächlichen vorhandenen Alias und explizite PG-Gegenprobe nicht bestätigt. Bericht FIXER-15-BERICHT.md, Original /tmp/brain-fixer15-self-gate-opus55.log. Kein begrenzter Retry, Main-Push oder Deploy. Die vorgeschriebene gemeinsame Prüfung gegen aktuellen main folgt am tatsächlich integrierten Kandidaten. Keine zweite fachliche Discovery-Fixrunde.
+
 
 Verbindlich: aktualisierte `ENTSCHEIDUNG-WEITERBAU-2015.md`, Punkt 2. Zuerst genau eine frische Lookupfixrunde und danach wirklicher gemeinsamer Gesamt-Gate; Discovery erst bei neuem inhaltlichem Fund separat. Vorbereiteter eigener Mirrorbranch auf ca4d877f erhalten, gemeinsamer E-Branch b3d22f77 unverändert.
 
