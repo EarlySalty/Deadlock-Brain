@@ -1,11 +1,9 @@
-//! Bounded, short-lived answer cache. Every hit is reauthorized against canonical storage.
 use super::*;
 use std::{
     collections::BTreeMap,
     sync::Mutex,
     time::{Duration, Instant},
 };
-// A count limit alone does not bound uncited source bodies retained by answers.
 const MAX_RETAINED_BYTES: usize = 32 * 1024 * 1024;
 pub struct CachedKernel<R, P> {
     pub(super) inner: Kernel<R, P>,
@@ -31,9 +29,10 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
         query: &Query,
         context: &AuthorizedContext,
         purpose: AnswerPurpose,
+        session: Option<&ToolSession>,
     ) -> KernelAnswer {
         if context.discord.is_some() {
-            return self.inner.answer_with_purpose(query, context, purpose);
+            return self.inner.answer_prepared(query, context, purpose, session);
         }
         let started = Instant::now();
         if context.check_deadline().is_err() {
@@ -63,29 +62,25 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
             )
             .into();
         }
-        // Never include request_id: it is rebound on each hit. All authorization/semantic inputs are included.
-        let key = match super::flight::cache_key_for_purpose(query, context, purpose) {
+        let key = match super::flight::request_key(query, context, purpose, session) {
             Ok(key) => key,
-            Err(_) => return self.inner.answer_with_purpose(query, context, purpose),
+            Err(_) => return self.inner.answer_prepared(query, context, purpose, session),
         };
         let hit = self.entries.lock().ok().and_then(|mut entries| {
             entries.retain(|_, (created, _, _)| created.elapsed() < self.ttl);
             entries.get(&key).map(|(_, answer, _)| answer.clone())
         });
         if let Some(mut answer) = hit {
-            let validation = super::execution::validate_output(
-                &self.inner.retrieval,
-                query,
-                context,
-                &answer.dependencies,
-                purpose,
-            );
+            let validation = self
+                .inner
+                .validate_reuse(query, context, &answer, purpose, session);
             if validation.is_ok()
                 && context.check_deadline().is_ok()
                 && started.elapsed().as_millis() < context.deadline_ms as u128
             {
                 answer.answer.request_id = query.request_id.clone();
                 answer.answer.usage = Usage::default();
+                answer.accounting = UsageAccounting::default();
                 return answer;
             }
             if let Ok(mut entries) = self.entries.lock() {
@@ -119,9 +114,10 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
         };
         let mut next = context.clone();
         next.deadline_ms = remaining;
-        let answer = self.inner.answer_with_purpose(query, &next, purpose);
+        let answer = self.inner.answer_prepared(query, &next, purpose, session);
         let weight = answer.retained_bytes();
         if answer.answer.status == AnswerStatus::Answered
+            && !answer.accounting.unaccounted
             && !answer.answer.citations.is_empty()
             && self.capacity > 0
             && !self.ttl.is_zero()

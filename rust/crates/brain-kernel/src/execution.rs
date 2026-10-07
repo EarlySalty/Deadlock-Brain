@@ -1,11 +1,12 @@
 use super::*;
-use brain_contracts::EvidenceKind;
+use brain_contracts::{
+    provider_input::{grounded_turn_input_ceiling, ToolWireFormat},
+    EvidenceKind, ModelBlock, ProviderTurn, ToolConversation, ToolMessage,
+};
 use std::{
     collections::BTreeSet,
     time::{Duration, Instant},
 };
-/// Infrastructure/corrupt-reader failures are not claims about the caller's permissions.
-/// Both categories fail closed, but only an explicit denial is UnauthorizedEvidence.
 pub(super) fn validation_status(error: &PortError) -> AnswerStatus {
     match error {
         PortError::PermissionDenied(_) => AnswerStatus::UnauthorizedEvidence,
@@ -13,6 +14,29 @@ pub(super) fn validation_status(error: &PortError) -> AnswerStatus {
         PortError::Unavailable(_) | PortError::InvalidResponse(_) => AnswerStatus::Unavailable,
     }
 }
+fn account_failure(
+    accounting: &mut UsageAccounting,
+    failure: PortFailure,
+    context: &AuthorizedContext,
+) -> PortError {
+    if let Some(reported) = failure.accounting {
+        accounting.accumulate(&reported);
+    } else {
+        accounting.accumulate(&UsageAccounting {
+            reserved: Usage {
+                input_tokens: u64::from(context.budget.max_input_tokens),
+                output_tokens: u64::from(context.budget.max_output_tokens),
+                network_rounds: context.budget.max_network_rounds,
+                cost_micros: context.budget.max_cost_micros,
+                ..Usage::default()
+            },
+            unaccounted: true,
+            ..UsageAccounting::default()
+        });
+    }
+    failure.error
+}
+
 fn remaining(
     context: &AuthorizedContext,
     usage: &Usage,
@@ -36,16 +60,6 @@ fn remaining(
     next.budget.max_cost_micros = next.budget.max_cost_micros.checked_sub(usage.cost_micros)?;
     Some(next)
 }
-fn combined(a: &Usage, b: &Usage) -> Option<Usage> {
-    Some(Usage {
-        provider: b.provider.clone().or_else(|| a.provider.clone()),
-        model: b.model.clone().or_else(|| a.model.clone()),
-        input_tokens: a.input_tokens.checked_add(b.input_tokens)?,
-        output_tokens: a.output_tokens.checked_add(b.output_tokens)?,
-        network_rounds: a.network_rounds.checked_add(b.network_rounds)?,
-        cost_micros: a.cost_micros.checked_add(b.cost_micros)?,
-    })
-}
 pub(super) fn validate_output<R: RetrievalPort>(
     retrieval: &R,
     query: &Query,
@@ -61,6 +75,304 @@ pub(super) fn validate_output<R: RetrievalPort>(
             retrieval.validate_publication(query, context, dependencies)
         }
     }
+}
+
+pub(super) fn validate_tool_evidence(
+    query: &Query,
+    context: &AuthorizedContext,
+    dependencies: &[ToolEvidenceDependency],
+    purpose: ToolValidationPurpose,
+) -> Result<(), PortError> {
+    for item in dependencies
+        .iter()
+        .flat_map(|dependency| &dependency.evidence)
+    {
+        item.validate()
+            .map_err(|_| PortError::InvalidResponse("Ungültiger Werkzeugbeleg".into()))?;
+        if !evidence_allowed(&context.principal, item) {
+            return Err(PortError::PermissionDenied(
+                "Werkzeugbeleg ist nicht freigegeben".into(),
+            ));
+        }
+        if purpose == ToolValidationPurpose::Provider {
+            let class = match item.visibility {
+                brain_contracts::SourceVisibility::Public => "public",
+                brain_contracts::SourceVisibility::Internal => "internal",
+                brain_contracts::SourceVisibility::Private => "private",
+                brain_contracts::SourceVisibility::RequestScoped => {
+                    if !context.discord.as_ref().is_some_and(|request| {
+                        request.request_id == query.request_id
+                            && item.allowed_scopes == BTreeSet::from([request.scope.clone()])
+                    }) {
+                        return Err(PortError::PermissionDenied(
+                            "Anfragebindung des Werkzeugbelegs fehlt".into(),
+                        ));
+                    }
+                    "discord_request"
+                }
+            };
+            if !provider_egress_allowed(&context.principal, class) {
+                return Err(PortError::PermissionDenied(
+                    "Werkzeugbeleg darf nicht an den Provider gehen".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
+    kernel: &Kernel<R, P>,
+    query: &Query,
+    context: &AuthorizedContext,
+    session: &ToolSession,
+) -> KernelAnswer {
+    let started = (kernel.clock)();
+    let elapsed = || {
+        (kernel.clock)()
+            .saturating_duration_since(started)
+            .as_millis() as u64
+    };
+    let mut accounting = UsageAccounting::default();
+    let mut dependencies = Vec::<ToolEvidenceDependency>::new();
+    let mut conversation = ToolConversation::default();
+    let mut evidence = Vec::<Evidence>::new();
+    let mut seen_calls = BTreeSet::new();
+    let result = (|| -> Result<brain_contracts::ProviderAnswer, PortError> {
+        let binding = kernel
+            .tools
+            .as_ref()
+            .ok_or_else(|| PortError::Unavailable("Werkzeuganschluss fehlt".into()))?;
+        loop {
+            let next = remaining(context, &accounting.charged(), elapsed())
+                .ok_or(PortError::BudgetExceeded)?;
+            if next.budget.max_network_rounds == 0 || next.budget.max_output_tokens == 0 {
+                return Err(PortError::BudgetExceeded);
+            }
+            kernel.validate_tools(
+                query,
+                &next,
+                session,
+                &dependencies,
+                ToolValidationPurpose::Provider,
+            )?;
+            let input = grounded_turn_input_ceiling(
+                query,
+                &[],
+                &session.definitions,
+                &conversation,
+                ToolWireFormat::Native,
+            )?
+            .max(grounded_turn_input_ceiling(
+                query,
+                &[],
+                &session.definitions,
+                &conversation,
+                ToolWireFormat::OpenAiCompatible,
+            )?);
+            let next = remaining(context, &accounting.charged(), elapsed())
+                .ok_or(PortError::BudgetExceeded)?;
+            if input > u64::from(next.budget.max_input_tokens) {
+                return Err(PortError::BudgetExceeded);
+            }
+            let Accounted {
+                value: turn,
+                accounting: mut turn_accounting,
+            } = match kernel.provider.answer_turn_accounted(
+                query,
+                &next,
+                &[],
+                &session.definitions,
+                &conversation,
+            ) {
+                Ok(turn) => turn,
+                Err(failure) => return Err(account_failure(&mut accounting, failure, &next)),
+            };
+            let reserved_input =
+                input.checked_mul(u64::from(turn_accounting.observed.network_rounds));
+            let charge = turn_accounting.charged();
+            turn_accounting.accumulate(&UsageAccounting {
+                reserved: Usage {
+                    input_tokens: reserved_input
+                        .unwrap_or(u64::MAX)
+                        .saturating_sub(charge.input_tokens),
+                    ..Usage::default()
+                },
+                unaccounted: reserved_input.is_none(),
+                ..UsageAccounting::default()
+            });
+            accounting.accumulate(&turn_accounting);
+            if accounting.unaccounted {
+                return Err(PortError::BudgetExceeded);
+            }
+            remaining(context, &accounting.charged(), elapsed())
+                .ok_or(PortError::BudgetExceeded)?;
+            turn.validate(&session.definitions)?;
+            if turn.usage().network_rounds == 0 {
+                return Err(PortError::InvalidResponse(
+                    "Modellrunde hat keinen Netzwerkzähler".into(),
+                ));
+            }
+            match turn {
+                ProviderTurn::Final { answer, .. } => {
+                    let ids: BTreeSet<_> = answer.cited_evidence_ids.iter().collect();
+                    let insufficient = answer.text.is_empty() && ids.is_empty();
+                    if (!insufficient && (answer.text.trim().is_empty() || ids.is_empty()))
+                        || answer.text.len() > 64 * 1024
+                        || ids.len() != answer.cited_evidence_ids.len()
+                        || ids
+                            .iter()
+                            .any(|id| !evidence.iter().any(|item| &item.evidence_id == *id))
+                    {
+                        return Err(PortError::InvalidResponse(
+                            "Ungültige finale Werkzeugantwort".into(),
+                        ));
+                    }
+                    let next = remaining(context, &accounting.charged(), elapsed())
+                        .ok_or(PortError::BudgetExceeded)?;
+                    kernel.validate_tools(
+                        query,
+                        &next,
+                        session,
+                        &dependencies,
+                        ToolValidationPurpose::Publication,
+                    )?;
+                    remaining(context, &accounting.charged(), elapsed())
+                        .ok_or(PortError::BudgetExceeded)?;
+                    return Ok(answer);
+                }
+                ProviderTurn::ToolCalls { blocks, .. } => {
+                    let calls = blocks
+                        .iter()
+                        .filter_map(|block| match block {
+                            ModelBlock::ToolUse { call } => Some(call),
+                            ModelBlock::Text { .. } => None,
+                        })
+                        .map(|call| {
+                            if !seen_calls.insert(call.id.clone()) {
+                                return Err(PortError::InvalidResponse(
+                                    "Wiederholte Werkzeugaufruf-ID".into(),
+                                ));
+                            }
+                            call.validate(&session.definitions)
+                                .map(|request| (call, request))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let mut results = Vec::new();
+                    for (call, request) in calls {
+                        let next = remaining(context, &accounting.charged(), elapsed())
+                            .ok_or(PortError::BudgetExceeded)?;
+                        kernel.validate_tools(
+                            query,
+                            &next,
+                            session,
+                            &dependencies,
+                            ToolValidationPurpose::Provider,
+                        )?;
+                        let next = remaining(context, &accounting.charged(), elapsed())
+                            .ok_or(PortError::BudgetExceeded)?;
+                        let Accounted {
+                            value: execution,
+                            accounting: tool_accounting,
+                        } = match binding.port.execute_accounted(
+                            query,
+                            &next,
+                            session.game_context.as_ref(),
+                            &call.id,
+                            &request,
+                        ) {
+                            Ok(execution) => execution,
+                            Err(failure) => {
+                                return Err(account_failure(&mut accounting, failure, &next))
+                            }
+                        };
+                        accounting.accumulate(&tool_accounting);
+                        if accounting.unaccounted {
+                            return Err(PortError::BudgetExceeded);
+                        }
+                        remaining(context, &accounting.charged(), elapsed())
+                            .ok_or(PortError::BudgetExceeded)?;
+                        execution.validate_for(call, &request, session.game_context.as_ref())?;
+                        dependencies.extend(execution.dependencies);
+                        let next = remaining(context, &accounting.charged(), elapsed())
+                            .ok_or(PortError::BudgetExceeded)?;
+                        kernel.validate_tools(
+                            query,
+                            &next,
+                            session,
+                            &dependencies,
+                            ToolValidationPurpose::Provider,
+                        )?;
+                        for item in dependencies
+                            .iter()
+                            .flat_map(|dependency| &dependency.evidence)
+                        {
+                            if let Some(previous) = evidence
+                                .iter()
+                                .find(|previous| previous.evidence_id == item.evidence_id)
+                            {
+                                if previous != item {
+                                    return Err(PortError::InvalidResponse(
+                                        "Werkzeugbeleg-ID ist mehrdeutig".into(),
+                                    ));
+                                }
+                            } else {
+                                evidence.push(item.clone());
+                            }
+                        }
+                        results.push(execution.result);
+                    }
+                    conversation
+                        .messages
+                        .push(ToolMessage::Assistant { blocks });
+                    conversation
+                        .messages
+                        .push(ToolMessage::ToolResults { results });
+                    conversation.validate(&session.definitions)?;
+                }
+            }
+        }
+    })();
+    let outcome: KernelAnswer = match result {
+        Ok(answer) if answer.text.is_empty() && answer.cited_evidence_ids.is_empty() => response(
+            query,
+            context,
+            AnswerStatus::InsufficientEvidence,
+            "Keine ausreichenden Belege für diese Antwort.",
+            Vec::new(),
+            accounting.observed.clone(),
+        )
+        .into(),
+        Ok(answer) => {
+            let citations = evidence
+                .into_iter()
+                .filter(|item| answer.cited_evidence_ids.contains(&item.evidence_id))
+                .collect();
+            KernelAnswer {
+                answer: response(
+                    query,
+                    context,
+                    AnswerStatus::Answered,
+                    answer.text,
+                    citations,
+                    accounting.observed.clone(),
+                ),
+                accounting: accounting.clone(),
+                dependencies: std::sync::Arc::from([]),
+                tool_dependencies: dependencies.into(),
+            }
+        }
+        Err(error) => response(
+            query,
+            context,
+            validation_status(&error),
+            "Werkzeugantwort konnte nicht sicher abgeschlossen werden.",
+            Vec::new(),
+            accounting.observed.clone(),
+        )
+        .into(),
+    };
+    outcome.with_accounting(accounting)
 }
 
 pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
@@ -82,8 +394,6 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         KernelAnswer::from(response(query, context, status, message, Vec::new(), usage))
     };
     let publish = |status, text: String, citations: Vec<Evidence>, usage: Usage| {
-        // Direct facts, analytics and deterministic domain outputs never bypass
-        // the same canonical publication gate used for provider dependencies.
         if purpose == AnswerPurpose::ExternalPublication {
             if let Err(error) = validate_output(retrieval, query, context, &citations, purpose) {
                 return fail(
@@ -232,8 +542,6 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             retrieval_usage,
         );
     }
-    // Canonical domain proofs exist only for explicitly typed domain requests.
-    // A source document containing lookalike JSON is ordinary source content.
     if query.domain.is_some() && evidence.len() == 1 {
         if let Ok(domain) =
             serde_json::from_str::<brain_contracts::domain::DomainAnswer>(&evidence[0].content)
@@ -272,7 +580,6 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             }
         }
     }
-    // No model can certify legality or turn incomplete domain input into a build.
     if matches!(query.profile, brain_contracts::AnswerProfile::Build) {
         return fail(AnswerStatus::InsufficientEvidence, "Keine geprüfte Rule-/Buildantwort vorhanden. Eine deterministische Buildanfrage mit Patch und Modus ist erforderlich.", retrieval_usage);
     }
@@ -348,35 +655,34 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             retrieval_usage,
         );
     };
-    let answer = match provider.answer(query, &provider_context, &evidence) {
+    let mut accounting = UsageAccounting::observed(retrieval_usage);
+    let Accounted {
+        value: answer,
+        accounting: provider_accounting,
+    } = match provider.answer_accounted(query, &provider_context, &evidence) {
         Ok(answer) => answer,
-        Err(PortError::BudgetExceeded) => {
+        Err(failure) => {
+            let error = account_failure(&mut accounting, failure, &provider_context);
             return fail(
-                AnswerStatus::BudgetExceeded,
-                "Provider Budget ist ausgeschöpft.",
-                retrieval_usage,
-            )
-        }
-        Err(_) => {
-            return fail(
-                AnswerStatus::ProviderError,
+                if error == PortError::BudgetExceeded {
+                    AnswerStatus::BudgetExceeded
+                } else {
+                    AnswerStatus::ProviderError
+                },
                 "Antwortprovider nicht verfügbar.",
-                retrieval_usage,
+                accounting.observed.clone(),
             )
+            .with_accounting(accounting);
         }
     };
-    let Some(usage) = combined(&retrieval_usage, &answer.usage) else {
-        return fail(
-            AnswerStatus::BudgetExceeded,
-            "Nutzungszähler übergelaufen.",
-            retrieval_usage,
-        );
+    accounting.accumulate(&provider_accounting);
+    let fail_provider = |status, message: &str| {
+        fail(status, message, accounting.observed.clone()).with_accounting(accounting.clone())
     };
-    if remaining(context, &usage, elapsed_ms()).is_none() {
-        return fail(
+    if accounting.unaccounted || remaining(context, &accounting.charged(), elapsed_ms()).is_none() {
+        return fail_provider(
             AnswerStatus::BudgetExceeded,
             "Provider überschreitet das Request Budget.",
-            usage,
         );
     }
     let ids: BTreeSet<_> = answer.cited_evidence_ids.iter().collect();
@@ -388,33 +694,24 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             .iter()
             .any(|id| !evidence.iter().any(|e| &e.evidence_id == *id))
     {
-        return fail(
+        return fail_provider(
             AnswerStatus::ProviderError,
             "Antwort enthält ungültige Quellenreferenzen.",
-            usage,
         );
     }
-    // Every provider input is a dependency, not just the model-selected citations.
-    // Re-read canonical content/ACL/publication grants after the network call.
     if let Err(error) = validate_output(retrieval, query, context, &evidence, purpose) {
-        return fail(
+        return fail_provider(
             validation_status(&error),
             "Evidenz konnte nach dem Provider-Aufruf nicht sicher bestätigt werden.",
-            usage,
         );
     }
     if expired() {
-        return fail(
-            AnswerStatus::BudgetExceeded,
-            "Request Deadline erreicht.",
-            usage,
-        );
+        return fail_provider(AnswerStatus::BudgetExceeded, "Request Deadline erreicht.");
     }
     if insufficient {
-        return fail(
+        return fail_provider(
             AnswerStatus::InsufficientEvidence,
             "Dazu hab ich gerade nichts Genaues, frag am besten direkt im Discord nach.",
-            usage,
         );
     }
     let citations = evidence
@@ -429,8 +726,10 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             AnswerStatus::Answered,
             answer.text,
             citations,
-            usage,
+            accounting.observed.clone(),
         ),
+        accounting,
         dependencies: evidence.into(),
+        tool_dependencies: std::sync::Arc::from([]),
     }
 }
