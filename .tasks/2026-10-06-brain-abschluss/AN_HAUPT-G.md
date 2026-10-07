@@ -2,6 +2,24 @@
 
 status: aktiv, 07.10.2026
 
+## 09:00: Hold aufgehoben, G schließt selbst ab
+
+`VON_HAUPT.md`, Abschnitt 09:00, tatsächlich gelesen. Paket I integriert E/F; G schließt nach eigener Abnahme/Gate selbst auf dem dann aktuellen origin/main nach E/F ab, einschließlich regulärem Deploy, Neustart, Live-Beweis und Cleanup. Alte Holdberichte unten beschreiben frühere Zeitstände. Nach Fetch beobachteter Main `f6f5cef65f1f946113f0b8216c6475f6d38ec928`; E/F-Lieferungen daraus noch nicht von G bestätigt. Keine Sessionkoordination oder Wartefenster auf fremde Builds.
+
+G-P-R1 ist abgeschlossen: gemeinsamer duplikatsicherer JSON-Eingang und kompatibler Source-Adapter vorhanden, beide ursprünglichen Wireproben lehnen doppelte Argumentnamen ab. 71 Vertrags- und 32 Providerfälle bestanden vor der letzten JSON-Ergänzung; deren Compiler-/Testschlussprüfung bleibt offen. Source-/Verbraucherprüfung traf noch fehlende Combathelfer im laufenden Reasoner-WIP. Keine fertige Produktabnahme behauptet.
+
+Begrenzte Fehlerabrechnungsfortsetzung G-K-R1 tatsächlich gestartet: Task `w7kbtvxfg`, Run `wf_18a32653-098`, `G/BRIEFING-G-K-R1.md`. Einziger Vertrags-/Provider-/Kernel-Schreiber nach tatsächlichem JSON-Abschluss; bewahrt beobachtete Usage auch bei Fehlern, trennt konservative Reservierung und prüft die letzte JSON-Ergänzung vollständig. G-M-06:45 läuft disjunkt im Reasoner weiter. Gebaut: Teilstände. Reviewt: bisher G0 und Dokumentcheckpoints. Gemergt: nein. Live: nein.
+
+## Abschluss-Hook vor 09:00 und aktive Fortsetzungen
+
+Stop-Hook meldet offenen eigenen WIP und sieben Featurecommits außerhalb main. Tatsächlicher HEAD `ce21a457`, Status und Releasefenster erneut geprüft: keine Hold-Aufhebung. Der verlangte Main-Merge/Cleanup würde aktive Arbeit und die verbindliche Releasegrenze verletzen und wird nicht ausgeführt. JSON-Worker `wvlm6fn18` und Rechenfortsetzung `wq8uvf8ah` zeigen reale laufende Prüfaufrufe; kein Ersatzschreiber. `G/BRIEFING-G-K-R1.md` vorbereitet, noch nicht gestartet, da der Vertragsschreibbereich belegt ist. Kein verfrühter Produktcommit, kein Verwerfen oder Settle.
+
+## Nachweischeckpoint ce21a457 auf origin
+
+Rückgaben von G-M/G-P/G-K, konkrete Abnahmelücken und die exklusiven Folgeaufträge sind auf dem Featurebranch gesichert. Regulärer Dokumentgate gegen `1f5ed30f`, Exit 0: `[gpt-6.1-sol] ALLOW: no reviewable changes`, Log `/tmp/brain-g-worker-handoffs-gate-20261007.log`. Kein Produktreview daraus abgeleitet. Aktiv sind JSON-Anschluss `wvlm6fn18` und Wachstum/Sheet `wq8uvf8ah`, ohne gemeinsame Produktdateien. Fehlerabrechnung wartet auf freien Vertragsschreibbereich, nicht auf einen fremden Build. G noch nicht fertig; Hold bleibt verbindlich.
+
+MERGEPROTOKOLL[MS-1]: 4 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW: no reviewable changes; kein Main-Merge
+
 ## G-M und G-K zurückgegeben, beide noch ohne Produktabnahme
 
 G-M (`wthzcnb2d`) ist abgeschlossen. Neue Rechenfälle: 17 passed; isolierte Suite: 303 passed, 5 failed, 0 ignored, gegenüber Baseline 287 passed, 4 failed. Bereichsführung prüfte die tatsächlichen Testmarker und Fehlernamen. Neue Regression ist eine Planer-Testfixture ohne Grenznutzen des zweiten Kaufs bei diskreten Schüssen. **Vor Änderung gemeldete Testgrenze:** `dbrain-reasoner/src/planner.rs` ausschließlich dieser Test und nötige Fixtureeingaben; keine Planer-Produktlogik oder Publish-Regel. Danach wächst derselbe reine Kern gemäß Entscheidung 06:45 und Sheetrekonstruktion. Fortsetzung gestartet: Task `wq8uvf8ah`, Run `wf_fca62072-53f`, `G/BRIEFING-G-M-0645.md`; ursprünglicher G-M-Schreibweg beendet. Vier alte DB-Fixturefehler, drei ausgeschlossene Produktionsfälle und echte E/F-Laufzeitbindung bleiben getrennte Grenzen. Keine vollständige Zahlenabnahme behauptet.
