@@ -497,6 +497,33 @@ pub fn evaluate_inventory_refs_fast_with_bindings(
 ) -> InventoryEvaluation {
     evaluate_core(hero, items, cfg, false, Some(bindings))
 }
+pub(crate) fn evaluate_inventory_with_deadline(
+    hero: &HeroModel,
+    items: &[ItemModel],
+    cfg: &ReasonerConfig,
+    bindings: &BTreeMap<i64, i64>,
+    deadline: &brain_contracts::RequestDeadline,
+) -> crate::Result<InventoryEvaluation> {
+    let check = || {
+        deadline.check().map_err(|_| {
+            crate::ReasonerError::Data(
+                "Kampfabdeckung ist abgebrochen oder ihre Frist abgelaufen".into(),
+            )
+        })
+    };
+    check()?;
+    let result = evaluate_core_with_deadline(
+        hero,
+        &items.iter().collect::<Vec<_>>(),
+        cfg,
+        true,
+        Some(bindings),
+        Some(deadline),
+    );
+    check()?;
+    Ok(result)
+}
+
 fn evaluate_core(
     hero: &HeroModel,
     items: &[&ItemModel],
