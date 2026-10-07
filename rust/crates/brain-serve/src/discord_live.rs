@@ -282,6 +282,9 @@ impl DiscordLive {
             return Err(PortError::BudgetExceeded);
         }
         let request = context.discord.as_ref().ok_or_else(denied)?;
+        if !request.allow_discord_reads {
+            return Err(denied());
+        }
         let mut builder = self
             .http
             .post(&self.endpoint)
@@ -338,6 +341,10 @@ fn relevant(query: &Query) -> bool {
 fn allowed(query: &Query, context: &AuthorizedContext, provider: bool) -> bool {
     query.requested_scopes.contains("bot.public")
         && context.principal.scopes.contains("bot.public")
+        && context
+            .discord
+            .as_ref()
+            .is_none_or(|request| request.allow_discord_reads)
         && (!provider || context.principal.provider_egress.contains("public"))
 }
 
@@ -362,10 +369,14 @@ fn observation_key(query: &Query, context: &AuthorizedContext) -> Result<String,
         &context.principal,
         &context.conversation_id,
         &context.knowledge_release,
-        &context
-            .discord
-            .as_ref()
-            .map(|request| (&request.user_id, &request.request_id, &request.scope)),
+        &context.discord.as_ref().map(|request| {
+            (
+                &request.user_id,
+                &request.request_id,
+                &request.scope,
+                request.allow_discord_reads,
+            )
+        }),
     ))
     .map_err(|_| denied())?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
@@ -599,6 +610,186 @@ mod tests {
     use super::*;
 
     #[test]
+    fn private_read_gate_verhindert_io_und_erhaelt_gespeichertes_wissen() {
+        use brain_contracts::{AnswerProviderPort, AnswerStatus, ProviderAnswer};
+        use brain_kernel::{AnswerKernelPort, Kernel};
+        use std::net::TcpListener;
+
+        struct SafeStore(Evidence);
+        impl RetrievalPort for SafeStore {
+            fn retrieve(
+                &self,
+                _: &Query,
+                context: &AuthorizedContext,
+            ) -> Result<Vec<Evidence>, PortError> {
+                let request = context.discord.as_ref().unwrap();
+                assert_eq!(request.user_id, Some(42));
+                assert!(context.principal.scopes.contains(&request.scope));
+                Ok(vec![self.0.clone()])
+            }
+            fn validate_evidence(
+                &self,
+                _: &Query,
+                _: &AuthorizedContext,
+                items: &[Evidence],
+                _: bool,
+            ) -> Result<(), PortError> {
+                if items == std::slice::from_ref(&self.0) {
+                    Ok(())
+                } else {
+                    Err(denied())
+                }
+            }
+            fn validate_publication(
+                &self,
+                query: &Query,
+                context: &AuthorizedContext,
+                items: &[Evidence],
+            ) -> Result<(), PortError> {
+                self.validate_evidence(query, context, items, false)
+            }
+        }
+        struct Answer;
+        impl AnswerProviderPort for Answer {
+            fn answer(
+                &self,
+                query: &Query,
+                _: &AuthorizedContext,
+                items: &[Evidence],
+            ) -> Result<ProviderAnswer, PortError> {
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0].source_id, "docs.public");
+                let payload = brain_contracts::provider_input::grounded_messages(query, items);
+                let data: Value = serde_json::from_str(&payload[1].content).unwrap();
+                assert_eq!(data["query"], query.text);
+                assert!(!payload[1].content.contains("discord.request:"));
+                Ok(ProviderAnswer {
+                    text: "Antwort aus gespeichertem Wissen".into(),
+                    cited_evidence_ids: vec![items[0].evidence_id.clone()],
+                    usage: Usage::default(),
+                })
+            }
+        }
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let mut live = DiscordLive::new("fixture".into()).unwrap();
+        live.endpoint = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let live = Arc::new(live);
+        let context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: Some(42),
+                request_id: "r".into(),
+                scope: "discord.request:fixture".into(),
+                allow_discord_reads: false,
+            }),
+            principal: brain_contracts::Principal {
+                actor_id: "bot".into(),
+                channel: "fixture".into(),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:fixture".into()]),
+                provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "fixture".into(),
+            deadline_ms: 1000,
+            budget: brain_contracts::Budget::default(),
+            request_deadline: None,
+        };
+        for channel in [None, Some(2)] {
+            assert!(matches!(
+                live.read_channel(&context, channel),
+                Err(PortError::PermissionDenied(_))
+            ));
+        }
+        let stored = Evidence {
+            evidence_id: "stored".into(),
+            source_id: "docs.public".into(),
+            logical_id: "fixture".into(),
+            revision: 1,
+            kind: EvidenceKind::Prose,
+            content: "Neutrales gespeichertes Wissen".into(),
+            citation: "https://example.invalid/fixture".into(),
+            visibility: SourceVisibility::Public,
+            allowed_scopes: BTreeSet::new(),
+            score: 1.0,
+            provenance: None,
+            patch: None,
+        };
+        let adapter = DiscordRetriever::new(SafeStore(stored.clone()), Some(live));
+        let kernel = Kernel::new(adapter, Answer);
+        for text in [
+            "Was macht Abrams?",
+            "Wo stehen die Discord-Serverregeln?",
+            "Wie ist mein eigener Invite-Status?",
+            "Welche Lanes gibt es?",
+        ] {
+            let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":text,"requested_scopes":["bot.public"]})).unwrap();
+            let result = kernel.answer_for_publication(&query, &context);
+            assert_eq!(result.status, AnswerStatus::Answered);
+            assert_eq!(result.citations, vec![stored.clone()]);
+            assert_eq!(result.usage.network_rounds, 0);
+        }
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn private_read_gate_sperrt_live_evidence_auch_bei_vorhandener_beobachtung() {
+        let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Discord-Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
+        let mut context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: Some(42),
+                request_id: "r".into(),
+                scope: "discord.request:fixture".into(),
+                allow_discord_reads: true,
+            }),
+            principal: brain_contracts::Principal {
+                actor_id: "bot".into(),
+                channel: "fixture".into(),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:fixture".into()]),
+                provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "fixture".into(),
+            deadline_ms: 1000,
+            budget: brain_contracts::Budget::default(),
+            request_deadline: None,
+        };
+        let facts = json!({"schema":"discord.public-facts.v2","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"requester","channels":[],"voice_counts":[],"bot_infos":[]});
+        let (expires, item) = evidence(serde_json::from_value(facts).unwrap()).unwrap();
+        let items = vec![item];
+        let adapter = DiscordRetriever::new(Stored, None);
+        let public_key = observation_key(&query, &context).unwrap();
+        adapter
+            .observations
+            .lock()
+            .unwrap()
+            .insert(public_key.clone(), (expires, items.clone()));
+        adapter
+            .validate_evidence(&query, &context, &items, true)
+            .unwrap();
+        context.discord.as_mut().unwrap().allow_discord_reads = false;
+        let private_key = observation_key(&query, &context).unwrap();
+        assert_ne!(public_key, private_key);
+        adapter
+            .observations
+            .lock()
+            .unwrap()
+            .insert(private_key, (expires, items.clone()));
+        for provider in [false, true] {
+            assert!(matches!(
+                adapter.validate_evidence(&query, &context, &items, provider),
+                Err(PortError::PermissionDenied(_))
+            ));
+        }
+        assert!(matches!(
+            adapter.validate_publication(&query, &context, &items),
+            Err(PortError::PermissionDenied(_))
+        ));
+    }
+
+    #[test]
     fn grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget() {
         use brain_contracts::{provider_input::grounded_input_ceiling, AnswerProviderPort};
         use brain_providers::{OpenAiCompatibleProvider, PriceCeiling, ProviderConfig};
@@ -717,6 +908,7 @@ mod tests {
                     user_id: None,
                     request_id: "r".into(),
                     scope: "discord.request:unbound".into(),
+                    allow_discord_reads: true,
                 }),
                 principal: brain_contracts::Principal {
                     actor_id: "bot".into(),
@@ -870,6 +1062,7 @@ mod tests {
                 user_id: None,
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
+                allow_discord_reads: true,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -931,6 +1124,7 @@ mod tests {
                 user_id: None,
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
+                allow_discord_reads: true,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "interne-live-pruefung".into(),
@@ -984,6 +1178,7 @@ mod tests {
                 user_id: None,
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
+                allow_discord_reads: true,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -1109,6 +1304,7 @@ mod tests {
                 user_id: None,
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
+                allow_discord_reads: true,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -1174,6 +1370,7 @@ mod tests {
                 user_id: None,
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
+                allow_discord_reads: true,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -1288,6 +1485,7 @@ mod tests {
                 user_id: None,
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
+                allow_discord_reads: true,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -1436,6 +1634,7 @@ mod tests {
                 user_id: None,
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
+                allow_discord_reads: true,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -1535,6 +1734,7 @@ mod tests {
                 user_id: None,
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
+                allow_discord_reads: true,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),

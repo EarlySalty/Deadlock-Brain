@@ -98,6 +98,10 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok())
         .filter(|id| *id != 0);
+    let allow_discord_reads = match discord_read_access(&headers) {
+        Ok(allowed) => allowed,
+        Err(error) => return respond(error),
+    };
     if !state.service.authenticate_header(authorization.as_deref()) {
         return respond(json_error(
             401,
@@ -139,6 +143,7 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
                     &body,
                     deadline,
                     discord_user,
+                    allow_discord_reads,
                 )
             }
         });
@@ -152,6 +157,48 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
         Err(_) => respond(deadline_response()),
     }
 }
+fn discord_read_access(headers: &axum::http::HeaderMap) -> Result<bool, ApiResponse> {
+    match headers.get_all("x-discord-read-access").iter().count() {
+        0 => Ok(true),
+        1 if headers
+            .get("x-discord-read-access")
+            .is_some_and(|value| value.as_bytes() == b"disabled") =>
+        {
+            Ok(false)
+        }
+        _ => Err(json_error(
+            400,
+            "invalid_request",
+            "Ungültige Discord-Lesefreigabe",
+        )),
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn private_read_gate_header_kann_nur_einschraenken() {
+    use axum::http::{HeaderMap, HeaderValue};
+    let mut headers = HeaderMap::new();
+    assert!(discord_read_access(&headers).unwrap());
+    headers.insert(
+        "x-discord-read-access",
+        HeaderValue::from_static("disabled"),
+    );
+    assert!(!discord_read_access(&headers).unwrap());
+    headers.append(
+        "x-discord-read-access",
+        HeaderValue::from_static("disabled"),
+    );
+    assert_eq!(discord_read_access(&headers).unwrap_err().status, 400);
+    for value in ["enabled", "true", "", "Disabled"] {
+        headers.insert(
+            "x-discord-read-access",
+            HeaderValue::from_str(value).unwrap(),
+        );
+        assert_eq!(discord_read_access(&headers).unwrap_err().status, 400);
+    }
+}
+
 fn respond(result: ApiResponse) -> Response {
     (
         StatusCode::from_u16(result.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),

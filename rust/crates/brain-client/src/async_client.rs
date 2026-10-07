@@ -57,7 +57,7 @@ impl AsyncBrainClient {
         })
     }
     pub async fn answer(&self, query: &Query) -> Result<PublicAnswerResponse> {
-        self.answer_with_identity(query, None).await
+        self.answer_with_identity(query, None, true).await
     }
 
     pub async fn answer_for_discord(
@@ -65,7 +65,17 @@ impl AsyncBrainClient {
         query: &Query,
         discord_user_id: u64,
     ) -> Result<PublicAnswerResponse> {
-        self.answer_with_identity(query, Some(discord_user_id))
+        self.answer_for_discord_with_read_access(query, discord_user_id, true)
+            .await
+    }
+
+    pub async fn answer_for_discord_with_read_access(
+        &self,
+        query: &Query,
+        discord_user_id: u64,
+        allow_discord_reads: bool,
+    ) -> Result<PublicAnswerResponse> {
+        self.answer_with_identity(query, Some(discord_user_id), allow_discord_reads)
             .await
     }
 
@@ -73,6 +83,7 @@ impl AsyncBrainClient {
         &self,
         query: &Query,
         discord_user_id: Option<u64>,
+        allow_discord_reads: bool,
     ) -> Result<PublicAnswerResponse> {
         let request = transport::encode_request(query)?;
         let mut builder = self
@@ -83,6 +94,9 @@ impl AsyncBrainClient {
             .body(request);
         if let Some(user) = discord_user_id.filter(|id| *id != 0) {
             builder = builder.header("x-discord-user-id", user);
+        }
+        if !allow_discord_reads {
+            builder = builder.header("x-discord-read-access", "disabled");
         }
         let mut response = builder.send().await?;
         let status = response.status();

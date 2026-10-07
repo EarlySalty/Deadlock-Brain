@@ -182,6 +182,7 @@ pub struct DiscordRequestContext {
     pub user_id: Option<u64>,
     pub request_id: String,
     pub scope: String,
+    pub allow_discord_reads: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
