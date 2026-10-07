@@ -2,6 +2,24 @@
 
 status: aktiv, 07.10.2026
 
+## G-V: bestätigte Restlieferungen vor Integration
+
+Lesender Vorcheck abgeschlossen: `wvxlh36sq` / `wf_b7f373c0-174`, Bericht `G/G-V-ANSCHLUSS.md`. E am tatsächlichen Commit `81074170`, F an `46fd8674`, Quellen und Nebenpfade nach Graphify geprüft. **Korrektur zum älteren Bedarf:** Ein reiner BuildObject-Eingang existiert bereits als `plan_build_with_playstyle`, einschließlich tatsächlich angewandtem Spielstil. Kein neuer Planer, Composer oder Buildwrapper nötig.
+
+Für G-V fehlen weiterhin konkrete Lieferungen im zuständigen Bereich:
+
+1. **E:** kompatibler Receipt-Zugang im vorhandenen `asset_mirror`, der Payload und tatsächlich gewählten vollständigen Run samt Manifest-/Endpoint-Dokument, Originalhash und Zeiten gemeinsam bindet. Fs separate MirrorProvenance-Abfrage reicht nicht. Außerdem globale versionierte Arten im bestehenden Adapter/Manifest/Leser: generic-data, npc-units, misc-entities, modifiers (letztere sprachunabhängig). Bisherige Sechs-Endpoint-Spiegel erhalten; keine zweite G-Lesestrecke.
+2. **F:** vorhandenen reinen Planeingang um tatsächlich angewandtes Toolbudget/Imbues, ursprünglichen Requestabbruch und strukturierte vorhandene PurchasePlan-/InventoryEvaluation-Belege ergänzen. Wachstum mit Gs gerade gebautem Kern geordnet anbinden. G-M bleibt aktueller alleiniger G-Reasonerschreiber; keine parallele Änderung in dessen Worktree.
+3. **Eigentum vor G-V-Bearbeitung:** begrenzte zusätzliche Dateigrenzen `brain-contracts/src/entity_profile.rs` für echte Assets-Herkunft und `brain-serve/src/analytics.rs` für freigegebene öffentliche Aggregatbelege. AnalyticsRuntime-Erweiterung erst nach exklusiver Übergabe des E-Bereichs. Bestehende historische/aktuelle Quellenrechte, Veröffentlichung und Modellweitergabe bleiben getrennt; kein synthetischer Freigabebeleg. Heutige Analytics-Belege sind ausdrücklich nicht zur Modellweitergabe zugelassen.
+
+G baut Rechenkern und Fehlerabrechnung unabhängig weiter. Hauptsteuerung bitte diese begrenzten Restlieferungen beziehungsweise Eigentumsübergaben zuordnen; G übernimmt weder E-Import/SQL-Leser noch F-Planer ungefragt. Kein Wartefenster auf fremde Builds oder Deploy-SHAs und kein Ersatzbau.
+
+## Dokumentcheckpoint 5a442391 auf origin
+
+Hold-Aufhebung, G-Abschlusszuständigkeit, JSON-Rückgabe und tatsächliche Folgeaufträge sind gesichert. Regulärer Gate gegen `ce21a457`, Task `bqpjobheh`, Exit 0: `[gpt-6.1-sol] ALLOW: no reviewable changes`, Log `/tmp/brain-g-release-scope-gate-20261007.log`. Sechs Dokumentdateien, drei schreibende Git-Einzelschritte, Featurepush bestätigt. Laufender Produkt-WIP blieb unstaged; daraus kein Produktreview oder Livebeweis abgeleitet.
+
+MERGEPROTOKOLL[MS-1]: 3 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW: no reviewable changes; kein Main-Merge
+
 ## 09:00: Hold aufgehoben, G schließt selbst ab
 
 `VON_HAUPT.md`, Abschnitt 09:00, tatsächlich gelesen. Paket I integriert E/F; G schließt nach eigener Abnahme/Gate selbst auf dem dann aktuellen origin/main nach E/F ab, einschließlich regulärem Deploy, Neustart, Live-Beweis und Cleanup. Alte Holdberichte unten beschreiben frühere Zeitstände. Nach Fetch beobachteter Main `f6f5cef65f1f946113f0b8216c6475f6d38ec928`; E/F-Lieferungen daraus noch nicht von G bestätigt. Keine Sessionkoordination oder Wartefenster auf fremde Builds.

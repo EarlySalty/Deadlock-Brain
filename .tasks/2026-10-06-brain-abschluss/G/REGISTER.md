@@ -6,7 +6,7 @@ status: aktiv, 07.10.2026
 
 - Auftrag: `.tasks/2026-10-06-brain-abschluss/BRIEFING-G.md`; Haupt-Orchestrator `3fcd8f71-443e-48ae-825c-527eb52fbe56`, Kommunikation über die Akte.
 - G-Thread laut Steuerung `a867ef50`; native Session `030a7b6f-d25c-482d-b66c-68185cd05dbb`, Modell `gpt-6.1-sol[1m]`, bestätigte UltraCode-Workflowstarts mit Effort `xhigh`.
-- Worktree `/home/nathanael/.worktrees/brain-g-v2-20261007`; Branch `feat/brain-v2-g-20261007`; Basis `bfda408cb988722ddceadb56bca5b72e12d12731`, HEAD `ce21a457`. Dokumente und beide G0-Produktcheckpoints sind nach regulärem ALLOW auf origin gesichert. Laufender Rechenkern-/Provider-/Kernel-WIP ist davon nicht abgedeckt.
+- Worktree `/home/nathanael/.worktrees/brain-g-v2-20261007`; Branch `feat/brain-v2-g-20261007`; Basis `bfda408cb988722ddceadb56bca5b72e12d12731`, HEAD `5a442391`. Dokumente und beide G0-Produktcheckpoints sind nach regulärem ALLOW auf origin gesichert. Laufender Rechenkern-/Provider-/Kernel-WIP ist davon nicht abgedeckt.
 - Statusproduzent: Bereichsführung G. Kein zusätzlich vergebener zentraler Versuch; keine erfundene Nummer. Keine weiteren T3-Threads.
 - Wirkung: Featurearbeit und lokale Prüfungen; Hold durch Hauptsteuerung 09:00 aufgehoben. Paket I integriert E/F. G schließt selbst nach eigener Abnahme/Gate auf dem dann aktuellen origin/main nach E/F ab: Main-Push als HEAD:main, regulärer Release aus eigenem Worktree, Deploy, Neustart, Live-Beweis und geprüfter Cleanup. Kein Settle bei offener Arbeit.
 
@@ -19,6 +19,12 @@ G-P-R1 `wvlm6fn18` ist tatsächlich abgeschlossen. Gemeinsamer JSON-Eingang und 
 G-K-R1 tatsächlich gestartet: Task `w7kbtvxfg`, Run `wf_18a32653-098`, Agent `a479471c9d2ac757f`, Briefing `G/BRIEFING-G-K-R1.md`. Einziger Vertrags-/Provider-/Kernel-Schreiber; typisierte Fehlerabrechnung und vollständige Schlussprüfung des JSON-Anschlusses. G-M-06:45 bleibt disjunkter Reasoner-Schreiber; Journal zeigt Start ohne Abschlussrecord. Worker ohne Git- oder Runtimewirkung.
 
 Lesender G-V-Vorcheck ebenfalls tatsächlich gestartet: `wvxlh36sq` / `wf_b7f373c0-174`, Agent `ae89f0517cd654593`. Keine Produktdatei im Besitz. E/F-Berichte erneut gelesen: Receipt/globale Leser und reiner BuildObject-Eingang darin noch nicht geliefert, deshalb reale Quellen-/Nebenpfadprüfung statt Fehlensannahme aus Berichten. Wache an G-M-06:45 zeigt um 09:24 tatsächliche Erweiterung der Rechenprüfungen in `calculation_tests.rs`; kein toter Worker oder Ersatzschreiber.
+
+## G-V-Vorcheck zurückgegeben
+
+`wvxlh36sq` tatsächlich abgeschlossen, Rückgabe gelesen und als `G/G-V-ANSCHLUSS.md` übernommen; Worker schrieb wegen lesendem Agententyp keine Datei. E `81074170` und F `46fd8674` über Commitobjekte untersucht, kein fremder WIP übernommen. Reiner BuildObject-Eingang vorhanden und Spielstil wirklich angewandt; kein Neubau nötig. Restlieferungen am bestehenden Leser/Planer und zusätzliche Herkunfts-/Analytics-Dateigrenzen vor Änderung in AN_HAUPT gemeldet. Source-/Nebenpfadprüfung bestätigt fehlende gebundene Receipts und globale Spiegelarten, nicht bloß alte Berichtstexte.
+
+Wache 09:44: G-M-06:45 formatiert eigenen erweiterten Rechenkern, G-K-R1 trägt Fehlerabrechnung durch den bestehenden Kernel. Beide reale Werkzeuge/Edits im Transkript, keine Abschlussmeldungen, keine Ersatzschreiber oder Sessionnachrichten.
 
 ## Wache nach Stop-Hook
 
@@ -112,7 +118,7 @@ TESTNACHWEIS[TW-1]: 55 passed, 0 ignored | Baseline: 0 rot
 | G-K-R1:Fehlerabrechnung | Exklusiv Brain-Vertrags-/Provider-/Kerneldateien gemäß Briefing und direkte Tests | Task `w7kbtvxfg`, Run `wf_18a32653-098`, Briefing `G/BRIEFING-G-K-R1.md` | tatsächlich gestartet nach G-P-R1-Abschluss; vorhandene Charge-Bausteine erweitern, beobachtete und reservierte Usage unterscheiden, letzte JSON-Ergänzung abschließend prüfen |
 | G-M:Rechenkern | Reasoner-Modelle, reine Konverter, Exports, Mechanik und vorhandene Simulation gemäß `BRIEFING-G-M.md`; Fs Loader bleiben unverändert | Ursprünglicher Task `win5xzl3o` gestoppt; Resume `wthzcnb2d`, Run `wf_08b3462e-169`, Agent `af3dcfc2c09526a0b`, Start 06:36 | abgeschlossen; 17 Rechenfälle bestanden, Gesamtsuite 303 passed/5 failed gegenüber 287 passed/4 failed; neue Planer-Testfixture korrigieren, Fachanschluss offen |
 | G-M-06:45:Wachstum und Sheet | Vorhandener Reasonerbereich, eng begrenzte betroffene Planertestfixture, unmittelbare Rechenfixtures | Task `wq8uvf8ah`, Run `wf_fca62072-53f`, Briefing `G/BRIEFING-G-M-0645.md` | gestartet nach tatsächlichem G-M-Abschluss; vorhandenen Stand fortsetzen, kein zweiter Reasonerschreiber |
-| G-V-Vorcheck:Anschlussbestand | Produktquellen und committed E/F read-only; eigener Anschlussbericht | Task `wvxlh36sq`, Run `wf_b7f373c0-174`, Briefing `G/BRIEFING-G-V-VORCHECK.md` | tatsächlich gestartet; vorhandene Receipt-, BuildObject-, Analytics- und Herkunftswege prüfen, kein Produktbau und keine Reviewerrolle |
+| G-V-Vorcheck:Anschlussbestand | Produktquellen und committed E/F read-only; eigener Anschlussbericht | Task `wvxlh36sq`, Run `wf_b7f373c0-174`, Briefing `G/BRIEFING-G-V-VORCHECK.md` | abgeschlossen; Rückgabe als `G/G-V-ANSCHLUSS.md` übernommen. Reiner BuildObject-Eingang vorhanden; gebundener Receipt/globale Arten, F-Parameter/Abbruch/Abdeckung und öffentliche Analytics-Freigabe als Restlieferungen bestätigt. Kein Produktbau oder Review |
 
 Vollständige abgeschlossene Workflow-Rückgaben liegen unter `/tmp/claude-1000/-home-nathanael-repos-Deadlock-Brain/030a7b6f-d25c-482d-b66c-68185cd05dbb/tasks/`: `w6krhelmo.output`, `wyqxc1iva.output`. Die anfänglich ausgegebenen, damals nicht vorhandenen Transkriptordner sind kein Ergebnisnachweis.
 
