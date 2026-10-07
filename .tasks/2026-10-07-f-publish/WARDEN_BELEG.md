@@ -1,5 +1,22 @@
 # Warden: realer F-Lauf und Veröffentlichungsblocker
 
+## Aktueller Leserstand nach Entscheidung 05:40
+
+E `f3c84fb4` mit dem gemeinsamen Storage-Leser übernommen. Finale eigene technische Prüfung erfolgreich: 460 passed, 0 failed, 23 bestehend ignored; striktes Clippy der Zielcrates, Rustfmt und optimierter Debug-Build jeweils Exit 0.
+
+Der unten dokumentierte reguläre Aufruf wurde mit diesem Leserstand erneut ausgeführt. Log: `warden-publish-mirror.log`, Exit 1:
+
+```text
+Datenfehler: API-Spiegel: Kein vollständiger lokaler Assets-Spiegel vorhanden
+```
+
+Lesender SELECT in `deadlock` bestätigt 0 vollständige erfolgreiche versionierte Assets-Runs. Kein eigener Ingest, Tick oder DB-Handeingriff. Keine Veröffentlichung, keine `hero_build_id` und kein neuer aktueller Entwurf aus dem Spiegel. Die Aktivierung des E-Ingests liegt bei live_strecke.
+
+## Historischer Zwischenstand vor 05:40
+
+Der folgende Snapshot-Provenienzguard ist inzwischen ersetzt. Sein damaliger Lauf und Kaufvergleich belegen nicht den aktuellen Leserstand oder eine Veröffentlichung. Fortsetzung und aktuelle Grenzen stehen in `TODO.md`.
+
+
 ## Regulärer eigener Lauf
 
 Eigenes finales Debug-Binary, kein Release oder Dienstneustart:
