@@ -2,7 +2,7 @@
 
 ## Gesicherter Stand
 
-I-Akte /home/nathanael/.worktrees/brain-e-deadlock-api/.tasks/2026-10-07-i-integration/, letzter gesicherter Aktencommit b743f1e4 auf origin/feat/brain-deadlock-api-daten. Vor Fortsetzung aktuellen eigenen Status/HEAD lesen. Zentrale Akte nur beim Delegator 481426fe-b477-42b3-91c6-901811fcba1d. Eigener I-Thread b17d5729-a475-4bcb-8fc9-0aa6103d4555.
+I-Akte /home/nathanael/.worktrees/brain-e-deadlock-api/.tasks/2026-10-07-i-integration/, letzter gesicherter Aktencommit 12f70f2a auf origin/feat/brain-deadlock-api-daten. Vor Fortsetzung aktuellen eigenen Status/HEAD lesen. Zentrale Akte nur beim Delegator 481426fe-b477-42b3-91c6-901811fcba1d. Eigener I-Thread b17d5729-a475-4bcb-8fc9-0aa6103d4555.
 
 E-Spiegel b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2 tatsächlich nach Main gepusht, regulär aus sauberem eigenen /home/nathanael/.worktrees/brain-i-release-20261007 gebaut und installiert. Quelle unverändert sauber einschließlich ignorierter Dateien. Branch feat/brain-assets-mirror-20261007. Frischer fetch und `merge-base --is-ancestor b7289d11 origin/main` Exit 0. Noch kein Cleanup; eigene temporäre Readerprobe referenziert den Quellbaum als path dependency, Artefakte erhalten.
 
@@ -43,6 +43,12 @@ NACHTRAG-I-LIVE-MAIN-TIMER.md regulär gelesen: direkte eng begrenzte Nutzerfrei
 Vorhandene lesende Rust-Receiptprobe vor neuem Import tatsächlich Exit 0, 1min 55.807s, ursprüngliche komplette Assets-/Build-Runbindung 743/744 und alle Hashbindungen bestätigt. Log /tmp/brain-i-timer-preflight-20261008.log bereits normal Read geprüft. Unmittelbare Inaktivprüfung, dann genau ein regulärer Dienststart 08.10.2026 01:37:11 CEST. Aktiver Systemctl-Hintergrundjob bwgbl2t1g, MainPID 3731259. Tatsächliche CLI-Kindbinary PID 3731293 am b7289d11, ohne deleted, Manifesthash ec24337a09a8e9fa5f699736cf2dd172098275edce4ec6ac9fa01e4038a79b9e geprüft. Noch kein neuer Gesamt-Exit oder neue Assets-/Build-Run-ID bestätigt. Auf Abschlussmeldung reagieren, denselben Job nachhalten und danach vorhandene Receipt-/Runprobe ausführen; keinen zweiten Import oder Dienstunterbruch. F bleibt allein im F-Baum aktiv.
 
 Eigene Akten bis zur ersten Betriebsvorbereitung und Wache 34 im Commit 1294a9e2 tatsächlich auf origin/feat/brain-deadlock-api-daten gesichert; diese neueren Aktivitätsbelege noch ergänzend sichern. Keine Discoverylieferung.
+
+## Jüngster tatsächlicher Abschluss
+
+Der genau einmal gestartete I-Dienstjob bwgbl2t1g am 08.10.2026 01:44:12 CEST tatsächlich Exit 0 beendet, Result=success, MainPID=0, inactive/dead. Fehlerjournal für 01:37:11 bis 01:44:12 CEST 0 Einträge. Postrun-Receiptprobe bkwl2twom ebenfalls Exit 0, 1min 56.010s, /tmp/brain-i-timer-postrun-20261008.log normal Read geprüft. Neuer vollständiger Assets-Run 746, Clientversion 6762, Manifestdokument 57265, Originalhash 46c41542132ab6069ff1f34f1d7fa00d798ce5aee870f52f217cab0e8c9c0900, Parser dbrain-assets/4. Alle 13 Endpoint-Originaldateien plus Manifesthash echt geprüft; Build-Run 747 status ok mit 40 Heldeneinträgen. 743/744 und 6759 nicht als aktuelle neue Belege ausgeben. Tatsächliche CLI war und bleibt b7289d11, Checkout ff-only auf cf02c9a0, geladener Timer dauerhaft außerhalb Worktrees unverändert. Begrenzter Betriebsnachtrag fertig, keine aktiven eigenen Import-/Prüfprozesse mehr, kein zweiter Import nötig.
+
+Einziger F-Ausführer weiterhin aktiv. Jüngste eigene F-Metadatenwache 1d18e3917fdb3dad4b218d636962ad98ab47ae16, sauber, ahead 63. Gesamter benannter Patchsubtree pg_patchnotes.rs und pg_patchnotes/ leer gegen origin/main; Ausschluss in diesem Teil unabhängig bestätigt. Kein vollständiger CLI-/Test-/Gate-/Publishbeweis aus diesen Metadaten. Bestehenden Writer über diese Scopeprüfung und tatsächlichen neuen E-Assets-/Build-Run informiert, keine eigene F-Datei beschrieben. Seine neue vollständige Abnahme und tatsächliche Antwort abwarten. Kein zweiter Writer, keine Wiederaufnahme Discovery oder Q.
 
 ## Reguläre nächste Schritte und Grenzen
 
