@@ -1199,7 +1199,28 @@ mod tests {
             _definitions: &[ToolDefinition],
             conversation: &brain_contracts::ToolConversation,
         ) -> Result<brain_contracts::ProviderTurn, PortError> {
-            assert!(initial.is_empty());
+            let expected_ids: Vec<_> = conversation
+                .messages
+                .iter()
+                .filter_map(|message| match message {
+                    brain_contracts::ToolMessage::ToolResults { results } => Some(results),
+                    brain_contracts::ToolMessage::Assistant { .. } => None,
+                })
+                .flatten()
+                .flat_map(|result| {
+                    [
+                        format!("{}-cited", result.call_id),
+                        format!("{}-uncited", result.call_id),
+                    ]
+                })
+                .collect();
+            assert_eq!(
+                initial
+                    .iter()
+                    .map(|item| item.evidence_id.clone())
+                    .collect::<Vec<_>>(),
+                expected_ids
+            );
             let turn = self
                 .turns
                 .lock()

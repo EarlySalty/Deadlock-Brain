@@ -184,14 +184,14 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             )?;
             let input = grounded_turn_input_ceiling(
                 query,
-                &[],
+                &evidence,
                 &session.definitions,
                 &conversation,
                 ToolWireFormat::Native,
             )?
             .max(grounded_turn_input_ceiling(
                 query,
-                &[],
+                &evidence,
                 &session.definitions,
                 &conversation,
                 ToolWireFormat::OpenAiCompatible,
@@ -207,7 +207,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             } = match kernel.provider.answer_turn_accounted(
                 query,
                 &next,
-                &[],
+                &evidence,
                 &session.definitions,
                 &conversation,
             ) {
