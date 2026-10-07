@@ -1634,12 +1634,20 @@ async fn run(cli: Cli) -> Result<()> {
             settings.raw_dir = data_dir.join("raw");
             settings.cache_dir = data_dir.join("cache");
         }
-        let data_path = assets_storage_path(&settings.data_dir)?;
         let build_root = assets_storage_path(&settings.project_root)?;
-        anyhow::ensure!(
-            !data_path.starts_with(build_root),
-            "Das Datenverzeichnis liegt im löschbaren Build-Arbeitsbaum. Wähle mit --data-dir oder DEADLOCK_BRAIN_DATA_DIR einen dauerhaften absoluten Pfad außerhalb dieses Arbeitsbaums."
-        );
+        let source_dir = settings.raw_dir.join(dbrain_sources::assets_api::SOURCE);
+        for path in [
+            &settings.data_dir,
+            &settings.raw_dir,
+            &settings.cache_dir,
+            &source_dir,
+        ] {
+            let storage_path = assets_storage_path(path)?;
+            anyhow::ensure!(
+                !storage_path.starts_with(&build_root),
+                "Das Datenverzeichnis oder eines seiner Schreibziele liegt im löschbaren Build-Arbeitsbaum. Wähle mit --data-dir oder DEADLOCK_BRAIN_DATA_DIR einen dauerhaften absoluten Pfad außerhalb dieses Arbeitsbaums."
+            );
+        }
     }
     if let Commands::Entities(args) = &command {
         let pool = pg_pool_for_command(&command).await?;
