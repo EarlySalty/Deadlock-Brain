@@ -676,32 +676,34 @@ fn project_property_value(
                         sources,
                     );
                 };
-                let Some(melee) = context.metrics.get("starting.light_melee_damage") else {
-                    return unknown(
-                        unit,
-                        "Leichter Nahkampfgrundwert fehlt",
-                        &["/starting_stats/light_melee_damage/value"],
-                        sources,
-                    );
-                };
-                if let MeasuredValue::Known {
-                    sources: melee_sources,
-                    ..
-                } = melee
-                {
-                    sources.extend(melee_sources.iter().cloned());
-                }
                 if coefficient == 0.0 {
                     value = base.value().unwrap();
-                } else if let Some(melee) = melee.value() {
-                    value = base.value().unwrap() + coefficient * melee;
                 } else {
-                    return unknown(
-                        unit,
-                        "Leichter Nahkampfzustand ist nicht belegt",
-                        &["/starting_stats/light_melee_damage/value"],
-                        sources,
-                    );
+                    let Some(melee) = context.metrics.get("starting.light_melee_damage") else {
+                        return unknown(
+                            unit,
+                            "Leichter Nahkampfgrundwert fehlt",
+                            &["/starting_stats/light_melee_damage/value"],
+                            sources,
+                        );
+                    };
+                    if let MeasuredValue::Known {
+                        sources: melee_sources,
+                        ..
+                    } = melee
+                    {
+                        sources.extend(melee_sources.iter().cloned());
+                    }
+                    if let Some(melee) = melee.value() {
+                        value = base.value().unwrap() + coefficient * melee;
+                    } else {
+                        return unknown(
+                            unit,
+                            "Leichter Nahkampfzustand ist nicht belegt",
+                            &["/starting_stats/light_melee_damage/value"],
+                            sources,
+                        );
+                    }
                 }
             }
             (
@@ -925,17 +927,18 @@ fn calculate_inner(
             "MODIFIER_VALUE_OUT_OF_COMBAT_HEALTH_REGEN",
         ),
     ] {
-        if let (Some(base), Some(gain)) = (
-            sourced.starting_stats.get(field),
+        let metric = format!("starting.{field}");
+        if let (Some(MeasuredValue::Known { value, .. }), Some(gain)) = (
+            metrics.get(&metric),
             sourced.model.standard_level_up_upgrades.get(bonus),
         ) {
             metrics.insert(
-                format!("starting.{field}"),
+                metric,
                 known(
-                    base + progression.standard_boons as f64 * gain,
+                    value + progression.standard_boons as f64 * gain,
                     stat_unit(field),
                     &sources,
-                    "reasoner/boon-starting/v1",
+                    "reasoner/spirit-and-boon-starting/v1",
                 ),
             );
         }
