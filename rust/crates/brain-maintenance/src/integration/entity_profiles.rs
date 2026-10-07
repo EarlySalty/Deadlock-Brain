@@ -54,10 +54,27 @@ pub(super) fn refresh_failure(error: &anyhow::Error) -> serde_json::Value {
                 } else { "Wissensvertrag verletzt" }
             })
         }).collect::<Vec<_>>());
-    } else if let Some(database) = error
-        .chain()
-        .find_map(|cause| cause.downcast_ref::<sqlx::Error>())
-    {
+    } else if let Some(database) = error.chain().find_map(|cause| {
+        if let Some(database) = cause.downcast_ref::<sqlx::Error>() {
+            return Some(database);
+        }
+        let storage = cause
+            .downcast_ref::<brain_storage::StorageError>()
+            .or_else(
+                || match cause.downcast_ref::<dbrain_sources::SourcesError>() {
+                    Some(dbrain_sources::SourcesError::Storage(storage))
+                    | Some(dbrain_sources::SourcesError::EntityDerivation {
+                        source: storage,
+                        ..
+                    }) => Some(storage),
+                    _ => None,
+                },
+            );
+        match storage {
+            Some(brain_storage::StorageError::Database(database)) => Some(database),
+            _ => None,
+        }
+    }) {
         status["cause"] = serde_json::json!("Datenbankfehler");
         status["error_class"] = serde_json::json!(match database
             .as_database_error()
