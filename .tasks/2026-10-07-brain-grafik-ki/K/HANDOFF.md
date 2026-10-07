@@ -1,5 +1,11 @@
 # K: Exakter Stand und technische Fortsetzungsgrenze
 
+## Aktueller Fortsetzungspunkt am 7. Oktober 2026
+
+Brain-Produktcheckpoint 3b4b21eaae73892b37e54afee9b4cd58e315bb60 ist regulär ALLOW und gepusht. Bestätigte gemeinsame Source-Parserdelegation committed, kein Source-WIP. Primary-K prüfte aktuellen Source-/Serve-Stand mit direkten Cargoaufrufen: Compiler, Format und striktes Clippy jeweils Exit 0. Der tatsächliche Dezimaltest wurde vor Prozessstart verweigert; keine neue Testausführung. Befehle und Logs in PRUEFWEG-FORTSETZUNG.md. Dokumentcheckpoint 232b3cb9 ebenfalls ALLOW/gepusht; nachfolgender Dokumentcheckpoint im Schlussbericht.
+
+Beobachteter origin/main ca4d877f13042c9a7a7023e54f6bf2c688b69ac4. Hypothetischer Merge-Vorcheck konfliktfrei, kein echter Merge oder geprüfter kombinierter Mainstand. Drei eigene Featurebranches bleiben ungemergt. G-V-Port, echte Pins/Verifier, private Freigabe und gemeinsame Abnahme fehlen weiterhin. Kein Deploy, Livebeweis, Cleanup oder settle. Die folgenden Abschnitte dokumentieren den vorherigen c64de6a2-Stand; ihre WIP- und Compilerblocker-Aussagen sind durch diese Aktualisierung ersetzt. Keine neue Implementierung oder wiederholte verweigerte Testvariation beginnen.
+
 Session988eeaea-28ee-424c-b362-e250610cde91, teil-k, Versuch1. Delegator481426fe-b477-42b3-91c6-901811fcba1d, Hauptorchestrator d3a1741e-82bc-4a48-865b-2845c663dca7. Derselbe Auftrag, keine neue Session, T3-Threads, zentralen Register/TODO-Edits, ListAgents oder SendMessage.
 
 ## Gesicherte Köpfe und eigener WIP

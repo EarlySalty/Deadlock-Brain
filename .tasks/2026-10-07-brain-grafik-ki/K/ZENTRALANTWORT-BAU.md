@@ -1,5 +1,9 @@
 # K: Zentrale Discord-Consumerfortsetzung
 
+## Aktueller Brain-Compilercheckpoint
+
+3b4b21eaae73892b37e54afee9b4cd58e315bb60 auf origin, regulärer Deltagate ALLOW. Bestätigte gemeinsame Source-JSON-Delegation inzwischen committed; aktuelle direkte Compiler-, Format- und strikte Clippyprüfung jeweils Exit 0. Diese Prüfungen enthalten den aktuellen Source-/Serve-Stand nach c64de6a2. Dezimaltest vor Prozessstart verweigert, keine neuen Testzahlen. K/PRUEFWEG-FORTSETZUNG.md dokumentiert Befehle, Logs und Urteil. Historische WIP-/Compilerblocker-Aussagen im Bauverlauf unten sind überholt. Kein kombinierter Main-/Produkt-/Liveabschluss.
+
 Abgeschlossener nativer Worker a3ae7ec03ae030f32 änderte im eigenen Bots-K-Worktree ausschließlich dl-brain/src/lib.rs, dl-brain/src/brain_api.rs und dl-bot/src/modglue.rs. Bestehender /v1/answer-Client und unveränderter Brain-Pin wiederverwendet, keine neue Antwortengine oder Provider-/Modell-/Timeoutänderung.
 
 /brain und !brain verwenden echte Autorenbindung statt anonymem Ersatz. Zentrale Coachingantwort wird auf bestätigten Discord-Kanal1494373349944459355 projiziert; Linkfilter bleiben erhalten. Bestehende Testadapter aktualisiert. Private Eingangssperren unverändert; sichere private FAQ-/DM-Verarbeitung nicht belegt. FAQ/Tickets, passive Hilfe und Concierge hängen laut tatsächlichem main.rs weiter an shared_answers. Noch keine live belegte Ersatz-/Abschaltliste und nichts gelöscht.

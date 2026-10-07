@@ -1,5 +1,15 @@
 # K: Reguläre Gatebefunde und Fixrunden
 
+## Aktuelle gemeinsame Source-JSON-Naht
+
+3b4b21eaae73892b37e54afee9b4cd58e315bb60 ersetzt den alten eigenen Source-Parser durch den bereits übernommenen gemeinsamen Parser. Wortgleiches bestätigtes G-Objekt; aktueller Compiler-, Format- und strikter Clippylauf jeweils Exit 0. Tatsächlicher Dezimaltest vor Ausführung verweigert, keine aktuellen Testzahlen. Die historischen Aussagen über uncommittierte/unbewiesene Source-Naht weiter unten sind damit überholt. Details K/PRUEFWEG-FORTSETZUNG.md.
+
+Regulärer Deltagate 232b3cb9..3b4b21ea, bzsyx0ssb, Exit 0. Tatsächliches Urteil aus /tmp/k-json-naht-compiled-gate-20261007.log gelesen:
+
+`[gpt-6.1-sol] ALLOW: No blocking defect established by the supplied code.`
+
+NIT: gemeinsamer Parser fehlte im kleinen Reviewkontext. K fragte Graphify zuerst und las danach den Helper: rekursive Unique-Prüfung mit Duplicate-Key-Ablehnung, erneutes Parsen der Originalbytes als Value, bestehende End-/Rekursions-/Zahlenregeln von serde_json. Sourceprüfung bestätigt, keine gemessene Verhaltensäquivalenz behauptet. Featurepush bestätigt; kein Gesamtgate gegen kombinierten Mainstand, kein Merge oder Livebeweis.
+
 ## Artefakte
 
 Runde1: b310e223 gegen7cbb9fe6, Task bbkgp67qp, Exit1. Log /tmp/k-compare-artifact-gate-20261007.log gelesen.

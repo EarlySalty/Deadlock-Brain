@@ -1,5 +1,11 @@
 # K: Register
 
+## Fortsetzung nach dem Abschluss-Hook
+
+Primary-K führte direkte Cargoprüfungen im eigenen Brainworktree aus. Compiler bz8q5b3d7, Format bixy98ok7 und striktes Clippy b0zkf0wp4 jeweils tatsächlich Exit 0. Der anschließende direkte Dezimaltest blieb vor Prozessstart verweigert. Keine Wiederholung oder Schutzänderung. Source-Parserdelegation als 3b4b21eaae73892b37e54afee9b4cd58e315bb60 committed, Deltagate bzsyx0ssb tatsächlich ALLOW gelesen und Featurepush bestätigt. Kein Source-WIP oder aktiver Worker. Dokumentcheckpoint 232b3cb9 zuvor separat ALLOW/gepusht. PRUEFWEG-FORTSETZUNG.md enthält Befehle und Beweisgrenzen.
+
+Die Agentenzeilen unten beschreiben deren damalige Rückgaben, nicht den nachfolgenden Primary-Compilerstand. Drei eigene Branches weiterhin ohne Main-/Liveabschluss. Hypothetischer Merge-Vorcheck gegen beobachteten origin/main ca4d877f konfliktfrei, kein tatsächlicher Merge. Vertragliche G-V-/Pin-/Verifier- und Datenschutzgrenzen unverändert.
+
 Auftraggeber jetzt Delegator 481426fe-b477-42b3-91c6-901811fcba1d, Haupt-Orchestrator d3a1741e-82bc-4a48-865b-2845c663dca7. Produzent teil-k, Versuch 1, derselbe Lauf. Frühere Auftraggeber-ID a711a4d2-1cad-4120-97ac-8b648567172b gilt für historische Einträge.
 
 | Bereich | Worktree | Branch | Anfangs-HEAD | Zustand |
