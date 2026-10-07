@@ -1,0 +1,6 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-reasoner)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-retrieval)
+    Checking dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-sources)
+    Checking brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/brain-feeds)
+    Checking deadlock-brain v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/deadlock-brain)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 37.06s
