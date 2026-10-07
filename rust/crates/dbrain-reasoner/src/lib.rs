@@ -26,6 +26,8 @@ pub mod mechanics;
 pub mod meta;
 pub mod patch;
 pub mod planner;
+pub mod playstyle;
+pub use playstyle::Playstyle;
 pub mod population_prior;
 pub mod progression;
 pub mod publish;
@@ -102,6 +104,18 @@ pub fn plan_build(
     snapshots: &[PatchSnapshot],
     config: &ReasonerConfig,
 ) -> Result<PlannedBuild> {
+    plan_build_with_playstyle(hero, items, meta, events, snapshots, config, None)
+}
+
+pub fn plan_build_with_playstyle(
+    hero: &HeroModel,
+    items: &[ItemModel],
+    meta: &meta::MetaIndexWithSources,
+    events: &[Value],
+    snapshots: &[PatchSnapshot],
+    config: &ReasonerConfig,
+    requested_playstyle: Option<&str>,
+) -> Result<PlannedBuild> {
     plan_build_with_family_policy(
         hero,
         items,
@@ -109,8 +123,16 @@ pub fn plan_build(
         events,
         snapshots,
         config,
-        &families::FamilyPolicy::for_patch(events, config),
+        PlanningOptions {
+            family_policy: &families::FamilyPolicy::for_patch(events, config),
+            playstyle: Playstyle::parse(requested_playstyle)?,
+        },
     )
+}
+
+struct PlanningOptions<'a> {
+    family_policy: &'a families::FamilyPolicy,
+    playstyle: Option<Playstyle>,
 }
 
 fn plan_build_with_family_policy(
@@ -120,14 +142,19 @@ fn plan_build_with_family_policy(
     events: &[Value],
     snapshots: &[PatchSnapshot],
     config: &ReasonerConfig,
-    family_policy: &families::FamilyPolicy,
+    options: PlanningOptions<'_>,
 ) -> Result<PlannedBuild> {
     let mut hero = hero.clone();
     let mut items = items.to_vec();
     let mut deltas = patch::compute_patch_delta_with_snapshots(&hero, events, snapshots);
     patch::apply_scored_patch_delta(&mut hero, &mut items, &mut deltas, &meta.index, config);
     let discovery = (!meta.observations.is_empty()).then(|| {
-        families::detect_families(&meta.observations, &items, &meta.population, family_policy)
+        families::detect_families(
+            &meta.observations,
+            &items,
+            &meta.population,
+            options.family_policy,
+        )
     });
     let contexts = if let Some(discovery) = &discovery {
         let contexts = discovery
@@ -146,13 +173,49 @@ fn plan_build_with_family_policy(
     let mut plans = Vec::new();
     let mut variant_scores = BTreeMap::new();
     for context in &contexts {
-        let mut scored = item::score_items(&hero, &items, &context.index, &[], config);
+        let conditioned;
+        let planning_context = if let Some(style) = options.playstyle {
+            conditioned = style.condition(context, &hero, &items);
+            &conditioned
+        } else {
+            context
+        };
+        let mut scored = item::score_items(&hero, &items, &planning_context.index, &[], config);
+        let blocked = options
+            .playstyle
+            .map(|style| {
+                items
+                    .iter()
+                    .filter(|item| !style.allows_item(&hero, item))
+                    .map(|item| item.item_id.to_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         finish_scores(&mut scored);
-        let mut build =
-            composer::compose_build_with_sources(&hero, &scored, &deltas, config, &[], context)?;
+        let mut build = composer::compose_build_with_sources(
+            &hero,
+            &scored,
+            &deltas,
+            config,
+            &blocked,
+            planning_context,
+        )?;
+        if let Some(style) = options.playstyle {
+            scored.retain(|item| style.allows_item(&hero, &item.item));
+        }
         build.family = context.family.clone();
+        if let Some(style) = options.playstyle {
+            build.name = format!("{} {}-Build", hero.name, style.label());
+            build.rationale = append_text(
+                &build.rationale,
+                &format!("Gewünschter Spielstil: {}. Die Itemauswahl folgt den Spielwerten; ergänzende defensive Käufe bleiben möglich.", style.label()),
+            );
+        }
         if let Some(family) = &context.family {
-            build.name = format!("{} – {}", hero.name, family.label);
+            build.name = match options.playstyle {
+                Some(style) => format!("{}: {} ({}-Build)", hero.name, family.label, style.label()),
+                None => format!("{}: {}", hero.name, family.label),
+            };
             build.rationale = append_text(&build.rationale, &format!("Familie {}: {} Spieler-Matches, {} unabhängige Spieler, {} Autoren; Kohärenz {:.3}. {}", family.id, family.player_matches, family.distinct_players, family.distinct_authors, family.cohesion, family.limitations.join(" ")));
             if variant_scores
                 .insert(family.id.clone(), scored.clone())
@@ -196,6 +259,16 @@ pub async fn reason_build_with_options(
     hero: &str,
     options: ReasonerOptions<'_>,
 ) -> Result<BuildObject> {
+    reason_build_for_playstyle_with_options(ctx, hero, None, options).await
+}
+
+pub async fn reason_build_for_playstyle_with_options(
+    ctx: &ReasonerCtx,
+    hero: &str,
+    requested_playstyle: Option<&str>,
+    options: ReasonerOptions<'_>,
+) -> Result<BuildObject> {
+    let playstyle = Playstyle::parse(requested_playstyle)?;
     let seed_path = options.seed_path;
     let ctx = effective_context(ctx).await?;
     let (hero_model, items, meta, snapshots) = load_reasoning_inputs(&ctx, hero, seed_path).await?;
@@ -217,7 +290,10 @@ pub async fn reason_build_with_options(
             &events,
             &snapshots,
             &ctx.config,
-            &family_policy,
+            PlanningOptions {
+                family_policy: &family_policy,
+                playstyle,
+            },
         )?;
         let PlannedBuild {
             mut build,
