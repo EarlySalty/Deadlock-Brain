@@ -74,9 +74,19 @@ fn document_context_preserves_original_and_identity_checks() {
         semantic::{project_semantic_fact_with_context, semantic_projection_with_context},
         EntityDocumentContext,
     };
-    let record = prepared(&document("game_file", json!(42), "normal"));
+    let mut input = document("game_file", json!(42), "normal");
+    let mut second = input["facts"][0].clone();
+    second["fact_id"] = json!("speed");
+    second["value"] = json!(8);
+    second["qualifiers"]["source_pointer"] = json!("/hero_test/MoveSpeed");
+    input["facts"].as_array_mut().unwrap().push(second);
+    let record = prepared(&input);
     let context = EntityDocumentContext::new(&record).unwrap();
     let fact = context.project(&["health".into()]).unwrap().remove(0);
+    let ordered = context.project(&["speed".into(), "health".into()]).unwrap();
+    assert_eq!(ordered[0].fact_id, "speed");
+    assert_eq!(ordered[0].value, json!(8));
+    assert_eq!(ordered[1], fact);
     assert_eq!(
         context.project(&["health".into()]).unwrap(),
         project_entity_facts(&record, &["health".into()]).unwrap()
@@ -99,6 +109,11 @@ fn document_context_preserves_original_and_identity_checks() {
     let mut changed = fact.clone();
     changed.value = json!(43);
     assert!(semantic_projection_with_context(&changed, "/MaxHealth", &context, &identity).is_err());
+    let mut exchanged = fact.clone();
+    exchanged.fact_id = "speed".into();
+    assert!(
+        semantic_projection_with_context(&exchanged, "/MaxHealth", &context, &identity).is_err()
+    );
     let mut revoked = identity.clone();
     revoked.identity_evidence.clear();
     assert!(semantic_projection_with_context(&fact, "/MaxHealth", &context, &revoked).is_err());
