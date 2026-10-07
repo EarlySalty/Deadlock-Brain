@@ -1,6 +1,18 @@
-# Paket I: aktive Lieferung mit tatsächlich ausgelöstem Discovery-Schnitt
+# Paket I: gesicherter Spiegel, tatsächlicher Testnachweisblocker
 
-## Aktueller Stand nach gemeinsamer Prüfung
+## Aktuelle qualifizierte Fachrückgabe
+
+Spiegel b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2 gemeinsam mit aktuellem Main geprüft und auf origin/feat/brain-assets-mirror-20261007 gesichert. 605 passed, 24 ignored; Format und striktes Clippy Exit 0. Expliziter eigenständiger Spiegel-Gate claude-opus-5-5 ALLOW, Original /tmp/brain-i-mirror-b7289d11-gate-opus55.log. Discovery mit tatsächlich neuen inhaltlichen Funden unverändert auf origin/feat/brain-patch-discovery bei af473608 erhalten. Kein zweiter Discovery-Fixer.
+
+**Tatsächlicher Abschlussblocker:** Beide regulären Main-Pushes am Spiegel wurden vor Ausführung vom Test-Gate verweigert: grüner Testlauf im Transcript beziehungsweise Workerlog nicht gefunden. Nach dem ersten Deny zusätzlich die bestehenden sechs Receipt-/Core6-Scratchproben direkt sichtbar ohne Ausgabeumleitung über cargo-slot ausgeführt: Exit 0, 6 passed, 0 ignored. Danach derselbe Deny. Kein Hookbypass, Fremdlog, Direkt-Cargo oder eigener Prüfwrapper. Ursache der Nachweiserkennung nicht sicher festgestellt; regulärer Diagnosezugriff auf gate_hook.py über ctx_execute_file wurde außerhalb des E-MCP-Roots tatsächlich verweigert. Kein alternativer Zugriff oder Schutzänderung. Vollständige Rückgabe BLOCKER-SPIEGEL-TESTGATE.md.
+
+Frischer finaler fetch bestätigt origin/main weiterhin 0ee3e521def14f79d724a71bea7a90a18438c884. Spiegelquelle sauber einschließlich ignorierter Dateien; eigene Prüfartefakte erhalten. Keine aktiven eigenen Kinder oder Hintergrundprüfungen. Kein Main-Push, Releasebuild/install, eigener Neustart, Vollimport, Livebeweis, analytics_runtime-Freigabe oder Cleanup. F nicht begonnen, weil der tatsächliche Spiegel-Merge fehlt; kein G-S3-Ersatz und kein Warden-Publish. Kein Self-Settle.
+
+**Regulärer Fortsetzungspunkt:** Zuständigen Harness-/Gate-Nachweisweg wiederherstellen, dann denselben geprüften Spiegel regulär nach main liefern und bis Livebeweis weiterarbeiten. Details und erhaltene Logs in BLOCKER-SPIEGEL-TESTGATE.md und SPIEGEL-SCHNITT-UND-MAIN-INTEGRATION.md. Keine Freigabe aus dem BLOCK ableiten.
+
+MERGEPROTOKOLL[MS-1]: 8 Git-Schritte einzeln | Anläufe: 2 | Gate: Spiegel [claude-opus-5-5] ALLOW; tatsächlicher Main-Push zweimal im Test-Gate verweigert
+
+## Historischer gemeinsamer Stand nach Prüfung
 
 Die eine fachliche URL-Runde ist abgeschlossen, c0e38302. Gemeinsamer tatsächlicher Kandidat af473608: 558 passed, 25 ignored; Format und bestehendes paketbegrenztes striktes Clippy Exit 0. Expliziter gemeinsamer Gate mit claude-opus-5-5 Exit 0, ALLOW mit den zwei erhaltenen NITs. Original /tmp/brain-i-af473608-common-gate-opus55.log.
 

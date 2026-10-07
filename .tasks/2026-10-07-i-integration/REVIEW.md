@@ -1,5 +1,17 @@
 # Paket I: E Gate-Runden
 
+## Runde 23: eigenständiger Spiegel ALLOW, tatsächlicher Testnachweisblocker
+
+Discovery nach neuem verifiziertem inhaltlichem Fund separat auf origin/feat/brain-patch-discovery af473608 erhalten. Keine zweite Discovery-Fixrunde. Spiegel b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2 gegen aktuellen Main 0ee3e521def14f79d724a71bea7a90a18438c884 geprüft: 605 passed, 24 ignored, Format und striktes Clippy Exit 0, expliziter öffentlicher Assetsvertrag 1 passed. Aktuellen Main mit zwei tatsächlichen Konflikten übernommen, Spiegel-RawValue-Vertrag nach echter Gegenprobe erhalten, keine K-Providerimplementierung geändert. SPIEGEL-SCHNITT-UND-MAIN-INTEGRATION.md.
+
+Expliziter eigenständiger Spiegel-Gate claude-opus-5-5 Exit 0, ALLOW. Zwei NITs: Reader prüft Rawdateien beim Lesen nicht erneut; Zusatzendpoints sind Pflicht für Standardlauf. Tatsächliche öffentliche Vertragsprobe lief grün, erster NIT offen. Original /tmp/brain-i-mirror-b7289d11-gate-opus55.log.
+
+Beide regulären Main-Pushes danach im Test-Gate verweigert, bevor ein Main-Kritikerurteil zum Spiegel entsteht. Nach erstem Deny sechs echte bestehende Receipt-/Core6-Scratchproben ohne Ausgabeumleitung direkt im Bash-Transcript ausgeführt, Exit 0, 6 passed/0 ignored. Trotzdem gleicher Nachweis-Deny. Regulärer Diagnosezugriff auf gate_hook.py außerhalb des E-MCP-Projektroots verweigert; keine anderen Tool-/Wrapperwege oder Schutzänderung. Kein Main-Push, Deploy oder Livebehauptung. Tatsächliche Rückgabe und regulärer Fortsetzungspunkt BLOCKER-SPIEGEL-TESTGATE.md. Keine aktiven eigenen Kinder oder Hintergrundprüfungen.
+
+## Runde 22: gemeinsamer Gesamt-Gate und tatsächlicher neuer Discoveryfund
+
+Gemeinsamer af473608-Kandidat explizit mit claude-opus-5-5 gegen ca4d877f geprüft: ALLOW mit zwei erhaltenen NITs. Regulärer tatsächlicher Main-Push-Hook dennoch [gpt-6.1-sol] BLOCK. Kein Modellwechsel durch I. Neue inhaltliche Originalseiten-/Metal-Skin-Vetofunde am Code bestätigt; daher den vorgeschriebenen Discovery-Schnitt ausgelöst. Vollständige Originalurteile und Verifikation in REVIEW-RUNDE-22-MAIN-GATE.md. Nicht als Werkzeugfehler behandelt, keine zweite Discovery-Fixrunde, keine Hookumgehung.
+
 ## Runde 21: die eine fachliche URL-Runde tatsächlich ausgeführt
 
 Fixer 15 c0e38302cd85c9c650ca07f658af037cedb81124, Basis 9d17ee52. Bestehende Suite 558 passed/25 ignored, explizite erweiterte Scratch-PG-Probe 1 passed/0 ignored mit 12 positiven und 7 negativen Identitätsfällen. Format, Compiler und striktes Clippy einschließlich brain-serve Exit 0. Bericht FIXER-15-BERICHT.md. Kein Main-Push oder Deploy, keine zweite Discovery-Fixrunde.

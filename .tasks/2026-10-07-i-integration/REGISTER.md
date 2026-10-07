@@ -15,7 +15,15 @@ Fixer 15 bestätigte regulären Quellzugriff und lieferte erste uncommittierte L
 
 Neueste Entscheidung ENTSCHEIDUNG-PARALLEL-FERTIGSTELLEN.md gelesen: I/G/K parallel in getrennten Bereichen, F direkt nach Spiegel-Merge gegen dann aktuellen main und gesicherten geprüften G-Vertrag. Keine fremden Sessions oder Docs verwalten, analytics_runtime erst ausdrücklich als Datei freigeben. Die eine URL-Fixrunde und Discovery-Fallback nur bei neuem inhaltlichem Fund bleiben unverändert. Noch kein neuer Test/Gate/ALLOW, Merge oder Livebeweis.
 
-## Aktueller tatsächlicher Discovery-Schnitt
+## Aktueller Testnachweisblocker am freigegebenen Spiegel
+
+status: blockiert, qualifizierte Fachrückgabe, keine aktiven eigenen nativen Kinder oder Hintergrundprüfungen. Spiegel b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2 im eigenen Integrationsbaum auf feat/brain-assets-mirror-20261007 und demselben Remote-Branch gesichert. Origin/main nach finalem fetch weiterhin 0ee3e521def14f79d724a71bea7a90a18438c884. Gemeinsam geprüfte Produktvereinigung: 605 passed, 24 ignored, Format und striktes Clippy Exit 0, öffentliche Assetsprobe 1 passed. Eigenständiger Spiegel-Gate claude-opus-5-5 ALLOW.
+
+Zwei tatsächliche reguläre Main-Pushes am Spiegel vor Ausführung im Test-Gate verweigert. Zusätzlicher direkt sichtbarer bestehender Receipt-/Core6-Scratchlauf über Pflicht-cargo-slot: 6 passed, 0 ignored, Exit 0. Trotzdem gleicher Nachweis-Deny. Regulärer Diagnosezugriff auf gate_hook.py über ctx_execute_file außerhalb des E-MCP-Roots verweigert; keine alternativen Werkzeuge, Wrapper oder Schutzänderungen. BLOCKER-SPIEGEL-TESTGATE.md hält tatsächliche Grenze und regulären Fortsetzungspunkt. Kein Main-Push, Deploy, Liveimport, analytics_runtime-Freigabe oder F/G-Publish. Kein Cleanup oder Self-Settle.
+
+Eigene Artefakte ohne Löschung in /tmp/brain-i-verified-target-20261007.vYUnv5/target erhalten, Integrationsquelle sauber einschließlich ignorierter Dateien. Bestehende read-only-Liveprobe gegen aktuellen Spiegel gebaut, Exit 0, noch nicht live ausgeführt. E-Akte bleibt ausschließlich hier; zentrale Akte unverändert beim Delegator. Keine fremde Session oder fremder Dienst verwaltet.
+
+## Historischer tatsächlicher Discovery-Schnitt
 
 Gemeinsamer af473608-Kandidat: 558 passed, 25 ignored, Format und bestehendes paketbegrenztes striktes Clippy Exit 0. Expliziter Gesamt-Gate claude-opus-5-5 ALLOW, tatsächlicher regulärer Main-Push aber vom unveränderten Hook mit [gpt-6.1-sol] BLOCK verweigert. Zwei neue tatsächliche Discovery-Funde am Code bestätigt. Kein Modellwechsel oder Hookbypass durch I, kein Main-Push. REVIEW-RUNDE-22-MAIN-GATE.md enthält beide Urteile und Verifikation.
 
