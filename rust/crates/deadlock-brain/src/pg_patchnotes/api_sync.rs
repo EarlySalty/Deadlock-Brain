@@ -185,111 +185,151 @@ fn has_complete_patch_content(raw: &str, index: &EntityIndex) -> bool {
 fn has_patch_changes(content: &str, index: &EntityIndex) -> bool {
     patch_lines(content).iter().any(|line| {
         let line = line.trim();
-        let (old_value, new_value) = extract_old_new(line);
-        let has_transition = old_value.is_some() && new_value.is_some();
-        let lower = line.to_ascii_lowercase();
-        let change_subject = if has_transition {
-            lower
-                .split_once(" from ")
-                .map_or(lower.as_str(), |(subject, _)| subject)
-        } else {
-            lower.as_str()
-        };
-        let words: Vec<_> = change_subject
-            .split(|character: char| !character.is_alphabetic())
-            .filter(|word| !word.is_empty())
-            .map(str::to_ascii_lowercase)
-            .collect();
-        let cosmetic = words.iter().any(|word| {
-            matches!(
-                word.as_str(),
-                "cosmetic"
-                    | "cosmetics"
-                    | "skin"
-                    | "skins"
-                    | "artwork"
-                    | "portrait"
-                    | "portraits"
-                    | "icon"
-                    | "icons"
-                    | "sound"
-                    | "sounds"
-                    | "music"
-                    | "visual"
-                    | "visuals"
-                    | "animation"
-                    | "animations"
-            )
-        });
-        let gameplay = words.iter().any(|word| {
-            matches!(
-                word.as_str(),
-                "hero"
-                    | "heroes"
-                    | "ability"
-                    | "abilities"
-                    | "item"
-                    | "items"
-                    | "weapon"
-                    | "weapons"
-                    | "damage"
-                    | "dps"
-                    | "cooldown"
-                    | "recharge"
-                    | "delay"
-                    | "cost"
-                    | "falloff"
-                    | "health"
-                    | "regen"
-                    | "barrier"
-                    | "shield"
-                    | "armor"
-                    | "heal"
-                    | "healing"
-                    | "scaling"
-                    | "bounty"
-                    | "ammo"
-                    | "reload"
-                    | "range"
-                    | "radius"
-                    | "duration"
-                    | "speed"
-                    | "sprint"
-                    | "movement"
-                    | "resistance"
-                    | "resist"
-                    | "lifesteal"
-                    | "stamina"
-                    | "souls"
-                    | "lane"
-                    | "lanes"
-                    | "trooper"
-                    | "troopers"
-                    | "creep"
-                    | "creeps"
-                    | "guardian"
-                    | "guardians"
-                    | "walker"
-                    | "walkers"
-                    | "patron"
-                    | "patrons"
-                    | "urn"
-                    | "matchmaking"
-                    | "match"
-                    | "matches"
-                    | "crash"
-                    | "crashes"
-            )
-        });
-        !lower.contains("http")
-            && !cosmetic
-            && (has_transition || index.infer(change_subject).is_some() || gameplay)
-            && (bullet_body(line).is_some() || is_narrative_event_line(line))
-            && matches!(
-                dbrain_normalize::classify_change_type(line).as_str(),
-                "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
-            )
+        if line.to_ascii_lowercase().contains("http")
+            || !(bullet_body(line).is_some() || is_narrative_event_line(line))
+        {
+            return false;
+        }
+        let body = bullet_body(line).unwrap_or_else(|| line.to_string());
+        let lower = normalize_patch_line(&body).to_ascii_lowercase();
+        lower
+            .split([';', '!', '?'])
+            .flat_map(|sentence| sentence.split(". "))
+            .flat_map(|sentence| sentence.split(" and "))
+            .flat_map(|clause| clause.split(" but "))
+            .flat_map(|clause| clause.split(" while "))
+            .any(|clause| has_gameplay_change(clause.trim(), index))
     })
+}
+
+fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
+    let (subject, remainder) = split_subject(clause);
+    let change_subject = remainder.as_deref().unwrap_or(clause);
+    let words: Vec<_> = clause
+        .split(|character: char| !character.is_alphabetic())
+        .filter(|word| !word.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect();
+    let cosmetic = words.iter().any(|word| {
+        matches!(
+            word.as_str(),
+            "cosmetic"
+                | "cosmetics"
+                | "emote"
+                | "emotes"
+                | "skin"
+                | "skins"
+                | "artwork"
+                | "portrait"
+                | "portraits"
+                | "icon"
+                | "icons"
+                | "sound"
+                | "sounds"
+                | "music"
+                | "visual"
+                | "visuals"
+                | "animation"
+                | "animations"
+        )
+    });
+    let gameplay = words.iter().any(|word| {
+        matches!(
+            word.as_str(),
+            "hero"
+                | "heroes"
+                | "ability"
+                | "abilities"
+                | "item"
+                | "items"
+                | "weapon"
+                | "weapons"
+                | "attack"
+                | "attacks"
+                | "damage"
+                | "dps"
+                | "cooldown"
+                | "recharge"
+                | "delay"
+                | "cost"
+                | "falloff"
+                | "health"
+                | "regen"
+                | "barrier"
+                | "shield"
+                | "armor"
+                | "heal"
+                | "healing"
+                | "scaling"
+                | "bounty"
+                | "ammo"
+                | "reload"
+                | "range"
+                | "radius"
+                | "duration"
+                | "speed"
+                | "sprint"
+                | "movement"
+                | "resistance"
+                | "resist"
+                | "lifesteal"
+                | "stamina"
+                | "souls"
+                | "lane"
+                | "lanes"
+                | "trooper"
+                | "troopers"
+                | "creep"
+                | "creeps"
+                | "guardian"
+                | "guardians"
+                | "walker"
+                | "walkers"
+                | "patron"
+                | "patrons"
+                | "urn"
+                | "matchmaking"
+                | "match"
+                | "matches"
+                | "crash"
+                | "crashes"
+        )
+    });
+    let entity_transition = subject
+        .as_deref()
+        .and_then(|subject| index.exact(subject))
+        .is_some_and(|entity| {
+            matches!(
+                entity.entity_type.as_str(),
+                "hero"
+                    | "item"
+                    | "ability"
+                    | "objective"
+                    | "objective_entity"
+                    | "weapon_or_internal"
+            )
+        })
+        && change_subject
+            .split_once(" from ")
+            .is_some_and(|(action, values)| {
+                matches!(action.trim(), "increased" | "reduced" | "decreased")
+                    && values.split_once(" to ").is_some_and(|(old, new)| {
+                        [old, new].iter().all(|value| {
+                            value
+                                .trim()
+                                .trim_end_matches('.')
+                                .trim_end_matches('%')
+                                .parse::<f64>()
+                                .is_ok_and(f64::is_finite)
+                        })
+                    })
+            });
+    !cosmetic
+        && (gameplay || entity_transition)
+        && matches!(
+            dbrain_normalize::classify_change_type(change_subject).as_str(),
+            "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
+        )
 }
 
 fn resolve_api_source(
@@ -444,7 +484,11 @@ mod tests {
             if original.contains(" from ") {
                 assert!(expected.events[0].old_value.is_some());
                 assert!(expected.events[0].new_value.is_some());
-                assert!(is_patch_candidate(original, &EntityIndex::default()));
+                if expected.events[0].entity_name.is_none() {
+                    assert!(is_patch_candidate(original, &EntityIndex::default()));
+                } else {
+                    assert!(!is_patch_candidate(original, &EntityIndex::default()));
+                }
             } else {
                 assert_eq!(expected.events[0].entity_name.as_deref(), Some("Holliday"));
             }
@@ -472,6 +516,73 @@ mod tests {
                 assert_eq!(actual.events[0].old_value, expected.events[0].old_value);
                 assert_eq!(actual.events[0].new_value, expected.events[0].new_value);
             }
+        }
+    }
+
+    #[test]
+    fn numbers_and_hero_mentions_require_a_gameplay_subject_in_the_same_clause() {
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Holliday", "Holliday");
+        let index = index.finish();
+        for index in [&EntityIndex::default(), &index] {
+            for original in [
+                "- Increased from 1 to 2 hero skins",
+                "- Increased from 1 to 2 visitors",
+                "- Visitor count increased from 1 to 2",
+                "- Holliday: visitor count increased from 1 to 2",
+                "- Holliday: increased from 1 to 2 visitors",
+                "- Holliday: increased from 1 to 2 hero skins",
+                "- Added Holliday emotes",
+                "- Added emotes for hero Holliday",
+                "- Holliday: added banners for the community",
+                "- Added posters featuring Holliday",
+                "- Visitor count increased from 1 to 2 and Holliday is our favourite hero",
+                "- Visitor count increased from 1 to 2. Holliday is our favourite hero",
+                "- Added artwork and weapon damage will be discussed tomorrow",
+                "- Added artwork. Weapon damage will be discussed tomorrow",
+                "- Improved artwork while weapon damage is unchanged",
+                "- Visitors: increased from 1 to 2 and Holliday: new portrait",
+            ] {
+                assert!(!is_patch_candidate(original, index), "{original}");
+                assert!(!has_complete_patch_content(original, index), "{original}");
+                for source in ["steam", "forum"] {
+                    let mut post = post();
+                    post.source = source.into();
+                    let html = if source == "forum" {
+                        post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+                        format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{original}</div></article>")
+                    } else {
+                        steam_html(&post, original)
+                    };
+                    assert!(
+                        resolve_api_source(&post, index, |_| Ok(html.clone()))
+                            .unwrap()
+                            .is_none(),
+                        "{source}/{original}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn clause_scoping_keeps_gameplay_changes_and_full_numeric_values() {
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Holliday", "Holliday");
+        let index = index.finish();
+        for original in [
+            "- Holliday: increased from 1.05 to 1.2",
+            "- Holliday: decreased from 2% to 1%",
+            "- Increased weapon damage from 50 to 60 and added new artwork",
+            "- Added new artwork and increased weapon damage from 50 to 60",
+            "- Added new artwork. Weapon damage increased from 50 to 60",
+            "- Weapon damage increased from 50 to 60; added new artwork",
+            "- Weapon damage increased from 50 to 60 while new artwork is being prepared",
+            "- Weapon damage: increased from 50 to 60",
+            "- Increased from 50 to 60 weapon damage",
+        ] {
+            assert!(is_patch_candidate(original, &index), "{original}");
+            assert!(has_complete_patch_content(original, &index), "{original}");
         }
     }
 
