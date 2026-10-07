@@ -1889,7 +1889,7 @@ fn simulate(
                 }
             }
             let dealt = target_remaining.receive_damage(
-                (bullet + stack_bonus) * hit,
+                (bullet + stack_bonus * (1.0 + stats.weapon_amp)) * hit,
                 &crate::DamageType::Weapon,
                 shot_at,
                 if scenario.is_some() {
@@ -3271,6 +3271,37 @@ pub(crate) mod tests {
         assert!(result.weapon_damage > evaluate_inventory(&hero, &[], &cfg).weapon_damage);
     }
     #[test]
+    fn stack_bonus_receives_weapon_amplification_in_both_evaluation_paths() {
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 1.0,
+            ..ReasonerConfig::default()
+        };
+        for evaluate in [evaluate_inventory, evaluate_inventory_fast] {
+            for (amplification, expected_damage) in [(0.0, 60.0), (20.0, 70.0), (100.0, 110.0)] {
+                let mut hero = hero();
+                hero.weapon.shots_per_second = 2.5;
+                let mut hook = ability(10, 0.0, 1000.0);
+                hook.class_name = "citadel_ability_hook".into();
+                hook.properties.extend([
+                    ("BulletAmp".into(), amplification),
+                    ("BulletAmpDuration".into(), 6.0),
+                ]);
+                let mut stacks = ability(11, 0.0, 1000.0);
+                stacks.properties.extend([
+                    ("DamageBonusFixedPerStack".into(), 10.0),
+                    ("MaxStacks".into(), 10.0),
+                    ("AbilityDuration".into(), 6.0),
+                ]);
+                hero.abilities = vec![hook, stacks];
+                let result = evaluate(&hero, &[], &cfg);
+                let duel = &result.scenarios[0];
+                assert_eq!(duel.shots, 3.0);
+                assert!((duel.weapon_damage - expected_damage).abs() < 1e-9);
+                assert_eq!(duel.proc_damage, 0.0);
+            }
+        }
+    }
+    #[test]
     fn malice_hits_amplify_following_damage_with_fast_path_parity() {
         let mut hero = hero();
         hero.base_health = 10000.0;
@@ -3394,12 +3425,9 @@ pub(crate) mod tests {
                 ..ReasonerConfig::default()
             },
         );
-        // 13% affects the whole 700-HP pool. The same external 510 damage hits
-        // the pressure scenario, rather than falling proportionally with our HP.
         assert!((result.scenarios[0].effective_health - 609.0).abs() < 1e-8);
         assert!((result.scenarios[1].incoming_health_damage - 510.0).abs() < 1e-8);
         assert!((result.scenarios[1].remaining_health - 99.0).abs() < 1e-8);
-        // Mean remaining HP at the 25 step starts: 609 - 102 * 2.4 = 364.2.
         assert!((result.scenarios[1].effective_health - 364.2).abs() < 1e-8);
         assert!((result.effective_health - 527.4).abs() < 1e-8);
     }
@@ -3858,8 +3886,6 @@ pub(crate) mod tests {
 
     #[test]
     fn spirit_does_not_change_weapon_rate_for_a_null_converter() {
-        // Basis-Held ohne ERoundsPerSecond/EFireRate: mehr Spirit erzeugt keinen
-        // Waffen-DPS (Gegenprobe zu spirit_changes_whole_weapon_rate_...).
         let hero = hero();
         assert!(!hero
             .scaling
