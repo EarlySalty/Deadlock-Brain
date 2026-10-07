@@ -21,17 +21,19 @@ Scheitert das Schreiben des Hashes nach dem JSON-Schreiben, bleibt die Datei abs
 
 ## Befehle
 
-Vom eigenen Q-Worktree:
+Vom dauerhaft erhaltenen zentralen Q-Ordner:
 
 ```sh
-/home/nathanael/.cargo/bin/cargo +1.97.1 build --locked --offline --jobs 3 --manifest-path /home/nathanael/.worktrees/brain-q-eval-20261007/.tasks/2026-10-07-brain-fertigstellung-astra/Q/collector/Cargo.toml
+RUSTUP_TOOLCHAIN=1.97.1 /home/nathanael/.cargo/bin/cargo build --locked --offline --jobs 3 --manifest-path /home/nathanael/repos/Deadlock-Brain/.tasks/2026-10-07-brain-fertigstellung-astra/Q/collector/Cargo.toml
 ```
 
 Bestehenden privaten Teilstand unverändert prüfen, ohne Netzwerk oder Modell:
 
 ```sh
-/home/nathanael/.worktrees/brain-q-eval-20261007/.tasks/2026-10-07-brain-fertigstellung-astra/Q/collector/target/debug/brain-q-source-snapshot verify q-partial-v1-20261007
+/home/nathanael/repos/Deadlock-Brain/.tasks/2026-10-07-brain-fertigstellung-astra/Q/collector/target/debug/brain-q-source-snapshot verify q-partial-v1-20261007
 ```
+
+Dieser zentrale Build und der Integritätsbefehl wurden nach Wiederherstellung der geschützten privaten Arbeitskopie ausgeführt, Exit 0. Der Rust-Code blieb unverändert gegenüber dem geprüften Commit `bf54e659814008c8db941e6ff6be9016314347d3`; Quellcode-SHA256 `c7628ed475f5a5dfe86639bd2a3140ea3ba56c808be65f30b6922a0d78229735`. Wiederaufnahmevertrag: `../WIEDERAUFNAHME.md`. Keine Abhängigkeit vom früheren Q-Worktree.
 
 Neue Quellenversionen erhalten jeweils einen neuen Versionsnamen. CLI: `<source> <version> [pages]`, anschließend `plan <version>`. Keine bereits existierende Version neu sammeln. Vierzig kleine Discordseiten wurden erfolgreich geprüft. Ein größerer Lauf mit 200 Seiten wurde vom äußeren Prüftimeout beendet und erzeugte keinen erfolgreich gemeldeten Snapshot.
 
