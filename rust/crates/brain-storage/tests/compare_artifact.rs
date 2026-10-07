@@ -41,23 +41,35 @@ fn record() -> SourceRecordV2 {
     }
 }
 
+fn private_record() -> SourceRecordV2 {
+    let mut record = record();
+    record.source_id = "private-chat-source".into();
+    record.logical_id = "private-conversation-id".into();
+    record.visibility = SourceVisibility::Private;
+    record.allowed_scopes.insert("private".into());
+    record
+}
+
 fn release() -> CorpusRelease {
     CorpusRelease {
         release_id: "fixture-release".into(),
         knowledge_version: "fixture-version".into(),
         patch: "fixture-patch".into(),
         created_at_epoch: 1,
-        source_revisions: BTreeMap::from([(
-            "fixture".into(),
-            BTreeMap::from([("mechanism".into(), 1)]),
-        )]),
+        source_revisions: BTreeMap::from([
+            ("fixture".into(), BTreeMap::from([("mechanism".into(), 1)])),
+            (
+                "private-chat-source".into(),
+                BTreeMap::from([("private-conversation-id".into(), 1)]),
+            ),
+        ]),
     }
 }
 
 fn candidate() -> CompareArtifact {
     CompareArtifact::pending(CompareArtifactBody {
         release: CompareReleaseBinding::from_release(&release()).unwrap(),
-        calculation: json!({"fixture":true,"scenario":{"boons":[0,1]}}),
+        calculation: json!({"fixture":true,"scenario":{"boons":[0,1]},"numbers":[-0.0,1e18,1e-100,1.2345678901234567,u64::MAX,i64::MIN]}),
         render_model: json!({"fixture":true}),
         mechanism_version: "fixture-mechanism-v1".into(),
         dependencies: vec![compare_dependency(&record()).unwrap()],
@@ -75,8 +87,8 @@ impl SnapshotReadPort for Reader {
     fn read_snapshot(&self, _: &str) -> Result<CorpusSnapshot, PortError> {
         Ok(CorpusSnapshot {
             release: release(),
-            revisions: vec![self.record.clone()],
-            heads: vec![self.head.clone()],
+            revisions: vec![self.record.clone(), private_record()],
+            heads: vec![self.head.clone(), private_record()],
         })
     }
     fn read_heads(&self, _: &[DocumentRevision]) -> Result<Vec<DocumentHead>, PortError> {
@@ -239,10 +251,28 @@ async fn isolated_postgres_pending_receipt_read_and_revocation() {
     store.migrate_compare_artifacts().await.unwrap();
     store.migrate_compare_artifacts().await.unwrap();
     store.apply(&record()).await.unwrap();
+    store.apply(&private_record()).await.unwrap();
     sqlx::query("INSERT INTO brain.corpus_releases_v1(release_id,knowledge_version,patch,release_json) VALUES($1,$2,$3,$4)").bind("fixture-release").bind("fixture-version").bind("fixture-patch").bind(serde_json::to_value(release()).unwrap()).execute(&pool).await.unwrap();
     let artifact = candidate();
     store.save_pending_compare(&artifact).await.unwrap();
     store.save_pending_compare(&artifact).await.unwrap();
+    let normalized: serde_json::Value =
+        sqlx::query_scalar("SELECT body_json FROM brain.compare_artifacts_v1 WHERE artifact_id=$1")
+            .bind(artifact.id())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_ne!(normalized["calculation"]["numbers"][0].to_string(), "-0.0");
+    assert_ne!(normalized["calculation"]["numbers"][1].to_string(), "1e+18");
+    assert_ne!(normalized["calculation"], artifact.body().calculation);
+    let exact: String =
+        sqlx::query_scalar("SELECT body_text FROM brain.compare_artifacts_v1 WHERE artifact_id=$1")
+            .bind(artifact.id())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(exact, serde_json::to_string(artifact.body()).unwrap());
+    assert_eq!(compare_sha256(exact.as_bytes()), artifact.id());
     assert!(store
         .read_public_compare(artifact.id(), &principal())
         .await
@@ -279,6 +309,20 @@ async fn isolated_postgres_pending_receipt_read_and_revocation() {
         .await
         .unwrap();
     let site_store = PgStore::new(site_pool.clone());
+    let envelope: serde_json::Value =
+        sqlx::query_scalar("SELECT brain.read_compare_artifact_v1($1)")
+            .bind(artifact.id())
+            .fetch_one(&site_pool)
+            .await
+            .unwrap();
+    let public_bytes = envelope.to_string();
+    assert!(!public_bytes.contains("private-chat-source"));
+    assert!(!public_bytes.contains("private-conversation-id"));
+    assert_eq!(
+        envelope["release"],
+        serde_json::to_value(&artifact.body().release).unwrap()
+    );
+    assert!(envelope["release"]["source_revisions"].is_null());
     assert_eq!(
         site_store
             .read_public_compare(artifact.id(), &principal())
@@ -289,6 +333,8 @@ async fn isolated_postgres_pending_receipt_read_and_revocation() {
     );
     for statement in [
         "SELECT record_json FROM brain.source_record_heads",
+        "SELECT release_json FROM brain.corpus_releases_v1",
+        "SELECT body_text FROM brain.compare_artifacts_v1",
         "SELECT body_json FROM brain.compare_artifacts_v1",
         "UPDATE brain.compare_artifacts_v1 SET publication_receipt=NULL",
     ] {
@@ -309,6 +355,60 @@ async fn isolated_postgres_pending_receipt_read_and_revocation() {
             .unwrap(),
         artifact
     );
+    sqlx::query("UPDATE brain.corpus_releases_v1 SET release_json=jsonb_set(release_json,'{created_at_epoch}','2'::jsonb) WHERE release_id='fixture-release'")
+        .execute(&pool).await.unwrap();
+    assert!(site_store
+        .read_public_compare(artifact.id(), &principal())
+        .await
+        .is_err());
+    sqlx::query("UPDATE brain.corpus_releases_v1 SET release_json=jsonb_set(release_json,'{source_revisions,fixture,mechanism}','2'::jsonb) WHERE release_id='fixture-release'")
+        .execute(&pool).await.unwrap();
+    sqlx::query("UPDATE brain.compare_artifacts_v1 SET publication_receipt=jsonb_set(publication_receipt,'{release_jsonb_sha256}',(SELECT to_jsonb(encode(sha256(convert_to(release_json::text,'UTF8')),'hex')) FROM brain.corpus_releases_v1 WHERE release_id='fixture-release')) WHERE artifact_id=$1")
+        .bind(artifact.id()).execute(&pool).await.unwrap();
+    assert!(site_store
+        .read_public_compare(artifact.id(), &principal())
+        .await
+        .is_err());
+    sqlx::query(
+        "UPDATE brain.corpus_releases_v1 SET release_json=$1 WHERE release_id='fixture-release'",
+    )
+    .bind(serde_json::to_value(release()).unwrap())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE brain.compare_artifacts_v1 SET publication_receipt=$2 WHERE artifact_id=$1",
+    )
+    .bind(artifact.id())
+    .bind(&envelope["receipt"])
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        site_store
+            .read_public_compare(artifact.id(), &principal())
+            .await
+            .unwrap()
+            .unwrap(),
+        artifact
+    );
+    sqlx::query("UPDATE brain.compare_artifacts_v1 SET body_text=replace(body_text,'-0.0','0.0') WHERE artifact_id=$1")
+        .bind(artifact.id()).execute(&pool).await.unwrap();
+    assert!(site_store
+        .read_public_compare(artifact.id(), &principal())
+        .await
+        .is_err());
+    assert!(store.save_pending_compare(&artifact).await.is_err());
+    assert!(store
+        .publish_compare_artifact(&artifact, &reader, &principal(), &FixtureVerifier)
+        .await
+        .is_err());
+    sqlx::query("UPDATE brain.compare_artifacts_v1 SET body_text=$2 WHERE artifact_id=$1")
+        .bind(artifact.id())
+        .bind(&exact)
+        .execute(&pool)
+        .await
+        .unwrap();
     let mut revoked = record();
     revoked.revision = 2;
     revoked.visibility = SourceVisibility::Private;
@@ -339,7 +439,12 @@ async fn isolated_postgres_pending_receipt_read_and_revocation() {
         .await
         .unwrap()
         .is_some());
-    sqlx::query("UPDATE brain.compare_artifacts_v1 SET body_json=jsonb_set(body_json,'{svg}','\"changed\"'::jsonb) WHERE artifact_id=$1").bind(artifact.id()).execute(&pool).await.unwrap();
+    let mismatch = sqlx::query("UPDATE brain.compare_artifacts_v1 SET body_json=jsonb_set(body_json,'{svg}','\"changed\"'::jsonb) WHERE artifact_id=$1").bind(artifact.id()).execute(&pool).await.unwrap_err();
+    assert_eq!(
+        mismatch.as_database_error().unwrap().code().as_deref(),
+        Some("23514")
+    );
+    sqlx::query("UPDATE brain.compare_artifacts_v1 SET body_json=jsonb_set(body_json,'{svg}','\"changed\"'::jsonb),body_text=jsonb_set(body_json,'{svg}','\"changed\"'::jsonb)::text WHERE artifact_id=$1").bind(artifact.id()).execute(&pool).await.unwrap();
     assert!(store
         .read_public_compare(artifact.id(), &principal())
         .await

@@ -2,6 +2,7 @@ BEGIN;
 CREATE TABLE brain.compare_artifacts_v1 (
     artifact_id text PRIMARY KEY CHECK (artifact_id ~ '^[0-9a-f]{64}$'),
     body_json jsonb NOT NULL CHECK (jsonb_typeof(body_json) = 'object' AND octet_length(body_json::text) <= 4000000),
+    body_text text NOT NULL CHECK (octet_length(body_text) <= 2000000 AND body_json = body_text::jsonb),
     publication_receipt jsonb CHECK (publication_receipt IS NULL OR jsonb_typeof(publication_receipt) = 'object'),
     created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -11,10 +12,16 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, brain
 AS $function$
     SELECT CASE WHEN jsonb_array_length(COALESCE(e.records, '[]'::jsonb)) = jsonb_array_length(a.body_json->'dependencies')
+        AND a.body_json = a.body_text::jsonb
+        AND a.publication_receipt->>'release_jsonb_sha256' = encode(sha256(convert_to(c.release_json::text, 'UTF8')), 'hex')
         THEN jsonb_build_object(
-        'body', a.body_json,
+        'body_text', a.body_text,
         'receipt', a.publication_receipt,
-        'release', c.release_json,
+        'release', jsonb_build_object(
+            'release_id', c.release_json->'release_id',
+            'knowledge_version', c.release_json->'knowledge_version',
+            'patch', c.release_json->'patch',
+            'manifest_sha256', a.body_json->'release'->'manifest_sha256'),
         'records', COALESCE(e.records, '[]'::jsonb),
         'heads', COALESCE(e.heads, '[]'::jsonb))
         ELSE '{"blocked":true}'::jsonb END
@@ -34,6 +41,7 @@ AS $function$
           AND r.record_json->'allowed_scopes' = '[]'::jsonb AND h.record_json->'allowed_scopes' = '[]'::jsonb
           AND h.content_hash = h.read_header_json->>'content_hash'
           AND h.revision = (h.read_header_json->'head'->>'revision')::bigint
+          AND c.release_json->'source_revisions'->r.source_id->r.logical_id = to_jsonb(r.revision)
           AND NOT r.tombstone AND NOT h.tombstone
     ) e
     WHERE a.artifact_id = requested_id AND a.publication_receipt IS NOT NULL

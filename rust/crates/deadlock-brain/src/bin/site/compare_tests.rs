@@ -4,7 +4,7 @@ use brain_contracts::{
     SnapshotReadPort, SourceRecordV2, SourceVisibility,
 };
 use brain_maintenance::{
-    compare_artifact::{prepare_compare_artifact, publish_compare_artifact},
+    compare_artifact::{prepare_compare_artifact, publish_compare_artifact, render_stored_compare},
     hero_compare_render::{
         BoonValue, CompareBinding, CompareMetric, CompareSource, DisplayValue, HeroCompareInput,
         HeroCompareSeries, PublicationStatus, VersionBinding,
@@ -131,7 +131,7 @@ async fn public_compare_http_has_no_cache_and_rechecks_revocation() {
         &fixture,
         &principal,
         &input,
-        &[document],
+        &[document.clone()],
         json!({"fixture":true}),
         "fixture-mechanism".into(),
     )
@@ -176,6 +176,70 @@ async fn public_compare_http_has_no_cache_and_rechecks_revocation() {
             expected.len().to_string()
         );
         assert!(reply.bytes().await.unwrap().is_empty());
+    }
+    for value in [-0.0, 1e18, 1e-100, 1.2345678901234567] {
+        let mut numeric_input = input.clone();
+        numeric_input.heroes[0].values[0].value = DisplayValue::Quantified(value);
+        numeric_input.heroes[1].values[0].value = DisplayValue::Quantified(value);
+        let calculation = json!({
+            "fixture": true,
+            "nested": {"values": [value, u64::MAX, i64::MIN]},
+            "precise": serde_json::from_str::<serde_json::Value>(
+                "12345678901234567890.12345678901234567890"
+            ).unwrap()
+        });
+        let numeric = prepare_compare_artifact(
+            &fixture,
+            &principal,
+            &numeric_input,
+            std::slice::from_ref(&document),
+            calculation.clone(),
+            "fixture-mechanism".into(),
+        )
+        .unwrap();
+        store.save_pending_compare(&numeric).await.unwrap();
+        store.save_pending_compare(&numeric).await.unwrap();
+        let normalized: serde_json::Value = sqlx::query_scalar(
+            "SELECT body_json FROM brain.compare_artifacts_v1 WHERE artifact_id=$1",
+        )
+        .bind(numeric.id())
+        .fetch_one(&owner)
+        .await
+        .unwrap();
+        if value == 0.0 || value == 1e18 || value == 1e-100 {
+            assert_ne!(
+                normalized["calculation"]["nested"]["values"][0],
+                calculation["nested"]["values"][0]
+            );
+        }
+        let publication = publish_compare_artifact(
+            &store,
+            &fixture,
+            &principal,
+            &numeric,
+            &FixtureVerifier(numeric.body().clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(publication.artifact_id, numeric.id());
+        let restored = brain_storage::PgStore::new(pool.clone())
+            .read_public_compare(numeric.id(), &principal)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored, numeric);
+        assert_eq!(restored.body().calculation, calculation);
+        let rendered = render_stored_compare(&restored).unwrap();
+        assert_eq!(rendered.html.as_bytes(), numeric.body().html.as_bytes());
+        assert_eq!(rendered.svg.as_bytes(), numeric.body().svg.as_bytes());
+        for (path, expected) in [
+            (&publication.html_path, &numeric.body().html),
+            (&publication.svg_path, &numeric.body().svg),
+        ] {
+            let reply = client.get(format!("{url}{path}")).send().await.unwrap();
+            assert_eq!(reply.status(), StatusCode::OK);
+            assert_eq!(reply.bytes().await.unwrap().as_ref(), expected.as_bytes());
+        }
     }
     let mut revoked = record;
     revoked.revision = 2;

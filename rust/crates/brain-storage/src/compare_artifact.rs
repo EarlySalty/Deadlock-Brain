@@ -34,7 +34,7 @@ impl CompareReleaseBinding {
             release_id: release.release_id.clone(),
             knowledge_version: release.knowledge_version.clone(),
             patch: release.patch.clone(),
-            manifest_sha256: compare_sha256(&json_bytes(release)?),
+            manifest_sha256: compare_fingerprint(release)?,
         })
     }
 }
@@ -84,6 +84,7 @@ struct PublicationReceipt {
     artifact_id: String,
     contract: String,
     dependency_sha256: String,
+    release_jsonb_sha256: String,
 }
 
 fn invalid() -> PortError {
@@ -102,6 +103,10 @@ fn json_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, PortError> {
     serde_json::to_vec(value).map_err(|_| invalid())
 }
 
+pub fn compare_fingerprint<T: Serialize>(value: &T) -> Result<String, PortError> {
+    Ok(compare_sha256(&json_bytes(value)?))
+}
+
 pub fn compare_dependency(record: &SourceRecordV2) -> Result<CompareDependency, PortError> {
     record.validate().map_err(|_| invalid())?;
     if record.tombstone || !valid_compare_id(&record.content_hash) {
@@ -114,7 +119,7 @@ pub fn compare_dependency(record: &SourceRecordV2) -> Result<CompareDependency, 
             revision: record.revision,
             content_hash: record.content_hash.clone(),
         },
-        record_sha256: compare_sha256(&json_bytes(record)?),
+        record_sha256: compare_fingerprint(record)?,
     })
 }
 
@@ -253,7 +258,7 @@ impl PgStore {
                 .await
                 .map_err(unavailable)?;
         }
-        sqlx::query("SELECT artifact_id,body_json,publication_receipt FROM brain.compare_artifacts_v1 LIMIT 0").fetch_all(&mut *tx).await.map_err(unavailable)?;
+        sqlx::query("SELECT artifact_id,body_json,body_text,publication_receipt FROM brain.compare_artifacts_v1 LIMIT 0").fetch_all(&mut *tx).await.map_err(unavailable)?;
         sqlx::query("SELECT brain.read_compare_artifact_v1(NULL)")
             .execute(&mut *tx)
             .await
@@ -262,11 +267,11 @@ impl PgStore {
     }
 
     pub async fn save_pending_compare(&self, artifact: &CompareArtifact) -> Result<(), PortError> {
-        let body = serde_json::to_value(artifact.body()).map_err(|_| invalid())?;
+        let body = serde_json::to_string(artifact.body()).map_err(|_| invalid())?;
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
-        sqlx::query("INSERT INTO brain.compare_artifacts_v1(artifact_id,body_json) VALUES($1,$2) ON CONFLICT(artifact_id) DO NOTHING").bind(artifact.id()).bind(&body).execute(&mut *tx).await.map_err(unavailable)?;
-        let stored: serde_json::Value = sqlx::query_scalar(
-            "SELECT body_json FROM brain.compare_artifacts_v1 WHERE artifact_id=$1",
+        sqlx::query("INSERT INTO brain.compare_artifacts_v1(artifact_id,body_json,body_text) VALUES($1,$2::text::jsonb,$2) ON CONFLICT(artifact_id) DO NOTHING").bind(artifact.id()).bind(&body).execute(&mut *tx).await.map_err(unavailable)?;
+        let stored: String = sqlx::query_scalar(
+            "SELECT body_text FROM brain.compare_artifacts_v1 WHERE artifact_id=$1 AND body_json=body_text::jsonb",
         )
         .bind(artifact.id())
         .fetch_one(&mut *tx)
@@ -292,14 +297,15 @@ impl PgStore {
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
-        check_pg_dependencies(&mut tx, artifact, principal).await?;
-        let body = serde_json::to_value(artifact.body()).map_err(|_| invalid())?;
+        let release_jsonb_sha256 = check_pg_dependencies(&mut tx, artifact, principal).await?;
+        let body = serde_json::to_string(artifact.body()).map_err(|_| invalid())?;
         let receipt = PublicationReceipt {
             artifact_id: artifact.id().into(),
             contract: "brain.compare.publication.v1".into(),
-            dependency_sha256: compare_sha256(&json_bytes(&artifact.body.dependencies)?),
+            dependency_sha256: compare_fingerprint(&artifact.body.dependencies)?,
+            release_jsonb_sha256,
         };
-        let changed = sqlx::query("UPDATE brain.compare_artifacts_v1 SET publication_receipt=$3 WHERE artifact_id=$1 AND body_json=$2")
+        let changed = sqlx::query("UPDATE brain.compare_artifacts_v1 SET publication_receipt=$3 WHERE artifact_id=$1 AND body_text=$2 AND body_json=body_text::jsonb")
             .bind(artifact.id()).bind(body).bind(serde_json::to_value(receipt).map_err(|_| invalid())?)
             .execute(&mut *tx).await.map_err(unavailable)?;
         if changed.rows_affected() != 1 {
@@ -341,20 +347,25 @@ impl PgStore {
         };
         let receipt: PublicationReceipt =
             serde_json::from_value(envelope["receipt"].clone()).map_err(|_| invalid())?;
-        let artifact = CompareArtifact::pending(
-            serde_json::from_value(envelope["body"].clone()).map_err(|_| invalid())?,
-        )?;
+        let body_text = envelope["body_text"].as_str().ok_or_else(invalid)?;
+        if compare_sha256(body_text.as_bytes()) != id {
+            return Err(invalid());
+        }
+        let artifact =
+            CompareArtifact::pending(serde_json::from_str(body_text).map_err(|_| invalid())?)?;
         if artifact.id() != id
             || receipt.artifact_id != id
             || receipt.contract != "brain.compare.publication.v1"
-            || receipt.dependency_sha256
-                != compare_sha256(&json_bytes(&artifact.body.dependencies)?)
+            || !valid_compare_id(&receipt.release_jsonb_sha256)
+            || receipt.dependency_sha256 != compare_fingerprint(&artifact.body.dependencies)?
         {
             return Err(invalid());
         }
-        let release: CorpusRelease =
+        let release: CompareReleaseBinding =
             serde_json::from_value(envelope["release"].clone()).map_err(|_| invalid())?;
-        check_release(&artifact, &release)?;
+        if release != artifact.body.release {
+            return Err(invalid());
+        }
         let records: Vec<SourceRecordV2> =
             serde_json::from_value(envelope["records"].clone()).map_err(|_| invalid())?;
         let descriptors: Vec<brain_contracts::DocumentDescriptor> =
@@ -370,13 +381,14 @@ async fn check_pg_dependencies(
     tx: &mut sqlx::PgConnection,
     artifact: &CompareArtifact,
     principal: &Principal,
-) -> Result<(), PortError> {
-    let release: serde_json::Value =
-        sqlx::query_scalar("SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1")
-            .bind(&artifact.body.release.release_id)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(unavailable)?;
+) -> Result<String, PortError> {
+    let (release, release_jsonb_sha256): (serde_json::Value, String) = sqlx::query_as(
+        "SELECT release_json,encode(sha256(convert_to(release_json::text,'UTF8')),'hex') FROM brain.corpus_releases_v1 WHERE release_id=$1 FOR SHARE",
+    )
+    .bind(&artifact.body.release.release_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(unavailable)?;
     let release: CorpusRelease = serde_json::from_value(release).map_err(|_| invalid())?;
     check_release(artifact, &release)?;
     let mut records = Vec::new();
@@ -393,7 +405,8 @@ async fn check_pg_dependencies(
         );
     }
     let heads = public_heads(&records, heads)?;
-    check_records(&artifact.body.dependencies, &records, &heads, principal)
+    check_records(&artifact.body.dependencies, &records, &heads, principal)?;
+    Ok(release_jsonb_sha256)
 }
 
 fn check_release(artifact: &CompareArtifact, release: &CorpusRelease) -> Result<(), PortError> {

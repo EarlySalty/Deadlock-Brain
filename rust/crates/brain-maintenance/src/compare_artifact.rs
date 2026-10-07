@@ -2,7 +2,7 @@ use anyhow::{ensure, Result};
 use brain_contracts::{DocumentRevision, Principal, SnapshotReadPort};
 use brain_storage::{
     compare_artifact::{
-        compare_dependency, compare_sha256, CompareArtifact, CompareArtifactBody,
+        compare_dependency, compare_fingerprint, CompareArtifact, CompareArtifactBody,
         CompareCalculationVerifier, ComparePublication, CompareReleaseBinding,
     },
     PgStore,
@@ -187,11 +187,7 @@ pub fn prepare_compare_artifact(
         expected_sources.len() == documents.len() && supplied_sources == expected_sources,
         "Darstellung enthält nicht alle Rechnungsabhängigkeiten"
     );
-    model.result_id = compare_sha256(&serde_json::to_vec(&(
-        &calculation,
-        &mechanism_version,
-        &dependencies,
-    ))?);
+    model.result_id = compare_fingerprint(&(&calculation, &mechanism_version, &dependencies))?;
     let rendered = render_hero_compare(&model.input()?)?;
     let artifact = CompareArtifact::pending(CompareArtifactBody {
         release: CompareReleaseBinding::from_release(&manifest.release)?,
@@ -225,11 +221,11 @@ pub fn render_stored_compare(artifact: &CompareArtifact) -> Result<RenderedHeroC
         model.snapshot_id == artifact.body().release.release_id,
         "Vergleich hat einen anderen Datenstand"
     );
-    let expected_result = compare_sha256(&serde_json::to_vec(&(
+    let expected_result = compare_fingerprint(&(
         &artifact.body().calculation,
         &artifact.body().mechanism_version,
         &artifact.body().dependencies,
-    ))?);
+    ))?;
     ensure!(
         model.result_id == expected_result,
         "Darstellung gehört zu einer anderen Rechnung"
