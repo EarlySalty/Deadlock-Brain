@@ -1547,7 +1547,17 @@ impl LocalPgReader {
                 EntityKind::Ability => "ability",
                 EntityKind::Item => "item",
             };
-            let story_rows = tx.query("SELECT to_jsonb(c) FROM brain.patch_changes c WHERE (c.entity_type=$2 AND lower(c.entity_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n)) OR ($2='ability' AND c.entity_type='hero' AND lower(c.ability_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n)) ORDER BY c.patch_date,c.stat_name", &[&story_names,&kind])?;
+            let story_names: Vec<String> = tx
+                .query_one(
+                    crate::entity_profile::NORMALIZE_PATCH_STORY_NAMES_SQL,
+                    &[&story_names],
+                )?
+                .try_get(0)
+                .map_err(error)?;
+            let story_rows = tx.query(
+                crate::entity_profile::PATCH_STORY_SQL,
+                &[&story_names, &kind],
+            )?;
             let story = story_rows
                 .into_iter()
                 .map(|row| {

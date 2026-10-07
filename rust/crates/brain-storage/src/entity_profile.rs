@@ -600,11 +600,25 @@ impl PgStore {
         sqlx::raw_sql("SET TRANSACTION READ ONLY; SET LOCAL statement_timeout='5000ms'")
             .execute(&mut *tx)
             .await?;
-        let story: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(c) FROM brain.patch_changes c WHERE (c.entity_type=$2 AND lower(c.entity_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n)) OR ($2='ability' AND c.entity_type='hero' AND lower(c.ability_name)=ANY(SELECT lower(n) FROM unnest($1::text[]) n)) ORDER BY c.patch_date,c.stat_name").bind(names).bind(kind).fetch_all(&mut *tx).await?;
+        let names: Vec<String> = sqlx::query_scalar(NORMALIZE_PATCH_STORY_NAMES_SQL)
+            .bind(names)
+            .fetch_one(&mut *tx)
+            .await?;
+        // Der konkrete Entitätstyp muss vor der View-Aufbereitung feststehen.
+        let story: Vec<Value> = sqlx::query_scalar(PATCH_STORY_SQL)
+            .persistent(false)
+            .bind(names)
+            .bind(kind)
+            .fetch_all(&mut *tx)
+            .await?;
         tx.commit().await?;
         story.into_iter().map(decode_patch_change).collect()
     }
 }
+
+pub(crate) const NORMALIZE_PATCH_STORY_NAMES_SQL: &str =
+    "SELECT ARRAY(SELECT lower(n) FROM unnest($1::text[]) n)";
+pub(crate) const PATCH_STORY_SQL: &str = "SELECT to_jsonb(c) FROM brain.patch_changes c WHERE (c.entity_type=$2 AND lower(c.entity_name)=ANY($1::text[])) OR ($2='ability' AND c.entity_type='hero' AND lower(c.ability_name)=ANY($1::text[])) ORDER BY c.patch_date,c.stat_name";
 
 pub(crate) fn decode_patch_change(value: Value) -> crate::Result<PatchStoryChange> {
     let mut fields = value

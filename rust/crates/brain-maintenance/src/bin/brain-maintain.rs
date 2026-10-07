@@ -24,6 +24,14 @@ enum Task {
         #[arg(long)]
         job_id: Option<String>,
     },
+    ResumeEntityProfiles {
+        #[arg(long)]
+        original_release_id: String,
+        #[arg(long)]
+        original_release_sha256: String,
+        #[arg(long)]
+        expected_serve_config_sha256: String,
+    },
     Status,
     Migrate,
     ImportReviewed {
@@ -107,8 +115,22 @@ async fn run() -> Result<()> {
         return Ok(());
     }
     let runner = Runner::open(runtime).await?;
+    let check_tick = matches!(&cli.command, Task::Tick { .. });
     let result = match cli.command {
         Task::Tick { job_id } => runner.tick_for_job(job_id.as_deref()).await?,
+        Task::ResumeEntityProfiles {
+            original_release_id,
+            original_release_sha256,
+            expected_serve_config_sha256,
+        } => {
+            runner
+                .resume_entity_profiles(
+                    &original_release_id,
+                    &original_release_sha256,
+                    &expected_serve_config_sha256,
+                )
+                .await?
+        }
         Task::Status => runner.status().await?,
         Task::ImportReviewed { public_docs } => runner.import_reviewed(public_docs).await?,
         Task::ImportC9Release {
@@ -130,5 +152,33 @@ async fn run() -> Result<()> {
         Task::WriteServeConfig { .. } => unreachable!(),
     };
     println!("{}", serde_json::to_string_pretty(&result)?);
+    if check_tick {
+        ensure!(tick_succeeded(&result), "maintenance_tick_failed");
+    }
     Ok(())
+}
+
+fn tick_succeeded(result: &serde_json::Value) -> bool {
+    result
+        .get("isolated_errors")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(Vec::is_empty)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn tick_failure_is_not_success() {
+        assert!(tick_succeeded(&json!({"isolated_errors":[],"jobs":[]})));
+        assert!(!tick_succeeded(
+            &json!({"isolated_errors":[{"code":"ENTITY_PROFILE_REFRESH_FAILED"}],"jobs":[]})
+        ));
+        assert!(tick_succeeded(
+            &json!({"isolated_errors":[],"jobs":[{"status":"failed"}]})
+        ));
+        assert!(!tick_succeeded(&json!({})));
+    }
 }

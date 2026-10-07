@@ -17,6 +17,18 @@ type StoredGitBindingRow = (
     Option<String>,
 );
 
+type DocumentBindingRow = (
+    String,
+    String,
+    String,
+    Option<Value>,
+    Option<Value>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SemanticProjection {
     pub relative_pointer: String,
@@ -298,6 +310,78 @@ pub fn project_semantic_fact_with_context(
 }
 
 impl PgStore {
+    /// Vollständige gespeicherte Bindungen einer unveränderten Originalrevision.
+    pub async fn stored_document_bindings_with_context(
+        &self,
+        context: &EntityDocumentContext<'_>,
+    ) -> Result<Vec<(String, super::derivation::StoredGitBinding)>> {
+        let record = context.record();
+        let revision =
+            i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::raw_sql("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            .execute(&mut *tx)
+            .await?;
+        crate::pg_jobs::lock_source(&mut tx, &record.source_id).await?;
+        let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+            .bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_one(&mut *tx).await?;
+        if stored != serde_json::to_value(record)? {
+            return Err(invalid(
+                "Bindungsprüfung widerspricht der gespeicherten Quellrevision",
+            ));
+        }
+        drop(stored);
+        let rows: Vec<DocumentBindingRow> = sqlx::query_as("SELECT f.entity_key,f.fact_id,f.fact_json,f.binding_identity_json,e.identity_json,s.relative_pointer,s.semantic_predicate,s.semantic_qualifiers_json,s.semantic_unit FROM brain.entity_profile_facts_v1 f LEFT JOIN brain.entity_profile_entities_v1 e USING(entity_key) LEFT JOIN brain.entity_semantic_projections_v1 s USING(entity_key,source_id,logical_id,revision,fact_id) WHERE f.source_id=$1 AND f.logical_id=$2 AND f.revision=$3 ORDER BY f.entity_key,f.fact_id")
+            .bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_all(&mut *tx).await?;
+        let mut bindings = Vec::new();
+        for (key, fact_id, fact, identity, entity, pointer, predicate, qualifiers, unit) in rows {
+            let original_fact: EntityProfileFact = serde_json::from_str(&fact)?;
+            if original_fact.fact_id != fact_id {
+                return Err(invalid(
+                    "Gespeicherter Faktenschlüssel widerspricht dem Originalbeleg",
+                ));
+            }
+            let identity: EntityIdentity = serde_json::from_value(
+                identity.ok_or_else(|| invalid("Gespeicherte Bindungsidentität fehlt"))?,
+            )?;
+            let entity: EntityIdentity = serde_json::from_value(
+                entity.ok_or_else(|| invalid("Gespeicherte Entität fehlt"))?,
+            )?;
+            if identity.entity_key != key
+                || entity.entity_key != key
+                || identity.kind != entity.kind
+            {
+                return Err(invalid(
+                    "Gespeicherte Entität widerspricht der Faktenbindung",
+                ));
+            }
+            let projection = match (pointer, predicate, qualifiers) {
+                (Some(relative_pointer), Some(predicate), Some(qualifiers)) => {
+                    Some(SemanticProjection {
+                        relative_pointer,
+                        predicate,
+                        qualifiers: serde_json::from_str(&qualifiers)?,
+                        unit,
+                    })
+                }
+                (None, None, None) if unit.is_none() => None,
+                _ => return Err(invalid("Gespeicherte Semantik ist unvollständig")),
+            };
+            bindings.push((
+                key,
+                super::derivation::StoredGitBinding {
+                    source_id: record.source_id.clone(),
+                    logical_id: record.logical_id.clone(),
+                    store_revision: record.revision,
+                    original_fact,
+                    binding_identity: identity,
+                    semantic_projection: projection,
+                },
+            ));
+        }
+        tx.commit().await?;
+        Ok(bindings)
+    }
     pub async fn stored_git_entity_bindings(
         &self,
         entity_key: &str,

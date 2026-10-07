@@ -330,6 +330,27 @@ pub async fn bind_stored_document(
     revision: u64,
     catalog: &[CatalogEntity],
 ) -> brain_storage::Result<StoredBindingSummary> {
+    stored_document_bindings(store, source_id, logical_id, revision, catalog, false).await
+}
+
+pub async fn verify_stored_document_bindings(
+    store: &brain_storage::PgStore,
+    source_id: &str,
+    logical_id: &str,
+    revision: u64,
+    catalog: &[CatalogEntity],
+) -> brain_storage::Result<StoredBindingSummary> {
+    stored_document_bindings(store, source_id, logical_id, revision, catalog, true).await
+}
+
+async fn stored_document_bindings(
+    store: &brain_storage::PgStore,
+    source_id: &str,
+    logical_id: &str,
+    revision: u64,
+    catalog: &[CatalogEntity],
+    verify_only: bool,
+) -> brain_storage::Result<StoredBindingSummary> {
     use brain_storage::entity_profile::{
         semantic::{project_semantic_fact_with_context, semantic_projection_with_context},
         EntityDocumentContext,
@@ -351,6 +372,23 @@ pub async fn bind_stored_document(
         ambiguous_fact_ids: coverage.ambiguous_fact_ids,
         ..Default::default()
     };
+    let mut verified = BTreeMap::new();
+    if verify_only {
+        for (key, binding) in store
+            .stored_document_bindings_with_context(&context)
+            .await?
+        {
+            if verified
+                .insert((key, binding.original_fact.fact_id.clone()), binding)
+                .is_some()
+            {
+                return Err(binding_validation_error());
+            }
+        }
+        if verified.len() != result.bound_facts {
+            return Err(binding_validation_error());
+        }
+    }
     let mut grouped: BTreeMap<String, Vec<FactBinding>> = BTreeMap::new();
     for binding in coverage.bindings {
         grouped
@@ -377,12 +415,20 @@ pub async fn bind_stored_document(
             .collect();
         identity.identity_evidence.sort();
         identity.identity_evidence.dedup();
-        let previous: BTreeMap<_, _> = store
-            .stored_git_entity_bindings_with_context(&key, &context)
-            .await?
-            .into_iter()
-            .map(|binding| (binding.original_fact.fact_id.clone(), binding))
-            .collect();
+        let previous: BTreeMap<_, _> = if verify_only {
+            verified
+                .iter()
+                .filter(|((entity, _), _)| entity == &key)
+                .map(|((_, id), binding)| (id.clone(), binding.clone()))
+                .collect()
+        } else {
+            store
+                .stored_git_entity_bindings_with_context(&key, &context)
+                .await?
+                .into_iter()
+                .map(|binding| (binding.original_fact.fact_id.clone(), binding))
+                .collect()
+        };
         identity
             .identity_evidence
             .extend(previous.values().flat_map(|binding| {
@@ -402,6 +448,13 @@ pub async fn bind_stored_document(
                 .collect();
             let mut projections = Vec::new();
             for (binding, original) in chunk.iter().zip(context.project(&ids)?) {
+                if verify_only
+                    && !previous.get(&original.fact_id).is_some_and(|stored| {
+                        stored.original_fact == original && stored.binding_identity == identity
+                    })
+                {
+                    return Err(binding_validation_error());
+                }
                 if let Some(previous) = previous.get(&original.fact_id) {
                     if let Some(projection) = &previous.semantic_projection {
                         project_semantic_fact_with_context(
@@ -423,17 +476,28 @@ pub async fn bind_stored_document(
                     &context,
                     &identity,
                 )? {
+                    if verify_only {
+                        return Err(binding_validation_error());
+                    }
                     projections.push((original.fact_id, projection));
                 }
             }
-            result.inserted_bindings += store
-                .store_entity_fact_bindings_with_context(&identity, &context, &ids)
-                .await?;
-            result.inserted_projections += store
-                .store_entity_semantic_projections_with_context(&key, &context, &projections)
-                .await?;
+            if !verify_only {
+                result.inserted_bindings += store
+                    .store_entity_fact_bindings_with_context(&identity, &context, &ids)
+                    .await?;
+                result.inserted_projections += store
+                    .store_entity_semantic_projections_with_context(&key, &context, &projections)
+                    .await?;
+            }
         }
         result.entity_keys.push(key);
     }
     Ok(result)
+}
+
+fn binding_validation_error() -> brain_storage::StorageError {
+    brain_storage::StorageError::Json(<serde_json::Error as serde::de::Error>::custom(
+        "Vorhandene Faktenbindung ist unvollständig oder widerspricht dem aktuellen Originalbeleg",
+    ))
 }

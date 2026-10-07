@@ -14,6 +14,8 @@ const READ_HEADERS: &str =
 const READ_HEADER_WRITER: &str = include_str!(
     "../../../../scripts/migrations/2026-10-06-brain-source-read-header-writer-v1.sql"
 );
+const PATCH_STORY_INLINE: &str =
+    include_str!("../../../../scripts/migrations/2026-10-07-brain-patch-story-inline-v1.sql");
 const ENTITY_MIGRATIONS: [(&str, &str); 4] = [
     (
         include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"),
@@ -242,6 +244,14 @@ impl PgStore {
         }
         for migration in [V1, V2, READ_HEADERS, READ_HEADER_WRITER] {
             sqlx::raw_sql(body(migration)?)
+                .execute(&mut *tx)
+                .await
+                .map_err(migration_error)?;
+        }
+        let patch_tables: bool = sqlx::query_scalar("SELECT to_regclass('brain.patch_events') IS NOT NULL AND to_regclass('brain.patch_event_enrichments') IS NOT NULL AND to_regclass('patchnotes.changelog_posts') IS NOT NULL")
+            .fetch_one(&mut *tx).await.map_err(migration_error)?;
+        if patch_tables {
+            sqlx::raw_sql(body(PATCH_STORY_INLINE)?)
                 .execute(&mut *tx)
                 .await
                 .map_err(migration_error)?;

@@ -405,7 +405,7 @@ WITH patch_catalog AS (
         greatest(coalesce(pe.confidence, 0), coalesce(pee.confidence, 0)) AS confidence
     FROM brain.patch_events pe
     LEFT JOIN brain.patch_event_enrichments pee ON pee.patch_event_id = pe.id
-), base AS (
+), base AS NOT MATERIALIZED (
     SELECT
         id,
         patch_title_key,
@@ -643,6 +643,25 @@ mod tests {
     use super::*;
     use sqlx::postgres::{PgPool, PgPoolOptions};
     use sqlx::Row;
+
+    #[test]
+    fn patch_story_migration_matches_initializer() {
+        let migration = include_str!(
+            "../../../../scripts/migrations/2026-10-07-brain-patch-story-inline-v1.sql"
+        );
+        let body = migration
+            .trim()
+            .strip_prefix("BEGIN;")
+            .unwrap()
+            .trim()
+            .strip_suffix("COMMIT;")
+            .unwrap()
+            .trim()
+            .strip_suffix(';')
+            .unwrap()
+            .trim();
+        assert_eq!(body, PATCH_CHANGES_VIEW_SQL.trim());
+    }
 
     /// Wegwerf-Postgres aus `DEADLOCK_CENTRAL_DSN`. `None` (Test-Skip), wenn die
     /// Variable nicht gesetzt ist — identisch zum bereits portierten `dbrain-enrich`.

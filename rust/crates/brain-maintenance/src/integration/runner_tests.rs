@@ -6,6 +6,59 @@ use crate::{
 use brain_contracts::{source::SourcePolicy, value::Observed, SourceVisibility};
 use std::{collections::BTreeSet, fs, path::Path, process::Command};
 
+#[test]
+fn profile_resume_rejects_changed_original_pins_and_config() {
+    let original = brain_contracts::CorpusRelease {
+        release_id: "original".into(),
+        knowledge_version: "v1".into(),
+        patch: "unknown".into(),
+        created_at_epoch: 1,
+        source_revisions: std::collections::BTreeMap::from([(
+            "game".into(),
+            std::collections::BTreeMap::from([("facts".into(), 1)]),
+        )]),
+    };
+    let hash = digest(&serde_json::to_vec(&original).unwrap());
+    let sources = vec!["game".into()];
+    assert!(super::verify_resume_original(
+        &original,
+        "original",
+        &hash,
+        &sources,
+        &original.source_revisions
+    )
+    .is_ok());
+    assert!(super::verify_resume_original(
+        &original,
+        "other",
+        &hash,
+        &sources,
+        &original.source_revisions
+    )
+    .is_err());
+    assert!(super::verify_resume_original(
+        &original,
+        "original",
+        "incorrect",
+        &sources,
+        &original.source_revisions
+    )
+    .is_err());
+    let mut changed = original.source_revisions.clone();
+    changed.get_mut("game").unwrap().insert("facts".into(), 2);
+    assert!(
+        super::verify_resume_original(&original, "original", &hash, &sources, &changed).is_err()
+    );
+    changed.clear();
+    assert!(
+        super::verify_resume_original(&original, "original", &hash, &sources, &changed).is_err()
+    );
+    let config = b"{\"release\":\"v1\"}";
+    let config_hash = digest(config);
+    assert!(super::verify_resume_config(config, &config_hash).is_ok());
+    assert!(super::verify_resume_config(b"{\"release\":\"v2\"}", &config_hash).is_err());
+}
+
 fn git(path: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
         .args([
