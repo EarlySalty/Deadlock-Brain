@@ -192,6 +192,8 @@ fn analytics_content(
                 || population.item_id != Some(*item_id)
                 || population.provenance.min_unix_timestamp != from
                 || population.provenance.max_unix_timestamp != to
+                || population.provenance.min_average_badge != meta.provenance.min_average_badge
+                || population.provenance.max_average_badge != meta.provenance.max_average_badge
             {
                 return None;
             }
@@ -984,7 +986,9 @@ mod tests {
                     "total_denies":10,"total_player_damage":500000,
                     "total_player_damage_taken":400000,"total_boss_damage":10000,
                     "total_creep_damage":200000,"total_neutral_damage":50000,
-                    "total_max_health":30000,"total_shots_hit":1000,"total_shots_missed":500
+                    "total_max_health":30000,"total_shots_hit":1000,"total_shots_missed":500,
+                    "permanent_buff_matches":0,"permanent_buff_timing_matches":0,
+                    "total_first_permanent_buff_time_s":0,"total_permanent_buffs":0
                 }]);
                 let bytes = serde_json::to_vec(&body).unwrap();
                 write!(
@@ -1089,7 +1093,9 @@ mod tests {
                     "total_denies":10,"total_player_damage":500000,
                     "total_player_damage_taken":400000,"total_boss_damage":10000,
                     "total_creep_damage":200000,"total_neutral_damage":50000,
-                    "total_max_health":30000,"total_shots_hit":1000,"total_shots_missed":500
+                    "total_max_health":30000,"total_shots_hit":1000,"total_shots_missed":500,
+                    "permanent_buff_matches":0,"permanent_buff_timing_matches":0,
+                    "total_first_permanent_buff_time_s":0,"total_permanent_buffs":0
                 }]);
                 let bytes = serde_json::to_vec(&body).unwrap();
                 write!(
@@ -1242,6 +1248,8 @@ mod tests {
                 patch_membership: PatchMembership::Unverified,
                 min_unix_timestamp: 1_790_000_000,
                 max_unix_timestamp: 1_790_086_400,
+                min_average_badge: None,
+                max_average_badge: None,
                 attempts: 1,
             },
         };
@@ -1272,6 +1280,21 @@ mod tests {
         )
         .is_none());
         population.provenance.max_unix_timestamp = meta.provenance.max_unix_timestamp;
+        for (min, max) in [(Some(70), None), (None, Some(80))] {
+            population.provenance.min_average_badge = min;
+            population.provenance.max_average_badge = max;
+            assert!(analytics_content(
+                &AnalyticsTarget::Population {
+                    hero_id: 18,
+                    item_id: 42,
+                },
+                &meta,
+                Some(&population),
+            )
+            .is_none());
+        }
+        population.provenance.min_average_badge = None;
+        population.provenance.max_average_badge = None;
         population.rows[0] = json!({"hero_id":18,"bucket":0,"wins":0,"losses":0,"matches":0});
         let content = analytics_content(
             &AnalyticsTarget::Population {

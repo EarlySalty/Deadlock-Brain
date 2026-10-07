@@ -1,0 +1,8 @@
+error: cyclic package dependency: package `dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-builds)` depends on itself. Cycle:
+package `dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-builds)`
+    ... which satisfies path dependency `dbrain-builds` (locked to 0.1.0) of package `deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/deadlock-brain-core)`
+    ... which satisfies path dependency `deadlock-brain-core` (locked to 0.1.0) of package `dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-builds)`
+    ... which satisfies path dependency `dbrain-builds` (locked to 0.1.0) of package `dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-reasoner)`
+    ... which satisfies path dependency `dbrain-reasoner` (locked to 0.1.0) of package `dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-retrieval)`
+    ... which satisfies path dependency `dbrain-retrieval` (locked to 0.1.0) of package `dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-sources)`
+    ... which satisfies path dependency `dbrain-sources` (locked to 0.1.0) of package `brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/brain-feeds)`

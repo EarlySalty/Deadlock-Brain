@@ -1,4 +1,3 @@
-//! PR #61 regressions using the real release retriever and canonical current heads.
 use brain_contracts::{
     AnswerProfile, AnswerProviderPort, AnswerStatus, AuthorizedContext, Budget, DocumentStorePort,
     Evidence, PortError, Principal, ProviderAnswer, Query, SourceRecordV2, SourceVisibility, Usage,
@@ -20,7 +19,7 @@ fn record(id: &str, revision: u64) -> SourceRecordV2 {
         source_id: format!("review-{id}"),
         logical_id: "entity/hero/Abrams".into(),
         revision,
-        content_hash: format!("hash-{id}-{revision}"),
+        content_hash: dbrain_sources::external::sha256(format!("Abrams input {id}").as_bytes()),
         content: format!("Abrams input {id}"),
         visibility: SourceVisibility::Public,
         allowed_scopes: BTreeSet::new(),
@@ -140,7 +139,6 @@ async fn uncited_provider_input_revoked_during_call_must_not_publish_or_cache() 
         );
         assert!(first.citations.is_empty());
         assert!(!first.text.contains("uncited B"));
-        // The same request must not recover a successful cached answer from the failed call.
         let second = cache.answer(&q, &context());
         assert!(!second.text.contains("uncited B"));
     }
@@ -170,7 +168,6 @@ async fn cache_hit_revalidates_uncited_input_acl_and_tombstone() {
         assert_eq!(first.status, AnswerStatus::Answered);
         assert_eq!(first.citations.len(), 1);
         assert_eq!(first.citations[0].source_id, "review-a");
-        // Internal input dependencies must not expand even the internal response's citations.
         assert!(!serde_json::to_string(&first).unwrap().contains("review-b"));
         assert_eq!(cache.answer(&q, &context()).usage.network_rounds, 0);
         revoke(&store, record("b", 1), tombstone);
@@ -209,7 +206,6 @@ async fn fact_reuse_rechecks_newly_visible_conflict_and_alias_collision() {
             b.logical_id = "entity/hero/Bebop".into();
             b.content = "hero: Bebop\nAliases: Guardian\nhealth: 700".into();
         } else {
-            // Two field records of the SAME entity, not two name-colliding owners.
             a.source_id = "review-facts".into();
             a.logical_id = "asset/hero/25/a".into();
             b.source_id = "review-facts".into();
@@ -217,6 +213,8 @@ async fn fact_reuse_rechecks_newly_visible_conflict_and_alias_collision() {
             b.content = "hero: Abrams\nhealth: 700".into();
         }
         b.metadata.insert("kind".into(), "fact".into());
+        a.content_hash = dbrain_sources::external::sha256(a.content.as_bytes());
+        b.content_hash = dbrain_sources::external::sha256(b.content.as_bytes());
         store.apply_record(a).unwrap();
         store.apply_record(b.clone()).unwrap();
         publish(&store).await;
@@ -271,6 +269,7 @@ async fn hybrid_fact_limit_cannot_hide_a_pinned_conflicting_value() {
         fact.logical_id = format!("asset/hero/25/{id}");
         fact.content = format!("hero: Abrams\nhealth: {value}");
         fact.metadata.insert("kind".into(), "fact".into());
+        fact.content_hash = dbrain_sources::external::sha256(fact.content.as_bytes());
         store.apply_record(fact).unwrap();
     }
     publish(&store).await;
@@ -320,14 +319,14 @@ async fn fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads() {
     let mut a = record("a", 1);
     a.content = "hero: Abrams\nhealth: 650".into();
     a.metadata.insert("kind".into(), "fact".into());
+    a.content_hash = dbrain_sources::external::sha256(a.content.as_bytes());
     store.apply_record(a).unwrap();
-    // Include enough unrelated pinned facts to exercise the release index,
-    // rather than measuring a one-document special case.
     for index in 1..256 {
         let mut unrelated = record(&format!("unrelated-{index}"), 1);
         unrelated.logical_id = format!("entity/hero/Unrelated{index}");
         unrelated.content = format!("hero: Unrelated{index}\nhealth: 650");
         unrelated.metadata.insert("kind".into(), "fact".into());
+        unrelated.content_hash = dbrain_sources::external::sha256(unrelated.content.as_bytes());
         store.apply_record(unrelated).unwrap();
     }
     publish(&store).await;
@@ -412,6 +411,8 @@ async fn concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner() {
             "hero: Abrams\nhealth: 700"
         }
         .into();
+        a.content_hash = dbrain_sources::external::sha256(a.content.as_bytes());
+        b.content_hash = dbrain_sources::external::sha256(b.content.as_bytes());
         store.apply_record(a).unwrap();
         store.apply_record(b.clone()).unwrap();
         publish(&store).await;

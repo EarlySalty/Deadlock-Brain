@@ -1,0 +1,58 @@
+COMMAND /home/nathanael/.local/bin/cargo-slot clippy --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-contracts --package brain-providers --package brain-serve --package dbrain-sources --package dbrain-retrieval --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- -D warnings
+cargo-slot: Slot 1, optimiert=0
+    Checking brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+    Checking fireworks-model-selection v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/vendor/fireworks-model-selection)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Checking uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/vendor/uplink-infisical-transport)
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+    Checking brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-policy)
+    Checking brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+    Checking brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers)
+    Checking brain-api v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-api)
+    Checking brain-client v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-client)
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+    Checking brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-ingestion)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+    Checking dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-wiki)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+    Checking dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+error: items after a test module
+   --> crates/dbrain-retrieval/src/release_port.rs:510:1
+    |
+510 |   mod cache_scope_tests {
+    |   ^^^^^^^^^^^^^^^^^^^^^
+...
+598 | / fn effective_head(
+599 | |     record: &SourceRecordV2,
+600 | |     head: Option<&DocumentHead>,
+601 | |     query: &Query,
+602 | |     context: &AuthorizedContext,
+603 | |     provider: bool,
+604 | | ) -> Result<Option<DocumentHead>, PortError> {
+    | |____________________________________________^
+...
+641 | / pub fn pack(
+642 | |     query: &Query,
+643 | |     context: &AuthorizedContext,
+644 | |     hits: Vec<Evidence>,
+645 | | ) -> Result<Vec<Evidence>, PortError> {
+    | |_____________________________________^
+...
+662 |   pub(crate) fn invalid(message: &str) -> PortError {
+    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+665 |   fn denied(message: &str) -> PortError {
+    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#items_after_test_module
+    = note: `-D clippy::items-after-test-module` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::items_after_test_module)]`
+    = help: move the items to before the test module was defined
+
+error: could not compile `dbrain-retrieval` (lib test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+cargo-slot: EXIT=101
+
+EXIT=101 SIGNAL=null

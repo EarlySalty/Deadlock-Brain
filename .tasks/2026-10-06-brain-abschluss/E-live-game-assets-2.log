@@ -1,0 +1,25 @@
+   Compiling nix v0.29.0
+   Compiling reqwest v0.12.28
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-reasoner)
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-builds)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/deadlock-brain-core)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-population)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-wiki)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-sources)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 23s
+     Running unittests src/lib.rs (rust/target/debug/deps/dbrain_sources-a721ff7b1a8fb70e)
+
+running 1 test
+test assets_api::tests::live_versioned_game_assets_contract ... client_version=6759 kind=items language=english bytes=6037726 entities=746 raw_sha256=86540843b94601ca753068767f1320649e03634e22c070fe2aead8d6faf85287
+client_version=6759 kind=items language=german bytes=6188422 entities=746 raw_sha256=96bef40a5a95f06477d7841b8e3814af6c12e57d658b2509e3257de51f5aea19
+client_version=6759 kind=heroes language=english bytes=1296827 entities=40 raw_sha256=f446d606a25fb468924d83910591e8f38363d593871b8c2a7251233da897cc72
+client_version=6759 kind=heroes language=german bytes=1304756 entities=40 raw_sha256=f3500278a32ea7b3e52154ecc335778ca5aba47ce004ef891b96a4903dc07ff1
+client_version=6759 kind=heroes_all language=english bytes=1862430 entities=65 raw_sha256=172aa578b4624c6c7800b72467336347c0ce0a3303e3319f8a54e221668a5edb
+client_version=6759 kind=heroes_all language=german bytes=1871129 entities=65 raw_sha256=1e918fb8e4550b194633a35d64a835a37aaa299c528ad0c6972cd81a48ebc889
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 214 filtered out; finished in 12.52s
+

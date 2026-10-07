@@ -3,12 +3,13 @@ use crate::{
     schema_watch::{validate_consumed, OpenApiSnapshot, SchemaDependency},
     Result, SourcesError,
 };
+use brain_contracts::tools::ToolAnalyticsSelection;
 use deadlock_brain_core::http::{HttpClient, SourceHttpOptions, SourceHttpResponse};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
 
@@ -119,6 +120,10 @@ pub struct AnalyticsProvenance {
     pub patch_membership: PatchMembership,
     pub min_unix_timestamp: i64,
     pub max_unix_timestamp: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_average_badge: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_average_badge: Option<u32>,
     pub attempts: usize,
 }
 
@@ -188,7 +193,7 @@ impl DeadlockAnalyticsClient {
         request: &AnalyticsLookupRequest,
         deadline: Instant,
     ) -> Result<AnalyticsObservation> {
-        self.lookup_until(request, deadline, None)
+        self.lookup_until(request, deadline, None, None)
     }
 
     pub fn lookup_with_request_deadline(
@@ -197,7 +202,44 @@ impl DeadlockAnalyticsClient {
         deadline: Instant,
         lifetime: &brain_contracts::RequestDeadline,
     ) -> Result<AnalyticsObservation> {
-        self.lookup_until(request, deadline.min(lifetime.expires_at()), Some(lifetime))
+        self.lookup_until(
+            request,
+            deadline.min(lifetime.expires_at()),
+            Some(lifetime),
+            None,
+        )
+    }
+
+    pub fn lookup_with_selection_and_request_deadline(
+        &self,
+        request: &AnalyticsLookupRequest,
+        selection: &ToolAnalyticsSelection,
+        deadline: Instant,
+        lifetime: &brain_contracts::RequestDeadline,
+    ) -> Result<AnalyticsObservation> {
+        self.lookup_until(
+            request,
+            deadline.min(lifetime.expires_at()),
+            Some(lifetime),
+            Some(selection),
+        )
+    }
+
+    pub fn lookup_comparison_with_request_deadline(
+        &self,
+        request: &AnalyticsLookupRequest,
+        hero_ids: &[u32],
+        selection: &ToolAnalyticsSelection,
+        deadline: Instant,
+        lifetime: &brain_contracts::RequestDeadline,
+    ) -> Result<Vec<AnalyticsObservation>> {
+        self.lookup_comparison_until(
+            request,
+            hero_ids,
+            deadline.min(lifetime.expires_at()),
+            Some(lifetime),
+            Some(selection),
+        )
     }
 
     fn lookup_until(
@@ -205,9 +247,26 @@ impl DeadlockAnalyticsClient {
         request: &AnalyticsLookupRequest,
         deadline: Instant,
         lifetime: Option<&brain_contracts::RequestDeadline>,
+        selection: Option<&ToolAnalyticsSelection>,
     ) -> Result<AnalyticsObservation> {
-        request.validate()?;
-        let url = self.url(request);
+        self.lookup_comparison_until(request, &[request.hero_id], deadline, lifetime, selection)?
+            .pop()
+            .ok_or_else(|| SourcesError::invariant("analytics observation missing"))
+    }
+
+    fn lookup_comparison_until(
+        &self,
+        request: &AnalyticsLookupRequest,
+        hero_ids: &[u32],
+        deadline: Instant,
+        lifetime: Option<&brain_contracts::RequestDeadline>,
+        selection: Option<&ToolAnalyticsSelection>,
+    ) -> Result<Vec<AnalyticsObservation>> {
+        validate_selection(request, hero_ids, selection)?;
+        if lifetime.is_some_and(|lifetime| lifetime.check().is_err()) {
+            return Err(SourcesError::invalid_input("analytics request cancelled"));
+        }
+        let url = self.url(request, selection);
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return Err(SourcesError::invalid_input("analytics deadline exhausted"));
@@ -227,68 +286,94 @@ impl DeadlockAnalyticsClient {
                 .get_bounded_until_cancellable(&url, options, deadline, lifetime),
             None => self.http.get_bounded_until(&url, options, deadline),
         }?;
-        let observation = prepare_analytics_response(request, response)?;
+        let observations = prepare_analytics_responses(request, hero_ids, selection, response)?;
         if Instant::now() >= deadline || lifetime.is_some_and(|lifetime| lifetime.check().is_err())
         {
             return Err(SourcesError::invalid_input("analytics deadline exhausted"));
         }
-        Ok(observation)
+        Ok(observations)
     }
 
-    fn url(&self, request: &AnalyticsLookupRequest) -> String {
-        let (min, max) = request
-            .effective_window()
-            .expect("validated analytics window");
-        let upstream_max = max - UPSTREAM_HOUR_SECONDS;
-        match request.kind {
-            AnalyticsKind::Meta => format!(
-                "{}{path}?bucket=no_bucket&game_mode=normal&match_mode=ranked%2Cunranked&min_match_id=0&min_unix_timestamp={min}&max_unix_timestamp={upstream_max}",
-                self.base_url,
-                path = request.kind.path(),
-            ),
-            AnalyticsKind::Population => format!(
-                "{}{path}?bucket=no_bucket&game_mode=normal&match_mode=ranked%2Cunranked&min_match_id=0&include_item_ids={item}&min_unix_timestamp={min}&max_unix_timestamp={upstream_max}",
-                self.base_url,
-                path = request.kind.path(),
-                item = request.item_id.expect("validated population item"),
-            ),
-        }
+    fn url(
+        &self,
+        request: &AnalyticsLookupRequest,
+        selection: Option<&ToolAnalyticsSelection>,
+    ) -> String {
+        let mut url = Url::parse(&format!("{}{}", self.base_url, request.kind.path()))
+            .expect("validated analytics origin");
+        url.query_pairs_mut()
+            .extend_pairs(expected_query(request, selection));
+        url.into()
     }
 }
 
-fn expected_query(request: &AnalyticsLookupRequest) -> BTreeMap<&'static str, String> {
+fn validate_selection(
+    request: &AnalyticsLookupRequest,
+    hero_ids: &[u32],
+    selection: Option<&ToolAnalyticsSelection>,
+) -> Result<()> {
+    request.validate()?;
+    let unique: BTreeSet<_> = hero_ids.iter().copied().collect();
+    if hero_ids.is_empty()
+        || hero_ids.len() > MAX_ROWS
+        || unique.len() != hero_ids.len()
+        || unique.contains(&0)
+        || !unique.contains(&request.hero_id)
+    {
+        return Err(SourcesError::invalid_input(
+            "invalid analytics comparison population",
+        ));
+    }
+    if let Some(selection) = selection {
+        selection
+            .validate()
+            .map_err(|_| SourcesError::invalid_input("invalid analytics rank or time selection"))?;
+        if selection.min_unix_timestamp != request.min_unix_timestamp
+            || selection.max_unix_timestamp != request.max_unix_timestamp
+        {
+            return Err(SourcesError::invalid_input(
+                "analytics selection window mismatch",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn expected_query(
+    request: &AnalyticsLookupRequest,
+    selection: Option<&ToolAnalyticsSelection>,
+) -> BTreeMap<&'static str, String> {
     let (min, max) = request
         .effective_window()
         .expect("validated analytics window");
     let upstream_max = max - UPSTREAM_HOUR_SECONDS;
-    match request.kind {
-        AnalyticsKind::Meta => BTreeMap::from([
-            ("bucket", "no_bucket".into()),
-            ("game_mode", "normal".into()),
-            ("match_mode", "ranked,unranked".into()),
-            ("min_match_id", "0".into()),
-            ("min_unix_timestamp", min.to_string()),
-            ("max_unix_timestamp", upstream_max.to_string()),
-        ]),
-        AnalyticsKind::Population => BTreeMap::from([
-            ("bucket", "no_bucket".into()),
-            ("game_mode", "normal".into()),
-            ("match_mode", "ranked,unranked".into()),
-            ("min_match_id", "0".into()),
-            (
-                "include_item_ids",
-                request
-                    .item_id
-                    .expect("validated population item")
-                    .to_string(),
-            ),
-            ("min_unix_timestamp", min.to_string()),
-            ("max_unix_timestamp", upstream_max.to_string()),
-        ]),
+    let mut query = BTreeMap::from([
+        ("bucket", "no_bucket".into()),
+        ("game_mode", "normal".into()),
+        ("match_mode", "ranked,unranked".into()),
+        ("min_match_id", "0".into()),
+        ("min_unix_timestamp", min.to_string()),
+        ("max_unix_timestamp", upstream_max.to_string()),
+    ]);
+    if let Some(item) = request.item_id {
+        query.insert("include_item_ids", item.to_string());
     }
+    if let Some(selection) = selection {
+        if let Some(badge) = selection.min_average_badge {
+            query.insert("min_average_badge", badge.to_string());
+        }
+        if let Some(badge) = selection.max_average_badge {
+            query.insert("max_average_badge", badge.to_string());
+        }
+    }
+    query
 }
 
-fn validate_response_locator(request: &AnalyticsLookupRequest, value: &str) -> Result<()> {
+fn validate_response_locator(
+    request: &AnalyticsLookupRequest,
+    selection: Option<&ToolAnalyticsSelection>,
+    value: &str,
+) -> Result<()> {
     let url = Url::parse(value)
         .map_err(|_| SourcesError::invalid_input("invalid analytics response locator"))?;
     let production = url.scheme() == "https"
@@ -327,7 +412,7 @@ fn validate_response_locator(request: &AnalyticsLookupRequest, value: &str) -> R
             ));
         }
     }
-    let expected: BTreeMap<String, String> = expected_query(request)
+    let expected: BTreeMap<String, String> = expected_query(request, selection)
         .into_iter()
         .map(|(key, value)| (key.into(), value))
         .collect();
@@ -364,11 +449,22 @@ pub fn prepare_analytics_response(
     request: &AnalyticsLookupRequest,
     response: SourceHttpResponse,
 ) -> Result<AnalyticsObservation> {
-    request.validate()?;
+    prepare_analytics_responses(request, &[request.hero_id], None, response)?
+        .pop()
+        .ok_or_else(|| SourcesError::invariant("analytics observation missing"))
+}
+
+fn prepare_analytics_responses(
+    request: &AnalyticsLookupRequest,
+    hero_ids: &[u32],
+    selection: Option<&ToolAnalyticsSelection>,
+    response: SourceHttpResponse,
+) -> Result<Vec<AnalyticsObservation>> {
+    validate_selection(request, hero_ids, selection)?;
     let (effective_min, effective_max) = request
         .effective_window()
         .expect("validated analytics window");
-    validate_response_locator(request, &response.url)?;
+    validate_response_locator(request, selection, &response.url)?;
     if response.content.len() > MAX_RESPONSE_BYTES {
         return Err(SourcesError::invalid_input(
             "analytics response exceeds byte limit",
@@ -417,30 +513,34 @@ pub fn prepare_analytics_response(
             "analytics raw response exceeds row limit",
         ));
     }
-    let matching: Vec<Value> = rows
-        .iter()
-        .filter(|row| row.get("hero_id").and_then(Value::as_u64) == Some(request.hero_id.into()))
-        .cloned()
-        .collect();
-    if matching.len() > 1
-        || matching.iter().any(|row| {
-            let matches = row.get("matches").and_then(Value::as_u64);
-            let total = row
-                .get("wins")
-                .and_then(Value::as_u64)
-                .zip(row.get("losses").and_then(Value::as_u64))
-                .and_then(|(wins, losses)| wins.checked_add(losses));
-            row.get("bucket").and_then(Value::as_i64) != Some(0)
-                || total != matches
-                || row.get("matches_per_bucket").and_then(Value::as_u64) != matches
-        })
-    {
-        return Err(SourcesError::invalid_input(
-            "analytics hero aggregation identity drift",
-        ));
+    let requested: BTreeSet<_> = hero_ids.iter().map(|id| u64::from(*id)).collect();
+    let mut matching = BTreeMap::new();
+    for row in rows {
+        let Some(hero_id) = row.get("hero_id").and_then(Value::as_u64) else {
+            return Err(SourcesError::invalid_input(
+                "analytics hero identity missing",
+            ));
+        };
+        if !requested.contains(&hero_id) {
+            continue;
+        }
+        let matches = row.get("matches").and_then(Value::as_u64);
+        let total = row
+            .get("wins")
+            .and_then(Value::as_u64)
+            .zip(row.get("losses").and_then(Value::as_u64))
+            .and_then(|(wins, losses)| wins.checked_add(losses));
+        if row.get("bucket").and_then(Value::as_i64) != Some(0)
+            || total != matches
+            || row.get("matches_per_bucket").and_then(Value::as_u64) != matches
+            || matching.insert(hero_id, row.clone()).is_some()
+        {
+            return Err(SourcesError::invalid_input(
+                "analytics hero aggregation identity drift",
+            ));
+        }
     }
-    let rows = matching;
-    if rows.len() > request.max_rows {
+    if matching.len() > request.max_rows {
         return Err(SourcesError::invalid_input(
             "analytics response exceeds row limit",
         ));
@@ -457,25 +557,31 @@ pub fn prepare_analytics_response(
             return Err(SourcesError::invariant("analytics schema version missing"))
         }
     };
-    Ok(AnalyticsObservation {
-        kind: request.kind,
-        hero_id: request.hero_id,
-        item_id: request.item_id,
-        rows,
-        provenance: AnalyticsProvenance {
-            source: SOURCE.into(),
-            locator: contract.provenance.locator.clone(),
-            observed_at: contract.provenance.observed_at,
-            raw_sha256: contract.provenance.raw_sha256.clone(),
-            schema_sha256,
-            api_version,
-            parser_revision: PARSER_REVISION.into(),
-            patch_membership: PatchMembership::Unverified,
-            min_unix_timestamp: effective_min,
-            max_unix_timestamp: effective_max,
-            attempts,
-        },
-    })
+    let provenance = AnalyticsProvenance {
+        source: SOURCE.into(),
+        locator: contract.provenance.locator.clone(),
+        observed_at: contract.provenance.observed_at,
+        raw_sha256: contract.provenance.raw_sha256.clone(),
+        schema_sha256,
+        api_version,
+        parser_revision: PARSER_REVISION.into(),
+        patch_membership: PatchMembership::Unverified,
+        min_unix_timestamp: effective_min,
+        max_unix_timestamp: effective_max,
+        min_average_badge: selection.and_then(|selection| selection.min_average_badge),
+        max_average_badge: selection.and_then(|selection| selection.max_average_badge),
+        attempts,
+    };
+    Ok(hero_ids
+        .iter()
+        .map(|hero_id| AnalyticsObservation {
+            kind: request.kind,
+            hero_id: *hero_id,
+            item_id: request.item_id,
+            rows: matching.remove(&u64::from(*hero_id)).into_iter().collect(),
+            provenance: provenance.clone(),
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -500,7 +606,7 @@ mod tests {
             HttpClient::new("analytics-url-test", tempfile::tempdir().unwrap().path()).unwrap();
         let url = DeadlockAnalyticsClient::new(http, Duration::from_secs(1))
             .unwrap()
-            .url(request);
+            .url(request, None);
         SourceHttpResponse {
             url,
             status: 200,
@@ -517,8 +623,144 @@ mod tests {
             "total_assists":200,"total_net_worth":300000,"total_last_hits":1000,
             "total_denies":10,"total_player_damage":500000,"total_player_damage_taken":400000,
             "total_boss_damage":10000,"total_creep_damage":200000,"total_neutral_damage":50000,
-            "total_max_health":30000,"total_shots_hit":1000,"total_shots_missed":500
+            "total_max_health":30000,"total_shots_hit":1000,"total_shots_missed":500,
+            "permanent_buff_matches":0,"permanent_buff_timing_matches":0,
+            "total_first_permanent_buff_time_s":0,"total_permanent_buffs":0
         })
+    }
+
+    #[test]
+    fn comparison_applies_rank_and_time_once_to_a_shared_http_population() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let selection = ToolAnalyticsSelection {
+            min_average_badge: Some(70),
+            max_average_badge: Some(80),
+            min_unix_timestamp: 1_790_000_000,
+            max_unix_timestamp: 1_790_086_400,
+        };
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut headers = Vec::new();
+            while !headers.ends_with(b"\r\n\r\n") {
+                assert!(headers.len() < 8192);
+                let mut byte = [0];
+                stream.read_exact(&mut byte).unwrap();
+                headers.push(byte[0]);
+            }
+            let request = String::from_utf8(headers).unwrap();
+            let path = request
+                .lines()
+                .next()
+                .unwrap()
+                .split_whitespace()
+                .nth(1)
+                .unwrap();
+            let url = Url::parse(&format!("http://{address}{path}")).unwrap();
+            let query: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+            assert_eq!(url.path(), AnalyticsKind::Meta.path());
+            assert_eq!(query["min_average_badge"], "70");
+            assert_eq!(query["max_average_badge"], "80");
+            assert_eq!(query["min_unix_timestamp"], "1790002800");
+            assert_eq!(query["max_unix_timestamp"], "1790082000");
+            assert!(!query.contains_key("hero_id"));
+            assert!(!query.contains_key("hero_ids"));
+            let body = serde_json::to_vec(&json!([hero_row(7), hero_row(18)])).unwrap();
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+            stream.write_all(&body).unwrap();
+            body
+        });
+        let scratch = tempfile::tempdir().unwrap();
+        let http = HttpClient::new("analytics-comparison-test", scratch.path()).unwrap();
+        let client = DeadlockAnalyticsClient::with_base_url(
+            http,
+            format!("http://{address}"),
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        let lifetime = brain_contracts::RequestDeadline::after(Duration::from_secs(20));
+        let observations = client
+            .lookup_comparison_with_request_deadline(
+                &request(AnalyticsKind::Meta),
+                &[18, 7],
+                &selection,
+                lifetime.expires_at(),
+                &lifetime,
+            )
+            .unwrap();
+        let bytes = server.join().unwrap();
+        assert_eq!(observations.len(), 2);
+        assert_eq!(observations[0].hero_id, 18);
+        assert_eq!(observations[1].hero_id, 7);
+        assert_eq!(observations[0].rows, vec![hero_row(18)]);
+        assert_eq!(observations[1].rows, vec![hero_row(7)]);
+        assert_eq!(observations[0].provenance, observations[1].provenance);
+        assert_eq!(observations[0].provenance.attempts, 1);
+        assert_eq!(observations[0].provenance.min_average_badge, Some(70));
+        assert_eq!(observations[0].provenance.max_average_badge, Some(80));
+        use sha2::{Digest, Sha256};
+        assert_eq!(
+            observations[0].provenance.raw_sha256,
+            format!("{:x}", Sha256::digest(bytes))
+        );
+        assert_eq!(
+            observations[0].provenance.patch_membership,
+            PatchMembership::Unverified
+        );
+    }
+
+    #[test]
+    fn comparison_rejects_rank_locator_drift_and_invalid_population() {
+        let request = request(AnalyticsKind::Meta);
+        let selection = ToolAnalyticsSelection {
+            min_average_badge: Some(70),
+            max_average_badge: Some(80),
+            min_unix_timestamp: request.min_unix_timestamp,
+            max_unix_timestamp: request.max_unix_timestamp,
+        };
+        let scratch = tempfile::tempdir().unwrap();
+        let http = HttpClient::new("analytics-selection-test", scratch.path()).unwrap();
+        let client = DeadlockAnalyticsClient::new(http, Duration::from_secs(1)).unwrap();
+        let mut correct = response(&request, json!([hero_row(7), hero_row(18)]));
+        correct.url = client.url(&request, Some(&selection));
+        assert!(
+            prepare_analytics_responses(&request, &[18, 7], Some(&selection), correct.clone())
+                .is_ok()
+        );
+        for (old, new) in [
+            ("min_average_badge=70", "min_average_badge=71"),
+            ("max_average_badge=80", "max_average_badge=81"),
+        ] {
+            let mut drift = correct.clone();
+            drift.url = drift.url.replace(old, new);
+            assert!(
+                prepare_analytics_responses(&request, &[18, 7], Some(&selection), drift).is_err()
+            );
+        }
+        for heroes in [&[][..], &[18, 18][..], &[18, 0][..], &[7][..]] {
+            assert!(prepare_analytics_responses(
+                &request,
+                heroes,
+                Some(&selection),
+                correct.clone()
+            )
+            .is_err());
+        }
+        let mut wrong_window = selection.clone();
+        wrong_window.max_unix_timestamp += 1;
+        assert!(prepare_analytics_responses(
+            &request,
+            &[18, 7],
+            Some(&wrong_window),
+            correct.clone()
+        )
+        .is_err());
+        let mut wrong_rank = selection;
+        wrong_rank.min_average_badge = Some(81);
+        assert!(
+            prepare_analytics_responses(&request, &[18, 7], Some(&wrong_rank), correct).is_err()
+        );
     }
 
     #[test]

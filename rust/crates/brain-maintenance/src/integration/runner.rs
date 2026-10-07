@@ -649,6 +649,7 @@ impl Runner {
             }
             if let Err(error) = self.advance(&mut job).await {
                 self.handle_failed_advance(&job, &lease, &error).await?;
+                isolated_errors.push(json!({"job":job.spec.id,"code":"JOB_ADVANCE_FAILED"}));
             }
         }
         let mut status = self.status().await?;
@@ -739,6 +740,58 @@ impl Runner {
         }
         status["imports"] = json!(imports);
         status["patches"] = json!(patches);
+        Ok(status)
+    }
+
+    pub async fn resume_entity_profiles(
+        &self,
+        original_release_id: &str,
+        original_release_sha256: &str,
+        expected_serve_config_sha256: &str,
+    ) -> Result<serde_json::Value> {
+        let uid = self.require_operator()?;
+        self.store.check_maintenance_schema().await?;
+        let config = load_maintenance(&self.runtime.maintenance_config)?;
+        let artifacts = self.artifacts.clone();
+        let publication_lock =
+            tokio::task::spawn_blocking(move || artifacts.publication_lock()).await??;
+        let serve_bytes = super::runtime_config::read_bounded(&self.runtime.serve_config, 65536)?;
+        verify_resume_config(&serve_bytes, expected_serve_config_sha256)?;
+        let serve = brain_serve::Config::parse(&serve_bytes)?;
+        let principal = local_operator_principal(uid, &self.runtime.maintenance_config)?;
+        let result = refresh_entity_profile_documents_phase(
+            &self.store,
+            &self.pool,
+            &config,
+            &principal,
+            &self.artifacts,
+            &serve.release.id,
+            &self.runtime,
+            Some((original_release_id, original_release_sha256)),
+        )
+        .await;
+        let (mut profiles, prepared) = match result {
+            Ok(result) => result,
+            Err(error) => {
+                let status =
+                    json!({"isolated_errors":[super::entity_profiles::refresh_failure(&error)]});
+                self.write_status(&status)?;
+                println!("{}", serde_json::to_string_pretty(&status)?);
+                return Err(error);
+            }
+        };
+        drop(publication_lock);
+        if let Some(prepared) = &prepared {
+            super::entity_profiles::activate_refreshed_sources_with_expected_config(
+                &self.runtime,
+                prepared,
+                Some(expected_serve_config_sha256),
+            )
+            .await?;
+        }
+        profiles["resumed_original_release"] = json!(original_release_id);
+        let status = json!({"entity_profiles":profiles,"isolated_errors":[]});
+        self.write_status(&status)?;
         Ok(status)
     }
 
@@ -2062,6 +2115,26 @@ pub async fn refresh_entity_profile_documents(
     serde_json::Value,
     Option<super::entity_profiles::PreparedRefresh>,
 )> {
+    refresh_entity_profile_documents_phase(
+        store, pool, config, principal, artifacts, base_id, runtime, None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn refresh_entity_profile_documents_phase(
+    store: &PgStore,
+    pool: &sqlx::PgPool,
+    config: &MaintenanceConfig,
+    principal: &brain_contracts::Principal,
+    artifacts: &Artifacts,
+    base_id: &str,
+    runtime: &RuntimeConfig,
+    resume: Option<(&str, &str)>,
+) -> Result<(
+    serde_json::Value,
+    Option<super::entity_profiles::PreparedRefresh>,
+)> {
     let root = runtime
         .entity_profile_corpus_root
         .as_ref()
@@ -2077,6 +2150,33 @@ pub async fn refresh_entity_profile_documents(
             sources.push(source_id.clone());
         }
     }
+    let resume_original = if let Some((id, hash)) = resume {
+        let original: serde_json::Value = sqlx::query_scalar(
+            "SELECT release_json FROM brain.corpus_releases_v1 WHERE release_id=$1",
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+        let original: brain_contracts::CorpusRelease = serde_json::from_value(original)?;
+        ensure!(
+            original.release_id == id && digest(&serde_json::to_vec(&original)?) == hash,
+            "entity_profile_resume_original_changed"
+        );
+        let rows: Vec<(String,String,i64,bool)> = sqlx::query_as("SELECT source_id,logical_id,revision,tombstone FROM brain.source_record_heads WHERE source_id=ANY($1) ORDER BY source_id,logical_id")
+            .bind(&sources).fetch_all(pool).await?;
+        let mut pins: std::collections::BTreeMap<String, std::collections::BTreeMap<String, u64>> =
+            std::collections::BTreeMap::new();
+        for (source, logical, revision, tombstone) in rows {
+            let source_pins = pins.entry(source).or_default();
+            if !tombstone {
+                source_pins.insert(logical, u64::try_from(revision)?);
+            }
+        }
+        verify_resume_original(&original, id, hash, &sources, &pins)?;
+        Some(original)
+    } else {
+        None
+    };
     let prepared =
         super::entity_profiles::publish_refreshed_sources(store, pool, base_id, &sources).await?;
     let original_release = prepared
@@ -2084,6 +2184,15 @@ pub async fn refresh_entity_profile_documents(
         .map(|prepared| &prepared.candidate)
         .unwrap_or(&base.release);
     let snapshot = store.snapshot(&original_release.release_id).await?;
+    if let Some(original) = resume_original {
+        ensure!(
+            sources
+                .iter()
+                .all(|source| original.source_revisions.get(source)
+                    == snapshot.release.source_revisions.get(source)),
+            "entity_profile_resume_original_pins_changed"
+        );
+    }
     let catalog = dbrain_sources::entity_binding::load_entity_catalog(pool).await?;
     let mut bindings = Vec::new();
     for record in snapshot.authorized(principal, false)? {
@@ -2091,7 +2200,16 @@ pub async fn refresh_entity_profile_documents(
             .metadata
             .contains_key(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
         {
-            bindings.push(
+            let summary = if resume.is_some() {
+                dbrain_sources::entity_binding::verify_stored_document_bindings(
+                    store,
+                    &record.source_id,
+                    &record.logical_id,
+                    record.revision,
+                    &catalog,
+                )
+                .await?
+            } else {
                 dbrain_sources::entity_binding::bind_stored_document(
                     store,
                     &record.source_id,
@@ -2099,8 +2217,9 @@ pub async fn refresh_entity_profile_documents(
                     record.revision,
                     &catalog,
                 )
-                .await?,
-            );
+                .await?
+            };
+            bindings.push(summary);
         }
     }
     let repositories =
@@ -2196,4 +2315,32 @@ pub async fn refresh_entity_profile_documents(
     })).collect::<Vec<_>>()}),
         final_prepared,
     ))
+}
+
+fn verify_resume_config(bytes: &[u8], expected: &str) -> Result<()> {
+    ensure!(
+        digest(bytes) == expected,
+        "entity_profile_resume_config_changed"
+    );
+    Ok(())
+}
+
+fn verify_resume_original(
+    original: &brain_contracts::CorpusRelease,
+    id: &str,
+    hash: &str,
+    sources: &[String],
+    current: &BTreeMap<String, BTreeMap<String, u64>>,
+) -> Result<()> {
+    ensure!(
+        original.release_id == id && digest(&serde_json::to_vec(original)?) == hash,
+        "entity_profile_resume_original_changed"
+    );
+    ensure!(
+        sources
+            .iter()
+            .all(|source| original.source_revisions.get(source) == current.get(source)),
+        "entity_profile_resume_original_pins_changed"
+    );
+    Ok(())
 }

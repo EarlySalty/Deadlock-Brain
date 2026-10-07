@@ -1,0 +1,24 @@
+COMMAND /home/nathanael/.local/bin/cargo-slot test --package dbrain-sources --lib --no-fail-fast --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target strict_json -- --include-ignored --test-threads=1
+cargo-slot: Slot 1, optimiert=0
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-wiki)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 33s
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/dbrain_sources-a721ff7b1a8fb70e)
+
+running 3 tests
+test external::strict_json::tests::duplicate_guard_still_rejects_nested_and_escaped_equivalent_keys ... ok
+test external::strict_json::tests::preserves_fractional_negative_zero_and_large_json_numbers ... ok
+test external::strict_json::tests::private_looking_json_object_keys_are_not_number_payloads ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 225 filtered out; finished in 0.00s
+
+cargo-slot: EXIT=0
+
+EXIT=0 SIGNAL=null

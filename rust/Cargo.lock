@@ -486,6 +486,7 @@ dependencies = [
 name = "brain-storage"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "brain-contracts",
  "postgres",
  "serde",
@@ -805,6 +806,7 @@ name = "dbrain-builds"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "brain-storage",
  "reqwest",
  "serde",
  "serde_json",
@@ -968,9 +970,12 @@ name = "deadlock-brain"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "brain-client",
  "brain-contracts",
  "brain-feeds",
+ "brain-maintenance",
+ "brain-storage",
  "chrono",
  "clap",
  "dbrain-builds",
@@ -986,12 +991,14 @@ dependencies = [
  "hex",
  "libc",
  "postgres",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
  "tempfile",
  "tokio",
+ "urlencoding",
  "zeroize",
 ]
 

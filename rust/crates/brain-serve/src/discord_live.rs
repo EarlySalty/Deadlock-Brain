@@ -809,7 +809,13 @@ mod tests {
                 "4 anwesend",
                 "5 anwesend",
             ] {
-                assert!(content.contains(lane));
+                assert!(
+                    content.contains(lane),
+                    "panel_bytes={panel_bytes}, fehlend={lane}, Eingabeobergrenze={}, Dokumente={}, Live-Belege={}",
+                    grounded_input_ceiling(&query, &items),
+                    items.iter().filter(|item| item.source_id == "docs.public").count(),
+                    items.iter().filter(|item| item.source_id == SOURCE).count()
+                );
             }
             for provider in [false, true] {
                 adapter

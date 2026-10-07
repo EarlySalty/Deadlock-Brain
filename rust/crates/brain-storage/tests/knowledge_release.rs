@@ -12,6 +12,9 @@ use sqlx::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+#[path = "support/asset_mirror.rs"]
+mod asset_mirror;
+
 fn record(source: &str, id: &str, revision: u64) -> SourceRecordV2 {
     let mut record = SourceRecordV2 {
         source_id: source.into(),
@@ -92,64 +95,9 @@ async fn write_record(tx: &mut Transaction<'_, Postgres>, record: &SourceRecordV
         .bind(&record.content_hash).bind(record.tombstone).bind(value).execute(&mut **tx).await.unwrap();
 }
 
-struct ScratchPg {
-    directory: std::path::PathBuf,
-}
-
-impl ScratchPg {
-    fn start() -> Self {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let directory =
-            std::env::temp_dir().join(format!("brain-release-pg-{}-{nonce}", std::process::id()));
-        std::fs::create_dir(&directory).unwrap();
-        let instance = Self { directory };
-        let data = instance.directory.join("data");
-        let socket = instance.directory.join("socket");
-        std::fs::create_dir(&socket).unwrap();
-        assert!(
-            std::process::Command::new("/usr/lib/postgresql/16/bin/initdb")
-                .arg("-D")
-                .arg(&data)
-                .args(["-A", "trust", "-U", "brain_core_test", "--no-locale"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .unwrap()
-                .success()
-        );
-        let options = format!("-k {} -p 55439 -c listen_addresses=''", socket.display());
-        assert!(
-            std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-                .arg("-D")
-                .arg(&data)
-                .arg("-l")
-                .arg(instance.directory.join("postgres.log"))
-                .args(["-o", &options, "-w", "start"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .unwrap()
-                .success()
-        );
-        instance
-    }
-}
-
-impl Drop for ScratchPg {
-    fn drop(&mut self) {
-        let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-            .arg("-D")
-            .arg(self.directory.join("data"))
-            .args(["-m", "immediate", "-w", "stop"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-        let _ = std::fs::remove_dir_all(&self.directory);
-    }
-}
+#[path = "support/scratch_pg.rs"]
+mod scratch_pg;
+use scratch_pg::ScratchPg;
 
 #[tokio::test]
 async fn imported_heads_preserve_base_and_block_preparation_commit_races() {
@@ -179,6 +127,7 @@ async fn imported_heads_preserve_base_and_block_preparation_commit_races() {
     assert_eq!(user, "brain_core_test");
     let store = PgStore::new(pool.clone());
     store.migrate_core().await.unwrap();
+    asset_mirror::check(&pool).await;
     let prefix = format!(
         "knowledge-release-{}-{}",
         std::process::id(),

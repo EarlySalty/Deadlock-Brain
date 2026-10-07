@@ -563,6 +563,11 @@ fn beide_wireformen_erhalten_neue_argumente_und_zaehlen_jede_runde_vollstaendig(
                     }
                     n
                 })
+                .sum::<u64>()
+            + ["tool_choice", "output_config", "response_format", "stop"]
+                .iter()
+                .filter_map(|field| payload.get(field))
+                .map(|value| value.to_string().len() as u64)
                 .sum::<u64>();
         assert_eq!(count, expected);
         assert_eq!(count, transport_input_ceiling(&payload, true).unwrap());

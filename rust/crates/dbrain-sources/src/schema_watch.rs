@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 
 pub const OPENAPI_URL: &str = "https://api.deadlock-api.com/openapi.json";
 pub const PINNED_OPENAPI: &[u8] =
-    include_bytes!("../tests/fixtures/external/openapi-20260925.json");
+    include_bytes!("../tests/fixtures/external/openapi-20261007.json");
 const MAX_SCHEMA_BYTES: usize = 1024 * 1024;
 const MAX_CHANGES: usize = 2048;
 
@@ -750,7 +750,7 @@ mod tests {
         }
         assert_eq!(
             pinned.raw_sha256,
-            "341bc2b2681d0bc353df721974bdbf46290c1f0645eba594d18381c3a2cbbc70"
+            "d76b44f82d1da13eed5831e772498a56993ebd56f4976c118f8ecaca79747359"
         );
     }
     #[test]

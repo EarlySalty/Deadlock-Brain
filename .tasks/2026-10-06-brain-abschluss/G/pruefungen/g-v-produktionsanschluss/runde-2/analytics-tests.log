@@ -1,0 +1,216 @@
+COMMAND /home/nathanael/.local/bin/cargo-slot test --package brain-serve --package dbrain-sources --lib --no-fail-fast --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target analytics -- --include-ignored --test-threads=1
+cargo-slot: Slot 2, optimiert=0
+   Compiling serde_core v1.0.228
+   Compiling typenum v1.20.1
+   Compiling stable_deref_trait v1.2.1
+   Compiling errno v0.3.14
+   Compiling yoke v0.8.3
+   Compiling signal-hook-registry v1.4.8
+   Compiling rand v0.8.6
+   Compiling tokio v1.52.3
+   Compiling zerovec v0.11.6
+   Compiling generic-array v0.14.7
+   Compiling futures-util v0.3.32
+   Compiling siphasher v1.0.3
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling tinystr v0.8.3
+   Compiling digest v0.10.7
+   Compiling icu_locale_core v2.2.0
+   Compiling potential_utf v0.1.5
+   Compiling zerotrie v0.2.4
+   Compiling icu_collections v2.2.0
+   Compiling icu_provider v2.2.0
+   Compiling serde v1.0.228
+   Compiling serde_json v1.0.150
+   Compiling smallvec v1.15.2
+   Compiling bitflags v2.13.0
+   Compiling icu_properties v2.2.0
+   Compiling icu_normalizer v2.2.0
+   Compiling parking_lot_core v0.9.12
+   Compiling idna_adapter v1.2.2
+   Compiling parking_lot v0.12.5
+   Compiling idna v1.1.0
+   Compiling hybrid-array v0.4.13
+   Compiling sha2 v0.10.9
+   Compiling tokio-util v0.7.18
+   Compiling cmov v0.5.4
+   Compiling byteorder v1.5.0
+   Compiling ctutils v0.4.2
+   Compiling hyper v1.10.1
+   Compiling block-buffer v0.12.1
+   Compiling url v2.5.8
+   Compiling crypto-common v0.2.2
+   Compiling const-oid v0.10.2
+   Compiling mime v0.3.17
+   Compiling rand_core v0.10.1
+   Compiling digest v0.11.3
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.20
+   Compiling unicase v2.9.0
+   Compiling cpufeatures v0.3.0
+   Compiling mime_guess v2.0.5
+   Compiling getrandom v0.4.3
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+   Compiling futures-intrusive v0.5.0
+   Compiling async-compression v0.4.42
+   Compiling chacha20 v0.10.1
+   Compiling hmac v0.12.1
+   Compiling chrono v0.4.45
+   Compiling tokio-rustls v0.26.4
+   Compiling either v1.16.0
+   Compiling phf_shared v0.11.3
+   Compiling serde_urlencoded v0.7.1
+   Compiling sqlx-core v0.8.6
+   Compiling hyper-rustls v0.27.9
+   Compiling hkdf v0.12.4
+   Compiling rand v0.10.1
+   Compiling tower-http v0.6.11
+   Compiling sha2 v0.11.0
+   Compiling hmac v0.13.0
+   Compiling md-5 v0.11.0
+   Compiling md-5 v0.10.6
+   Compiling fallible-iterator v0.2.0
+   Compiling sqlx-postgres v0.8.6
+   Compiling postgres-protocol v0.6.12
+   Compiling reqwest v0.12.28
+   Compiling phf_generator v0.11.3
+   Compiling phf_shared v0.13.1
+   Compiling tokio-stream v0.1.18
+   Compiling phf v0.13.1
+   Compiling sqlx-macros-core v0.8.6
+   Compiling postgres-types v0.2.14
+   Compiling whoami v2.1.2
+   Compiling tokio-postgres v0.7.18
+   Compiling sqlx-macros v0.8.6
+   Compiling siphasher v0.3.11
+   Compiling postgres v0.19.14
+   Compiling getrandom v0.3.4
+   Compiling new_debug_unreachable v1.0.6
+   Compiling nix v0.29.0
+   Compiling phf_shared v0.10.0
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+   Compiling phf_macros v0.11.3
+   Compiling utf-8 v0.7.6
+   Compiling phf v0.11.3
+   Compiling phf_generator v0.10.0
+   Compiling phf_codegen v0.11.3
+   Compiling string_cache_codegen v0.5.4
+   Compiling fireworks-model-selection v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/vendor/fireworks-model-selection)
+   Compiling sqlx v0.8.6
+   Compiling mac v0.1.1
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+   Compiling precomputed-hash v0.1.1
+   Compiling futf v0.1.5
+   Compiling markup5ever v0.12.1
+   Compiling phf_codegen v0.10.0
+   Compiling dtoa v1.0.11
+   Compiling dtoa-short v0.3.5
+   Compiling selectors v0.25.0
+   Compiling tendril v0.4.3
+   Compiling string_cache v0.8.9
+   Compiling rand_core v0.9.5
+   Compiling cssparser v0.31.2
+   Compiling phf v0.10.1
+   Compiling rand_chacha v0.9.0
+   Compiling fxhash v0.2.1
+   Compiling servo_arc v0.3.0
+   Compiling unicode-width v0.2.2
+   Compiling getopts v0.2.24
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling rand v0.9.4
+   Compiling html5ever v0.27.0
+   Compiling ahash v0.8.12
+   Compiling sha1 v0.10.6
+   Compiling data-encoding v2.11.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling ego-tree v0.6.3
+   Compiling rustix v1.1.4
+   Compiling scraper v0.20.0
+   Compiling tungstenite v0.28.0
+   Compiling fastrand v2.4.1
+   Compiling tempfile v3.27.0
+   Compiling brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-policy)
+   Compiling tokio-tungstenite v0.28.0
+   Compiling axum-core v0.5.6
+   Compiling serde_path_to_error v0.1.20
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+   Compiling matchit v0.8.4
+   Compiling roxmltree v0.20.0
+   Compiling axum v0.8.9
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+   Compiling uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/vendor/uplink-infisical-transport)
+   Compiling brain-client v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-client)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-ingestion)
+   Compiling dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-api)
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+   Compiling wait-timeout v0.2.1
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-wiki)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve)
+
+EXIT=null SIGNAL=SIGTERM
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 31s
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_serve-78e6c0c1e95e6d15)
+
+running 11 tests
+test analytics::tests::cancelled_analytics_request_cannot_start_an_http_retry ... ok
+test analytics::tests::delayed_fifth_lookup_keeps_original_deadline_after_slot_release ... ok
+test analytics::tests::fifth_lookup_expires_on_one_deadline_while_four_slots_are_occupied ... ok
+test analytics::tests::fixture_rejects_truncated_or_unbounded_request_headers ... ok
+test analytics::tests::fixture_waits_for_complete_fragmented_request_headers ... ok
+test analytics::tests::incongruent_population_cannot_become_a_match_prior ... ok
+test analytics::tests::ordinary_brain_answer_uses_meta_and_match_population_without_patch_claim ... FAILED
+test analytics::tests::runtime_rejects_missing_grant_wrong_patch_and_unapproved_window ... ok
+test analytics::tests::second_snapshot_exhaustion_rejects_direct_kernel_service_and_http_answers ... FAILED
+test analytics::tests::snapshot_exhaustion_never_starts_meta_or_population_http ... ok
+test config::tests::analytics_window_and_schema_are_explicit_when_runtime_is_configured ... ok
+
+failures:
+
+---- analytics::tests::ordinary_brain_answer_uses_meta_and_match_population_without_patch_claim stdout ----
+
+thread 'analytics::tests::ordinary_brain_answer_uses_meta_and_match_population_without_patch_claim' (3504019) panicked at crates/brain-serve/src/analytics.rs:1046:9:
+assertion `left == right` failed
+  left: Unavailable
+ right: Answered
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- analytics::tests::second_snapshot_exhaustion_rejects_direct_kernel_service_and_http_answers stdout ----
+
+thread 'analytics::tests::second_snapshot_exhaustion_rejects_direct_kernel_service_and_http_answers' (3504088) panicked at crates/brain-serve/src/analytics.rs:1159:9:
+assertion `left == right` failed
+  left: Unavailable
+ right: BudgetExceeded
+
+
+failures:
+    analytics::tests::ordinary_brain_answer_uses_meta_and_match_population_without_patch_claim
+    analytics::tests::second_snapshot_exhaustion_rejects_direct_kernel_service_and_http_answers
+
+test result: FAILED. 9 passed; 2 failed; 0 ignored; 0 measured; 43 filtered out; finished in 4.82s
+
+error: test failed, to rerun pass `-p brain-serve --lib`
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/dbrain_sources-8bbf68b87510328a)
+
+running 10 tests
+test analytics_runtime::tests::bounded_lookup_uses_only_requested_origin_and_returns_validated_observation ... ok
+test analytics_runtime::tests::comparison_applies_rank_and_time_once_to_a_shared_http_population ... ok
+test analytics_runtime::tests::comparison_rejects_rank_locator_drift_and_invalid_population ... ok
+test analytics_runtime::tests::expired_deadline_never_starts_http ... ok
+test analytics_runtime::tests::meta_lookup_filters_hero_and_carries_window_and_schema_provenance ... ok
+test analytics_runtime::tests::population_uses_item_filtered_hero_matches_not_purchase_counts ... ok
+test analytics_runtime::tests::request_and_origin_policy_fail_closed ... ok
+test analytics_runtime::tests::response_origin_bytes_raw_rows_and_requested_window_are_bounded ... ok
+test analytics_runtime::tests::runtime_module_has_no_database_or_central_dsn_dependency ... ok
+test analytics_runtime::tests::schema_drift_is_quarantined ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 218 filtered out; finished in 3.92s
+
+error: 1 target failed:
+    `-p brain-serve --lib`

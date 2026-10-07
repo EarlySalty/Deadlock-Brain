@@ -218,7 +218,7 @@ pub struct ToolAnalyticsSelection {
 }
 
 impl ToolAnalyticsSelection {
-    fn validate(&self) -> Result<(), PortError> {
+    pub fn validate(&self) -> Result<(), PortError> {
         if self
             .min_average_badge
             .into_iter()

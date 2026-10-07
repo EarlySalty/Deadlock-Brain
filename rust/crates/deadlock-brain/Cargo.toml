@@ -9,9 +9,13 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+urlencoding.workspace = true
 brain-client = { path = "../brain-client" }
 brain-contracts = { path = "../brain-contracts" }
 brain-feeds = { path = "../brain-feeds" }
+brain-maintenance = { path = "../brain-maintenance" }
+brain-storage = { path = "../brain-storage" }
 chrono.workspace = true
 clap.workspace = true
 deadlock-brain-core = { path = "../deadlock-brain-core" }
@@ -26,6 +30,7 @@ dbrain-sources = { path = "../dbrain-sources" }
 dl-token-secrets = { path = "../../../../Deadlock-Bots/rust/crates/dl-token-secrets" }
 hex.workspace = true
 postgres.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -35,4 +40,5 @@ zeroize = "1"
 libc = "0.2"
 
 [dev-dependencies]
+reqwest.workspace = true
 tempfile.workspace = true

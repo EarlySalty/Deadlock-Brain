@@ -100,6 +100,7 @@ pub(super) fn authorize_turn(
     }
     Ok(())
 }
+
 pub(super) fn price(config: &ProviderConfig) -> PriceCeiling {
     config.pricing.unwrap_or(PriceCeiling {
         input_micros_per_token: 0,

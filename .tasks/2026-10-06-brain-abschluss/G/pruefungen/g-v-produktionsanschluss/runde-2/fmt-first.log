@@ -1,0 +1,219 @@
+COMMAND /home/nathanael/.local/bin/cargo-slot fmt --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-contracts --package brain-providers --package dbrain-sources --package brain-serve -- --check
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:893:
+         assert_eq!(add(&mut tokens, 1), Err(PortError::BudgetExceeded));
+         let (query, _, _) = fixture();
+         let legacy = grounded_input_ceiling(&query, &[]);
+-        let plain = transport_input_ceiling(
+-            &json!({"messages":grounded_messages(&query, &[])}),
+-            true,
+-        )
+-        .unwrap();
++        let plain =
++            transport_input_ceiling(&json!({"messages":grounded_messages(&query, &[])}), true)
++                .unwrap();
+         let mut maximum = 0;
+         for format in [ToolWireFormat::Native, ToolWireFormat::OpenAiCompatible] {
+-            let payload = grounded_turn_payload(
+-                &query,
+-                &[],
+-                &[],
+-                &ToolConversation::default(),
+-                format,
+-            )
+-            .unwrap();
++            let payload =
++                grounded_turn_payload(&query, &[], &[], &ToolConversation::default(), format)
++                    .unwrap();
+             let actual = transport_input_ceiling(&payload, true).unwrap();
+             assert_eq!(
+                 grounded_turn_input_ceiling(&query, &[], &[], &ToolConversation::default(), format)
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/analytics_runtime.rs:202:
+         deadline: Instant,
+         lifetime: &brain_contracts::RequestDeadline,
+     ) -> Result<AnalyticsObservation> {
+-        self.lookup_until(request, deadline.min(lifetime.expires_at()), Some(lifetime), None)
++        self.lookup_until(
++            request,
++            deadline.min(lifetime.expires_at()),
++            Some(lifetime),
++            None,
++        )
+     }
+ 
+     pub fn lookup_with_selection_and_request_deadline(
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/analytics_runtime.rs:296:
+     ) -> String {
+         let mut url = Url::parse(&format!("{}{}", self.base_url, request.kind.path()))
+             .expect("validated analytics origin");
+-        url.query_pairs_mut().extend_pairs(expected_query(request, selection));
++        url.query_pairs_mut()
++            .extend_pairs(expected_query(request, selection));
+         url.into()
+     }
+ }
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/analytics_runtime.rs:314:
+         || unique.contains(&0)
+         || !unique.contains(&request.hero_id)
+     {
+-        return Err(SourcesError::invalid_input("invalid analytics comparison population"));
++        return Err(SourcesError::invalid_input(
++            "invalid analytics comparison population",
++        ));
+     }
+     if let Some(selection) = selection {
+         selection
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/analytics_runtime.rs:323:
+         if selection.min_unix_timestamp != request.min_unix_timestamp
+             || selection.max_unix_timestamp != request.max_unix_timestamp
+         {
+-            return Err(SourcesError::invalid_input("analytics selection window mismatch"));
++            return Err(SourcesError::invalid_input(
++                "analytics selection window mismatch",
++            ));
+         }
+     }
+     Ok(())
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/analytics_runtime.rs:507:
+     let mut matching = BTreeMap::new();
+     for row in rows {
+         let Some(hero_id) = row.get("hero_id").and_then(Value::as_u64) else {
+-            return Err(SourcesError::invalid_input("analytics hero identity missing"));
++            return Err(SourcesError::invalid_input(
++                "analytics hero identity missing",
++            ));
+         };
+         if !requested.contains(&hero_id) {
+             continue;
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/analytics_runtime.rs:523:
+             || row.get("matches_per_bucket").and_then(Value::as_u64) != matches
+             || matching.insert(hero_id, row.clone()).is_some()
+         {
+-            return Err(SourcesError::invalid_input("analytics hero aggregation identity drift"));
++            return Err(SourcesError::invalid_input(
++                "analytics hero aggregation identity drift",
++            ));
+         }
+     }
+     if matching.len() > request.max_rows {
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/analytics_runtime.rs:530:
+-        return Err(SourcesError::invalid_input("analytics response exceeds row limit"));
++        return Err(SourcesError::invalid_input(
++            "analytics response exceeds row limit",
++        ));
+     }
+     let contract = ir.contract().data;
+     let schema_sha256 = contract
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/analytics_runtime.rs:634:
+                 headers.push(byte[0]);
+             }
+             let request = String::from_utf8(headers).unwrap();
+-            let path = request.lines().next().unwrap().split_whitespace().nth(1).unwrap();
++            let path = request
++                .lines()
++                .next()
++                .unwrap()
++                .split_whitespace()
++                .nth(1)
++                .unwrap();
+             let url = Url::parse(&format!("http://{address}{path}")).unwrap();
+             let query: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+             assert_eq!(url.path(), AnalyticsKind::Meta.path());
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/analytics_runtime.rs:655:
+             http,
+             format!("http://{address}"),
+             Duration::from_secs(10),
+-        ).unwrap();
++        )
++        .unwrap();
+         let lifetime = brain_contracts::RequestDeadline::after(Duration::from_secs(20));
+-        let observations = client.lookup_comparison_with_request_deadline(
+-            &request(AnalyticsKind::Meta),
+-            &[18, 7],
+-            &selection,
+-            lifetime.expires_at(),
+-            &lifetime,
+-        ).unwrap();
++        let observations = client
++            .lookup_comparison_with_request_deadline(
++                &request(AnalyticsKind::Meta),
++                &[18, 7],
++                &selection,
++                lifetime.expires_at(),
++                &lifetime,
++            )
++            .unwrap();
+         let bytes = server.join().unwrap();
+         assert_eq!(observations.len(), 2);
+         assert_eq!(observations[0].hero_id, 18);
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/analytics_runtime.rs:675:
+         assert_eq!(observations[0].provenance.min_average_badge, Some(70));
+         assert_eq!(observations[0].provenance.max_average_badge, Some(80));
+         use sha2::{Digest, Sha256};
+-        assert_eq!(observations[0].provenance.raw_sha256, format!("{:x}", Sha256::digest(bytes)));
+-        assert_eq!(observations[0].provenance.patch_membership, PatchMembership::Unverified);
++        assert_eq!(
++            observations[0].provenance.raw_sha256,
++            format!("{:x}", Sha256::digest(bytes))
++        );
++        assert_eq!(
++            observations[0].provenance.patch_membership,
++            PatchMembership::Unverified
++        );
+     }
+ 
+     #[test]
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/analytics_runtime.rs:693:
+         let client = DeadlockAnalyticsClient::new(http, Duration::from_secs(1)).unwrap();
+         let mut correct = response(&request, json!([hero_row(7), hero_row(18)]));
+         correct.url = client.url(&request, Some(&selection));
+-        assert!(prepare_analytics_responses(&request, &[18, 7], Some(&selection), correct.clone()).is_ok());
+-        for (old, new) in [("min_average_badge=70", "min_average_badge=71"), ("max_average_badge=80", "max_average_badge=81")] {
++        assert!(
++            prepare_analytics_responses(&request, &[18, 7], Some(&selection), correct.clone())
++                .is_ok()
++        );
++        for (old, new) in [
++            ("min_average_badge=70", "min_average_badge=71"),
++            ("max_average_badge=80", "max_average_badge=81"),
++        ] {
+             let mut drift = correct.clone();
+             drift.url = drift.url.replace(old, new);
+-            assert!(prepare_analytics_responses(&request, &[18, 7], Some(&selection), drift).is_err());
++            assert!(
++                prepare_analytics_responses(&request, &[18, 7], Some(&selection), drift).is_err()
++            );
+         }
+         for heroes in [&[][..], &[18, 18][..], &[18, 0][..], &[7][..]] {
+-            assert!(prepare_analytics_responses(&request, heroes, Some(&selection), correct.clone()).is_err());
++            assert!(prepare_analytics_responses(
++                &request,
++                heroes,
++                Some(&selection),
++                correct.clone()
++            )
++            .is_err());
+         }
+         let mut wrong_window = selection.clone();
+         wrong_window.max_unix_timestamp += 1;
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/analytics_runtime.rs:707:
+-        assert!(prepare_analytics_responses(&request, &[18, 7], Some(&wrong_window), correct.clone()).is_err());
++        assert!(prepare_analytics_responses(
++            &request,
++            &[18, 7],
++            Some(&wrong_window),
++            correct.clone()
++        )
++        .is_err());
+         let mut wrong_rank = selection;
+         wrong_rank.min_average_badge = Some(81);
+-        assert!(prepare_analytics_responses(&request, &[18, 7], Some(&wrong_rank), correct).is_err());
++        assert!(
++            prepare_analytics_responses(&request, &[18, 7], Some(&wrong_rank), correct).is_err()
++        );
+     }
+ 
+     #[test]
+cargo-slot: Slot 1, optimiert=0
+cargo-slot: EXIT=1
+
+EXIT=1

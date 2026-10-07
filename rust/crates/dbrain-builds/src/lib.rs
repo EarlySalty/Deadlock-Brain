@@ -15,7 +15,7 @@ pub mod spec;
 mod sync;
 mod util;
 
-pub use patch_tag::latest_patch_tag;
+pub use patch_tag::{latest_patch_tag, latest_patch_window, PatchWindow};
 pub use sync::{sync_build_data, BuildDataSyncOptions, BuildDataSyncSummary};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -6,6 +6,7 @@ use brain_policy::{PolicyEngine, PolicyError};
 use sha2::{Digest, Sha256};
 mod http;
 pub mod internal;
+mod public_text;
 mod retrieval;
 pub use http::router;
 
@@ -230,7 +231,7 @@ where
                 scope,
             });
         }
-        let answer = self.kernel.answer_for_publication(&query, &context);
+        let mut answer = self.kernel.answer_for_publication(&query, &context);
         if deadline.check().is_err() {
             return deadline_response();
         }
@@ -243,6 +244,11 @@ where
         {
             return json_error(502, "invalid_kernel_response", "Ungültige Core-Antwort");
         }
+        let discord = self.discord_consumers.contains(&(
+            context.principal.actor_id.clone(),
+            context.principal.channel.clone(),
+        ));
+        public_text::prepare(&mut answer, &query, discord);
         answer_response(&answer)
     }
 }

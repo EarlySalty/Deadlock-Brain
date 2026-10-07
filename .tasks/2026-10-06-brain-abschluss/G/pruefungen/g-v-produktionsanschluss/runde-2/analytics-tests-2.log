@@ -1,0 +1,56 @@
+COMMAND /home/nathanael/.local/bin/cargo-slot test --package brain-serve --package dbrain-sources --lib --no-fail-fast --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target analytics -- --include-ignored --test-threads=1
+cargo-slot: Slot 1, optimiert=0
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+   Compiling brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-policy)
+   Compiling brain-client v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-client)
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-api)
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-ingestion)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-wiki)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 45s
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_serve-78e6c0c1e95e6d15)
+
+running 11 tests
+test analytics::tests::cancelled_analytics_request_cannot_start_an_http_retry ... ok
+test analytics::tests::delayed_fifth_lookup_keeps_original_deadline_after_slot_release ... ok
+test analytics::tests::fifth_lookup_expires_on_one_deadline_while_four_slots_are_occupied ... ok
+test analytics::tests::fixture_rejects_truncated_or_unbounded_request_headers ... ok
+test analytics::tests::fixture_waits_for_complete_fragmented_request_headers ... ok
+test analytics::tests::incongruent_population_cannot_become_a_match_prior ... ok
+test analytics::tests::ordinary_brain_answer_uses_meta_and_match_population_without_patch_claim ... ok
+test analytics::tests::runtime_rejects_missing_grant_wrong_patch_and_unapproved_window ... ok
+test analytics::tests::second_snapshot_exhaustion_rejects_direct_kernel_service_and_http_answers ... ok
+test analytics::tests::snapshot_exhaustion_never_starts_meta_or_population_http ... ok
+test config::tests::analytics_window_and_schema_are_explicit_when_runtime_is_configured ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 43 filtered out; finished in 5.69s
+
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/dbrain_sources-8bbf68b87510328a)
+
+running 10 tests
+test analytics_runtime::tests::bounded_lookup_uses_only_requested_origin_and_returns_validated_observation ... ok
+test analytics_runtime::tests::comparison_applies_rank_and_time_once_to_a_shared_http_population ... ok
+test analytics_runtime::tests::comparison_rejects_rank_locator_drift_and_invalid_population ... ok
+test analytics_runtime::tests::expired_deadline_never_starts_http ... ok
+test analytics_runtime::tests::meta_lookup_filters_hero_and_carries_window_and_schema_provenance ... ok
+test analytics_runtime::tests::population_uses_item_filtered_hero_matches_not_purchase_counts ... ok
+test analytics_runtime::tests::request_and_origin_policy_fail_closed ... ok
+test analytics_runtime::tests::response_origin_bytes_raw_rows_and_requested_window_are_bounded ... ok
+test analytics_runtime::tests::runtime_module_has_no_database_or_central_dsn_dependency ... ok
+test analytics_runtime::tests::schema_drift_is_quarantined ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 218 filtered out; finished in 3.86s
+
+cargo-slot: EXIT=0
+
+EXIT=0 SIGNAL=null

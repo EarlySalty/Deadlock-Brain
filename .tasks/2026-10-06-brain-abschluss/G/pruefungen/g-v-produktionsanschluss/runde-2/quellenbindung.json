@@ -1,0 +1,30 @@
+{
+  "schema": "g-v-source-evidence-v1",
+  "worktree": "/home/nathanael/.worktrees/brain-g-v2-20261007",
+  "branch": "feat/brain-v2-g-20261007",
+  "secured_parents": [
+    "253d383eab7a2f018ee1c834370140bf4a55e844",
+    "b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2"
+  ],
+  "checked_rust_tree": "848021aaa499453c691c696624529c4c84c11da7",
+  "checks": [
+    {"log": "check-final.log", "exit": 0, "scope": "brain-contracts, brain-providers, brain-serve, dbrain-sources, dbrain-retrieval; all targets"},
+    {"log": "clippy-owned-final.log", "exit": 0, "scope": "brain-contracts, brain-providers, brain-serve, dbrain-sources; all targets; -D warnings"},
+    {"log": "clippy-final.log", "exit": 101, "scope": "same packages plus dbrain-retrieval; all targets; -D warnings", "finding": "dbrain-retrieval/src/release_port.rs:510 items_after_test_module", "unchanged_blob_in_both_parents_and_worktree": "e640c0d6ed49c9f1e6d27a620858b18823e7f3cc", "baseline_run": false},
+    {"log": "fmt-final.log", "exit": 0, "scope": "four newly edited source files"},
+    {"log": "contracts-providers-tests-final.log", "exit": 0, "passed": 141, "failed": 0, "ignored": 0, "filtered": 0},
+    {"log": "analytics-tests-final.log", "exit": 0, "passed": 21, "failed": 0, "ignored": 0, "filtered": 261},
+    {"log": "strict-json-tests-final.log", "exit": 0, "passed": 3, "failed": 0, "ignored": 0, "filtered": 225}
+  ],
+  "limits": {
+    "production_port_delivered": false,
+    "production_resolver_delivered": false,
+    "receipt_live_proof": false,
+    "f_verifier_delivered": false,
+    "production_answer_live_proof": false,
+    "analytics_test_uses_real_http_client": true,
+    "analytics_test_payload_is_synthetic_public_shape": true,
+    "patch_membership": "Unverified",
+    "f_dependency": "The secured plan_build_with_playstyle interface has no request-bound tool budget, requested imbues, original RequestDeadline or original PurchasePlan/InventoryEvaluation proofs. F-owned implementation was not modified."
+  }
+}

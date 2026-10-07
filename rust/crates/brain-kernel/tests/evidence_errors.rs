@@ -60,7 +60,7 @@ async fn fixture(fail_at: usize, every: usize, error: PortError) -> FaultReader 
             source_id: "fixture".into(),
             logical_id: "a".into(),
             revision: 1,
-            content_hash: "fixture-hash".into(),
+            content_hash: dbrain_sources::external::sha256(b"Abrams verified evidence"),
             content: "Abrams verified evidence".into(),
             visibility: SourceVisibility::Public,
             allowed_scopes: BTreeSet::new(),
@@ -117,7 +117,6 @@ async fn technical_reader_failures_are_unavailable_at_every_handoff_not_unauthor
         "pool exhausted",
         "temporary reader failure",
     ] {
-        // Head reads: retrieval=1, pre-answer=2, pre-provider=3, post-provider=4.
         for fail_at in 1..=4 {
             let reader = fixture(fail_at, 0, PortError::Unavailable(message.into())).await;
             let calls = Arc::new(AtomicUsize::new(0));

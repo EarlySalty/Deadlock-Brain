@@ -13,10 +13,11 @@ use crate::{
     api::DeadlockApiClient,
     classify::{classify_item, ClassifiedItem},
     error::BuildEngineError,
-    latest_patch_tag,
+    latest_patch_window,
     util::{
         json_string, value_as_i64, value_f64, value_i64, value_string, winrate, BRACKET_BADGE_80,
     },
+    PatchWindow,
 };
 
 const DEFAULT_MIN_AVERAGE_BADGE: i64 = 80;
@@ -52,6 +53,9 @@ impl BuildDataSyncOptions {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct BuildDataSyncSummary {
+    pub client_version: i64,
+    pub analytics_window: PatchWindow,
+    pub build_prevalence_time_basis: String,
     pub item_catalog_rows: usize,
     pub hero_catalog_rows: usize,
     pub heroes: Vec<HeroBuildDataSyncSummary>,
@@ -71,26 +75,45 @@ pub async fn sync_build_data(
     pool: &PgPool,
     options: BuildDataSyncOptions,
 ) -> Result<BuildDataSyncSummary> {
-    let api = DeadlockApiClient::new(&options.user_agent)?;
-
-    let items = api.items()?;
+    let window = latest_patch_window(pool).await?;
+    let api = DeadlockApiClient::new(&options.user_agent, window.min_unix_timestamp)?;
+    let client_version = brain_storage::asset_mirror::latest_mirrored_client_version(pool).await?;
+    let items =
+        brain_storage::asset_mirror::load_mirrored_assets(pool, client_version, "items", "english")
+            .await?;
     let item_catalog_rows = upsert_item_catalog(pool, &items).await?;
-    let heroes = api.heroes()?;
+    let heroes = brain_storage::asset_mirror::load_mirrored_assets(
+        pool,
+        client_version,
+        "heroes",
+        "english",
+    )
+    .await?;
     let hero_catalog_rows = upsert_hero_catalog(pool, &heroes).await?;
     let hero_ids = resolve_sync_hero_ids(pool, &options.hero).await?;
-    let patch_tag = latest_patch_tag(pool).await?;
 
     let mut hero_summaries = Vec::new();
     for hero_id in hero_ids {
-        let summary = sync_one_hero(pool, &api, hero_id, &options, &patch_tag).await?;
+        let summary = sync_one_hero(pool, &api, hero_id, &options, &window.patch_tag).await?;
         hero_summaries.push(summary);
     }
 
-    Ok(BuildDataSyncSummary {
+    let summary = BuildDataSyncSummary {
+        client_version,
+        analytics_window: window,
+        build_prevalence_time_basis: "build_last_updated; kein Matchzeitbeleg".into(),
         item_catalog_rows,
         hero_catalog_rows,
         heroes: hero_summaries,
-    })
+    };
+    sqlx::query(
+        "INSERT INTO brain.source_runs(source,status,started_at,finished_at,summary) \
+        VALUES('build_data','ok',now(),now(),$1::text::jsonb)",
+    )
+    .bind(serde_json::to_string(&summary)?)
+    .execute(pool)
+    .await?;
+    Ok(summary)
 }
 
 async fn sync_one_hero(
@@ -105,7 +128,7 @@ async fn sync_one_hero(
     analytics_pause(options);
     let item_stats_payload = api.item_stats(hero_id, options.min_average_badge)?;
     analytics_pause(options);
-    let baseline_payload = api.hero_stats(hero_id, options.min_average_badge)?;
+    let baseline_payload = api.hero_stats(options.min_average_badge)?;
     analytics_pause(options);
 
     let baseline = stat_line_for_hero(&baseline_payload, hero_id)?;
@@ -123,7 +146,7 @@ async fn sync_one_hero(
     );
     let mut lift_map = HashMap::new();
     for item_id in lift_ids {
-        let payload = api.hero_stats_with_item(hero_id, item_id, options.min_average_badge)?;
+        let payload = api.hero_stats_with_item(item_id, options.min_average_badge)?;
         analytics_pause(options);
         if let Ok(with_item) = stat_line_for_hero(&payload, hero_id) {
             if let Some(with_item_wr) = with_item.winrate() {
