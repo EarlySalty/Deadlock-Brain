@@ -476,6 +476,17 @@ fn parse_threads_from_sitemap(sitemap_url: &str, xml: &str) -> Result<Vec<Sitema
     Ok(threads)
 }
 
+pub fn first_post_html(html: &str) -> Result<String> {
+    let thread = parse_thread_html(html)?;
+    thread
+        .posts
+        .into_iter()
+        .next()
+        .map(|post| post.html)
+        .filter(|body| !body.trim().is_empty())
+        .ok_or_else(|| SourcesError::invalid_input("Forumoriginal ohne lesbaren ersten Beitrag."))
+}
+
 fn parse_thread_html(html: &str) -> Result<ParsedThread> {
     response_text_checked(html)?;
     let document = Html::parse_document(html);
@@ -874,8 +885,6 @@ mod tests {
             .attachments
             .iter()
             .any(|value| value.contains("project8-data.community.forum/attachments")));
-        // Sitemap-Loc-Parsing bleibt strukturell stabil (Alt-vor-Neu-Sortierung
-        // haengt an dieser numerischen Suffix-Extraktion).
         let summary = json!({ "thread_id": post.post_id });
         assert_eq!(summary["thread_id"], json!(2));
     }
@@ -1012,8 +1021,6 @@ async fn store_observed_snapshots(
     for snapshot in snapshots {
         let payload = serde_json::to_string(&snapshot.payload)?;
         let hash = crate::store::stable_hash_text(&payload);
-        // Jede tatsächliche Beobachtung, auch A nach B, wird gemeinsam mit der
-        // fertigen Thread-Mitgliedschaft übernommen. Fehler rollen alles zurück.
         sqlx::query("INSERT INTO brain.entity_snapshots(source,entity_type,external_id,canonical_name,payload_hash,payload,fetched_at,source_document_id) VALUES($1,$2,$3,$4,$5,$6::text::jsonb,clock_timestamp(),$7) ON CONFLICT(source,entity_type,external_id,payload_hash) DO UPDATE SET fetched_at=EXCLUDED.fetched_at,source_document_id=EXCLUDED.source_document_id")
             .bind(&snapshot.source).bind(&snapshot.entity_type).bind(&snapshot.external_id).bind(&snapshot.canonical_name).bind(hash).bind(payload).bind(document_id).execute(&mut *transaction).await?;
     }

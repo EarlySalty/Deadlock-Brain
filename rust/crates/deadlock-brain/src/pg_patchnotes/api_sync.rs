@@ -16,7 +16,7 @@ struct ApiPatchPost {
 
 pub fn sync_patchnotes(
     http: &HttpClient,
-    ledger: &SteamLedger,
+    _ledger: &SteamLedger,
     dsn_env: &str,
     dry_run: bool,
 ) -> Result<Value> {
@@ -41,18 +41,28 @@ pub fn sync_patchnotes(
     let mut imported = Vec::new();
     let mut skipped = Vec::new();
     for post in posts {
-        if !is_patch_candidate(&post) {
-            skipped.push(json!({"url":post.link,"reason":"announcement_without_patch_changes"}));
-            continue;
-        }
         let existing = client.query_opt(
             "SELECT id FROM patchnotes.changelog_posts WHERE url=$1 ORDER BY id LIMIT 1",
             &[&post.link],
         )?;
         let row = post_row(&post, existing.map(|row| row.get(0)))?;
-        let mut resolved = resolve_api_source(http, ledger, &mut client, &post, &row)?;
-        if !has_complete_patch_content(&resolved.raw_content) {
+        let Some(mut resolved) = resolve_api_source(&post, |url| {
+            let response = http.get_bounded(
+                url,
+                SourceHttpOptions {
+                    headers: vec![("Accept".into(), "text/html".into())],
+                    ..Default::default()
+                },
+            )?;
+            response.ensure_success()?;
+            Ok(std::str::from_utf8(&response.content)?.to_string())
+        })?
+        else {
             skipped.push(json!({"url":post.link,"reason":"preview_requires_official_fulltext","not_imported_as_patch":true}));
+            continue;
+        };
+        if !is_patch_candidate(&post, &resolved.raw_content) {
+            skipped.push(json!({"url":post.link,"reason":"announcement_without_patch_changes"}));
             continue;
         }
         resolved.raw_content = clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
@@ -62,6 +72,10 @@ pub fn sync_patchnotes(
             dry_run,
         };
         let mut prepared = prepare_patch(&row, &resolved, &index)?;
+        if prepared.events.is_empty() {
+            skipped.push(json!({"url":post.link,"reason":"original_without_parseable_patch_events","not_imported_as_patch":true}));
+            continue;
+        }
         let canonical = client.query_opt(
             "SELECT metadata->>'patch_id' FROM brain.source_documents WHERE source=$1 AND external_id=$2 \
              AND metadata->>'patch_id' IS NOT NULL ORDER BY id LIMIT 1",
@@ -147,11 +161,10 @@ fn post_row(post: &ApiPatchPost, existing_id: Option<i64>) -> Result<PatchnoteRo
     })
 }
 
-fn is_patch_candidate(post: &ApiPatchPost) -> bool {
+fn is_patch_candidate(post: &ApiPatchPost, original: &str) -> bool {
     post.source == "forum"
         || post.title.to_ascii_lowercase().contains("update")
-        || has_patch_changes(&clean_steam_content(&cleanup_patch_content(&post.content)))
-        || post.content.contains("playdeadlock.com/")
+        || has_patch_changes(&clean_steam_content(&cleanup_patch_content(original)))
 }
 
 fn has_complete_patch_content(raw: &str) -> bool {
@@ -164,14 +177,15 @@ fn has_complete_patch_content(raw: &str) -> bool {
             .split("href")
             .skip(1)
             .any(|suffix| suffix.trim_start().starts_with('='));
-    !has_reference && has_patch_changes(&clean_steam_content(&content))
+    let cleaned = clean_steam_content(&content);
+    !has_reference && (has_patch_changes(&cleaned) || cleaned.lines().any(is_narrative_event_line))
 }
 
 fn has_patch_changes(content: &str) -> bool {
-    content.lines().any(|line| {
+    patch_lines(content).iter().any(|line| {
         let line = line.trim();
-        bullet_body(line).is_some()
-            && !line.contains("http")
+        !line.contains("http")
+            && (bullet_body(line).is_some() || is_narrative_event_line(line))
             && matches!(
                 dbrain_normalize::classify_change_type(line).as_str(),
                 "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
@@ -180,55 +194,35 @@ fn has_patch_changes(content: &str) -> bool {
 }
 
 fn resolve_api_source(
-    http: &HttpClient,
-    ledger: &SteamLedger,
-    client: &mut Client,
     post: &ApiPatchPost,
-    row: &PatchnoteRow,
-) -> Result<PatchSourceResolution> {
-    if has_complete_patch_content(&post.content) {
-        return Ok(PatchSourceResolution::from_row(row));
-    }
-    let urls = std::iter::once(post.link.clone())
-        .chain(extract_http_tokens(&post.content))
-        .filter_map(|raw| {
-            trusted_original_url(raw.split(['"', '\'', '<', '>']).next().unwrap_or_default())
-        });
-    for url in urls {
-        if url.host_str() != Some("store.steampowered.com") {
-            continue;
-        }
-        let response = http.get_bounded(
-            url.as_str(),
-            SourceHttpOptions {
-                headers: vec![("Accept".into(), "text/html".into())],
-                ..Default::default()
-            },
-        )?;
-        response.ensure_success()?;
-        let html = std::str::from_utf8(&response.content)?;
+    mut fetch_html: impl FnMut(&str) -> Result<String>,
+) -> Result<Option<PatchSourceResolution>> {
+    let url = trusted_original_url(&post.link)
+        .ok_or_else(|| anyhow!("Ungültige Originalquelle im Patchfeed"))?;
+    let html = fetch_html(url.as_str())?;
+    let body = if post.source == "forum" {
+        Some(dbrain_sources::forum::first_post_html(&html)?)
+    } else {
         let item = SteamAppNewsItem {
             gid: String::new(),
             title: post.title.clone(),
             url: url.to_string(),
-            contents: post.content.clone(),
+            contents: String::new(),
             date: DateTime::parse_from_rfc3339(&post.pub_date)?.timestamp(),
             author: None,
             feedlabel: None,
             feedname: Some("steam_community_announcements".into()),
         };
-        if let Some(body) = extract_steam_announcement_body_from_html(html, &item) {
-            if has_complete_patch_content(&body) {
-                return Ok(PatchSourceResolution {
-                    raw_content: body,
-                    source_url: Some(url.to_string()),
-                    source_kind: "steam".into(),
-                    resolved_from: Some(format!("{PATCH_FEED_URL}:{}", post.link)),
-                });
-            }
-        }
-    }
-    resolve_patch_source_with(http, ledger, client, row, resolve_steam_raw_content)
+        extract_steam_announcement_body_from_html(&html, &item)
+    };
+    Ok(body
+        .filter(|body| has_complete_patch_content(body))
+        .map(|body| PatchSourceResolution {
+            raw_content: body,
+            source_url: Some(url.to_string()),
+            source_kind: post.source.clone(),
+            resolved_from: Some(format!("{PATCH_FEED_URL}:{}", post.link)),
+        }))
 }
 
 #[cfg(test)]
@@ -264,7 +258,8 @@ mod tests {
         let mut post = post();
         post.title = "Mind the Birds!".into();
         post.content = "<p>We voted for a new bird. See you in the city!</p>".into();
-        assert!(!is_patch_candidate(&post));
+        let original = "<p>We voted for our favourite bird. See you in the city!</p>";
+        assert!(!is_patch_candidate(&post, original));
         assert!(!has_patch_changes(
             "Full update: https://www.playdeadlock.com/cityneversleeps"
         ));
@@ -317,6 +312,123 @@ mod tests {
         assert!(has_complete_patch_content(&resolve_steam_content(
             &http, &item
         )));
+    }
+
+    fn steam_html(post: &ApiPatchPost, body: &str) -> String {
+        let events = json!([{
+            "gid":"703281025618282632",
+            "event_name":post.title,
+            "rtime32_start_time":1791241532_i64,
+            "announcement_body":{"headline":post.title,"body":body}
+        }]);
+        let encoded = events
+            .to_string()
+            .replace('&', "&amp;")
+            .replace('"', "&quot;");
+        format!(
+            "<meta property=\"og:url\" content=\"{}\"><div data-partnereventstore=\"{encoded}\"></div>",
+            post.link
+        )
+    }
+
+    #[test]
+    fn unlinked_feed_teaser_never_replaces_original_events() {
+        let post = post();
+        let full = format!(
+            "{}<p>- Rat King: Scrap Grenade cooldown reduced from 20 to 18</p>",
+            post.content
+        );
+        let html = steam_html(&post, &full);
+        let mut requests = Vec::new();
+        let mut resolved = resolve_api_source(&post, |url| {
+            requests.push(url.to_string());
+            Ok(html.clone())
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(requests, vec![post.link.clone()]);
+        assert_eq!(resolved.raw_content, full);
+        assert_ne!(resolved.raw_content, post.content);
+        resolved.raw_content = clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
+        let row = post_row(&post, Some(17)).unwrap();
+        let prepared = prepare_patch(&row, &resolved, &EntityIndex::default()).unwrap();
+        assert_eq!(prepared.events.len(), 3);
+        assert!(prepared
+            .events
+            .iter()
+            .any(|event| event.normalized_line.contains("cooldown reduced")));
+    }
+
+    #[test]
+    fn unreadable_or_linked_original_never_falls_back_to_feed_teaser() {
+        let post = post();
+        assert!(has_complete_patch_content(&post.content));
+        assert!(
+            resolve_api_source(&post, |_| Ok("<html>No original body</html>".into()))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            resolve_api_source(&post, |_| Err(anyhow!("Originalabruf fehlgeschlagen"))).is_err()
+        );
+        let linked = format!(
+            "{}<a href=\"https://www.playdeadlock.com/cityneversleeps\">Full patch</a>",
+            post.content
+        );
+        assert!(
+            resolve_api_source(&post, |_| Ok(steam_html(&post, &linked)))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn original_prose_reaches_existing_parser_for_steam_and_forum() {
+        let prose = "[h3]The Hideout[/h3][p]Welcome to the Hideout! The Hideout replaces the existing Dashboard UI and is your personal area to play around in while waiting for a match.[/p][h3]Hero Voting[/h3][p]Today we introduce the first of the six new heroes, Mina, with another new hero unlocking every two days.[/p][h3]Mina: Hero Spotlight[/h3][p]Killing enemies has never looked better. Mina is a glass cannon that delivers quick bursts of Spirit damage at range with her passive, Love Bites.[/p]";
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Mina", "Mina");
+        let index = index.finish();
+        for source in ["steam", "forum"] {
+            let mut post = post();
+            post.title = "Six New Heroes".into();
+            post.content = "Six New Heroes".into();
+            post.source = source.into();
+            let html = if source == "forum" {
+                post.link = "https://forums.playdeadlock.com/threads/six-new-heroes.75046/".into();
+                format!("<html><article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{prose}</div></article><article class=\"js-post\" data-content=\"post-2\"><div class=\"bbWrapper\">- Mina: Damage increased from 10 to 20</div></article></html>")
+            } else {
+                steam_html(&post, prose)
+            };
+            let mut resolved = resolve_api_source(&post, |_| Ok(html.clone()))
+                .unwrap()
+                .unwrap();
+            assert!(is_patch_candidate(&post, &resolved.raw_content));
+            resolved.raw_content =
+                clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
+            assert!(resolved
+                .raw_content
+                .lines()
+                .all(|line| bullet_body(line).is_none()));
+            let prepared =
+                prepare_patch(&post_row(&post, None).unwrap(), &resolved, &index).unwrap();
+            assert_eq!(prepared.events.len(), 3, "{source}");
+            assert!(prepared.events.iter().any(|event| {
+                event.section.as_deref() == Some("Mina: Hero Spotlight")
+                    && event.entity_name.as_deref() == Some("Mina")
+            }));
+        }
+    }
+
+    #[test]
+    fn incidental_image_link_in_original_still_fails_closed() {
+        let post = post();
+        let body = format!(
+            "{}<img src=\"https://cdn.steamstatic.com/patch.png\">",
+            post.content
+        );
+        assert!(resolve_api_source(&post, |_| Ok(steam_html(&post, &body)))
+            .unwrap()
+            .is_none());
     }
 
     #[test]
