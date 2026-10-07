@@ -14,6 +14,8 @@ urlencoding.workspace = true
 brain-client = { path = "../brain-client" }
 brain-contracts = { path = "../brain-contracts" }
 brain-feeds = { path = "../brain-feeds" }
+brain-maintenance = { path = "../brain-maintenance" }
+brain-storage = { path = "../brain-storage" }
 chrono.workspace = true
 clap.workspace = true
 deadlock-brain-core = { path = "../deadlock-brain-core" }
@@ -37,6 +39,5 @@ zeroize = "1"
 libc = "0.2"
 
 [dev-dependencies]
-brain-storage = { path = "../brain-storage" }
 reqwest.workspace = true
 tempfile.workspace = true

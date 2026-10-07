@@ -1,3 +1,6 @@
+#[path = "compare_tests.rs"]
+mod compare_tests;
+
 use super::*;
 use reqwest::Client;
 use serde_json::{json, Value};
@@ -91,7 +94,7 @@ impl Postgres {
 
     async fn pool(&self, user: &str) -> PgPool {
         PgPoolOptions::new()
-            .max_connections(4)
+            .max_connections(if user == "brain_migrate" { 3 } else { 4 })
             .connect_with(
                 PgConnectOptions::new_without_pgpass()
                     .host(&self.directory.path().to_string_lossy())
@@ -457,7 +460,11 @@ async fn postgres_http_comments_survive_restart_and_roles_are_isolated() {
     ] {
         let error = sqlx::query(statement).execute(&pool).await.unwrap_err();
         assert_eq!(
-            error.as_database_error().unwrap().code().as_deref(),
+            error
+                .as_database_error()
+                .unwrap_or_else(|| panic!("{statement}: {error:?}"))
+                .code()
+                .as_deref(),
             Some("42501"),
             "{statement}"
         );

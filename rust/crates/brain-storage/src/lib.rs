@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod compare_artifact;
 mod domain_reader;
 mod entity_derivation_store;
 pub mod entity_profile;

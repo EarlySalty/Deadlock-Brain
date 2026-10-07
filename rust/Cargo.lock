@@ -972,6 +972,7 @@ dependencies = [
  "brain-client",
  "brain-contracts",
  "brain-feeds",
+ "brain-maintenance",
  "brain-storage",
  "chrono",
  "clap",

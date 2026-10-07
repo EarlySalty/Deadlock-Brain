@@ -1,5 +1,6 @@
 mod assets;
 mod comments;
+mod compare;
 
 use anyhow::Result;
 use axum::{
@@ -30,6 +31,8 @@ pub async fn router(root: &Path, pool: PgPool) -> Result<Router> {
             "/api/comments",
             get(comments::get_comments).post(comments::post_comment),
         )
+        .route("/compare/{id}", get(compare::page))
+        .route("/compare/{id}/chart.svg", get(compare::chart))
         .fallback(file)
         .layer(DefaultBodyLimit::max(65536))
         .layer(axum::middleware::map_response(security_headers))
@@ -50,7 +53,9 @@ async fn security_headers(mut response: Response) -> Response {
             .parse()
             .unwrap(),
     );
-    headers.insert(header::CACHE_CONTROL, "no-cache".parse().unwrap());
+    headers
+        .entry(header::CACHE_CONTROL)
+        .or_insert("no-cache".parse().unwrap());
     response
 }
 
