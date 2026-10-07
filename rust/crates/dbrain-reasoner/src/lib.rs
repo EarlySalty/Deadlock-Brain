@@ -43,6 +43,8 @@ pub mod publish;
 mod types;
 
 #[cfg(test)]
+mod calculation_tests;
+#[cfg(test)]
 mod fix_tests;
 
 pub use ai_roles::{
