@@ -65,21 +65,14 @@ impl Playstyle {
 }
 
 fn spirit_feeds_weapon(hero: &HeroModel) -> bool {
-    hero.scaling.iter().any(|stat| {
-        stat.per_spirit
-            .is_some_and(|value| value.is_finite() && value > 0.0)
-            && {
-                let name = stat.stat.to_ascii_lowercase();
-                name.contains("firerate")
-                    || name.contains("fire_rate")
-                    || name.contains("bulletdamage")
-                    || name.contains("bullet_damage")
-                    || name.contains("clipsize")
-                    || name.contains("clip_size")
-                    || name.contains("roundspersecond")
-                    || name.contains("rounds_per_second")
-            }
-    })
+    let scaling = crate::mechanics::weapon_spirit_scaling(hero);
+    [
+        scaling.bullet_damage,
+        scaling.clip_size,
+        scaling.rounds_per_second,
+    ]
+    .into_iter()
+    .any(|coefficient| coefficient.is_finite() && coefficient > 0.0)
 }
 
 fn filter_population(prior: &PopulationPrior, allowed: &BTreeSet<i64>) -> PopulationPrior {
@@ -161,6 +154,112 @@ mod tests {
                 "spirit_dps": 0.0, "weapon_share": 1.0, "primary_axis": "Weapon"}
         }))
         .unwrap()
+    }
+
+    fn hero_with_scaling(stats: &[(&str, f64)]) -> HeroModel {
+        let mut hero = hero();
+        hero.scaling = stats
+            .iter()
+            .map(|(stat, value)| crate::ScalingStat {
+                stat: (*stat).into(),
+                per_level: 0.0,
+                per_spirit: Some(*value),
+            })
+            .collect();
+        hero
+    }
+
+    fn spirit_item() -> ItemModel {
+        serde_json::from_value(serde_json::json!({
+            "item_id": 1, "name": "Spirititem", "class_name": "spirit_item",
+            "slot": "Spirit", "tier": 1, "cost": 800, "is_active": false,
+            "shopable": true, "disabled": false, "damage_axis": "Spirit",
+            "defense_kind": [], "properties": {"SpiritPower": 10.0},
+            "passive_properties": {}, "condition": "None",
+            "proc_cooldown": null, "imbueable": false
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn finite_direct_rate_overrides_positive_alias_for_weapon_style() {
+        let item = spirit_item();
+        assert_eq!(
+            crate::families::item_axes(&item),
+            BTreeSet::from([MechanicAxis::Spirit])
+        );
+        for direct in [0.0, -0.1] {
+            for stats in [
+                [("ERoundsPerSecond", direct), ("EFireRate", 50.0)],
+                [("EFireRate", 50.0), ("ERoundsPerSecond", direct)],
+            ] {
+                let hero = hero_with_scaling(&stats);
+                assert_eq!(
+                    crate::mechanics::weapon_spirit_scaling(&hero).rounds_per_second,
+                    direct
+                );
+                assert!(!spirit_feeds_weapon(&hero));
+                assert!(!Playstyle::Weapon.allows_item(&hero, &item));
+            }
+        }
+    }
+
+    #[test]
+    fn unknown_scaling_keys_do_not_admit_spirit_items_to_weapon_style() {
+        let item = spirit_item();
+        for stat in [
+            "BulletDamage",
+            "UnknownBulletDamageBonus",
+            "bullet_damage",
+            "UnknownClipSize",
+            "UnknownFireRate",
+            "rounds_per_second",
+            "ERoundsPerSecondAlias",
+            "eFireRate",
+        ] {
+            let hero = hero_with_scaling(&[(stat, 1.0)]);
+            assert!(!spirit_feeds_weapon(&hero), "{stat}");
+            assert!(!Playstyle::Weapon.allows_item(&hero, &item), "{stat}");
+        }
+    }
+
+    #[test]
+    fn only_finite_positive_effective_weapon_coefficients_admit_spirit_items() {
+        let item = spirit_item();
+        for stat in [
+            "EBulletDamage",
+            "EClipSize",
+            "ERoundsPerSecond",
+            "EFireRate",
+        ] {
+            let hero = hero_with_scaling(&[(stat, 0.01)]);
+            assert!(spirit_feeds_weapon(&hero), "{stat}");
+            assert!(Playstyle::Weapon.allows_item(&hero, &item), "{stat}");
+            for value in [0.0, -0.1, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+                let hero = hero_with_scaling(&[(stat, value)]);
+                assert!(!spirit_feeds_weapon(&hero), "{stat}: {value}");
+                assert!(
+                    !Playstyle::Weapon.allows_item(&hero, &item),
+                    "{stat}: {value}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn fire_rate_fallback_uses_the_effective_base_rate_and_recovers_nonfinite_direct_values() {
+        let item = spirit_item();
+        for base_rate in [0.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut hero = hero_with_scaling(&[("EFireRate", 50.0)]);
+            hero.weapon.shots_per_second = base_rate;
+            assert!(!spirit_feeds_weapon(&hero));
+            assert!(!Playstyle::Weapon.allows_item(&hero, &item));
+        }
+        for direct in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let hero = hero_with_scaling(&[("ERoundsPerSecond", direct), ("EFireRate", 50.0)]);
+            assert!(spirit_feeds_weapon(&hero));
+            assert!(Playstyle::Weapon.allows_item(&hero, &item));
+        }
     }
 
     #[test]
