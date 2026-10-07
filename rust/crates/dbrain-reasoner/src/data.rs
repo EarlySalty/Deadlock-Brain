@@ -819,20 +819,31 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
     };
     let timing = weapon_timing(payload);
     let shots_per_second = get(&["shots_per_second"])
+        .filter(|rate| *rate >= 0.0)
         .or_else(|| {
-            match (
+            let rate = match (
                 timing.burst_shot_count,
                 timing.cycle_time,
                 timing.intra_burst_cycle_time,
             ) {
-                (Some(count), Some(cycle), Some(intra)) if cycle + count as f64 * intra > 0.0 => {
+                (Some(count), Some(cycle), Some(intra))
+                    if cycle >= 0.0 && intra >= 0.0 && cycle + count as f64 * intra > 0.0 =>
+                {
                     Some(count as f64 / (cycle + count as f64 * intra))
                 }
                 (_, Some(cycle), _) if cycle > 0.0 => Some(1.0 / cycle),
                 _ => None,
-            }
+            };
+            rate.filter(|rate| rate.is_finite() && *rate > 0.0)
         })
-        .or_else(|| get(&["bullets_per_second"]).map(|rate| rate / timing.pellets.unwrap_or(1.0)))
+        .or_else(|| {
+            let pellets = timing
+                .pellets
+                .filter(|pellets| *pellets > 0.0 && pellets.fract() == 0.0)?;
+            get(&["bullets_per_second"])
+                .map(|rate| rate / pellets)
+                .filter(|rate| rate.is_finite() && *rate >= 0.0)
+        })
         .unwrap_or_default();
     let pellets = timing.pellets.unwrap_or(1.0);
     let clip_size = get(&["clip_size"]).unwrap_or_default();
@@ -2690,7 +2701,7 @@ mod tests {
         let mut payload = serde_json::json!({
             "starting_stats": {"max_health": {"value": "unknown"}},
             "base_health": 650,
-            "weapon_info": {"shots_per_second": null, "bullets_per_second": "4"}
+            "weapon_info": {"shots_per_second": null, "bullets_per_second": "4", "bullets": 1}
         });
         assert_eq!(base_health(&payload), 650.0);
         assert_eq!(weapon_profile(&payload).shots_per_second, 4.0);
@@ -2698,6 +2709,155 @@ mod tests {
         payload["weapon_info"]["shots_per_second"] = serde_json::json!("0");
         assert_eq!(base_health(&payload), 0.0);
         assert_eq!(weapon_profile(&payload).shots_per_second, 0.0);
+    }
+
+    fn recorded_weapon_payload() -> Value {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../testdata/calculation/recorded-assets.json"))
+                .unwrap();
+        fixture["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|raw| {
+                raw["weapon_info"]
+                    .as_object()
+                    .is_some_and(|info| !info.is_empty())
+            })
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn weapon_profile_preserves_valid_recorded_rate_sources() {
+        let original = recorded_weapon_payload();
+        let mut payload = original.clone();
+        let expected = number(payload.pointer("/weapon_info/shots_per_second")).unwrap();
+        assert_eq!(weapon_profile(&payload).shots_per_second, expected);
+        let info = payload["weapon_info"].as_object_mut().unwrap();
+        info.remove("shots_per_second");
+        let timing = weapon_timing(&payload);
+        let count = timing.burst_shot_count.unwrap() as f64;
+        let burst =
+            count / (timing.cycle_time.unwrap() + count * timing.intra_burst_cycle_time.unwrap());
+        assert_eq!(weapon_profile(&payload).shots_per_second, burst);
+        payload["weapon_info"]
+            .as_object_mut()
+            .unwrap()
+            .remove("burst_shot_count");
+        assert_eq!(
+            weapon_profile(&payload).shots_per_second,
+            1.0 / timing.cycle_time.unwrap()
+        );
+        payload["weapon_info"]
+            .as_object_mut()
+            .unwrap()
+            .remove("cycle_time");
+        let projectiles = number(payload.pointer("/weapon_info/bullets_per_second")).unwrap();
+        assert_eq!(
+            weapon_profile(&payload).shots_per_second,
+            projectiles / timing.pellets.unwrap()
+        );
+        payload["weapon_info"]["shots_per_second"] = serde_json::json!(0);
+        assert_eq!(weapon_profile(&payload).shots_per_second, 0.0);
+        assert_eq!(weapon_profile(&original).shots_per_second, expected);
+    }
+
+    #[test]
+    fn weapon_profile_invalid_pellets_leave_public_rate_unknown() {
+        let source = crate::ModelSource {
+            client_version: 1,
+            document_id: "parser-case".into(),
+            original_url: String::new(),
+            kind: "items".into(),
+            language: "en".into(),
+            json_pointer: String::new(),
+        };
+        let hero_source = crate::ModelSource {
+            kind: "heroes".into(),
+            ..source.clone()
+        };
+        for pellets in [
+            None,
+            Some(serde_json::json!(0)),
+            Some(serde_json::json!(-1)),
+            Some(serde_json::json!(0.5)),
+            Some(serde_json::json!(null)),
+            Some(serde_json::json!("NaN")),
+            Some(serde_json::json!("Infinity")),
+        ] {
+            let mut payload = recorded_weapon_payload();
+            let info = payload["weapon_info"].as_object_mut().unwrap();
+            for key in [
+                "shots_per_second",
+                "cycle_time",
+                "intra_burst_cycle_time",
+                "bullets",
+            ] {
+                info.remove(key);
+            }
+            if let Some(pellets) = pellets {
+                info.insert("bullets".into(), pellets);
+            }
+            let models = calculation_models_from_payloads(
+                &serde_json::json!([]),
+                &serde_json::json!([payload.clone()]),
+                &hero_source,
+                &source,
+            )
+            .unwrap();
+            let weapon = models.weapons.values().next().unwrap();
+            assert_eq!(weapon.raw, payload);
+            assert!(weapon.profile.shots_per_second.is_finite());
+            assert_eq!(weapon.profile.shots_per_second, 0.0);
+            assert!(matches!(
+                weapon.raw_metrics["shots_per_second"],
+                crate::MeasuredValue::Unknown { .. }
+            ));
+            assert!(weapon.raw_metrics["bullets_per_second"].value().unwrap() > 0.0);
+            for convention in [
+                crate::ReloadConvention::AfterLastShot,
+                crate::ReloadConvention::AfterFireInterval,
+            ] {
+                assert_eq!(
+                    crate::mechanics::weapon_cycle_seconds(
+                        &weapon.profile,
+                        Some(&weapon.timing),
+                        convention
+                    ),
+                    None
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn weapon_profile_rejects_nonfinite_derived_rate_twins() {
+        for (cycle, intra) in [(1e-320, 0.0), (1e308, 1e308)] {
+            let mut payload = recorded_weapon_payload();
+            let info = payload["weapon_info"].as_object_mut().unwrap();
+            info.remove("shots_per_second");
+            info.remove("bullets_per_second");
+            info.insert("cycle_time".into(), serde_json::json!(cycle));
+            info.insert("intra_burst_cycle_time".into(), serde_json::json!(intra));
+            info.insert("burst_shot_count".into(), serde_json::json!(3));
+            assert_eq!(weapon_profile(&payload).shots_per_second, 0.0);
+            payload["weapon_info"]
+                .as_object_mut()
+                .unwrap()
+                .remove("burst_shot_count");
+            if intra == 0.0 {
+                assert_eq!(weapon_profile(&payload).shots_per_second, 0.0);
+            }
+            payload["weapon_info"]["bullets_per_second"] = serde_json::json!(18);
+            payload["weapon_info"]
+                .as_object_mut()
+                .unwrap()
+                .remove("cycle_time");
+            assert_eq!(weapon_profile(&payload).shots_per_second, 2.0);
+            payload["weapon_info"]["shots_per_second"] = serde_json::json!(-1);
+            assert_eq!(weapon_profile(&payload).shots_per_second, 2.0);
+        }
     }
 
     #[test]
