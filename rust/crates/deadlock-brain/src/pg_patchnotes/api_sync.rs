@@ -61,7 +61,7 @@ pub fn sync_patchnotes(
             skipped.push(json!({"url":post.link,"reason":"preview_requires_official_fulltext","not_imported_as_patch":true}));
             continue;
         };
-        if !is_patch_candidate(&post, &resolved.raw_content) {
+        if !is_patch_candidate(&resolved.raw_content) {
             skipped.push(json!({"url":post.link,"reason":"announcement_without_patch_changes"}));
             continue;
         }
@@ -161,10 +161,8 @@ fn post_row(post: &ApiPatchPost, existing_id: Option<i64>) -> Result<PatchnoteRo
     })
 }
 
-fn is_patch_candidate(post: &ApiPatchPost, original: &str) -> bool {
-    post.source == "forum"
-        || post.title.to_ascii_lowercase().contains("update")
-        || has_patch_changes(&clean_steam_content(&cleanup_patch_content(original)))
+fn is_patch_candidate(original: &str) -> bool {
+    has_patch_changes(&clean_steam_content(&cleanup_patch_content(original)))
 }
 
 fn has_complete_patch_content(raw: &str) -> bool {
@@ -178,13 +176,101 @@ fn has_complete_patch_content(raw: &str) -> bool {
             .skip(1)
             .any(|suffix| suffix.trim_start().starts_with('='));
     let cleaned = clean_steam_content(&content);
-    !has_reference && (has_patch_changes(&cleaned) || cleaned.lines().any(is_narrative_event_line))
+    !has_reference && has_patch_changes(&cleaned)
 }
 
 fn has_patch_changes(content: &str) -> bool {
     patch_lines(content).iter().any(|line| {
         let line = line.trim();
-        !line.contains("http")
+        let words: Vec<_> = line
+            .split(|character: char| !character.is_alphabetic())
+            .filter(|word| !word.is_empty())
+            .map(str::to_ascii_lowercase)
+            .collect();
+        let cosmetic = words.iter().any(|word| {
+            matches!(
+                word.as_str(),
+                "cosmetic"
+                    | "cosmetics"
+                    | "skin"
+                    | "skins"
+                    | "artwork"
+                    | "portrait"
+                    | "portraits"
+                    | "icon"
+                    | "icons"
+                    | "sound"
+                    | "sounds"
+                    | "music"
+                    | "visual"
+                    | "visuals"
+                    | "animation"
+                    | "animations"
+            )
+        });
+        let gameplay = words.iter().any(|word| {
+            matches!(
+                word.as_str(),
+                "hero"
+                    | "heroes"
+                    | "ability"
+                    | "abilities"
+                    | "item"
+                    | "items"
+                    | "weapon"
+                    | "weapons"
+                    | "damage"
+                    | "dps"
+                    | "cooldown"
+                    | "recharge"
+                    | "delay"
+                    | "cost"
+                    | "falloff"
+                    | "health"
+                    | "regen"
+                    | "barrier"
+                    | "shield"
+                    | "armor"
+                    | "heal"
+                    | "healing"
+                    | "scaling"
+                    | "bounty"
+                    | "ammo"
+                    | "reload"
+                    | "range"
+                    | "radius"
+                    | "duration"
+                    | "speed"
+                    | "sprint"
+                    | "movement"
+                    | "resistance"
+                    | "resist"
+                    | "lifesteal"
+                    | "stamina"
+                    | "souls"
+                    | "lane"
+                    | "lanes"
+                    | "trooper"
+                    | "troopers"
+                    | "creep"
+                    | "creeps"
+                    | "guardian"
+                    | "guardians"
+                    | "walker"
+                    | "walkers"
+                    | "patron"
+                    | "patrons"
+                    | "urn"
+                    | "matchmaking"
+                    | "match"
+                    | "matches"
+                    | "crash"
+                    | "crashes"
+            )
+        });
+        !line.to_ascii_lowercase().contains("http")
+            && !cosmetic
+            && gameplay
             && (bullet_body(line).is_some() || is_narrative_event_line(line))
             && matches!(
                 dbrain_normalize::classify_change_type(line).as_str(),
@@ -255,14 +341,51 @@ mod tests {
     }
     #[test]
     fn previews_and_cosmetic_announcements_are_not_gameplay_patches() {
-        let mut post = post();
-        post.title = "Mind the Birds!".into();
-        post.content = "<p>We voted for a new bird. See you in the city!</p>".into();
-        let original = "<p>We voted for our favourite bird. See you in the city!</p>";
-        assert!(!is_patch_candidate(&post, original));
+        for source in ["steam", "forum"] {
+            for title in ["Mind the Birds!", "Minor Update"] {
+                for original in [
+                    "<p>We voted for our favourite bird. See you in the city!</p>",
+                    "<p>We voted for a new bird. See you in the city!</p>",
+                    "<p>Added new hero skins and updated item icons for everyone.</p>",
+                    "<p>Improved the hero artwork and animations in this update.</p>",
+                    "<p>- Added a new cosmetic item for every hero</p>",
+                    "<p>We introduce the latest community event. See you in the city!</p>",
+                ] {
+                    let mut post = post();
+                    post.source = source.into();
+                    post.title = title.into();
+                    let html = if source == "forum" {
+                        post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+                        format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{original}</div></article>")
+                    } else {
+                        steam_html(&post, original)
+                    };
+                    assert!(!is_patch_candidate(original), "{source}/{title}/{original}");
+                    assert!(!has_complete_patch_content(original));
+                    assert!(resolve_api_source(&post, |_| Ok(html.clone()))
+                        .unwrap()
+                        .is_none());
+                }
+            }
+        }
         assert!(!has_patch_changes(
             "Full update: https://www.playdeadlock.com/cityneversleeps"
         ));
+    }
+
+    #[test]
+    fn gameplay_changes_remain_candidates_without_bullets_or_update_titles() {
+        for original in [
+            "<p>Scrap Grenade damage increased from 65 to 70.</p>",
+            "<p>Enchanter's Barrier shield increased from 300 to 350.</p>",
+            "<p>The shotgun DPS increased from 50 to 60.</p>",
+            "<p>Today we introduce six new heroes, with another hero unlocking every two days.</p>",
+            "<p>Fixed a crash when entering a match.</p>",
+            "<p>- Rat King: Scrap Grenade cooldown reduced from 20 to 18</p>",
+        ] {
+            assert!(is_patch_candidate(original), "{original}");
+            assert!(has_complete_patch_content(original), "{original}");
+        }
     }
     #[test]
     fn change_bullets_do_not_make_linked_previews_complete() {
@@ -402,7 +525,7 @@ mod tests {
             let mut resolved = resolve_api_source(&post, |_| Ok(html.clone()))
                 .unwrap()
                 .unwrap();
-            assert!(is_patch_candidate(&post, &resolved.raw_content));
+            assert!(is_patch_candidate(&resolved.raw_content));
             resolved.raw_content =
                 clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
             assert!(resolved

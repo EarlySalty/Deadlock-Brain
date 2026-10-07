@@ -12,7 +12,6 @@ use std::{collections::BTreeSet, path::Path};
 
 pub const SOURCE: &str = "deadlock_assets_api";
 pub const PARSER_REVISION: &str = "dbrain-assets/3";
-// Keep the current main endpoint fix; do not revive the retired assets host.
 pub const BASE_URL: &str = "https://api.deadlock-api.com";
 pub const ENDPOINTS: &[(&str, &str)] = &[
     ("items", "/v1/assets/items"),
@@ -161,7 +160,6 @@ pub(crate) async fn pull_assets_inner(
             }
         }
     }
-    // No EntitySnapshot is written before all selected payloads pass preflight.
     if let Some(error) = first_error {
         return Err(error);
     }
@@ -176,9 +174,12 @@ pub(crate) async fn pull_assets_inner(
         total += count;
     }
     let mirror_complete = DEFAULT_KINDS.iter().all(|kind| {
-        LANGUAGES
-            .iter()
-            .all(|language| summary.contains_key(&format!("{kind}/{language}")))
+        LANGUAGES.iter().all(|language| {
+            summary
+                .get(&format!("{kind}/{language}"))
+                .and_then(|endpoint| endpoint["snapshots"].as_u64())
+                .is_some_and(|count| count > 0)
+        })
     });
     Ok(
         json!({"endpoints":summary,"snapshots":total,"schema_drift":report,
@@ -210,14 +211,18 @@ fn mirror_is_fresh(summary: &Value, selected: &[(String, &'static str)], now: i6
                 &["english"]
             };
             languages.iter().all(|language| {
-                summary["endpoints"][format!("{kind}/{language}")]["source_document_id"]
+                let endpoint = &summary["endpoints"][format!("{kind}/{language}")];
+                endpoint["source_document_id"]
                     .as_i64()
                     .is_some_and(|id| id > 0)
+                    && (!DEFAULT_KINDS.contains(&kind.as_str())
+                        || endpoint["snapshots"]
+                            .as_u64()
+                            .is_some_and(|count| count > 0))
             })
         })
 }
 
-/// DB-free adapter path used by fixtures and the opt-in small live contract test.
 pub fn prepare_assets(
     kind: &str,
     response: SourceHttpResponse,
@@ -326,6 +331,11 @@ fn snapshots_for(kind: &str, payload: &Value) -> Result<Vec<EntitySnapshotInput>
         let array = payload
             .as_array()
             .ok_or_else(|| SourcesError::invalid_input("assets must be an array"))?;
+        if DEFAULT_KINDS.contains(&kind) && array.is_empty() {
+            return Err(SourcesError::invalid_input(
+                "Pflicht-Assets dürfen nicht leer sein",
+            ));
+        }
         array
             .iter()
             .map(|value| {
@@ -414,8 +424,9 @@ mod tests {
             "https://api.deadlock-api.com/v1/assets/items?client_version=6757&language=english"
         );
         let selected = resolve_kinds(&["items".into()]).unwrap();
-        let summary = json!({"mirrored_at":1000,"endpoints":{
-            "items/english":{"source_document_id":1},"items/german":{"source_document_id":2}}});
+        let mut summary = json!({"mirrored_at":1000,"endpoints":{
+            "items/english":{"source_document_id":1,"snapshots":1},
+            "items/german":{"source_document_id":2,"snapshots":1}}});
         assert!(mirror_is_fresh(&summary, &selected, 1001));
         assert!(!mirror_is_fresh(&summary, &selected, 87400));
         assert!(!mirror_is_fresh(&summary, &selected, 999));
@@ -424,6 +435,13 @@ mod tests {
             &resolve_kinds(&[]).unwrap(),
             1001
         ));
+        summary["endpoints"]["items/german"]["snapshots"] = json!(0);
+        assert!(!mirror_is_fresh(&summary, &selected, 1001));
+        summary["endpoints"]["items/german"]
+            .as_object_mut()
+            .unwrap()
+            .remove("snapshots");
+        assert!(!mirror_is_fresh(&summary, &selected, 1001));
     }
     #[test]
     fn zero_is_an_id_not_a_fallback_and_parser_preserves_bytes() {
@@ -456,7 +474,14 @@ mod tests {
             assert_eq!(ir.raw(), raw);
             assert!(ir.payload().is_err());
         }
-        assert!(!prepare_assets("items", response(b"[]"), None)
+        for kind in DEFAULT_KINDS {
+            let ir = prepare_assets(kind, response(b"[]"), None).unwrap();
+            assert!(ir.is_quarantined(), "{kind}");
+            assert_eq!(ir.raw(), b"[]");
+            assert!(ir.payload().is_err());
+            assert!(asset_entities(kind, &json!([])).is_err());
+        }
+        assert!(!prepare_assets("build_tags", response(b"[]"), None)
             .unwrap()
             .is_quarantined());
     }
@@ -518,7 +543,13 @@ mod tests {
         let raw_dir = tempfile::tempdir().unwrap();
         let store = SourceStore::new(&pool, raw_dir.path()).unwrap();
         assert!(latest_mirrored_client_version(&pool).await.is_err());
-        for version in [6757, 6759] {
+        let mut versions = vec![(6757, None), (6759, None)];
+        for kind in DEFAULT_KINDS {
+            for language in LANGUAGES {
+                versions.push((6761 + versions.len() as i64, Some((*kind, *language))));
+            }
+        }
+        for (version, empty_endpoint) in versions {
             let run = store.begin_run("assets").await.unwrap();
             let mut endpoints = Map::new();
             let mut expected = Vec::new();
@@ -552,6 +583,16 @@ mod tests {
                     .unwrap();
                     assert_eq!(std::fs::read(document.0).unwrap(), raw);
                     assert_eq!(document.1, ir.provenance().raw_sha256);
+                    if empty_endpoint == Some((*kind, *language)) {
+                        sqlx::query(
+                            "UPDATE brain.source_documents SET metadata=jsonb_set(metadata, \
+                             '{contract,data,payload,value}', '[]'::jsonb) WHERE id=$1",
+                        )
+                        .bind(id)
+                        .execute(&pool)
+                        .await
+                        .unwrap();
+                    }
                     endpoints.insert(
                         format!("{kind}/{language}"),
                         json!({"source_document_id":id}),
@@ -571,13 +612,21 @@ mod tests {
                 )
                 .await
                 .unwrap();
+            assert_eq!(
+                latest_mirrored_client_version(&pool).await.unwrap(),
+                if empty_endpoint.is_some() {
+                    6759
+                } else {
+                    version
+                }
+            );
             for (kind, language, payload) in expected {
-                assert_eq!(
-                    load_mirrored_assets(&pool, version, kind, language)
-                        .await
-                        .unwrap(),
-                    payload
-                );
+                let loaded = load_mirrored_assets(&pool, version, kind, language).await;
+                if empty_endpoint == Some((kind, language)) {
+                    assert!(loaded.is_err(), "{version}/{kind}/{language}");
+                } else {
+                    assert_eq!(loaded.unwrap(), payload);
+                }
             }
         }
         let run = store.begin_run("assets").await.unwrap();

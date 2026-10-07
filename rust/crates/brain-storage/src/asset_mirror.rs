@@ -4,9 +4,18 @@ use sqlx::PgPool;
 
 pub async fn latest_mirrored_client_version(pool: &PgPool) -> Result<i64> {
     let version = sqlx::query_scalar::<_, String>(
-        "SELECT summary->>'client_version' FROM brain.source_runs \
-         WHERE source='assets' AND status='ok' AND summary->>'mirror_complete'='true' \
-         ORDER BY (summary->>'client_version')::bigint DESC, id DESC LIMIT 1",
+        "SELECT sr.summary->>'client_version' FROM brain.source_runs sr \
+         WHERE sr.source='assets' AND sr.status='ok' AND sr.summary->>'mirror_complete'='true' \
+           AND NOT EXISTS ( \
+             SELECT 1 FROM (VALUES ('items/english'), ('items/german'), ('heroes/english'), \
+               ('heroes/german'), ('heroes_all/english'), ('heroes_all/german')) AS required(key) \
+             LEFT JOIN brain.source_documents sd \
+               ON sd.id=(sr.summary->'endpoints'->required.key->>'source_document_id')::bigint \
+               AND sd.source='deadlock_assets_api' \
+             WHERE NOT COALESCE( \
+               jsonb_typeof(sd.metadata #> '{contract,data,payload,value}')='array' \
+               AND sd.metadata #> '{contract,data,payload,value}' <> '[]'::jsonb, false)) \
+         ORDER BY (sr.summary->>'client_version')::bigint DESC, sr.id DESC LIMIT 1",
     )
     .fetch_optional(pool)
     .await?
@@ -65,16 +74,35 @@ fn mirrored_payload(metadata: &Value, version: i64, kind: &str, language: &str) 
         metadata["validation"]["state"].as_str() == Some("validated"),
         "Assets sind nicht validiert"
     );
-    metadata
+    let payload = metadata
         .pointer("/contract/data/payload/value")
-        .cloned()
-        .ok_or_else(|| anyhow!("Lokaler Assets-Spiegel enthält keine Originaldaten"))
+        .ok_or_else(|| anyhow!("Lokaler Assets-Spiegel enthält keine Originaldaten"))?;
+    ensure!(
+        payload
+            .as_array()
+            .is_some_and(|entries| !entries.is_empty()),
+        "Lokale Pflicht-Assets sind leer oder keine Liste"
+    );
+    Ok(payload.clone())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn mirror_read_rejects_empty_or_wrong_containers_for_every_required_endpoint() {
+        for kind in ["items", "heroes", "heroes_all"] {
+            for language in ["english", "german"] {
+                for payload in [json!([]), json!({}), Value::Null] {
+                    let metadata = json!({"adapter":{"client_version":6759,"kind":kind,"language":language},
+                        "validation":{"state":"validated"},"contract":{"data":{"payload":{"value":payload}}}});
+                    assert!(mirrored_payload(&metadata, 6759, kind, language).is_err());
+                }
+            }
+        }
+    }
 
     #[test]
     fn mirror_read_preserves_values_and_checks_binding() {
