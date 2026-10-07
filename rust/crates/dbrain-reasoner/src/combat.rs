@@ -1168,6 +1168,11 @@ fn simulate(
             }
         }
         let target_available = target_remaining.health > 0.0;
+        if reload_pending && time >= reload_until {
+            ammo = last_clip.floor();
+            reload_pending = false;
+            magazine_shots = 0;
+        }
         let mut stats = base_stats.clone();
         stats.weapon_amp = target_amplification.weapon_multiplier(time) - 1.0;
         stats.spirit_amp = target_amplification.spirit_multiplier(time) - 1.0;
@@ -2162,13 +2167,18 @@ fn simulate(
                 }
             }
         }
-        let frame_end = if target_available && hero.abilities.is_empty() {
+        let contact_end = if target_available && hero.abilities.is_empty() {
             target_remaining
                 .killed_at
                 .or(weapon_kill_at)
                 .unwrap_or(time + duration)
         } else {
             time + duration
+        };
+        let frame_end = if pressure {
+            time + duration
+        } else {
+            contact_end
         };
         let exposure_duration = if pressure {
             duration
@@ -2192,26 +2202,26 @@ fn simulate(
         out.spirit_power += stats.spirit * duration / window;
         out.elapsed_seconds = frame_end;
         if target_available {
-            out.contact_seconds += (frame_end - time).clamp(0.0, duration);
+            out.contact_seconds += (contact_end - time).clamp(0.0, duration);
         }
         if target_available && target_remaining.health <= 1e-9 {
             target_remaining.health = 0.0;
             target_amplification.clear();
             out.targets_defeated += 1;
-            out.kill_times.push(out.elapsed_seconds);
-            out.first_ttk.get_or_insert(out.elapsed_seconds);
+            out.kill_times.push(contact_end);
+            out.first_ttk.get_or_insert(contact_end);
             if detailed {
                 out.sequence
-                    .push(format!("{:.1}s: Ziel besiegt", out.elapsed_seconds));
+                    .push(format!("{contact_end:.1}s: Ziel besiegt"));
             }
             if !pressure {
                 out.end_reason = CombatEndReason::TargetDefeated;
                 break;
             }
-            next_target_at = out.elapsed_seconds + 1.0;
+            next_target_at = contact_end + 1.0;
             pending_damage.retain(|event| event.source_aura);
             if pending_damage.is_empty() {
-                channel_until = out.elapsed_seconds;
+                channel_until = contact_end;
             }
             pending_hits.clear();
             active_bindings.clear();
@@ -2926,6 +2936,34 @@ pub(crate) mod tests {
         }
     }
     #[test]
+    fn final_tick_kill_preserves_pressure_duration_and_exact_contact() {
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 1.0,
+            incoming_pressure_dps: Some(100.0),
+            ..ReasonerConfig::default()
+        };
+        for evaluate in [evaluate_inventory, evaluate_inventory_fast] {
+            let mut hero = hero();
+            hero.weapon.bullet_damage = 200.0;
+            hero.weapon.shots_per_second = 2.5;
+            let result = evaluate(&hero, &[], &cfg);
+            let duel = &result.scenarios[0];
+            assert!((duel.elapsed_seconds - 0.8).abs() < 1e-9);
+            assert!((duel.damage_per_second - 750.0).abs() < 1e-9);
+            let chain = &result.scenarios[1];
+            assert_eq!(chain.end_reason, CombatEndReason::WindowElapsed);
+            assert_eq!(chain.elapsed_seconds, 1.0);
+            assert!((chain.contact_seconds - 0.8).abs() < 1e-9);
+            assert!((chain.first_ttk.unwrap() - 0.8).abs() < 1e-9);
+            assert_eq!(chain.kill_times.len(), 1);
+            assert!((chain.kill_times[0] - 0.8).abs() < 1e-9);
+            assert_eq!(chain.damage_per_second, 600.0);
+            assert_eq!(chain.damage_score, 600.0);
+            assert_eq!(chain.incoming_health_damage, 100.0);
+            assert_eq!(chain.remaining_health, 500.0);
+        }
+    }
+    #[test]
     fn faster_kills_earn_damage_credit_but_not_survival_credit() {
         let mut slow = hero();
         slow.weapon.bullet_damage = 50.0;
@@ -3440,6 +3478,57 @@ pub(crate) mod tests {
                     assert_eq!(full.scenarios, fast.scenarios);
                     assert_eq!(full.score, fast.score);
                 }
+            }
+        }
+    }
+    #[test]
+    fn completed_reload_is_applied_before_active_and_bound_refills() {
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 1.4,
+            incoming_pressure_dps: Some(0.0),
+            ..ReasonerConfig::default()
+        };
+        for is_active in [true, false] {
+            for property in ["AmmoReloadPercent", "ActiveReloadPercent"] {
+                let mut hero = hero();
+                hero.weapon.bullet_damage = 0.0;
+                hero.weapon.clip_size = 2.0;
+                hero.weapon.shots_per_second = 10.0;
+                hero.weapon.reload_duration = 0.2;
+                let mut channel = ability(12, 2.0, 100.0);
+                channel.channel_time = Some(1.0);
+                hero.abilities = vec![ability(11, 3.0, 100.0), channel, ability(10, 1.0, 100.0)];
+                let mut reload = item(7, property, 50.0);
+                reload.is_active = is_active;
+                reload.imbueable = !is_active;
+                if is_active {
+                    reload.properties.extend([
+                        ("EnemyLifeThreshold".into(), 90.0),
+                        ("AbilityCooldown".into(), 1.2),
+                    ]);
+                }
+                let bindings = BTreeMap::from([(7, 10)]);
+                let mut full = evaluate_inventory_with_bindings(
+                    &hero,
+                    std::slice::from_ref(&reload),
+                    &cfg,
+                    &bindings,
+                );
+                let fast =
+                    evaluate_inventory_refs_fast_with_bindings(&hero, &[&reload], &cfg, &bindings);
+                for scenario in &mut full.scenarios {
+                    let activations = &scenario.item_activations[&7];
+                    assert_eq!(activations.len(), if is_active { 2 } else { 1 });
+                    assert!((activations.last().unwrap() - 1.2).abs() < 1e-9);
+                    assert_eq!(
+                        scenario.shots, 4.0,
+                        "{is_active} {property} {}",
+                        scenario.name
+                    );
+                    scenario.sequence.clear();
+                }
+                assert_eq!(full.scenarios, fast.scenarios);
+                assert_eq!(full.score, fast.score);
             }
         }
     }
