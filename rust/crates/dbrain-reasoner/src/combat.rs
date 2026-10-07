@@ -2185,7 +2185,7 @@ fn simulate(
         out.spirit_power += stats.spirit * duration / window;
         out.elapsed_seconds = frame_end;
         if target_available {
-            out.contact_seconds += duration;
+            out.contact_seconds += (frame_end - time).clamp(0.0, duration);
         }
         if target_available && target_remaining.health <= 1e-9 {
             target_remaining.health = 0.0;
@@ -2895,6 +2895,28 @@ pub(crate) mod tests {
             result.score,
             evaluate_inventory_fast(&hero, &[], &cfg).score
         );
+    }
+    #[test]
+    fn weapon_kills_bound_contact_to_exact_frame_end() {
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 2.0,
+            ..ReasonerConfig::default()
+        };
+        for (bullet_damage, kill_time) in [(600.0, 0.0), (300.0, 0.15), (200.0, 0.3)] {
+            let mut hero = hero();
+            hero.weapon.bullet_damage = bullet_damage;
+            hero.weapon.shots_per_second = 1.0 / 0.15;
+            let result = evaluate_inventory(&hero, &[], &cfg);
+            let duel = &result.scenarios[0];
+            assert_eq!(duel.end_reason, CombatEndReason::TargetDefeated);
+            assert_eq!(duel.time_resolution_seconds, 0.0);
+            assert!((duel.elapsed_seconds - kill_time).abs() < 1e-9);
+            assert!((duel.contact_seconds - kill_time).abs() < 1e-9);
+            let chain = &result.scenarios[1];
+            assert_eq!(chain.elapsed_seconds, cfg.combat_window_seconds);
+            assert_eq!(chain.targets_defeated, 2);
+            assert!((chain.contact_seconds - 2.0 * kill_time).abs() < 1e-9);
+        }
     }
     #[test]
     fn faster_kills_earn_damage_credit_but_not_survival_credit() {
