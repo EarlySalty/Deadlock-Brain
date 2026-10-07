@@ -55,6 +55,79 @@ pub fn coherent_order(hero: &HeroModel, order: &[AbilityStep]) -> (Vec<AbilitySt
     (output, Vec::new())
 }
 
+pub fn mechanic_order(hero: &HeroModel, cfg: &ReasonerConfig) -> Vec<AbilityStep> {
+    let mut abilities = hero
+        .abilities
+        .iter()
+        .filter(|ability| ability.ability_id > 0)
+        .cloned()
+        .collect::<Vec<_>>();
+    abilities.sort_by(|left, right| {
+        let value = |ability: &AbilityModel| {
+            let mut candidate = hero.clone();
+            candidate.abilities = vec![ability.clone()];
+            crate::combat::evaluate_inventory_fast(&candidate, &[], cfg).score
+        };
+        value(right)
+            .total_cmp(&value(left))
+            .then_with(|| left.slot.cmp(&right.slot))
+            .then_with(|| left.ability_id.cmp(&right.ability_id))
+    });
+    let mut order = abilities
+        .iter()
+        .map(|ability| AbilityStep {
+            ability_id: ability.ability_id,
+            currency_type: 2,
+            delta: -1,
+        })
+        .collect::<Vec<_>>();
+    let mut working = hero.clone();
+    let mut ranks = BTreeMap::<i64, usize>::new();
+    loop {
+        let baseline = crate::combat::evaluate_inventory_fast(&working, &[], cfg).score;
+        let best = working
+            .abilities
+            .iter()
+            .filter_map(|ability| {
+                let rank = ranks.get(&ability.ability_id).copied().unwrap_or_default();
+                let cost = *[1, 2, 5].get(rank)?;
+                let upgrade = ability.upgrades.get(rank)?;
+                let mut candidate = working.clone();
+                let target = candidate
+                    .abilities
+                    .iter_mut()
+                    .find(|target| target.ability_id == ability.ability_id)?;
+                let mut unknown = Vec::new();
+                apply_upgrade(target, upgrade, &mut unknown);
+                if !unknown.is_empty() {
+                    return None;
+                }
+                let score = (crate::combat::evaluate_inventory_fast(&candidate, &[], cfg).score
+                    - baseline)
+                    / cost as f64;
+                score
+                    .is_finite()
+                    .then_some((score, ability.ability_id, cost, candidate))
+            })
+            .max_by(|left, right| {
+                left.0
+                    .total_cmp(&right.0)
+                    .then_with(|| right.1.cmp(&left.1))
+            });
+        let Some((_, id, cost, candidate)) = best else {
+            break;
+        };
+        order.push(AbilityStep {
+            ability_id: id,
+            currency_type: 1,
+            delta: -cost,
+        });
+        *ranks.entry(id).or_default() += 1;
+        working = candidate;
+    }
+    order
+}
+
 pub fn at_souls(
     base: &HeroModel,
     order: &[AbilityStep],

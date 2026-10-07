@@ -184,27 +184,13 @@ fn author_evidence(hero_id: i64, sources: &[crate::meta::AuthorBuildSource]) -> 
 
 fn core_candidates<'a>(
     ordered: &[&'a ScoredItem],
-    authors: &AuthorEvidence,
-    population: Option<&crate::PopulationPrior>,
+    _authors: &AuthorEvidence,
+    _population: Option<&crate::PopulationPrior>,
 ) -> Vec<&'a ScoredItem> {
     ordered
         .iter()
         .copied()
-        .filter(|item| {
-            let id = item.item.item_id;
-            if let Some(population) = population {
-                // Population-backed planning admits identity items, not all items
-                // with a positive score. Flex candidates are displayed separately.
-                if !population.is_empty() {
-                    return population.is_staple(id)
-                        && (!is_situation_item(item) || authors.core.contains(&id));
-                }
-                return authors.core.contains(&id);
-            }
-            // Explicit model-only callers have no empirical identity. Situational
-            // effects still cannot become core just by having a large scalar score.
-            !is_situation_item(item) || authors.core.contains(&id)
-        })
+        .filter(|item| !is_situation_item(item))
         .collect()
 }
 
@@ -346,6 +332,21 @@ pub fn compose_build(
     compose_build_with_blocklist(hero, scored, deltas, cfg, &[])
 }
 
+fn planning_order(
+    meta: &crate::meta::MetaIndexWithSources,
+    hero: &HeroModel,
+    cfg: &ReasonerConfig,
+) -> (Vec<crate::AbilityStep>, Evidence, Vec<String>) {
+    let (mut order, mut source, notes) = meta.coherent_ability_order(hero);
+    if order.is_empty() {
+        order = crate::progression::mechanic_order(hero, cfg);
+        if !order.is_empty() {
+            source = Evidence { kind: EvidenceKind::Mechanic, detail: "Skillfolge aus den aktuellen Fähigkeiten: Freischaltungen nach Kampfnutzen, Upgrades nach zusätzlichem Kampfnutzen je Fähigkeitspunkt. Keine Matchfolge erforderlich.".into() };
+        }
+    }
+    (order, source, notes)
+}
+
 pub fn compose_build_with_sources(
     hero: &HeroModel,
     scored: &[ScoredItem],
@@ -355,7 +356,7 @@ pub fn compose_build_with_sources(
     meta: &crate::meta::MetaIndexWithSources,
 ) -> crate::Result<BuildObject> {
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
-    let (order, source, notes) = meta.coherent_ability_order(hero);
+    let (order, source, notes) = planning_order(meta, hero, cfg);
     authors.skill_notes = notes;
     authors.ability_order = order.clone();
     let mut build = compose_build_with_author_evidence(
@@ -395,7 +396,6 @@ pub fn compose_build_with_sources(
             .map(|item| item.item_id)
             .collect::<Vec<_>>();
         if let Some(note) = meta.population.thin_coverage_note(&core_ids) {
-            build.confidence = Confidence::Low;
             build.rationale = if build.rationale.trim().is_empty() {
                 note
             } else {
@@ -413,7 +413,7 @@ pub fn purchase_plan_with_sources(
     meta: &crate::meta::MetaIndexWithSources,
 ) -> crate::Result<crate::planner::PurchasePlan> {
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
-    let (order, _, notes) = meta.coherent_ability_order(hero);
+    let (order, _, notes) = planning_order(meta, hero, cfg);
     authors.ability_order = order;
     authors.skill_notes = notes;
     plan_core(
@@ -604,7 +604,7 @@ fn compose_build_with_author_evidence(
                     .median_position(item.item.item_id)
                     .map(|value| format!("{value:.0}"))
                     .unwrap_or_else(|| "unbekannt".to_string());
-                let detail = format!("Populations-Stütze: {:.0}% Kaufanteil bei echten Spielern dieses Helden, Median-Kaufposition {position}. Mechanik-Slotwert {:+.1}; die Kaufkurve folgt der Mechanik, der Kaufanteil hebt nur Staples mit positivem Solo-Mechanikwert, die im aktuellen Build keinen negativen Marginalwert haben.", population.prevalence(item.item.item_id) * 100.0, item.score.per_slot_value);
+                let detail = format!("Populations-Stütze: {:.0}% Kaufanteil bei echten Spielern dieses Helden, Median-Kaufposition {position}. Mechanik-Slotwert {:+.1}; der Kaufanteil ergänzt nur den positiven gemeinsamen Mehrwert. Keine Pflichtkäufe und kein pauschaler Vorrang vor mechanisch stärkeren Kandidaten.", population.prevalence(item.item.item_id) * 100.0, item.score.per_slot_value);
                 built.why.push(' ');
                 built.why.push_str(&detail);
                 built.sources.push(Evidence { kind: EvidenceKind::Meta, detail });
@@ -946,7 +946,7 @@ mod tests {
     }
 
     #[test]
-    fn population_core_is_not_padded_to_eighteen_layout_entries() {
+    fn population_does_not_exclude_unplayed_mechanic_candidates() {
         let items = [
             item(1, "Identity", 10.0, false, &[]),
             item(2, "Very large isolated score", 1_000_000.0, false, &[]),
@@ -960,19 +960,8 @@ mod tests {
             &population_context(),
         )
         .unwrap();
-        assert_eq!(
-            build
-                .core
-                .iter()
-                .map(|item| item.item_id)
-                .collect::<Vec<_>>(),
-            vec![1]
-        );
-        assert!(build
-            .situations
-            .iter()
-            .flat_map(|block| &block.items)
-            .any(|item| item.item_id == 2));
+        assert!(build.core.iter().any(|item| item.item_id == 2));
+        assert!(build.core.len() <= 12);
     }
 
     #[test]
@@ -1099,7 +1088,7 @@ mod tests {
     }
 
     #[test]
-    fn author_identity_overrides_context_classification_only_for_the_same_hero() {
+    fn author_category_labels_do_not_override_mechanic_classification() {
         let source = |hero_id, name: &str| crate::meta::AuthorBuildSource {
             hero_id,
             author: name.to_string(),
@@ -1131,8 +1120,8 @@ mod tests {
             (&layout, &Default::default(), &same_hero, None),
         )
         .unwrap();
-        assert_eq!(build.core[0].item_id, 1);
-        assert!(build.core[0].why.contains("überwiegend im Kern"));
+        assert_eq!(build.core[0].item_id, 2);
+        assert_eq!(build.core, baseline.core);
     }
 
     #[test]

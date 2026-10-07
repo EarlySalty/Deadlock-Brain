@@ -156,86 +156,46 @@ fn plan_build_with_family_policy(
             options.family_policy,
         )
     });
-    let contexts = if let Some(discovery) = &discovery {
-        let contexts = discovery
-            .families
-            .iter()
-            .filter(|family| family.eligible_for_planning)
-            .map(|family| families::conditioned_meta(meta, family, config))
-            .collect::<Vec<_>>();
-        if contexts.is_empty() {
-            return Err(ReasonerError::Data(format!("{}: keine ausreichend belegte Buildfamilie in {} Beobachtungen; kein gemittelter Ersatzbuild wird veröffentlicht.", hero.name, discovery.input_observations)));
-        }
-        contexts
+    let conditioned;
+    let planning_context = if let Some(style) = options.playstyle {
+        conditioned = style.condition(meta, &hero, &items);
+        &conditioned
     } else {
-        vec![meta.clone()]
+        meta
     };
-    let mut plans = Vec::new();
-    let mut variant_scores = BTreeMap::new();
-    for context in &contexts {
-        let conditioned;
-        let planning_context = if let Some(style) = options.playstyle {
-            conditioned = style.condition(context, &hero, &items);
-            &conditioned
-        } else {
-            context
-        };
-        let mut scored = item::score_items(&hero, &items, &planning_context.index, &[], config);
-        let blocked = options
-            .playstyle
-            .map(|style| {
-                items
-                    .iter()
-                    .filter(|item| !style.allows_item(&hero, item))
-                    .map(|item| item.item_id.to_string())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        finish_scores(&mut scored);
-        let mut build = composer::compose_build_with_sources(
-            &hero,
-            &scored,
-            &deltas,
-            config,
-            &blocked,
-            planning_context,
-        )?;
-        if let Some(style) = options.playstyle {
-            scored.retain(|item| style.allows_item(&hero, &item.item));
-        }
-        build.family = context.family.clone();
-        if let Some(style) = options.playstyle {
-            build.name = format!("{} {}-Build", hero.name, style.label());
-            build.rationale = append_text(
-                &build.rationale,
-                &format!("Gewünschter Spielstil: {}. Die Itemauswahl folgt den Spielwerten; ergänzende defensive Käufe bleiben möglich.", style.label()),
-            );
-        }
-        if let Some(family) = &context.family {
-            build.name = match options.playstyle {
-                Some(style) => format!("{}: {} ({}-Build)", hero.name, family.label, style.label()),
-                None => format!("{}: {}", hero.name, family.label),
-            };
-            build.rationale = append_text(&build.rationale, &format!("Familie {}: {} Spieler-Matches, {} unabhängige Spieler, {} Autoren; Kohärenz {:.3}. {}", family.id, family.player_matches, family.distinct_players, family.distinct_authors, family.cohesion, family.limitations.join(" ")));
-            if variant_scores
-                .insert(family.id.clone(), scored.clone())
-                .is_some()
-            {
-                return Err(ReasonerError::Data(format!(
-                    "Nicht eindeutige Familien-ID {}; keine Variante wird still überschrieben.",
-                    family.id
-                )));
-            }
-        }
-        plans.push((build, scored));
+    let mut scored = item::score_items(&hero, &items, &planning_context.index, &[], config);
+    let blocked = options
+        .playstyle
+        .map(|style| {
+            items
+                .iter()
+                .filter(|item| !style.allows_item(&hero, item))
+                .map(|item| item.item_id.to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    finish_scores(&mut scored);
+    let mut build = composer::compose_build_with_sources(
+        &hero,
+        &scored,
+        &deltas,
+        config,
+        &blocked,
+        planning_context,
+    )?;
+    if let Some(style) = options.playstyle {
+        scored.retain(|item| style.allows_item(&hero, &item.item));
+        build.name = format!("{} {}-Build", hero.name, style.label());
+        build.rationale = append_text(
+            &build.rationale,
+            &format!("Gewünschter Spielstil: {}. Die Itemauswahl folgt den Spielwerten; ergänzende defensive Käufe bleiben möglich.", style.label()),
+        );
     }
-    let (mut build, scored) = plans.remove(0);
-    build.variants = plans.into_iter().map(|(build, _)| build).collect();
     build.family_discovery = discovery;
     Ok(PlannedBuild {
         build,
         scored,
-        variant_scores,
+        variant_scores: BTreeMap::new(),
         hero,
         deltas,
     })
@@ -243,13 +203,9 @@ fn plan_build_with_family_policy(
 
 pub fn annotate_missing_authors(build: &mut BuildObject, meta: &meta::MetaIndexWithSources) {
     if meta.author_builds.is_empty() {
-        build.confidence = Confidence::Low;
         build.rationale = append_text(
             &build.rationale,
-            &format!(
-                "Für diesen Helden fehlen Builds aktiver beobachteter Autoren. Die Kaufkurve ist ein Behelf aus {} beobachteten Builds anderer Helden; ein eigener Autorenvergleich ist nicht möglich.",
-                meta.core_layouts.overall.source_builds
-            ),
+            "Für diesen Helden fehlen Builds aktiver beobachteter Autoren. Die Planung folgt den aktuellen Spielwerten; ein Autorenvergleich ist nicht möglich.",
         );
     }
 }
@@ -732,9 +688,10 @@ pub async fn load_reasoning_inputs(
     let author_builds = load_author_sources(ctx, hero_model.hero_id).await?;
     let hero_ability_orders = load_hero_ability_orders(ctx, hero_model.hero_id).await?;
     let population = load_population_prior(&ctx.pool, hero_model.hero_id).await?;
-    let mut observations =
-        families::load_player_observations(&ctx.pool, hero_model.hero_id).await?;
-    observations.extend(author_builds.iter().map(families::author_observation));
+    let observations = author_builds
+        .iter()
+        .map(families::author_observation)
+        .collect();
     Ok((
         hero_model,
         items,

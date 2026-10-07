@@ -97,15 +97,12 @@ pub fn score_item(
     });
     // Ohne validierten Ersatz darf aus nicht endlichen Konversionsdaten keine
     // bestaetigte Konversion mit hoher Sicherheit entstehen.
-    let confidence = if meta.sample_ok.contains(&item.item_id)
-        && !unmeasured
-        && !rate_provenance.unknown_nonfinite
-        && scaling_warnings.is_empty()
-    {
-        Confidence::High
-    } else {
-        Confidence::Low
-    };
+    let confidence =
+        if !unmeasured && !rate_provenance.unknown_nonfinite && scaling_warnings.is_empty() {
+            Confidence::High
+        } else {
+            Confidence::Low
+        };
     let mut sources: Vec<crate::Evidence> = scaling_warnings
         .into_iter()
         .map(|detail| crate::Evidence {
