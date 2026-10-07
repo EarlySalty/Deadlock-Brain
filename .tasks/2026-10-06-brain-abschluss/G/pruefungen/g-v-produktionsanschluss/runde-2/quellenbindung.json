@@ -16,6 +16,24 @@
     {"log": "analytics-tests-final.log", "exit": 0, "passed": 21, "failed": 0, "ignored": 0, "filtered": 261},
     {"log": "strict-json-tests-final.log", "exit": 0, "passed": 3, "failed": 0, "ignored": 0, "filtered": 225}
   ],
+  "regular_gate": {
+    "command": "python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2 --head 4d2396373054f6bedda43ee93979a02b3fd8b9c7 --model gpt-6.1-sol --effort high",
+    "base": "b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2",
+    "head": "4d2396373054f6bedda43ee93979a02b3fd8b9c7",
+    "model": "gpt-6.1-sol",
+    "attempts": [
+      {"log": "gate-full.log", "exit": 2},
+      {"log": "gate-full-retry.log", "exit": 2}
+    ],
+    "classification": "TOOL_SCOPE_ERROR",
+    "verdict": null,
+    "input_error_code": "input_too_large",
+    "actual_chars": 2508076,
+    "max_chars": 1048576,
+    "combined_allow": false,
+    "synthetic_or_filtered_review": false,
+    "hook_or_model_change": false
+  },
   "limits": {
     "production_port_delivered": false,
     "production_resolver_delivered": false,
