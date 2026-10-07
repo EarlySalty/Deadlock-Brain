@@ -1,6 +1,14 @@
 # K: Exakter Stand und technische Fortsetzungsgrenze
 
-## Aktuelle Livefortsetzung und Ortsfreigabe
+## Priorität 23:30: privater Discord-Normalweg zuerst
+
+Ortsarbeit geordnet gestoppt, Source-WIP nicht zurückgesetzt. Private bytegebundene Retention /home/nathanael/.local/state/k-orts-wip-20261007-2330: Brainpatch 16 Rustpfade, SHA256 a16f1f76...; Twitchpatch genau drei Pfade, SHA256 be90828a...; README mit Basen und Grenzen. Brain-Vertragszwischenstand 66 Tests/Clippy grün, spätere DM-/Client-/Literalergänzungen ungeprüft. Retrievalfixture formatiert, Test Exit 101 mit gesperrtem Log, keine Testzahlen/Ursache behauptet. Kein Sourcecommit/Gate/Merge/Deploy für Ortsarbeit. Consumerfix darf diese neuen Typen oder Citationprojektion nicht voraussetzen.
+
+Zusätzliche ENTSCHEIDUNG-K-ORTSVERTRAG-ERGAENZUNG.md exklusiv empfangen: genau flight.rs-Ortsbindung und die benannten mechanischen Queryliterale nun freigegeben. Erst nach Privatfix umsetzen. I-Spiegel b7289d11 inzwischen auf main laut Delegator. Alte installierte K-Quelle 0ee3e521 kein aktueller Gesamtstand, nicht als solcher aktivieren oder über einen erfundenen Restart liefern. Is Releasebaum nicht anfassen, kein zweiter Releasebau.
+
+Derselbe Botsworker a3d648bce719faf6c arbeitet im sauberen Botsworktree auf HEAD8b9a441a und frisch geprüftem origin/main0fb873c6. Privatfix beider Vorab-/Sendeguards mit tatsächlicher Personensicht und Antwort am Eingangsbereich priorisiert. Worker-Privacyblocker wird eng verifiziert: eigene neutrale Frage unverändert ist unter ausdrücklicher Nutzerfreigabe kein unerlaubter Egress allein; tatsächliche variable Livefakten-/Historyfelder und Threadrechte sind gesonderte konkrete Bedingungen. Kein erneuter Zugriff auf verweigertes mcp.rs, keine neuen Threads/Workerduplikate. Fachakte im Botsworktree PRIVATFIX-BLOCKER-K.md. Nutzer bestätigt Test-Gate-Fix a593c5d, konkrete neue cargo-slot-/Hookwirkung noch offen. Keine Hooks/Rechte/Models/Timeouts ändern. Kein Cleanup oder settle.
+
+## Historische Livefortsetzung vor Prioritätswechsel
 
 Dieser Abschnitt ersetzt die früheren offenen Installer-/Releasehelfer-Aussagen. Eigene native Session 47304059-5103-45b5-8e54-0fbb5f140555, Brain-Worktree /home/nathanael/.worktrees/brain-k-live-20261007, Branch feat/brain-k-live-20261007, Ausgangs-HEAD 0ee3e521def14f79d724a71bea7a90a18438c884. Delegator 481426fe. Alten K-Thread 79c97ab5 nicht reaktivieren.
 

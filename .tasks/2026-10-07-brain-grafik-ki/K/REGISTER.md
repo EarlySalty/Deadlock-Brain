@@ -1,5 +1,31 @@
 # K: Register
 
+## Prioritätswechsel 23:30, Ortsarbeit pausiert
+
+Dringender ausdrücklicher Nutzerauftrag: pauschale Bots-Privatsperre zuerst korrigieren, Orts-WIP danach fortsetzen. adb59420e03d48f21 abgeschlossen und geordnet gestoppt, keine eigenen laufenden Prüfungen. 15 Orts-/mechanische Braindateien plus eine einzige Retrievalfixture unverändert WIP; Twitch genau drei Quellen unverändert WIP. Beide Sourcepatches in privater Retention /home/nathanael/.local/state/k-orts-wip-20261007-2330 bytegebunden erhalten; README nennt Basen/Hashes und offene Prüfungen. Keine Sourcecommits oder ungeprüfter Sourcepush, kein Reset/Stash/Cleanup. Vertragszwischenstand 66 passed/0 failed/0 ignored und Clippy Exit 0, aber danach DM-Regel/Clienttests/mechanische Ergänzungen neu, daher aktueller WIP nicht vollständig geprüft. Retrievaltest tatsächlich Exit 101, Zahlen/Ursache nach Logablehnung unbewertet. Keine neue Ortsabnahme behauptet.
+
+Neue ENTSCHEIDUNG-K-ORTSVERTRAG-ERGAENZUNG.md exklusiv empfangen: begrenzte flight.rs-answer_context-Schlüsselbindung mit Ortsproben und exakt die benannten mechanischen Query-Literale freigegeben, keine fremden Semantik-/Formatänderungen. Diese Entscheidung erst nach Privatfix nutzen; ältere Eigentums-Offenzeilen unten sind ersetzt. I-Spiegel b7289d11 inzwischen auf main laut Delegator, dessen unveränderlicher Releasebaum unangetastet. Alte K-Installation 0ee3e521 kein aktueller Gesamtstand, kein alter Restart/zweiter Releasebau.
+
+Botsworker a3d648bce719faf6c derselbe native Worker für dringenden Fix, kein Doppelwriter. Zunächst ohne Sourcegabe Sicherheit-/Threadbedarf gemeldet; Primary lässt den behaupteten Freitextblocker am tatsächlich erlaubten eigenen Gamefragenpfad eng verifizieren. Unverändertes eigenes Query.text ist allein kein unerlaubter Egressbeweis. Bestehender variabler Discord-Freitextzusatz nur bei tatsächlich ausgelöstem Liveabruf gesondert prüfen. Pausiertes Citation-only-Ortsdelta ist keine vollständige Projektionsvoraussetzung dieses Fixes. Botsmanifest auf alter geprüfter Brainrevision, keine ungeprüfte Ortsabhängigkeit. Detailakte im Botsworktree PRIVATFIX-BLOCKER-K.md. Nutzer bestätigt Gate-Fix a593c5d, tatsächliche Wirkung für nächsten neuen cargo-slot-Toolchain-/Hooklauf noch offen; keine Hookänderung durch K.
+
+## Frische Live- und Ortsfortsetzung
+
+Native K-Session 47304059-5103-45b5-8e54-0fbb5f140555, Delegator 481426fe-b477-42b3-91c6-901811fcba1d. Aktuelle eigene Worktrees: brain-k-live-20261007/feat/brain-k-live-20261007 von 0ee3e521, Bots bots-k-live-20261007/feat/bots-k-live-20261007 von 0fb873c6, Twitch twitch-k-live-20261007/feat/twitch-k-live-20261007 von 2ead4d55. Keine kanonischen Quelländerungen. Nachweisbackup Brain 5b023f4e und Bots 8b9a441a jeweils tatsächlich gepusht auf eigene Featurebranches, kein neuer Dokumentmainpush nach Test-Gate-Deny.
+
+Regulärer Brain-build b30bylc59 und install bp9jobnsc tatsächlich jeweils Exit 0, letzterer mit unabhängigem Verifikationsbau. Source bis Ende sauber gehalten. Beide Releasezeiger 0ee3e521, beide Layouts unabhängig 17/17 Binaries hashkorrekt und Manifeste bytegleich. Laufender brain-serve bleibt alter PID 2388861 aus bfda408c. Fehlender erlaubter Restartweg und cargo-slot-Test-Gate-Nichterkennung belegt, nicht umgangen. Details LIVE-LIEFERUNG-20261007.md und /tmp/k-live-gate-restart-befund-20261007.md. Bots-Quotenprozess tatsächlich aktiviert, Nutzerprobe separat offen, keine erneute Aktivierung wegen Ortsfreigabe.
+
+| Nativer Agent | Exklusiver Bereich | Tatsächlicher Stand |
+| --- | --- | --- |
+| ade6fd55deb0f8069 | Ortsbestand read-only | abgeschlossen ohne Edits |
+| adb59420e03d48f21 | Brain lib.rs/provider_input.rs, eigener Client/Service/API, belegte eigene mechanische Literale | aktiver ungeprüfter Orts-WIP; Aktenzugriff außerhalb ctx-Root verweigert und nicht wiederholt, direkt gelieferter Nutzervertrag verwendet |
+| a3d648bce719faf6c | Bots modglue/dl-brain/public-Ortsconsumer | ohne Sourceänderung gestoppt, eigenes mcp.rs an ctx-Projektrootgrenze verweigert; alter Brain-Gitpin, keine Tests |
+| a7ac0693b7e1981ba | Twitch drei Chat-/Knowledge-Ortsdateien | beendet mit drei uncommitteten Source-WIPs und zwei Tests, Manifest/Lock unverändert; Check abgebrochen ohne bestätigten Compilerexit; ctx-Testlogzugriff verweigert und nicht wiederholt, fmt/clippy/tests nicht ausgeführt |
+| adddedaf5459c7606 | ausschließlich Retrieval tests/chunked_retrieval.rs im jetzt verfügbaren primären Worktree | lokale echte Fixturehashes und Manifestdelegation repariert, Datei formatiert Exit 0; 18-Fall-Lauf gestartet, Exit/Zahlen noch unbelegt, ctx-Zugriff auf /tmp/k-live-retrieval-fixture-1.log verweigert und nicht wiederholt |
+
+K/ORTSVERTRAG-KERNELBEDARF.md enthält tatsächliche zusätzliche Cache-/Flightnaht und fremde Queryliteralbedarfe. Kernelquelländerung noch nicht freigegeben; fremde aktive G-/I-Quellen unverändert. Bestehendes Register und Gitcheckpoint a80b51a4 belegen K-eigene bot_tasks-/Provider- und benannte Kernelfixturebereiche. Dort geordnete mechanische None-Ergänzung gemäß ausdrücklicher Freigabe eigener Literale, keine neue Semantik oder Refactorings. Consumer benötigen echten konsumierbaren Braincommit statt lokalen Manifestpatch. Höchstens drei derzeit aktive native Worker, keine neuen T3-Threads oder Reviewer. Kein Cleanup oder settle.
+
+## Historischer Stand vor der frischen Livefortsetzung
+
 ## Fortsetzung nach dem Abschluss-Hook
 
 Primary-K führte direkte Cargoprüfungen im eigenen Brainworktree aus. Compiler bz8q5b3d7, Format bixy98ok7 und striktes Clippy b0zkf0wp4 jeweils tatsächlich Exit 0. Der anschließende direkte Dezimaltest blieb vor Prozessstart verweigert. Keine Wiederholung oder Schutzänderung. Source-Parserdelegation als 3b4b21eaae73892b37e54afee9b4cd58e315bb60 committed, Deltagate bzsyx0ssb tatsächlich ALLOW gelesen und Featurepush bestätigt. Kein Source-WIP oder aktiver Worker. Dokumentcheckpoint 232b3cb9 zuvor separat ALLOW/gepusht. PRUEFWEG-FORTSETZUNG.md enthält Befehle und Beweisgrenzen.
