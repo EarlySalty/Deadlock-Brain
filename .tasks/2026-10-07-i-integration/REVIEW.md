@@ -1,5 +1,77 @@
 # Paket I: E Gate-Runden
 
+## Runde 13: Tatsächliche Schreibziele ALLOW
+
+Frischer Fixer 10 liefert `438b7bfac0eb70a3912e766c26427148e328c9d1`. Bestehender Schutz prüft nun Datenordner, Raw, Cache und `raw/deadlock_assets_api` vor Nebenwirkungen. CLI-Proben 10 passed, 0 failed, 0 ignored. Finale serielle Suite 545 passed, 0 failed, 19 ignored; Format und striktes Clippy Exit 0. Begrenztes Gate gegen `eeb4116c`, unverändert Claude Opus 5.5, Exit 0; Original `/tmp/brain-e-fixer10-gate-opus55.log`.
+
+```text
+ALLOW: Die zusätzlichen Pfadprüfungen erfassen die Schreibziele vor Datenbankzugriff und Dateischreibvorgängen; kein blockierender Befund.
+WIRKUNGSPRUEFUNG[WP-1]: 0 Befunde | Zwillingssuche: keine Fundstelle | Fremddienst-Pfade: 1/1 geprüft
+```
+
+Dies ist kein Gesamt-ALLOW. Vor Main-Push folgen vollständige aktuelle Integration und gemeinsame Prüfung. Die durch R12 verweigerte DotEnv-CLI-Schreibaktion bleibt ausgelassen, nicht umgangen. Erster serieller Lauf 269 passed, 1 failed, 12 ignored; unveränderter Socket-Einzeltest danach 1 passed, erneuter vollständiger Schlusslauf grün. Keine ungemessene Flake-/Altfehlerbehauptung.
+
+## Runde 12: Effektiver Pfadschutz BLOCK wegen Raw-/Cache-Zielen
+
+Frischer Fixer 9 liefert `eeb4116c0b6fcb99a27da6a532c72cec0d58c99b`; finale serielle Suite 541 passed, 0 failed, 19 ignored; native CLI-Proben 6 passed. Format und striktes Clippy Exit 0. Begrenztes Gate gegen `879e4cc3`, unverändert Claude Opus 5.5, Exit 1; Original `/tmp/brain-e-fixer9-gate-opus55.log`.
+
+```text
+BLOCK: Der neue Pfadschutz prüft nicht die tatsächlichen Schreibziele.
+1. main.rs:1637 | BLOCKING: Nur data_dir wird auf den Build-Arbeitsbaum geprüft. raw_dir und cache_dir werden nicht geprüft. Ein externes dauerhaftes data_dir mit einem Symlink raw oder cache in den Buildbaum besteht die Prüfung; prepare_dirs folgt diesen Verzeichnissen.
+```
+
+Restkern bestätigt. Die Prüfung muss die tatsächlichen Schreibziele einschließlich bestehender Verzeichnisverknüpfungen erfassen, nicht nur den übergeordneten Datenordner. Frischer Fixer 10 schließt diesen einen Lebenszykluskern im bestehenden Weg. Kein Parallelbau oder Modellwechsel. Seit dem Receipt-ALLOW in Runde 8 sind vier weitere BLOCKs angefallen; ein weiterer erfolgloser Fortsetzungs-BLOCK wird qualifiziert an die Hauptakte zurückgegeben.
+
+**ABWEICHUNG:** Reale DotEnv-CLI-Probe vom Fixer 9 durch Schreib-Hook R12 blockiert, nicht umgangen. Keine tatsächliche DotEnv-CLI-Abnahme behauptet. Paralleler Erstlauf 268 passed, 2 failed, 12 ignored (Wiki-Inventarsperren); serieller Schlusslauf tatsächlich grün. Kein ungemessener Altfehlerclaim.
+
+## Runde 11: Lebenszyklusfix BLOCK wegen effektivem relativem Pfad
+
+Frischer Fixer 8 liefert `879e4cc301a0e307c38fa81a1e0bffe943359c0a`; finaler Paketlauf 538 passed, 0 failed, 19 ignored, Format, striktes Clippy und Shellsyntax Exit 0. Begrenztes Gate gegen `4b8db395`, unverändert Claude Opus 5.5, Exit 1; Original `/tmp/brain-e-fixer8-gate-opus55.log`.
+
+```text
+BLOCK: Ein relativer Konfigurationspfad umgeht die Pflicht zu dauerhaften Originaldateien.
+1. main.rs:1605 | BLOCKING: Nur ein explizites --data-dir wird auf einen absoluten Pfad geprüft. config.rs:89 übernimmt relative ENV-/DotEnv-Pfade; der Timer nutzt diese gemeinsame Auswahl. Bei DEADLOCK_BRAIN_DATA_DIR=relative schreibt der Import Originaldateien in den Release-Arbeitsbaum.
+WIRKUNGSPRUEFUNG[WP-1]: 1 Befund | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 1/1 geprüft
+```
+
+Berechtigter Restkern bestätigt: Die Prüfung muss die effektiv gewählte Konfiguration nach einem zulässigen expliziten CLI-Override und vor Schreibzugriffen erfassen. Absolute konfigurierte Pfade und die neue Originalsicherung erhalten. Frischer nativer Fixer 9 behebt ausschließlich diese Pfadprüfung und ihre bestehenden CLI-Proben; keine neue Pipeline oder ENV-Konfiguration. Der Testerstlauf des Fixers 8 war rot (266 passed, 4 failed, 12 ignored); korrigierte Testannahmen und Forumfixture sind nicht als vorbestehende Produktfehler ausgegeben.
+
+## Runde 10: Pfad-Fix BLOCK wegen Wiederverwendung und Konfiguration
+
+Frischer Fixer 7 liefert `4b8db3950f8246aa2612ea07f55c7bb5deb4a2a3`; 140 passed, 0 failed, 2 ignored; Format, Clippy, echte CLI-Pfadabweisung und Timerargumentprobe bestanden. Begrenztes Gate gegen `d4e7ce5f`, Claude Opus 5.5, Exit 1; Original `/tmp/brain-e-fixer7-gate-opus55.log`.
+
+```text
+BLOCK: Der neue Speicherpfad sichert vorhandene Originaldateien nicht zuverlässig.
+1. main.rs:1615 | BLOCKING: Pfadwechsel ohne Migration. Frische Läufe werden ohne Originaldateiprüfung wiederverwendet; idempotente SourceStore-Dokumente behalten bei gleichem Inhalt ihren bisherigen raw_path.
+2. scripts/run_build_data_with_infisical.sh:62 | BLOCKING: Der fest gewählte CLI-/Timerpfad übergeht eine bereits vorhandene DEADLOCK_BRAIN_DATA_DIR-Konfiguration und trennt gemeinsame Datenpfade.
+WIRKUNGSPRUEFUNG[WP-1]: 2 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 1/1 geprüft
+```
+
+Befund 1 ist am bestehenden SourceStore und Frischezweig bestätigt. Befund 2 hat einen berechtigten Kompatibilitätskern: Dauerhafter Standard darf keine bestehende ausdrücklich konfigurierte Auswahl übergehen. Frischer Fixer 8 repariert beide im vorhandenen gemeinsamen Weg. Originalbytes und Hash prüfen, bei Wiederverwendung nötigenfalls in das dauerhaft gewählte Verzeichnis sichern; Dokumentkennung, fachliche Metadaten und Herkunft nicht umschreiben. Keine Rekonstruktion vermeintlicher Originalbytes aus JSON, keine manuellen DB-Eingriffe oder zweite Pipeline. Bestehende Datenpfadkonfiguration erhalten, keine neue ENV-Konfiguration.
+
+## Runde 9: Gesamtprüfung BLOCK wegen Originalpfad im Timer
+
+Kandidat `d4e7ce5f7b3770062efae18f250f7912dc519347`, Gesamtprüfung gegen `f6f5cef6`, unverändert Claude Opus 5.5, Exit 1. Original `/tmp/brain-i-e-overall-gate.log`.
+
+```text
+BLOCK: Der geplante Release-Cleanup kann die gespiegelten Originaldateien löschen.
+1. scripts/run_build_data_with_infisical.sh:62 | BLOCKING: Der neue Timer-Aufruf nutzt pull assets ohne --data-dir; auch main.rs:1605 erzwingt keinen dauerhaften Pfad. Ohne DEADLOCK_BRAIN_DATA_DIR schreibt die Standardkonfiguration unter den beim Build festgelegten Repo-Pfad. Nach Release-Worktree-Cleanup verbleiben Dokumente ohne Originaldateien.
+WIRKUNGSPRUEFUNG[WP-1]: 3 Befunde | Zwillingssuche: keine Fundstelle | Fremddienst-Pfade: 3/3 geprüft
+```
+
+Berechtigter Kern bestätigt: Der neue explizite Liveimportpfad allein sichert nicht spätere Timerimporte. Frischer nativer Fixer korrigiert den bestehenden Assets-CLI-Standard und Timeraufruf ohne neuen Importweg oder ENV-Konfiguration. Beiläufige Links und bisherige Ledger-Initialisierung sind NITs, kein Anlass zur Ausweitung auf einen neuen Patchpfad. Danach derselbe urteilsgebende Reviewer.
+
+## Runde 8: Receipt-/Global-Assets-Vertrag ALLOW
+
+Begrenzter gemeinsamer Reader-/Writerdiff `802abfba..d4e7ce5f`, Claude Opus 5.5, Exit 0. Original `/tmp/brain-i-e-receipt-gate.log`.
+
+```text
+ALLOW: No merge-blocking defect found in the supplied diff.
+WIRKUNGSPRUEFUNG[WP-1]: 0 Befunde | Zwillingssuche: keine Fundstelle | Fremddienst-Pfade: 1/1 geprüft
+```
+
+536 bestehende Fälle bestanden, 24 ignored; öffentliche Assets- und echte Scratch-PG-Probe 10 passed, 0 ignored. Format und striktes Clippy bestanden. Noch kein Gesamt-ALLOW oder Main-Push.
+
 ## Runde 7: Semikolon-Fix ALLOW
 
 Frischer Fixer 6 liefert `802abfba66c17a5c22116bd33f3e32fee469018d`. Begrenzte Prüfung gegen `a731778547cc3a99753a5429cf823913b979f762`, unverändert Claude Opus 5.5, Exit 0. 39 Patchtests bestanden, 0 fehlgeschlagen, 0 ignoriert; Paketlauf 98 ausgefiltert, Workspacelauf 1641 ausgefiltert. Neue Semikolonprobe vor Fix 1 fehlgeschlagen, nach Fix 1 bestanden. Format und striktes Clippy Exit 0. Original `/tmp/brain-e-fixer6-gate-opus55.log`.
