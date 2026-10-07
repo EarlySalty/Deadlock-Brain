@@ -1,45 +1,43 @@
-# Paket I: qualifizierte Fachrückgabe vom 07.10.2026
+# Paket I: qualifizierte Fachrückgabe nach dem einmalig freigegebenen Gate
 
-## Urteil
+Stand: 07.10.2026. Bezug: `ENTSCHEIDUNG-I-READER-GATE.md`, 15:09 UTC. Auftrag und Eigentum unverändert, kein neuer Thread und keine Reaktivierung des gestoppten Haupt-Orchestrators.
 
-Der fünfte weitere Fortsetzungs-BLOCK ist erreicht. Der letzte konkrete Reader-Befund ist jedoch widerlegt, nicht als Produktbug bestätigt: Der bestehende INNER JOIN auf das angefragte Endpoint-Dokument greift vor ORDER BY/LIMIT. Ein späterer vollständiger Core6-Run derselben Clientversion verdeckt die globalen Assets des älteren vollständigen Runs nicht.
+## Ergebnis
 
-Eine zusätzliche echte Scratch-PG-Gegenprobe mit 25 Stunden Abstand besteht für alle 13 Endpoint-/Sprachkombinationen, sowohl Value als auch Receipt. Globale Receipts nennen den älteren tatsächlichen Run; explizites Pinnen auf den neuen Core6-Run lehnt dessen fehlende globale Endpoints korrekt ab. Nur Tests ergänzt, keine Produktimplementation verändert. Der BLOCK bleibt wirksam. Kein anderer Reviewer, kein Gate-Override und kein weiterer Urteilslauf. Die Core6-Kompatibilität darf nicht gegen die Spec aufgehoben werden.
+Gegenprobe `90c178001258d050c781a42c4c9b2fd7cef99bbf` in den tatsächlichen Integrationskandidaten übernommen. Geprüfter HEAD `860793d7f89d2af9f7510d663e56d592fedf18b2`, Tree `9b917e98bbe2ef24c97319991d2d6bdbbf379254`, aktueller frisch geholter origin/main `ca4d877f13042c9a7a7023e54f6bf2c688b69ac4`. Gemeinsame Suite 554 passed, 0 failed, 24 ignored, 32 Targets; Reader-Gegenprobe tatsächlich darin bestanden. Format und striktes Clippy einschließlich brain-serve Exit 0.
 
-Vorschlag für die fachliche Fortsetzung: Die gesicherte Gegenprobe dem bisherigen Urteilmodell im bestehenden Gate zur Klärung dieses konkreten Gate-/Spec-Konflikts geben. Keinen zweiten Leser oder eine neue Pipeline bauen. Nach Klärung erst den vollständigen E-Produktstand integrieren und live abschließen; anschließend F gemäß bestehendem Auftrag schließen. Dies ist eine Blockerrückgabe, keine neue Implementierungsfreigabe.
-
-## Gesicherte Stände
-
-- Belegintegration `17974c66` und Schemapinintegration `ca4d877f`: jeweils separat ALLOW und tatsächlich nach main gepusht. Diese erlaubten Teilstufen nicht zurückrollen.
-- Vollständiger Produktkandidat `b63569afbf2bc6f686564063d769dbbcf0a5ef90`: Produkt-Gate BLOCK, nicht nach main gepusht. Auf `origin/feat/brain-i-integration-blocked-20261007` gesichert, eigener Arbeitsbaum `/home/nathanael/.worktrees/brain-i-release-20261007`.
-- E-Produktbasis `5f4e3668acb4531cfd31efdaa88e63626f772f84`, eigener Branch `feat/brain-deadlock-api-daten`. Tree vor Gegenprobe identisch zum Produktkandidaten: `c1d4b6a250737142b2f97f240bbad8c7e42d304b`.
-- F unverändert auf `46fd86743589910d7b92a7223bdd6ab0dcf2b7c8`. Compiler und 36 reine Composer-/Planner-Baselinefälle bestanden; kein F/G-Vertragsanschluss daraus ableiten.
-
-## Prüfbelege und aktuelles Gate
-
-Vollständige E-Integrationssuite vor der zusätzlichen Regression: 553 passed, 0 failed, 24 ignored, 32 Testtargets, Harness-Exit 0. Format und striktes Clippy einschließlich `brain-serve` Exit 0. Originale `/tmp/brain-i-e-main-integration-tests.log`, `/tmp/brain-i-e-main-integration-fmt.log`, `/tmp/brain-i-e-main-integration-clippy.log`.
-
-Finale Gegenprobe: 1 passed, 0 failed, 0 ignored, 225 filtered, Harness-Exit 0. Format und striktes Clippy Exit 0. Vollständiger Befehl und Aussagegrenzen in `.tasks/2026-10-07-i-integration/NACHWEIS-CORE6-GLOBAL.md`; Original `/tmp/brain-i-core6-global-gate-reproduction-final.log`. Die kontrollierte PostgreSQL-Probe ist kein Produktivimport.
-
-Letztes Urteil unverändert von Claude Opus 5.5 gegen `ca4d877f..b63569af`, Exit 1:
+Genau ein evidenzgestützter gemeinsamer Gate mit unverändert Claude Opus 5.5 ausgeführt, Exit 1:
 
 ```text
-BLOCK: Ein späterer Teilimport verdeckt weiterhin vorhandene Assets derselben Clientversion.
+BLOCK: Der Patchimport kann fremden Inhalt falsch zuordnen und bei einem zulässigen Link den Tageslauf abbrechen.
 ```
 
-Vollständige Antwort und Verifikation in `.tasks/2026-10-07-i-integration/REVIEW.md`, Original `/tmp/brain-i-e-product-integration-gate.log`. Die daneben genannte NIT-Frage zu harmlosen Links in Originalpatches ist durch die Gegenprobe nicht geprüft oder geschlossen. Die fünf weiteren erfolglosen Fortsetzungsurteile sind Runden 9, 10, 11, 12 und 14. Kein Fixer 11 gestartet. Zehn bisherige native Fixer sind beendet.
+Der zuvor widerlegte Reader-Verlust wird im neuen Urteil nicht mehr genannt. Stattdessen zwei neue echte Producer-Fehler, beide unabhängig reproduziert:
 
-TESTNACHWEIS[TW-1]: 553 passed, 24 ignored | Baseline: keine Altfehler behauptet
-TESTNACHWEIS[TW-1]: 1 passed, 0 ignored | Baseline: zusätzliche Reader-Gegenprobe, keine Altfehler behauptet
+1. **Steam-Ereignisbindung:** Angefragt GID ...632, einziges vorhandenes Ereignis GID ...631. Der bestehende HTML-Leser fällt auf dieses fremde Ereignis zurück; dessen Gameplaybody landet in einem tatsächlichen PreparedPatch unter der angefragten ...632-URL. Ursache: Titel-/Zeit-Auswahl ohne sichere Bindung an das angefragte Ereignis. Begrenzte Lösung: vorhandenen Aufrufer/Leser an die tatsächlich angefragte Originalidentität binden und nicht passende Originale ablehnen. Legacy-Aufrufer und Announcement-Vertrag prüfen, keinen zweiten Parser bauen.
+2. **Fragmentabbruch:** Steam- und Forum-Links mit Fragment passieren validate_post. Der Resolver übergibt sie unverändert an den echten HTTP-Core, der vor dem Netzwerkzugriff Err liefert. Dieser Err propagiert durch den Import; das bestehende set-e-Skript führt den anschließenden Builddatenlauf nicht aus. Begrenzte Lösung: Abruf-URL im vorhandenen Übergang konsistent kanonisieren, HTTP-Sicherheitsguard nicht lockern und Herkunftsbinding erhalten.
 
-Zählbereich des folgenden Mergeprotokolls ist ausschließlich die gestufte Main-Integration: Beleg-restore/add/commit/push, Schemapin-merge/push und Produkt-merge, sieben einzelne Git-Schritte. Drei zugehörige Integrationsurteile. Frühere Fixer- und spätere reine Sicherungsschritte sind nicht darin enthalten.
+Zwei einmalige diagnostische Zeugen bestanden, 0 failed, 0 ignored, 112 filtered; das belegt erkannte Fehler, keine grüne Produktfunktion. Temporäre cfg(test)-Anbindung vollständig entfernt; Produktcode unverändert. Die kontrollierte Steam-HTML-Probe ist synthetisch und belegt Parserverhalten, nicht Häufigkeit im echten Feed. Die Fragmentprobe ruft echten Guard und Resolver auf, aber absichtlich kein Netzwerk oder produktives SQL. Tageslaufabbruch zusätzlich am tatsächlichen Skript-/Fehlerpfad bestätigt, nicht absichtlich produktiv ausgelöst. Bildlink-NIT bleibt getrennt offen.
 
-MERGEPROTOKOLL[MS-1]: 7 Git-Schritte einzeln | Anläufe: 3 | Gate: Belege ALLOW, Schemapin ALLOW, vollständiger Produktstand BLOCK
+**Urteil:** Der neue Restkern ist real und begrenzt, kein fortbestehender Reader-/Spec-Widerspruch. Gemäß Entscheidung Schritt 4 Urteil samt reproduzierbaren Szenarien zurückgegeben. Kein weiterer Gate, Fixer 11 oder Produktfix. Für eine weitere beauftragte Korrektur diese zwei bestehenden Patchpfade isoliert bearbeiten, danach dasselbe Urteilmodell; kein Core6-Bruch oder zweiter Fallback.
+
+## Sicherung und Nachweise
+
+Kandidat `860793d7` ist auf `origin/feat/brain-i-integration-blocked-20261007` gepusht; nicht nach main. E-Produktbasis `90c17800`, Diagnose und aktualisierte Akte im eigenen E-Aufgabenordner. Vollständiges Urteil, Befehle und genaue Originalausgabe in `REVIEW.md` und `NACHWEIS-PATCH-GATE-BLOCK.md`; reproduzierbare Diagnosequelle `PATCH-GATE-DIAGNOSE.rs`. Originale:
+
+- `/tmp/brain-i-e-evidence-candidate-tests.log`, Format `/tmp/brain-i-e-evidence-candidate-fmt.log`, Clippy `/tmp/brain-i-e-evidence-candidate-clippy.log`.
+- `/tmp/brain-i-e-evidence-common-gate-opus55.log`.
+- `/tmp/brain-i-new-patch-blocker-diagnostics.log` und `/tmp/brain-i-new-patch-blocker-diagnostics-clippy.log`.
+
+TESTNACHWEIS[TW-1]: 554 passed, 24 ignored | Baseline: keine Altfehler behauptet
+TESTNACHWEIS[TW-1]: 2 passed, 0 ignored | Baseline: einmalige Fehlerdiagnosen, keine Produktfreigabe
+
+Zählbereich bis Erstellung dieser Akte: Fetch, Gegenproben-Merge, Kandidaten-Featurepush. Frühere Main-Teilintegration und spätere reine Aktenpublikation getrennt.
+
+MERGEPROTOKOLL[MS-1]: 3 Git-Schritte einzeln | Anläufe: 1 | Gate: [claude-opus-5-5] BLOCK, zwei neue Patchfehler reproduziert
 
 ## Offener Abschluss
 
-Kein regulärer Releasebuild/install, eigener Neustart, vollständiger produktiver Assets-/Patch-/Builddatenimport oder Live-Receipt-/Originalhashbeweis. Die Rust-Liveprobe wurde gebaut, aber nicht ausgeführt. Letzter Prozessvorcheck: PID 2645590, tatsächlich laufendes `brain-serve` unter Release `bfda408cb988722ddceadb56bca5b72e12d12731`. Keine frische Health-/Ready- oder Journalprüfung aus dieser Gegenprobe ableiten. Der alte Wrapperplan auf `3ceb504d` ist nach den Teilstufen historisch und vor einem späteren Deploy neu zu erzeugen.
+Main enthält nur die früher freigegebenen Beleg-/Schemapinstufen `17974c66` und `ca4d877f`; kein vollständiger E-Produktstand nach main gepusht. Kein regulärer Releasebuild/install, eigener Neustart, produktiver vollständiger Assets-/Patch-/Builddatenimport oder Live-Receipt-/Originalhashbeweis. Keine analytics_runtime-Freigabe. F bleibt unverändert auf `46fd8674`, Toolbudget/Imbues/ursprünglicher Abbruch und gemeinsame PurchasePlan-/InventoryEvaluation-Belege offen. Kein G-Rechenkern dupliziert oder fremder WIP übernommen. Keine neue Warden-Veröffentlichung oder hero_build_id. Kein Cleanup und kein Self-Settle.
 
 LIVEBEWEIS[DV-1]: PID 2645590->nicht erhoben | exe ohne (deleted) zuletzt vorgeprüft | journal -p err nicht geprüft | Anker "nicht geprüft" in Binary | Funktion: kein eigener Deploy oder vollständiger Liveimport bewiesen | Ort: http://127.0.0.1:8788/readyz, nur früherer Vorcheck
-
-Keine analytics_runtime-Freigabe. F-Budget/Imbues/ursprünglicher Abbruch und dieselben PurchasePlan-/InventoryEvaluation-Belege bleiben offen; G-Rechenkern nicht dupliziert oder fremder WIP übernommen. Keine neue Warden-Veröffentlichung oder hero_build_id. Kein Cleanup und kein Self-Settle. Eigene Branches und Arbeitsbäume bleiben für die Fortsetzung erhalten. Fremder kanonischer WIP bleibt unberührt; nur der ausdrücklich zugewiesene Hauptbericht wird dort ergänzt.

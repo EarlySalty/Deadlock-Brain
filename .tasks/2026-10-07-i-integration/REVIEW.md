@@ -1,5 +1,23 @@
 # Paket I: E Gate-Runden
 
+## Runde 15: einmalig freigegebener gemeinsamer Gate, zwei neue Patch-BLOCKs
+
+Entscheidung `ENTSCHEIDUNG-I-READER-GATE.md`, 07.10.2026, 15:09 UTC, umgesetzt: Gegenprobe `90c17800` in den tatsächlichen kombinierten Kandidaten übernommen. HEAD `860793d7f89d2af9f7510d663e56d592fedf18b2`, Basis `ca4d877f13042c9a7a7023e54f6bf2c688b69ac4`, Tree `9b917e98bbe2ef24c97319991d2d6bdbbf379254`. Gemeinsame Suite 554 passed, 0 failed, 24 ignored, 32 Targets; Format und striktes Clippy einschließlich brain-serve Exit 0. Genau ein gemeinsamer Gate mit unverändert Claude Opus 5.5, Exit 1; Original `/tmp/brain-i-e-evidence-common-gate-opus55.log`.
+
+```text
+BLOCK: Der Patchimport kann fremden Inhalt falsch zuordnen und bei einem zulässigen Link den Tageslauf abbrechen.
+
+1. rust/crates/deadlock-brain/src/pg_patchnotes/api_sync.rs:372 | BLOCKING: Bei Steam-Seiten ohne passende Ereigniskennung wählt der aufgerufene HTML-Leser ersatzweise irgendein Ereignis nach Titel und Zeit. Enthält die Seite nur ein anderes Ereignis mit Spieländerungen, wird dessen Inhalt unter der URL des angefragten Patches importiert. Kein gleichartiger neuer Auswahlpfad im Diff gefunden.
+2. rust/crates/deadlock-brain/src/pg_patchnotes/api_sync.rs:124 | BLOCKING: trusted_original_url akzeptiert Fragmente, get_bounded verwirft sie aber vor dem Abruf. Ein Feed-Eintrag mit #… beendet deshalb den gesamten Patchimport und über das Skript auch den Builddatenlauf. Das betrifft beide akzeptierten Quellen, Steam und Forum.
+3. rust/crates/deadlock-brain/src/pg_patchnotes/api_sync.rs:173 | NIT: Auch ein harmloser Bildlink lässt einen vollständigen Originalbeitrag als Vorschau durchfallen. Eine Original-Volltextprobe mit Bildlink würde den produktiven Umfang klären.
+
+WIRKUNGSPRUEFUNG[WP-1]: 3 Befunde | Zwillingssuche: keine Fundstelle | Fremddienst-Pfade: 6/6 geprüft
+```
+
+**Verifikation:** Beide neuen BLOCKs tatsächlich reproduziert, nicht bloß Gate-Meinung. Eine kontrollierte HTML-Probe führt fremden Ereignisbody unter der angefragten anderen GID-URL bis zum tatsächlichen PreparedPatch. Für Steam und Forum akzeptiert validate_post Fragmente, während echter HTTP-Core und Resolver vor dem Abruf Err liefern. Zwei diagnostische Zeugen bestanden, 0 failed, 0 ignored; das belegt Fehlverhalten, keine Produktfreigabe. Einzelheiten, genaue Befehle, Grenzen und Originalausgabe in `NACHWEIS-PATCH-GATE-BLOCK.md`. Temporäre Testanbindung vollständig entfernt, Produktcode unverändert; kein falsches Verhalten in der regulären Suite festgeschrieben.
+
+Der frühere Reader-BLOCK ist im neuen Urteil nicht mehr genannt. Kein weiterer gemeinsamer Gate, kein Fixer 11, kein Produktfix, Main-Push oder Deploy. Neuer Kandidat auf eigenem Remote-Branch gesichert. Gemäß Entscheidung Schritt 4 erfolgt qualifizierte Rückgabe mit neuen reproduzierbaren Szenarien. Bildlink-NIT bleibt getrennt offen. Kein zweiter Fallback, kein Core6-Bruch, kein Modellwechsel oder Override.
+
 ## Runde 14: Produktintegration BLOCK, genannter Reader-Kern widerlegt
 
 Gemeinsamer Produktkandidat `b63569afbf2bc6f686564063d769dbbcf0a5ef90`, Basis `ca4d877f`, unverändert Claude Opus 5.5, Exit 1. Original `/tmp/brain-i-e-product-integration-gate.log`. Vorgeschaltete Belegintegration `17974c66` und Schemapinintegration `ca4d877f` erhielten separat ALLOW und wurden tatsächlich nach main gepusht. Der vollständige Produktkandidat wurde nicht nach main gepusht und nicht deployt.
