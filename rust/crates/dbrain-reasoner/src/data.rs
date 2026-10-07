@@ -578,7 +578,11 @@ pub fn item_model_from_payload(payload: &Value) -> Result<ItemModel> {
         description: snapshot_description(payload),
         item_id,
         name: string(payload.get("name")),
-        slot: slot_type(slot),
+        slot: match slot {
+            "weapon" => SlotType::Weapon,
+            "vitality" => SlotType::Vitality,
+            _ => SlotType::Spirit,
+        },
         tier: integer(payload.get("item_tier")),
         cost: integer(payload.get("cost")),
         is_active,
@@ -1138,32 +1142,55 @@ struct MirroredAssets {
     provenance: MirrorProvenance,
     heroes: Vec<Value>,
     items: Vec<Value>,
+    calculation: Option<crate::CalculationModels>,
 }
 
 async fn mirrored_assets(ctx: &ReasonerCtx) -> Result<MirroredAssets> {
     let client_version = brain_storage::asset_mirror::latest_mirrored_client_version(&ctx.pool)
         .await
         .map_err(|error| ReasonerError::Data(format!("API-Spiegel: {error}")))?;
-    let heroes = brain_storage::asset_mirror::load_mirrored_assets(
+    let heroes = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
         &ctx.pool,
         client_version,
         "heroes",
-        "english",
+        Some("english"),
     )
     .await
     .map_err(|error| ReasonerError::Data(format!("API-Helden: {error}")))?;
-    let items = brain_storage::asset_mirror::load_mirrored_assets(
+    let items = brain_storage::asset_mirror::load_mirrored_assets_for_run(
         &ctx.pool,
+        heroes.receipt.source_run_id,
         client_version,
         "items",
-        "english",
+        Some("english"),
     )
     .await
     .map_err(|error| ReasonerError::Data(format!("API-Items: {error}")))?;
     let run: Value = sqlx::query_scalar(
-        "SELECT jsonb_build_object('status',status,'summary',summary) FROM brain.source_runs WHERE source='assets' ORDER BY id DESC LIMIT 1",
+        "SELECT jsonb_build_object('id',id,'status',status,'summary',summary) FROM brain.source_runs WHERE source='assets' ORDER BY id DESC LIMIT 1",
     ).fetch_one(&ctx.pool).await.map_err(ReasonerError::Db)?;
     let provenance = mirror_provenance_from_run(&run, client_version)?;
+    if run["id"].as_i64() != Some(heroes.receipt.source_run_id)
+        || heroes.receipt.manifest.raw_sha256 != items.receipt.manifest.raw_sha256
+    {
+        return Err(ReasonerError::Data(
+            "Spielwerte gehören nicht zum selben aktuellen API-Abgleich.".into(),
+        ));
+    }
+    let source = |receipt: &brain_storage::asset_mirror::AssetMirrorReceipt| crate::ModelSource {
+        client_version: receipt.client_version,
+        document_id: receipt.endpoint.source_document_id.to_string(),
+        original_url: receipt.endpoint.url.clone(),
+        kind: receipt.kind.clone(),
+        language: receipt.language.clone().unwrap_or_default(),
+        json_pointer: String::new(),
+    };
+    let calculation = calculation_models_from_payloads(
+        &heroes.payload,
+        &items.payload,
+        &source(&heroes.receipt),
+        &source(&items.receipt),
+    )?;
     let records = |value: Value| -> Result<Vec<Value>> {
         let mut records = value.as_array().cloned().ok_or_else(|| {
             ReasonerError::Data("API-Spiegel enthält keinen Originalkatalog.".into())
@@ -1179,12 +1206,21 @@ async fn mirrored_assets(ctx: &ReasonerCtx) -> Result<MirroredAssets> {
         }
         Ok(records)
     };
-    let heroes = records(heroes)?;
-    let items = records(items)?;
+    let heroes = records(heroes.payload)?;
+    let items = records(items.payload)?;
     Ok(MirroredAssets {
         provenance,
         heroes,
         items,
+        calculation: Some(calculation),
+    })
+}
+
+pub async fn load_calculation_models_from_mirror(
+    ctx: &ReasonerCtx,
+) -> Result<crate::CalculationModels> {
+    mirrored_assets(ctx).await?.calculation.ok_or_else(|| {
+        ReasonerError::Data("Gemeinsames Rechenmodell fehlt im API-Abgleich.".into())
     })
 }
 
@@ -1275,7 +1311,7 @@ pub(crate) async fn load_models_from_mirror(
     let assets = mirrored_assets(ctx).await?;
     let payload = mirrored_hero(&assets, hero)?;
     let flex_slots = crate::meta::snapshot_flex_slots(&payload);
-    let (hero, mut snapshots) = hero_model_from_mirror(ctx, hero, &assets)?;
+    let (hero, mut snapshots) = hero_model_from_mirror(&ctx.config, hero, &assets)?;
     let (items, item_snapshots) = item_models_from_mirror(&assets)?;
     snapshots.extend(item_snapshots);
     Ok(MirroredModels {
@@ -1292,40 +1328,50 @@ pub(crate) async fn load_hero_model_with_snapshots(
     hero: &str,
 ) -> Result<(HeroModel, Vec<crate::PatchSnapshot>)> {
     let assets = mirrored_assets(ctx).await?;
-    hero_model_from_mirror(ctx, hero, &assets)
+    hero_model_from_mirror(&ctx.config, hero, &assets)
 }
 
 fn hero_model_from_mirror(
-    ctx: &ReasonerCtx,
+    cfg: &crate::ReasonerConfig,
     hero: &str,
     assets: &MirroredAssets,
 ) -> Result<(HeroModel, Vec<crate::PatchSnapshot>)> {
-    let mut payload = mirrored_hero(assets, hero)?;
-    let mut weapon_fetched_at = number(payload.get("_snapshot_fetched_at"));
-    let mut weapon_source = "deadlock_assets_api/hero";
-    if payload.get("weapon_info").is_none_or(Value::is_null) {
-        if let Some(name) = payload
-            .pointer("/items/weapon_primary")
-            .and_then(Value::as_str)
-        {
-            let weapon = assets
-                .items
-                .iter()
-                .find(|item| item.get("class_name").and_then(Value::as_str) == Some(name))
-                .ok_or_else(|| ReasonerError::MissingSnapshot("API-Primärwaffe".into()))?;
-            weapon_fetched_at = number(weapon.get("_snapshot_fetched_at"));
-            weapon_source = "deadlock_assets_api/item_or_ability";
-            payload["weapon_info"] = weapon
-                .get("weapon_info")
-                .filter(|value| value.is_object())
-                .ok_or_else(|| ReasonerError::Data("weapon_info der Primärwaffe fehlt".into()))?
-                .clone();
+    let payload = mirrored_hero(assets, hero)?;
+    let sourced = assets
+        .calculation
+        .as_ref()
+        .and_then(|models| models.heroes.get(&integer(payload.get("id"))))
+        .ok_or_else(|| {
+            ReasonerError::Data("Held fehlt im gemeinsamen Rechenmodell des API-Abgleichs.".into())
+        })?;
+    let weapon_id = sourced
+        .primary_weapon
+        .ok_or_else(|| ReasonerError::MissingSnapshot("API-Primärwaffe".into()))?;
+    let weapon = assets
+        .items
+        .iter()
+        .find(|item| ability_id(item) == Some(weapon_id))
+        .ok_or_else(|| ReasonerError::MissingSnapshot("API-Primärwaffe".into()))?;
+    let weapon_fetched_at = number(weapon.get("_snapshot_fetched_at"));
+    let weapon_source = "deadlock_assets_api/item_or_ability";
+    let abilities = mirrored_abilities(assets, &payload)?;
+    let mut model = sourced.model.clone();
+    if model.weapon.bullet_damage <= 0.0
+        || model.weapon.shots_per_second <= 0.0
+        || model.weapon.clip_size <= 0.0
+    {
+        return Err(ReasonerError::Data(
+            "Waffenprofil unvollständig; Primärwaffen-Snapshot laden".into(),
+        ));
+    }
+    for ability in &mut model.abilities {
+        if let Some(raw) = abilities.iter().find(|raw| ability_matches(raw, ability)) {
+            if ability.scaling_step.is_none() {
+                ability.scaling_step = crate::hero::scaling_step(raw);
+            }
         }
     }
-    let abilities = mirrored_abilities(assets, &payload)?;
-    let loaded = hero_model(&payload, &abilities, &[])?;
-    let mut model = crate::hero::build_hero_model(&loaded, &abilities, &[])?;
-    model.damage_plan = crate::hero::damage_plan(&model, &ctx.config);
+    model.damage_plan = crate::hero::damage_plan(&model, cfg);
     let mut fields = BTreeMap::new();
     for (field, label, value) in [
         (
@@ -1517,8 +1563,10 @@ fn item_models_from_mirror(
         let mut model = item_model_from_payload(payload)?;
         model.damage_axis = damage_type(&classification.damage_axis);
         model.defense_kind = classification.defense_kind;
-        model.shopable = payload.get("shopable").and_then(Value::as_bool).unwrap_or(true);
-        let asset_proc_cooldown = model.proc_cooldown;
+        model.shopable = payload
+            .get("shopable")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         let mut fields = BTreeMap::new();
         for (name, value) in &model.properties {
             fields.insert(
@@ -2126,6 +2174,127 @@ pub fn enrich_frozen_models(
 
 #[cfg(test)]
 mod tests {
+    use serde_json::Value;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn recorded_e_probe_keeps_f_and_g_models_and_combat_equal() {
+        let raw: Value =
+            serde_json::from_str(include_str!("../testdata/calculation/sheet-6759.json")).unwrap();
+        let source = |kind: &str, pointer: &str, hash_key: &str| crate::ModelSource {
+            client_version: raw["provenance"]["client_version"].as_i64().unwrap(),
+            document_id: format!(
+                "recorded-e-probe-{}",
+                raw["provenance"][hash_key].as_str().unwrap()
+            ),
+            original_url: format!("https://assets.deadlock-api.com/v2/{kind}"),
+            kind: kind.into(),
+            language: "english".into(),
+            json_pointer: pointer.into(),
+        };
+        let models = super::calculation_models_from_payloads(
+            &raw["heroes"],
+            &raw["items"],
+            &source("heroes_all", "/heroes", "heroes_all_sha256"),
+            &source("items", "/items", "items_sha256"),
+        )
+        .unwrap();
+        let assets = super::MirroredAssets {
+            provenance: super::MirrorProvenance {
+                client_version: models.client_version,
+                mirrored_at: 0,
+                checked_at: 0,
+            },
+            heroes: raw["heroes"].as_array().unwrap().clone(),
+            items: raw["items"].as_array().unwrap().clone(),
+            calculation: Some(models),
+        };
+        let cfg = crate::ReasonerConfig::default();
+        let now = std::time::Instant::now();
+        let deadline = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || now,
+        );
+        for id in [7, 13, 25, 27] {
+            let (f, snapshots) =
+                super::hero_model_from_mirror(&cfg, &id.to_string(), &assets).unwrap();
+            let g = &assets.calculation.as_ref().unwrap().heroes[&id];
+            assert_eq!(
+                serde_json::to_value(&f.weapon).unwrap(),
+                serde_json::to_value(&g.model.weapon).unwrap()
+            );
+            assert_eq!(
+                serde_json::to_value(&f.scaling).unwrap(),
+                serde_json::to_value(&g.model.scaling).unwrap()
+            );
+            assert_eq!(
+                f.standard_level_up_upgrades,
+                g.model.standard_level_up_upgrades
+            );
+            assert_eq!(f.base_health, g.model.base_health);
+            assert_eq!(f.base_spirit_power, g.model.base_spirit_power);
+            assert_eq!(f.abilities.len(), 4);
+            assert_eq!(g.source.client_version, 6759);
+            assert_eq!(
+                g.raw,
+                *raw["heroes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|hero| hero["id"] == id)
+                    .unwrap()
+            );
+            assert_eq!(
+                snapshots[0].fields["weapon.bullet_damage"].source,
+                "deadlock_assets_api/item_or_ability"
+            );
+            assert_eq!(snapshots[0].fields["weapon.bullet_damage"].fetched_at, None);
+            let order = crate::progression::mechanic_order_with_deadline(&f, &cfg, Some(&deadline))
+                .unwrap();
+            for souls in [0, 10000, 30000] {
+                let (f, f_progression) = crate::progression::at_souls(&f, &order, souls, &cfg);
+                let (g, g_progression) =
+                    crate::progression::at_souls(&g.model, &order, souls, &cfg);
+                assert_eq!(f_progression.standard_boons, g_progression.standard_boons);
+                let f = crate::combat::evaluate_inventory_with_deadline(
+                    &f,
+                    &[],
+                    &cfg,
+                    &BTreeMap::new(),
+                    &deadline,
+                )
+                .unwrap();
+                let g = crate::combat::evaluate_inventory_with_deadline(
+                    &g,
+                    &[],
+                    &cfg,
+                    &BTreeMap::new(),
+                    &deadline,
+                )
+                .unwrap();
+                assert_eq!(
+                    (
+                        f.score,
+                        f.weapon_damage,
+                        f.ability_damage,
+                        f.effective_health
+                    ),
+                    (
+                        g.score,
+                        g.weapon_damage,
+                        g.ability_damage,
+                        g.effective_health
+                    )
+                );
+            }
+        }
+        deadline.cancel();
+        let hero = &assets.calculation.as_ref().unwrap().heroes[&25].model;
+        assert!(
+            crate::progression::mechanic_order_with_deadline(hero, &cfg, Some(&deadline)).is_err()
+        );
+    }
+
     #[test]
     fn latest_run_must_confirm_the_mirrored_version() {
         let run = serde_json::json!({"status":"ok","summary":{
@@ -2153,6 +2322,7 @@ mod tests {
                 checked_at: 2000,
             },
             heroes: vec![],
+            calculation: None,
             items: vec![serde_json::json!({
                 "id":91,"name":"API-Item","class_name":"upgrade_fixture","type":"upgrade",
                 "item_slot_type":"spirit","item_tier":3,"cost":4321,"shopable":true,"disabled":false,
@@ -2184,6 +2354,7 @@ mod tests {
                 checked_at: 2000,
             },
             heroes: vec![],
+            calculation: None,
             items: vec![serde_json::json!({"id":101,"class_name":"ability_first"})],
         };
         let hero = serde_json::json!({"items":{

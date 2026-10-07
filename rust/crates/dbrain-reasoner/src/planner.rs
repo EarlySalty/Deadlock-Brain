@@ -194,8 +194,18 @@ impl Search<'_> {
             .iter()
             .map(|id| self.catalog.iter().find(|item| item.item_id == *id))
             .collect::<Option<Vec<_>>>()?;
-        let evaluation =
-            evaluate_inventory_refs_fast_with_bindings(hero, &held, self.cfg, bindings);
+        let evaluation = if let Some(deadline) = self
+            .constraints
+            .and_then(|constraints| constraints.deadline)
+        {
+            let held = held.into_iter().cloned().collect::<Vec<_>>();
+            crate::combat::evaluate_inventory_with_deadline(
+                hero, &held, self.cfg, bindings, deadline,
+            )
+            .ok()?
+        } else {
+            evaluate_inventory_refs_fast_with_bindings(hero, &held, self.cfg, bindings)
+        };
         let invalid = !evaluation.score.is_finite()
             || !evaluation.utility.is_finite()
             || !evaluation.effective_health.is_finite()
@@ -225,6 +235,12 @@ impl Search<'_> {
         before: f64,
         bindings: &BTreeMap<i64, i64>,
     ) -> Vec<PurchaseStep> {
+        if self
+            .constraints
+            .is_some_and(|constraints| constraints.check().is_err())
+        {
+            return Vec::new();
+        }
         let key = ChoiceKey {
             earned,
             spent: inventory.spent_souls,
@@ -297,13 +313,20 @@ impl Search<'_> {
                                 .iter()
                                 .any(|ability| ability.ability_id == *target)
                         });
-                    if let Some(target) = self
+                    let requested = self
                         .constraints
-                        .and_then(|constraints| constraints.imbues.get(&item.item_id).copied())
-                        .or_else(|| {
-                            crate::mechanics::imbue_target(item, hero, self.cfg).or(observed)
-                        })
-                    {
+                        .and_then(|constraints| constraints.imbues.get(&item.item_id).copied());
+                    if requested.is_some_and(|target| {
+                        !hero
+                            .abilities
+                            .iter()
+                            .any(|ability| ability.ability_id == target)
+                    }) {
+                        continue;
+                    }
+                    if let Some(target) = requested.or_else(|| {
+                        crate::mechanics::imbue_target(item, hero, self.cfg).or(observed)
+                    }) {
                         next_bindings.insert(item.item_id, target);
                     }
                 }
@@ -438,12 +461,27 @@ fn plan_with_economy_inner(
         progression_cache: BTreeMap::new(),
         constraints,
     };
-    let mut plan=PurchasePlan { steps:Vec::new(), final_evaluation:evaluate_inventory(hero,&[],cfg), ability_order:order.to_vec(),saving_decisions:Vec::new(), assumptions:vec![
+    let mut plan=PurchasePlan { steps:Vec::new(), final_evaluation:InventoryEvaluation::default(), ability_order:order.to_vec(),saving_decisions:Vec::new(), assumptions:vec![
         "Feste globale Seelen-Checkpoints, unabhängig von Kandidatenpreisen. Kostenbänder erzwingen keine Käufe; ausschließlich die zugelassenen Identitätskäufe konkurrieren um das vorhandene Geld. Sparen bleibt eine bewertete Alternative.".into(),
         "Begrenzte Zweischrittsuche mit vier Kandidaten: aktueller Mehrwert zählt zur Hälfte, der Zustand am nächsten Checkpoint voll. Das ist eine gesetzte Planungspräferenz, kein gemessener Spielverlauf und kein globales Optimum.".into(),
         "Budget und Levelkurve verwenden dieselben verdienten Szenarioseelen. Anfangsgeld, Einnahmetempo, Zeitverluste und zusätzliche AP aus Spielereignissen werden nicht erfunden. Verkäufe verändern nur Ausgaben, nicht den Fortschritt.".into(),
         format!("Inventarregel: {} universelle Plätze und höchstens vier aktive Items; Verkaufserlös {:.0}%. Freischaltzeitpunkte von Inventarplätzen und Kulanz-Erstattungen bleiben unmodelliert.",rules.max_slots,rules.resale_fraction*100.0),
     ]};
+    plan.final_evaluation =
+        if let Some(deadline) = constraints.and_then(|constraints| constraints.deadline) {
+            match crate::combat::evaluate_inventory_with_deadline(
+                hero,
+                &[],
+                cfg,
+                &BTreeMap::new(),
+                deadline,
+            ) {
+                Ok(evaluation) => evaluation,
+                Err(_) => return plan,
+            }
+        } else {
+            evaluate_inventory(hero, &[], cfg)
+        };
     if economy.checkpoints.is_empty()
         || economy.checkpoints.iter().any(|point| *point < 0)
         || economy
@@ -582,7 +620,20 @@ fn plan_with_economy_inner(
                 }
             };
             step.evaluation =
-                evaluate_inventory_with_bindings(&progressed, &held, cfg, &step.imbue_targets);
+                if let Some(deadline) = constraints.and_then(|constraints| constraints.deadline) {
+                    match crate::combat::evaluate_inventory_with_deadline(
+                        &progressed,
+                        &held,
+                        cfg,
+                        &step.imbue_targets,
+                        deadline,
+                    ) {
+                        Ok(evaluation) => evaluation,
+                        Err(_) => return plan,
+                    }
+                } else {
+                    evaluate_inventory_with_bindings(&progressed, &held, cfg, &step.imbue_targets)
+                };
             bindings = step.imbue_targets.clone();
             step.progression = evidence;
             used.insert(step.transition.purchased_id);
@@ -609,7 +660,21 @@ fn plan_with_economy_inner(
             .extend(last.progression.unknown_effects.iter().cloned());
     } else if let Some(earned) = economy.checkpoints.last() {
         let (progressed, evidence) = at_souls(hero, order, *earned, cfg);
-        plan.final_evaluation = evaluate_inventory_with_bindings(&progressed, &[], cfg, &bindings);
+        plan.final_evaluation =
+            if let Some(deadline) = constraints.and_then(|constraints| constraints.deadline) {
+                match crate::combat::evaluate_inventory_with_deadline(
+                    &progressed,
+                    &[],
+                    cfg,
+                    &bindings,
+                    deadline,
+                ) {
+                    Ok(evaluation) => evaluation,
+                    Err(_) => return plan,
+                }
+            } else {
+                evaluate_inventory_with_bindings(&progressed, &[], cfg, &bindings)
+            };
         plan.assumptions.extend(evidence.assumptions);
         plan.assumptions.extend(evidence.unknown_effects);
     }
