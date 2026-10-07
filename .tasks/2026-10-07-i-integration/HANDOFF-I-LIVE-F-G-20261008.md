@@ -1,0 +1,45 @@
+# I: E live, gleicher F/G-Ausführer aktiv
+
+## Gesicherter Stand
+
+I-Akte /home/nathanael/.worktrees/brain-e-deadlock-api/.tasks/2026-10-07-i-integration/, letzter gesicherter Aktencommit b743f1e4 auf origin/feat/brain-deadlock-api-daten. Vor Fortsetzung aktuellen eigenen Status/HEAD lesen. Zentrale Akte nur beim Delegator 481426fe-b477-42b3-91c6-901811fcba1d. Eigener I-Thread b17d5729-a475-4bcb-8fc9-0aa6103d4555.
+
+E-Spiegel b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2 tatsächlich nach Main gepusht, regulär aus sauberem eigenen /home/nathanael/.worktrees/brain-i-release-20261007 gebaut und installiert. Quelle unverändert sauber einschließlich ignorierter Dateien. Branch feat/brain-assets-mirror-20261007. Frischer fetch und `merge-base --is-ancestor b7289d11 origin/main` Exit 0. Noch kein Cleanup; eigene temporäre Readerprobe referenziert den Quellbaum als path dependency, Artefakte erhalten.
+
+Discovery und alte E-/Integrationszweige bleiben geschützt erhalten. Discovery origin/feat/brain-patch-discovery af4736089cc5ce5d41ed442d445c49a30d5c6375. Keine neue Discoveryrunde, kein Discoverymerge oder Löschen. Allgemeiner Cleanup-Hook ändert diesen Auftrag nicht.
+
+## Tatsächliches E-Endergebnis
+
+6 reale Receipt-/Core6-Scratchtests direkt über cargo-slot, 6/0/0, danach Main-Push zugelassen und Exit 0. Vollständige Produktvereinigung war vorher 605/0/24, Opus-Spiegel-ALLOW erhalten. Releaseherkunft Format 2, sämtliche 17 Hashes in beiden Layouts geprüft. Installed current und maintenance-current b7289d11. Regulärer brain-serve-Neustart nach vom R10 geforderter Rollenlektüre gelungen, PID 2388861 -> 3178539, exe ohne deleted, tatsächlicher Manifesthash stimmt, Fehlerjournal leer, /readyz JSON status ready.
+
+Vollständiger Assets-Run 743, Version 6759, status ok, mirror_complete=true. 13 Endpoint-Originaldateien plus Manifest mit bestehendem Reader/Receipts und tatsächlichen SHA256 geprüft. Dauerhafte Daten /home/nathanael/.local/share/deadlock-brain/raw/deadlock_assets_api/. Gesamtjob assets + build-data all am 08.10.2026 00:05:51 CEST Exit 0 beendet. Zusätzliche reine Rust-Metadatenprobe: build_data-Run 744 status ok, 40 Heldeneinträge, erneute unveränderte Asset-/Originalhashprüfung Exit 0. Timer waiting für 03:30 CEST, unveränderte vorhandene administrative Skripte dauerhaft außerhalb Worktrees an installierten Zeiger gebunden. LIVE-SPIEGEL-B7289D11.md, TIMER-RUNTIME-NACH-MAIN.md.
+
+analytics_runtime ausschließlich rust/crates/dbrain-sources/src/analytics_runtime.rs an G freigegeben; Basis b7289d11, Blob bbdf467081a4285b9f5ee22250f0f4465b8660cf. Delegator bestätigt und G informiert. I/F schreiben diese Datei nicht. Vorbestehend failed brain-maintenance nicht als neu gestartet behauptet; keine fremden Dienste oder Q angefasst.
+
+## Laufender eigener F-Kontext
+
+Genau ein nativer F-Ausführer, ursprünglich auf 46fd86743589910d7b92a7223bdd6ab0dcf2b7c8 gestartet, /home/nathanael/.worktrees/brain-f-publish, feat/brain-build-publish-ohne-matchgrenze. Vorhandene 20 ignorierte Logs und rust/target bleiben. Briefing F-FORTSETZUNG-AUFTRAG.md und F-NACHTRAG-INTEGRATION-G.md. Nie zweiten F-Ausführer starten oder parallel F-Dateien editieren.
+
+Erste sieben E-/F-Mergekonflikte wurden geordnet unter I-Zuständigkeit geklärt: E-only-Baselines exakt b7289d11, CLI Vereinigung Assets/data-dir mit echten F-Publish-/Request-/Receiptguards, keine K-Literalumstellung. Derselbe native Kontext fortgesetzt.
+
+Echter G-Vertrag inzwischen zugestellt: S3 2b519b0470fdb2d0ae9fde7791dff0c820ad3d1b, S4 a35bd8142146bd1ea0d8b342625ac6cf2e0bd278, gesicherter Origincheckpoint 253d383eab7a2f018ee1c834370140bf4a55e844. UEBERGABEN-WACHE-032.md regulär gelesen und demselben F-Ausführer weitergegeben. Gemeinsame Eingänge calculation_models_from_payloads, calculate_hero_with_deadline, project_hero, hero_growth, compare_hero_curves. Keine G-WIP-Kopien oder zweite Rechnung. G 38 Fälle grün, Reasoner 342/12 ausdrücklich nicht voll grün; kombinierte Suite regulär beweisen.
+
+Letzter eigener read-only-F-Wachenbefund: HEAD 46db0ca387bb7129c44aa1078fad18ae8c87fa99, Feature gegenüber altem Origin voraus. Staged .tasks/2026-10-06-brain-abschluss/G/API-PROBEN.json und Arbeitsänderungen composer.rs, data.rs, lib.rs, planner.rs, progression.rs. Dies ist ein Momentbefund, keine finale aktuelle Quell-/Testbindung.
+
+Der F-Ausführer stoppte zuletzt wegen falschem ctx_execute_file-Logzugriff außerhalb des E-MCP-Roots. Derselbe Kontext zur bereits ausdrücklich vom Nutzer erlaubten normalen Read-Werkzeugwahl für Logs zurückgeführt, wie früher Fixer 15. Keine neuen Rechte oder alternativen Wrapper. Wenn normales Read selbst verweigert wird, echte Ablehnung zurückgeben und stoppen. Frühere Suite Exit 0 ist noch nicht ausgewertet und deckt später geänderten Source nicht ab. Neueste fmt/clippy/tests/Gate/Commit/Push noch nicht als beendet behaupten.
+
+Zusätzlicher echter Integrationsfund: eigene F-Kandidatenmetadaten zeigten M pg_patchnotes.rs und A pg_patchnotes/api_sync.rs gegenüber b7289d11. Das führt ungeschiffte Discovery aus alten Vorfahren wieder ein. Demselben F-Ausführer ausdrücklich aufgegeben, diesen unbeauftragten geerbten Delta unter I-Integrationszuständigkeit auf exakten Main-Patchimport zurückzuführen, CLI sync-patchnotes ausschließen, F-/Assets-/Main-Tests erhalten. Keine zweite Discoveryfixrunde. Vor Gate leeren Patchsubtree-Diff gegen aktuellen Main belegen. Parent editiert keine aktive F-Datei.
+
+## Verbindlicher Nachtrag Wache 34
+
+NACHTRAG-WACHE-034.md nach dieser Handoffanlage regulär gelesen. Delegator bestätigt a62e09e1 als damaligen sauberen F-HEAD, pg_patchnotes.rs +11 und api_sync.rs +273 gegen geliefertem b7289d11. ce512460-Gate ist echter inhaltlicher BLOCK mit zwei Patchimportfunden und Skillfolge; a62e09e1-Gatelog beim Delegator noch leer. Kein neues ALLOW behaupten. Gleicher einziger nativer F-Ausführer erhielt den Nachtrag, ursprünglichen Discoveryausschluss und Erhalt des berechtigten Skillfolgenfixes nochmals geordnet. Kein neuer Discovery-Fixerauftrag oder Parent-Edit.
+
+Jüngste reine eigene Statuswache nach Zustellung: F-Feature ahead 62, main.rs working geändert, pg_patchnotes.rs staged geändert und api_sync.rs staged gelöscht. Dies zeigt aktive Scopebearbeitung, noch keinen abschließenden leeren Discoverydiff oder neuen Test-/Gate-/Publishbeweis. Keine weitere aktive Worker-Datei bearbeiten. Erst tatsächliches Ergebnis dieses Ausführers entgegennehmen.
+
+## Reguläre nächste Schritte und Grenzen
+
+Auf tatsächlichen Abschluss desselben nativen F-Ausführers reagieren, keinen laufenden Agenten duplizieren oder in seine Dateien schreiben. Exakte neue Quellbindung, echte Suitezahlen und Gatewortlaut prüfen; begrenzte Integration und keine wiederhergestellte Discovery. Bei grünem gemeinsamem Stand regulär gegen dann aktuellen origin/main liefern, bestehenden Releasehelper benutzen, nötige eigene Dienste regulär starten, tatsächlichen regulären Warden-Publish aus gelieferten Rustcode mit positiver bestätigter hero_build_id belegen. Bestehender Publisher /health auf 127.0.0.1:8783 liefert application/json mit ok=true; das ist nur Preflight, kein Publikationsbeweis.
+
+Keine Main-/F/G-/Publish-/Cleanup-/Self-Settle-Endbehauptung vor tatsächlichem Abschluss. Model-/Timeout-/Providergrenzen, originale Deadline/Abbruch, Budget/Imbues/strukturierte PurchasePlan-/InventoryEvaluation-Belege und ForPublication bleiben. Cargo ausschließlich `cargo-slot --jobs 3`, `env -u DEADLOCK_CENTRAL_DSN -u DATABASE_URL SQLX_OFFLINE=true`, bestehende Tests seriell. Kein Testlöschen/-abschwächen oder Hookbypass.
+
+Private Originale/Community-Rohdaten MUST NOT an Codiermodelle oder Git gehen. Secrets NEVER ausgeben. Keine Matchdaten lokal speichern. Produktcode Rust, Postgres. Agenten MUST NOT Brave starten, übernehmen oder indirekt als Rückfall benutzen, vor Browserarbeit Guide und Moli. Keine Docs-/Concierge-Löschung, fremden Dienste oder ai-coach. K-/G-Eigentum respektieren, insbesondere keine Query-answer_context-Umstellung oder analytics_runtime-Writes. Verweigerte Integrations-main.rs-Quellinspektion nicht über anderen Pfad/Tool/Worker übernehmen; explizite normale Log-Read-Freigabe gilt nicht für diese Quelle. Keine Sessionchats, keine neue T3-Sitzung. Fragen als FRAGE AN ORCHESTRATOR im eigenen Bericht.

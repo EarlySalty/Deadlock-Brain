@@ -6,6 +6,14 @@ status: aktiv, E-Spiegel tatsächlich auf Main und live; genau ein bestehender n
 
 Konkrete analytics_runtime-Dateiübergabe an G erfolgt und vom Delegator bestätigt. Echter gesicherter S3/S4-Vertrag aus Wache 032 dem bestehenden F-Ausführer weitergegeben: 2b519b04, a35bd814, Origincheckpoint 253d383e; G 38 Rechenfälle grün, Reasoner 342/12 nicht voll grün. Begrenzte Zuständigkeit für die sieben tatsächlichen geerbten E-/F-Integrationskonflikte explizit geklärt, gleicher F-Kontext fortgesetzt. Keine aktiven eigenen Release-/Import-/Prüfprozesse mehr; F arbeitet allein im erhaltenen F-Baum, keine G-/K- oder E-Releasebaumwrites durch I. Session-only-Wache e5c470f1 einmalig um 00:19 CEST. Keine F/G-Endabnahme, Warden-ID, Cleanup oder Self-Settle behauptet.
 
+## Direkter I-Betriebsnachtrag vom 08.10.2026
+
+Ausdrücklich freigegebenen sauberen brain-live-main auf main 39710e32 nach frischem fetch/Ancestry regulär ff-only auf cf02c9a0 gebracht, Exit 0. Keine ignorierten Artefakte entfernt, keine Archivübernahme, kein Reset/Stash/Force. Geladener Timer verwendet tatsächlich bereits dauerhafte Runtime und installierten b7289d11, nur Timeout-Drop-in. Kein Rückstellen. Vorhandene reine Credential-Readerprobe für aktuelle Ausgangsbindung läuft, be7lfpo1y. Neuer vollständiger regulärer Importlauf noch offen; 743/744 bleiben historische tatsächlich abgeschlossene Runs. LIVE-MAIN-TIMER-20261008.md. F-Ausführer und Discoverygrenze unverändert.
+
+## Wache 34: laufende F-Scopebereinigung
+
+Nutzer-Nachtrag NACHTRAG-WACHE-034.md gelesen, verbindliche Discoverygrenze an denselben einzigen nativen F-Ausführer weitergegeben. ce512460 bleibt BLOCK, a62e09e1 kein neues Urteil aus leerem Log. Geerbten Patchdelta aus F ausgliedern, bestehenden F/G-Stand und Skillfolgenfix erhalten, keine neue Patchfixschleife. Eigene Statuswache: Feature ahead 62, main.rs geändert, pg_patchnotes.rs staged geändert, api_sync.rs staged gelöscht. Ausführer aktiv, kein weiterer Parent-Writer. Noch kein neuer bereinigter Quell-/Test-/Gate-/Publishbeweis. HANDOFF-I-LIVE-F-G-20261008.md hält Fortsetzung und erhaltene Grenzen fest.
+
 ## Frische Fortsetzung vom 07.10.2026 (Historie)
 
 status: aktiv. I-Thread b17d5729-a475-4bcb-8fc9-0aa6103d4555 übernimmt den bestehenden Auftrag. Alter I-Thread 8827da25-c1f8-44f2-bef8-f3a7b7dd3137 und frühere Hauptsession d3a1741e bleiben gestoppt. Keine Sessionkontakte.

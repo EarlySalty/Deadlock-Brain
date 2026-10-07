@@ -8,6 +8,20 @@ Regulärer vollständiger Releasebau und Install abgeschlossen, sämtliche 17 Bi
 
 analytics_runtime ausschließlich als konkrete Datei an G freigegeben, FREIGABE-ANALYTICS-RUNTIME-AN-G.md; Delegator hat Übergabe bestätigt. Einziger bestehender nativer F-Ausführer fortgesetzt. Sieben tatsächliche geerbte E-/F-Mergekonflikte wurden als begrenzte I-Integrationszuständigkeit geklärt, nicht als neuer Schutz- oder Produktauftrag. Tatsächlicher gesicherter G-S3/S4-Vertrag aus UEBERGABEN-WACHE-032.md gelesen und demselben F-Ausführer weitergegeben: 2b519b04 und a35bd814, Origincheckpoint 253d383e; 38 Rechenfälle grün, G-Reasoner 342/12 ausdrücklich keine grüne Vollsuite. Gemeinsame F/G-Abnahme und regulärer Warden-Publish stehen noch aus. Keine parallele K-Literalumstellung, kein zweiter Rechner, unveränderlicher I-Releasebaum unberührt. F-NACHTRAG-INTEGRATION-G.md hält Übergabe und Grenzen fest.
 
+## Direkter Betriebsnachtrag: Maincheckout aufgeholt, Timerbindung stimmt
+
+NACHTRAG-I-LIVE-MAIN-TIMER.md gelesen und begrenzten ausdrücklichen ff-only-Abgleich selbst ausgeführt. Sauberer brain-live-main auf main 39710e32 nach frischem fetch und Ancestry Exit 0 regulär auf cf02c9a0 vorgespult, Exit 0. Ignorierte Cache-/Buildartefakte als Metadateninventar vorher/nachher unverändert erhalten. Keine Archivübernahme, Reset, Stash, Force oder fremde Sitzung.
+
+Geladene Unit und einziger Timeout-Drop-in belegen bereits die dauerhafte Runtime außerhalb von Worktrees. Tatsächliche CLI-Bindung weiterhin installierter b7289d11 und bekannter Manifesthash, kein Rückstellen. Timer wartet auf 03:30; Dienst vor neuem Lauf inactive/dead, MainPID=0. Alte vollständige Runs 743/744 bleiben getrennte Belege. Vorhandene lesende Receiptprobe zur neuen Ausgangsbindung läuft; neuer regulärer vollständiger Dienstlauf wird bis neuer Assets-/Build-Runbindung und Exit nachgehalten, noch kein neuer Abschluss behauptet. LIVE-MAIN-TIMER-20261008.md hält den tatsächlichen Abgleich fest.
+
+MERGEPROTOKOLL[MS-1]: 8 Git-Schritte einzeln | Anläufe: 1 | Gate: regulärer ff-only zugelassen, Exit 0; main tatsächlich auf cf02c9a0
+
+## Wache 34: Discovery-Schnitt im aktiven F-Kandidaten
+
+NACHTRAG-WACHE-034.md regulär gelesen. Delegator belegt am a62e09e1 einen unzulässigen geerbten Patchimportdelta gegenüber geliefertem b7289d11: pg_patchnotes.rs +11 und api_sync.rs +273. ce512460-Gate bleibt echter BLOCK mit zwei Patchimportfunden und Skillfolge, späterer a62e09e1-Gatelog beim Delegator noch leer. Keine neue Discovery-Fixfreigabe und kein ALLOW daraus.
+
+Demselben einzigen F-Ausführer den verbindlichen Ausschluss nochmals geordnet zugestellt. Berechtigter Skillfolgenfix und F/G-Stand bleiben erhalten; Patchimport auf gelieferten Mainumfang zurückführen, getrennte Discovery erhalten. Jüngste eigene reine Statuswache zeigt aktive Bearbeitung: main.rs geändert, pg_patchnotes.rs staged geändert, api_sync.rs staged gelöscht, Feature ahead 62. Kein zweiter Writer und kein Parent-Edit im F-Baum. Das ist noch kein bewiesener leerer Discoverydiff, neues Testergebnis, Gate-ALLOW oder Publish. Vor F-Lieferung bereinigten vollständigen Umfang regulär prüfen.
+
 ## Historische qualifizierte Fachrückgabe vor Reparatur
 
 Zusätzlicher tatsächlicher Abschlussblocker: Der Stop-Hook fordert Lieferung und Löschung aller drei genannten Branches. Zwei enthalten jedoch die ausdrücklich zu erhaltende blockierte Discovery; der separate Spiegel bleibt an der unveränderten Testnachweisschranke blockiert. Keine neue Freigabe daraus abgeleitet und keinen fremden Main-Checkout übernommen. Details in ABSCHLUSS-HOOK-BLOCKER.md. Aktenstand f45c5faa zuvor tatsächlich gepusht, Arbeitsbaum danach sauber.
