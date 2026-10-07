@@ -1574,6 +1574,33 @@ fn run_from_cli() -> Result<()> {
     }
 }
 
+fn assets_storage_path(path: &std::path::Path) -> Result<PathBuf> {
+    anyhow::ensure!(
+        path.is_absolute(),
+        "Das Datenverzeichnis muss absolut sein. Wähle mit --data-dir oder DEADLOCK_BRAIN_DATA_DIR einen dauerhaften absoluten Pfad."
+    );
+    let mut resolved = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                resolved.pop();
+            }
+            other => {
+                resolved.push(other.as_os_str());
+                match fs::canonicalize(&resolved) {
+                    Ok(canonical) => resolved = canonical,
+                    Err(error) if error.kind() == ErrorKind::NotFound => {}
+                    Err(error) => {
+                        return Err(error).context("Das Datenverzeichnis ist nicht prüfbar.");
+                    }
+                }
+            }
+        }
+    }
+    Ok(resolved)
+}
+
 async fn run(cli: Cli) -> Result<()> {
     let Cli { command } = cli;
     let command = match command {
@@ -1597,15 +1624,6 @@ async fn run(cli: Cli) -> Result<()> {
     {
         return print_json(&wiki_refresh::run(args).await?);
     }
-    if let Commands::Pull {
-        source: PullCommands::Assets(args),
-    } = &command
-    {
-        anyhow::ensure!(
-            args.data_dir.as_ref().is_none_or(|path| path.is_absolute()),
-            "Das Datenverzeichnis muss absolut sein."
-        );
-    }
     let mut settings = config::load_settings()?;
     if let Commands::Pull {
         source: PullCommands::Assets(args),
@@ -1616,6 +1634,12 @@ async fn run(cli: Cli) -> Result<()> {
             settings.raw_dir = data_dir.join("raw");
             settings.cache_dir = data_dir.join("cache");
         }
+        let data_path = assets_storage_path(&settings.data_dir)?;
+        let build_root = assets_storage_path(&settings.project_root)?;
+        anyhow::ensure!(
+            !data_path.starts_with(build_root),
+            "Das Datenverzeichnis liegt im löschbaren Build-Arbeitsbaum. Wähle mit --data-dir oder DEADLOCK_BRAIN_DATA_DIR einen dauerhaften absoluten Pfad außerhalb dieses Arbeitsbaums."
+        );
     }
     if let Commands::Entities(args) = &command {
         let pool = pg_pool_for_command(&command).await?;
