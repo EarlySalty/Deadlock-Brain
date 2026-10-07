@@ -46,17 +46,17 @@ fi
   --limit-per-hero "$IMPORT_LIMIT_PER_HERO" \
   "${hero_args[@]}"
 
-analyze_cmd=(
-  "${BRAIN_CMD[@]}" learn analyze-next
-  --pretty \
-  --limit "$LIMIT" \
-  --delay-seconds "$DELAY_SECONDS" \
-  "${hero_args[@]}" \
+analyze_args=(
+  learn analyze-next
+  --pretty
+  --limit "$LIMIT"
+  --delay-seconds "$DELAY_SECONDS"
+  "${hero_args[@]}"
   "${dry_args[@]}"
 )
 
 if [[ "$ANALYSIS_TIMEOUT_SECONDS" == "0" ]]; then
-  "${analyze_cmd[@]}"
+  "${BRAIN_CMD[@]}" "${analyze_args[@]}"
 else
-  timeout "$ANALYSIS_TIMEOUT_SECONDS" "${analyze_cmd[@]}"
+  timeout "$ANALYSIS_TIMEOUT_SECONDS" "${BRAIN_CMD[@]}" "${analyze_args[@]}"
 fi

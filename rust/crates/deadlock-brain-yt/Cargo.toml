@@ -23,6 +23,5 @@ tempfile.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 urlencoding.workspace = true
-wait-timeout.workspace = true
 
 [dev-dependencies]

@@ -65,7 +65,9 @@ pub(super) async fn database_dsn(path: &Path) -> Result<Zeroizing<String>> {
         .ok_or_else(|| anyhow!("Datenbankzugang fehlt in Infisical."))
 }
 
-pub(super) async fn environment(path: &Path) -> Result<Vec<(String, Zeroizing<String>)>> {
+pub(super) async fn environment(
+    path: &Path,
+) -> Result<Vec<(String, Zeroizing<String>)>> {
     let config = load_config(path)?;
     let values = fetch_values(config).await?;
     Ok(values.into_iter().collect())
@@ -74,7 +76,8 @@ pub(super) async fn environment(path: &Path) -> Result<Vec<(String, Zeroizing<St
 fn load_config(path: &Path) -> Result<Config> {
     let data =
         std::fs::read(path).map_err(|_| anyhow!("Infisical Konfiguration ist nicht lesbar."))?;
-    serde_json::from_slice(&data).map_err(|_| anyhow!("Infisical Konfiguration ist ungültig."))
+    serde_json::from_slice(&data)
+        .map_err(|_| anyhow!("Infisical Konfiguration ist ungültig."))
 }
 
 async fn fetch_values(config: Config) -> Result<BTreeMap<String, Zeroizing<String>>> {
@@ -140,9 +143,7 @@ async fn fetch_values(config: Config) -> Result<BTreeMap<String, Zeroizing<Strin
             continue;
         }
         if !valid_environment_name(name) {
-            return Err(anyhow!(
-                "Infisical enthält einen ungültigen Variablennamen."
-            ));
+            return Err(anyhow!("Infisical enthält einen ungültigen Variablennamen."));
         }
         values.insert(
             name.to_string(),
@@ -174,7 +175,7 @@ fn load_credential(config: &Config) -> Result<Zeroizing<Vec<u8>>> {
             let file = descriptor
                 .as_file()
                 .map_err(|_| anyhow!("Infisical Credential FD ist nicht lesbar."))?;
-            return read_credential(file);
+            return read_credential(&file);
         }
     }
 

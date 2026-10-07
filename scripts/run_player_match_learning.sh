@@ -62,17 +62,17 @@ fi
   "${detail_args[@]}" \
   "${build_args[@]}"
 
-analyze_cmd=(
-  "${BRAIN_CMD[@]}" player analyze-next
-  --pretty \
-  --limit "$ANALYZE_LIMIT" \
-  --delay-seconds "$DELAY_SECONDS" \
-  "${account_args[@]}" \
+analyze_args=(
+  player analyze-next
+  --pretty
+  --limit "$ANALYZE_LIMIT"
+  --delay-seconds "$DELAY_SECONDS"
+  "${account_args[@]}"
   "${dry_args[@]}"
 )
 
 if [[ "$ANALYSIS_TIMEOUT_SECONDS" == "0" ]]; then
-  "${analyze_cmd[@]}"
+  "${BRAIN_CMD[@]}" "${analyze_args[@]}"
 else
-  timeout "$ANALYSIS_TIMEOUT_SECONDS" "${analyze_cmd[@]}"
+  timeout "$ANALYSIS_TIMEOUT_SECONDS" "${BRAIN_CMD[@]}" "${analyze_args[@]}"
 fi

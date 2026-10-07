@@ -13,11 +13,9 @@ if [[ ! -x "$BRAIN_BIN" ]]; then
   echo "deadlock-brain Release Binary fehlt: $BRAIN_BIN" >&2
   exit 1
 fi
-if [[ "$LOAD_INFISICAL" == "1" || "$LOAD_INFISICAL" == "true" ]]; then
-  if [[ ! -x "$SECRET_EXEC" ]]; then
-    echo "deadlock-brain-secret-exec Release Binary fehlt: $SECRET_EXEC" >&2
-    exit 1
-  fi
+if [[ "$LOAD_INFISICAL" == "1" || "$LOAD_INFISICAL" == "true" ]] && [[ ! -x "$SECRET_EXEC" ]]; then
+  echo "deadlock-brain-secret-exec Release Binary fehlt: $SECRET_EXEC" >&2
+  exit 1
 fi
 
 run_brain() {
@@ -29,5 +27,7 @@ run_brain() {
 }
 
 run_brain pull build-data --hero all
-run_brain population sync --matches 2000   || echo "Population Sync fehlgeschlagen, der bestehende Build Data Stand bleibt erhalten." >&2
-run_brain population stats   || echo "Population Stats fehlgeschlagen, die Aggregate wurden nicht aktualisiert." >&2
+run_brain population sync --matches 2000 \
+  || echo "Population Sync fehlgeschlagen, der bestehende Build Data Stand bleibt erhalten." >&2
+run_brain population stats \
+  || echo "Population Stats fehlgeschlagen, die Aggregate wurden nicht aktualisiert." >&2

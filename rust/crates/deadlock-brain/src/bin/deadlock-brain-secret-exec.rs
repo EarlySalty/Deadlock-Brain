@@ -11,7 +11,7 @@ use clap::Parser;
 #[derive(Debug, Parser)]
 #[command(
     name = "deadlock-brain-secret-exec",
-    about = "Loads Deadlock Brain runtime secrets through the local Infisical transport and execs one command.",
+    about = "Lädt Deadlock Brain Runtime Secrets über den lokalen Infisical Transport und startet genau einen Prozess.",
     trailing_var_arg = true
 )]
 struct Args {
@@ -21,9 +21,13 @@ struct Args {
     command: Vec<OsString>,
 }
 
-#[tokio::main]
-async fn main() {
-    if let Err(error) = run().await {
+fn main() {
+    let result = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("Tokio Runtime konnte nicht gestartet werden")
+        .and_then(|runtime| runtime.block_on(run()));
+    if let Err(error) = result {
         eprintln!("{error:#}");
         std::process::exit(1);
     }

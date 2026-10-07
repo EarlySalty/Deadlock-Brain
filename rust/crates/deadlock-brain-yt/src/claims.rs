@@ -1,3 +1,5 @@
+use anyhow::{ensure, Context};
+use deadlock_brain_core::ai::{extract_ai_text, AiClient, ChatCompletionRequest, ChatMessage};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -7,23 +9,11 @@ use sqlx::Row;
 
 use crate::queue::Video;
 
-pub const MODEL: &str = "fireworks-rust-transcript";
-pub const PROMPT_VERSION: &str = "youtube_claims_de_v3";
-pub const LEGACY_MODEL: &str = "gemini-web";
-pub const LEGACY_PROMPT_VERSION: &str = "youtube_claims_de_v2";
+pub const MODEL: &str = "fireworks-transcript-v1";
+pub const PROMPT_VERSION: &str = "youtube_claims_transcript_v3";
+const MAX_AUTOMATED_TRANSCRIPT_CHARS: usize = 180_000;
 
-pub const TRANSCRIPT_PROMPT_TEMPLATE: &str = r#"Extrahiere aus dem folgenden YouTube-Transkript konkrete Deadlock-Gameplay-Erkenntnisse. Ignoriere Smalltalk, Intros, Werbung und Spendenaufrufe.
-
-Video: {TITLE}
-URL: {URL}
-
-Transkript:
-{TRANSCRIPT}
-
-Gib ausschließlich JSON zurück:
-{"claims":[{"entity":"Hero, Item oder Fähigkeit","claim_type":"build|item_timing|matchup|mechanic|combo|meta","assertion":"klarer deutscher Satz","patch_context":null,"confidence":0.0}]}
-
-Wenn das Transkript kein konkretes Deadlock-Gameplay-Wissen enthält, gib {"claims":[]} zurück."#;
+const SYSTEM_PROMPT: &str = r#"Du extrahierst ausschließlich belegte Deadlock Gameplay Aussagen aus einem gespeicherten Creator Transcript. Nutze kein Vorwissen und erfinde keine visuellen Beobachtungen. Werbung, Smalltalk, Spekulation ohne Gameplay Aussage und unklare Referenzen werden verworfen. Antworte ausschließlich als JSON Objekt im Format {"claims":[{"entity":"Hero, Item oder Fähigkeit","claim_type":"build|item_timing|matchup|mechanic|combo|meta","assertion":"klarer deutscher Satz","patch_context":null,"confidence":0.0}]}. confidence muss zwischen 0 und 1 liegen. Wenn das Transcript keine belastbare Gameplay Aussage enthält, gib {"claims":[]} zurück."#;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Claim {
@@ -34,18 +24,33 @@ pub struct Claim {
     pub confidence: f64,
 }
 
-pub fn build_transcript_prompt(video: &Video, transcript: &str) -> String {
-    TRANSCRIPT_PROMPT_TEMPLATE
-        .replace("{TITLE}", &video.title)
-        .replace("{URL}", &video.url)
-        .replace("{TRANSCRIPT}", transcript)
+pub fn build_prompt(url: &str, transcript: &str) -> anyhow::Result<String> {
+    let transcript = transcript.trim();
+    ensure!(!transcript.is_empty(), "Transcript ist leer.");
+    ensure!(
+        transcript.chars().count() <= MAX_AUTOMATED_TRANSCRIPT_CHARS,
+        "Transcript ist für die automatische Einzelanalyse zu lang."
+    );
+    Ok(format!(
+        "Quelle: {url}\n\nGespeichertes Transcript:\n{transcript}"
+    ))
 }
 
-pub fn response_explicitly_has_empty_claims(response_text: &str) -> bool {
-    parse_json_value(response_text)
-        .and_then(|value| value.get("claims").cloned())
-        .and_then(|claims| claims.as_array().cloned())
-        .is_some_and(|claims| claims.is_empty())
+pub fn analyze_transcript(url: &str, transcript: &str) -> anyhow::Result<(String, String)> {
+    let prompt = build_prompt(url, transcript)?;
+    let ai = AiClient::from_env().context("AI Client konnte nicht initialisiert werden")?;
+    let mut request = ChatCompletionRequest::new(
+        vec![
+            ChatMessage::system(SYSTEM_PROMPT),
+            ChatMessage::user(prompt.clone()),
+        ],
+        ai.config(),
+    );
+    request.response_format = Some(json!({"type":"json_object"}));
+    let response = ai.chat(&request).context("Transcript Analyse fehlgeschlagen")?;
+    let response_text = extract_ai_text(&response);
+    ensure!(!response_text.trim().is_empty(), "Transcript Analyse lieferte keinen Text.");
+    Ok((prompt, response_text))
 }
 
 pub fn parse_model_claims(response_text: &str) -> Vec<Claim> {
@@ -146,8 +151,9 @@ pub async fn save_claims(
             "verifier": "not_run",
         }))?;
         let provider_metadata_json = serde_json::to_string(&json!({
-            "worker": "rust_transcript_model",
-            "provider": "fireworks"
+            "provider": "fireworks",
+            "input": "stored_transcript",
+            "pipeline": MODEL
         }))?;
         sqlx::query!(
             r#"
@@ -215,11 +221,8 @@ pub async fn query_claims(pool: &PgPool, entity: &str) -> anyhow::Result<Vec<Cla
         FROM brain.youtube_learning_claims c
         JOIN brain.youtube_videos v ON v.video_id=c.video_id
         WHERE lower(c.entity_name)=lower($1)
-          AND (
-            (c.prompt_version=$2 AND COALESCE(c.model, '')=COALESCE($3, ''))
-            OR
-            (c.prompt_version=$4 AND COALESCE(c.model, '')=COALESCE($5, ''))
-          )
+          AND c.prompt_version=$2
+          AND COALESCE(c.model, '')=COALESCE($3, '')
           AND COALESCE(v.metadata->>'needs_claim_revalidation','') <> 'true'
         ORDER BY v.published_at DESC NULLS LAST, c.created_at DESC
         "#,
@@ -227,8 +230,6 @@ pub async fn query_claims(pool: &PgPool, entity: &str) -> anyhow::Result<Vec<Cla
     .bind(entity)
     .bind(PROMPT_VERSION)
     .bind(MODEL)
-    .bind(LEGACY_PROMPT_VERSION)
-    .bind(LEGACY_MODEL)
     .fetch_all(pool)
     .await?;
 
@@ -292,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_realistic_two_turn_json_response() {
+    fn parses_realistic_json_response() {
         let claims = parse_model_claims(
             r#"Hier ist das strukturierte JSON aus der Analyse:
 

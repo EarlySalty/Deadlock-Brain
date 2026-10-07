@@ -1,7 +1,9 @@
 name: Patch understanding evidence
 on:
   push:
-    branches: [codex/patch-understanding-evidence-20260918]
+    branches:
+      - codex/patch-understanding-evidence-20260918
+      - feat/brain-rust-cutover-20260919
   pull_request:
     paths:
       - 'rust/crates/deadlock-brain/src/pg_insights.rs'
@@ -17,6 +19,14 @@ on:
       - 'rust/crates/deadlock-brain-yt/src/queue.rs'
       - 'rust/crates/deadlock-brain-yt/src/transcript_claims.rs'
       - 'rust/crates/dbrain-retrieval/src/lib.rs'
+      - 'rust/crates/deadlock-brain-core/src/config.rs'
+      - 'rust/crates/deadlock-brain-core/src/pg.rs'
+      - 'rust/crates/deadlock-brain-core/src/pg_secrets.rs'
+      - 'rust/crates/deadlock-brain/src/bin/deadlock-brain-mcp.rs'
+      - 'rust/crates/deadlock-brain/src/bin/deadlock-brain-secret-exec.rs'
+      - 'scripts/run_*'
+      - 'service/systemd/**'
+      - 'mcp/**'
       - 'tests/patch-understanding/**'
       - 'tests/yt-contract/**'
       - '.github/workflows/patch-understanding.yml'
@@ -33,10 +43,49 @@ jobs:
       SQLX_OFFLINE: 'true'
     steps:
       - uses: actions/checkout@v4
+      - name: Rust-only Produktionspfade prüfen
+        run: |
+          set -euo pipefail
+          test ! -d src/deadlock_brain
+          test ! -f mcp/server.py
+          test ! -f mcp/test_server.py
+          test ! -f pyproject.toml
+          test -z "$(find . -type f -name '*.py' -print -quit)"
+          if grep -R -n -E 'python3[[:space:]]+-m[[:space:]]+deadlock_brain|PYTHONPATH=.*Deadlock-Brain/src|src/deadlock_brain' scripts service mcp; then
+            echo "Veralteter Python-Produktionspfad gefunden." >&2
+            exit 1
+          fi
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal --component clippy --component rustfmt
-      - name: Format only changed Rust files in the test checkout
-        run: rustfmt --edition 2021 rust/crates/deadlock-brain/src/pg_insights.rs rust/crates/deadlock-brain/src/bin/deadlock-brain-patch-review.rs rust/crates/deadlock-brain-yt/src/transcripts.rs
+      - name: Format Rust im Testcheckout
+        run: >-
+          rustfmt --edition 2021
+          rust/crates/deadlock-brain/src/pg_insights.rs
+          rust/crates/deadlock-brain/src/main.rs
+          rust/crates/deadlock-brain/src/bin/deadlock-brain-patch-review.rs
+          rust/crates/deadlock-brain/src/bin/deadlock-brain-mcp.rs
+          rust/crates/deadlock-brain/src/bin/deadlock-brain-secret-exec.rs
+          rust/crates/deadlock-brain-core/src/config.rs
+          rust/crates/deadlock-brain-core/src/pg.rs
+          rust/crates/deadlock-brain-core/src/pg_secrets.rs
+          rust/crates/dbrain-retrieval/src/lib.rs
+          rust/crates/deadlock-brain-yt/src/main.rs
+          rust/crates/deadlock-brain-yt/src/claims.rs
+          rust/crates/deadlock-brain-yt/src/loop_runner.rs
+          rust/crates/deadlock-brain-yt/src/queue.rs
+          rust/crates/deadlock-brain-yt/src/transcripts.rs
+      - name: Core runtime tests
+        working-directory: rust
+        run: cargo +stable test --locked --package deadlock-brain-core
+      - name: Brain CLI tests
+        working-directory: rust
+        run: cargo +stable test --locked --package deadlock-brain --bin deadlock-brain
+      - name: Rust MCP tests
+        working-directory: rust
+        run: cargo +stable test --locked --package deadlock-brain --bin deadlock-brain-mcp
+      - name: Secret exec build
+        working-directory: rust
+        run: cargo +stable build --locked --package deadlock-brain --bin deadlock-brain-secret-exec
       - name: Caption tests
         working-directory: rust
         run: cargo +stable test --locked --package deadlock-brain-yt --bin deadlock-brain-yt

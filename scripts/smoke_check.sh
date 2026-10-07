@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 
-export PYTHONDONTWRITEBYTECODE=1
 TMP_DIR="${TMPDIR:-/tmp}/deadlock_brain_smoke_${USER:-user}_$$"
 mkdir -p "$TMP_DIR"
-BRAIN_BIN="${DEADLOCK_BRAIN_BIN:-$PWD/rust/target/release/deadlock-brain}"
+BRAIN_BIN="${DEADLOCK_BRAIN_BIN:-$ROOT_DIR/rust/target/release/deadlock-brain}"
 
 if [[ ! -x "$BRAIN_BIN" ]]; then
-  echo "deadlock-brain release binary missing: $BRAIN_BIN" >&2
+  echo "deadlock-brain Release Binary fehlt: $BRAIN_BIN" >&2
+  exit 1
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  echo "jq fehlt für die JSON Smoke Prüfung." >&2
   exit 1
 fi
 
@@ -27,17 +31,8 @@ fi
 "$BRAIN_BIN" player list-matches --limit 5 >"$TMP_DIR/player_matches.json"
 "$BRAIN_BIN" quality >"$TMP_DIR/quality.json"
 
-python3 -m json.tool "$TMP_DIR/context.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/timeline.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/review.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/lineage.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/legacy.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/item_refresher.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/build_mo_krill.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/analysis_save.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/fireworks_dry_run.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/analysis_list.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/player_matches.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/quality.json" >/dev/null
+for file in "$TMP_DIR"/*.json; do
+  jq empty "$file"
+done
 
-echo "Smoke check ok"
+echo "Smoke Check erfolgreich"

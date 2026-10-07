@@ -2,12 +2,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
 LOAD_INFISICAL="${LOAD_INFISICAL:-1}"
 BRAIN_BIN="${DEADLOCK_BRAIN_BIN:-$ROOT_DIR/rust/target/release/deadlock-brain}"
 SECRET_EXEC="${DEADLOCK_BRAIN_SECRET_EXEC_BIN:-$ROOT_DIR/rust/target/release/deadlock-brain-secret-exec}"
 
 export DEADLOCK_BRAIN_ROOT="$ROOT_DIR"
-cd "$ROOT_DIR"
 
 if [[ ! -x "$BRAIN_BIN" ]]; then
   echo "deadlock-brain Release Binary fehlt: $BRAIN_BIN" >&2

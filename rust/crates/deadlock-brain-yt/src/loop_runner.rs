@@ -1,7 +1,7 @@
 use serde::Serialize;
 use sqlx::postgres::PgPool;
 
-use crate::{claims, db, model, queue};
+use crate::{claims, db, queue, transcripts};
 
 #[derive(Debug, Serialize)]
 pub struct IngestSummary {
@@ -24,6 +24,8 @@ pub struct VideoRunSummary {
 pub async fn run_ingest(pool: &PgPool, limit: usize) -> anyhow::Result<IngestSummary> {
     let discover =
         queue::discover_youtube_videos(pool, &db::default_feed_config_path(), 50).await?;
+    let transcript_limit = limit.max(1).saturating_mul(4).max(20);
+    let _ = transcripts::fetch_transcripts(pool, transcript_limit).await?;
     run_ingest_after_discover(pool, limit, discover).await
 }
 
@@ -42,8 +44,16 @@ pub async fn run_ingest_after_discover(
     };
 
     for video in videos {
-        match model::analyze_video(pool, &video).await {
-            Ok((response_text, parsed_claims, prompt)) => {
+        let url = video.url.clone();
+        let transcript = video.transcript_text.clone();
+        let analysis = tokio::task::spawn_blocking(move || {
+            claims::analyze_transcript(&url, &transcript)
+        })
+        .await;
+
+        match analysis {
+            Ok(Ok((prompt, response_text))) => {
+                let parsed_claims = claims::parse_model_claims(&response_text);
                 let saved =
                     claims::save_claims(pool, &video, &parsed_claims, &prompt, &response_text)
                         .await?;
@@ -63,33 +73,23 @@ pub async fn run_ingest_after_discover(
                     error_kind: None,
                 });
             }
-            Err(error) if error.kind.pauses_run() => {
-                anyhow::bail!("YouTube claim ingest paused on {}: {}", video.video_id, error);
-            }
-            Err(error)
-                if matches!(
-                    error.kind,
-                    model::AnalysisErrorKind::MissingTranscript
-                        | model::AnalysisErrorKind::TranscriptTooLarge
-                ) =>
-            {
-                let status = error.kind.status();
-                queue::mark_success(pool, &video.video_id, status).await?;
+            Ok(Err(error)) => {
+                queue::mark_failed(pool, &video.video_id, "analysis", &error.to_string()).await?;
                 summary.processed += 1;
                 summary.videos.push(VideoRunSummary {
                     video_id: video.video_id,
                     title: video.title,
-                    status: status.to_string(),
+                    status: "failed".to_string(),
                     claims_saved: 0,
-                    error_kind: Some(error.kind.to_string()),
+                    error_kind: Some("analysis".to_string()),
                 });
             }
-            Err(error) => {
+            Err(_) => {
                 queue::mark_failed(
                     pool,
                     &video.video_id,
-                    &error.kind.to_string(),
-                    &error.message,
+                    "worker_join",
+                    "Transcript Analyse Worker wurde abgebrochen.",
                 )
                 .await?;
                 summary.processed += 1;
@@ -98,7 +98,7 @@ pub async fn run_ingest_after_discover(
                     title: video.title,
                     status: "failed".to_string(),
                     claims_saved: 0,
-                    error_kind: Some(error.kind.to_string()),
+                    error_kind: Some("worker_join".to_string()),
                 });
             }
         }
