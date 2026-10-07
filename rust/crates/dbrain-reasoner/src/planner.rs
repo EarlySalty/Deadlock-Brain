@@ -1008,7 +1008,7 @@ mod tests {
                 delta: -1,
             },
         ];
-        let mut items = vec![item(1, 100.0, 1.0), item(2, 20.0, 1.0)];
+        let mut items = vec![item(1, 100.0, 1.0), item(2, 100.0, 1.0)];
         items[0].item.cost = 100;
         items[0].item.imbueable = true;
         items[1].item.cost = 1000;
@@ -1032,6 +1032,35 @@ mod tests {
         )
         .unwrap();
         let cfg = ReasonerConfig::default();
+        let (later_fixture, _) = at_souls(&hero, &order, 1600, &cfg);
+        let binding = BTreeMap::from([(1, 10)]);
+        let before = evaluate_inventory_with_bindings(
+            &later_fixture,
+            &[items[0].item.clone()],
+            &cfg,
+            &binding,
+        );
+        let after = evaluate_inventory_with_bindings(
+            &later_fixture,
+            &[items[0].item.clone(), items[1].item.clone()],
+            &cfg,
+            &binding,
+        );
+        let mut old_second = items[1].item.clone();
+        old_second
+            .properties
+            .insert("BaseAttackDamagePercent".into(), 20.0);
+        let old_after = evaluate_inventory_with_bindings(
+            &later_fixture,
+            &[items[0].item.clone(), old_second],
+            &cfg,
+            &binding,
+        );
+        eprintln!(
+            "Bindungsfixture: vorher={}, alte zweite Anschaffung={}, neue zweite Anschaffung={}",
+            before.score, old_after.score, after.score
+        );
+        assert!(after.score > before.score);
         let plan = plan_with_economy(
             &hero,
             &items,
