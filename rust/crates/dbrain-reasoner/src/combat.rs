@@ -1236,9 +1236,11 @@ fn simulate(
                 if reload > 0.0 {
                     magazine_buffs.fill(false);
                     ammo = (ammo + last_clip * reload / 100.0).min(last_clip);
-                    reload_until = time;
-                    reload_pending = false;
-                    next_shot_at = next_shot_at.min(time);
+                    if ammo >= 1.0 {
+                        reload_until = time;
+                        reload_pending = false;
+                        next_shot_at = next_shot_at.min(time);
+                    }
                 }
                 out.item_activations
                     .entry(item.item_id)
@@ -1596,9 +1598,11 @@ fn simulate(
                     {
                         magazine_buffs.fill(false);
                         ammo = (ammo + clip * reload / 100.0).min(clip);
-                        reload_until = time;
-                        reload_pending = false;
-                        next_shot_at = next_shot_at.min(time);
+                        if ammo >= 1.0 {
+                            reload_until = time;
+                            reload_pending = false;
+                            next_shot_at = next_shot_at.min(time);
+                        }
                         activated[item_idx] = true;
                         buff_targets[item_idx] = target_generation;
                         buff_until[item_idx] =
@@ -3393,6 +3397,51 @@ pub(crate) mod tests {
         assert_eq!(activation.len(), 1);
         assert!(activation[0] >= 0.8);
         assert!(result.scenarios[0].shots > 5.0);
+    }
+    #[test]
+    fn partial_refills_preserve_reload_until_a_whole_round_is_available() {
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 3.0,
+            ..ReasonerConfig::default()
+        };
+        for is_active in [true, false] {
+            for property in ["AmmoReloadPercent", "ActiveReloadPercent"] {
+                for (percent, expected_shots) in [(25.0, 4.0), (50.0, 5.0), (100.0, 6.0)] {
+                    let mut hero = hero();
+                    hero.weapon.clip_size = 2.0;
+                    hero.weapon.shots_per_second = 10.0;
+                    hero.abilities = vec![ability(11, 2.0, 100.0), ability(10, 1.0, 100.0)];
+                    let mut reload = item(7, property, percent);
+                    reload.is_active = is_active;
+                    reload.imbueable = !is_active;
+                    reload.properties.insert("AbilityCooldown".into(), 30.0);
+                    let bindings = BTreeMap::from([(7, 10)]);
+                    let mut full = evaluate_inventory_with_bindings(
+                        &hero,
+                        std::slice::from_ref(&reload),
+                        &cfg,
+                        &bindings,
+                    );
+                    let fast = evaluate_inventory_refs_fast_with_bindings(
+                        &hero,
+                        &[&reload],
+                        &cfg,
+                        &bindings,
+                    );
+                    for scenario in &mut full.scenarios {
+                        assert_eq!(scenario.item_activations[&7], vec![0.2]);
+                        assert_eq!(
+                            scenario.shots, expected_shots,
+                            "{is_active} {property} {percent} {}",
+                            scenario.name
+                        );
+                        scenario.sequence.clear();
+                    }
+                    assert_eq!(full.scenarios, fast.scenarios);
+                    assert_eq!(full.score, fast.score);
+                }
+            }
+        }
     }
     #[test]
     fn low_health_buff_uses_property_threshold_without_description() {
