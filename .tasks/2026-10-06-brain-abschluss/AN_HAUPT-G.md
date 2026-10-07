@@ -2,6 +2,42 @@
 
 status: aktiv, 07.10.2026
 
+## 07.10.2026, 07:13: Entscheidungen 06:45 übernommen, G0 gesichert
+
+Die fünf Nutzerentscheidungen sind in `G/PLAN.md` einschließlich Rechenverträgen, Werkzeugen, Abnahme und Baufolge übernommen. `docs/brain-qa-roadmap.md` enthält das spätere Grafik-/Webseitenziel mit niedriger Priorität; kein Grafikbau. Wachstum wird von G und F gemeinsam gerechnet. Hidden Mechanics werden als Profilabschnitt und `game_rules` geplant. DNS-/`#REF!`-Rekonstruktion ist verbindliche weitere Abnahme. Meta-Ränge kommen aus API-Aggregaten mit Rang-/Zeitfilter, ohne Einzelmatchablage.
+
+G0-Sieben-Tool-Vertrag lokal verifiziert und als `b4f4b866` auf dem Featurebranch gesichert. Bereichsführung prüfte Rohlogs/Exits und identische Quellfingerprints: 55 passed, 0 failed, 0 ignored; Compiler, Format, striktes Clippy und Verbraucherkompilierung bestanden. Regulärer Gate gegen `f129c91a`, Exit 0: `[gpt-6.1-sol] ALLOW: No merge-blocking defect found in the supplied diff and revision-specific snapshots.` Vertrag `G/G0-VERTRAG.md`, Rohbelege `G/pruefungen/g0-r1/`, Gatelog `/tmp/brain-g0-gate-20261007.log`. Kein E/F-, Luna- oder Livebeweis daraus abgeleitet.
+
+`game_rules`, Boonkurvenparameter und Analytics-Filter sind eine begrenzte neue Vertragsfortsetzung, nicht durch dieses ALLOW geprüft. Sie ist im disjunkten Brain-Vertragsbereich gestartet: Task `w5dr3fr2i`, Run `wf_1cdc6a56-2a1`, Briefing `G/BRIEFING-G0-0645.md`. Die gezielte Rekonstruktion der acht Sheetstellen läuft dokumentseitig getrennt: Task `w3rx1jcpj`, Run `wf_c7702e0e-8d1`, Briefing `G/BRIEFING-G-S.md`, noch kein Produktbeweis. G-M wurde nach Sessionabbruch im vorhandenen Workflow/WIP wiederaufgenommen, Task `wthzcnb2d`, Run `wf_08b3462e-169`; noch kein Abschlussbericht. Kein doppelter Reasoner-Schreiber. G-P/G-K noch ungestartet.
+
+**Schnittstellenbedarf vor Änderung:** `dbrain-sources/src/analytics_runtime.rs` wurde nach Graphify-Vorabfrage nachgelesen. Der bestehende Client liefert Helden-Meta und itemgefilterte Heldenpopulation; noch kein `item-stats`, Rangfilter oder vollständiger Meta-Rangvergleich. G benötigt die begrenzte Erweiterung dieses vorhandenen Moduls samt direkt betroffenem Schema-/Testvertrag nach zeitlich exklusiver Eigentumsklärung mit E. Kein neuer Analytics-Client oder Importer. Die bestehende Herkunft markiert Patchmitgliedschaft als `Unverified`; diese Grenze wird nicht durch ein frei gesetztes Patchlabel beseitigt. Details in `G/PLAN.md`, C6. E-Receipt und globale Mechanikdaten sowie Fs reiner Eingang bleiben offen; F soll dieselbe Wachstumsprojektion verwenden.
+
+Gebaut: G0 lokal. Reviewt: G0 ALLOW. Gemergt: nein. Live: nein. Hold und Integration E, F, G unverändert.
+
+TESTNACHWEIS[TW-1]: 55 passed, 0 ignored | Baseline: 0 rot
+
+MERGEPROTOKOLL[MS-1]: 3 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW für b4f4b866; kein Main-Merge
+
+## 07.10.2026, 06:15: Dokumentgate ALLOW nach technischem Retry
+
+Commit `f129c91a` gegen `96e6a8da` regulär geprüft. Erster Aufruf Exit 2 ohne Modellurteil: `bwrap`/`unshare` konnten keinen Namespace anlegen (`Cannot allocate memory`). Genau ein unveränderter Retry bestand mit Exit 0:
+
+`[gpt-6.1-sol] ALLOW: Documentation and reference manifest only; no blocking defect found in the supplied diff.`
+
+Rohlogs: `/tmp/brain-g-docs-gate-20261007.log`, `/tmp/brain-g-docs-gate-retry-20261007.log`. Keine Modellwahl, Hook-, Namespace- oder Berechtigungsänderung. Der Retry betrifft den Dokumentcommit, keine uncommittierte Produktänderung. Main und Runtime unverändert.
+
+MERGEPROTOKOLL[MS-1]: 3 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW für f129c91a; kein Main-Merge
+
+## 07.10.2026: G0-Vertragsfix, Recherchecheckpoint gesichert
+
+Dokumentcheckpoint `f129c91a` ist auf `origin/feat/brain-v2-g-20261007` bestätigt. Sheetmodell, drei Bestandsberichte, vollständige Baselinegrenzen, Plan und die ersten Bauaufträge sind damit gesichert. Keine Produktänderung committed oder gepusht.
+
+G0 meldete konkurrierende Vertragsformen und Compilerfehler: fmt Exit 1, Clippy/Test Exit 101, kein ausgeführter Test. Die native Ergänzungsnachricht startete eine zusätzliche Fortsetzung, deren Schreibweg gegenüber dem ursprünglichen Workflow nicht serialisiert war. Bereichsführung hat diese Fortsetzung mit bestätigtem TaskStop beendet; ursprünglicher G0-Workflow ebenfalls abgeschlossen. Kein fremder Session-Schreiber belegt und keine Änderungen zurückgesetzt.
+
+Frischer G0-R1-Worker führt die vorhandenen drei Vertragsdateien jetzt exklusiv zusammen: Task `w1ozge7jw`, Run `wf_563c24f7-221`, `G/BRIEFING-G0-R1.md`. G-P/G-K bleiben bis zum verifizierten Vertrag ungestartet. G-M läuft in seinem disjunkten Reasonerbereich weiter, Task `win5xzl3o`. Der Konflikt ist ein eigener Baufehler, nicht durch die 38 Baselinefehler erklärt.
+
+E-Receipt, globale Mechanikdaten und Fs reiner Buildvertrag bleiben gemeldete Integrationsabhängigkeiten. Release-Hold, keine Runtimewirkung und Reihenfolge E, F, G unverändert.
+
 ## 07.10.2026, 06:00: Bau gestartet, Liefergrenzen vor Änderung gemeldet
 
 G0 baut den gemeinsamen Werkzeugturn-/Toolport-Vertrag in `brain-contracts/src/{lib.rs,provider_input.rs,tools.rs}`. Native Workflowkennung `wgid0g5cj`, Run `wf_45c9b56b-428`. Produktarbeit bleibt im eigenen Worktree; keine weitere T3-Session.

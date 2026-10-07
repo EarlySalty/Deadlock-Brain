@@ -1,5 +1,9 @@
 # G-M: Gemeinsame Modelle und Rechenschicht
 
+## Verbindliche Wiederaufnahme
+
+Der ursprüngliche Workflow `wf_08b3462e-169` wurde beim Ende der vorigen Session gestoppt, ohne Abschlussmeldung. Der vorhandene uncommittierte Stand in Typen, Konvertern, Mechanik, Fortschritt und Simulator wird fortgesetzt, nicht erneut gebaut oder zurückgesetzt. Gepushter HEAD ist `f129c91a`; die früher im Briefing genannte Basis bleibt die Produktbasis. Vor Änderung die eigenen bisherigen Artefakte, Logs und den tatsächlichen Diff prüfen, dann fehlende Arbeit und Verifikation abschließen. Sheet und Bestand nicht neu recherchieren. Der Vertragsfix wird getrennt wiederaufgenommen; keine Brain-Vertragsdatei bearbeiten. Release-Hold erneut bestätigt: keine Main-/Runtime-/Cleanupaktion.
+
 ## 1. Ziel und Vertrag
 
 Baue die strukturierte deterministische Zahlenansicht im vorhandenen `dbrain-reasoner`, keine zweite Parser- oder Simulationsstrecke. Verbindlich: `G/PLAN.md` C2, Abschnitte 4, 5, 6 und Zahlenabnahme; `G/SHEET-MODELL.md`, `G/BESTAND-MECHANIK.md`, `G/API-PROBEN.json`, `G/BASELINE.md`. Alle Pfade liegen unter `/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/`.

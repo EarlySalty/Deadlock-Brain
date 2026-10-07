@@ -1,0 +1,42 @@
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:44:    transport_input_ceiling(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:57:pub fn grounded_turn_payload(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:128:pub fn grounded_turn_input_ceiling(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:135:    transport_input_ceiling(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:136:        &grounded_turn_payload(query, evidence, definitions, conversation, format)?,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:141:pub fn transport_input_ceiling(payload: &Value, chat: bool) -> Result<u64, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:164:            "tool_choice" | "response_format" | "output_config" | "stop" => {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:441:        assert_eq!(transport_input_ceiling(&payload, true).unwrap(), expected);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:443:        assert_eq!(transport_input_ceiling(&payload, true).unwrap(), expected);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:450:            transport_input_ceiling(&json!({"input":["a", "ö"]}), false).unwrap(),
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:453:        assert!(transport_input_ceiling(&json!({"input":[1, 2]}), false).is_err());
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:455:            transport_input_ceiling(&json!({"input":"ö"}), false).unwrap(),
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:510:            let base = grounded_turn_input_ceiling(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:519:                grounded_turn_input_ceiling(&query, &[], &definitions, &conversation, format)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:523:                grounded_turn_payload(&query, &[], &definitions, &conversation, format).unwrap();
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:524:            assert_eq!(full, transport_input_ceiling(&payload, true).unwrap());
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:530:                grounded_turn_input_ceiling(&query, &[], &definitions, &expanded, format).unwrap()
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:536:                grounded_turn_input_ceiling(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:558:                grounded_turn_input_ceiling(&query, &[], &definitions, &repeated, format).unwrap()
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:569:                grounded_turn_payload(&query, &[], &definitions, &conversation, format).unwrap();
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:571:            assert!(transport_input_ceiling(&payload, true).is_err());
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:573:                grounded_turn_payload(&query, &[], &definitions, &conversation, format).unwrap();
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:580:            assert!(transport_input_ceiling(&payload, true).is_err());
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:583:            assert!(transport_input_ceiling(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:589:        assert!(transport_input_ceiling(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:595:            transport_input_ceiling(&json!({"messages":[], "future_input":"hidden"}), true)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:636:                grounded_turn_input_ceiling(&query, &[], &definitions, &conversation, format)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:640:                    grounded_turn_input_ceiling(&query, &[], &definitions, expanded, format)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:648:                grounded_turn_input_ceiling(&query, &[], &described, &conversation, format)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:658:        let base = transport_input_ceiling(&payload, true).unwrap();
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:659:        for field in ["output_config", "response_format", "tool_choice", "stop"] {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:662:            let count = transport_input_ceiling(&expanded, true).unwrap();
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:666:                transport_input_ceiling(&expanded, true).unwrap(),
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:677:                grounded_turn_payload(&query, &[], &definitions, &conversation, format).unwrap();
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:685:            assert!(transport_input_ceiling(&missing, true).is_err());
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:697:            assert!(transport_input_ceiling(&duplicate_result, true).is_err());
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:709:            assert!(transport_input_ceiling(&duplicate_call, true).is_err());
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:728:                assert!(transport_input_ceiling(&invalid, true).is_err());
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:741:            transport_input_ceiling(&json!({"messages":grounded_messages(&query, &[])}), true)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs:746:                grounded_turn_input_ceiling(&query, &[], &[], &ToolConversation::default(), format)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/src/lib.rs:398:            assert_eq!(payload["output_config"]["effort"], "low");
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/src/lib.rs:406:            assert_eq!(payload["tool_choice"], serde_json::json!({"type":"none"}));

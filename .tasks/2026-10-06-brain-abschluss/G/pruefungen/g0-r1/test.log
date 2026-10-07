@@ -1,0 +1,74 @@
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.24s
+     Running unittests src/lib.rs (/tmp/brain-g0-r1-target/debug/deps/brain_contracts-39ce448ade42a53d)
+
+running 32 tests
+test deadline::tests::clones_keep_expiry_and_observe_cancellation ... ok
+test deadline::tests::zero_or_overflowing_lifetimes_fail_closed ... ok
+test embedding::tests::equal_dimension_different_model_is_incompatible ... ok
+test embedding::tests::rejects_missing_nonfinite_zero_and_unnormalized_vectors ... ok
+test feeds::tests::build_status_binds_request_identity_and_hash ... ok
+test feeds::tests::feed_rejects_hash_mismatch_duplicates_unknown_fields_and_versions ... ok
+test lexical::tests::cross_source_join_requires_matching_id_and_canonical_name ... ok
+test maintenance::tests::terminal_states_do_not_restart_and_review_is_ordered ... ok
+test provider_input::tests::checked_arithmetic_and_legacy_grounding_share_the_same_counter ... ok
+test provider_input::tests::counts_both_wire_formats_and_every_repeated_turn ... ok
+test provider_input::tests::counts_decoded_text_not_http_escaping_or_model_name ... ok
+test provider_input::tests::embedding_array_counts_each_input_and_rejects_non_text ... ok
+test provider_input::tests::rohe_werkzeughistorie_prueft_schema_ids_und_vollstaendige_ergebnisse ... ok
+test provider_input::tests::strukturierte_ausgabe_und_werkzeugwahl_bleiben_nicht_ungezaehlt ... ok
+test provider_input::tests::unknown_blocks_fields_and_bad_result_bindings_fail_closed ... ok
+test provider_input::tests::zaehlt_aufruf_ids_argumente_beleg_ids_und_assistententext ... ok
+test read_manifest::tests::manifest_checks_all_pins_even_when_access_is_denied ... ok
+test read_manifest::tests::manifest_rejects_missing_duplicate_old_and_unpinned_heads ... ok
+test read_manifest::tests::versioned_provider_origin_requires_a_current_grant ... ok
+test tests::anfragebezogene_quellen_duerfen_nicht_persistiert_werden ... ok
+test tests::contract_roundtrip_keeps_release_and_scopes ... ok
+test tests::evidence_rejects_non_finite_score ... ok
+test tests::query_rejects_empty_identity_fields ... ok
+test tests::textport_default_bleibt_kompatibel_und_verweigert_werkzeuganfragen ... ok
+test tools::tests::ergebniszuordnung_und_wiederholte_ids ... ok
+test tools::tests::geschlossene_namen_und_bloecke ... ok
+test tools::tests::schemapruefung_und_serverbindungen ... ok
+test tools::tests::sieben_typisierte_unteranfragen_aus_validierten_aufrufen ... ok
+test tools::tests::typisierte_argumente_verwerfen_unbekannte_felder_und_ungueltige_szenarien ... ok
+test tools::tests::unimplementierte_abhaengigkeitspruefung_schliesst_sicher ... ok
+test tools::tests::werkzeugausfuehrung_bindet_ergebnis_und_alle_belege_an_die_unteranfrage ... ok
+test tools::tests::werkzeugturn_ist_keine_finale_antwort ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/ir_contracts.rs (/tmp/brain-g0-r1-target/debug/deps/ir_contracts-c59377f6a6471e79)
+
+running 23 tests
+test envelope_versions_missing_null_future_and_extra_fields_fail_closed ... ok
+test explicit_legacy_tick_migration_never_invents_a_time ... ok
+test external_null_missing_zero_unknown_fields_and_pointers_are_distinct ... ok
+test external_origins_share_the_common_artifact_contract_without_revision_conflation ... ok
+test external_quarantine_survives_serialization_and_blocks_field_access ... ok
+test invalid_original_wiki_revision_and_http_hash_are_rejected ... ok
+test known_raw_null_is_not_lost_to_option_deserialization ... ok
+test legacy_invalid_ticks_or_injected_v2_fields_are_rejected ... ok
+test missing_condition_is_not_an_unconditional_fact ... ok
+test origin_version_and_policy_roundtrip ... ok
+test parser_and_source_revision_are_separate_from_schema_and_game_patch ... ok
+test replay_detached_provenance_preserves_private_scope_raw_locator_and_unknown_timestamp ... ok
+test replay_entity_mapping_is_explicit_not_network_index_as_hero_id ... ok
+test replay_time_requires_explicit_unknown_not_missing_or_null_default ... ok
+test replay_unknown_entity_time_and_fields_roundtrip ... ok
+test replay_versions_reject_legacy_and_future_without_explicit_migration ... ok
+test stable_public_contract_is_not_replaced_by_ir_version ... ok
+test storage_bridge_rejects_acl_expansion_revision_hash_and_identity_drift ... ok
+test store_roundtrip_preserves_exact_origin_acl_and_unknowns ... ok
+test unknown_is_not_zero_and_null_is_not_an_observation ... ok
+test unsupported_origin_versions_fail_closed_at_batch_and_egress_boundaries ... ok
+test wiki_conditions_variants_aliases_units_dependencies_and_locators_roundtrip ... ok
+test wiki_null_never_deserializes_as_quantity_zero ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests brain_contracts
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

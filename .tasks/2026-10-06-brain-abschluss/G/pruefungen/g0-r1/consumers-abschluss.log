@@ -1,0 +1,18 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Checking brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-ingestion)
+    Checking axum-core v0.5.6
+    Checking serde_path_to_error v0.1.20
+    Checking matchit v0.8.4
+    Checking axum v0.8.9
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+    Checking brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers)
+    Checking uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/vendor/uplink-infisical-transport)
+    Checking brain-api v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-api)
+    Checking dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+    Checking brain-client v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-client)
+    Checking wait-timeout v0.2.1
+    Checking dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+    Checking brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-feeds)
+    Checking brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve)
+    Checking brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.25s
