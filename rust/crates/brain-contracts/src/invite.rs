@@ -92,7 +92,8 @@ pub fn requested(query: &Query) -> bool {
     ]
     .iter()
     .any(|term| text.contains(term))
-        || text.starts_with("was i invited");
+        || text.starts_with("was i invited")
+        || text.starts_with("how long has my invite been pending");
     let action = text.split(|c: char| !c.is_alphanumeric()).any(|word| {
         matches!(
             word,
@@ -150,6 +151,8 @@ pub fn requested(query: &Query) -> bool {
             "wann bekomm ich deadlock",
             "habe ich zugang zu deadlock",
             "hab ich zugang zu deadlock",
+            "habe ich schon zugang zu deadlock",
+            "hab ich schon zugang zu deadlock",
         ]
         .contains(&text)
 }
@@ -318,6 +321,10 @@ mod tests {
             "Ist der Einladungs-Bot schon online?",
             "Ist der Einladungs Bot schon online?",
             "Habe ich schon Zugang zu Deadlock-Wiki?",
+            "How long has the Invite-Bot been online?",
+            "How long is an invite valid?",
+            "What does 'how long has my invite been pending' mean?",
+            "Habe ich schon Zugang zu Deadlock-Server?",
         ] {
             let ordinary = query(text);
             assert!(!requested(&ordinary), "{text}");
@@ -338,6 +345,9 @@ mod tests {
             "Wann bekomme ich Deadlock?",
             "Wann bekomm ich Deadlock?",
             "Habe ich Zugang zu Deadlock?",
+            "Habe ich schon Zugang zu Deadlock?",
+            "Hab ich schon Zugang zu Deadlock?",
+            "How long has my invite been pending?",
             "Ich warte auf eine Einladung.",
             "Hat Fremdname die Einladung erhalten, Steamcode 123456?",
             "Did Fremdname get an invite?",

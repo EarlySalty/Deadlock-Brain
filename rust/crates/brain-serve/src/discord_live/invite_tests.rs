@@ -206,10 +206,23 @@ fn alle_statuswerte_durchlaufen_den_kernel_und_beide_echten_providertransporte()
         );
         for (index, status) in statuses.into_iter().enumerate() {
             let mut request = query();
-            if index % 2 == 0 {
-                request.text =
-                    "Bin ich eingeladen? Chatkontext Fremdname und Steamcode 123456, Geheimtext"
-                        .into();
+            match index % 4 {
+                0 => {
+                    request.text =
+                        "Bin ich eingeladen? Chatkontext Fremdname und Steamcode 123456, Geheimtext"
+                            .into();
+                }
+                1 => {
+                    request.text =
+                        "How long has my invite been pending? Fremdname, Steamcode 123456, Geheimtext"
+                            .into();
+                }
+                2 => {
+                    request.text =
+                        "Habe ich schon Zugang zu Deadlock? Fremdname, Steamcode 123456, Geheimtext"
+                            .into();
+                }
+                _ => {}
             }
             let response = kernel.answer_for_publication(&request, &context());
             assert_eq!(response.status, AnswerStatus::Answered);
@@ -250,6 +263,10 @@ fn normale_fragen_behalten_den_inneren_retriever_ohne_statusabruf() {
         "Erkläre mir, wie ich eine Einladung verschicken kann.",
         "Sind Einladungen noch verfügbar?",
         "Hat der Invite-Bot noch offene Aufgaben?",
+        "How long has the Invite-Bot been online?",
+        "How long is an invite valid?",
+        "What does 'how long has my invite been pending' mean?",
+        "Habe ich schon Zugang zu Deadlock-Wiki?",
     ];
     for text in texts {
         let mut request = query();

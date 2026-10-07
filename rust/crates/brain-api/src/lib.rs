@@ -466,6 +466,14 @@ mod tests {
         raw.text = "Bin ich eingeladen? Chatkontext Fremdname, Steamcode 123456, Geheimtext".into();
         client.answer_for_discord(&raw, 42).await.unwrap();
         client.answer(&raw).await.unwrap();
+        raw.text =
+            "How long has my invite been pending? Fremdname, Steamcode 123456, Geheimtext".into();
+        client.answer_for_discord(&raw, 42).await.unwrap();
+        client.answer(&raw).await.unwrap();
+        raw.text =
+            "Habe ich schon Zugang zu Deadlock? Fremdname, Steamcode 123456, Geheimtext".into();
+        client.answer_for_discord(&raw, 42).await.unwrap();
+        client.answer(&raw).await.unwrap();
         let mut ordinary_queries = Vec::new();
         for text in [
             "Wie kann ich eine Einladung verschicken?",
@@ -473,6 +481,10 @@ mod tests {
             "Welche FPS bekomme ich in Deadlock?",
             "Welche FPS bekomm ich in Deadlock?",
             "Wie funktioniert der Invite-Bot?",
+            "How long has the Invite-Bot been online?",
+            "How long is an invite valid?",
+            "What does 'how long has my invite been pending' mean?",
+            "Habe ich schon Zugang zu Deadlock-Wiki?",
         ] {
             let mut ordinary = raw.clone();
             ordinary.text = text.into();
@@ -492,8 +504,8 @@ mod tests {
             .unwrap();
         assert_eq!(invalid.status().as_u16(), 400);
         let recorded = calls.lock().unwrap();
-        assert_eq!(recorded.len(), 4 + ordinary_queries.len());
-        for (query, context) in recorded.iter().take(4) {
+        assert_eq!(recorded.len(), 8 + ordinary_queries.len());
+        for (query, context) in recorded.iter().take(8) {
             assert_eq!(query.text, brain_contracts::invite::QUESTION);
             assert_eq!(query.profile, AnswerProfile::Explain);
             assert!(query.patch.is_none() && query.mode.is_none() && query.domain.is_none());
@@ -508,7 +520,11 @@ mod tests {
         assert_eq!(recorded[1].1.discord.as_ref().unwrap().user_id, None);
         assert_eq!(recorded[2].1.discord.as_ref().unwrap().user_id, Some(42));
         assert_eq!(recorded[3].1.discord.as_ref().unwrap().user_id, None);
-        for ((query, context), original) in recorded.iter().skip(4).zip(&ordinary_queries) {
+        assert_eq!(recorded[4].1.discord.as_ref().unwrap().user_id, Some(42));
+        assert_eq!(recorded[5].1.discord.as_ref().unwrap().user_id, None);
+        assert_eq!(recorded[6].1.discord.as_ref().unwrap().user_id, Some(42));
+        assert_eq!(recorded[7].1.discord.as_ref().unwrap().user_id, None);
+        for ((query, context), original) in recorded.iter().skip(8).zip(&ordinary_queries) {
             assert_eq!(query, original);
             assert_eq!(context.discord.as_ref().unwrap().user_id, Some(42));
         }
