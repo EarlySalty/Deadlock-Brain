@@ -2,6 +2,8 @@
 
 ## Aktuelle qualifizierte Fachrückgabe
 
+Zusätzlicher tatsächlicher Abschlussblocker: Der Stop-Hook fordert Lieferung und Löschung aller drei genannten Branches. Zwei enthalten jedoch die ausdrücklich zu erhaltende blockierte Discovery; der separate Spiegel bleibt an der unveränderten Testnachweisschranke blockiert. Keine neue Freigabe daraus abgeleitet und keinen fremden Main-Checkout übernommen. Details in ABSCHLUSS-HOOK-BLOCKER.md. Aktenstand f45c5faa zuvor tatsächlich gepusht, Arbeitsbaum danach sauber.
+
 Spiegel b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2 gemeinsam mit aktuellem Main geprüft und auf origin/feat/brain-assets-mirror-20261007 gesichert. 605 passed, 24 ignored; Format und striktes Clippy Exit 0. Expliziter eigenständiger Spiegel-Gate claude-opus-5-5 ALLOW, Original /tmp/brain-i-mirror-b7289d11-gate-opus55.log. Discovery mit tatsächlich neuen inhaltlichen Funden unverändert auf origin/feat/brain-patch-discovery bei af473608 erhalten. Kein zweiter Discovery-Fixer.
 
 **Tatsächlicher Abschlussblocker:** Beide regulären Main-Pushes am Spiegel wurden vor Ausführung vom Test-Gate verweigert: grüner Testlauf im Transcript beziehungsweise Workerlog nicht gefunden. Nach dem ersten Deny zusätzlich die bestehenden sechs Receipt-/Core6-Scratchproben direkt sichtbar ohne Ausgabeumleitung über cargo-slot ausgeführt: Exit 0, 6 passed, 0 ignored. Danach derselbe Deny. Kein Hookbypass, Fremdlog, Direkt-Cargo oder eigener Prüfwrapper. Ursache der Nachweiserkennung nicht sicher festgestellt; regulärer Diagnosezugriff auf gate_hook.py über ctx_execute_file wurde außerhalb des E-MCP-Roots tatsächlich verweigert. Kein alternativer Zugriff oder Schutzänderung. Vollständige Rückgabe BLOCKER-SPIEGEL-TESTGATE.md.
