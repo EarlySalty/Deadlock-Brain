@@ -1,6 +1,6 @@
 # Q: echte Evaluation und Live-Abnahme
 
-Stand der letzten lokalen Integritätsprüfung: 2026-10-07, 12:01:46 UTC. Versuch 1, Produzent `q-eval`. Paket bleibt aktiv und nicht abgenommen.
+Berichtsstand: 2026-10-07, 12:22:22 UTC. Letzte lokale Quellenintegritätsprüfung 12:01:46 UTC, Sicherungsabgleich 12:10:12 UTC. Versuch 1, Produzent `q-eval`. Sicherer Collector-/Methodikstand integriert; Paket Q bleibt aktiv und nicht abgenommen.
 
 ## Urteil
 
@@ -95,9 +95,9 @@ Die acht Consumer-Tests benutzen echte isolierte Loopback-HTTP-Fixtures für Aut
 
 TESTNACHWEIS[TW-1]: 13 passed, 0 ignored | Baseline: nicht gemessen, keine Altfehler als rot behauptet
 
-TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 3 belegt | Senke: Q/BERICHT.md
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 2 belegt | Senke: Q/BERICHT.md
 
-Die Textprüfung bezieht sich auf den Lesertext dieses Berichts, nicht auf technische IDs oder Pfade. Der vorhandene Gedankenstrichprüfer bestätigte auch Originalfakten, Patchstichproben und README. Die drei Absolutwörter betreffen den eigenen Datei-Scope, die fehlende vollständige Kategorienabnahme und die ausdrücklich begrenzte frühere Refprobe.
+Die Textprüfung bezieht sich auf den Lesertext dieses Berichts, nicht auf technische IDs oder Pfade. Der vorhandene Gedankenstrichprüfer bestätigte auch Originalfakten, Patchstichproben und README. Die zwei Absolutwörter betreffen die fehlende vollständige Kategorienabnahme und die ausdrücklich begrenzte frühere Refprobe. Der eigene Datei-Scope wurde zusätzlich anhand der zehn geänderten Q-Dateien geprüft.
 
 ## Live-Infrastruktur: erneute Beobachtung 11:41:49 UTC
 
@@ -161,7 +161,21 @@ Der finale Code-/Methodikstand `bf54e659814008c8db941e6ff6be9016314347d3` wurde 
 
 Ein R10-Hinweis verlangte das erneute Lesen der Merge-Rolle; danach bestand die Ancestryprüfung mit Exit 0. Der erste Main-Push wurde vor Ausführung durch den Hook verweigert: nicht prüfbare indirekte Git-Ausführung. Die lesende Ursachenprüfung fand in `gate_hook.py:887` die Suche nach dem Wort `eval` im gesamten Befehl. Dieses Wort steht auch im absoluten Worktreepfad `brain-q-eval-20261007`, obwohl kein Shell-eval ausgeführt wird. HEAD blieb unverändert. Die Befehlskorrektur ist der gewöhnliche einzelne `git push origin HEAD:main` im zuvor verifizierten eigenen Session-Arbeitsverzeichnis. Der bestehende Hook bleibt unverändert und prüft dabei weiterhin den tatsächlichen Worktree, dessen Sauberkeit und Ancestry. Die neue echte Sicherungsnachweisdatei war zudem noch untracked und wird regulär aufgenommen, ohne private Inhalte zu committen.
 
-Kein erfolgreicher Push, Merge, Deploy, Restart, Cleanup oder settle bis zu diesem Berichtsstand. Produktdeploys bleiben bei I/G/K. Nur eigene Q-Dateien bearbeitet; zentrale Akten, Produktdateien, DB-Inhalte und fremde Worktrees unverändert. Der aktive Worktree samt privaten Originalen bleibt erhalten.
+Collector-/Methodikstand `cba244a30f7f947936d05b99517e86b660b1e57c` wurde anschließend vollständig durch denselben Gate geprüft: Exit 0, `[gpt-6.1-sol] ALLOW: No merge-blocking defect found in the supplied diff.` Verbleibender NIT: fünf Tests decken keine Dateisystem-Recovery-/Modiverweigerungsregressionen ab. Kein BLOCK.
+
+Der zweite Pushversuch wurde vom Test-Gate verweigert, obwohl frühere tatsächliche Testläufe erfolgreich waren. Danach wurde die Test-Rolle erneut gelesen und derselbe unveränderte Collector mit erkennbarer Befehlsform nochmals real getestet:
+
+```sh
+RUSTUP_TOOLCHAIN=1.97.1 /home/nathanael/.cargo/bin/cargo test --locked --offline --jobs 3 --manifest-path /home/nathanael/.worktrees/brain-q-eval-20261007/.tasks/2026-10-07-brain-fertigstellung-astra/Q/collector/Cargo.toml -- --include-ignored
+```
+
+5 passed, 0 failed, 0 ignored, 0 filtered, Exit 0. Kein Skip-Flag, keine Übersteuerung, keine Konfigurationsänderung. Beim dritten Pushversuch ließ der Hook den echten Push durch. Remote-Ergebnis: `f6f5cef6..cba244a3 HEAD -> main`, Exit 0. `git ls-remote origin refs/heads/main` bestätigte anschließend den vollständigen SHA `cba244a30f7f947936d05b99517e86b660b1e57c`. Der verifizierte Integrationsstand wurde um 12:22:22 UTC protokolliert.
+
+MERGEPROTOKOLL[MS-1]: 18 Git-Schritte einzeln | Anläufe: 3 | Gate: [gpt-6.1-sol] ALLOW; echter Testlauf erkannt; Main-Push Exit 0
+
+Die Zählung umfasst die ausgeführten einzelnen Bash-Git-Schritte vom frischen Fetch vor der Collectorintegration bis zur Remote-main-Prüfung. Vor Ausführung blockierte Befehle sind Anläufe, keine ausgeführten Git-Schritte. Der kanonische Checkout wurde nicht verändert; der bereits vorbereitete Q-Branch wurde regulär per Fast-forward nach Remote-main gebracht. Die nachträgliche Statusprotokollierung ist von dieser ersten integrierten Revision getrennt.
+
+Kein Produktdeploy, Restart, Cleanup oder settle. Produktdeploys bleiben bei I/G/K. Zehn geänderte Dateien liegen im eigenen Q-Verzeichnis; private Dateien im Gitindex: 0. Zentrale Akten, Produktdateien, DB-Inhalte und fremde Worktrees unverändert. Der aktive Worktree bleibt erhalten.
 
 Der Orchestrator hat im selben Q-Auftrag die unabhängige Integration des sicheren Collector-/Methodikstands nach finalem eigenem Gate beauftragt. Zulässig sind Quellcode und nichtpersonenbezogene Metadaten, keine privaten Originale oder Teilpläne. Keine unnötigen Dienstneustarts, kein Ersatz der offenen Nutzerentscheidung durch einen Modellwechsel. Derselbe Thread bleibt für die echte Nach-Deploy-Evaluation zuständig; kein Self-Settle. Vor einem späteren Cleanup müssen die privaten ignorierten Originale samt Hashbindung und Zugriffsrechten außerhalb des zu löschenden Worktrees nachweislich erhalten sein. Der aktuelle Worktree bleibt aktiv. Zusätzlich wurden die 17 privaten Dateien außerhalb des Worktrees unter `/home/nathanael/.local/share/brain-q-private-20261007-bf54e659` erhalten. Am 12:10:12 UTC stimmten sämtliche relativen Dateipfade und Datei-SHA256 zwischen Quelle und Sicherung überein. Beide Seiten hatten vier Verzeichnisse mit 0700 und 17 Dateien mit 0600, keine Symlinks oder abweichenden Modi. `SICHERUNG.json` enthält den technischen Nachweis und den Inventarhash `30c0a264b782d8d9f6260de5c929597e77f49b1ce56cd520f901d2eab96d0caf`, keine privaten Originale. Es wurde nichts gelöscht oder extern übertragen. Vor späterem Cleanup ist der dann aktuelle private Stand erneut abzugleichen.
 

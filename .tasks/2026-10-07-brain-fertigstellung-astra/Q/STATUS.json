@@ -2,7 +2,7 @@
   "paket": "Q",
   "versuch": 1,
   "produzent": "q-eval",
-  "zeit_utc": "2026-10-07T12:01:46Z",
+  "zeit_utc": "2026-10-07T12:22:22Z",
   "status": "aktiv_remote_abnahme_blockiert",
   "integrationsentscheidung": "Orchestrator beauftragt sicheren Collector-/Methodikstand nach finalem eigenen Gate unabhängig von gesperrter privater Antwortabnahme zu integrieren und zu pushen",
   "cleanup_sperre": "Private ignorierte Originale samt Hashbindung und Zugriffsrechten vor jeder späteren Worktree-Löschung nachweislich außerhalb erhalten; aktueller Worktree aktiv",
@@ -26,10 +26,10 @@
   "werkzeug_quellcode_sha256": "c7628ed475f5a5dfe86639bd2a3140ea3ba56c808be65f30b6922a0d78229735",
   "gebaut": true,
   "reviewt": true,
-  "review_scope": "Collector-/Methodikcommit bf54e659 mit ALLOW geprüft; spätere Sicherungs-/Integrationsmetadaten getrennt",
+  "review_scope": "Collector-/Methodikstand einschließlich Sicherungsnachweis cba244a3 mit ALLOW geprüft; aktueller Nachtrag dokumentiert diese tatsächliche Integration",
   "gate": {
     "base": "f6f5cef65f1f946113f0b8216c6475f6d38ec928",
-    "head": "bf54e659814008c8db941e6ff6be9016314347d3",
+    "head": "cba244a30f7f947936d05b99517e86b660b1e57c",
     "modell": "gpt-6.1-sol",
     "urteil": "ALLOW",
     "exit": 0,
@@ -37,8 +37,22 @@
     "nit": "Fokussierte Dateisystemtests für Integrität, Modiverweigerung und Schreibfehler-Recovery fehlen",
     "nacharbeit": "Finaler Collectorstand mit fünf Tests und separaten Hash-/Modiprüfungen erfolgreich geprüft. Sicherungsmetadaten anschließend ergänzt, keine behauptete Dateisystem-Unit-Testabdeckung."
   },
-  "gemergt": false,
-  "gepusht": false,
+  "gemergt": true,
+  "gemergt_scope": "sicherer Collector-/Methodikstand, nicht P0/P1 oder Gesamt-Q",
+  "gepusht": true,
+  "gesamt_q_abgenommen": false,
+  "methodik_integration": {
+    "sha": "cba244a30f7f947936d05b99517e86b660b1e57c",
+    "ziel": "origin/main",
+    "art": "Fast-forward aus eigenem Q-Worktree",
+    "main_push_exit": 0,
+    "remote_main_sha_bestaetigt": true,
+    "protokolliert_utc": "2026-10-07T12:22:22Z",
+    "push_anlaeufe": 3,
+    "ausgefuehrte_einzelne_bash_git_schritte_im_protokoll": 18,
+    "private_dateien_im_index": 0,
+    "nachtraegliche_statusprotokollierung_separat": true
+  },
   "deployt": false,
   "neugestartet": false,
   "live": false,
@@ -153,7 +167,21 @@
     "db_schreibabfragen": 0
   },
   "tests": {
-    "werkzeug": {"passed": 5, "failed": 0, "ignored": 0, "filtered": 0, "exit": 0},
+    "werkzeug": {
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "exit": 0,
+      "erkannter_erneuter_lauf": {
+        "command": "RUSTUP_TOOLCHAIN=1.97.1 /home/nathanael/.cargo/bin/cargo test --locked --offline --jobs 3 --manifest-path /home/nathanael/.worktrees/brain-q-eval-20261007/.tasks/2026-10-07-brain-fertigstellung-astra/Q/collector/Cargo.toml -- --include-ignored",
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0,
+        "exit": 0
+      }
+    },
     "bestehende_consumer_http": {
       "passed": 8,
       "failed": 0,
