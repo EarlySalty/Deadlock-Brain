@@ -1,0 +1,54 @@
+{
+  "source": "https://docs.google.com/spreadsheets/d/1fj9XMQmVUY0FY4cbozvB18PMBnpbdsaMFTZRLa74VRY",
+  "export_url": "https://docs.google.com/spreadsheets/d/1fj9XMQmVUY0FY4cbozvB18PMBnpbdsaMFTZRLa74VRY/export?format=xlsx",
+  "retrieved_at_utc": "2026-10-07T03:13:15Z",
+  "artifact_directory": "/home/nathanael/repos/Deadlock-Brain/.tasks/2026-10-06-brain-abschluss/G/sheet",
+  "original_export": "community-sheet.xlsx",
+  "bytes": 7312248,
+  "sha256": "992d0e5914036a3f4e4de159f91bae9569bf81aaae9c2222242e95da8253a8c0",
+  "totals": {"tabs":13,"hidden_tabs":0,"xml_cells_including_empty_styled":3259414,"nonempty_or_formula_cells":13034,"formula_cells":5307,"formula_cells_without_v_element":0,"formula_cells_with_empty_cached_text":20,"typed_excel_errors":0,"cached_error_strings":8,"named_ranges":4},
+  "formula_evidence": "Vollständig im unveränderten XLSX: xl/worksheets/sheet1.xml bis sheet13.xml. Shared-Formula-Anker über si und relative Zellverschiebung auflösen; String-Caches über xl/sharedStrings.xml. Kein Rechenlauf am Archiv ausgeführt.",
+  "tab_columns": ["name","xlsx_name","gid","xml_index","xml_cells","nonempty_or_formula_cells","formula_cells","formula_definitions_with_text","empty_formula_caches","references","screenshot"],
+  "tabs": [
+    ["Heroes","Heroes","0",1,46248,1257,715,379,0,["raw_hero_data"],"01-heroes.png"],
+    ["damage calculator","damage calculator","339408087",2,26257,532,259,98,17,["Heroes"],"02-damage-calculator.png"],
+    ["Hero meta ranking","Hero meta ranking","491256401",3,48982,828,78,41,2,[],"03-hero-meta-ranking.png"],
+    ["Damage Comparison","Damage Comparison","339734772",4,26000,450,272,24,0,["Heroes"],"04-damage-comparison.png"],
+    ["Hidden Mechanics","Hidden Mechanics","1534505579",5,27985,340,33,21,0,[],"05-hidden-mechanics.png"],
+    ["Boons/AP","BoonsAP","1183373865",6,25974,151,35,1,0,[],"06-boons-ap.png"],
+    ["shopBonuses","shopBonuses","1334028442",7,29000,235,87,9,0,[],"07-shop-bonuses.png"],
+    ["ttk","ttk","1738306151",8,26000,105,34,34,0,["Heroes"],"08-ttk.png"],
+    ["haze","haze","1741510172",9,26993,4131,3643,153,0,["Heroes"],"09-haze.png"],
+    ["scratchpad","scratchpad","1251102836",10,26000,194,105,55,0,[],"10-scratchpad.png"],
+    ["raw_hero_data","raw_hero_data","1057880283",11,1681848,1827,1,1,0,[],"11-raw-hero-data.png"],
+    ["raw_items_and_abilities","raw_items_and_abilities","1854999973",12,42354,2937,1,1,1,[],"12-raw-items-and-abilities.png"],
+    ["hero query","hero query","265096549",13,1225773,47,44,44,0,["raw_hero_data","raw_items_and_abilities"],"13-hero-query.png"]
+  ],
+  "all_tab_states": "visible",
+  "defined_names": [
+    {"name":"_xlnm._FilterDatabase","hidden":true,"localSheetId":0,"value":"Heroes!$A$5:$AS$50"},
+    {"name":"Z_2FD415A8_8AB2_477E_A63D_1C69109448D8_.wvu.FilterData","hidden":true,"localSheetId":0,"value":"Heroes!$A$5:$Y$33"},
+    {"name":"Z_BBF4F274_B3E9_4860_860B_AB7C398A906A_.wvu.FilterData","hidden":true,"localSheetId":0,"value":"Heroes!$A$5:$Y$27"},
+    {"name":"Z_AD253C04_E77F_43DF_8E7F_C1F494BDB6AF_.wvu.FilterData","hidden":true,"localSheetId":0,"value":"Heroes!$A$5:$Y$27"}
+  ],
+  "structured_tables": [{"name":"Table1","sheet":"Heroes","range":"A5:AS50"},{"name":"Table2","sheet":"Hero meta ranking","range":"A3:T41"}],
+  "errors": [{"tab":"scratchpad","cells":["F62","G62","H62"],"kind":"Formeln und Caches enthalten #REF!"},{"tab":"hero query","cells":["A11","G11","M11","S11","Y11"],"kind":"Gecachte DNS-Fehlerstrings"}],
+  "additional_sources": [
+    {"file":"online-htmlview.html","url":"https://docs.google.com/spreadsheets/d/1fj9XMQmVUY0FY4cbozvB18PMBnpbdsaMFTZRLa74VRY/htmlview","purpose":"Originaler Google-HTML-Container mit vollständiger Tab-/gid-Liste"},
+    {"file":"current-api-heroes.json","url":"https://api.deadlock-api.com/v1/assets/heroes","retrieved_at_utc":"2026-10-07T03:27:54Z","sha256":"172aa578b4624c6c7800b72467336347c0ce0a3303e3319f8a54e221668a5edb","count":65,"client_version":"nicht explizit gebunden"},
+    {"file":"current-api-items.json","url":"https://api.deadlock-api.com/v1/assets/items","retrieved_at_utc":"2026-10-07T03:28:13Z","sha256":"86540843b94601ca753068767f1320649e03634e22c070fe2aead8d6faf85287","count":746,"client_version":"nicht explizit gebunden"}
+  ],
+  "visual_evidence": {
+    "tool":"Vorhandener google-chrome-Wrapper, headless",
+    "viewport":"1920x1080",
+    "original_htmlview_tabs":[1,2,3,4,5,6,7,8,9,10,12],
+    "limited_gviz_tabs":[11,13],
+    "limited_range":"A1:T20",
+    "limited_url_pattern":"https://docs.google.com/spreadsheets/d/1fj9XMQmVUY0FY4cbozvB18PMBnpbdsaMFTZRLa74VRY/gviz/tq?tqx=out:html&gid=<gid>&range=A1:T20",
+    "limits":"GViz-Ansichten sind echte Google-Datenrenderings, erhalten aber nicht die Originalformatierung. Vollständige Originalansichten der Tabs 11 und 13 liefen in Zeitlimits. Kein vollständiger Zeilen-/Spaltenscan behauptet.",
+    "visually_read":["01-heroes.png","contact-02-05.png","contact-06-09.png","contact-10-13.png"],
+    "contact_sheets":"ImageMagick-Verkleinerungen der echten Screenshots, keine synthetischen Tabellenbilder",
+    "preview_mcp":"Kein Automation-Host vorhanden"
+  },
+  "delivery_blocker":"Kein offener Ablageblocker: Hauptsteuerung 05:40 bestätigt Bericht und Manifest in der eigenen Worktree-Akte. Rohexporte und Bilder bleiben im ursprünglich zugewiesenen gemeinsamen artifact_directory. Keine Schutzregel umgangen."
+}
