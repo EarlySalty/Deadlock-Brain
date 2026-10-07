@@ -16,4 +16,14 @@ Explizite Dateiliste, begrenzte Entitäts-HTML-Pfade, maximal 16 MiB je Datei, k
 
 Keine zweite Site bauen. Selektive Übernahme innerhalb K-Eigentum prüfen; nicht ungefragt Kommentarfeatures und fremde Datenmigrationen als Voraussetzung erweitern. G-Ergebnis-/Quellenfreigabe und H-Vertrag fehlen weiterhin für die öffentliche Grafikstrecke. Kein Deploy, keine Änderungen an alten A-Worktrees.
 
+## Übernahme und eigene Verifikation
+
+Nativer Worker a95a021e918f5fd82 hat ausschließlich den bestätigten Site-Gitstand übernommen. K ergänzt dessen Crate-Abhängigkeiten und Lockdatei; nur die Testfixture wurde auf isolierte Postgres-Prüfung angepasst. Keine Migration, Produktionsrolle oder fremde Arbeitskopie geändert.
+
+Build, Format und Site-Clippy mit `--no-deps -- -D warnings` bestanden. Vollständiges Abhängigkeitsclippy: vier Befunde in unverändertem dbrain-enrich, unveränderte separate Baseline ebenfalls vier. Kein grünes Gesamtclippy behauptet.
+
+Eigener K-Nachlauf b4muxk6af: Cargo 1.99, Slot 2, `--locked --jobs 3 -p deadlock-brain --bin deadlock-brain-site -- --include-ignored --nocapture --test-threads=1`, bestehendes Target `/home/nathanael/Documents/Deadlock-Brain/rust/target`. Log `/tmp/k-site-tests-20261007.log`, Exit 0. Drei echte isolierte HTTP-/Postgres-Fälle: elf Korpusdateien bytegleich, drei Entitätspfade, Asset-/Symlinkgrenzen und dauerhafte Kommentare über Neustart mit Rollenrechten. Kein Produktions- oder echter G-Grafikbeweis.
+
+TESTNACHWEIS[TW-1]: 3 passed, 0 ignored | Baseline: 0 rot
+
 BESTAND[BS-1]: teilweise | Fundort: /home/nathanael/.worktrees/brain-a-site-20261006/rust/crates/deadlock-brain/src/bin/deadlock-brain-site.rs:1 | Anknüpfung: vorhandener Rust-Siteport und feste Assetauslieferung
