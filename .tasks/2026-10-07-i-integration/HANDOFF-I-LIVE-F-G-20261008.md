@@ -36,6 +36,14 @@ NACHTRAG-WACHE-034.md nach dieser Handoffanlage regulär gelesen. Delegator best
 
 Jüngste reine eigene Statuswache nach Zustellung: F-Feature ahead 62, main.rs working geändert, pg_patchnotes.rs staged geändert und api_sync.rs staged gelöscht. Dies zeigt aktive Scopebearbeitung, noch keinen abschließenden leeren Discoverydiff oder neuen Test-/Gate-/Publishbeweis. Keine weitere aktive Worker-Datei bearbeiten. Erst tatsächliches Ergebnis dieses Ausführers entgegennehmen.
 
+## Neuer eigener I-Betriebsauftrag aktiv
+
+NACHTRAG-I-LIVE-MAIN-TIMER.md regulär gelesen: direkte eng begrenzte Nutzerfreigabe für bisherigen fremden brain-live-main. Eigene Sauberkeits-/Branch-/Artefaktinventur, frischer fetch und Ancestry Exit 0, dann genau ein ff-only Exit 0. Main 39710e3282c830ee9b47e90945deb71d1db44724 auf cf02c9a06d56aeab72cc1d685cc3256f00ed9b1a. Nachher tracked/untracked sauber, gleiche ignorierte Inventarzahlen. Kein Reset/Stash/Force/Archivimport oder Cleanup. Geladene Unit nutzt weiterhin dauerhafte Runtime mit installiertem b7289d11, nur Timeout-Drop-in; nichts zurückgestellt. Nachweis LIVE-MAIN-TIMER-20261008.md.
+
+Vorhandene lesende Rust-Receiptprobe vor neuem Import tatsächlich Exit 0, 1min 55.807s, ursprüngliche komplette Assets-/Build-Runbindung 743/744 und alle Hashbindungen bestätigt. Log /tmp/brain-i-timer-preflight-20261008.log bereits normal Read geprüft. Unmittelbare Inaktivprüfung, dann genau ein regulärer Dienststart 08.10.2026 01:37:11 CEST. Aktiver Systemctl-Hintergrundjob bwgbl2t1g, MainPID 3731259. Tatsächliche CLI-Kindbinary PID 3731293 am b7289d11, ohne deleted, Manifesthash ec24337a09a8e9fa5f699736cf2dd172098275edce4ec6ac9fa01e4038a79b9e geprüft. Noch kein neuer Gesamt-Exit oder neue Assets-/Build-Run-ID bestätigt. Auf Abschlussmeldung reagieren, denselben Job nachhalten und danach vorhandene Receipt-/Runprobe ausführen; keinen zweiten Import oder Dienstunterbruch. F bleibt allein im F-Baum aktiv.
+
+Eigene Akten bis zur ersten Betriebsvorbereitung und Wache 34 im Commit 1294a9e2 tatsächlich auf origin/feat/brain-deadlock-api-daten gesichert; diese neueren Aktivitätsbelege noch ergänzend sichern. Keine Discoverylieferung.
+
 ## Reguläre nächste Schritte und Grenzen
 
 Auf tatsächlichen Abschluss desselben nativen F-Ausführers reagieren, keinen laufenden Agenten duplizieren oder in seine Dateien schreiben. Exakte neue Quellbindung, echte Suitezahlen und Gatewortlaut prüfen; begrenzte Integration und keine wiederhergestellte Discovery. Bei grünem gemeinsamem Stand regulär gegen dann aktuellen origin/main liefern, bestehenden Releasehelper benutzen, nötige eigene Dienste regulär starten, tatsächlichen regulären Warden-Publish aus gelieferten Rustcode mit positiver bestätigter hero_build_id belegen. Bestehender Publisher /health auf 127.0.0.1:8783 liefert application/json mit ok=true; das ist nur Preflight, kein Publikationsbeweis.

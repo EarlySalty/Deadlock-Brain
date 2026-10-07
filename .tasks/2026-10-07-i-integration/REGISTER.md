@@ -8,7 +8,7 @@ Konkrete analytics_runtime-Dateiübergabe an G erfolgt und vom Delegator bestät
 
 ## Direkter I-Betriebsnachtrag vom 08.10.2026
 
-Ausdrücklich freigegebenen sauberen brain-live-main auf main 39710e32 nach frischem fetch/Ancestry regulär ff-only auf cf02c9a0 gebracht, Exit 0. Keine ignorierten Artefakte entfernt, keine Archivübernahme, kein Reset/Stash/Force. Geladener Timer verwendet tatsächlich bereits dauerhafte Runtime und installierten b7289d11, nur Timeout-Drop-in. Kein Rückstellen. Vorhandene reine Credential-Readerprobe für aktuelle Ausgangsbindung läuft, be7lfpo1y. Neuer vollständiger regulärer Importlauf noch offen; 743/744 bleiben historische tatsächlich abgeschlossene Runs. LIVE-MAIN-TIMER-20261008.md. F-Ausführer und Discoverygrenze unverändert.
+Ausdrücklich freigegebenen sauberen brain-live-main auf main 39710e32 nach frischem fetch/Ancestry regulär ff-only auf cf02c9a0 gebracht, Exit 0. Keine ignorierten Artefakte entfernt, keine Archivübernahme, kein Reset/Stash/Force. Geladener Timer verwendet tatsächlich bereits dauerhafte Runtime und installierten b7289d11, nur Timeout-Drop-in. Kein Rückstellen. Vorhandene reine Credential-Readerprobe be7lfpo1y für aktuelle Ausgangsbindung 743/744 tatsächlich Exit 0. Neuer vollständiger regulärer Import seit 08.10.2026 01:37:11 CEST aktiv, MainPID 3731259, bwgbl2t1g; tatsächlicher CLI-Kindprozess PID 3731293 mit Manifesthash am b7289d11 geprüft. Neuer Gesamt-Exit und neue Runbindung noch offen, kein Doppeljob. 743/744 bleiben historische tatsächlich abgeschlossene Runs. LIVE-MAIN-TIMER-20261008.md. F-Ausführer und Discoverygrenze unverändert.
 
 ## Wache 34: laufende F-Scopebereinigung
 
