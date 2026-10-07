@@ -27,6 +27,12 @@ pub use read_manifest::{DocumentDescriptor, ReleaseReadManifest};
 pub mod source;
 pub use retrieval::{ChunkProvenance, DocumentHead};
 pub mod store;
+pub mod tools;
+pub use tools::{
+    ModelBlock, PinnedGameContext, ProviderFinishReason, ProviderTurn, ToolCall, ToolConversation,
+    ToolDefinition, ToolEvidenceDependency, ToolExecution, ToolExecutionPort, ToolMessage,
+    ToolName, ToolRequest, ToolResult, ToolSubrequest, ToolValidationPurpose,
+};
 pub mod value;
 pub mod wiki;
 pub use embedding::{EmbeddingIdentity, EmbeddingOutput, EmbeddingProviderPort};
@@ -76,8 +82,6 @@ pub struct Query {
     pub request_id: String,
     pub conversation_id: String,
     pub text: String,
-    /// Optional typed intent; deterministic domain requests never require an LLM
-    /// to parse a build from prose. Omitted on existing brain.v1 text requests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<domain::DomainRequest>,
     #[serde(default)]
@@ -160,7 +164,6 @@ pub struct AuthorizedContext {
     pub knowledge_release: String,
     pub deadline_ms: u64,
     pub budget: Budget,
-    /// Trusted in-process lifetime; never supplied or renewed by a wire request.
     #[serde(skip)]
     pub request_deadline: Option<RequestDeadline>,
 }
@@ -213,7 +216,6 @@ impl SourceRecordV2 {
         {
             return Err(ContractError::InvalidStableId);
         }
-        // The wire type is unsigned, but PostgreSQL revisions are signed BIGINTs.
         if self.revision == 0 || self.revision > i64::MAX as u64 {
             return Err(ContractError::InvalidRevision);
         }
@@ -398,7 +400,6 @@ pub struct HeroKnowledgeCard {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Legacy brain.v1 summary DTO. New ingestion uses `replay::ReplayArtifact`.
 pub struct ReplayArtifact {
     pub replay_id: String,
     pub source_id: String,
@@ -408,8 +409,6 @@ pub struct ReplayArtifact {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Legacy brain.v1 known-time summary. Unknown time has NO conversion to this DTO.
-/// New ingestion uses `replay::ReplayObservation` and its explicit Observed time.
 pub struct ReplayObservation {
     pub observation_id: String,
     pub replay_id: String,
@@ -478,9 +477,6 @@ pub trait RetrievalPort: Send + Sync {
             .map(|evidence| (evidence, Usage::default()))
     }
 
-    /// Validate every external answer dependency against pinned AND current
-    /// publication grants, independently of internal reading or provider egress.
-    /// Implementations without a canonical publication check must fail closed.
     fn validate_publication(
         &self,
         _query: &Query,
@@ -492,8 +488,6 @@ pub trait RetrievalPort: Send + Sync {
         ))
     }
 
-    /// Revalidate against canonical revisions and CURRENT ACLs, including on cache hits.
-    /// The fail-closed default deliberately does not trust a provider or an old evidence pack.
     fn validate_evidence(
         &self,
         _query: &Query,
@@ -514,11 +508,124 @@ pub trait AnswerProviderPort: Send + Sync {
         context: &AuthorizedContext,
         evidence: &[Evidence],
     ) -> std::result::Result<ProviderAnswer, PortError>;
+
+    fn answer_turn(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        tools: &[tools::ToolDefinition],
+        conversation: &tools::ToolConversation,
+    ) -> std::result::Result<tools::ProviderTurn, PortError> {
+        if query.domain.is_some() || !tools.is_empty() || !conversation.messages.is_empty() {
+            return Err(PortError::Unavailable(
+                "Provider unterstützt nur belegte Textanfragen ohne Werkzeuggespräch".into(),
+            ));
+        }
+        query
+            .validate()
+            .map_err(|_| PortError::InvalidResponse("Ungültige Textanfrage".into()))?;
+        let turn = ProviderTurn::from(self.answer(query, context, evidence)?);
+        turn.validate(&[])?;
+        Ok(turn)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn textport_default_bleibt_kompatibel_und_verweigert_werkzeuganfragen() {
+        struct TextPort(AtomicUsize);
+        impl AnswerProviderPort for TextPort {
+            fn answer(
+                &self,
+                _query: &Query,
+                context: &AuthorizedContext,
+                _evidence: &[Evidence],
+            ) -> std::result::Result<ProviderAnswer, PortError> {
+                assert_eq!(context.knowledge_release, "release-1");
+                assert_eq!(context.deadline_ms, 0);
+                assert!(context.request_deadline.is_none());
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(ProviderAnswer {
+                    text: "Antwort".into(),
+                    cited_evidence_ids: Vec::new(),
+                    usage: Usage {
+                        input_tokens: 7,
+                        output_tokens: 2,
+                        network_rounds: 1,
+                        ..Usage::default()
+                    },
+                })
+            }
+        }
+        let provider = TextPort(AtomicUsize::new(0));
+        let query = Query {
+            request_id: "r1".into(),
+            conversation_id: "c1".into(),
+            text: "Frage".into(),
+            domain: None,
+            requested_scopes: BTreeSet::new(),
+            profile: AnswerProfile::Fact,
+            patch: None,
+            mode: None,
+        };
+        let context = AuthorizedContext {
+            discord: None,
+            principal: Principal {
+                actor_id: "a1".into(),
+                channel: "test".into(),
+                scopes: BTreeSet::new(),
+                provider_egress: BTreeSet::new(),
+            },
+            conversation_id: query.conversation_id.clone(),
+            knowledge_release: "release-1".into(),
+            deadline_ms: 0,
+            budget: Budget::default(),
+            request_deadline: None,
+        };
+        let conversation = ToolConversation::default();
+        let expected = provider.answer(&query, &context, &[]).unwrap();
+        let actual = provider
+            .answer_turn(&query, &context, &[], &[], &conversation)
+            .unwrap();
+        assert_eq!(actual.usage(), &expected.usage);
+        assert_eq!(actual.into_answer().unwrap(), expected);
+        let tools = [ToolDefinition {
+            name: ToolName::EntityFind,
+            description: "Entität suchen".into(),
+            input_schema: serde_json::json!({"type":"object","properties":{},"additionalProperties":false}),
+        }];
+        assert!(provider
+            .answer_turn(&query, &context, &[], &tools, &conversation)
+            .is_err());
+        let history = ToolConversation {
+            messages: vec![ToolMessage::Assistant {
+                blocks: vec![ModelBlock::Text {
+                    text: "Historie".into(),
+                }],
+            }],
+        };
+        assert!(provider
+            .answer_turn(&query, &context, &[], &[], &history)
+            .is_err());
+        let mut domain_query = query.clone();
+        domain_query.domain = Some(domain::DomainRequest::Rule {
+            rule_id: "r1".into(),
+        });
+        assert!(provider
+            .answer_turn(&domain_query, &context, &[], &[], &conversation)
+            .is_err());
+        let mut invalid_query = query;
+        invalid_query.text.clear();
+        assert!(provider
+            .answer_turn(&invalid_query, &context, &[], &[], &conversation)
+            .is_err());
+        assert_eq!(provider.0.load(Ordering::SeqCst), 2);
+    }
 
     #[test]
     fn anfragebezogene_quellen_duerfen_nicht_persistiert_werden() {
