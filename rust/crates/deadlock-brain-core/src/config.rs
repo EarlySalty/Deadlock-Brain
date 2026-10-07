@@ -86,6 +86,25 @@ pub fn default_data_dir() -> PathBuf {
 pub fn load_settings() -> Result<Settings> {
     let project_root = repo_root();
     let dotenv = DotEnv::load(&project_root.join(".env"))?;
+    settings_from_source(project_root, dotenv)
+}
+
+pub fn load_settings_from_values(
+    values: &[(String, zeroize::Zeroizing<String>)],
+) -> Result<Settings> {
+    settings_from_source(
+        repo_root(),
+        DotEnv {
+            values: values
+                .iter()
+                .map(|(name, value)| (name.clone(), value.clone()))
+                .collect(),
+            environment_overrides: false,
+        },
+    )
+}
+
+fn settings_from_source(project_root: PathBuf, dotenv: DotEnv) -> Result<Settings> {
     let data_dir = path_setting(
         &dotenv,
         "DEADLOCK_BRAIN_DATA_DIR",
@@ -172,21 +191,27 @@ fn f64_setting(dotenv: &DotEnv, name: &'static str, default: f64) -> Result<f64>
 }
 
 fn setting(dotenv: &DotEnv, name: &'static str) -> Option<String> {
-    env::var(name)
-        .ok()
+    dotenv
+        .environment_overrides
+        .then(|| env::var(name).ok())
+        .flatten()
         .filter(|value| !value.trim().is_empty())
         .or_else(|| dotenv.get(name))
 }
 
 #[derive(Debug, Default)]
 struct DotEnv {
-    values: HashMap<String, String>,
+    values: HashMap<String, zeroize::Zeroizing<String>>,
+    environment_overrides: bool,
 }
 
 impl DotEnv {
     fn load(path: &Path) -> Result<Self> {
         if !path.exists() {
-            return Ok(Self::default());
+            return Ok(Self {
+                environment_overrides: true,
+                ..Self::default()
+            });
         }
         let mut values = HashMap::new();
         for line in fs::read_to_string(path)?.lines() {
@@ -206,15 +231,18 @@ impl DotEnv {
                 .trim_matches('"')
                 .trim_matches('\'')
                 .to_string();
-            values.insert(key.to_string(), value);
+            values.insert(key.to_string(), zeroize::Zeroizing::new(value));
         }
-        Ok(Self { values })
+        Ok(Self {
+            values,
+            environment_overrides: true,
+        })
     }
 
     fn get(&self, name: &str) -> Option<String> {
         self.values
             .get(name)
-            .cloned()
+            .map(|value| value.to_string())
             .filter(|value| !value.trim().is_empty())
     }
 }

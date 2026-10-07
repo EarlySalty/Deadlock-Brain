@@ -140,6 +140,11 @@ enum Commands {
     },
     #[command(about = "Reichert strukturierte Daten an.")]
     Enrich {
+        #[arg(
+            long,
+            help = "Explizite Infisical-Konfiguration ohne Umgebungsüberschreibungen."
+        )]
+        infisical_config: Option<PathBuf>,
         #[command(subcommand)]
         target: EnrichCommands,
     },
@@ -1569,6 +1574,17 @@ async fn run(cli: Cli) -> Result<()> {
     {
         return print_json(&wiki_refresh::run(args).await?);
     }
+    if let Commands::Enrich {
+        infisical_config: Some(path),
+        target,
+    } = command
+    {
+        let values = dl_token_secrets::values(&path).await?;
+        let settings = config::load_settings_from_values(&values)?;
+        let pool = deadlock_brain_core::pg::pg_pool_from_values(&values, false).await?;
+        drop(values);
+        return run_enrich(&pool, &settings, target).await;
+    }
     let settings = config::load_settings()?;
     if let Commands::Entities(args) = &command {
         let pool = pg_pool_for_command(&command).await?;
@@ -1759,7 +1775,7 @@ async fn run(cli: Cli) -> Result<()> {
         Commands::RefreshSheet => run_refresh_sheet(&pool, &settings).await,
         Commands::Normalize { target } => run_normalize(&pool, target).await,
         Commands::Parse { target } => run_parse(&pool, target).await,
-        Commands::Enrich { target } => run_enrich(&pool, &settings, target).await,
+        Commands::Enrich { target, .. } => run_enrich(&pool, &settings, target).await,
         Commands::AiModel | Commands::Population(_) => {
             unreachable!("Population wird vor allgemeiner Pool-Ausfuehrung ausgefuehrt.")
         }

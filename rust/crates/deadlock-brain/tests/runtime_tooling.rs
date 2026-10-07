@@ -1,9 +1,10 @@
 use serde_json::{json, Value};
 use std::{
     fs,
+    io::Write,
     os::unix::fs::PermissionsExt,
     path::Path,
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
 };
 
 fn git(repo: &Path, args: &[&str]) -> String {
@@ -152,25 +153,69 @@ fn pull_uses_explicit_config_without_hidden_environment_overrides() {
 }
 
 #[tokio::test]
-#[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
+#[ignore = "needs scratch Postgres via private Infisical snapshot on FD 3"]
 async fn enrichment_cli_exits_on_failed_batches_and_keeps_their_summary() {
-    let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").expect("scratch Postgres required");
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(2)
-        .connect(&dsn)
-        .await
-        .expect("scratch Postgres");
     let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("infisical.json");
+    fs::write(
+        &config,
+        serde_json::to_vec(&json!({
+            "secret_values_fd": 3, "project_id": "fixture", "environment": "fixture",
+            "secret_path": "/fixture", "socket_path": "/never-contact-infisical"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let mut values = dl_token_secrets::values(&config)
+        .await
+        .expect("private Infisical snapshot");
+    let data_dir = dir.path().join("data");
+    values.extend([
+        (
+            "DEADLOCK_BRAIN_DATA_DIR".to_string(),
+            zeroize::Zeroizing::new(data_dir.to_str().unwrap().to_string()),
+        ),
+        (
+            "FIREWORKS_BASE_URL".to_string(),
+            zeroize::Zeroizing::new("http://127.0.0.1:1".to_string()),
+        ),
+    ]);
+    let settings = deadlock_brain_core::config::load_settings_from_values(&values).unwrap();
+    assert_eq!(settings.data_dir, data_dir);
+    assert_eq!(settings.ai_base_url, "http://127.0.0.1:1");
+    let pool = deadlock_brain_core::pg::pg_pool_from_values(&values, false)
+        .await
+        .expect("scratch Postgres via explicit Infisical configuration");
+    let snapshot = serde_json::to_vec(
+        &values
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect::<std::collections::BTreeMap<_, _>>(),
+    )
+    .unwrap();
+    let forbidden_data_dir = dir.path().join("environment-override");
     let run = |args: &[&str]| {
-        cli()
-            .env("DEADLOCK_CENTRAL_DSN", &dsn)
-            .env("DEADLOCK_BRAIN_DATA_DIR", dir.path())
-            .env("FIREWORKS_BASE_URL", "http://127.0.0.1:1")
+        let mut child = Command::new("/bin/bash")
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .args(["-c", "exec 3<&0; exec \"$@\"", "fixture"])
+            .arg(env!("CARGO_BIN_EXE_deadlock-brain"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .env("DEADLOCK_CENTRAL_DSN", "invalid-environment-override")
+            .env("DEADLOCK_BRAIN_DATA_DIR", &forbidden_data_dir)
+            .env("FIREWORKS_BASE_URL", "invalid-environment-override")
+            .env("FIREWORKS_TIMEOUT_SECONDS", "invalid-environment-override")
+            .args(["enrich", "--infisical-config"])
+            .arg(&config)
             .args(args)
-            .output()
-            .unwrap()
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(&snapshot).unwrap();
+        child.wait_with_output().unwrap()
     };
-    let args = ["enrich", "patch-impact", "--limit", "1"];
+    let args = ["patch-impact", "--limit", "1"];
     let empty = run(&args);
     assert_eq!(empty.status.code(), Some(0));
     let empty: Value = serde_json::from_slice(&empty.stdout).unwrap();
@@ -203,12 +248,13 @@ async fn enrichment_cli_exits_on_failed_batches_and_keeps_their_summary() {
     assert_eq!(retry["processed"], 1);
     assert_eq!(retry["failed"], 1);
 
-    let meta = run(&["enrich", "meta-trends"]);
+    let meta = run(&["meta-trends"]);
     assert_eq!(meta.status.code(), Some(1));
     let meta: Value = serde_json::from_slice(&meta.stdout).unwrap();
     assert_eq!(meta["processed"], 2);
     assert_eq!(meta["success"], 0);
     assert_eq!(meta["failed"], 2);
+    assert!(!forbidden_data_dir.exists());
     sqlx::query("DELETE FROM brain.patch_impact_notes WHERE entity_name = 'FixtureCliBatch'")
         .execute(&pool)
         .await
