@@ -97,7 +97,8 @@ impl<'a> SourceStore<'a> {
         }
         let path = source_dir.join(format!("{safe_external}.{digest}.{suffix}"));
         if path.exists() {
-            if fs::metadata(&path)?.len() != content.len() as u64
+            if !fs::symlink_metadata(&path)?.file_type().is_file()
+                || fs::metadata(&path)?.len() != content.len() as u64
                 || stable_hash_bytes(&fs::read(&path)?) != digest
             {
                 return Err(SourcesError::invariant(
@@ -112,7 +113,8 @@ impl<'a> SourceStore<'a> {
             match temp.persist_noclobber(&path) {
                 Ok(_) => {}
                 Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    if fs::metadata(&path)?.len() != content.len() as u64
+                    if !fs::symlink_metadata(&path)?.file_type().is_file()
+                        || fs::metadata(&path)?.len() != content.len() as u64
                         || stable_hash_bytes(&fs::read(&path)?) != digest
                     {
                         return Err(SourcesError::invariant(
@@ -126,8 +128,44 @@ impl<'a> SourceStore<'a> {
         Ok(path)
     }
 
-    /// Retain raw/provenance on quarantine, but never return a projectable ID.
-    /// Reuses source_documents; no new store or canonical facts database.
+    pub(crate) async fn ensure_original(
+        &self,
+        id: i64,
+        source: &str,
+        expected_hash: &str,
+    ) -> Result<bool> {
+        let document: Option<(String, String, String)> = sqlx::query_as(
+            "SELECT external_id, raw_path, content_hash FROM brain.source_documents \
+             WHERE id=$1 AND source=$2",
+        )
+        .bind(id)
+        .bind(source)
+        .fetch_optional(self.pool)
+        .await?;
+        let Some((external_id, previous_path, hash)) = document else {
+            return Ok(false);
+        };
+        if hash != expected_hash {
+            return Ok(false);
+        }
+        let raw = match fs::read(&previous_path) {
+            Ok(raw) if stable_hash_bytes(&raw) == hash => raw,
+            Ok(_) => return Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        let raw_path = self.write_raw(source, &external_id, &raw, "bin")?;
+        let updated = sqlx::query(
+            "UPDATE brain.source_documents SET raw_path=$1 WHERE id=$2 AND content_hash=$3",
+        )
+        .bind(raw_path.to_string_lossy().as_ref())
+        .bind(id)
+        .bind(hash)
+        .execute(self.pool)
+        .await?;
+        Ok(updated.rows_affected() == 1)
+    }
+
     pub(crate) async fn persist_ir(
         &self,
         external_id: &str,
@@ -175,6 +213,15 @@ impl<'a> SourceStore<'a> {
         document: SourceDocumentInput<'_>,
     ) -> Result<i64> {
         let content_hash = stable_hash_bytes(document.content);
+        if !fs::symlink_metadata(document.raw_path)?
+            .file_type()
+            .is_file()
+            || stable_hash_bytes(&fs::read(document.raw_path)?) != content_hash
+        {
+            return Err(SourcesError::invariant(
+                "Originaldatei hat die Integritätsprüfung nicht bestanden",
+            ));
+        }
         let raw_path = document.raw_path.to_string_lossy().into_owned();
         let metadata_json = json_string(document.metadata)?;
 
@@ -204,16 +251,14 @@ impl<'a> SourceStore<'a> {
             return Ok(id);
         }
 
-        let existing = sqlx::query_scalar!(
-            r#"
-            SELECT id FROM brain.source_documents
-            WHERE source=$1 AND external_id=$2 AND content_hash=$3
-            ORDER BY id DESC LIMIT 1
-            "#,
-            document.source,
-            document.external_id,
-            content_hash,
+        let existing = sqlx::query_scalar::<_, i64>(
+            "UPDATE brain.source_documents SET raw_path=$1 \
+             WHERE source=$2 AND external_id=$3 AND content_hash=$4 RETURNING id",
         )
+        .bind(raw_path)
+        .bind(document.source)
+        .bind(document.external_id)
+        .bind(content_hash)
         .fetch_optional(self.pool)
         .await?;
 
@@ -312,10 +357,6 @@ pub(crate) struct SourceDocumentInput<'a> {
     pub metadata: &'a Value,
 }
 
-/// Schliesst einen Source-Run ab: `ok` mit Summary bei Erfolg, sonst `error`
-/// mit der Fehlermeldung als Summary. Ersetzt die frueher synchrone
-/// `run_source`-Closure-Verdrahtung (async ist mit geliehenen Store-Futures
-/// ohne HRTB-Ballast einfacher inline).
 pub(crate) async fn complete_run(
     store: &SourceStore<'_>,
     run_id: i64,
@@ -334,9 +375,6 @@ pub(crate) async fn complete_run(
     }
 }
 
-/// Oeffnet den zentralen Postgres-Pool ueber `deadlock_brain_core::pg::pg_pool`
-/// und bruecke dessen `anyhow`-Fehler auf `SourcesError` (die Fehlermeldung von
-/// `pg_pool` enthaelt bewusst kein DSN/Secret).
 pub(crate) async fn open_pool() -> Result<PgPool> {
     let pool = deadlock_brain_core::pg::pg_pool()
         .await
@@ -663,8 +701,6 @@ mod tests {
         assert_eq!(body, PATCH_CHANGES_VIEW_SQL.trim());
     }
 
-    /// Wegwerf-Postgres aus `DEADLOCK_CENTRAL_DSN`. `None` (Test-Skip), wenn die
-    /// Variable nicht gesetzt ist — identisch zum bereits portierten `dbrain-enrich`.
     async fn test_pool() -> Option<PgPool> {
         let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").ok()?;
         PgPoolOptions::new()
@@ -674,8 +710,6 @@ mod tests {
             .ok()
     }
 
-    /// Eindeutige Test-Quelle, die in echten Daten nicht vorkommt — erlaubt
-    /// praezises, kollisionsfreies Aufraeumen (Zaehler bleiben netto unveraendert).
     const TEST_SOURCE: &str = "__dbrain_sources_store_test__";
 
     async fn cleanup(pool: &PgPool) {
@@ -697,9 +731,6 @@ mod tests {
     fn json_string_matches_python_default_spacing_and_ascii_for_common_values() {
         let value = serde_json::json!({"b": "Mö", "a": [1, true, null]});
         let encoded = json_string(&value).expect("json");
-        // Python-Paritaet: Nicht-ASCII wird als \uXXXX (ensure_ascii) escaped.
-        // Die Escape-Sequenz wird zur Laufzeit gebaut, damit der Editor sie nicht
-        // in das rohe Zeichen zurueckwandelt.
         let escaped_oe = format!("{}u{:04x}", '\\', 'ö' as u32);
         let expected = format!(r#"{{"a": [1, true, null], "b": "M{escaped_oe}"}}"#);
         assert_eq!(encoded, expected);
@@ -708,8 +739,6 @@ mod tests {
 
     #[tokio::test]
     async fn raw_artifacts_are_atomic_full_hash_verified_and_non_overwriting() {
-        // A lazy zero-connection pool permits testing only write_raw; no SQL or
-        // connection attempt is made by this test.
         let pool = sqlx::postgres::PgPoolOptions::new()
             .min_connections(0)
             .connect_lazy_with(sqlx::postgres::PgConnectOptions::new());
@@ -736,9 +765,6 @@ mod tests {
         pool.close().await;
     }
 
-    /// Paritaets-/Round-Trip-Beweis gegen die echte Scratch-PG: schreibt Run,
-    /// Dokument und Snapshot ueber den Store, liest per SQL zurueck, prueft
-    /// Idempotenz und raeumt anschliessend restlos wieder auf.
     #[tokio::test]
     #[ignore = "needs scratch Postgres via DEADLOCK_CENTRAL_DSN"]
     async fn store_roundtrip_writes_reads_back_and_cleans_up() {

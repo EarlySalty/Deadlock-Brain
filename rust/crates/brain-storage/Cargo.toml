@@ -8,6 +8,7 @@ name = "brain_storage"
 path = "src/lib.rs"
 
 [dependencies]
+anyhow.workspace = true
 brain-contracts = { path = "../brain-contracts" }
 serde_json.workspace = true
 serde = { workspace = true, features = ["derive"] }
