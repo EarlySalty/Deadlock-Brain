@@ -1,0 +1,4 @@
+[gpt-6.1-sol] ALLOW: No merge-blocking defect found in the supplied diff.
+
+1. rust/crates/brain-maintenance/src/hero_compare_render.rs:427 | NIT: End labels start at x=630 in an 800-wide SVG without wrapping; accepted 40-character names can be clipped. The fixed legend positions at line 357 have the same problem. | Valid inputs can lose visible hero identification.
+2. rust/crates/brain-maintenance/src/hero_compare_render.rs:98 | NIT: Text validation accepts U+FFFE and U+FFFF, which `escape` preserves despite XML forbidding them. | Such input produces an invalid standalone SVG; reject these characters and cover the case with an XML parser test.

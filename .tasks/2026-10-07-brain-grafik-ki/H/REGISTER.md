@@ -1,6 +1,6 @@
 # H Register
 
-status: aktiv, 07.10.2026
+status: übergeben, 07.10.2026
 
 Produzent: teil-h. Versuch: 1. Intent-Thread: a711a4d2-1cad-4120-97ac-8b648567172b.
 
@@ -28,3 +28,13 @@ Maximal drei gleichzeitig. Kein xhigh, kein Modellwechsel.
 Eigentum: H besitzt nur neue Darstellungsdateien und H-Akte. K besitzt Manifeste, Modulregistrierungen, HTTP/API, Rechte, Speicherung und Auslieferung. G-Verträge und Rechenpfade bleiben unverändert.
 
 Erlaubte Wirkung: lokale Prüfungen und Featurebranch-Sicherung. Kein Merge, Deploy oder produktiver Versand. K integriert und nimmt live ab.
+
+## Featureübergabe
+
+Native finale Bestätigungssichtung: a5ebab477e2362d78, Sol 6.1 high, abgeschlossen. Fünf finale PNGs nativ angesehen, Bericht SICHT-FINAL.md. Alle Bau-, Prüf- und Sichtagenten abgeschlossen, niemals mehr als drei gleichzeitig.
+
+Feature-SHA und bestätigter origin-Branch: 26859fda4b5e77a29b3af4cea0411d304a04eb2f, origin/feat/brain-h-grafik-20261007. Regulärer Gate bsuyhsn0k: gpt-6.1-sol ALLOW, 2 nicht blockierende NIT. Kein Mainmerge/Deploy.
+
+Erste Vorschau buutl0scu per /close mit Exit 0 beendet. Finale Vorschau bb8zvwo7n nach erfolgter Sichtprüfung am eigenen zehnminütigen Hintergrundlimit gestoppt; kein erfolgreicher Shutdown-Exit behauptet. Port 42401 danach ohne Listener bestätigt. Native Browserprozesse/Profile durch die Sichtagenten aufgeräumt.
+
+Branch und Worktree bleiben für K erhalten. Die nachträgliche Übergabe-, Review-, Status- und finale Sichtakte, PNGs sowie Prüflogs werden in einem zusätzlichen Dokumentationscommit auf demselben Featurebranch gesichert. Keine Rust-Datei ist seit dem Code-SHA geändert. Die Codeprüfung bleibt an 26859fda4b5e77a29b3af4cea0411d304a04eb2f gebunden; die zusätzliche Dokumentationsänderung wird getrennt gegen diesen Code-SHA gategeprüft. Der anschließende Branch-HEAD ist deshalb vom Code-SHA zu unterscheiden.

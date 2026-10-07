@@ -1,0 +1,6 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-h-grafik-20261007/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-h-grafik-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-h-grafik-20261007/rust/crates/dbrain-sources)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-h-grafik-20261007/rust/crates/brain-serve)
+   Compiling brain-maintenance v0.1.0 (/home/nathanael/.worktrees/brain-h-grafik-20261007/rust/crates/brain-maintenance)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.46s

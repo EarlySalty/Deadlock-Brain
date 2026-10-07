@@ -1,0 +1,25 @@
+    Blocking waiting for file lock on package cache
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-h-grafik-20261007/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-h-grafik-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-h-grafik-20261007/rust/crates/dbrain-sources)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-h-grafik-20261007/rust/crates/brain-serve)
+   Compiling brain-maintenance v0.1.0 (/home/nathanael/.worktrees/brain-h-grafik-20261007/rust/crates/brain-maintenance)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.31s
+     Running tests/hero_compare_render.rs (/home/nathanael/.cache/rust-build/c1/b420b9232450b2/debug/deps/hero_compare_render-b0278bd3d8817866)
+
+running 12 tests
+test finite_extremes_zero_and_single_boon_have_finite_svg_geometry ... ok
+test full_thirty_six_point_input_is_preserved ... ok
+test incomplete_duplicate_or_unsorted_boon_rows_are_rejected ... ok
+test missing_or_ambiguous_provenance_is_rejected ... ok
+test mixed_result_version_conditions_and_metrics_are_rejected ... ok
+test mobile_output_has_keyboard_regions_semantic_table_and_svg_description ... ok
+test nonfinite_and_negative_values_are_rejected_at_every_point ... ok
+test nonpublic_input_heroes_and_sources_are_rejected ... ok
+test required_binding_text_and_distinct_heroes_are_enforced ... ok
+test svg_and_accessible_table_share_exact_values_and_result_binding ... ok
+test synthetic_valid_input_renders_deterministically_for_every_metric ... ok
+test untrusted_text_is_preserved_as_text_not_markup ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
