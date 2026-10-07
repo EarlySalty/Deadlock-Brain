@@ -46,7 +46,7 @@ pub fn sync_patchnotes(
             &[&post.link],
         )?;
         let row = post_row(&post, existing.map(|row| row.get(0)))?;
-        let Some(mut resolved) = resolve_api_source(&post, &index, |url| {
+        let Some(resolved) = resolve_api_source(&post, &index, |url| {
             let response = http.get_bounded(
                 url,
                 SourceHttpOptions {
@@ -65,13 +65,12 @@ pub fn sync_patchnotes(
             skipped.push(json!({"url":post.link,"reason":"announcement_without_patch_changes"}));
             continue;
         }
-        resolved.raw_content = clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
         let options = ImportPatchnoteOptions {
             patch_id: row.id,
             dsn_env: dsn_env.into(),
             dry_run,
         };
-        let mut prepared = prepare_patch(&row, &resolved, &index)?;
+        let mut prepared = prepare_api_patch(&row, &resolved, &index)?;
         if prepared.events.is_empty() {
             skipped.push(json!({"url":post.link,"reason":"original_without_parseable_patch_events","not_imported_as_patch":true}));
             continue;
@@ -85,7 +84,7 @@ pub fn sync_patchnotes(
             let id: i64 = id.parse().context("Kanonische Patchkennung ist ungültig")?;
             if id != row.id {
                 let canonical_row = PatchnoteRow { id, ..row };
-                prepared = prepare_patch(&canonical_row, &resolved, &index)?;
+                prepared = prepare_api_patch(&canonical_row, &resolved, &index)?;
             }
         }
         imported.push(import_prepared_patch(&mut client, &options, prepared)?);
@@ -183,28 +182,106 @@ fn has_complete_patch_content(raw: &str, index: &EntityIndex) -> bool {
 }
 
 fn has_patch_changes(content: &str, index: &EntityIndex) -> bool {
-    patch_lines(content).iter().any(|line| {
+    gameplay_event_content(content, index).is_some()
+}
+
+fn prepare_api_patch(
+    row: &PatchnoteRow,
+    resolved: &PatchSourceResolution,
+    index: &EntityIndex,
+) -> Result<PreparedPatch> {
+    let mut prepared = prepare_patch(row, resolved, index)?;
+    let content = clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
+    let event_content = gameplay_event_content(&content, index).unwrap_or_default();
+    prepared.events = parse_events(
+        row,
+        prepared.url.as_deref(),
+        &prepared.source_kind,
+        prepared.posted_at,
+        &event_content,
+        index,
+    );
+    Ok(prepared)
+}
+
+fn gameplay_event_content(content: &str, index: &EntityIndex) -> Option<String> {
+    let mut projected = Vec::new();
+    let mut has_events = false;
+    for line in patch_lines(content) {
         let line = line.trim();
-        if line.to_ascii_lowercase().contains("http")
-            || !(bullet_body(line).is_some() || is_narrative_event_line(line))
-        {
-            return false;
+        if line.to_ascii_lowercase().contains("http") {
+            continue;
         }
-        let body = bullet_body(line).unwrap_or_else(|| line.to_string());
-        let lower = normalize_patch_line(&body).to_ascii_lowercase();
-        lower
-            .split([';', '!', '?'])
-            .flat_map(|sentence| sentence.split(". "))
-            .flat_map(|sentence| sentence.split(" and "))
-            .flat_map(|clause| clause.split(" but "))
-            .flat_map(|clause| clause.split(" while "))
-            .any(|clause| has_gameplay_change(clause.trim(), index))
-    })
+        let body = bullet_body(line);
+        if body.is_none() && section_heading(line).is_some() {
+            projected.push(line.to_string());
+            continue;
+        }
+        if body.is_none() && !is_narrative_event_line(line) {
+            continue;
+        }
+        let body = normalize_patch_line(body.as_deref().unwrap_or(line));
+        let lower = body.to_ascii_lowercase();
+        let mut separators = [";", "!", "?", ". ", " and ", " but ", " while "]
+            .into_iter()
+            .flat_map(|delimiter| {
+                lower
+                    .match_indices(delimiter)
+                    .map(move |(start, _)| (start, delimiter))
+            })
+            .collect::<Vec<_>>();
+        separators.sort_unstable_by_key(|(start, _)| *start);
+        let mut start = 0;
+        let mut inherited_subject = None;
+        for (end, delimiter) in separators
+            .into_iter()
+            .chain(std::iter::once((body.len(), "")))
+        {
+            if end < start {
+                continue;
+            }
+            let clause = body[start..end].trim();
+            let (subject, _) = split_subject(clause);
+            let clause = if subject.is_none() {
+                inherited_subject
+                    .as_ref()
+                    .map(|subject| format!("{subject}: {clause}"))
+                    .unwrap_or_else(|| clause.to_string())
+            } else {
+                clause.to_string()
+            };
+            if has_gameplay_change(&clause, index) {
+                projected.push(format!("- {clause}"));
+                has_events = true;
+            }
+            if matches!(delimiter, " and " | " but " | " while ") {
+                inherited_subject = subject.or(inherited_subject);
+            } else {
+                inherited_subject = None;
+            }
+            start = end + delimiter.len();
+        }
+    }
+    has_events.then(|| projected.join("\n"))
 }
 
 fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
     let (subject, remainder) = split_subject(clause);
-    let change_subject = remainder.as_deref().unwrap_or(clause);
+    let change_subject = remainder.as_deref().unwrap_or(clause).to_ascii_lowercase();
+    let bound_entity = subject
+        .as_deref()
+        .and_then(|subject| index.exact(subject))
+        .is_some_and(|entity| {
+            matches!(
+                entity.entity_type.as_str(),
+                "hero"
+                    | "item"
+                    | "ability"
+                    | "objective"
+                    | "objective_entity"
+                    | "weapon_or_internal"
+            )
+        });
     let words: Vec<_> = clause
         .split(|character: char| !character.is_alphabetic())
         .filter(|word| !word.is_empty())
@@ -233,82 +310,21 @@ fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
                 | "animations"
         )
     });
-    let gameplay = words.iter().any(|word| {
-        matches!(
-            word.as_str(),
-            "hero"
-                | "heroes"
-                | "ability"
-                | "abilities"
-                | "item"
-                | "items"
-                | "weapon"
-                | "weapons"
-                | "attack"
-                | "attacks"
-                | "damage"
-                | "dps"
-                | "cooldown"
-                | "recharge"
-                | "delay"
-                | "cost"
-                | "falloff"
-                | "health"
-                | "regen"
-                | "barrier"
-                | "shield"
-                | "armor"
-                | "heal"
-                | "healing"
-                | "scaling"
-                | "bounty"
-                | "ammo"
-                | "reload"
-                | "range"
-                | "radius"
-                | "duration"
-                | "speed"
-                | "sprint"
-                | "movement"
-                | "resistance"
-                | "resist"
-                | "lifesteal"
-                | "stamina"
-                | "souls"
-                | "lane"
-                | "lanes"
-                | "trooper"
-                | "troopers"
-                | "creep"
-                | "creeps"
-                | "guardian"
-                | "guardians"
-                | "walker"
-                | "walkers"
-                | "patron"
-                | "patrons"
-                | "urn"
-                | "matchmaking"
-                | "match"
-                | "matches"
-                | "crash"
-                | "crashes"
-        )
+    let gameplay = words.iter().any(|word| match word.as_str() {
+        "hero" | "heroes" | "ability" | "abilities" | "item" | "items" | "weapon" | "weapons"
+        | "attack" | "attacks" | "damage" | "dps" | "cooldown" | "recharge" | "delay" | "cost"
+        | "falloff" | "health" | "regen" | "barrier" | "shield" | "armor" | "heal" | "healing"
+        | "scaling" | "bounty" | "ammo" | "reload" | "range" | "radius" | "duration" | "speed"
+        | "sprint" | "movement" | "resistance" | "resist" | "lifesteal" | "stamina" | "souls"
+        | "lane" | "lanes" | "trooper" | "troopers" | "creep" | "creeps" | "guardian"
+        | "guardians" | "walker" | "walkers" | "patron" | "patrons" | "urn" | "matchmaking"
+        | "match" | "matches" | "crash" | "crashes" => true,
+        "charge" | "charges" | "jump" | "jumps" | "dash" | "dashes" | "knockback" | "knockdown"
+        | "stun" | "stuns" | "root" | "roots" | "silence" | "cast" | "casting" | "projectile"
+        | "projectiles" | "bounce" | "bounces" | "stack" | "stacks" => bound_entity,
+        _ => false,
     });
-    let entity_transition = subject
-        .as_deref()
-        .and_then(|subject| index.exact(subject))
-        .is_some_and(|entity| {
-            matches!(
-                entity.entity_type.as_str(),
-                "hero"
-                    | "item"
-                    | "ability"
-                    | "objective"
-                    | "objective_entity"
-                    | "weapon_or_internal"
-            )
-        })
+    let entity_transition = bound_entity
         && change_subject
             .split_once(" from ")
             .is_some_and(|(action, values)| {
@@ -327,7 +343,7 @@ fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
     !cosmetic
         && (gameplay || entity_transition)
         && matches!(
-            dbrain_normalize::classify_change_type(change_subject).as_str(),
+            dbrain_normalize::classify_change_type(&change_subject).as_str(),
             "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
         )
 }
@@ -386,10 +402,10 @@ mod tests {
         let content = clean_steam_content(&cleanup_patch_content(&post.content));
         assert!(has_patch_changes(&content, &EntityIndex::default()));
         let resolved = PatchSourceResolution {
-            raw_content: content,
+            raw_content: post.content.clone(),
             ..PatchSourceResolution::from_row(&row)
         };
-        let prepared = prepare_patch(&row, &resolved, &EntityIndex::default()).unwrap();
+        let prepared = prepare_api_patch(&row, &resolved, &EntityIndex::default()).unwrap();
         assert!(!prepared.events.is_empty());
         assert_eq!(prepared.posted_at.unwrap().timestamp(), 1791241532);
     }
@@ -458,64 +474,231 @@ mod tests {
         }
     }
     #[test]
-    fn structured_changes_and_mixed_lines_keep_existing_parser_events() {
+    fn bound_entity_changes_reach_prepared_events_with_and_without_numbers() {
         let mut index = EntityIndex::default();
         index.insert("hero", "Holliday", "Holliday");
+        index.insert("ability", "Scrap Grenade", "Scrap Grenade");
         let index = index.finish();
-        for original in [
-            "- Holliday: increased from 1 to 2",
-            "- Increased weapon damage from 50 to 60 and added new artwork",
-            "- Holliday: reworked primary attack",
+        for (original, entity, change_type, old, new) in [
+            (
+                "- Holliday: increased from 1 to 2",
+                "Holliday",
+                "buff",
+                Some("1"),
+                Some("2"),
+            ),
+            (
+                "- Holliday: added a double jump",
+                "Holliday",
+                "added",
+                None,
+                None,
+            ),
+            (
+                "- Scrap Grenade: added knockback",
+                "Scrap Grenade",
+                "added",
+                None,
+                None,
+            ),
+            (
+                "- Holliday: increased from 1 to 2 charges",
+                "Holliday",
+                "buff",
+                Some("1"),
+                Some("2 charges"),
+            ),
+            (
+                "- Holliday: reworked primary attack",
+                "Holliday",
+                "rework",
+                None,
+                None,
+            ),
         ] {
-            let mut post = post();
-            post.content = "Preview only".into();
-            let row = post_row(&post, Some(17)).unwrap();
-            let expected = prepare_patch(
-                &row,
-                &PatchSourceResolution {
-                    raw_content: original.into(),
-                    ..PatchSourceResolution::from_row(&row)
-                },
-                &index,
-            )
-            .unwrap();
-            assert_eq!(expected.events.len(), 1, "{original}");
-            assert_ne!(expected.events[0].change_type, "changed");
-            if original.contains(" from ") {
-                assert!(expected.events[0].old_value.is_some());
-                assert!(expected.events[0].new_value.is_some());
-                if expected.events[0].entity_name.is_none() {
-                    assert!(is_patch_candidate(original, &EntityIndex::default()));
-                } else {
-                    assert!(!is_patch_candidate(original, &EntityIndex::default()));
-                }
-            } else {
-                assert_eq!(expected.events[0].entity_name.as_deref(), Some("Holliday"));
-            }
-            assert!(is_patch_candidate(original, &index));
-            assert!(has_complete_patch_content(original, &index));
+            assert_eq!(
+                is_patch_candidate(original, &EntityIndex::default()),
+                original.contains("primary attack"),
+                "{original}"
+            );
+            assert!(is_patch_candidate(original, &index), "{original}");
+            assert!(has_complete_patch_content(original, &index), "{original}");
             for source in ["steam", "forum"] {
+                let mut post = post();
                 post.source = source.into();
+                post.content = "Preview only".into();
                 let html = if source == "forum" {
                     post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
                     format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{original}</div></article>")
                 } else {
                     steam_html(&post, original)
                 };
-                let mut resolved = resolve_api_source(&post, &index, |_| Ok(html.clone()))
+                let resolved = resolve_api_source(&post, &index, |_| Ok(html.clone()))
                     .unwrap()
                     .unwrap();
-                resolved.raw_content =
-                    clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
-                let actual = prepare_patch(&row, &resolved, &index).unwrap();
-                assert_eq!(actual.events.len(), expected.events.len());
-                assert_eq!(
-                    actual.events[0].normalized_line,
-                    expected.events[0].normalized_line
-                );
-                assert_eq!(actual.events[0].old_value, expected.events[0].old_value);
-                assert_eq!(actual.events[0].new_value, expected.events[0].new_value);
+                let row = post_row(&post, Some(17)).unwrap();
+                let prepared = prepare_api_patch(&row, &resolved, &index).unwrap();
+                assert_eq!(prepared.events.len(), 1, "{source}/{original}");
+                let event = &prepared.events[0];
+                assert_eq!(event.entity_name.as_deref(), Some(entity));
+                assert_eq!(event.change_type, change_type);
+                assert_eq!(event.old_value.as_deref(), old);
+                assert_eq!(event.new_value.as_deref(), new);
+                assert_eq!(event.metadata["patch_external_id"], "patch_17");
+                assert_eq!(event.metadata["url"], post.link);
+                assert_eq!(event.metadata["source_kind"], source);
             }
+        }
+    }
+
+    #[test]
+    fn mixed_changes_project_only_gameplay_without_changing_original_provenance() {
+        for original in [
+            "- Added new artwork and increased weapon damage from 50 to 60",
+            "- Increased weapon damage from 50 to 60 and added new artwork",
+            "- Added new artwork. Weapon damage increased from 50 to 60",
+            "- Weapon damage increased from 50 to 60. Added new artwork",
+        ] {
+            for source in ["steam", "forum"] {
+                let mut post = post();
+                post.source = source.into();
+                post.content = "Feed teaser, not the original".into();
+                let fulltext = format!("[h3]Gameplay Changes[/h3][p]{original}[/p]");
+                let html = if source == "forum" {
+                    post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+                    format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{fulltext}</div></article>")
+                } else {
+                    steam_html(&post, &fulltext)
+                };
+                let index = EntityIndex::default();
+                let resolved = resolve_api_source(&post, &index, |_| Ok(html.clone()))
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(resolved.raw_content, fulltext);
+                let discovered_row = post_row(&post, None).unwrap();
+                let discovered = prepare_api_patch(&discovered_row, &resolved, &index).unwrap();
+                assert_eq!(
+                    discovered.patch_external_id,
+                    format!("patch_{}", discovered_row.id)
+                );
+                for id in [17, 99] {
+                    let row = PatchnoteRow {
+                        id,
+                        ..discovered_row.clone()
+                    };
+                    let baseline = prepare_patch(&row, &resolved, &index).unwrap();
+                    let prepared = prepare_api_patch(&row, &resolved, &index).unwrap();
+                    assert_eq!(prepared.raw_payload_text, baseline.raw_payload_text);
+                    assert_eq!(prepared.raw_payload_hash, baseline.raw_payload_hash);
+                    assert_eq!(
+                        prepared.snapshot_payload_text,
+                        baseline.snapshot_payload_text
+                    );
+                    assert_eq!(
+                        prepared.snapshot_payload_hash,
+                        baseline.snapshot_payload_hash
+                    );
+                    assert_eq!(
+                        prepared.raw_payload_hash,
+                        stable_hash(prepared.raw_payload_text.as_bytes())
+                    );
+                    assert_eq!(
+                        prepared.snapshot_payload_hash,
+                        stable_hash(prepared.snapshot_payload_text.as_bytes())
+                    );
+                    for text in [&prepared.raw_payload_text, &prepared.snapshot_payload_text] {
+                        let payload: Value = serde_json::from_str(text).unwrap();
+                        assert_eq!(payload["raw_content"], fulltext);
+                        assert_eq!(payload["id"], id);
+                        assert_eq!(payload["url"], post.link);
+                        assert_eq!(payload["source_url"], post.link);
+                        assert_eq!(payload["source_kind"], source);
+                        assert_eq!(payload["posted_at"], "2026-10-05T23:05:32+00:00");
+                    }
+                    let payload: Value = serde_json::from_str(&prepared.raw_payload_text).unwrap();
+                    assert_eq!(
+                        payload["resolved_from"],
+                        resolved.resolved_from.as_deref().unwrap()
+                    );
+                    assert_eq!(prepared.source_external_id, post.link);
+                    assert_eq!(prepared.patch_external_id, format!("patch_{id}"));
+                    assert_eq!(prepared.events.len(), 1, "{source}/{original}");
+                    let event = &prepared.events[0];
+                    assert_eq!(event.change_type, "buff", "{original}");
+                    assert_eq!(event.old_value.as_deref(), Some("50"));
+                    assert_eq!(event.new_value.as_deref(), Some("60"));
+                    assert!(!event
+                        .normalized_line
+                        .to_ascii_lowercase()
+                        .contains("artwork"));
+                    assert!(!event.raw_line.to_ascii_lowercase().contains("artwork"));
+                    assert_eq!(event.section.as_deref(), Some("Gameplay Changes"));
+                    assert_eq!(event.metadata["patch_external_id"], format!("patch_{id}"));
+                    assert_eq!(event.metadata["patch_id"], id);
+                    assert_eq!(event.metadata["url"], post.link);
+                    assert_eq!(event.metadata["source_kind"], source);
+                    assert_eq!(event.event_hash, discovered.events[0].event_hash);
+                    assert_eq!(
+                        event.event_hash,
+                        patch_event_content_hash(
+                            &row,
+                            &event.entity_type,
+                            event.entity_name.as_deref(),
+                            event.old_value.as_deref(),
+                            event.new_value.as_deref(),
+                            &event.normalized_line,
+                        )
+                    );
+                    let projected_source = PatchSourceResolution {
+                        raw_content: format!("Gameplay Changes\n{}", event.raw_line),
+                        ..resolved.clone()
+                    };
+                    let expected = prepare_patch(&row, &projected_source, &index).unwrap();
+                    assert_eq!(event.event_hash, expected.events[0].event_hash);
+                    assert_eq!(event.metadata, expected.events[0].metadata);
+                }
+                assert_eq!(resolved.raw_content, fulltext);
+            }
+        }
+    }
+
+    #[test]
+    fn clause_subjects_are_inherited_only_within_the_same_sentence() {
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Holliday", "Holliday");
+        let index = index.finish();
+        let row = post_row(&post(), Some(17)).unwrap();
+        for original in [
+            "- Holliday: added artwork and increased from 1 to 2 charges",
+            "- Holliday: increased from 1 to 2 charges and added artwork",
+            "- Holliday: added a double jump and added knockback",
+        ] {
+            let resolved = PatchSourceResolution {
+                raw_content: original.into(),
+                ..PatchSourceResolution::from_row(&row)
+            };
+            let prepared = prepare_api_patch(&row, &resolved, &index).unwrap();
+            assert!(!prepared.events.is_empty(), "{original}");
+            assert!(prepared.events.iter().all(|event| {
+                event.entity_name.as_deref() == Some("Holliday")
+                    && !event.normalized_line.contains("artwork")
+            }));
+        }
+        for original in [
+            "- Holliday: added artwork. Increased from 1 to 2",
+            "- Holliday: increased from 1 to 2 charges. Visitor count increased from 10 to 20",
+            "- Added posters featuring Holliday and added knockback",
+        ] {
+            let resolved = PatchSourceResolution {
+                raw_content: original.into(),
+                ..PatchSourceResolution::from_row(&row)
+            };
+            let prepared = prepare_api_patch(&row, &resolved, &index).unwrap();
+            assert_eq!(
+                prepared.events.len(),
+                usize::from(original.contains("charges")),
+                "{original}"
+            );
         }
     }
 
@@ -542,9 +725,24 @@ mod tests {
                 "- Added artwork. Weapon damage will be discussed tomorrow",
                 "- Improved artwork while weapon damage is unchanged",
                 "- Visitors: increased from 1 to 2 and Holliday: new portrait",
+                "- We voted for our favourite bird. See you in the city!",
+                "- Added a double jump for visitors watching Holliday",
+                "- Scrap Grenade is our favourite name and visitor count increased from 1 to 2",
             ] {
                 assert!(!is_patch_candidate(original, index), "{original}");
                 assert!(!has_complete_patch_content(original, index), "{original}");
+                let row = post_row(&post(), Some(17)).unwrap();
+                let resolved = PatchSourceResolution {
+                    raw_content: original.into(),
+                    ..PatchSourceResolution::from_row(&row)
+                };
+                assert!(
+                    prepare_api_patch(&row, &resolved, index)
+                        .unwrap()
+                        .events
+                        .is_empty(),
+                    "{original}"
+                );
                 for source in ["steam", "forum"] {
                     let mut post = post();
                     post.source = source.into();
@@ -666,7 +864,7 @@ mod tests {
         );
         let html = steam_html(&post, &full);
         let mut requests = Vec::new();
-        let mut resolved = resolve_api_source(&post, &EntityIndex::default(), |url| {
+        let resolved = resolve_api_source(&post, &EntityIndex::default(), |url| {
             requests.push(url.to_string());
             Ok(html.clone())
         })
@@ -675,10 +873,9 @@ mod tests {
         assert_eq!(requests, vec![post.link.clone()]);
         assert_eq!(resolved.raw_content, full);
         assert_ne!(resolved.raw_content, post.content);
-        resolved.raw_content = clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
         let row = post_row(&post, Some(17)).unwrap();
-        let prepared = prepare_patch(&row, &resolved, &EntityIndex::default()).unwrap();
-        assert_eq!(prepared.events.len(), 3);
+        let prepared = prepare_api_patch(&row, &resolved, &EntityIndex::default()).unwrap();
+        assert_eq!(prepared.events.len(), 2);
         assert!(prepared
             .events
             .iter()
@@ -733,24 +930,20 @@ mod tests {
             } else {
                 steam_html(&post, prose)
             };
-            let mut resolved =
-                resolve_api_source(&post, &EntityIndex::default(), |_| Ok(html.clone()))
-                    .unwrap()
-                    .unwrap();
+            let resolved = resolve_api_source(&post, &EntityIndex::default(), |_| Ok(html.clone()))
+                .unwrap()
+                .unwrap();
             assert!(is_patch_candidate(&resolved.raw_content, &index));
-            resolved.raw_content =
-                clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
-            assert!(resolved
-                .raw_content
-                .lines()
-                .all(|line| bullet_body(line).is_none()));
             let prepared =
-                prepare_patch(&post_row(&post, None).unwrap(), &resolved, &index).unwrap();
-            assert_eq!(prepared.events.len(), 3, "{source}");
+                prepare_api_patch(&post_row(&post, None).unwrap(), &resolved, &index).unwrap();
+            assert_eq!(prepared.events.len(), 1, "{source}");
             assert!(prepared.events.iter().any(|event| {
-                event.section.as_deref() == Some("Mina: Hero Spotlight")
+                event.section.as_deref() == Some("Hero Voting")
                     && event.entity_name.as_deref() == Some("Mina")
+                    && event.change_type == "added"
             }));
+            let payload: Value = serde_json::from_str(&prepared.raw_payload_text).unwrap();
+            assert_eq!(payload["raw_content"], prose);
         }
     }
 
