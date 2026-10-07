@@ -13,9 +13,6 @@ use sha2::{Digest, Sha256};
 
 use crate::steam_web_api::{self, PgObservationJournal, SteamLedger, SteamWebApiError};
 
-mod api_sync;
-pub use api_sync::sync_patchnotes;
-
 const SOURCE: &str = "deadlock_patchnotes_db";
 const IMPORTER: &str = "deadlock_patchnotes_db_pg";
 const STEAM_APPID: u32 = 1_422_450;
@@ -217,14 +214,6 @@ pub fn import_patchnote(
     let index = load_entity_index(&mut client)?;
     let resolved = resolve_patch_source(http, ledger, &mut client, &patch)?;
     let prepared = prepare_patch(&patch, &resolved, &index)?;
-    import_prepared_patch(&mut client, options, prepared)
-}
-
-fn import_prepared_patch(
-    client: &mut Client,
-    options: &ImportPatchnoteOptions,
-    prepared: PreparedPatch,
-) -> Result<Value> {
     if options.dry_run {
         return Ok(summary_json(
             true,

@@ -1217,11 +1217,6 @@ enum PgCommands {
         about = "Importiert exakt einen Patchnote-Eintrag direkt nach brain.* in Postgres."
     )]
     ImportPatchnote(PgImportPatchnoteArgs),
-    #[command(
-        name = "sync-patchnotes",
-        about = "Übernimmt API-Patchfunde über den vorhandenen Originalquellen-Import."
-    )]
-    SyncPatchnotes(PgSyncPatchnotesArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -1277,19 +1272,6 @@ struct PgImportPatchnoteArgs {
 }
 
 #[derive(Debug, Args)]
-struct PgSyncPatchnotesArgs {
-    #[command(flatten)]
-    ledger: LedgerAccessArgs,
-    #[arg(long = "dsn-env", default_value = "DEADLOCK_CENTRAL_DSN")]
-    dsn_env: String,
-    #[arg(
-        long,
-        help = "Kein fachlicher Import; Steam-Abrufjournal bleibt aktiv."
-    )]
-    dry_run: bool,
-}
-
-#[derive(Debug, Args)]
 struct LedgerAccessArgs {
     #[arg(long, default_value = "config/steam-ledger.json")]
     ledger_config: PathBuf,
@@ -1301,7 +1283,6 @@ async fn ledger_for_pg(target: &PgCommands) -> Result<steam_web_api::SteamLedger
     let (args, caller) = match target {
         PgCommands::ImportSteamNews(args) => (&args.ledger, pg_steam_news::STEAM_LEDGER_CALLER),
         PgCommands::ImportPatchnote(args) => (&args.ledger, pg_patchnotes::STEAM_LEDGER_CALLER),
-        PgCommands::SyncPatchnotes(args) => (&args.ledger, pg_patchnotes::STEAM_LEDGER_CALLER),
     };
     let path = args.ledger_config.clone();
     let config: steam_web_api::SteamLedgerConfig = tokio::task::spawn_blocking(move || {
@@ -1875,32 +1856,12 @@ fn run_pg(
             },
         )?),
         PgCommands::ImportPatchnote(args) => run_pg_patchnote(http, ledger, args),
-        PgCommands::SyncPatchnotes(args) => print_json(&pg_patchnotes::sync_patchnotes(
-            http,
-            ledger,
-            &args.dsn_env,
-            args.dry_run,
-        )?),
     }
 }
 
 #[cfg(test)]
 mod patch_ingest_tests {
     use super::*;
-
-    #[test]
-    fn patch_sync_cli_uses_existing_ledger_and_dry_run() {
-        let parsed =
-            Cli::try_parse_from(["deadlock-brain", "pg", "sync-patchnotes", "--dry-run"]).unwrap();
-        let Commands::Pg {
-            target: PgCommands::SyncPatchnotes(args),
-        } = parsed.command
-        else {
-            panic!("wrong dispatch")
-        };
-        assert!(args.dry_run);
-        assert!(!args.ledger.ledger_config.as_os_str().is_empty());
-    }
 
     #[test]
     fn scheduled_ingest_stops_on_failure_without_importing_matches() {
