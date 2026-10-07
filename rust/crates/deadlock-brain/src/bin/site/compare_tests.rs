@@ -131,7 +131,7 @@ async fn public_compare_http_has_no_cache_and_rechecks_revocation() {
         &fixture,
         &principal,
         &input,
-        &[document.clone()],
+        std::slice::from_ref(&document),
         json!({"fixture":true}),
         "fixture-mechanism".into(),
     )
