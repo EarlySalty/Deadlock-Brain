@@ -411,6 +411,7 @@ fn unapproved_implementation_is_explicitly_unavailable() {
     assert_eq!(
         capability_availability(
             BotCapability::PublicGuideEndAnswer,
+            BotPlatform::Discord,
             GuideImplementation::default()
         ),
         CapabilityAvailability::Unavailable
@@ -418,15 +419,102 @@ fn unapproved_implementation_is_explicitly_unavailable() {
     assert_eq!(
         capability_availability(
             BotCapability::PublicGuideEndAnswer,
+            BotPlatform::Discord,
             GuideImplementation::Approved
         ),
         CapabilityAvailability::Available
     );
     for capability in [BotCapability::TwitchTitleDraft, BotCapability::PersonalHelp] {
         assert_eq!(
-            capability_availability(capability, GuideImplementation::Approved),
+            capability_availability(
+                capability,
+                BotPlatform::Discord,
+                GuideImplementation::Approved
+            ),
             CapabilityAvailability::Unavailable
         );
+    }
+}
+
+#[test]
+fn capability_availability_requires_discord_and_approved_guide() {
+    for platform in [BotPlatform::Discord, BotPlatform::Twitch] {
+        for guide in [
+            GuideImplementation::NotApproved,
+            GuideImplementation::Approved,
+        ] {
+            for capability in [
+                BotCapability::PublicGuideEndAnswer,
+                BotCapability::TwitchTitleDraft,
+                BotCapability::PersonalHelp,
+            ] {
+                let expected = match (platform, guide, capability) {
+                    (
+                        BotPlatform::Discord,
+                        GuideImplementation::Approved,
+                        BotCapability::PublicGuideEndAnswer,
+                    ) => CapabilityAvailability::Available,
+                    _ => CapabilityAvailability::Unavailable,
+                };
+                assert_eq!(
+                    capability_availability(capability, platform, guide),
+                    expected,
+                    "{platform:?} {guide:?} {capability:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn capability_status_responses_reject_available_outside_discord_guide() {
+    for platform in [BotPlatform::Discord, BotPlatform::Twitch] {
+        for capability in [
+            BotCapability::PublicGuideEndAnswer,
+            BotCapability::TwitchTitleDraft,
+            BotCapability::PersonalHelp,
+        ] {
+            let mut request = request();
+            request.platform = platform;
+            request.audience = match platform {
+                BotPlatform::Discord => request.audience,
+                BotPlatform::Twitch => BotAudience::PublicTwitch {
+                    channel_id: "123".into(),
+                },
+            };
+            request.task = BotTask::CapabilityStatus { capability };
+            assert_eq!(request.validate(), Ok(()));
+            for availability in [
+                CapabilityAvailability::Available,
+                CapabilityAvailability::Unavailable,
+            ] {
+                let response = BotTaskResponse {
+                    contract_version: request.contract_version.clone(),
+                    request_id: request.request_id.clone(),
+                    platform,
+                    audience: request.audience.clone(),
+                    result: BotTaskResult::CapabilityStatus {
+                        capability,
+                        availability,
+                    },
+                };
+                let wire = serde_json::to_value(&response).unwrap();
+                let response: BotTaskResponse = serde_json::from_value(wire).unwrap();
+                let expected = if availability == CapabilityAvailability::Unavailable
+                    || (platform == BotPlatform::Discord
+                        && capability == BotCapability::PublicGuideEndAnswer)
+                {
+                    Ok(())
+                } else {
+                    Err(BotTaskError::ResultMismatch)
+                };
+                assert_eq!(
+                    response.validate_for(&request),
+                    expected,
+                    "{platform:?} {capability:?} {availability:?}"
+                );
+            }
+        }
     }
 }
 

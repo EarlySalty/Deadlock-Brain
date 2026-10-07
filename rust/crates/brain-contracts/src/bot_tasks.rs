@@ -178,7 +178,8 @@ impl BotTaskResponse {
                     availability,
                 },
             ) if capability == expected
-                && (*capability == BotCapability::PublicGuideEndAnswer
+                && ((*capability == BotCapability::PublicGuideEndAnswer
+                    && request.platform == BotPlatform::Discord)
                     || *availability == CapabilityAvailability::Unavailable) =>
             {
                 Ok(())
@@ -197,12 +198,15 @@ pub enum GuideImplementation {
 
 pub fn capability_availability(
     capability: BotCapability,
+    platform: BotPlatform,
     guide: GuideImplementation,
 ) -> CapabilityAvailability {
-    match (capability, guide) {
-        (BotCapability::PublicGuideEndAnswer, GuideImplementation::Approved) => {
-            CapabilityAvailability::Available
-        }
+    match (capability, platform, guide) {
+        (
+            BotCapability::PublicGuideEndAnswer,
+            BotPlatform::Discord,
+            GuideImplementation::Approved,
+        ) => CapabilityAvailability::Available,
         _ => CapabilityAvailability::Unavailable,
     }
 }
