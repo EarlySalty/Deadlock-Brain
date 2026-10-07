@@ -1,6 +1,160 @@
 # Paket G: Brain v2
 
-status: aktiv, 07.10.2026
+status: Öffentlicher Rechenkern S3 2b519b04 und S4 a35bd814 ALLOW und origin bestätigt; G-V folgt unmittelbar, 07.10.2026
+
+## Gesicherter öffentlicher Rechenvertrag für I/F/K
+
+wbhr8f9ck / wf_b82d8d03-5e4 abgeschlossen, zwei native Kontexte. S3 2b519b0470fdb2d0ae9fde7791dff0c820ad3d1b gegen e58a5c59, S4 a35bd8142146bd1ea0d8b342625ac6cf2e0bd278 gegen S3: jeweils gpt-6.1-sol, vollständiger Gruppengate Exit 0/ALLOW. G konsumierte Rückgabe und nachweise.json mit Rohgate-, Befehls-, Quellen- und Originbindung. Eigenes ls-remote bestätigt origin-a35bd814; eigene S3->S4-Ancestorprüfung Exit 0, Rustbaum sauber.
+
+Committed Compiler/striktes Clippy/Format je S3/S4 Exit 0. Rechenabnahme 38 passed/0 failed/0 ignored; alle 34 ursprünglichen Fälle erhalten. Zwei kontrollierte Deadlinefälle und zwei frische Projektionsfälle. S3-Suite 304/12 und S4 342/12 gegenüber abgeschlossenem S2-Vorlauf 304/12, identische zwölf Fehlernamen und fehlende DB-/Livevoraussetzungen. Contracts jeweils 43+23+11 bestanden. Keine grüne Gesamtsuite. Originalprobe 6759, keine aktuelle Produktions-/Balancepatchabnahme. Vier nicht blockierende Gate-NITs offen.
+
+I/F/K können den gesicherten gemeinsamen calculate/project/growth/curve-/Sheetvertrag jetzt übernehmen. Signaturen und echte SHAs in G/RECHENKERN-VERTRAG.md; Rohbelege G/pruefungen/g-m-s3-s4-fortsetzung/runde-2/. Keine G-main-Wartepflicht. G-V-Produktionsport, kanonische Receipt-/Rechtebindung und echter F-Verifier bleiben zu bauen und live nachzuweisen. Vorbereitetes G/BRIEFING-G-V-PRODUKTIONSANSCHLUSS.md respektiert Ks exklusive Orts-/Flight-/Literalstellen und Is/Fs geschützte Bereiche. Kein aktiver konkurrierender G-Writer. Noch kein eigener Main-Merge, Deploy, Liveabschluss, Cleanup oder Settle; Gesamtauftrag wird unmittelbar weitergeführt.
+
+TESTNACHWEIS[TW-1]: 342 passed, 0 ignored | Baseline: 12 rot
+MERGEPROTOKOLL[MS-1]: 27 Git-Schritte einzeln | Anläufe: 2 | Gate: S3/S4 ALLOW; kein Main-Merge
+
+## S2 tatsächlich gesichert
+
+Workflow w64ib10gt / wf_966396fc-1d9 abgeschlossen, ein frischer Fixer, keine Doppelinstanz. G konsumierte Rückgabe, Rohgate, Befehlsbindung und Testmarker. Vollständiger S2-Gate bd83d7abdef812a30daa47aa5f6a78de4f42263a..e58a5c59d874848cf977bd0c3e7e77d7a4157d74 mit gpt-6.1-sol Exit 0: ALLOW: No merge-blocking defect found. Beide bestätigten neuen Kerne behoben. Zwei nicht blockierende NITs bleiben offen.
+
+Committed Combat 57 passed/0 failed/0 ignored, Compiler/striktes Clippy/Format Exit 0. Reasoner 304 passed/12 failed gegenüber abgeschlossener vergleichbarer Vorlaufbaseline 300/12, identische zwölf Fehlernamen; Contracts 43+23+11 bestanden. Der neue Baselineversuch wurde nicht abgeschlossen, verwendet wurde ausdrücklich der abgeschlossene Vorlauf. Fehlende REASONER_SCRATCH_DSN und DEADLOCK_CENTRAL_DSN bleiben getrennte Voraussetzungen, kein grüner Gesamtbeweis. Rohbelege G/pruefungen/g-m-s2-aktive-untyped/runde-2/.
+
+Eigenes ls-remote bestätigt origin/feat/brain-v2-g-20261007 exakt e58a5c59d874848cf977bd0c3e7e77d7a4157d74; eigenes log -1 bestätigt denselben HEAD. Gezielter Status bestätigt erhaltenen S3/S4-WIP und keinen gestagten Quellrest. S3/S4 wird unmittelbar nach BRIEFING-G-M-S3-S4-FORTSETZUNG.md als wbhr8f9ck / wf_b82d8d03-5e4 ausgeführt, einziger nativer Reasonerwriter mit geerbtem Modell und xhigh. Wache 17309f4c um 23:37 CEST. Elternsession ohne Produkt- oder Git-Schritte währenddessen. Noch kein öffentlicher S3-Liefer-SHA, Main-Merge oder Liveabschluss. Kein Nutzerhalt.
+
+ENTSCHEIDUNG-K-ORTSVERTRAG.md nach der direkten Ausschlussmitteilung tatsächlich gelesen. brain-contracts/src/lib.rs und provider_input.rs sind exklusiv K bis gesicherter kompatibler Übergabe. G ergänzt keinen zweiten Query-Ortsblock und kopiert keinen fremden WIP. Spätere G-Query-Literals nur gegen Ks gesicherten Commit; relevanter Ortskontext muss im bestehenden Cache-/Flightfingerprint getrennt bleiben. Zusätzlicher Kerneldateibedarf ist vor Änderung konkret zu melden. K besitzt die ID-freie Service-/Consumerprojektion einschließlich vollständigem Providerpayload und Payloadbudget. Deadline-/Reasoner-/Tool-/Produktionsportarbeit wird disjunkt fortgeführt.
+
+Ergänzende direkte Entscheidung ENTSCHEIDUNG-K-ORTSVERTRAG-ERGAENZUNG.md tatsächlich gelesen. Das bestehende flight.rs/cache_key_for_purpose-Ortstupel, passende Orts-Cachetests und die ausdrücklich gelisteten mechanischen Query-Literals sind exklusiv K. Kein aktiver G-Writer besitzt eine dieser neu benannten Stellen: wbhr8f9ck bleibt auf S3/S4-Reasoner begrenzt. Kein Halt oder konkurrierende Orts-/Literalimplementierung nötig. Unabhängige G-Arbeit wird fortgesetzt. Nutzer meldet I-Spiegel b7289d11 nach echtem Test/Push auf main und begonnenem Releasebau; dies ist noch kein eigener G-Import-/Livebeweis. G/BRIEFING-G-V-PRODUKTIONSANSCHLUSS.md ist vorbereitet, startet erst nach tatsächlicher gesicherter Rechenkernlieferung.
+
+TESTNACHWEIS[TW-1]: 57 passed, 0 ignored | Baseline: 12 rot
+MERGEPROTOKOLL[MS-1]: 5 Git-Schritte einzeln | Anläufe: 1 | Gate: S2 ALLOW; kein Main-Merge
+
+## Historische verbindliche Fortsetzung 22:22: echter Gate statt Zwischenabschluss
+
+Direkten Weiterbauauftrag konsumiert. Vorhandene Instanz geprüft, native Rückgabe konsumiert und Workflow wck1q4g81 regulär gestoppt. Tatsächlicher HEAD b6c1153363f817ff1056a5fd28de13eec00cc58d, Index leer, gesamter frühere S3/S4-WIP erhalten. Keine Doppelinstanz. Die native Resume-Nachricht lieferte eine Rückgabe ohne StructuredOutput und mit gate_ran=false; G verließ sich nicht darauf, sondern las die inzwischen vorhandenen tatsächlichen Gate-/Prüflogs.
+
+Tatsächlich geprüft: committed Combat 53 passed/0 failed/0 ignored, Deadline-Teilmenge 6 passed/0 failed/0 ignored. Committed Compiler/striktes Clippy/Format Exit 0. Reasoner-Vollsuite 300 passed/12 failed gegenüber gemessener gleicher Baseline 294 passed/12 failed, identische zwölf Fehlernamen und fehlende DB-/Livevoraussetzungen. Contracts auf committed Stand 43 Unit-/23 Integrations-/11 Erweiterungsfälle bestanden. Kein grüner Gesamtbeweis aus der roten Reasonersuite. Rohbelege g-m-s2-zeitbasis-2135/runde-1/ einschließlich baselinevergleich.json.
+
+Voller S2-Gate gegen S1 bd83d7ab tatsächlich BLOCK mit gpt-6.1-sol: aktive Fähigkeitswahl ignoriert use_abilities=false und Untyped erbt Spiritmodifikatoren. G bestätigte beide Quellpfade nach Graphify. Zusätzlich gestarteter mechanischer Gate b626tqrhl, ausdrücklich dasselbe Modell, lieferte Exit 1 mit STILL an denselben Stellen. Kein Modellwürfeln oder anderer Freibrief. Danach status und log -1 einzeln geprüft. Kein Push, Main oder Runtimeeingriff.
+
+Frischer nativer Fixworkflow w64ib10gt / wf_966396fc-1d9 gestartet. Ausschließlich combat.rs und direkte numerische Fälle, bestehende Testuhr und sämtliche frühere Fixes bleiben. Ganze S2-Gruppe gegen denselben S1-SHA mit --model gpt-6.1-sol, je echtem BLOCK frischer Kontext. Normale Textrückgabe statt fehlendem StructuredOutput-Werkzeug; keine weitere Resume-Nachricht an denselben Fixer. Briefing G/BRIEFING-G-M-S2-AKTIVE-UNTYPED.md, Wache e97e5827 um 22:52 CEST. Nach echtem ALLOW und Originbeweis unmittelbar S3/S4 gemäß vorbereitetem G/BRIEFING-G-M-S3-S4-FORTSETZUNG.md fortsetzen, dann G-V und regulären Gesamtabschluss. Keine Abschlussmeldung allein für gestartete Arbeit.
+
+Die separate verweigerte Scriptinspektion von cargo-slot wurde nicht wiederholt oder umgangen. Seine tatsächlichen Prüfaufrufe und der reguläre Gate waren ausführbar. Auch der außen liegende native Transkriptpfad wurde durch ctx_execute_file abgewiesen und nicht erneut über einen anderen Weg gelesen. Eigene Produkt-/Prüflogs und native reguläre Ergebnisrückgabe bleiben zulässig. Kein Hook-, Rechte- oder Wrapperumbau.
+
+## Historische Fortsetzung 21:00 mit tatsächlichem Fehlernachweis
+
+Neuer G-Thread ee3de2ba-30ab-4558-a57c-6c1de154891e im vorhandenen Worktree gestartet. CWD, Branch, HEAD 8feb8b6e, leerer Index und erhaltenen WIP tatsächlich geprüft. Quellenmanifest 11/12 gleich; einzig combat.rs wegen der bekannten 180 Testzeilen verändert, SHA256 4c8b1376f3b7587e2eb006403f9b8b6e05d96a973894e1741aa5de419f157f28. Alter Writer und Workflow bleiben beendet. Keine fremde Sessionverwaltung.
+
+Die alte Logauswertung ist jetzt im korrekt gebundenen Worktree gelungen. test-vor-fix.log belegt error[E0609] in combat.rs:3478: DamageModifiers besitzt kein Feld resistances. Der Compiler stoppte mit Exit 101, kein Testfall wurde ausgeführt. Das ist keine Cargo-Start- oder neue Produktzugriffssperre. Drei erhaltene Regressionen und zwei Helfer bleiben ungeprüfter Test-WIP; beide Produktkerne sind noch offen. Eine kontrollierte Zeitbasis der 60-Sekunden-Deadline ist bisher nicht belegt.
+
+Erster Workflow we899a9xq / wf_a74b258f-f61 durch G regulär gestoppt, nachdem Runde 2 und 3 denselben fehlenden Testuhranschluss als Scopeblocker zurückgaben. Kein Gateurteil aus diesen Runden, kein Commit oder Push. Runde 1 lieferte beide Produktfixes als combat.rs-WIP und korrigierte den Testhelfer. Tatsächlich gelesene Teilproben: Stack 2 passed/0 failed/0 ignored, explizites Shred 1 passed/0 failed/0 ignored; Compiler/Clippy/Format Exit 0 auf WIP. Die vollständige Duplikat-/S2-Abnahme fehlt noch. Nach TaskStop HEAD 8feb8b6e, leerer Index und alle sechs Sourcehashes erneut geprüft; Combat nun d8a34a344238977c7eab261c14cdc66a880345c41b87a8695ca79c2052652c18, ursprünglicher übriger WIP unverändert.
+
+G hat die nötige kompatible Testuhrergänzung in seinem bestehenden brain-contracts/src/deadline.rs ausdrücklich freigegeben. after/remaining/check/wait/expires_at/cancel und Klonbindung bleiben, Produktionsstandard bleibt monotone Systemzeit; kein Modell-, Timeout-, Requestbudget- oder Rechtewechsel. Frischer Workflow wck1q4g81 / wf_f845def0-25a mit geerbtem Modell und xhigh gestartet. Exklusiv deadline.rs/combat.rs samt unmittelbaren Fällen. Nur echte reguläre Gate-BLOCKs führen zu frischem Fixer, fehlende Voraussetzungen stoppen separat statt identisch wiederholt zu werden. Voller S2-Gate gegen S1 mit gpt-6.1-sol. Briefing G/BRIEFING-G-M-S2-ZEITBASIS-2135.md, Belege g-m-s2-zeitbasis-2135, Wache 00a53342 um 22:05 CEST. Elternsession ohne Git-Schritte während der Workerarbeit. Noch kein committed S2-Beweis, ALLOW oder Origin-Sicherung.
+
+Lesender G-V-Workflow wqg72jmc6 abgeschlossen, Rückgabe tatsächlich konsumiert und in G/G-V-FORTSETZUNG-BESTAND.md übernommen. K hat am geprüften committed Referenzstand die Providerwrapper bereits vollständig delegiert; nicht doppelt bauen. E/I hat den echten rungebundenen Receipt und globale Arten bereits committed geliefert, im geprüften G-/lokalen-main-Stand aber noch nicht integriert. F-Toolbudget/Imbues/ursprüngliche Deadline/strukturierte Kaufauswertung und echter Produktionsverifier bleiben im geprüften committed F/I-Vertrag offen. Kein zweiter Planer oder Herkunftsshim. analytics_runtime-Eigentum nicht freigegeben. Produktions-Toolport und GameContextResolver sind im geprüften G-Stand bislang nur Fixtures; das ist reale Anschlussarbeit, kein Dokumentationsabschluss.
+
+ENTSCHEIDUNG-PARALLEL-FERTIGSTELLEN.md und korrigierte Datenschutzentscheidung tatsächlich gelesen. Starre Spiegel/F/G/K-Mergefolge aufgehoben; G liefert geprüfte Verträge unabhängig und schließt auf dann aktuellem main regulär bis live ab. K besitzt zentrale Antwortverdrahtung, I Spiegel und Planer. analytics_runtime bleibt bis ausdrücklicher I-Übergabe geschützt. Für Luna gilt minimaler bereinigter Antwortkontext unter echter Rollenbindung, ohne Discord-/Steam-IDs, Mitgliederlisten oder fremde Personendaten. Rohdaten an Codiermodelle bleiben verboten. S3/S4 und G-V folgen im erhaltenen Stand; Q bleibt ungestartet.
+
+Ein ctx_execute_file-Aufruf auf die außerhalb des G-Projektroots liegende globale ABLAUF.md wurde separat abgewiesen. Keine Wiederholung, kein Toolwechsel oder Regeländerung für diesen Zugriff. Die ausdrücklich gelieferten Ablauf- und Paketregeln gelten unverändert; eigener Produkt- und Logzugriff wurde tatsächlich bestätigt.
+
+## Historischer Stand: cargo-slot startet, context-mode blockiert Zahlen-/Fehlernachweis
+
+Frischer Workflow wunjz2v6f / wf_5503ece4-336 tatsächlich abgeschlossen. Cargo-Testaufruf über den neu zugelassenen Wrapper gestartet, Exit 101; anschließend ctx_execute_file für G/pruefungen/g-m-s2-cargo-slot/test-vor-fix.log abgewiesen, weil der zugewiesene Worktree außerhalb des weiterhin kanonischen Pluginroots /home/nathanael/repos/Deadlock-Brain liegt. Kein anderer Zugriffsweg oder weiterer Fixer. Testzahlen und Fehlerursache nicht verifiziert; ein gestarteter Testfall wird nicht behauptet. laufstatus.json mit tatsächlichem Befehl, Exit und Deny durch Bereichsführung gelesen.
+
+Drei unmittelbare Regressionen und zwei Testhelfer ungeprüft/uncommitted ergänzt. Bereichsführung las den vollständigen Diff gegen combat-start.rs: 180 zusätzliche Testzeilen, Produktlogik unverändert, beide Fachkerne offen. HEAD weiterhin 8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206, Status und leerer Index tatsächlich bestätigt; elf der zwölf bisherigen Quell-/Fixturefingerprints unverändert, ausschließlich combat.rs nun 4c8b1376f3b7587e2eb006403f9b8b6e05d96a973894e1741aa5de419f157f28. Fünf frühere Fixcommits und S3/S4-WIP erhalten. Kein neuer Compiler-/Clippy-/Formatbeweis, Gate, Commit oder Push. Wache b5dfc4ab gelöscht, keine aktive eigene Produktarbeit.
+
+Präzise Eskalation: G/G-M-S2-CARGO-SLOT-SPERRE.md. Empfehlung an Harness-/Regel-Eigentümer: ausdrücklich freigegebenen eigenen Worktree auch für context-mode-Logauswertung zulässig zuordnen, Git-/Host-Isolation erhalten. G ändert keinen Schutz und baut keinen Ersatzweg. Danach im erhaltenen Stand fortsetzen; gesicherter S3-Featurevertrag für F/I/K, S3/S4 und Gesamtabschluss bleiben offen. Private Verarbeitung bleibt unabhängig davon gesperrt.
+
+MERGEPROTOKOLL[MS-1]: 3 Git-Schritte einzeln | Anläufe: 0 | Gate: nicht ausgeführt; Logauswertung blockiert
+
+## Neuer Weiterbau im erhaltenen G-Worktree
+
+ENTSCHEIDUNG-WEITERBAU-2015.md, Vorrangabschnitt PAKETE.md und BLOCKER-PRUEFWEG.md tatsächlich gelesen. Frühere FD/flock-Anweisungen sind abgelöst; ausschließlich cargo-slot für neue Cargo-Prüfungen. Worktree, Branch, fünf Fixcommits und S3/S4-WIP erhalten. Start-HEAD 8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206 und zwölf Quellfingerprints zuvor durch Bereichsführung erneut bestätigt. Spiegel/F/G/K bleibt Abschlussreihenfolge; Gs geprüfter Featurevertrag für F wird unabhängig vorbereitet. Private Verarbeitung bleibt gesperrt und blockiert die getrennte öffentliche Lieferung nicht. analytics_runtime bleibt bis Is expliziter Übergabe gesperrt.
+
+Frischen nativen coder-Fixer mit geerbtem Modell und freigegebenem xhigh beauftragt: Workflow wunjz2v6f / wf_5503ece4-336, Startaufruf um 20:00 lokal. Briefing G/BRIEFING-G-M-S2-CARGO-SLOT.md, Textchecker Exit 0. Exklusiv combat.rs und unmittelbare numerische Fälle, eigene Nachweise g-m-s2-cargo-slot. Elternsession ohne Git-Schritte während des Laufs. Beide bestätigten Restkerne, tatsächliche numerische Prüfung und voller S2-Gate gegen S1 mit unverändert gpt-6.1-sol; Featurepush erst nach passenden Nachweisen und ALLOW. S3/S4 folgt nach konsumierter Rückgabe. Wache b5dfc4ab um 20:26 lokal. Keine neue Testzahl, Codeänderung, Gate- oder origin-Sicherung behauptet.
+
+Neue reine Inspektionsgrenze: context-mode verweigert der Bereichsführung den Zugriff auf das eigene Workflowjournal außerhalb seines weiterhin kanonischen Projektroots. Kein anderer Werkzeugweg für diese verweigerte Datei. Der Workflowstart selbst ist bestätigt, native Agent-ID und Werkzeugfortschritt dadurch noch nicht nachgeprüft. Das ist keine beobachtete Produkt- oder Cargo-Sperre des Fixers. Automatische Workflowrückgabe bleibt der reguläre Ergebnisweg.
+
+## Historische Prüfsperre vor Umsetzung
+
+Der genau eine autorisierte frische Restkernfixer ist abgeschlossen, ohne Quelländerung oder Teststart. Der veröffentlichte FD/flock-Slotloop wurde einmal von Worktree-Isolation abgewiesen: `this command runs exec inside a construct too complex to verify`. Vollständiger unveränderter Deny in der nativen Rückgabe unter wf_c0bc5cf3-ded/journal.jsonl:3, exakter verweigerter Befehl in `G/pruefungen/g-m-s2-restkern/slot-denied-command.txt`. Bereichsführung extrahierte diesen einen tatsächlichen Deny aus dem vorhandenen Transkript und bestätigte weiterhin HEAD 8feb8b6e sowie Quellenmanifest 12/12. Keine Wiederholung, Ersatzwege, Hook-/Settingsänderung oder weitere Workerübertragung.
+
+Fehlende beauftragte Beweisziele: Stackbonus mit/ohne Shred, explizites Szenario ohne Doppel-Shred und doppelte Item-IDs über beide öffentlichen Simulationseingänge. Kein Cargo-Exit oder Testzahlen, kein neuer Compiler-/Clippy-/Gate-Lauf, Commit oder Push. Beide Restkerne bleiben offen. Empfehlung an Harness-/Regel-Eigentümer: bestehenden veröffentlichten Slotweg mit der Worktree-Befehlsprüfung vereinbar machen, ohne Git-Isolation zu umgehen; G baut keinen Wrapper und ändert keinen Hook. Bericht `G/G-M-S2-PRUEFSPERRE-NACHWEISE.md`. Wache 3c9d3ecd gelöscht. S3/S4 und Gesamtabschluss weiter offen; keine aktive eigene Produktarbeit, Runtime, Cleanup oder Settle.
+
+MERGEPROTOKOLL[MS-1]: 6 Git-Schritte einzeln | Anläufe: 0 | Gate: nicht ausgeführt; Prüfsperre
+
+## Begrenzte Fortsetzung tatsächlich autorisiert und gestartet
+
+Direkte Entscheidung des Delegators und ENTSCHEIDUNG-G-S2-RESTKERN.md tatsächlich gelesen. Genau ein frischer nativer Fixer für beide bestätigten combat.rs-Kerne um 17:43 lokal gestartet, Workflow wncl0gm5w / wf_c0bc5cf3-ded. Start-HEAD 8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206 und Endmanifest 12/12 vor Start durch Bereichsführung erneut geprüft. Alle fünf Fixcommits, S3/S4-WIP und Originalfixtures erhalten. Exklusiv combat.rs und unmittelbar numerische Fälle, keine I-/K-Dateien oder zentrale Akten.
+
+Numerische Prüfung jetzt ausdrücklich verlangt. Bestehender dreifacher FD/flock-Slotvertrag in ABLAUF.md und HOSTPROBE.md durch Bereichsführung nachgelesen; kein Wiederholen der früher abgewiesenen Release-flock-Testform, kein Ersatzweg. Bei tatsächlicher Sperre genauer Deny und fehlendes numerisches Beweisziel. Anschließend voller S2-Gate gegen S1 mit unverändert gpt-6.1-sol. Nur tatsächliches ALLOW mit passenden Nachweisen gestattet S2-Sicherung und anschließende erhaltene S3/S4-Fortsetzung. Noch kein Ergebnis oder neue Freigabe. Wache 3c9d3ecd um 18:08 lokal. Kein Main-/Runtime-/Liveabschluss.
+
+## Blocker nach fünf frischen Fixrunden: zwei Semantikkerne
+
+Restcheckpointworker tatsächlich abgeschlossen. Lokaler HEAD `8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206`, sechs S2-Gateanläufe gegen S1, fünf frische native Fixer. Letzter Rohgate gelesen, Exit 1: `[gpt-6.1-sol] BLOCK: stack damage skips shred, and duplicate items replay effects.` Committed Compiler/striktes Clippy Exit 0, Formatcheck laut Endbeleg Exit 0. Tests nicht ausgeführt. Bereichsführung bestätigte Commitkette, Prüfbaum-HEAD, leeren Index, Quellenmanifest 12/12 und origin weiterhin S1 `bd83d7ab`; kein S2-Push.
+
+Nach Graphify zwei Restkerne am Arbeitsquelltext bestätigt: Stackbonus in combat.rs:1927 erhält im Default-Planerpfad keinen bullet_shred, obwohl der Bulletanteil ihn enthält; beide simulate_calculation-Eingänge reichen doppelte Item-IDs ohne evaluate_cores vorhandene Normalisierung an alle Effektzustände weiter. Empfehlung: eng begrenzte frische Fortsetzung dieser beiden Kerne in combat.rs, bestehende Normalisierung und Schadensstufen wiederverwenden, danach derselbe volle S2-Gate gegen S1 mit gleichem Urteilmodell. Keine neue Runde aus der automatischen Rückgabe abgeleitet, kein Ersatzbau.
+
+Beleg `G/G-M-S2-BLOCK-NACHWEISE.md`, Rohabschluss `G/pruefungen/g-m-checkpoints-r2/endstand.txt`. Erhaltene fünf Fixcommits nicht verwerfen. S3/S4 nicht begonnen; kein gesicherter öffentlicher Rechenkernvertrag für I/K. Kein aktiver eigener Produktwriter, Main-/Runtime-/Liveabschluss oder Settle. Origin-Port-/Provider-/Kernelvertrag bleibt über den bereits gesicherten S1-Vorfahren verfügbar. Wache 2c0c63e6 gelöscht. Diese Meldung ist die beauftragte Eskalation nach fünf erfolglosen Runden, keine Runde-für-Runde-Meldung.
+
+MERGEPROTOKOLL[MS-1]: 163 Git-Schritte einzeln | Anläufe: 6 | Gate: gpt-6.1-sol BLOCK; kein Main-Merge
+
+## Autorisierte Übernahme, Featurevertrag für I/K priorisiert
+
+Auftrag des Delegators `481426fe-b477-42b3-91c6-901811fcba1d` unter Haupt-Orchestrator `d3a1741e-82bc-4a48-865b-2845c663dca7` übernommen. Verbindliche `PAKETE.md` unter `.tasks/2026-10-07-brain-fertigstellung-astra/` tatsächlich gelesen. Vorhandener Worktree/Branch erhalten; G-K-R4 und enger Verbraucherfixturefix inzwischen tatsächlich abgeschlossen. Anschließende Reasonercheckpointarbeit nach fünf frischen Fixrunden mit S2-BLOCK beendet, kein aktiver eigener Produkt-/Gitworker.
+
+Receipt/globale Arten und Fs zusätzlicher reiner Planeingang sind jetzt I verbindlich zugeordnet. entity_profile.rs und brain-serve/analytics.rs sind G begrenzt freigegeben. analytics_runtime bleibt bis Is dokumentierter Eigentumsfreigabe gesperrt. K besitzt zentrale Antwortverdrahtung/Consumer, Q baut P0-Evaluation separat. G liefert geprüften gesicherten Rechenkern-Featurevertrag zur geordneten Übernahme durch I/K, ohne Main-Abhängigkeit oder fremden WIP. Checkpointbriefing `G/BRIEFING-G-M-CHECKPOINTS.md`; vorher den bestätigten kleinen Verbraucherfixturebruch nachziehen.
+
+Gemeinsame neue Datenschutzgrenze übernommen: Nutzer-/Community-Daten MUST NOT an externe Anbieter oder externe Codiermodelle, auch nicht über Loopbackproxy. Gs numerische Original-API-Proben sind öffentliche Spieldaten. Echte private beziehungsweise Community-Serverinhalte werden nicht für externe Modellabnahmen benutzt; K muss diese Grenze im gemeinsamen Consumer-/Antwortanschluss erhalten. Browserarbeit ausschließlich über Moli nach dem beauftragten Guide; die beobachteten Brave-Testvoraussetzungen werden nicht durch einen persönlichen Browser behoben.
+
+Nach integrierter eigener Abnahme und ALLOW bleibt G für Merge, regulären Deploy, Neustart, Livebeweis, Cleanup und letztes `settle --selbst` zuständig. Kein Runde-für-Runde-Chat und kein vorzeitiger Abschluss.
+
+## Provider-/Kernelumfang gemeinsam ALLOW, Rechenkernsicherung gestartet
+
+Regulärer Gate `a656862996661275092440d4f3bcd11534f0889e..dbce14aedadd94881a3cb21151d9840994094cd9`, Task `bejusihil`, tatsächlich Exit 0: `[gpt-6.1-sol] ALLOW: No blocking defect established by the supplied code.` Log `/tmp/brain-g-provider-kernel-gesamt-r4-gate-20261007.log` gelesen. R4 bindet die vollständigen geprüften Werkzeugbelege an Eingabezählung und beide konkreten Provider; sechs Anschlussfälle mit echtem HTTP-Loopback bestanden. Zusammen 181 passed/25 failed/0 ignored, 423/423 Quellbindung bestätigt. Der vorhandene Panel-/Dokufall ist ohne Produktionsparser- oder Assertionänderung repariert, Commit `dbce14ae`, Zielcase 1 passed/0 failed/0 ignored/47 filtered und Fixturegate ALLOW. Berichte G-K-R4-NACHWEISE.md und G-VERBRAUCHER-FIXTURE-NACHWEISE.md.
+
+Gate-NIT für K: Erstturn-Anfragefreigabe ohne Werkzeugabhängigkeiten muss bei eigenen Provideradaptern Teil des Autorisierungsvertrags bleiben. Beide konkreten Provider lehnen fehlende Freigabe ab. Kein BLOCK und kein neuer Connector. Geprüfte Signaturen und konkreter Wrapperbedarf stehen in `G/ANTWORTPORT-VERTRAG.md`: Der G-Stand delegiert im bestehenden Serve-Enum bisher nur answer und erzeugt den Kernel ohne Toolbindung; K integriert die accounted-/Turnmethoden und den gelieferten G-V-Port im eigenen Bereich. Keine Aussage über inzwischen veränderte K-Quellen. Deterministischer F/G-V-Produktionsadapter sowie integrierte G-Abnahme bleiben offen; dieses ALLOW ist kein Gesamt-G-, Main- oder Liveabschluss.
+
+G-M-Checkpointarbeit `wyiyh90dz` / `wf_180de5c8-fe5` tatsächlich abgeschlossen. F1 `bd1284acd34f9eafaf4a376a9d10b1c30c9494f0` und F2 `2b67796fb80ae3440a0c9e76671dfc8169032844` je isolierter committed Compiler/Clippy Exit 0, regulär ALLOW und gesichert. Bereichsführung bestätigte origin-F2 und dbce14ae als dessen Vorfahren, beide Exit 0. Dadurch sind die vorhandenen gemeinsamen Port-/Provider-/Kernelquellen gesichert; ihr Vertrag steht in G/ANTWORTPORT-VERTRAG.md. Kein gesicherter Rechenkern aus bloßen Testfixtures.
+
+Finales S1 mit Boolfix und endlichem Waffenratenfix `bd83d7abdef812a30daa47aa5f6a78de4f42263a` ist committed, isoliert Compiler/striktes Clippy Exit 0 und gemeinsam gegen F2 regulär ALLOW. Bereichsführung las Fixdiff, tatsächliche Befehle und Rohgates, bestätigte aktuelles Quellenmanifest 12/12 und origin-bd83d7ab per eigenem ls-remote, Exit 0. Drei R2-Tests wurden nach einmaliger Slotablehnung nicht ausgeführt; keine Wiederholung oder direkter Ersatzweg. R1s drei tatsächlich bestandene Tests samt damaliger Slotwegabweichung bleiben im eigenen historischen Nachweis. Bericht `G/G-M-S1-R2-NACHWEISE.md`. Neuer Gate-NIT zu negativen Burstzyklen ist durch Bereichsführung nicht am Quelltext verifiziert, kein BLOCK und kein erledigter Fix.
+
+Restcheckpointworker S2/S3/S4 wurde um 15:04 lokal gestartet und ist nach fünf frischen Fixrunden mit weiterem S2-BLOCK abgeschlossen. S3/S4 nicht begonnen; Eskalation und verifizierte Restkerne stehen am Anfang dieser Akte. `G/RECHENKERN-VERTRAG.md` bleibt ohne gesicherten öffentlichen S3-Lieferstand für I/K. Kein Main- oder Liveabschluss.
+
+## I-Vertragsstand gelesen, noch keine Übernahme
+
+Is aktuelles REGISTER.md unter `.tasks/2026-10-07-i-integration/` am eigenen E-Worktree gelesen. I meldet Receipt/Globals ALLOW auf Featurestand `4b8db3950f8246aa2612ea07f55c7bb5deb4a2a3`, aber einen weiteren BLOCK zur dauerhaften Originalwiederverwendung und Konfiguration; frischer Fixer aktiv. Kein finales E-Gesamt-ALLOW, kein Main-/Liveimportabschluss daraus. F weiterhin `46fd8674`; F/G-Anschluss noch offen. Dieser gelesene Status ist kein eigener G-Quell-/Originbeweis und keine Übernahme fremden WIPs. analytics_runtime nicht freigegeben. Gs geprüften S3-Vertrag unabhängig weiterliefern.
+
+## Buildschutzdelta ALLOW, gemeinsamer Gate vor R4 BLOCK
+
+G-K-R3 tatsächlich abgeschlossen, Commit `b352472f`. Contracts/Kernel 144 passed/18 gleiche failed/0 ignored, letzter Buildschutzlauf zehn bestandene Fälle. Bereichsführung prüfte echte Gate-/Exitdateien und 423/423 Quellenbindung. Delta regulär ALLOW; echter F/G-V-Buildadapter weiterhin offen. Bericht `G/G-K-R3-NACHWEISE.md`.
+
+Gemeinsamer regulärer Gate `a6568629..b352472f`, Task `b32iv233a`, tatsächlich BLOCK: angesammelte Werkzeugbelege gehen an drei Stellen als leerer Slice in Eingabezählung und konkreten Provider. Befund am Quellpfad bestätigt; neue frische Fixrunde G-K-R4 vorbereitet. Bisherige Delta-ALLOWs sind kein gemeinsames ALLOW.
+
+**Begrenzte Prüfgrenze vor Bearbeitung:** G-K-R4 erhält Kernel-execution.rs samt unmittelbaren Kerneltests und einen konkreten Provideranschlusstest im bestehenden `brain-serve/tests/`-Bereich. Dieser Bereich hat die benötigten Kernel-/Providerabhängigkeiten schon, kein neuer Manifest- oder Connectorpfad. Beide konkreten Provider mit echtem HTTP-Loopback und Toolresult/Folge-/Finalturn prüfen. Keine Serve-Produktdatei, E/F-Datei, Runtime, Konfiguration oder Liveproviderwirkung. Originalmodellprobe bleibt separate Abnahme.
+
+Verbraucherlauf 414 passed/14 failed nachgelesen: ein nachgewiesener eigener Fixturebruch, dreizehn fehlende Laufvoraussetzungen. Der große Panel-/Dokufall bestand ursprünglich und scheitert jetzt, weil seine Loopbackantwort keinen vom Turnparser verlangten finish_reason enthält. Enger frischer Fixturefix vorbereitet: ausschließlich diese Testantwort in discord_live.rs, ohne Git-Schreibrecht; parallel zum getrennten R4-Dateieigentum zulässig. Der Commit folgt erst nach tatsächlicher R4-Rückgabe. Produktionsparser und Budgetassertionen bleiben unverändert. Die anderen Fälle fehlen wegen Scratchsockel/Pilot-DB, Brave-Zugang, SecretSource oder ausdrücklicher Livefreigabe; keine pauschale Altfehlerbehauptung. Bericht `G/VERBRAUCHER-R3.md`. Reasoner-WIP erhalten, kein zweiter Schreiber. G-V-Vertragslieferungen unten unverändert benötigt; kein Main-/Liveabschluss.
+
+## Zweckfix ALLOW, begrenzter Buildnachweisanschluss aktiviert
+
+Kernelfixer G-K-R2 tatsächlich abgeschlossen: Commit `3242fb36`, Zweckdelta regulär ALLOW. Bereichsführung bestätigte 61 passed/18 gleiche Baselinefehler/0 ignored und 46/46 Quellenbindung, Exit 0. Lesen, Modellweitergabe und Veröffentlichung sind im Werkzeugweg wieder getrennt. **Ein BLOCK bleibt offen:** deterministischer Buildschutz. Bericht `G/G-K-R2-NACHWEISE.md`.
+
+**Begrenzte Vertragsgrenze vor Bearbeitung:** neuer frischer Fixer darf ausschließlich im vorhandenen `brain-contracts/src/tools.rs` einen kompatiblen typisierten Prüfanschluss am vertrauenswürdigen Toolport ergänzen und im bestehenden Kernel samt Cache/Flight konsumieren. Prüfung erhält das tatsächliche BuildPlan-Ergebnis; gebundener Nachweis bleibt bei Wiederverwendung prüfbar. Ohne Implementierung sicher ablehnen. Keine neue Ergebnisform erfinden, keinen zweiten Planer oder synthetische Quellenrechte bauen. G-V bindet später Fs tatsächlichen reinen Buildvertrag daran an. Provider-/Reasonerbereiche bleiben unverändert; keine anderen Vertragswriter aktiv.
+
+Lesende Reasoner-Checkpointkarte ist ebenfalls zurückgegeben: `G/CHECKPOINTS.md`. Originalfixtures separat unverändert, dann vier statisch abgegrenzte Quellpakete. Zwischenstände werden wirklich compilergeprüft; kein Mainmerge bloß für Reviewgröße oder Stop-Hook.
+
+## Providerfix ALLOW, Kernelfix läuft
+
+Frischer Providerfixer hat `1b5ea452` committed und seinen Fixdelta regulär geprüft: `[gpt-6.1-sol] ALLOW: No blocking defects found in the supplied diff and revision snapshots.`, Exit 0. Bereichsführung bestätigte Sourcegleichheit und tatsächliche 44 bestandene Providerfälle, 0 failed/ignored. Kein Main oder Gesamt-G-ALLOW daraus abgeleitet.
+
+Frischer Kernelfixer tatsächlich gestartet: `w6qizlk2u` / `wf_4795365a-b3c`, nur bestehender Kernelbereich. Er erhält die beiden bestätigten Funde zu Buildschutz und getrenntem Ausgabezweck, nicht der ursprüngliche Implementierer. Reasoner unverändert, kein zweiter Writer. G-V-Vertragsbedarf unten bleibt konkret offen.
+
+## Produktgate: Vertrag ALLOW, Provider-Fixrunde 2
+
+Vertrag/JSON `a6568629` regulär ALLOW (`bb90g3oe3`), derselbe committed Stand ohne übrigen WIP im eigenen Prüfworktree erfolgreich kompiliert (`bigvf8ywu`, Exit 0). Provider `4f42c209` regulär BLOCK: begrenztes Lesen eines fehlerhaften 429/5xx-Diagnosekörpers beendet noch den Retryloop. Befund am Quellpfad bestätigt. Frischer Fixer `wrq0z0aau` / `wf_670d3b4c-132` besitzt ausschließlich Providertransport/Tests, einschließlich gezieltem Featurecommit und Fixgate; ursprünglicher Implementierer bekommt die Funde nicht. Kernel `45f51d6f` committed, erster Gateprozess nach zu kurzem eigenen Werkzeugfenster beendet, kein Urteil; unveränderter Retry `bgky63ys3` gestartet. Kein Main oder Produktpush vor behobenem BLOCK. Mängelliste `G/REVIEW.md`.
+
+Kernelretry ist nun regulär BLOCK: Toolpfad umgeht den deterministischen Buildschutz und verliert den Ausgabezweck InternalRead/ForPublication. Beide Funde am Code bestätigt, Mängelliste ergänzt. Frischer Kernelfixer G-K-R2 vorbereitet, Start nach tatsächlicher Provider-Rückgabe zur zeitlich exklusiven Featurecommit-Abwicklung. Striktes Reasoner-Clippy samt aktualisiertem Fehlervertrag inzwischen Exit 0; früherer Abhängigkeitslint behoben, ohne Unterdrückung.
+
+E inzwischen am committed Stand `8917a5c7` nachgeprüft: Pflichtpayloads dürfen nicht leer sein. Die Änderung ergänzt keinen Receipt und keine globalen Arten; unten gemeldeter G-V-Vertragsbedarf bleibt bestehen. F committed weiterhin `46fd8674`; kein fremder WIP kopiert. G hält keine fremden Build-/Deploy-Wartefenster.
 
 ## Rechenkern und Fehlerabrechnung zurückgegeben
 
