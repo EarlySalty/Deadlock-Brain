@@ -567,8 +567,8 @@ pub fn item_model_from_payload(payload: &Value) -> Result<ItemModel> {
             .unwrap_or(false),
         disabled: payload
             .get("disabled")
-            .or_else(|| payload.get("IsDisabled"))
             .and_then(Value::as_bool)
+            .or_else(|| payload.get("IsDisabled").and_then(Value::as_bool))
             .unwrap_or(false),
         damage_axis: DamageType::None,
         defense_kind: Vec::new(),
@@ -2427,6 +2427,64 @@ mod tests {
     }
     use super::*;
     use sqlx::postgres::PgPoolOptions;
+
+    #[test]
+    fn item_converter_disabled_falls_back_after_missing_or_non_boolean_value() {
+        let raw = combat_raw("Glass Cannon");
+        for alias in [false, true] {
+            let mut payload = raw.clone();
+            payload.as_object_mut().unwrap().remove("disabled");
+            payload["IsDisabled"] = serde_json::json!(alias);
+            assert_eq!(item_model_from_payload(&payload).unwrap().disabled, alias);
+            for value in [
+                serde_json::json!(null),
+                serde_json::json!(0),
+                serde_json::json!("false"),
+                serde_json::json!([]),
+                serde_json::json!({}),
+            ] {
+                payload["disabled"] = value;
+                assert_eq!(item_model_from_payload(&payload).unwrap().disabled, alias);
+            }
+        }
+    }
+
+    #[test]
+    fn item_converter_disabled_keeps_explicit_boolean_precedence() {
+        let raw = combat_raw("Glass Cannon");
+        for disabled in [false, true] {
+            for alias in [false, true] {
+                let mut payload = raw.clone();
+                payload["disabled"] = serde_json::json!(disabled);
+                payload["IsDisabled"] = serde_json::json!(alias);
+                assert_eq!(
+                    item_model_from_payload(&payload).unwrap().disabled,
+                    disabled
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn item_converter_disabled_defaults_without_valid_boolean() {
+        let mut payload = combat_raw("Glass Cannon");
+        payload.as_object_mut().unwrap().remove("disabled");
+        payload.as_object_mut().unwrap().remove("IsDisabled");
+        assert!(!item_model_from_payload(&payload).unwrap().disabled);
+        for value in [
+            serde_json::json!(null),
+            serde_json::json!(1),
+            serde_json::json!("true"),
+            serde_json::json!([]),
+            serde_json::json!({}),
+        ] {
+            payload["IsDisabled"] = value.clone();
+            assert!(!item_model_from_payload(&payload).unwrap().disabled);
+            payload["disabled"] = value;
+            assert!(!item_model_from_payload(&payload).unwrap().disabled);
+            payload.as_object_mut().unwrap().remove("disabled");
+        }
+    }
 
     #[test]
     fn null_or_false_imbue_marker_is_not_imbueable() {
