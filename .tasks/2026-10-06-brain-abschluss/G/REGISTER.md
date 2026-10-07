@@ -6,9 +6,31 @@ status: aktiv, 07.10.2026
 
 - Auftrag: `.tasks/2026-10-06-brain-abschluss/BRIEFING-G.md`; Haupt-Orchestrator `3fcd8f71-443e-48ae-825c-527eb52fbe56`, Kommunikation über die Akte.
 - G-Thread laut Steuerung `a867ef50`; native Session `030a7b6f-d25c-482d-b66c-68185cd05dbb`, Modell `gpt-6.1-sol[1m]`, bestätigte UltraCode-Workflowstarts mit Effort `xhigh`.
-- Worktree `/home/nathanael/.worktrees/brain-g-v2-20261007`; Branch `feat/brain-v2-g-20261007`; Basis `bfda408cb988722ddceadb56bca5b72e12d12731`, HEAD `3d6890c0`. Dokumente und beide G0-Produktcheckpoints sind nach regulärem ALLOW auf origin gesichert. Laufender Rechenkern-/Provider-/Kernel-WIP ist davon nicht abgedeckt.
+- Worktree `/home/nathanael/.worktrees/brain-g-v2-20261007`; Branch `feat/brain-v2-g-20261007`; Basis `bfda408cb988722ddceadb56bca5b72e12d12731`, HEAD `1f5ed30f`. Dokumente und beide G0-Produktcheckpoints sind nach regulärem ALLOW auf origin gesichert. Laufender Rechenkern-/Provider-/Kernel-WIP ist davon nicht abgedeckt.
 - Statusproduzent: Bereichsführung G. Kein zusätzlich vergebener zentraler Versuch; keine erfundene Nummer. Keine weiteren T3-Threads.
 - Wirkung: Featurearbeit und lokale Prüfungen. Release-Hold sperrt Main-Push, Release-Build, Install, Neustart und produktiven Tick. Kein Settle bei offener Arbeit.
+
+## G-M/G-K zurückgegeben, Fortsetzungen getrennt
+
+G-M-Abschlussmeldung tatsächlich übernommen. `G/G-M-NACHWEISE.md` enthält reine APIs, Zahlen-/Fixturegrenze und offene Mechanik. Bereichsführung bestätigte Testmarker: Rechenlauf 17 passed als Teilabdeckung, isolierte Suite 303 passed/5 failed/0 ignored, Baseline 287 passed/4 failed. Neue rote Fixtureannahme im Planertest wird zuerst nachvollziehbar nachgezogen; keine Produktplanung geändert. Vor Bearbeitung ist diese eng begrenzte Testgrenze in Hauptübergabe gemeldet. Fortsetzung `wq8uvf8ah`, Run `wf_fca62072-53f`, ergänzt Wachstum und die acht rekonstruierten Sheetstellen im vorhandenen Kern. Vorheriger Schreiber beendet.
+
+G-K-Abschluss übernommen und Rohbelege geprüft: 49 passed/18 failed/0 ignored gegenüber Baseline 34 passed/18 failed. Fehlernamensmengen identisch; 32 bestandene Zustandsfälle sind Teilabdeckung, keine zusätzliche Gesamtsumme. Format/Clippy/Compiler/Verbraucherexits grün. Sieben von acht Fingerprints stimmen, darunter alle fünf Kerneldateien; der laufende JSON-Worker hat seit der Prüfung `provider_input.rs` erweitert. Neues Integrationscheck nötig. Anschluss `G/G-K-NACHWEISE.md`. Typisierte Fehlerabrechnung für gemessene Usage bleibt notwendige nächste Vertragslieferung und startet erst nach tatsächlichem JSON-Workerabschluss. Kein zweiter Brain-Vertragsschreiber.
+
+## G-P abgeschlossen, JSON-Abnahme in begrenzter Fortsetzung
+
+Task `w5pqkkyxv` meldete tatsächlichen Abschluss mit konkreter JSON-Vertragslücke. Bereichsführung prüfte 29 bestandene Fälle, Baseline 19 bestandene Fälle, jeweils 0 failed und 0 ignored; vier Abschluss-Exits 0 und sieben unveränderte Quellenfingerprints. Beide Wireformen akzeptieren doppelte Argumentnamen mit letztem Wert; Originalprobe und beide Logzeilen gelesen. Bericht `G/G-P-NACHWEISE.md`. Kein Produktgate oder Commit dieses noch unvollständigen Standes.
+
+Frischer nativer Worker `wvlm6fn18`, Run `wf_89eb7717-56e`, bekommt die vorher gemeldete begrenzte Vertrags-/Providergrenze aus `G/BRIEFING-G-P-R1.md`. Die vorhandene Strict-JSON-Implementierung wird einmal im bestehenden gemeinsamen Vertragsbereich benutzt, der bisherige Source-Eingang bleibt kompatibler Delegationsadapter. Keine Änderungen an Es Import, API-Pins oder Analytics und keine neuen Crate-/Manifestabhängigkeiten. G-K/G-M weiterhin getrennt; ursprünglicher G-P und G0 schreiben nicht mehr.
+
+`G/BRIEFING-G-M-0645.md` war bei G-P-Abschluss nur vorbereitet. Nach tatsächlichem G-M-Abschluss gegen die Rückgabe abgeglichen und als `wq8uvf8ah` gestartet; kein zweiter Reasonerschreiber.
+
+TESTNACHWEIS[TW-1]: 29 passed, 0 ignored | Baseline: 0 rot
+
+## Dokumentcheckpoint 1f5ed30f
+
+Acht eigene Dokumentdateien mit Sheetrekonstruktion, Vertrags-/Workerstand und zurückgenommenem Grafik-Roadmapeintrag committed und Featurepush bestätigt. Produkt-WIP wurde nicht gestaged. Regulärer Gate gegen `3d6890c0`, Task `bazy14e4k`, Exit 0: `[gpt-6.1-sol] ALLOW: no reviewable changes`. Log `/tmp/brain-g-sheet-scope-gate-20261007.log`; kein Produktreview daraus abgeleitet. Drei schreibende Git-Einzelschritte, kein Mainbezug. Gemeinsame Steuerung nachgelesen: Punkt 5 enthält den Nachtrag 06:55. E/F-Akten und Releasefenster weiterhin ohne zusätzliche G-Vertragslieferung beziehungsweise Hold-Aufhebung.
+
+MERGEPROTOKOLL[MS-1]: 3 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW: no reviewable changes; kein Main-Merge
 
 ## Korrektur zu 06:45, Punkt 5
 
@@ -62,9 +84,11 @@ TESTNACHWEIS[TW-1]: 55 passed, 0 ignored | Baseline: 0 rot
 | G0-R1:Vertragfix | Ausschließlich dieselben drei Vertragsdateien und Cratetests; keine weiteren G0-Schreiber | Fixworkflow `w1ozge7jw` / `wf_563c24f7-221` gestoppt; Fortsetzung durch frischen Vordergrundworker `af3b631553a29ed1f` | abgeschlossen; 55 passed, 0 failed, 0 ignored; b4f4b866 mit Gate ALLOW gepusht |
 | G0-06:45:Vertragsfortsetzung | Dieselben drei Brain-Vertragsdateien und unmittelbar zugehörige Tests; eigener neuer Bericht und Rohbelege | Task `w5dr3fr2i`, Run `wf_1cdc6a56-2a1`, Briefing `G/BRIEFING-G0-0645.md` | abgeschlossen; tatsächlich nur tools.rs und tool_extensions.rs verändert, 67 passed, 0 failed, 0 ignored; 3d6890c0 mit Gate ALLOW gepusht |
 | G-S:Sheetrekonstruktion | Ausschließlich `G/SHEET-MODELL.md`, eigener Rekonstruktionsbericht und schmale Belege; kein Produktcode | Task `w3rx1jcpj`, Run `wf_c7702e0e-8d1`, Briefing `G/BRIEFING-G-S.md` | abgeschlossen; alle acht Stellen in Abschnitt 14, belegbare Struktur rekonstruiert, gelöschte Scratchpad-Eingaben unbekannt; Rustbeweis offen |
-| G-P:Providertransport | Ausschließlich `brain-providers/src/{lib.rs,transport.rs,hardening.rs}` und direkt zugehörige Tests | Task `w5pqkkyxv`, Run `wf_9c5666f8-dc6`, Briefing `G/BRIEFING-G-P.md` | gestartet gegen verifizierte generische G0-API b4f4b866; Schlussprüfung muss Vertragsfortsetzung konsumieren |
-| G-K:Werkzeugloop und Cache | Ausschließlich `brain-kernel/src/{lib.rs,execution.rs,flight.rs,cache.rs,outcome.rs}` und zugehörige Tests | Task `w120utj39`, Run `wf_bade480e-cb2`, Briefing `G/BRIEFING-G-K.md` | gestartet gegen dieselbe verifizierte generische API; Anfrage-Pin und vollständige Cacheabhängigkeiten gehören dazu |
-| G-M:Rechenkern | Reasoner-Modelle, reine Konverter, Exports, Mechanik und vorhandene Simulation gemäß `BRIEFING-G-M.md`; Fs Loader bleiben unverändert | Ursprünglicher Task `win5xzl3o` gestoppt; Resume `wthzcnb2d`, Run `wf_08b3462e-169`, Agent `af3dcfc2c09526a0b`, Start 06:36 | Wiederaufnahme im vorhandenen WIP bestätigt; noch kein Abschlussrecord, kein zweiter Schreiber |
+| G-P:Providertransport | Ausschließlich `brain-providers/src/{lib.rs,transport.rs,hardening.rs}` und direkt zugehörige Tests | Task `w5pqkkyxv`, Run `wf_9c5666f8-dc6`, Briefing `G/BRIEFING-G-P.md` | abgeschlossen; 29 passed, 0 failed, 0 ignored; acht Werkzeuge konsumiert; doppelte JSON-Felder bestätigt, Produktabnahme blockiert |
+| G-P-R1:gemeinsamer JSON-Eingang | `brain-contracts/src/{lib.rs,provider_input.rs}`, direkte Tests, kompatibler Source-Strict-JSON-Adapter und bisherige Providerdateien/Tests | Task `wvlm6fn18`, Run `wf_89eb7717-56e`, Briefing `G/BRIEFING-G-P-R1.md` | gestartet nach tatsächlichem G-P/G0-Abschluss; vorhandenen duplikatsicheren Parser einmal gemeinsam verwenden, kein weiterer Provider-/Vertragsschreiber |
+| G-K:Werkzeugloop und Cache | Ausschließlich `brain-kernel/src/{lib.rs,execution.rs,flight.rs,cache.rs,outcome.rs}` und zugehörige Tests | Task `w120utj39`, Run `wf_bade480e-cb2`, Briefing `G/BRIEFING-G-K.md` | abgeschlossen; 49 passed, dieselben 18 Baselinefehler, 0 ignored; Pin und vollständige Cacheabhängigkeiten implementiert, Fehlerabrechnungsvertrag noch offen |
+| G-M:Rechenkern | Reasoner-Modelle, reine Konverter, Exports, Mechanik und vorhandene Simulation gemäß `BRIEFING-G-M.md`; Fs Loader bleiben unverändert | Ursprünglicher Task `win5xzl3o` gestoppt; Resume `wthzcnb2d`, Run `wf_08b3462e-169`, Agent `af3dcfc2c09526a0b`, Start 06:36 | abgeschlossen; 17 Rechenfälle bestanden, Gesamtsuite 303 passed/5 failed gegenüber 287 passed/4 failed; neue Planer-Testfixture korrigieren, Fachanschluss offen |
+| G-M-06:45:Wachstum und Sheet | Vorhandener Reasonerbereich, eng begrenzte betroffene Planertestfixture, unmittelbare Rechenfixtures | Task `wq8uvf8ah`, Run `wf_fca62072-53f`, Briefing `G/BRIEFING-G-M-0645.md` | gestartet nach tatsächlichem G-M-Abschluss; vorhandenen Stand fortsetzen, kein zweiter Reasonerschreiber |
 
 Vollständige abgeschlossene Workflow-Rückgaben liegen unter `/tmp/claude-1000/-home-nathanael-repos-Deadlock-Brain/030a7b6f-d25c-482d-b66c-68185cd05dbb/tasks/`: `w6krhelmo.output`, `wyqxc1iva.output`. Die anfänglich ausgegebenen, damals nicht vorhandenen Transkriptordner sind kein Ergebnisnachweis.
 

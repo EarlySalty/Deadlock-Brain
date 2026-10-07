@@ -2,6 +2,28 @@
 
 status: aktiv, 07.10.2026
 
+## G-M und G-K zurückgegeben, beide noch ohne Produktabnahme
+
+G-M (`wthzcnb2d`) ist abgeschlossen. Neue Rechenfälle: 17 passed; isolierte Suite: 303 passed, 5 failed, 0 ignored, gegenüber Baseline 287 passed, 4 failed. Bereichsführung prüfte die tatsächlichen Testmarker und Fehlernamen. Neue Regression ist eine Planer-Testfixture ohne Grenznutzen des zweiten Kaufs bei diskreten Schüssen. **Vor Änderung gemeldete Testgrenze:** `dbrain-reasoner/src/planner.rs` ausschließlich dieser Test und nötige Fixtureeingaben; keine Planer-Produktlogik oder Publish-Regel. Danach wächst derselbe reine Kern gemäß Entscheidung 06:45 und Sheetrekonstruktion. Fortsetzung gestartet: Task `wq8uvf8ah`, Run `wf_fca62072-53f`, `G/BRIEFING-G-M-0645.md`; ursprünglicher G-M-Schreibweg beendet. Vier alte DB-Fixturefehler, drei ausgeschlossene Produktionsfälle und echte E/F-Laufzeitbindung bleiben getrennte Grenzen. Keine vollständige Zahlenabnahme behauptet.
+
+G-K (`w120utj39`) ist ebenfalls abgeschlossen. Rückgabe: `Kernel::with_tools(port, resolver, provider_identity)` und verpflichtender `GameContextResolver::{resolve,validate}`; Pin vor Cache-/Flight-Schlüssel. Gemeldet 49 passed, 18 gleiche Baselinefehler, 0 ignored; neue Fachfälle 15. Bereichsführung bestätigte tatsächliche Suitezahlen, dieselben 18 Baseline-Fehlernamen und grüne Format-/Clippy-/Compiler-/Verbraucherexits. Die fünf Kerneldateien bleiben fingerprintgleich; inzwischen erweiterter gemeinsamer JSON-Eingang braucht erneute Verbraucherprüfung. Anschluss `G/G-K-NACHWEISE.md`. Konkrete Abnahmelücke: Fehler von Provider und Toolport tragen noch keine gemessene Usage. Diese begrenzte Vertragsfortsetzung wird erst nach Abschluss des laufenden gemeinsamen JSON-Workers zugeteilt; kein paralleler Brain-Vertragsschreiber. Kein Produktgate, Main oder Liveabschluss.
+
+## G-P: 29 Fälle bestanden, JSON-Eingang noch nicht abgenommen
+
+Providerworker abgeschlossen, Rohbelege `G/pruefungen/g-p/`. Bereichsführung bestätigte vier grüne Abschluss-Exits, 29 passed, 0 failed, 0 ignored sowie sieben unveränderte Quellfingerprints. Baseline 19 passed, 0 failed. Beide Wireformen tragen den Acht-Tool-Vertrag, ursprüngliche Deadline, kumulierte Usage und gebundene Ergebnisse. Noch kein Gate oder echter Luna-Beweis.
+
+Konkreter Blocker: Beide Providerparser akzeptieren doppelte JSON-Argumentnamen und behalten den letzten Wert. `json-probe.log` bestätigt native und OpenAI-kompatible Form. Der grüne Suiteabschluss ist dafür kein Sicherheitsbeweis. Kein Produktcheckpoint vor Korrektur.
+
+**Begrenzte Anschlussgrenze vor Änderung:** vorhandenen duplikatsicheren Parser aus `dbrain-sources/src/external/strict_json.rs` einmal in den bereits von Quellen und Providern benutzten `brain-contracts`-Bereich verlegen. Der bestehende private Source-Eingang behält Signatur und delegiert an dieselbe Implementierung. Provider verwendet diesen Eingang für Antwortobjekt, Argumentstrings und finales JSON. Kein zweiter Parser, keine neue Crate-/Manifestabhängigkeit und keine Änderung an Es Import, API-Pins oder Analytics. Neuer nativer Vertrag-/Providerworker gestartet: Task `wvlm6fn18`, Run `wf_89eb7717-56e`, `G/BRIEFING-G-P-R1.md`, ausschließlich diese Grenze; G-K schreibt weiter getrennt im Kernel. G0 und ursprünglicher G-P-Schreibweg sind abgeschlossen.
+
+TESTNACHWEIS[TW-1]: 29 passed, 0 ignored | Baseline: 0 rot
+
+## Dokumentcheckpoint 1f5ed30f gesichert
+
+Sheetrekonstruktion, aktueller Vertrags-/Workerstand und Korrektur zu Punkt 5 sind auf `origin/feat/brain-v2-g-20261007` gesichert. Regulärer Dokumentgate gegen `3d6890c0`, Exit 0: `[gpt-6.1-sol] ALLOW: no reviewable changes`. Dieses Urteil liefert keinen Produktreview; der Commit enthält acht Dokumentdateien. Log `/tmp/brain-g-sheet-scope-gate-20261007.log`. Laufender Rechenkern-/Provider-/Kernel-WIP blieb unstaged. Gemeinsame Steuerung nennt die Grafik-Korrektur nun ausdrücklich als Nachtrag 06:55. E/F-Akten liefern weiterhin keinen zusätzlichen Receipt-, globalen Daten- oder reinen Buildadaptervertrag. Hold unverändert.
+
+MERGEPROTOKOLL[MS-1]: 3 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW: no reviewable changes; kein Main-Merge
+
 ## Korrektur zu 06:45, Punkt 5
 
 Grafiken und Webseiten baut der Nutzer separat. G baut nichts dazu und trägt nichts in die Roadmap ein; Werkzeugausgaben bleiben strukturierte Zahlenreihen. Der eigene Grafikabschnitt aus `f81e2ae2` wurde aus `docs/brain-qa-roadmap.md` entfernt. `G/PLAN.md` und Register folgen der Korrektur. Die früheren Zeitstandsabschnitte unten dokumentieren die ursprüngliche, inzwischen zurückgenommene Entscheidung.
