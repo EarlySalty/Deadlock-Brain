@@ -1,5 +1,20 @@
 # K: Exakter Stand und technische Fortsetzungsgrenze
 
+## Aktuelle Livefortsetzung und Ortsfreigabe
+
+Dieser Abschnitt ersetzt die früheren offenen Installer-/Releasehelfer-Aussagen. Eigene native Session 47304059-5103-45b5-8e54-0fbb5f140555, Brain-Worktree /home/nathanael/.worktrees/brain-k-live-20261007, Branch feat/brain-k-live-20261007, Ausgangs-HEAD 0ee3e521def14f79d724a71bea7a90a18438c884. Delegator 481426fe. Alten K-Thread 79c97ab5 nicht reaktivieren.
+
+Regulärer unveränderter brain-release: build b30bylc59 und install bp9jobnsc tatsächlich jeweils Exit 0. Installation einschließlich frischem Verifikationsbau abgeschlossen. Beide tatsächlichen Zeiger jetzt auf 0ee3e521. Installierter brain-serve-Hash 1037443b287fa8556afe574178ef929d9c5c68d7ed193a168e481a591f323c05; Site f9cb2474..., Maintain 6faac63b..., identisch zum erzeugten Manifest. Der frühere vermeintliche cargo-slot-Konflikt dieses Helfers ist durch ausdrückliche Nutzerentscheidung aufgehoben: regelmäßiger Releaseweg bleibt, Agentenprüfungen über cargo-slot. Kein Helferumbau. Laufender brain-serve weiterhin PID 2388861 aus bfda408c, ohne deleted, Hash c96ee626...; neuer Liveprozess noch nicht geliefert. brain-serve fehlt im erlaubten bot-restart-Wrapper; brain-site ist ein anderer Dienst. Kein generischer Neustart oder Wrapper-/Rechteänderung.
+
+Bots: 0fb873c6 tatsächlich unter bestehender Deploysperre aktiviert, dl-bot PID 2766584/Hash 700d9ab5..., dl-web PID 2766645/alte unveränderte Bytes. Anfangsfehler und korrekter abschließender Sperraufruf in eigener LIVE-K.md dokumentiert. Finale Fehlerjournale leer, NRestarts 0; echte Antwort-/Nutzerprobe offen. Keine erneute Quotenaktivierung wegen Ortsfreigabe. Nachweiscommit 3d645c6f auf eigenem Feature-Remote, Dokument-Mainpush durch Test-Gate blockiert. Aktueller echter Brain-Vertrags-/Providerlauf 79 passed/0 failed/0 ignored, Exit 0. Read-only belegt: Hookregex erkennt cargo-slot +1.97.1 test nicht; tatsächlicher Transcript enthält 0 erkannte Testbefehle. Kein Erkennungstrick, Skip-Flag oder Hookumbau. Befund /tmp/k-live-gate-restart-befund-20261007.md.
+
+Ortsvertrag ausdrücklich exklusiv freigegeben: brain-contracts/src/lib.rs und provider_input.rs, optionales typisiertes answer_context, alte JSON kompatibel, vollständiges Budget, Ort in Cache/Flightbindung, ID-freie Modellprojektion einschließlich Citation bei erhaltener interner Rechte-/Herkunftsbindung. Nativer Implementierer adb59420e03d48f21 besitzt Brain-Vertrags-/Service-/Client-/APIbereich; Bots/Twitch noch ohne Sourcewriter. Ein verweigerter Aktenzugriff außerhalb seines Projektroots wird nicht wiederholt; unmittelbar gelieferter Nutzervertrag trägt die Arbeit. Nach abgeschlossenem Release und unabhängig leerem Brain-status zur Umsetzung fortgesetzt. Fremde G-/I-Dateien bleiben unverändert, konkreten zusätzlichen Kernel-/Literalbedarf melden. Kein Warten auf G-main, keine zweite Engine oder Modell-/Timeoutänderung.
+
+Retrievalfixtureworker adddedaf5459c7606 stoppte beim Harness-Worktreeeintritt ohne Sourcezugriff oder Änderung. Ungültige synthetische Hashes und fehlende Manifestdelegation im bestehenden Test als konkrete Diagnose erkannt, aber noch nicht behoben oder neu getestet. 3/15-Vergleich unten gilt nur relativ zum Budgetfix. Große Budgetassertion weiterhin nicht erreicht. Produktions-Rustsite, echte G-Pins/Verifier/Toolport und Kanalabnahme bleiben getrennt offen. Kein Cleanup oder settle.
+
+TESTNACHWEIS[TW-1]: 79 passed, 0 ignored | Baseline: nicht behauptet
+MERGEPROTOKOLL[MS-1]: 8 Git-Schritte einzeln | Anläufe: 1 | Gate: Bots-Dokumentmainpush Test-Gate blockiert, Featurebackup vorhanden
+
 ## Verbindlicher neuer Stand vom 7. Oktober 2026 nach Weiterbauentscheidung
 
 Dieser Abschnitt ersetzt die früheren Ist-Aussagen unten. Delegator `481426fe` bleibt zuständig. Bisheriger Hauptorchestrator `d3a1741e` ist gestoppt und wird nicht reaktiviert. Weiterbauentscheidung der Session `3fcd8f71` ist bestätigt. Keine Sessionkontakte, weiteren T3-Threads oder zentralen Register-/TODO-Edits.
