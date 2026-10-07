@@ -51,11 +51,11 @@ pub fn sync_patchnotes(
         )?;
         let row = post_row(&post, existing.map(|row| row.get(0)))?;
         let mut resolved = resolve_api_source(http, ledger, &mut client, &post, &row)?;
-        resolved.raw_content = clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
-        if !has_patch_changes(&resolved.raw_content) {
+        if !has_complete_patch_content(&resolved.raw_content) {
             skipped.push(json!({"url":post.link,"reason":"preview_requires_official_fulltext","not_imported_as_patch":true}));
             continue;
         }
+        resolved.raw_content = clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
         let options = ImportPatchnoteOptions {
             patch_id: row.id,
             dsn_env: dsn_env.into(),
@@ -154,6 +154,19 @@ fn is_patch_candidate(post: &ApiPatchPost) -> bool {
         || post.content.contains("playdeadlock.com/")
 }
 
+fn has_complete_patch_content(raw: &str) -> bool {
+    let content = cleanup_patch_content(raw);
+    let lower = content.to_ascii_lowercase();
+    let has_reference = ["http://", "https://", "www.", "[url=", "[url]"]
+        .iter()
+        .any(|marker| lower.contains(marker))
+        || lower
+            .split("href")
+            .skip(1)
+            .any(|suffix| suffix.trim_start().starts_with('='));
+    !has_reference && has_patch_changes(&clean_steam_content(&content))
+}
+
 fn has_patch_changes(content: &str) -> bool {
     content.lines().any(|line| {
         let line = line.trim();
@@ -173,8 +186,7 @@ fn resolve_api_source(
     post: &ApiPatchPost,
     row: &PatchnoteRow,
 ) -> Result<PatchSourceResolution> {
-    let cleaned = clean_steam_content(&cleanup_patch_content(&post.content));
-    if has_patch_changes(&cleaned) {
+    if has_complete_patch_content(&post.content) {
         return Ok(PatchSourceResolution::from_row(row));
     }
     let urls = std::iter::once(post.link.clone())
@@ -206,8 +218,7 @@ fn resolve_api_source(
             feedname: Some("steam_community_announcements".into()),
         };
         if let Some(body) = extract_steam_announcement_body_from_html(html, &item) {
-            let cleaned = clean_steam_content(&cleanup_patch_content(&body));
-            if has_patch_changes(&cleaned) {
+            if has_complete_patch_content(&body) {
                 return Ok(PatchSourceResolution {
                     raw_content: body,
                     source_url: Some(url.to_string()),
@@ -217,7 +228,7 @@ fn resolve_api_source(
             }
         }
     }
-    resolve_patch_source(http, ledger, client, row)
+    resolve_patch_source_with(http, ledger, client, row, resolve_steam_raw_content)
 }
 
 #[cfg(test)]
@@ -258,6 +269,56 @@ mod tests {
             "Full update: https://www.playdeadlock.com/cityneversleeps"
         ));
     }
+    #[test]
+    fn change_bullets_do_not_make_linked_previews_complete() {
+        let full = post().content;
+        assert!(has_complete_patch_content(&full));
+        for link in [
+            "<a href=\"https://www.playdeadlock.com/cityneversleeps\">Full update</a>",
+            "<a HREF = \"/full-patch\">Full patch notes</a>",
+            "[url=https://forums.playdeadlock.com/threads/update.123/]Full patch[/url]",
+            "[url]https://forums.playdeadlock.com/threads/update.123/[/url]",
+            "Full patch: HTTPS://store.steampowered.com/news/app/1422450/view/123",
+            "Full patch: www.playdeadlock.com/cityneversleeps",
+            "&lt;a href=&quot;https://www.playdeadlock.com/cityneversleeps&quot;&gt;Full update&lt;/a&gt;",
+        ] {
+            for changes in [full.clone(), full.repeat(20)] {
+                let preview = format!("{changes}\n{link}");
+                let cleaned = clean_steam_content(&cleanup_patch_content(&preview));
+                assert!(has_patch_changes(&cleaned));
+                assert!(!has_complete_patch_content(&preview), "{link}");
+            }
+        }
+        assert!(!has_complete_patch_content("No gameplay changes."));
+    }
+
+    #[test]
+    fn steam_fallback_keeps_fulltext_links_until_completeness_check() {
+        let post = post();
+        let preview = format!(
+            "{}<a href=\"https://www.playdeadlock.com/cityneversleeps\">Full update</a>",
+            post.content
+        );
+        let item = SteamAppNewsItem {
+            gid: "123".into(),
+            title: post.title,
+            url: post.link,
+            contents: preview.clone(),
+            date: 1791241532,
+            author: None,
+            feedlabel: None,
+            feedname: None,
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let http = HttpClient::new("Deadlock-Brain-Test/1", temp.path()).unwrap();
+        let raw = resolve_steam_raw_content(&http, &item);
+        assert_eq!(raw, preview);
+        assert!(!has_complete_patch_content(&raw));
+        assert!(has_complete_patch_content(&resolve_steam_content(
+            &http, &item
+        )));
+    }
+
     #[test]
     fn original_links_fail_closed_on_wrong_hosts_credentials_and_ports() {
         for url in [

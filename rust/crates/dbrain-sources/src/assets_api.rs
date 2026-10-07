@@ -366,6 +366,10 @@ fn snapshots_for(kind: &str, payload: &Value) -> Result<Vec<EntitySnapshotInput>
 }
 
 #[cfg(test)]
+#[path = "../../brain-storage/tests/support/scratch_pg.rs"]
+mod scratch_pg;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     fn response(raw: &[u8]) -> SourceHttpResponse {
@@ -474,6 +478,140 @@ mod tests {
                     .is_quarantined()
             );
         }
+    }
+
+    #[tokio::test]
+    async fn persisted_asset_ir_roundtrips_through_shared_mirror_reader() {
+        use brain_storage::asset_mirror::{latest_mirrored_client_version, load_mirrored_assets};
+        use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+
+        let pg = scratch_pg::ScratchPg::start();
+        let socket = pg.directory.join("socket");
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(
+                PgConnectOptions::new_without_pgpass()
+                    .host(socket.to_str().unwrap())
+                    .port(55439)
+                    .username("brain_core_test")
+                    .database("postgres"),
+            )
+            .await
+            .unwrap();
+        let identity: (Option<String>, String, String) = sqlx::query_as(
+            "SELECT inet_server_addr()::text, current_user::text, current_setting('data_directory')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(identity.0, None);
+        assert_eq!(identity.1, "brain_core_test");
+        assert_eq!(std::path::Path::new(&identity.2), pg.directory.join("data"));
+        sqlx::raw_sql("CREATE SCHEMA brain")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!("wiki_scratch.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        let raw_dir = tempfile::tempdir().unwrap();
+        let store = SourceStore::new(&pool, raw_dir.path()).unwrap();
+        assert!(latest_mirrored_client_version(&pool).await.is_err());
+        for version in [6757, 6759] {
+            let run = store.begin_run("assets").await.unwrap();
+            let mut endpoints = Map::new();
+            let mut expected = Vec::new();
+            for kind in DEFAULT_KINDS {
+                for language in LANGUAGES {
+                    let payload = json!([{"id":1998374645,"name":if *language == "german" {
+                        "Mystischer Ausbruch" } else { "Mystic Burst" },
+                        "properties":{"Damage":"40","Radius":"16m"},"extra":{"version":version}}]);
+                    let raw = serde_json::to_vec(&payload).unwrap();
+                    let mut transport = response(&raw);
+                    transport.url =
+                        asset_url(kind, endpoint_path(kind).unwrap(), version, language);
+                    let ir = prepare_assets(kind, transport, None).unwrap();
+                    assert!(!ir.is_quarantined());
+                    let key = format!("{version}/{kind}/{language}");
+                    let id = store
+                        .persist_ir(
+                            &key,
+                            &key,
+                            &ir,
+                            &json!({"client_version":version,"kind":kind,"language":language}),
+                        )
+                        .await
+                        .unwrap();
+                    let document: (String, String) = sqlx::query_as(
+                        "SELECT raw_path, content_hash FROM brain.source_documents WHERE id=$1",
+                    )
+                    .bind(id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+                    assert_eq!(std::fs::read(document.0).unwrap(), raw);
+                    assert_eq!(document.1, ir.provenance().raw_sha256);
+                    endpoints.insert(
+                        format!("{kind}/{language}"),
+                        json!({"source_document_id":id}),
+                    );
+                    expected.push((*kind, *language, payload));
+                }
+            }
+            assert!(load_mirrored_assets(&pool, version, "items", "english")
+                .await
+                .is_err());
+            store
+                .finish_run(
+                    run,
+                    "ok",
+                    &json!({"client_version":version,
+                "mirror_complete":true,"endpoints":endpoints}),
+                )
+                .await
+                .unwrap();
+            for (kind, language, payload) in expected {
+                assert_eq!(
+                    load_mirrored_assets(&pool, version, kind, language)
+                        .await
+                        .unwrap(),
+                    payload
+                );
+            }
+        }
+        let run = store.begin_run("assets").await.unwrap();
+        let quarantined = prepare_assets("items", response(br#"[{"id":false}]"#), None).unwrap();
+        assert!(store
+            .persist_ir(
+                "6760/items/english",
+                "quarantined",
+                &quarantined,
+                &json!({"client_version":6760,"kind":"items","language":"english"})
+            )
+            .await
+            .is_err());
+        store
+            .finish_run(
+                run,
+                "error",
+                &json!({"client_version":6760,"mirror_complete":false}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(latest_mirrored_client_version(&pool).await.unwrap(), 6759);
+        assert!(load_mirrored_assets(&pool, 6760, "items", "english")
+            .await
+            .is_err());
+        for version in [6757, 6759] {
+            assert_eq!(
+                load_mirrored_assets(&pool, version, "items", "german")
+                    .await
+                    .unwrap()[0]["extra"]["version"],
+                version
+            );
+        }
+        pool.close().await;
     }
 
     #[test]

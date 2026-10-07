@@ -284,6 +284,16 @@ fn resolve_patch_source(
     client: &mut Client,
     row: &PatchnoteRow,
 ) -> Result<PatchSourceResolution> {
+    resolve_patch_source_with(http, ledger, client, row, resolve_steam_content)
+}
+
+fn resolve_patch_source_with(
+    http: &HttpClient,
+    ledger: &SteamLedger,
+    client: &mut Client,
+    row: &PatchnoteRow,
+    resolve_content: fn(&HttpClient, &SteamAppNewsItem) -> String,
+) -> Result<PatchSourceResolution> {
     let posted_at = row_posted_at(row)?;
     let candidates = collect_steam_links(row);
     let source_kind = classify_source_kind(row.url.as_deref());
@@ -311,7 +321,7 @@ fn resolve_patch_source(
     };
 
     Ok(PatchSourceResolution {
-        raw_content: resolve_steam_content(http, &item),
+        raw_content: resolve_content(http, &item),
         source_url: Some(item.url),
         source_kind: "steam".to_string(),
         resolved_from: Some(format!("steam_gid:{}", item.gid)),
@@ -414,16 +424,15 @@ fn fetch_steam_news_items(
 }
 
 fn resolve_steam_content(http: &HttpClient, item: &SteamAppNewsItem) -> String {
-    let api_content = clean_steam_content(&item.contents);
-    let full_body = fetch_steam_announcement_body(http, item)
+    clean_steam_content(&resolve_steam_raw_content(http, item))
+}
+
+fn resolve_steam_raw_content(http: &HttpClient, item: &SteamAppNewsItem) -> String {
+    fetch_steam_announcement_body(http, item)
         .ok()
         .flatten()
-        .map(|body| clean_steam_content(&body))
-        .filter(|body| !body.is_empty());
-    match full_body {
-        Some(body) => body,
-        None => api_content,
-    }
+        .filter(|body| !clean_steam_content(body).is_empty())
+        .unwrap_or_else(|| item.contents.clone())
 }
 
 fn fetch_steam_announcement_body(
