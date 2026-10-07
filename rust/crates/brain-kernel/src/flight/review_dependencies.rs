@@ -1,4 +1,3 @@
-//! A follower must revalidate the uncited provider input against real current heads.
 use super::*;
 use brain_contracts::{
     AnswerProfile, Budget, DocumentStorePort, Principal, ProviderAnswer, SourceRecordV2,
@@ -19,7 +18,7 @@ fn record(id: &str, revision: u64) -> SourceRecordV2 {
         source_id: "review-flight".into(),
         logical_id: id.into(),
         revision,
-        content_hash: format!("flight-{id}-{revision}"),
+        content_hash: dbrain_sources::external::sha256(format!("Abrams evidence {id}").as_bytes()),
         content: format!("Abrams evidence {id}"),
         visibility: SourceVisibility::Public,
         allowed_scopes: BTreeSet::new(),
@@ -46,8 +45,6 @@ impl RetrievalPort for Retrieval {
         evidence: &[Evidence],
         provider: bool,
     ) -> Result<(), PortError> {
-        // Leader: initial ACL, provider egress, post-provider ACL. Fourth handoff is
-        // the registered follower, after a successful answer has been cached/shared.
         if self.validations.fetch_add(1, Ordering::SeqCst) == 3 {
             let mut revoked = record("b", 2);
             if self.tombstone {

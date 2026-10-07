@@ -782,7 +782,7 @@ mod tests {
                 let answer = json!({"text":"Es gibt Anfänger-Lane, Ranked-Lane und Turnier-Lane.","cited_evidence_ids":ids});
                 reply(
                     &mut stream,
-                    json!({"model":"fixture-model","choices":[{"message":{"content":answer.to_string()}}],"usage":{"prompt_tokens":1000,"completion_tokens":40}}),
+                    json!({"model":"fixture-model","choices":[{"message":{"content":answer.to_string()},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000,"completion_tokens":40}}),
                 );
             });
             let price = PriceCeiling {
@@ -809,7 +809,13 @@ mod tests {
                 "4 anwesend",
                 "5 anwesend",
             ] {
-                assert!(content.contains(lane));
+                assert!(
+                    content.contains(lane),
+                    "panel_bytes={panel_bytes}, fehlend={lane}, Eingabeobergrenze={}, Dokumente={}, Live-Belege={}",
+                    grounded_input_ceiling(&query, &items),
+                    items.iter().filter(|item| item.source_id == "docs.public").count(),
+                    items.iter().filter(|item| item.source_id == SOURCE).count()
+                );
             }
             for provider in [false, true] {
                 adapter

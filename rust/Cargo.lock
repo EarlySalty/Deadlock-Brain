@@ -970,9 +970,12 @@ name = "deadlock-brain"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "brain-client",
  "brain-contracts",
  "brain-feeds",
+ "brain-maintenance",
+ "brain-storage",
  "chrono",
  "clap",
  "dbrain-builds",
@@ -995,6 +998,7 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+ "urlencoding",
  "zeroize",
 ]
 
