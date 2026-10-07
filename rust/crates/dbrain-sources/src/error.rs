@@ -8,6 +8,17 @@ pub enum SourcesError {
     #[error("Postgres error: {0}")]
     Sqlx(#[from] sqlx::Error),
 
+    #[error(transparent)]
+    Storage(#[from] brain_storage::StorageError),
+
+    #[error("Steckbriefableitung fehlgeschlagen")]
+    EntityDerivation {
+        entity_key: String,
+        step: &'static str,
+        #[source]
+        source: brain_storage::StorageError,
+    },
+
     #[error("Postgres-Pool: {0}")]
     Pool(String),
 

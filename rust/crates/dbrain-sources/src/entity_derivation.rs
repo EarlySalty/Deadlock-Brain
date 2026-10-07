@@ -56,6 +56,11 @@ impl BatchDeriver {
         entity_key: &str,
         repositories: &BTreeMap<(String, String), PinnedRepository>,
     ) -> crate::Result<VerifiedGitProfile> {
+        let failed = |step, source| SourcesError::EntityDerivation {
+            entity_key: entity_key.to_owned(),
+            step,
+            source,
+        };
         // Nur zwischen Entitäten verdrängen, damit laufende Blobbelege erhalten bleiben.
         if self
             .blobs
@@ -69,12 +74,11 @@ impl BatchDeriver {
         let (evidence, _) = store
             .entity_derivation_inputs(release_id, operator, entity_key)
             .await
-            .map_err(|error| SourcesError::invariant(error.to_string()))?;
+            .map_err(|error| failed("original_inputs", error))?;
         let mut keys = Vec::new();
         for header in &evidence.originals {
             let record = &header.descriptor;
-            let (commit, repository, path) = git_evidence_identity(header)
-                .map_err(|error| SourcesError::invalid_input(error.to_string()))?;
+            let (commit, repository, path) = git_evidence_identity(header)?;
             let pinned = repositories
                 .get(&(record.head.source_id.clone(), commit.clone()))
                 .ok_or_else(|| {
@@ -114,7 +118,7 @@ impl BatchDeriver {
         let (evidence, bindings) = store
             .entity_derivation_inputs(release_id, operator, entity_key)
             .await
-            .map_err(|error| SourcesError::invariant(error.to_string()))?;
+            .map_err(|error| failed("fresh_original_inputs", error))?;
         let identity = bindings
             .iter()
             .find(|binding| binding.semantic_projection.is_some())
@@ -130,7 +134,7 @@ impl BatchDeriver {
         let live_story = store
             .entity_patch_story(&story_identity)
             .await
-            .map_err(|error| SourcesError::invariant(error.to_string()))?;
+            .map_err(|error| failed("patch_story", error))?;
         let blobs: Vec<_> = keys.iter().map(|key| &self.blobs[key]).collect();
         let (profile, receipt) = derive_git_profile_from_evidence_cached(
             entity_key,
@@ -141,7 +145,7 @@ impl BatchDeriver {
             &live_story,
             &mut self.proof_cache,
         )
-        .map_err(|error| SourcesError::invariant(error.to_string()))?;
+        .map_err(|error| failed("profile_proof", error))?;
         Ok(VerifiedGitProfile {
             profile,
             original_pins: bindings,
