@@ -695,10 +695,15 @@ fn extract_http_tokens(text: &str) -> Vec<String> {
 }
 
 fn normalize_url_token(raw: &str) -> String {
-    raw.trim()
+    let decoded = decode_basic_entities(raw);
+    decoded
+        .trim()
         .trim_start_matches('(')
         .trim_start_matches('<')
         .trim_start_matches('"')
+        .split(['<', '>', '"', '\''])
+        .next()
+        .unwrap_or_default()
         .trim_end_matches(&[')', '>', ']', '"', '\'', ';', ',', '.'][..])
         .to_string()
 }
@@ -714,7 +719,7 @@ fn is_steam_news_url(url: &str) -> bool {
 }
 
 fn extract_steam_gid(raw_url: &str) -> Option<String> {
-    let url = reqwest::Url::parse(raw_url).ok()?;
+    let url = reqwest::Url::parse(&normalize_url_token(raw_url)).ok()?;
     for marker in [
         "externalpost/steam_community_announcements/",
         "/announcements/detail/",
@@ -2316,6 +2321,97 @@ mod tests {
             match_steam_news_item(&row, row_posted_at(&row).unwrap(), &candidates, &[foreign],)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn html_link_tokens_keep_concrete_announcement_identity() {
+        let html = r#"<meta property="og:url" content="https://store.steampowered.com/news/app/1422450/view/456"><div data-partnereventstore="[{&quot;gid&quot;:&quot;456&quot;,&quot;announcement_body&quot;:{&quot;gid&quot;:&quot;123&quot;,&quot;body&quot;:&quot;- Weapon damage increased from 50 to 60&quot;}}]"></div>"#;
+        for url in [
+            "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/123",
+            "https://steamcommunity.com/games/1422450/announcements/detail/123",
+        ] {
+            for suffix in [
+                "\">Full</a>",
+                "\">",
+                "\"&gt;",
+                "'>Full</a>",
+                "&quot;&gt;Full&lt;/a&gt;",
+                "?l=english#notes\">Full</a>",
+            ] {
+                let token = format!("{url}{suffix}");
+                assert_eq!(extract_steam_gid(&token).as_deref(), Some("123"), "{token}");
+                let item = SteamAppNewsItem {
+                    gid: String::new(),
+                    title: "Minor Update".into(),
+                    url: token.clone(),
+                    contents: String::new(),
+                    date: 1791241532,
+                    author: None,
+                    feedlabel: None,
+                    feedname: Some("steam_community_announcements".into()),
+                };
+                assert_eq!(
+                    extract_steam_announcement_body_from_html(html, &item).as_deref(),
+                    Some("- Weapon damage increased from 50 to 60"),
+                    "{token}"
+                );
+                let foreign = html.replace("&quot;123&quot;", "&quot;122&quot;");
+                assert!(
+                    extract_steam_announcement_body_from_html(&foreign, &item).is_none(),
+                    "{token}"
+                );
+                for field in ["url", "raw_content", "translated_content"] {
+                    let mut row = PatchnoteRow {
+                        id: 17,
+                        title: Some(item.title.clone()),
+                        url: Some("https://forums.playdeadlock.com/threads/update.17/".into()),
+                        posted_at: Some("2026-10-05T23:05:32Z".into()),
+                        raw_content: None,
+                        translated_content: None,
+                    };
+                    match field {
+                        "url" => row.url = Some(token.clone()),
+                        "raw_content" => row.raw_content = Some(format!("<a href=\"{token}")),
+                        _ => row.translated_content = Some(format!("<a href=\"{token}")),
+                    }
+                    let candidates = collect_steam_links(&row);
+                    assert_eq!(candidates.len(), 1, "{field}/{token}");
+                    assert_eq!(
+                        explicit_steam_gid(&candidates),
+                        Some("123"),
+                        "{field}/{token}"
+                    );
+                    let matching = SteamAppNewsItem {
+                        gid: "123".into(),
+                        url: url.into(),
+                        ..item.clone()
+                    };
+                    let foreign = SteamAppNewsItem {
+                        gid: "122".into(),
+                        url: url.replace("123", "122"),
+                        ..item.clone()
+                    };
+                    assert!(
+                        match_steam_news_item(
+                            &row,
+                            row_posted_at(&row).unwrap(),
+                            &candidates,
+                            std::slice::from_ref(&foreign)
+                        )
+                        .is_none(),
+                        "{field}/{token}"
+                    );
+                    let matched = match_steam_news_item(
+                        &row,
+                        row_posted_at(&row).unwrap(),
+                        &candidates,
+                        &[foreign, matching],
+                    )
+                    .unwrap();
+                    assert_eq!(matched.gid, "123", "{field}/{token}");
+                }
+            }
+        }
     }
 
     #[test]
