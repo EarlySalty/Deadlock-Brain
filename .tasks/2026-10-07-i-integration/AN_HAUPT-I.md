@@ -1,10 +1,12 @@
-# Paket I: Spiegel auf Main, regulärer Liveabschluss läuft
+# Paket I: Spiegel live, F/G-Integration läuft
 
 ## Fortsetzung nach bestätigter Testnachweisreparatur
 
 Neuer Nutzerauftrag FORTSETZUNG-I-TESTGATE-BEHOBEN.md gelesen. Spiegel b7289d11 unverändert, echter direkter cargo-slot-Lauf 6 passed, 0 failed, 0 ignored. Regulärer Main-Push tatsächlich Exit 0: 0ee3e521..b7289d11 HEAD -> main. Testnachweisblocker für diesen Lieferschritt damit überwunden, keine Hookänderung oder Übersteuerung durch I. Discovery weiterhin getrennt erhalten.
 
-Regulärer vollständiger Releasebau über brain-release erfolgreich, 5m 06s, 17 Binaries und Format-2-Manifest am exakten Main-SHA. Reguläres Install mit unabhängiger Neubau-/Hashprüfung läuft. Noch kein eigener Neustart, erster Import oder Livebeweis. Unveränderlicher Releasebaum und G-/K-Schreibbereiche unberührt; Ks neu zugeordnete Query-Literale werden nicht parallel umgestellt. Zusätzliche konkrete MCP-Quellinspektionsgrenze im Integrationsbaum gemeldet, kein alternativer Leseweg. Nachweise FORTSETZUNG-NACH-TESTGATE-REPARATUR.md. Regulären brain-serve-Neustart nach Install tatsächlich versuchen; keine Rechteumgehung.
+Regulärer vollständiger Releasebau und Install abgeschlossen, sämtliche 17 Binaryhashes in beiden Layouts geprüft. Regulärer brain-serve-Neustart nach der vom R10 verlangten Rollenlektüre tatsächlich gelungen: PID 2388861 -> 3178539, Manifesthash b7289d11, ohne deleted, Fehlerjournal leer, Ready-JSON geprüft. Assets-Run 743, Version 6759, vollständig und alle 13 Endpoints plus Manifestdateihash geprüft. Gesamtjob am 08.10.2026 um 00:05:51 CEST tatsächlich Exit 0 beendet; zusätzliche reine Rust-Metadatenprobe bestätigt build_data-Run 744 status ok und 40 Heldeneinträge. Timer waiting für 03:30, dauerhafte Verdrahtung außerhalb von Worktrees. Nachweise LIVE-SPIEGEL-B7289D11.md und TIMER-RUNTIME-NACH-MAIN.md.
+
+analytics_runtime ausschließlich als konkrete Datei an G freigegeben, FREIGABE-ANALYTICS-RUNTIME-AN-G.md; Delegator hat Übergabe bestätigt. Einziger bestehender nativer F-Ausführer fortgesetzt. Sieben tatsächliche geerbte E-/F-Mergekonflikte wurden als begrenzte I-Integrationszuständigkeit geklärt, nicht als neuer Schutz- oder Produktauftrag. Tatsächlicher gesicherter G-S3/S4-Vertrag aus UEBERGABEN-WACHE-032.md gelesen und demselben F-Ausführer weitergegeben: 2b519b04 und a35bd814, Origincheckpoint 253d383e; 38 Rechenfälle grün, G-Reasoner 342/12 ausdrücklich keine grüne Vollsuite. Gemeinsame F/G-Abnahme und regulärer Warden-Publish stehen noch aus. Keine parallele K-Literalumstellung, kein zweiter Rechner, unveränderlicher I-Releasebaum unberührt. F-NACHTRAG-INTEGRATION-G.md hält Übergabe und Grenzen fest.
 
 ## Historische qualifizierte Fachrückgabe vor Reparatur
 
