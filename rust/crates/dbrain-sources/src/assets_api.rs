@@ -6,12 +6,15 @@ use crate::{
     store::{complete_run, open_pool, EntitySnapshotInput, SourceStore},
     Result, SourcesError,
 };
+use brain_storage::asset_mirror::{
+    mirrored_asset_key, mirrored_asset_languages, MIRRORED_ASSET_KINDS, REQUIRED_MIRROR_KINDS,
+};
 use deadlock_brain_core::http::{HttpClient, SourceHttpOptions, SourceHttpResponse};
 use serde_json::{json, Map, Value};
 use std::{collections::BTreeSet, path::Path};
 
 pub const SOURCE: &str = "deadlock_assets_api";
-pub const PARSER_REVISION: &str = "dbrain-assets/3";
+pub const PARSER_REVISION: &str = "dbrain-assets/4";
 pub const BASE_URL: &str = "https://api.deadlock-api.com";
 pub const ENDPOINTS: &[(&str, &str)] = &[
     ("items", "/v1/assets/items"),
@@ -21,9 +24,12 @@ pub const ENDPOINTS: &[(&str, &str)] = &[
     ("colors", "/v1/assets/colors"),
     ("build_tags", "/v1/assets/build-tags"),
     ("npc_units", "/v1/assets/npc-units"),
+    ("generic_data", "/v1/assets/generic-data"),
+    ("misc_entities", "/v1/assets/misc-entities"),
+    ("modifiers", "/v1/assets/modifiers"),
 ];
 const RETIRED_KINDS: &[&str] = &["raw_items", "raw_heroes"];
-const DEFAULT_KINDS: &[&str] = &["items", "heroes", "heroes_all"];
+const DEFAULT_KINDS: &[&str] = REQUIRED_MIRROR_KINDS;
 const LANGUAGES: &[&str] = &["english", "german"];
 
 #[derive(Debug, Clone, Default)]
@@ -45,7 +51,7 @@ pub async fn pull_assets(
 }
 fn resolve_kinds(kinds: &[String]) -> Result<Vec<(String, &'static str)>> {
     let requested: Vec<String> = if kinds.is_empty() {
-        DEFAULT_KINDS.iter().map(|k| k.to_string()).collect()
+        MIRRORED_ASSET_KINDS.iter().map(|k| k.to_string()).collect()
     } else {
         kinds.to_vec()
     };
@@ -130,17 +136,19 @@ pub(crate) async fn pull_assets_inner(
     let mut staged = Vec::new();
     let mut first_error = None;
     for (kind, endpoint) in selected {
-        let languages = if DEFAULT_KINDS.contains(&kind.as_str()) {
-            LANGUAGES
-        } else {
-            &["english"]
-        };
+        let languages = mirrored_asset_languages(kind).unwrap_or(&["english"]);
         for language in languages {
             let url = asset_url(kind, endpoint, client_version, language);
             let response = http.get_bounded(&url, SourceHttpOptions::default())?;
             let ir = prepare_assets(kind, response, Some(&report))?;
-            let key = format!("{kind}/{language}");
-            let pinned = DEFAULT_KINDS.contains(&kind.as_str());
+            let pinned = MIRRORED_ASSET_KINDS.contains(&kind.as_str());
+            let language = (!language.is_empty()).then_some(*language);
+            let key = if pinned {
+                mirrored_asset_key(kind, language)
+                    .map_err(|error| SourcesError::invalid_input(error.to_string()))?
+            } else {
+                format!("{kind}/english")
+            };
             let document_key = if pinned {
                 format!("{client_version}/{key}")
             } else {
@@ -148,7 +156,7 @@ pub(crate) async fn pull_assets_inner(
             };
             let title = format!("Deadlock Assets API {document_key}");
             let details = json!({"kind":kind,"endpoint":endpoint,
-                "client_version":pinned.then_some(client_version),"language":pinned.then_some(language),
+                "client_version":pinned.then_some(client_version),"language":if pinned { language } else { None },
                 "schema_report":report,"contract_coverage":"container_and_consumed_fields"});
             match store.persist_ir(&document_key, &title, &ir, &details).await {
                 Ok(document_id) => staged.push((kind.clone(), key, ir, document_id)),
@@ -181,20 +189,26 @@ pub(crate) async fn pull_assets_inner(
                 .is_some_and(|count| count > 0)
         })
     });
+    let mirrored_at = deadlock_brain_core::now_epoch_seconds()
+        .map_err(|error| SourcesError::invalid_input(error.to_string()))?;
     Ok(
         json!({"endpoints":summary,"snapshots":total,"schema_drift":report,
         "client_version":client_version,"manifest_document_id":manifest_id,
-        "parser_revision":PARSER_REVISION,"mirrored_at":now,"checked_at":now,
+        "manifest_raw_sha256":manifest.provenance().raw_sha256,
+        "parser_revision":PARSER_REVISION,"mirrored_at":mirrored_at,"checked_at":mirrored_at,
         "mirror_complete":mirror_complete,"reused_local_mirror":false}),
     )
 }
 
 fn asset_url(kind: &str, endpoint: &str, client_version: i64, language: &str) -> String {
     let separator = if endpoint.contains('?') { '&' } else { '?' };
-    if DEFAULT_KINDS.contains(&kind) {
-        format!(
-            "{BASE_URL}{endpoint}{separator}client_version={client_version}&language={language}"
-        )
+    if MIRRORED_ASSET_KINDS.contains(&kind) {
+        let url = format!("{BASE_URL}{endpoint}{separator}client_version={client_version}");
+        if kind == "modifiers" {
+            url
+        } else {
+            format!("{url}&language={language}")
+        }
     } else {
         format!("{BASE_URL}{endpoint}")
     }
@@ -205,17 +219,23 @@ fn mirror_is_fresh(summary: &Value, selected: &[(String, &'static str)], now: i6
         .as_i64()
         .is_some_and(|at| now >= at && now - at < 86_400)
         && selected.iter().all(|(kind, _)| {
-            let languages = if DEFAULT_KINDS.contains(&kind.as_str()) {
-                LANGUAGES
-            } else {
-                &["english"]
-            };
+            let languages = mirrored_asset_languages(kind).unwrap_or(&["english"]);
             languages.iter().all(|language| {
-                let endpoint = &summary["endpoints"][format!("{kind}/{language}")];
+                let key = if MIRRORED_ASSET_KINDS.contains(&kind.as_str()) {
+                    let Ok(key) =
+                        mirrored_asset_key(kind, (!language.is_empty()).then_some(*language))
+                    else {
+                        return false;
+                    };
+                    key
+                } else {
+                    format!("{kind}/english")
+                };
+                let endpoint = &summary["endpoints"][key];
                 endpoint["source_document_id"]
                     .as_i64()
                     .is_some_and(|id| id > 0)
-                    && (!DEFAULT_KINDS.contains(&kind.as_str())
+                    && (!MIRRORED_ASSET_KINDS.contains(&kind.as_str())
                         || endpoint["snapshots"]
                             .as_u64()
                             .is_some_and(|count| count > 0))
@@ -268,9 +288,10 @@ pub fn consumed_contract(kind: &str) -> Result<Value> {
         "build_tags" => {
             json!({"type":"object","required":["id","class_name","label"],"properties":{"id":id,"class_name":text,"label":text}})
         }
-        "npc_units" => {
+        "npc_units" | "misc_entities" | "modifiers" => {
             json!({"type":"object","required":["id","class_name"],"properties":{"id":id,"class_name":text}})
         }
+        "generic_data" => return Ok(json!({"type":"object"})),
         "colors" => {
             return Ok(
                 json!({"type":"object","additionalProperties":{"type":"object","required":["red","green","blue","alpha"],"properties":{"red":id,"green":id,"blue":id,"alpha":id}}}),
@@ -310,12 +331,28 @@ pub fn asset_entities(kind: &str, payload: &Value) -> Result<Vec<AssetEntity>> {
 }
 
 fn snapshots_for(kind: &str, payload: &Value) -> Result<Vec<EntitySnapshotInput>> {
+    if kind == "generic_data" {
+        if !payload.as_object().is_some_and(|object| !object.is_empty()) {
+            return Err(SourcesError::invalid_input(
+                "Globale Spieldaten fehlen oder haben den falschen Datentyp",
+            ));
+        }
+        return Ok(vec![EntitySnapshotInput {
+            source: SOURCE.into(),
+            entity_type: "generic_data".into(),
+            external_id: "generic_data".into(),
+            canonical_name: None,
+            payload: payload.clone(),
+        }]);
+    }
     let entity_type = match kind {
         "items" => "item_or_ability",
         "heroes" | "heroes_all" => "hero",
         "ranks" => "rank",
         "build_tags" => "build_tag",
         "npc_units" => "npc_unit",
+        "misc_entities" => "misc_entity",
+        "modifiers" => "modifier",
         "colors" => "color",
         _ => return Err(SourcesError::invalid_input("unknown asset entity type")),
     };
@@ -331,7 +368,7 @@ fn snapshots_for(kind: &str, payload: &Value) -> Result<Vec<EntitySnapshotInput>
         let array = payload
             .as_array()
             .ok_or_else(|| SourcesError::invalid_input("assets must be an array"))?;
-        if DEFAULT_KINDS.contains(&kind) && array.is_empty() {
+        if MIRRORED_ASSET_KINDS.contains(&kind) && array.is_empty() {
             return Err(SourcesError::invalid_input(
                 "Pflicht-Assets dürfen nicht leer sein",
             ));
@@ -380,6 +417,10 @@ fn snapshots_for(kind: &str, payload: &Value) -> Result<Vec<EntitySnapshotInput>
 mod scratch_pg;
 
 #[cfg(test)]
+#[path = "asset_receipt_tests.rs"]
+mod receipt_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     fn response(raw: &[u8]) -> SourceHttpResponse {
@@ -402,7 +443,11 @@ mod tests {
             vec![
                 ("items".into(), "/v1/assets/items"),
                 ("heroes".into(), "/v1/assets/heroes?only_active=true"),
-                ("heroes_all".into(), "/v1/assets/heroes")
+                ("heroes_all".into(), "/v1/assets/heroes"),
+                ("generic_data".into(), "/v1/assets/generic-data"),
+                ("npc_units".into(), "/v1/assets/npc-units"),
+                ("misc_entities".into(), "/v1/assets/misc-entities"),
+                ("modifiers".into(), "/v1/assets/modifiers")
             ]
         );
         for kind in ["raw_items", "raw_heroes", "bogus"] {
@@ -622,7 +667,7 @@ mod tests {
             );
             for (kind, language, payload) in expected {
                 let loaded = load_mirrored_assets(&pool, version, kind, language).await;
-                if empty_endpoint == Some((kind, language)) {
+                if empty_endpoint.is_some() {
                     assert!(loaded.is_err(), "{version}/{kind}/{language}");
                 } else {
                     assert_eq!(loaded.unwrap(), payload);
@@ -705,7 +750,7 @@ mod tests {
             )
             .unwrap();
         for (kind, endpoint) in resolve_kinds(&[]).unwrap() {
-            for language in LANGUAGES {
+            for language in mirrored_asset_languages(&kind).unwrap() {
                 let response = http
                     .get_bounded(
                         &asset_url(&kind, endpoint, version, language),

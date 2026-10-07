@@ -3,8 +3,10 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 
 pub async fn check(pool: &PgPool) {
-    sqlx::raw_sql("CREATE TABLE brain.source_runs(id bigserial PRIMARY KEY,source text,status text,summary jsonb);
-        CREATE TABLE brain.source_documents(id bigserial PRIMARY KEY,source text,metadata jsonb);")
+    sqlx::raw_sql("CREATE TABLE brain.source_runs(id bigserial PRIMARY KEY,source text,status text,summary jsonb,
+            started_at timestamptz DEFAULT '2026-10-07T00:00:00Z', finished_at timestamptz DEFAULT '2026-10-07T00:01:00Z');
+        CREATE TABLE brain.source_documents(id bigserial PRIMARY KEY,source text,metadata jsonb,
+            url text, content_hash text NOT NULL DEFAULT '', fetched_at timestamptz DEFAULT '2026-10-07T00:00:30Z');")
         .execute(pool).await.unwrap();
     assert!(latest_mirrored_client_version(pool).await.is_err());
     for (version, status) in [(6757, "ok"), (6759, "ok"), (6760, "error")] {

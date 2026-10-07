@@ -818,10 +818,19 @@ struct PullAssetsArgs {
             "colors",
             "build_tags",
             "npc_units",
+            "generic_data",
+            "misc_entities",
+            "modifiers",
         ],
-        help = "Endpoints auswählen. Mehrfach nutzbar. Default: items/heroes/heroes_all, Englisch und Deutsch je Clientversion."
+        help = "Endpoints auswählen. Mehrfach nutzbar. Standard: vollständige Spieldaten je Clientversion, Englisch und Deutsch; Modifiers ohne Sprache."
     )]
     kind: Vec<String>,
+    #[arg(
+        long,
+        value_name = "PFAD",
+        help = "Dauerhaftes Datenverzeichnis außerhalb des Release-Arbeitsbaums."
+    )]
+    data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -1588,7 +1597,21 @@ async fn run(cli: Cli) -> Result<()> {
     {
         return print_json(&wiki_refresh::run(args).await?);
     }
-    let settings = config::load_settings()?;
+    let mut settings = config::load_settings()?;
+    if let Commands::Pull {
+        source: PullCommands::Assets(args),
+    } = &command
+    {
+        if let Some(data_dir) = &args.data_dir {
+            anyhow::ensure!(
+                data_dir.is_absolute(),
+                "Das Datenverzeichnis muss absolut sein."
+            );
+            settings.data_dir = data_dir.clone();
+            settings.raw_dir = data_dir.join("raw");
+            settings.cache_dir = data_dir.join("cache");
+        }
+    }
     if let Commands::Entities(args) = &command {
         let pool = pg_pool_for_command(&command).await?;
         return pg_entities::run(args, &pool).await;
@@ -1827,6 +1850,38 @@ fn run_pg(
 #[cfg(test)]
 mod ingest_tests {
     use super::*;
+
+    #[test]
+    fn assets_cli_accepts_global_kinds_and_a_durable_data_directory() {
+        for kind in [
+            "items",
+            "heroes",
+            "heroes_all",
+            "generic_data",
+            "npc_units",
+            "misc_entities",
+            "modifiers",
+        ] {
+            let parsed = Cli::try_parse_from([
+                "deadlock-brain",
+                "pull",
+                "assets",
+                "--kind",
+                kind,
+                "--data-dir",
+                "/durable/brain-data",
+            ])
+            .unwrap();
+            let Commands::Pull {
+                source: PullCommands::Assets(args),
+            } = parsed.command
+            else {
+                panic!("wrong dispatch")
+            };
+            assert_eq!(args.kind, [kind]);
+            assert_eq!(args.data_dir, Some(PathBuf::from("/durable/brain-data")));
+        }
+    }
 
     #[test]
     fn patch_sync_cli_uses_existing_ledger_and_dry_run() {
