@@ -69,6 +69,54 @@ fn bound_identity(record: &brain_contracts::SourceRecordV2) -> EntityIdentity {
 }
 
 #[test]
+fn document_context_preserves_original_and_identity_checks() {
+    use brain_storage::entity_profile::{
+        semantic::{project_semantic_fact_with_context, semantic_projection_with_context},
+        EntityDocumentContext,
+    };
+    let record = prepared(&document("game_file", json!(42), "normal"));
+    let context = EntityDocumentContext::new(&record).unwrap();
+    let fact = context.project(&["health".into()]).unwrap().remove(0);
+    assert_eq!(
+        context.project(&["health".into()]).unwrap(),
+        project_entity_facts(&record, &["health".into()]).unwrap()
+    );
+    assert!(context
+        .project(&["health".into(), "health".into()])
+        .is_err());
+    assert!(context.project(&["absent".into()]).is_err());
+    let identity = bound_identity(&record);
+    let projection = semantic_projection_with_context(&fact, "/MaxHealth", &context, &identity)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        Some(projection.clone()),
+        semantic_projection(&fact, "/MaxHealth", &record, &identity).unwrap()
+    );
+    let projected =
+        project_semantic_fact_with_context(&fact, &projection, &context, &identity).unwrap();
+    assert_eq!(projected.value, fact.value);
+    let mut changed = fact.clone();
+    changed.value = json!(43);
+    assert!(semantic_projection_with_context(&changed, "/MaxHealth", &context, &identity).is_err());
+    let mut revoked = identity.clone();
+    revoked.identity_evidence.clear();
+    assert!(semantic_projection_with_context(&fact, "/MaxHealth", &context, &revoked).is_err());
+
+    let mut duplicate = record.clone();
+    let key = brain_storage::source_versions::DOCUMENT_METADATA_KEY;
+    let mut encoded: Value = serde_json::from_str(&duplicate.metadata[key]).unwrap();
+    let first = encoded["facts"][0].clone();
+    encoded["facts"].as_array_mut().unwrap().push(first);
+    duplicate.metadata.insert(key.into(), encoded.to_string());
+    assert!(EntityDocumentContext::new(&duplicate).is_err());
+    encoded["facts"].as_array_mut().unwrap().pop();
+    encoded["content"] = json!("anderer Originalkörper");
+    duplicate.metadata.insert(key.into(), encoded.to_string());
+    assert!(EntityDocumentContext::new(&duplicate).is_err());
+}
+
+#[test]
 fn canonical_numeric_conflicts_keep_originals_variants_and_exponents() {
     let records = [
         prepared(&document("game_file", json!("1.200e+19"), "normal")),
