@@ -114,8 +114,11 @@ fn fixture_requests<F: FnOnce(ProviderConfig) -> R, R>(
                 .lock()
                 .unwrap()
                 .push(serde_json::from_slice(&bytes[end + 4..]).unwrap());
+            let (headers, body) = response.split_once("\r\n\r\n").unwrap();
+            let _ = stream.write_all(headers.as_bytes());
+            let _ = stream.write_all(b"\r\n\r\n");
             thread::sleep(delay);
-            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
         }
         while !server_stop.load(Ordering::SeqCst) {
             match listener.accept() {
@@ -210,6 +213,7 @@ fn turn_provider(native: bool, config: ProviderConfig) -> Box<dyn AnswerProvider
     if native {
         let mut native_config = ProviderConfig::codex_subscription(config.base_url);
         native_config.timeout = config.timeout;
+        native_config.max_response_bytes = config.max_response_bytes;
         Box::new(brain_providers::CodexSubscriptionProvider::new(native_config).unwrap())
     } else {
         Box::new(OpenAiCompatibleProvider::new(config).unwrap())
@@ -470,6 +474,263 @@ fn fehlerabrechnung_http_retry_usage_ist_beobachtet_und_nicht_zweimal_reserviert
         brain_contracts::provider_input::transport_input_ceiling(&requests[0], true).unwrap();
     assert_eq!(accounting.reserved.input_tokens, 2 * ceiling - 12);
     assert_eq!(accounting.reserved.output_tokens, 0);
+}
+
+fn faulty_transient_responses(status: &str, limit: usize) -> Vec<String> {
+    let oversized = "x".repeat(limit + 1);
+    vec![
+        json_response(status, &oversized),
+        format!("HTTP/1.1 {status}\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n{oversized}\r\n0\r\n\r\n", oversized.len()),
+        format!("HTTP/1.1 {status}\r\nContent-Length: {limit}\r\nConnection: close\r\n\r\n{{}}"),
+    ]
+}
+
+#[test]
+fn transiente_http_fehlerkoerper_erhalten_status_retry_und_reservierung() {
+    for native in [false, true] {
+        for (status, code) in [
+            ("503 Unavailable", reqwest::StatusCode::SERVICE_UNAVAILABLE),
+            (
+                "429 Too Many Requests",
+                reqwest::StatusCode::TOO_MANY_REQUESTS,
+            ),
+        ] {
+            for response in faulty_transient_responses(status, 512) {
+                let success = raw_tool_response(native, r#"{"query":"A","language":"german"}"#);
+                let (result, calls, requests) = fixture_requests(
+                    vec![
+                        (Duration::ZERO, response),
+                        (Duration::ZERO, json_response("200 OK", &success)),
+                    ],
+                    |mut config| {
+                        config.max_response_bytes = 512;
+                        config.pricing = Some(PriceCeiling {
+                            input_micros_per_token: 1,
+                            output_micros_per_token: 2,
+                        });
+                        let mut context = turn_context();
+                        context.budget.max_output_tokens = 40;
+                        let deadline = context.request_deadline.as_ref().unwrap().expires_at();
+                        let result = turn_provider(native, config).answer_turn_accounted(
+                            &query(),
+                            &context,
+                            &[],
+                            &definitions(),
+                            &ToolConversation::default(),
+                        );
+                        assert_eq!(
+                            context.request_deadline.as_ref().unwrap().expires_at(),
+                            deadline
+                        );
+                        result
+                    },
+                );
+                let ceiling =
+                    brain_contracts::provider_input::transport_input_ceiling(&requests[0], true)
+                        .unwrap();
+                if native {
+                    assert_eq!(calls, 1);
+                    let failure = result.unwrap_err();
+                    assert_eq!(
+                        failure.error,
+                        PortError::Unavailable(
+                            brain_providers::ProviderError::HttpStatus { status: code }.to_string()
+                        )
+                    );
+                    let accounting = failure.accounting.unwrap();
+                    assert_eq!(accounting.observed.network_rounds, 1);
+                    assert_eq!(accounting.observed.input_tokens, 0);
+                    assert_eq!(accounting.observed.output_tokens, 0);
+                    assert_eq!(accounting.reserved.input_tokens, ceiling);
+                    assert_eq!(accounting.reserved.output_tokens, 40);
+                    assert!(!accounting.unaccounted);
+                } else {
+                    assert_eq!(calls, 2);
+                    assert_eq!(requests[0], requests[1]);
+                    let success = result.unwrap();
+                    assert!(matches!(success.value, ProviderTurn::ToolCalls { .. }));
+                    assert_eq!(success.value.usage().network_rounds, 2);
+                    assert_eq!(success.value.usage().input_tokens, ceiling + 10);
+                    assert_eq!(success.value.usage().output_tokens, 23);
+                    let accounting = success.accounting;
+                    assert_eq!(accounting.observed.network_rounds, 2);
+                    assert_eq!(accounting.observed.input_tokens, 10);
+                    assert_eq!(accounting.observed.output_tokens, 3);
+                    assert_eq!(accounting.reserved.input_tokens, 2 * ceiling - 10);
+                    assert_eq!(accounting.reserved.output_tokens, 20);
+                    assert_eq!(accounting.reserved.cost_micros, 2 * ceiling + 46);
+                    assert_eq!(accounting.observed.cost_micros, 0);
+                    assert!(!accounting.unaccounted);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn transiente_http_fehlerkoerper_erhalten_fruehere_gemessene_usage() {
+    let measured =
+        serde_json::json!({"usage":{"prompt_tokens":5,"completion_tokens":2}}).to_string();
+    for response in faulty_transient_responses("503 Unavailable", 512) {
+        let success = raw_tool_response(false, r#"{"query":"A","language":"german"}"#);
+        let (result, calls, requests) = fixture_requests(
+            vec![
+                (Duration::ZERO, json_response("503 Unavailable", &measured)),
+                (Duration::ZERO, response),
+                (Duration::ZERO, json_response("200 OK", &success)),
+            ],
+            |mut config| {
+                config.retry_attempts = 3;
+                config.max_response_bytes = 512;
+                config.pricing = Some(PriceCeiling {
+                    input_micros_per_token: 1,
+                    output_micros_per_token: 2,
+                });
+                let mut context = turn_context();
+                context.budget.max_output_tokens = 39;
+                OpenAiCompatibleProvider::new(config)
+                    .unwrap()
+                    .answer_turn_accounted(
+                        &query(),
+                        &context,
+                        &[],
+                        &definitions(),
+                        &ToolConversation::default(),
+                    )
+            },
+        );
+        assert_eq!(calls, 3);
+        assert_eq!(requests[0], requests[1]);
+        assert_eq!(requests[1], requests[2]);
+        let ceiling =
+            brain_contracts::provider_input::transport_input_ceiling(&requests[0], true).unwrap();
+        let accounting = result.unwrap().accounting;
+        assert_eq!(accounting.observed.network_rounds, 3);
+        assert_eq!(accounting.observed.input_tokens, 15);
+        assert_eq!(accounting.observed.output_tokens, 5);
+        assert_eq!(accounting.reserved.input_tokens, 3 * ceiling - 15);
+        assert_eq!(accounting.reserved.output_tokens, 13);
+        assert_eq!(accounting.reserved.cost_micros, 3 * ceiling + 36);
+        assert_eq!(accounting.observed.cost_micros, 0);
+        assert!(!accounting.unaccounted);
+    }
+}
+
+#[test]
+fn transiente_http_fehlerkoerper_respektieren_retry_und_budgetgrenzen() {
+    for native in [false, true] {
+        for limit in 0..3 {
+            let response = faulty_transient_responses("503 Unavailable", 512).remove(0);
+            let (result, calls, requests) = fixture_requests(
+                vec![
+                    (Duration::ZERO, response),
+                    (Duration::ZERO, json_response("200 OK", CHAT)),
+                ],
+                |mut config| {
+                    config.max_response_bytes = 512;
+                    let mut context = turn_context();
+                    match limit {
+                        0 => config.retry_attempts = 1,
+                        1 => context.budget.max_network_rounds = 1,
+                        _ => context.budget.max_output_tokens = 1,
+                    }
+                    turn_provider(native, config).answer_turn_accounted(
+                        &query(),
+                        &context,
+                        &[],
+                        &definitions(),
+                        &ToolConversation::default(),
+                    )
+                },
+            );
+            assert_eq!(calls, 1);
+            let failure = result.unwrap_err();
+            assert!(matches!(failure.error, PortError::Unavailable(_)));
+            let accounting = failure.accounting.unwrap();
+            assert_eq!(accounting.observed.network_rounds, 1);
+            assert_eq!(accounting.observed.input_tokens, 0);
+            assert_eq!(accounting.observed.output_tokens, 0);
+            assert_eq!(
+                accounting.reserved.input_tokens,
+                brain_contracts::provider_input::transport_input_ceiling(&requests[0], true)
+                    .unwrap()
+            );
+            assert_eq!(
+                accounting.reserved.output_tokens,
+                requests[0]["max_tokens"].as_u64().unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn transiente_http_fehlerkoerper_timeout_respektiert_die_urspruengliche_frist() {
+    for native in [false, true] {
+        for expires in [false, true] {
+            let success = raw_tool_response(native, r#"{"query":"A","language":"german"}"#);
+            let (result, calls, requests) = fixture_requests(
+                vec![
+                    (
+                        Duration::from_millis(150),
+                        json_response("503 Unavailable", "{}"),
+                    ),
+                    (Duration::ZERO, json_response("200 OK", &success)),
+                ],
+                |mut config| {
+                    config.timeout = Duration::from_millis(100);
+                    let mut context = turn_context();
+                    context.budget.max_output_tokens = 40;
+                    if expires {
+                        context.deadline_ms = 5000;
+                        context.request_deadline =
+                            Some(RequestDeadline::after(Duration::from_millis(50)));
+                    }
+                    let deadline = context.request_deadline.as_ref().unwrap().expires_at();
+                    let result = turn_provider(native, config).answer_turn_accounted(
+                        &query(),
+                        &context,
+                        &[],
+                        &definitions(),
+                        &ToolConversation::default(),
+                    );
+                    assert_eq!(
+                        context.request_deadline.as_ref().unwrap().expires_at(),
+                        deadline
+                    );
+                    result
+                },
+            );
+            if !native && !expires {
+                assert_eq!(calls, 2);
+                let accounting = result.unwrap().accounting;
+                assert_eq!(accounting.observed.network_rounds, 2);
+                assert_eq!(accounting.observed.input_tokens, 10);
+                assert_eq!(accounting.observed.output_tokens, 3);
+                assert_eq!(accounting.reserved.output_tokens, 20);
+            } else {
+                assert_eq!(calls, 1);
+                let failure = result.unwrap_err();
+                if !native {
+                    assert_eq!(failure.error, PortError::BudgetExceeded);
+                } else {
+                    assert!(matches!(failure.error, PortError::Unavailable(_)));
+                }
+                let accounting = failure.accounting.unwrap();
+                assert_eq!(accounting.observed.network_rounds, 1);
+                assert_eq!(accounting.observed.input_tokens, 0);
+                assert_eq!(accounting.observed.output_tokens, 0);
+                assert_eq!(
+                    accounting.reserved.input_tokens,
+                    brain_contracts::provider_input::transport_input_ceiling(&requests[0], true)
+                        .unwrap()
+                );
+                assert_eq!(
+                    accounting.reserved.output_tokens,
+                    requests[0]["max_tokens"].as_u64().unwrap()
+                );
+            }
+        }
+    }
 }
 
 #[test]

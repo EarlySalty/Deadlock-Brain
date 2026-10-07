@@ -268,9 +268,10 @@ impl OpenAiCompatibleProvider {
                     last_status = response.status();
                     requested_delay = hardening::retry_after(&response)?.unwrap_or_default();
                     if chat {
-                        let bytes =
-                            hardening::read_bounded(response, self.config.max_response_bytes)?;
-                        self.observe_usage(&bytes, &reserved, accounting)?;
+                        match hardening::read_bounded(response, self.config.max_response_bytes) {
+                            Ok(bytes) => self.observe_usage(&bytes, &reserved, accounting)?,
+                            Err(error) => self.report_failure(&error),
+                        }
                     }
                 }
                 Ok(response) => {
