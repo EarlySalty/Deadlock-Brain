@@ -41,11 +41,7 @@ pub fn sync_patchnotes(
     let mut imported = Vec::new();
     let mut skipped = Vec::new();
     for post in posts {
-        let existing = client.query_opt(
-            "SELECT id FROM patchnotes.changelog_posts WHERE url=$1 ORDER BY id LIMIT 1",
-            &[&post.link],
-        )?;
-        let row = post_row(&post, existing.map(|row| row.get(0)))?;
+        let row = load_post_row(&mut client, &post)?;
         let Some(resolved) = resolve_api_source(&post, &index, |url| {
             let response = http.get_bounded(
                 url,
@@ -122,7 +118,7 @@ fn validate_post(post: &ApiPatchPost) -> Result<()> {
 }
 
 fn trusted_original_url(raw: &str) -> Option<Url> {
-    let url = Url::parse(raw).ok()?;
+    let mut url = Url::parse(raw).ok()?;
     if url.scheme() != "https"
         || !url.username().is_empty()
         || url.password().is_some()
@@ -130,6 +126,7 @@ fn trusted_original_url(raw: &str) -> Option<Url> {
     {
         return None;
     }
+    url.set_fragment(None);
     match url.host_str()? {
         "forums.playdeadlock.com" if url.path().starts_with("/threads/") => Some(url),
         "store.steampowered.com" if url.path().starts_with("/news/app/1422450/view/") => Some(url),
@@ -141,6 +138,19 @@ fn trusted_original_url(raw: &str) -> Option<Url> {
         }
         _ => None,
     }
+}
+
+fn load_post_row(
+    client: &mut impl postgres::GenericClient,
+    post: &ApiPatchPost,
+) -> Result<PatchnoteRow> {
+    let url = trusted_original_url(&post.link).ok_or_else(|| anyhow!("Ungültige Patchquelle"))?;
+    let existing = client.query_opt(
+        "SELECT id FROM patchnotes.changelog_posts WHERE url=$1 OR url=$2 \
+         ORDER BY (url=$1) DESC, id LIMIT 1",
+        &[&url.as_str(), &post.link.as_str()],
+    )?;
+    post_row(post, existing.map(|row| row.get(0)))
 }
 
 fn post_row(post: &ApiPatchPost, existing_id: Option<i64>) -> Result<PatchnoteRow> {
@@ -924,6 +934,174 @@ mod tests {
             "<meta property=\"og:url\" content=\"{}\"><div data-partnereventstore=\"{encoded}\"></div>",
             post.link
         )
+    }
+
+    #[test]
+    fn concrete_steam_event_never_resolves_a_foreign_or_missing_gid() {
+        let index = EntityIndex::default();
+        for link in [
+            "https://store.steampowered.com/news/app/1422450/view/703281025618282632",
+            "https://steamcommunity.com/app/1422450/event/703281025618282632",
+        ] {
+            let mut post = post();
+            post.link = link.into();
+            let body = "[p]- Weapon damage increased from 50 to 60[/p]";
+            let correct = steam_html(&post, body);
+            let resolved = resolve_api_source(&post, &index, |_| Ok(correct.clone()))
+                .unwrap()
+                .unwrap();
+            assert_eq!(resolved.raw_content, body);
+            let row = post_row(&post, Some(17)).unwrap();
+            let prepared = prepare_api_patch(&row, &resolved, &index).unwrap();
+            assert_eq!(prepared.events.len(), 1);
+            assert_eq!(prepared.events[0].metadata["url"], link);
+            for invalid in [
+                correct.replace("703281025618282632", "703281025618282631"),
+                correct.replace("&quot;gid&quot;:&quot;703281025618282632&quot;,", ""),
+                correct.replace(body, ""),
+                correct.replace("data-partnereventstore", "data-other-store"),
+            ] {
+                assert!(resolve_api_source(&post, &index, |_| Ok(invalid.clone()))
+                    .unwrap()
+                    .is_none());
+            }
+            let foreign = correct.replace("703281025618282632", "703281025618282631");
+            assert!(resolve_api_source(&post, &index, |_| Ok(format!(
+                "<meta property=\"og:url\" content=\"{link}\">{foreign}"
+            )))
+            .unwrap()
+            .is_none());
+        }
+    }
+
+    #[test]
+    fn original_fragments_use_one_request_url_and_preserve_feed_provenance() {
+        let index = EntityIndex::default();
+        for (source, link) in [
+            ("steam", "https://store.steampowered.com/news/app/1422450/view/703281025618282632?l=english#notes"),
+            ("steam", "https://steamcommunity.com/app/1422450/event/703281025618282632#notes"),
+            ("forum", "https://forums.playdeadlock.com/threads/update.75046/#post-1"),
+        ] {
+            let mut post = post();
+            post.source = source.into();
+            post.link = link.into();
+            validate_post(&post).unwrap();
+            let request_url = trusted_original_url(link).unwrap();
+            assert!(request_url.fragment().is_none());
+            assert_eq!(request_url.as_str(), link.split('#').next().unwrap());
+            let body = "[p]- Weapon damage increased from 50 to 60[/p]";
+            let html = if source == "forum" {
+                format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{body}</div></article>")
+            } else {
+                steam_html(&post, body)
+            };
+            let mut requests = Vec::new();
+            let resolved = resolve_api_source(&post, &index, |url| {
+                assert_eq!(url, request_url.as_str());
+                requests.push(url.to_string());
+                Ok(html.clone())
+            })
+            .unwrap()
+            .unwrap();
+            assert_eq!(requests, vec![request_url.to_string()]);
+            assert_eq!(resolved.source_url.as_deref(), Some(request_url.as_str()));
+            assert_eq!(resolved.raw_content, body);
+            assert_eq!(resolved.resolved_from, Some(format!("{PATCH_FEED_URL}:{link}")));
+            let row = post_row(&post, Some(17)).unwrap();
+            let prepared = prepare_api_patch(&row, &resolved, &index).unwrap();
+            assert_eq!(prepared.events.len(), 1);
+            assert_eq!(prepared.events[0].metadata["url"], request_url.as_str());
+            assert_eq!(prepared.source_external_id, request_url.as_str());
+            let payload: Value = serde_json::from_str(&prepared.raw_payload_text).unwrap();
+            assert_eq!(payload["source_url"], request_url.as_str());
+            assert_eq!(payload["resolved_from"], format!("{PATCH_FEED_URL}:{link}"));
+            assert!(resolve_api_source(&post, &index, |_| Err(anyhow!("Abruf fehlgeschlagen"))).is_err());
+        }
+    }
+
+    #[test]
+    #[ignore = "needs isolated Postgres via DEADLOCK_BRAIN_SCRATCH_DSN"]
+    fn canonical_original_lookup_preserves_existing_changelog_ids_without_brain_documents() {
+        let dsn = env::var("DEADLOCK_BRAIN_SCRATCH_DSN").expect("Scratch-DB fehlt");
+        let mut client = Client::connect(&dsn, NoTls).unwrap();
+        let database: String = client
+            .query_one("SELECT current_database()", &[])
+            .unwrap()
+            .get(0);
+        assert_eq!(database, "brain_fixer12_patch_lookup");
+        let mut tx = client.transaction().unwrap();
+        let brain_documents: Option<String> = tx
+            .query_one("SELECT to_regclass('brain.source_documents')::text", &[])
+            .unwrap()
+            .get(0);
+        assert!(brain_documents.is_none());
+        tx.batch_execute("CREATE SCHEMA patchnotes; CREATE TABLE patchnotes.changelog_posts (id BIGINT PRIMARY KEY, url TEXT NOT NULL)").unwrap();
+        for (source, link) in [
+            ("steam", "https://store.steampowered.com/news/app/1422450/view/703281025618282632#notes"),
+            ("steam", "https://store.steampowered.com/news/app/1422450/view/703281025618282632?l=english#notes"),
+            ("steam", "https://steamcommunity.com/app/1422450/event/703281025618282632#notes"),
+            ("forum", "https://forums.playdeadlock.com/threads/update.75046/#post-1"),
+        ] {
+            let mut post = post();
+            post.source = source.into();
+            post.link = link.into();
+            validate_post(&post).unwrap();
+            let canonical = trusted_original_url(link).unwrap();
+            tx.execute("INSERT INTO patchnotes.changelog_posts VALUES (17, $1)", &[&canonical.as_str()]).unwrap();
+            let row = load_post_row(&mut tx, &post).unwrap();
+            assert_eq!(row.id, 17, "{link}");
+            let body = "[p]- Weapon damage increased from 50 to 60[/p]";
+            let html = if source == "forum" {
+                format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{body}</div></article>")
+            } else {
+                steam_html(&post, body)
+            };
+            let index = EntityIndex::default();
+            let resolved = resolve_api_source(&post, &index, |url| {
+                assert_eq!(url, canonical.as_str());
+                Ok(html.clone())
+            }).unwrap().unwrap();
+            let prepared = prepare_api_patch(&row, &resolved, &index).unwrap();
+            assert_eq!(prepared.patch_external_id, "patch_17");
+            assert_eq!(prepared.events[0].metadata["patch_id"], 17);
+            assert_eq!(prepared.source_external_id, canonical.as_str());
+            let payload: Value = serde_json::from_str(&prepared.raw_payload_text).unwrap();
+            assert_eq!(payload["resolved_from"], format!("{PATCH_FEED_URL}:{link}"));
+            tx.execute("INSERT INTO patchnotes.changelog_posts VALUES (11, $1)", &[&link]).unwrap();
+            assert_eq!(load_post_row(&mut tx, &post).unwrap().id, 17);
+            tx.execute("DELETE FROM patchnotes.changelog_posts WHERE id=17", &[]).unwrap();
+            assert_eq!(load_post_row(&mut tx, &post).unwrap().id, 11);
+            tx.execute("DELETE FROM patchnotes.changelog_posts", &[]).unwrap();
+            let undiscovered = load_post_row(&mut tx, &post).unwrap();
+            assert!(undiscovered.id < 0);
+            assert_eq!(undiscovered.id, post_row(&post, None).unwrap().id);
+        }
+        tx.rollback().unwrap();
+    }
+
+    #[test]
+    fn canonical_fragment_requests_pass_the_unchanged_http_core_guard() {
+        let cache = tempfile::tempdir().unwrap();
+        let http = HttpClient::new("Deadlock-Brain-Test/1", cache.path()).unwrap();
+        for link in [
+            "https://store.steampowered.com/news/app/1422450/view/703281025618282632#notes",
+            "https://forums.playdeadlock.com/threads/update.75046/#post-1",
+        ] {
+            let deadline = std::time::Instant::now() - Duration::from_secs(1);
+            let rejected = http
+                .get_bounded_until(link, SourceHttpOptions::default(), deadline)
+                .unwrap_err();
+            assert!(rejected
+                .to_string()
+                .contains("without credentials or fragment"));
+            let canonical = trusted_original_url(link).unwrap();
+            let after_guard = http
+                .get_bounded_until(canonical.as_str(), SourceHttpOptions::default(), deadline)
+                .unwrap_err();
+            assert!(after_guard
+                .to_string()
+                .contains("source HTTP total timeout"));
+        }
     }
 
     #[test]
