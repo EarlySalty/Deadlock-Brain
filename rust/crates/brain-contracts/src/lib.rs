@@ -27,6 +27,12 @@ pub use read_manifest::{DocumentDescriptor, ReleaseReadManifest};
 pub mod source;
 pub use retrieval::{ChunkProvenance, DocumentHead};
 pub mod store;
+pub mod tools;
+pub use tools::{
+    ModelBlock, PinnedGameContext, ProviderFinishReason, ProviderTurn, ToolCall, ToolConversation,
+    ToolDefinition, ToolEvidenceDependency, ToolExecution, ToolExecutionPort, ToolMessage,
+    ToolName, ToolRequest, ToolResult, ToolSubrequest, ToolValidationPurpose,
+};
 pub mod value;
 pub mod wiki;
 pub use embedding::{EmbeddingIdentity, EmbeddingOutput, EmbeddingProviderPort};
@@ -76,8 +82,6 @@ pub struct Query {
     pub request_id: String,
     pub conversation_id: String,
     pub text: String,
-    /// Optional typed intent; deterministic domain requests never require an LLM
-    /// to parse a build from prose. Omitted on existing brain.v1 text requests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<domain::DomainRequest>,
     #[serde(default)]
@@ -160,7 +164,6 @@ pub struct AuthorizedContext {
     pub knowledge_release: String,
     pub deadline_ms: u64,
     pub budget: Budget,
-    /// Trusted in-process lifetime; never supplied or renewed by a wire request.
     #[serde(skip)]
     pub request_deadline: Option<RequestDeadline>,
 }
@@ -213,7 +216,6 @@ impl SourceRecordV2 {
         {
             return Err(ContractError::InvalidStableId);
         }
-        // The wire type is unsigned, but PostgreSQL revisions are signed BIGINTs.
         if self.revision == 0 || self.revision > i64::MAX as u64 {
             return Err(ContractError::InvalidRevision);
         }
@@ -299,6 +301,94 @@ pub struct Usage {
     pub output_tokens: u64,
     pub network_rounds: u32,
     pub cost_micros: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UsageAccounting {
+    pub observed: Usage,
+    pub reserved: Usage,
+    pub unaccounted: bool,
+}
+
+impl Usage {
+    pub fn accumulate(&mut self, other: &Self) -> bool {
+        self.provider = other.provider.clone().or_else(|| self.provider.clone());
+        self.model = other.model.clone().or_else(|| self.model.clone());
+        let mut overflow = false;
+        macro_rules! add {
+            ($field:ident) => {
+                self.$field = self.$field.checked_add(other.$field).unwrap_or_else(|| {
+                    overflow = true;
+                    self.$field.saturating_add(other.$field)
+                });
+            };
+        }
+        add!(input_tokens);
+        add!(output_tokens);
+        add!(network_rounds);
+        add!(cost_micros);
+        !overflow
+    }
+}
+
+impl UsageAccounting {
+    pub fn observed(usage: Usage) -> Self {
+        Self {
+            observed: usage,
+            ..Self::default()
+        }
+    }
+
+    pub fn accumulate(&mut self, other: &Self) {
+        self.unaccounted |= other.unaccounted;
+        self.unaccounted |= !self.observed.accumulate(&other.observed);
+        self.unaccounted |= !self.reserved.accumulate(&other.reserved);
+        let mut total = self.observed.clone();
+        self.unaccounted |= !total.accumulate(&self.reserved);
+    }
+
+    pub fn charged(&self) -> Usage {
+        let mut total = self.observed.clone();
+        total.accumulate(&self.reserved);
+        total
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Accounted<T> {
+    pub value: T,
+    pub accounting: UsageAccounting,
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[error("{error}")]
+pub struct PortFailure {
+    pub error: PortError,
+    pub accounting: Option<Box<UsageAccounting>>,
+}
+
+impl PortFailure {
+    pub fn before_call(error: PortError) -> Self {
+        Self::accounted(error, UsageAccounting::default())
+    }
+
+    pub fn accounted(error: PortError, accounting: UsageAccounting) -> Self {
+        Self {
+            error,
+            accounting: Some(Box::new(accounting)),
+        }
+    }
+}
+
+impl From<PortError> for PortFailure {
+    fn from(error: PortError) -> Self {
+        Self {
+            error,
+            accounting: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -398,7 +488,6 @@ pub struct HeroKnowledgeCard {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Legacy brain.v1 summary DTO. New ingestion uses `replay::ReplayArtifact`.
 pub struct ReplayArtifact {
     pub replay_id: String,
     pub source_id: String,
@@ -408,8 +497,6 @@ pub struct ReplayArtifact {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Legacy brain.v1 known-time summary. Unknown time has NO conversion to this DTO.
-/// New ingestion uses `replay::ReplayObservation` and its explicit Observed time.
 pub struct ReplayObservation {
     pub observation_id: String,
     pub replay_id: String,
@@ -478,9 +565,6 @@ pub trait RetrievalPort: Send + Sync {
             .map(|evidence| (evidence, Usage::default()))
     }
 
-    /// Validate every external answer dependency against pinned AND current
-    /// publication grants, independently of internal reading or provider egress.
-    /// Implementations without a canonical publication check must fail closed.
     fn validate_publication(
         &self,
         _query: &Query,
@@ -492,8 +576,6 @@ pub trait RetrievalPort: Send + Sync {
         ))
     }
 
-    /// Revalidate against canonical revisions and CURRENT ACLs, including on cache hits.
-    /// The fail-closed default deliberately does not trust a provider or an old evidence pack.
     fn validate_evidence(
         &self,
         _query: &Query,
@@ -508,12 +590,63 @@ pub trait RetrievalPort: Send + Sync {
 }
 
 pub trait AnswerProviderPort: Send + Sync {
+    fn answer_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> std::result::Result<Accounted<ProviderAnswer>, PortFailure> {
+        self.answer(query, context, evidence)
+            .map(|value| Accounted {
+                accounting: UsageAccounting::observed(value.usage.clone()),
+                value,
+            })
+            .map_err(PortFailure::from)
+    }
+
+    fn answer_turn_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        tools: &[tools::ToolDefinition],
+        conversation: &tools::ToolConversation,
+    ) -> std::result::Result<Accounted<tools::ProviderTurn>, PortFailure> {
+        self.answer_turn(query, context, evidence, tools, conversation)
+            .map(|value| Accounted {
+                accounting: UsageAccounting::observed(value.usage().clone()),
+                value,
+            })
+            .map_err(PortFailure::from)
+    }
+
     fn answer(
         &self,
         query: &Query,
         context: &AuthorizedContext,
         evidence: &[Evidence],
     ) -> std::result::Result<ProviderAnswer, PortError>;
+
+    fn answer_turn(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        tools: &[tools::ToolDefinition],
+        conversation: &tools::ToolConversation,
+    ) -> std::result::Result<tools::ProviderTurn, PortError> {
+        if query.domain.is_some() || !tools.is_empty() || !conversation.messages.is_empty() {
+            return Err(PortError::Unavailable(
+                "Provider unterstützt nur belegte Textanfragen ohne Werkzeuggespräch".into(),
+            ));
+        }
+        query
+            .validate()
+            .map_err(|_| PortError::InvalidResponse("Ungültige Textanfrage".into()))?;
+        let turn = ProviderTurn::from(self.answer(query, context, evidence)?);
+        turn.validate(&[])?;
+        Ok(turn)
+    }
 }
 
 #[cfg(test)]

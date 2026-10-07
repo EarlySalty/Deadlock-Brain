@@ -2,12 +2,12 @@
 
 use std::time::{Duration, Instant};
 
-use brain_contracts::provider_input::{grounded_messages, ChatMessage};
+use brain_contracts::provider_input::{grounded_turn_payload, ToolWireFormat};
 use brain_contracts::{
-    AnswerProviderPort, AuthorizedContext, Evidence, PortError, ProviderAnswer, Query, Usage,
+    Accounted, AnswerProviderPort, AuthorizedContext, Evidence, PortError, PortFailure,
+    ProviderAnswer, ProviderTurn, Query, ToolConversation, ToolDefinition, Usage, UsageAccounting,
 };
 use reqwest::{blocking::Client, StatusCode};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Clone)]
@@ -20,7 +20,6 @@ pub struct ProviderConfig {
     pub retry_attempts: usize,
     pub retry_backoff: Duration,
     pub max_response_bytes: usize,
-    /// Explizite Preisobergrenze. Ohne Preis nur Loopback-Testserver oder Abo-Brücke.
     pub pricing: Option<PriceCeiling>,
 }
 
@@ -105,7 +104,6 @@ pub struct OpenAiCompatibleProvider {
     reported_failures: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
 }
 
-/// Eigener Brain-Adapter für GPT Luna über die vorhandene Codex-Abo-Anmeldung.
 #[derive(Debug, Clone)]
 pub struct CodexSubscriptionProvider(OpenAiCompatibleProvider);
 
@@ -119,6 +117,27 @@ impl CodexSubscriptionProvider {
 }
 
 impl AnswerProviderPort for CodexSubscriptionProvider {
+    fn answer_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> std::result::Result<Accounted<ProviderAnswer>, PortFailure> {
+        self.0.answer_accounted(query, context, evidence)
+    }
+
+    fn answer_turn_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        tools: &[ToolDefinition],
+        conversation: &ToolConversation,
+    ) -> std::result::Result<Accounted<ProviderTurn>, PortFailure> {
+        self.0
+            .answer_turn_accounted(query, context, evidence, tools, conversation)
+    }
+
     fn answer(
         &self,
         query: &Query,
@@ -127,45 +146,22 @@ impl AnswerProviderPort for CodexSubscriptionProvider {
     ) -> std::result::Result<ProviderAnswer, PortError> {
         self.0.answer(query, context, evidence)
     }
-}
 
-#[derive(Debug, Serialize)]
-struct ChatRequest {
-    model: String,
-    messages: Vec<ChatMessage>,
-    #[serde(rename = "max_tokens")]
-    max_completion_tokens: u32,
-    stream: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatResponse {
-    #[serde(default)]
-    model: Option<String>,
-    choices: Vec<Choice>,
-    #[serde(default)]
-    usage: Option<ProviderUsage>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Choice {
-    message: ResponseMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct ResponseMessage {
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ProviderUsage {
-    prompt_tokens: u64,
-    completion_tokens: u64,
+    fn answer_turn(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        tools: &[ToolDefinition],
+        conversation: &ToolConversation,
+    ) -> std::result::Result<ProviderTurn, PortError> {
+        self.0
+            .answer_turn(query, context, evidence, tools, conversation)
+    }
 }
 
 impl OpenAiCompatibleProvider {
     fn report_failure(&self, error: &ProviderError) {
-        // Nur feste Fehlerklassen protokollieren, keine Antworten, URLs oder Zugangsdaten.
         let category = match error {
             ProviderError::HttpStatus { status } => format!("http_{}", status.as_u16()),
             ProviderError::Http(error) if error.is_timeout() => "transport_timeout".into(),
@@ -247,53 +243,146 @@ impl OpenAiCompatibleProvider {
         query: &Query,
         context: &AuthorizedContext,
         evidence: &[Evidence],
-    ) -> Result<ProviderAnswer> {
+        tools: &[ToolDefinition],
+        conversation: &ToolConversation,
+        accounting: &mut UsageAccounting,
+    ) -> Result<ProviderTurn> {
         context
             .check_deadline()
             .map_err(|_| ProviderError::BudgetExceeded)?;
-        let payload = ChatRequest {
-            model: self.config.model.clone(),
-            messages: grounded_messages(query, evidence),
-            max_completion_tokens: context.budget.max_output_tokens,
-            stream: false,
+        let format = if self.config.subscription {
+            ToolWireFormat::Native
+        } else {
+            ToolWireFormat::OpenAiCompatible
         };
+        let mut payload = grounded_turn_payload(query, evidence, tools, conversation, format)
+            .map_err(provider_contract_error)?;
+        payload["model"] = serde_json::json!(self.config.model);
+        payload["max_tokens"] = serde_json::json!(context.budget.max_output_tokens);
+        payload["stream"] = serde_json::json!(false);
+        if self.config.subscription {
+            payload["tool_choice"] =
+                serde_json::json!({"type":if tools.is_empty() {"none"} else {"auto"}});
+            payload["output_config"] = serde_json::json!({"effort":"low"});
+        } else if tools.is_empty() {
+            payload
+                .as_object_mut()
+                .ok_or(ProviderError::InvalidConfig)?
+                .remove("tools");
+        } else {
+            payload["tool_choice"] = serde_json::json!("auto");
+        }
+        if self.config.model == "accounts/fireworks/models/deepseek-v4p1-flash" {
+            payload["reasoning_effort"] = serde_json::json!("none");
+        }
+        self.send_chat(payload, context, evidence, tools, conversation, accounting)
+    }
+}
 
-        hardening::authorize(query, context, evidence)?;
-        self.send_chat(payload, context, evidence)
+fn provider_contract_error(error: PortError) -> ProviderError {
+    match error {
+        PortError::BudgetExceeded => ProviderError::BudgetExceeded,
+        _ => ProviderError::InvalidResponse("invalid tool contract".into()),
     }
 }
 
 impl AnswerProviderPort for OpenAiCompatibleProvider {
+    fn answer_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> std::result::Result<Accounted<ProviderAnswer>, PortFailure> {
+        let Accounted { value, accounting } = self.answer_turn_accounted(
+            query,
+            context,
+            evidence,
+            &[],
+            &ToolConversation::default(),
+        )?;
+        let value = value
+            .into_answer()
+            .map_err(|error| PortFailure::accounted(error, accounting.clone()))?;
+        Ok(Accounted { value, accounting })
+    }
+
     fn answer(
         &self,
         query: &Query,
         context: &AuthorizedContext,
         evidence: &[Evidence],
     ) -> std::result::Result<ProviderAnswer, PortError> {
+        self.answer_turn(query, context, evidence, &[], &ToolConversation::default())?
+            .into_answer()
+    }
+
+    fn answer_turn(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        tools: &[ToolDefinition],
+        conversation: &ToolConversation,
+    ) -> std::result::Result<ProviderTurn, PortError> {
+        self.answer_turn_accounted(query, context, evidence, tools, conversation)
+            .map(|turn| turn.value)
+            .map_err(|failure| failure.error)
+    }
+
+    fn answer_turn_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        tools: &[ToolDefinition],
+        conversation: &ToolConversation,
+    ) -> std::result::Result<Accounted<ProviderTurn>, PortFailure> {
+        if (!tools.is_empty() || !conversation.messages.is_empty())
+            && context.request_deadline.is_none()
+        {
+            return Err(PortFailure::before_call(PortError::InvalidResponse(
+                "tool turns require a bound request deadline".into(),
+            )));
+        }
         let bound = context.with_request_deadline();
         let context = &bound;
-        context.check_deadline()?;
+        context.check_deadline().map_err(PortFailure::before_call)?;
         if context.budget.max_network_rounds == 0 || context.budget.max_output_tokens == 0 {
-            return Err(PortError::BudgetExceeded);
+            return Err(PortFailure::before_call(PortError::BudgetExceeded));
         }
-        if let Err(error) = hardening::authorize(query, context, evidence) {
+        if let Err(error) = hardening::authorize_turn(query, context, evidence, tools, conversation)
+        {
             self.report_failure(&error);
-            return Err(PortError::InvalidResponse(
+            return Err(PortFailure::before_call(PortError::InvalidResponse(
                 "provider context or egress denied".into(),
-            ));
+            )));
         }
-        self.with_circuit(|| self.request(query, context, evidence))
-            .map_err(|error| {
+        let mut accounting = UsageAccounting::default();
+        let result = self.with_circuit(|| {
+            self.request(
+                query,
+                context,
+                evidence,
+                tools,
+                conversation,
+                &mut accounting,
+            )
+        });
+        match result {
+            Ok(value) => Ok(Accounted { value, accounting }),
+            Err(error) => {
                 self.report_failure(&error);
-                match error {
+                let error = match error {
                     ProviderError::BudgetExceeded => PortError::BudgetExceeded,
                     ProviderError::InvalidResponse(message) => PortError::InvalidResponse(message),
                     ProviderError::ResponseTooLarge => {
                         PortError::InvalidResponse("provider response too large".into())
                     }
                     other => PortError::Unavailable(other.to_string()),
-                }
-            })
+                };
+                Err(PortFailure::accounted(error, accounting))
+            }
+        }
     }
 }
 
@@ -306,6 +395,7 @@ mod tests {
         thread,
     };
 
+    use brain_contracts::provider_input::grounded_messages;
     use brain_contracts::{AnswerProfile, Principal};
 
     use super::*;
@@ -404,7 +494,7 @@ mod tests {
             assert_eq!(payload["messages"].as_array().unwrap().len(), 1);
             assert_eq!(payload["tools"], serde_json::json!([]));
             assert_eq!(payload["tool_choice"], serde_json::json!({"type":"none"}));
-            let response = r#"{"model":"gpt-6-luna","content":[{"type":"thinking","thinking":"Nicht ausgeben"},{"type":"text","text":"Antwort"}],"usage":{"input_tokens":12,"output_tokens":3}}"#;
+            let response = r#"{"model":"gpt-6-luna","stop_reason":"end_turn","content":[{"type":"thinking","thinking":"Nicht ausgeben"},{"type":"text","text":"Antwort"}],"usage":{"input_tokens":12,"output_tokens":3}}"#;
             write!(
                 stream,
                 "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -445,7 +535,7 @@ mod tests {
                     )
                     .unwrap();
                 } else {
-                    let body = r#"{"model":"fixture-model","choices":[{"message":{"content":"Abrams Antwort"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#;
+                    let body = r#"{"model":"fixture-model","choices":[{"finish_reason":"stop","message":{"content":"Abrams Antwort"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#;
                     write!(
                         stream,
                         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -462,7 +552,6 @@ mod tests {
             .unwrap();
         assert_eq!(result.text, "Abrams Antwort");
         assert_eq!(result.usage.network_rounds, 2);
-        // A failed first round is conservatively charged, not silently counted as free.
         assert!(result.usage.input_tokens > 12);
         assert!(result.usage.input_tokens <= context().budget.max_input_tokens as u64);
         assert!(result.usage.output_tokens > 3);

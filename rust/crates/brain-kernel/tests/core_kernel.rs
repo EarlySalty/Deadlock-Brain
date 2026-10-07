@@ -21,7 +21,7 @@ fn record(revision: u64) -> SourceRecordV2 {
         source_id: "fixture".into(),
         logical_id: "a".into(),
         revision,
-        content_hash: format!("hash-{revision}"),
+        content_hash: dbrain_sources::external::sha256(b"Abrams fixture evidence"),
         content: "Abrams fixture evidence".into(),
         visibility: SourceVisibility::Public,
         allowed_scopes: BTreeSet::new(),
@@ -74,6 +74,7 @@ async fn patch_agnostic_fact_does_not_establish_release_patch_or_mode() {
     fact.logical_id = "entity/hero/Abrams".into();
     fact.content = "hero: Abrams\nhealth: 650".into();
     fact.metadata.insert("kind".into(), "fact".into());
+    fact.content_hash = dbrain_sources::external::sha256(fact.content.as_bytes());
     s.apply_record(fact).unwrap();
     let release = s.release_from_heads("r1", "v1", "p1").unwrap();
     s.publish(&release).await.unwrap();
@@ -94,7 +95,6 @@ async fn patch_agnostic_fact_does_not_establish_release_patch_or_mode() {
         .citations
         .iter()
         .all(|citation| citation.patch.is_none()));
-    // A release pin is not a source's game-patch validity claim.
     request.patch = Some("p1".into());
     assert_eq!(
         kernel.answer(&request, &context()).status,
@@ -140,6 +140,7 @@ async fn asset_hero_entity_and_field_records_share_identity() {
                 format!("starting_stats.{}.value", field.replace(' ', "_")),
             );
         }
+        fact.content_hash = dbrain_sources::external::sha256(fact.content.as_bytes());
         s.apply_record(fact).unwrap();
     }
     for (name, external_id) in [("Warden", "hero_25"), ("Other", "hero_25")] {
@@ -159,6 +160,7 @@ async fn asset_hero_entity_and_field_records_share_identity() {
         legacy
             .metadata
             .insert("entity_external_id".into(), external_id.into());
+        legacy.content_hash = dbrain_sources::external::sha256(legacy.content.as_bytes());
         s.apply_record(legacy).unwrap();
     }
     for i in 0..110 {
@@ -166,6 +168,7 @@ async fn asset_hero_entity_and_field_records_share_identity() {
         unrelated.logical_id = format!("entity/hero/Unrelated{i}");
         unrelated.content = format!("hero: Unrelated{i}\nhealth: 500\n");
         unrelated.metadata.insert("kind".into(), "fact".into());
+        unrelated.content_hash = dbrain_sources::external::sha256(unrelated.content.as_bytes());
         s.apply_record(unrelated).unwrap();
     }
     let release = s.release_from_heads("r1", "v1", "p1").unwrap();
@@ -218,6 +221,7 @@ async fn asset_hero_entity_and_field_records_share_identity() {
     conflicting
         .metadata
         .insert("entity_external_id".into(), "hero_25".into());
+    conflicting.content_hash = dbrain_sources::external::sha256(conflicting.content.as_bytes());
     s.apply_record(conflicting).unwrap();
     let release = s.release_from_heads("r2", "v2", "p1").unwrap();
     s.publish(&release).await.unwrap();
@@ -251,6 +255,14 @@ async fn assets_feed_field_answers_through_release_kernel() {
         observed_at: 1_790_000_000,
         attempts: 1,
     };
+    let raw: serde_json::Value = serde_json::from_str(body).unwrap();
+    let ir = dbrain_sources::assets_api::prepare_assets("heroes", response.clone(), None).unwrap();
+    let pointer = "/0/starting_stats/max_move_speed/value";
+    assert_eq!(
+        ir.payload().unwrap().pointer(pointer),
+        raw.pointer(pointer),
+        "Die synthetische Dezimalzahl muss verlustfrei erhalten bleiben."
+    );
     let policy = FeedPolicy {
         visibility: SourceVisibility::Public,
         allowed_scopes: BTreeSet::new(),
@@ -278,6 +290,7 @@ async fn assets_feed_field_answers_through_release_kernel() {
     legacy
         .metadata
         .insert("entity_external_id".into(), "hero_25".into());
+    legacy.content_hash = dbrain_sources::external::sha256(legacy.content.as_bytes());
     store.apply_record(legacy).unwrap();
     let release = store.release_from_heads("r1", "v1", "p1").unwrap();
     store.publish(&release).await.unwrap();
@@ -293,8 +306,6 @@ async fn assets_feed_field_answers_through_release_kernel() {
     request.profile = AnswerProfile::Fact;
     request.text = "Warden max health".into();
     request.patch = Some("p1".into());
-    // The real feed declares unknown game validity. Its corpus release must
-    // not turn the imported observation into a patch-specific fact.
     assert_eq!(
         kernel.answer(&request, &context()).status,
         AnswerStatus::InsufficientEvidence

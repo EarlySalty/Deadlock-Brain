@@ -1,5 +1,3 @@
-//! Production composition: one hard-bounded LocalPgReader pool is shared by startup,
-//! readiness, retrieval/evidence validation and conversation ownership.
 use crate::{
     analytics::{AnalyticsRetriever, AnalyticsRuntime},
     config::{ProviderKind, RetrievalKind},
@@ -13,7 +11,8 @@ use axum::{
     response::Response,
 };
 use brain_contracts::{
-    AnswerProviderPort, AuthorizedContext, Evidence, PortError, ProviderAnswer, Query,
+    Accounted, AnswerProviderPort, AuthorizedContext, Evidence, PortError, PortFailure,
+    ProviderAnswer, ProviderTurn, Query, ToolConversation, ToolDefinition,
 };
 use brain_kernel::{CachedKernel, Kernel};
 use brain_policy::{CredentialRegistry, PolicyEngine};
@@ -118,8 +117,6 @@ impl Shutdown {
     }
 }
 
-/// Built before entering Tokio so reqwest's blocking client is created/dropped outside it.
-/// The retained provider clone also outlives all API workers during shutdown.
 #[derive(Clone)]
 enum AnswerProvider {
     OpenAi(OpenAiCompatibleProvider),
@@ -127,6 +124,36 @@ enum AnswerProvider {
 }
 
 impl AnswerProviderPort for AnswerProvider {
+    fn answer_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> Result<Accounted<ProviderAnswer>, PortFailure> {
+        match self {
+            Self::OpenAi(provider) => provider.answer_accounted(query, context, evidence),
+            Self::Subscription(provider) => provider.answer_accounted(query, context, evidence),
+        }
+    }
+
+    fn answer_turn_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        tools: &[ToolDefinition],
+        conversation: &ToolConversation,
+    ) -> Result<Accounted<ProviderTurn>, PortFailure> {
+        match self {
+            Self::OpenAi(provider) => {
+                provider.answer_turn_accounted(query, context, evidence, tools, conversation)
+            }
+            Self::Subscription(provider) => {
+                provider.answer_turn_accounted(query, context, evidence, tools, conversation)
+            }
+        }
+    }
+
     fn answer(
         &self,
         query: &Query,
@@ -136,6 +163,24 @@ impl AnswerProviderPort for AnswerProvider {
         match self {
             Self::OpenAi(provider) => provider.answer(query, context, evidence),
             Self::Subscription(provider) => provider.answer(query, context, evidence),
+        }
+    }
+
+    fn answer_turn(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        tools: &[ToolDefinition],
+        conversation: &ToolConversation,
+    ) -> Result<ProviderTurn, PortError> {
+        match self {
+            Self::OpenAi(provider) => {
+                provider.answer_turn(query, context, evidence, tools, conversation)
+            }
+            Self::Subscription(provider) => {
+                provider.answer_turn(query, context, evidence, tools, conversation)
+            }
         }
     }
 }
@@ -164,7 +209,6 @@ impl Prepared {
         if Instant::now() >= deadline {
             return Err(Error::StartupTimeout);
         }
-        // Ambient PG options would bypass the explicit timeout contract.
         if std::env::var_os("PGOPTIONS").is_some_and(|value| !value.is_empty()) {
             return Err(Error::ConfigInvalid("ambient_postgres_options"));
         }
@@ -593,6 +637,10 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     log_pool_stats(prepared.reader.pool_stats());
     result.and(operator_result)
 }
+
+#[cfg(test)]
+#[path = "answer_provider_tests.rs"]
+mod answer_provider_tests;
 
 #[cfg(test)]
 mod entity_profile_tests {
