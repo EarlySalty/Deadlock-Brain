@@ -876,6 +876,7 @@ name = "dbrain-reasoner"
 version = "0.1.0"
 dependencies = [
  "brain-contracts",
+ "brain-storage",
  "dbrain-builds",
  "dbrain-normalize",
  "dbrain-population",

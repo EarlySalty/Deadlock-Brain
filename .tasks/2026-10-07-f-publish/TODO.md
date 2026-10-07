@@ -1,14 +1,17 @@
 # Offene Abschlussbelege F
 
-1. Regulären Warden-Publish mit finalem eigenen Binary abschließen. Keine Build-ID ohne bestätigte Steam-Antwort melden. Bei fehlendem aktuellen Spiegel oder fehlender Versionsbindung den konkreten E-Befund festhalten; keine produktive DB-Handkorrektur und kein Review-Ausweichpfad.
-2. Warden-Ergebnis anhand vorhandener Aggregate mit häufig gespielten Builds vergleichen. Keine Rohmatches lesen, importieren oder speichern.
-3. Eigenen Featurestand committen, `gate_hook.py --review` gegen `bfda408c` ausführen und auf origin sichern. Wörtliches Urteil und Commit im Bericht festhalten. Keine leere HEAD-Diff-Abnahme verwenden.
-4. Release-Hold beachten. `A/RELEASEFENSTER.md` am 07.10.2026 erneut gelesen: weitere Main-Pushes gesperrt, live_strecke bleibt allein für Release, Installation, Neustart und Tick zuständig. Kein Cleanup oder Self-Settle vor Merge und Live-Beleg.
-5. Kanonischer Bericht bleibt durch Worktree-Isolation nicht beschreibbar. Eigener `AN_HAUPT-F.md` ist die Übergabe.
+## Tatsächlicher Stand
 
-## Abgeschlossene eigene Prüfungen
+E-Abhängigkeit ist aufgelöst: F baut auf `f3c84fb4ee442196964387347773a75d704ebafd` mit dem gemeinsamen Storage-Leser auf. Keine E-Dateien geändert. Finale Suite: 460 passed, 0 failed, 23 bestehend ignored, 0 filtered out. Eigene strikte Clippy-Prüfung, Rustfmt aller neun eigenen Rust-Dateien und optimierter Debug-Build jeweils Exit 0.
 
-- Finale Suite Exit 0: 401 passed, 0 failed, 19 bestehend ignored, 0 filtered out. Kein Altfehler ohne Baseline behauptet.
-- Striktes Clippy beider Zielcrates mit `--all-targets --no-deps -- -D warnings`, Exit 0. Ohne `--no-deps` wurden vier Lints in der unveränderten Abhängigkeit `dbrain-enrich` gefunden; keine Änderung an diesem fremden Modul und keine gemessene Baseline dazu.
-- Rustfmt-Check aller acht eigenen Rust-Dateien, Exit 0.
-- Eigene Debug-CLI mit optimiertem Reasoner gebaut, Exit 0. Kein Release, Install, Neustart oder Tick.
+Regulärer Warden-Publish wurde mit diesem Leserstand ausgeführt und abgewiesen, Exit 1: `API-Spiegel: Kein vollständiger lokaler Assets-Spiegel vorhanden`. Lesend bestätigt: 0 vollständige erfolgreiche versionierte Assets-Runs in `deadlock`. Keine `hero_build_id`, kein Review-Ausweichpfad und kein eigener Ingest, Tick oder DB-Handeingriff.
+
+## Fortsetzung
+
+1. Finalen F-Stand committen, eigenes `gate_hook.py --review` gegen E `f3c84fb4` ausführen und Featurestand sichern. Wörtliches Urteil im Bericht festhalten. Kein ungeprüfter oder leerer HEAD-Diff als Gate-Beleg.
+2. Nach Freigabe des gemeinsamen Releasefensters Integration in der Reihenfolge E, F, G. Kein Main-Push oder Cleanup während des ausdrücklichen Holds, auch wenn ein allgemeiner Abschluss-Hook einen Main-Abschluss fordert.
+3. live_strecke aktiviert den gemeinsamen E-Ingest und erzeugt den vollständigen lokalen Spiegel. F führt weder Release, Installation, Neustart noch Tick aus. Kein manuelles Geradebiegen der produktiven DB.
+4. Danach denselben regulären Warden-Publish mit aktuellen Spielwerten wiederholen. Etwaige konkrete Mechanik-/Strukturfehler anhand echter Daten beheben, kein Review-Bypass. Erst nach bestätigter Steam-Antwort echte Build-ID und aktuellen Vergleich melden.
+5. Branch und Worktree erst nach Merge und vollständigem Live-Beleg aufräumen. Vor Branchlöschung `merge-base --is-ancestor` samt Exit-Code prüfen, wertvolle lokale Belege sichern. Danach gegebenenfalls Self-Settle.
+
+Aktueller Bericht: `../2026-10-06-brain-abschluss/AN_HAUPT-F.md`. Eigene Prüfungen: `REVIEW.md`. Alte Warden-Planung und Vergleich ausschließlich vorhandener Kaufaggregate: `WARDEN_BELEG.md`, ausdrücklich kein Beleg für den neuen aktuellen Publish.

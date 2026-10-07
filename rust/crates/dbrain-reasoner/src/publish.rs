@@ -166,112 +166,31 @@ pub async fn validate_publish_current(pool: &PgPool, build: &BuildObject) -> Res
         .ok_or_else(|| {
             ReasonerError::Data("Beginn des aktiven Patches ist nicht belegt.".into())
         })?;
-    let (hero, mut snapshots) =
-        crate::data::load_hero_model_with_snapshots(&ctx, &build.hero_name).await?;
-    let (items, item_snapshots) = crate::data::load_item_models_with_snapshots(&ctx).await?;
-    snapshots.extend(item_snapshots);
-    validate_publish_models(build, &hero, &items, &snapshots, start as f64, &ctx.config)?;
-    validate_mirror_membership(pool, build, &hero, &snapshots, start).await
+    let mirrored = crate::data::load_models_from_mirror(&ctx, &build.hero_name).await?;
+    validate_mirror_provenance(&mirrored.provenance, start)?;
+    validate_publish_models(
+        build,
+        &mirrored.hero,
+        &mirrored.items,
+        &mirrored.snapshots,
+        mirrored.provenance.mirrored_at as f64,
+        &ctx.config,
+    )
 }
 
-fn current_mirror_version(summary: &Value, patch_started_at: i64) -> Result<i64> {
-    summary["client_version"]
-        .as_i64()
-        .filter(|version| *version > 0)
-        .filter(|_| summary["mirror_complete"].as_bool() == Some(true))
-        .filter(|_| {
-            summary["checked_at"]
-                .as_i64()
-                .is_some_and(|checked| checked >= patch_started_at)
-        })
-        .ok_or_else(|| {
-            ReasonerError::Data(
-                "Vollständiger API-Spiegel der aktuellen Clientversion ist nicht belegt.".into(),
-            )
-        })
-}
-
-async fn validate_mirror_membership(
-    pool: &PgPool,
-    build: &BuildObject,
-    hero: &crate::HeroModel,
-    snapshots: &[crate::PatchSnapshot],
+fn validate_mirror_provenance(
+    mirror: &crate::data::MirrorProvenance,
     patch_started_at: i64,
 ) -> Result<()> {
-    let summary: Option<Value> = sqlx::query_scalar(
-        "SELECT summary FROM brain.source_runs WHERE source='assets' AND status='ok' ORDER BY finished_at DESC, id DESC LIMIT 1",
-    ).fetch_optional(pool).await.map_err(ReasonerError::Db)?;
-    let version = current_mirror_version(&summary.unwrap_or(Value::Null), patch_started_at)?;
-    let hero_payload: Value = sqlx::query_scalar(
-        "SELECT payload FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type='hero' AND payload->>'id'=$1 ORDER BY fetched_at DESC, id DESC LIMIT 1",
-    ).bind(hero.hero_id.to_string()).fetch_one(pool).await.map_err(ReasonerError::Db)?;
-    let mut targets = vec![(
-        crate::DeltaTarget::Hero(hero.hero_id),
-        "hero",
-        "id",
-        hero.hero_id.to_string(),
-    )];
-    targets.extend(hero.abilities.iter().map(|ability| {
-        (
-            crate::DeltaTarget::Ability(ability.ability_id),
-            "item_or_ability",
-            "class_name",
-            ability.class_name.clone(),
-        )
-    }));
-    targets.extend(
-        build
-            .core
-            .iter()
-            .chain(build.situations.iter().flat_map(|block| &block.items))
-            .map(|item| {
-                (
-                    crate::DeltaTarget::Item(item.item_id),
-                    "item_or_ability",
-                    "id",
-                    item.item_id.to_string(),
-                )
-            }),
-    );
-    if let Some(weapon) = hero_payload
-        .pointer("/items/weapon_primary")
-        .and_then(Value::as_str)
-        .filter(|_| hero_payload.get("weapon_info").is_none_or(Value::is_null))
+    if mirror.client_version <= 0
+        || patch_started_at <= 0
+        || mirror.mirrored_at <= 0
+        || mirror.mirrored_at > mirror.checked_at
+        || mirror.checked_at < patch_started_at
     {
-        targets.push((
-            crate::DeltaTarget::Hero(hero.hero_id),
-            "item_or_ability",
-            "class_name",
-            weapon.to_owned(),
+        return Err(ReasonerError::Data(
+            "Vollständiger API-Spiegel wurde nicht für den aktiven Patch geprüft.".into(),
         ));
-    }
-    for (target, entity_type, field, key) in targets {
-        let provenance: Option<Value> = sqlx::query_scalar(
-            "SELECT jsonb_build_object('version', sd.metadata->'adapter'->'client_version', 'fetched_at', extract(epoch FROM es.fetched_at)) FROM brain.entity_snapshots es LEFT JOIN brain.source_documents sd ON sd.id=es.source_document_id AND sd.source=es.source WHERE es.source='deadlock_assets_api' AND es.entity_type=$1 AND es.payload->>$2=$3 ORDER BY es.fetched_at DESC, es.id DESC LIMIT 1",
-        ).bind(entity_type).bind(field).bind(&key).fetch_optional(pool).await.map_err(ReasonerError::Db)?;
-        let provenance = provenance.unwrap_or(Value::Null);
-        let selected_time = provenance["fetched_at"].as_f64();
-        let matching_snapshot = snapshots
-            .iter()
-            .find(|snapshot| snapshot.target == target)
-            .is_some_and(|snapshot| {
-                let fields = snapshot
-                    .fields
-                    .iter()
-                    .filter(|(name, _)| {
-                        !matches!(target, crate::DeltaTarget::Hero(_))
-                            || name.starts_with("weapon.") == (entity_type == "item_or_ability")
-                    })
-                    .map(|(_, field)| field)
-                    .collect::<Vec<_>>();
-                !fields.is_empty() && fields.iter().all(|field| field.fetched_at == selected_time)
-            });
-        if provenance["version"].as_i64() != Some(version)
-            || selected_time.is_none()
-            || !matching_snapshot
-        {
-            return Err(ReasonerError::Data(format!("API-Spielwerte {entity_type}/{key} gehören nicht nachweislich zur aktuellen Clientversion {version}.")));
-        }
     }
     Ok(())
 }
@@ -281,12 +200,14 @@ fn validate_publish_models(
     hero: &crate::HeroModel,
     items: &[crate::ItemModel],
     snapshots: &[crate::PatchSnapshot],
-    patch_started_at: f64,
+    mirrored_at: f64,
     cfg: &crate::ReasonerConfig,
 ) -> Result<()> {
     let error = |text: &str| ReasonerError::Data(text.into());
-    if !patch_started_at.is_finite() || patch_started_at <= 0.0 {
-        return Err(error("Aktiver Patch hat keinen gültigen Zeitpunkt."));
+    if !mirrored_at.is_finite() || mirrored_at <= 0.0 {
+        return Err(error(
+            "API-Spiegel hat keinen gültigen Erfassungszeitpunkt.",
+        ));
     }
     if hero.hero_id != build.hero_id || hero.abilities.is_empty() {
         return Err(error("Helden- oder Fähigkeitsdaten fehlen."));
@@ -334,7 +255,7 @@ fn validate_publish_models(
                     || !field.source.starts_with("deadlock_assets_api/")
                     || field
                         .fetched_at
-                        .is_none_or(|time| !time.is_finite() || time < patch_started_at)
+                        .is_none_or(|time| !time.is_finite() || time != mirrored_at)
             })
         {
             return Err(error(
@@ -617,17 +538,28 @@ mod tests {
     }
 
     #[test]
-    fn local_mirror_requires_complete_current_version_after_patch_start() {
-        let summary =
-            serde_json::json!({"client_version":6000,"mirror_complete":true,"checked_at":2000});
-        assert_eq!(current_mirror_version(&summary, 1000).unwrap(), 6000);
+    fn local_mirror_requires_current_check_but_preserves_unchanged_original_values() {
+        let mirror = crate::data::MirrorProvenance {
+            client_version: 6000,
+            mirrored_at: 500,
+            checked_at: 2000,
+        };
+        validate_mirror_provenance(&mirror, 1000).unwrap();
         for invalid in [
-            serde_json::json!({"client_version":6000,"mirror_complete":false,"checked_at":2000}),
-            serde_json::json!({"client_version":6000,"mirror_complete":true,"checked_at":999}),
-            serde_json::json!({"client_version":0,"mirror_complete":true,"checked_at":2000}),
-            Value::Null,
+            crate::data::MirrorProvenance {
+                checked_at: 999,
+                ..mirror.clone()
+            },
+            crate::data::MirrorProvenance {
+                client_version: 0,
+                ..mirror.clone()
+            },
+            crate::data::MirrorProvenance {
+                mirrored_at: 2001,
+                ..mirror.clone()
+            },
         ] {
-            assert!(current_mirror_version(&invalid, 1000).is_err());
+            assert!(validate_mirror_provenance(&invalid, 1000).is_err());
         }
     }
 
@@ -663,7 +595,7 @@ mod tests {
         assert!(!build.core.is_empty());
         assert!(!build.ability_order.is_empty());
         validate_publish_input(&build).unwrap();
-        validate_publish_models(&build, &hero, &models, &snapshots, 1000.0, &cfg).unwrap();
+        validate_publish_models(&build, &hero, &models, &snapshots, 2000.0, &cfg).unwrap();
     }
 
     #[test]
@@ -675,7 +607,7 @@ mod tests {
             &hero,
             &models,
             &snapshots,
-            1000.0,
+            2000.0,
             &crate::ReasonerConfig::default(),
         )
         .unwrap();
@@ -690,12 +622,12 @@ mod tests {
         let mut uses_missing = build.clone();
         uses_missing.core.push(item(13, None, None));
         assert!(
-            validate_publish_models(&uses_missing, &hero, &models, &snapshots, 1000.0, &cfg)
+            validate_publish_models(&uses_missing, &hero, &models, &snapshots, 2000.0, &cfg)
                 .is_err()
         );
         snapshots.push(missing);
         snapshots[0].fields.values_mut().next().unwrap().source = "deadlock_data".into();
-        assert!(validate_publish_models(&build, &hero, &models, &snapshots, 1000.0, &cfg).is_err());
+        assert!(validate_publish_models(&build, &hero, &models, &snapshots, 2000.0, &cfg).is_err());
         assert!(
             validate_publish_models(&build, &hero, &models, &snapshots, f64::NAN, &cfg).is_err()
         );
@@ -706,7 +638,7 @@ mod tests {
         let (build, hero, models, snapshots) = model_fixture();
         let cfg = crate::ReasonerConfig::default();
         let check = |build: &BuildObject| {
-            validate_publish_models(build, &hero, &models, &snapshots, 1000.0, &cfg)
+            validate_publish_models(build, &hero, &models, &snapshots, 2000.0, &cfg)
         };
         let mut invalid = build.clone();
         invalid.core = (1..=13).map(|id| item(id, None, None)).collect();
