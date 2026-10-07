@@ -3,6 +3,7 @@
 pub mod author;
 pub mod config;
 pub mod entity_profile_render;
+pub mod hero_compare_render;
 pub mod html;
 pub mod integration;
 pub mod lease;
