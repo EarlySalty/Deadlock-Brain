@@ -507,6 +507,17 @@ fn evaluate_core(
     evaluate_core_with_deadline(hero, items, cfg, detailed, bindings, None)
 }
 
+fn normalized_items<'a>(items: &[&'a ItemModel]) -> Vec<&'a ItemModel> {
+    let mut seen = BTreeSet::new();
+    let mut held: Vec<_> = items
+        .iter()
+        .copied()
+        .filter(|item| seen.insert(item.item_id))
+        .collect();
+    held.sort_by_key(|item| item.item_id);
+    held
+}
+
 fn evaluate_core_with_deadline(
     hero: &HeroModel,
     items: &[&ItemModel],
@@ -515,13 +526,7 @@ fn evaluate_core_with_deadline(
     bindings: Option<&BTreeMap<i64, i64>>,
     deadline: Option<&brain_contracts::RequestDeadline>,
 ) -> InventoryEvaluation {
-    let mut seen = BTreeSet::new();
-    let mut held: Vec<_> = items
-        .iter()
-        .copied()
-        .filter(|i| seen.insert(i.item_id))
-        .collect();
-    held.sort_by_key(|item| item.item_id);
+    let held = normalized_items(items);
     let mut unknown = BTreeSet::new();
     if detailed {
         unknown.extend(crate::mechanics::hero_scaling_warnings(hero));
@@ -823,9 +828,10 @@ fn simulate_calculation_inner(
         combat_window_seconds: scenario.window_seconds,
         ..ReasonerConfig::default()
     };
+    let held = normalized_items(&items.iter().collect::<Vec<_>>());
     simulate(
         hero,
-        &items.iter().collect::<Vec<_>>(),
+        &held,
         &cfg,
         SimulationOptions {
             name: "Berechnung",
@@ -1297,11 +1303,6 @@ fn simulate(
         let rate = (weapon.shots_per_second * (1.0 + stats.rate / 100.0)).max(0.0);
         let bullet = weapon.bullet_damage
             * (1.0 + stats.weapon / 100.0).max(0.0)
-            * if scenario.is_none() {
-                1.0 + stats.bullet_shred / 100.0
-            } else {
-                1.0
-            }
             * (1.0 + stats.weapon_amp)
             * scenario.map_or(1.0, |s| {
                 1.0 + s.headshot_fraction * s.headshot_bonus.unwrap_or_default()
@@ -1309,7 +1310,14 @@ fn simulate(
         let contact = if moving { 0.65 } else { 1.0 };
         let hit = target_contact(&stats, moving) * scenario.map_or(1.0, |s| s.hit_fraction);
         let utility_contact = hit - contact;
-        let weapon_opportunity = bullet * rate * hit;
+        let weapon_opportunity = bullet
+            * rate
+            * hit
+            * if scenario.is_none() {
+                1.0 + stats.bullet_shred / 100.0
+            } else {
+                1.0
+            };
         let maximum_health = ((hero.base_health * (1.0 + stats.health_pct / 100.0) + stats.health)
             * (1.0 - stats.health_loss).max(0.0))
         .max(0.0);
@@ -1901,11 +1909,7 @@ fn simulate(
                 (bullet + stack_bonus * (1.0 + stats.weapon_amp)) * hit,
                 &crate::DamageType::Weapon,
                 shot_at,
-                if scenario.is_some() {
-                    stats.bullet_shred
-                } else {
-                    0.0
-                },
+                stats.bullet_shred,
                 0.0,
             );
             gun_damage += dealt;
@@ -3343,6 +3347,404 @@ pub(crate) mod tests {
             }
         }
     }
+    fn stack_test_hero(recorded: bool) -> HeroModel {
+        let mut hero = hero();
+        hero.weapon.shots_per_second = 2.5;
+        let stacks = if recorded {
+            let raw: serde_json::Value =
+                serde_json::from_str(include_str!("../testdata/calculation/recorded-assets.json"))
+                    .unwrap();
+            assert!(raw["provenance"]["client_version"].is_null());
+            let payload = raw["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["properties"].get("DamageBonusFixedPerStack").is_some())
+                .unwrap();
+            crate::data::ability_model_from_payload(payload, 3).unwrap()
+        } else {
+            let mut stacks = ability(11, 0.0, 1000.0);
+            stacks.properties.extend([
+                ("DamageBonusFixedPerStack".into(), 10.0),
+                ("MaxStacks".into(), 10.0),
+                ("AbilityDuration".into(), 6.0),
+            ]);
+            stacks
+        };
+        hero.abilities = vec![stacks];
+        hero
+    }
+
+    fn explicit_test_scenario(window_seconds: f64) -> crate::CalculationScenario {
+        crate::CalculationScenario {
+            progression: crate::ProgressionInput::Boons(0),
+            expected_level: None,
+            expected_unspent_ap: None,
+            spirit: crate::SpiritInput::Total(0.0),
+            weapon_bonus_percent: None,
+            fire_rate_bonus_percent: None,
+            item_ids: Vec::new(),
+            purchases: Vec::new(),
+            inventory_rules: None,
+            max_active_items: None,
+            ability_order: Vec::new(),
+            imbues: BTreeMap::new(),
+            secondary_fire: false,
+            use_abilities: true,
+            target: crate::CalculationTarget {
+                health: 2000.0,
+                regeneration: 0.0,
+                shields: [0.0; 3],
+                is_hero: true,
+                bullet: crate::DamageModifiers::default(),
+                spirit: crate::DamageModifiers::default(),
+                changes: Vec::new(),
+            },
+            hit_fraction: 1.0,
+            headshot_fraction: 0.0,
+            headshot_bonus: None,
+            distance_source_units: None,
+            window_seconds,
+            reload_convention: crate::ReloadConvention::AfterFireInterval,
+        }
+    }
+
+    #[test]
+    fn stack_bonus_shred_matches_default_fast_and_binding_paths() {
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 1.0,
+            incoming_pressure_dps: Some(0.0),
+            ..ReasonerConfig::default()
+        };
+        for (recorded, unshredded) in [(false, 60.0), (true, 30.6)] {
+            let hero = stack_test_hero(recorded);
+            for shred in [0.0, 20.0] {
+                let items = [item(7, "BulletResistReduction", shred)];
+                let refs = [&items[0]];
+                let bindings = BTreeMap::new();
+                let results = [
+                    evaluate_inventory(&hero, &items, &cfg),
+                    evaluate_inventory_fast(&hero, &items, &cfg),
+                    evaluate_inventory_refs_fast(&hero, &refs, &cfg),
+                    evaluate_inventory_with_bindings(&hero, &items, &cfg, &bindings),
+                    evaluate_inventory_refs_fast_with_bindings(&hero, &refs, &cfg, &bindings),
+                ];
+                for (path, result) in results.iter().enumerate() {
+                    let duel = &result.scenarios[0];
+                    let expected = unshredded * (1.0 + shred / 100.0);
+                    println!("stack recorded={recorded} path={path} shred={shred} shots={} damage={} expected={expected}", duel.shots, duel.weapon_damage);
+                    assert_eq!(duel.shots, 3.0);
+                    assert!((duel.weapon_damage - expected).abs() < 1e-9);
+                    assert_eq!(result.score, results[0].score);
+                    for (actual, reference) in result.scenarios.iter().zip(&results[0].scenarios) {
+                        let mut actual = actual.clone();
+                        actual.sequence = reference.sequence.clone();
+                        assert_eq!(&actual, reference);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_stack_shred_is_applied_once_with_target_resistance() {
+        let hero = stack_test_hero(false);
+        for (resistance, expected) in [(0.0, 72.0), (0.25, 57.0)] {
+            let mut scenario = explicit_test_scenario(1.0);
+            scenario.target.bullet.resist = resistance;
+            let result = simulate_calculation(
+                &hero,
+                &[item(7, "BulletResistReduction", 20.0)],
+                &scenario,
+                &crate::WeaponTiming::default(),
+                &BTreeMap::new(),
+            );
+            println!(
+                "explicit resistance={resistance} shots={} damage={} expected={expected}",
+                result.shots, result.weapon_damage
+            );
+            assert_eq!(result.shots, 3.0);
+            assert!((result.weapon_damage - expected).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn duplicate_items_have_one_stat_shop_and_effect_population_in_public_simulations() {
+        let mut hero = hero();
+        hero.weapon.shots_per_second = 2.5;
+        hero.cost_bonuses.insert(
+            "weapon".into(),
+            vec![
+                CostBonus {
+                    gold_threshold: 800,
+                    bonus: 9.0,
+                },
+                CostBonus {
+                    gold_threshold: 1600,
+                    bonus: 12.0,
+                },
+            ],
+        );
+        let mut proc = item(7, "ProcBonusPhysicalDamage", 100.0);
+        proc.condition = ConditionKind::ShotBound;
+        proc.proc_cooldown = Some(1.0);
+        proc.properties
+            .extend([("ProcChance".into(), 100.0), ("WeaponPower".into(), 25.0)]);
+        proc.property_damage_types
+            .insert("ProcBonusPhysicalDamage".into(), DamageType::Weapon);
+        let single = vec![proc.clone()];
+        let duplicate = vec![proc.clone(), proc];
+        let mut scenario = explicit_test_scenario(1.0);
+        let timing = crate::WeaponTiming::default();
+        let innate = BTreeMap::new();
+        let anchor = std::time::Instant::now();
+        let deadline = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || anchor,
+        );
+        let worker = deadline.clone();
+        assert_eq!(worker, deadline);
+        assert_eq!(
+            worker.expires_at(),
+            anchor + std::time::Duration::from_secs(60)
+        );
+        let plain = simulate_calculation(&hero, &single, &scenario, &timing, &innate);
+        for (path, result) in [
+            simulate_calculation(&hero, &duplicate, &scenario, &timing, &innate),
+            simulate_calculation_with_deadline(
+                &hero, &duplicate, &scenario, &timing, &innate, &worker,
+            )
+            .unwrap(),
+        ]
+        .iter()
+        .enumerate()
+        {
+            println!(
+                "duplicate proc path={path} weapon={} proc={} shots={}",
+                result.weapon_damage, result.proc_damage, result.shots
+            );
+            assert!((plain.weapon_damage - 40.2).abs() < 1e-9);
+            assert_eq!(plain.proc_damage, 100.0);
+            assert_eq!(result, &plain);
+        }
+        assert_eq!(
+            aggregate_stats(&hero, &single),
+            aggregate_stats(&hero, &duplicate)
+        );
+        assert_eq!(aggregate_stats(&hero, &duplicate).weapon, 34.0);
+        assert_eq!(
+            shop_bonuses(&hero, &[&duplicate[0], &duplicate[1]])["weapon"],
+            9.0
+        );
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 1.0,
+            ..ReasonerConfig::default()
+        };
+        assert_eq!(
+            evaluate_inventory(&hero, &single, &cfg),
+            evaluate_inventory(&hero, &duplicate, &cfg)
+        );
+        hero.cost_bonuses.clear();
+        hero.weapon.shots_per_second = 10.0;
+        hero.weapon.clip_size = 2.0;
+        hero.abilities = vec![ability(11, 2.0, 100.0), ability(10, 1.0, 100.0)];
+        let mut refill = item(8, "AmmoReloadPercent", 50.0);
+        refill.imbueable = true;
+        refill
+            .properties
+            .extend([("Damage".into(), 44.0), ("AbilityCooldown".into(), 30.0)]);
+        refill
+            .property_damage_types
+            .insert("Damage".into(), DamageType::Spirit);
+        scenario.window_seconds = 3.0;
+        scenario.imbues.insert(8, 10);
+        let plain = simulate_calculation(
+            &hero,
+            std::slice::from_ref(&refill),
+            &scenario,
+            &timing,
+            &innate,
+        );
+        let duplicate = [refill.clone(), refill];
+        for (path, result) in [
+            simulate_calculation(&hero, &duplicate, &scenario, &timing, &innate),
+            simulate_calculation_with_deadline(
+                &hero, &duplicate, &scenario, &timing, &innate, &worker,
+            )
+            .unwrap(),
+        ]
+        .iter()
+        .enumerate()
+        {
+            println!(
+                "duplicate refill path={path} weapon={} proc={} shots={} activations={:?}",
+                result.weapon_damage, result.proc_damage, result.shots, result.item_activations
+            );
+            assert_eq!(plain.shots, 5.0);
+            assert_eq!(plain.proc_damage, 44.0);
+            assert_eq!(plain.item_activations[&8], vec![0.2]);
+            assert_eq!(result, &plain);
+        }
+        assert_eq!(worker.remaining(), Ok(std::time::Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn recorded_proc_duplicates_match_both_public_simulations_with_controlled_deadline() {
+        let raw: serde_json::Value =
+            serde_json::from_str(include_str!("../testdata/calculation/sheet-6759.json")).unwrap();
+        assert_eq!(raw["provenance"]["client_version"], 6759);
+        let payload = raw["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == 395867183)
+            .unwrap();
+        let proc = crate::data::item_model_from_payload(payload).unwrap();
+        assert_eq!(proc.condition, ConditionKind::ShotBound);
+        let mut hero = hero();
+        hero.weapon.shots_per_second = 2.5;
+        let single = [proc.clone()];
+        let duplicate = [proc.clone(), proc];
+        let scenario = explicit_test_scenario(1.0);
+        let timing = crate::WeaponTiming::default();
+        let innate = BTreeMap::new();
+        let anchor = std::time::Instant::now();
+        let deadline = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || anchor,
+        );
+        let plain = simulate_calculation(&hero, &single, &scenario, &timing, &innate);
+        assert_eq!(plain.shots, 3.0);
+        assert_eq!(plain.weapon_damage, 30.0);
+        assert_eq!(plain.proc_damage, 40.0);
+        assert_eq!(
+            aggregate_stats(&hero, &single),
+            aggregate_stats(&hero, &duplicate)
+        );
+        assert_eq!(
+            shop_bonuses(&hero, &[&single[0]]),
+            shop_bonuses(&hero, &[&duplicate[0], &duplicate[1]])
+        );
+        for items in [&single[..], &duplicate[..]] {
+            assert_eq!(
+                simulate_calculation(&hero, items, &scenario, &timing, &innate),
+                plain
+            );
+            assert_eq!(
+                simulate_calculation_with_deadline(
+                    &hero, items, &scenario, &timing, &innate, &deadline,
+                )
+                .unwrap(),
+                plain
+            );
+        }
+        println!(
+            "recorded Mystic Shot id=395867183 version=6759 synthetic hero/scenario weapon={} proc={} shots={} spirit_stat={}",
+            plain.weapon_damage, plain.proc_damage, plain.shots, aggregate_stats(&hero, &single).spirit
+        );
+    }
+
+    #[test]
+    fn public_simulation_rejects_controlled_expiry_and_shared_cancellation() {
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+
+        let hero = hero();
+        let items = [item(7, "WeaponPower", 25.0)];
+        let scenario = explicit_test_scenario(1.0);
+        let timing = crate::WeaponTiming::default();
+        let innate = BTreeMap::new();
+        let clock = Arc::new(Mutex::new(Instant::now()));
+        let anchor = *clock.lock().unwrap();
+        let source = clock.clone();
+        let deadline = brain_contracts::RequestDeadline::after_with_clock(
+            Duration::from_secs(60),
+            move || *source.lock().unwrap(),
+        );
+        let worker = deadline.clone();
+        let plain = simulate_calculation(&hero, &items, &scenario, &timing, &innate);
+        let run = || {
+            simulate_calculation_with_deadline(&hero, &items, &scenario, &timing, &innate, &worker)
+        };
+        *clock.lock().unwrap() = anchor + Duration::from_secs(59);
+        assert_eq!(run().unwrap(), plain);
+        assert_eq!(worker.remaining(), Ok(Duration::from_secs(1)));
+        deadline.cancel();
+        assert!(matches!(run(), Err(crate::ReasonerError::Data(_))));
+        let source = clock.clone();
+        let expires =
+            brain_contracts::RequestDeadline::after_with_clock(Duration::from_secs(1), move || {
+                *source.lock().unwrap()
+            });
+        assert_eq!(expires.expires_at(), worker.expires_at());
+        assert_ne!(expires, worker);
+        *clock.lock().unwrap() = anchor + Duration::from_secs(60);
+        assert!(matches!(
+            simulate_calculation_with_deadline(
+                &hero, &items, &scenario, &timing, &innate, &expires,
+            ),
+            Err(crate::ReasonerError::Data(_))
+        ));
+        assert_eq!(worker.expires_at(), anchor + Duration::from_secs(60));
+        println!(
+            "controlled public simulation: success at 59s, shared cancellation, expiry at 60s"
+        );
+    }
+
+    #[test]
+    fn public_simulation_rejects_partial_work_on_controlled_deadline() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Mutex,
+        };
+        use std::time::{Duration, Instant};
+
+        let mut hero = hero();
+        hero.weapon.shots_per_second = 100.0;
+        let scenario = explicit_test_scenario(1.0);
+        let timing = crate::WeaponTiming::default();
+        let innate = BTreeMap::new();
+        for cancel in [false, true] {
+            let anchor = Instant::now();
+            let reads = Arc::new(AtomicUsize::new(0));
+            let source = reads.clone();
+            let control: Arc<Mutex<Option<brain_contracts::RequestDeadline>>> =
+                Arc::new(Mutex::new(None));
+            let cancel_source = control.clone();
+            let deadline = brain_contracts::RequestDeadline::after_with_clock(
+                Duration::from_secs(60),
+                move || {
+                    let read = source.fetch_add(1, Ordering::SeqCst);
+                    if read >= 4 {
+                        if cancel {
+                            cancel_source.lock().unwrap().as_ref().unwrap().cancel();
+                        } else {
+                            return anchor + Duration::from_secs(60);
+                        }
+                    }
+                    anchor
+                },
+            );
+            *control.lock().unwrap() = Some(deadline.clone());
+            let result = simulate_calculation_with_deadline(
+                &hero,
+                &[],
+                &scenario,
+                &timing,
+                &innate,
+                &deadline.clone(),
+            );
+            assert!(matches!(result, Err(crate::ReasonerError::Data(_))));
+            assert!(reads.load(Ordering::SeqCst) >= 6);
+            assert_eq!(deadline.expires_at(), anchor + Duration::from_secs(60));
+            println!(
+                "controlled partial simulation cancel={cancel} clock_reads={}",
+                reads.load(Ordering::SeqCst)
+            );
+            control.lock().unwrap().take();
+        }
+    }
+
     #[test]
     fn malice_hits_amplify_following_damage_with_fast_path_parity() {
         let mut hero = hero();
