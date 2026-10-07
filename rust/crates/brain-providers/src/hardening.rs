@@ -78,6 +78,28 @@ pub(super) fn authorize(
     }
     Ok(())
 }
+pub(super) fn authorize_turn(
+    query: &Query,
+    context: &AuthorizedContext,
+    evidence: &[Evidence],
+    tools: &[brain_contracts::ToolDefinition],
+    conversation: &brain_contracts::ToolConversation,
+) -> Result<()> {
+    authorize(query, context, evidence)?;
+    conversation
+        .validate(tools)
+        .map_err(super::provider_contract_error)?;
+    let ids: std::collections::BTreeSet<_> = evidence
+        .iter()
+        .map(|item| item.evidence_id.as_str())
+        .collect();
+    if ids.len() != evidence.len() || conversation.messages.iter().any(|message| {
+        matches!(message, brain_contracts::ToolMessage::ToolResults { results } if results.iter().any(|result| result.evidence_ids.iter().any(|id| !ids.contains(id.as_str()))))
+    }) {
+        return Err(ProviderError::InvalidResponse("tool evidence egress denied".into()));
+    }
+    Ok(())
+}
 pub(super) fn price(config: &ProviderConfig) -> PriceCeiling {
     config.pricing.unwrap_or(PriceCeiling {
         input_micros_per_token: 0,
