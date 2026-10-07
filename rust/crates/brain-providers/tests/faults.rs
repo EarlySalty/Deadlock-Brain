@@ -114,7 +114,7 @@ fn fixture<F: FnOnce(ProviderConfig) -> R, R>(
     server.join().unwrap();
     (result, calls.load(Ordering::SeqCst))
 }
-const CHAT: &str = r#"{"model":"fixture-model","choices":[{"message":{"content":"fixture answer"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#;
+const CHAT: &str = r#"{"model":"fixture-model","choices":[{"finish_reason":"stop","message":{"content":"fixture answer"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#;
 #[test]
 fn grounded_no_answer_signal_is_exact_and_preserves_usage() {
     let evidence = Evidence {
@@ -133,7 +133,7 @@ fn grounded_no_answer_signal_is_exact_and_preserves_usage() {
     };
     for (text, valid) in [("", true), ("Keine passende Antwort", false), (" ", false)] {
         let envelope = serde_json::json!({"text":text,"cited_evidence_ids":[]}).to_string();
-        let body = serde_json::json!({"model":"fixture-model","choices":[{"message":{"content":envelope}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}).to_string();
+        let body = serde_json::json!({"model":"fixture-model","choices":[{"finish_reason":"stop","message":{"content":envelope}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}).to_string();
         let (result, calls) = fixture(
             vec![(Duration::ZERO, json_response("200 OK", &body))],
             |c| {

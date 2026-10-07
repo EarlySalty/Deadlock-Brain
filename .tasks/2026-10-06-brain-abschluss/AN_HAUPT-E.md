@@ -1,5 +1,49 @@
 # Paket E: API-Datenbasis für Brain v2, Release-Hold gilt
 
+## E-Fix1
+
+**Stand 07.10.2026:** Vorschau-BLOCK behoben, Selbstprüfung ALLOW. Produktcommit `09af1e6b` auf `feat/brain-deadlock-api-daten`. Bericht und Rohbelege werden separat auf derselben Featurebranch gesichert. Keine Integration oder Betriebsaktion; der Release-Hold bleibt bestehen. Die älteren offenen Angaben unterhalb dieses Abschnitts beschreiben den Stand vor E-Fix1.
+
+**Ursache und Fix:** Die drei Stellen in `pg_patchnotes/api_sync.rs` verwechselten eine erkannte Änderungszeile mit vollständigem Patchtext. Sie verwenden jetzt `has_complete_patch_content`: Änderungsinhalt genügt erst ohne Link-/Verweisbelege im unbereinigten Text. API-Vorschauen mit Volltextlink lösen daher die Originalauflösung aus. Auch abgerufene Originalkörper und das endgültige Resolverergebnis müssen denselben Maßstab erfüllen. Der Schlussguard steht vor kanonischer Zuordnung, Import und Ersetzung der bisherigen Ereignisse. Der bestehende Steam-Rückfall bereinigte Link-Markup zu früh; der gemeinsame Resolver erhält für die API-Prüfung jetzt den Originalkörper. Der bisherige Einzelimport behält sein bereinigtes Verhalten. Kein zweiter Patchparser und keine Mindest-Bulletzahl.
+
+**Zwillingssuche:** Der Worktree besitzt keinen eigenen Graphen. Nach dem erfolglosen lokalen Graphify-Aufruf wurden der globale Graph, `resolve_patch_source` und die Auswirkung von `resolve_steam_content` abgefragt. Gezieltes `rg` belegte die drei Vollständigkeitsstellen und den zusätzlichen Bereinigungszwilling im Steam-Rückfall. Die Kandidatenauswahl bleibt eine Discovery-Heuristik, kein Vollständigkeitsbeleg.
+
+**Prüfbelege:** Schlusslauf `E-Fix1-tests-2.log`: 516 passed, 0 failed, 24 ignored, 0 filtered, 31 Ergebnisblöcke, Exit 0. Darin liefen die beiden neuen Vorschau-/Steam-Rückfalltests und die neue echte Produzent-/Leserprobe. Letztere verwendet `prepare_assets`, `SourceStore::persist_ir`, das vorhandene Run-Journal und `brain_storage::asset_mirror::load_mirrored_assets`: zwei Versionen, drei Arten und beide Sprachen, unveränderte JSON-Werte sowie Rohbytes und Hashes. Ein laufender beziehungsweise fehlgeschlagener neuer Run bleibt unlesbar, die ältere Version bleibt verfügbar. Postgres wird im isolierten temporären Cluster ohne TCP gestartet; Socket, Datenverzeichnis und Testrolle werden vor dem Tabellenaufbau geprüft. Der bestehende Storage-Test und der neue Produzententest teilen denselben ausgegliederten Scratch-Cluster-Helfer. Keine produktive DB und keine Matchdaten. 24 ignorierte Bestandsproben wurden nicht als ausgeführt gewertet.
+
+```bash
+SQLX_OFFLINE=true /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-e-deadlock-api/rust/Cargo.toml -p brain-storage -p deadlock-brain-core -p dbrain-sources -p dbrain-builds -p deadlock-brain -j 2 --no-fail-fast -- --test-threads=1
+/home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/.worktrees/brain-e-deadlock-api/rust/Cargo.toml -p brain-storage -p deadlock-brain-core -p dbrain-sources -p dbrain-builds -p deadlock-brain -- --check
+SQLX_OFFLINE=true /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-e-deadlock-api/rust/Cargo.toml -p brain-storage -p deadlock-brain-core -p dbrain-sources -p dbrain-builds -p deadlock-brain --all-targets --no-deps -j 2 -- -D warnings
+```
+
+Format und Clippy: jeweils Exit 0, `E-Fix1-fmt.log` und `E-Fix1-clippy.log`. Kein breiter Dependency-Lauf und keine Änderung an `dbrain-enrich`. Der erste eigene Compilerlauf scheiterte an einer nicht vorhandenen direkten Regex-Abhängigkeit. Der Fix verwendet vorhandene Stringoperationen, keine zusätzliche Abhängigkeit; der Fehlerlauf bleibt in `E-Fix1-tests.log` erhalten. Der Schutz-Hook verweigerte mutierendes `cargo fmt`; formatiert wurden stattdessen die eigenen Dateien mit `rustfmt`, danach bestand der oben angegebene Formatcheck.
+
+**Selbstprüfung:**
+
+```bash
+python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-e-deadlock-api --base 5e70da3a6f40c0f1eedc78565641d8dfce582f56 --head 09af1e6b
+```
+
+Ein Anlauf, Exit 0. Gate-Antwort wörtlich:
+
+```text
+[gpt-6.1-sol] ALLOW: No demonstrated merge-blocking defect in the supplied revision.
+```
+
+Die vollständige unveränderte Antwort liegt in `E-Fix1-gate.log`. Zwei nicht blockierende Hinweise: Der Maßstab überspringt auch vollständige Originaltexte mit beiläufigen Links oder Bild-URLs. Dieses konservative Verhalten wird ausdrücklich beibehalten, statt daraus unbelegte Vollständigkeit abzuleiten. Außerdem sah das Gate den älteren Testbeleg `E-tests-final-3.log`; der aktuelle Lauf mit den neuen Tests ist jetzt als `E-Fix1-tests-2.log` beigefügt. Kein Exit 2, kein Retry und kein erneutes Würfeln eines BLOCK.
+
+**Übergabe:** Gs `asset_mirror`-Lesevertrag bleibt unverändert. Integration erst nach Hold-Ende durch die Hauptsession. Kein Main-Push, Releasebuild, Installieren, Neustart, Tick, Löschen von Branch oder Worktree und kein Settle. Sicherungsziel ist `origin/feat/brain-deadlock-api-daten`; die Schlussmeldung nennt den bestätigten Pushstand.
+
+TESTNACHWEIS[TW-1]: 516 passed, 24 ignored | Baseline: unbekannt rot
+
+WIRKUNGSPRUEFUNG[WP-1]: 2 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 3/3 geprüft
+
+Die zwei behobenen Befunde sind der dreifache Vollständigkeitsfehler und der zu früh bereinigte Steam-Rückfall. Geprüfte Fremddienst-Pfadgruppen: Feed, Original-HTML und bestehende Steam-Ledger-Auflösung. Unvollständige Ergebnisse werden vor der schreibenden Wirkung sichtbar übersprungen; Fehler bleiben Fehler. Die neue Persistenz-/Leseprobe schließt die bisherige Nachweislücke.
+
+MERGEPROTOKOLL[MS-1]: 5 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW, Exit 0; kein Main-Merge
+
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: AN_HAUPT-E.md, Abschnitt E-Fix1
+
 ## Schnittstelle zu G, Entscheidung 05:25
 
 G (`a867ef50`) besitzt Rechenschicht, Entitätsansichten und Werkzeuge im Antwortdienst. E liefert ausschließlich den versionsgebundenen Import und den gemeinsamen lokalen Leser. Keine Dokumentpakete, Steckbriefveröffentlichung, Rechenschicht oder zusätzlichen Antwortwege durch E.
@@ -54,6 +98,12 @@ Die bestehende kleine öffentliche Contractprobe war rot: heutiges OpenAPI hat s
 
 Zusätzliche vor Bearbeitung gemeldete Dateigrenze: `dbrain-sources/src/schema_watch.rs` und OpenAPI-/Manifestfixtures. Das globale Pin-Update fordert außerdem vier neue Permanent-Buff-Aggregatfelder in Hero-Stats. Drei bestehende Analytics-Tests wurden dadurch rot; E ergänzt ausschließlich ihre gemeinsame `#[cfg(test)]`-Fixture `hero_row` in `analytics_runtime.rs`, keine Produkt-/Populationlogik. Keine automatische Baseline-Aktualisierung und keine Abschwächung des Drift-Gates. Eine explizite DB-freie Liveprobe im bestehenden Assets-Testmodul prüft den tatsächlichen Versionsmanifest-/Schema-/Adapterweg für alle drei Spielwertearten und beide Sprachen. Ihr erster Lauf fand einen echten Vertragsfehler: Items enthalten zulässige leere Namen (`/7/name:string_bounds`). Das aktuelle API-Schema erlaubt bei Hero, Ability, Weapon und Upgrade ausdrücklich jeden String ohne Mindestlänge. Der Adapter erhält leere Namen jetzt unverändert; stabile IDs bleiben Pflicht, falsche Typen und doppelte IDs werden weiterhin abgewiesen. Eine deterministische Gegenprobe deckt beide Seiten ab. Kein Ersatzname und keine ID aus Position oder Anzeigenamen. G nutzt weiterhin ausschließlich denselben Storage-Leser.
 
+## Stop-Hook-Nachtrag
+
+Der Stop-Hook fordert Main-Merge und Cleanup. Das aktuelle gemeinsame `A/RELEASEFENSTER.md` wurde erneut gelesen: weiterer Main-Push bleibt ausdrücklich gesperrt, ausschließlich `live_strecke` besitzt die Betriebsstrecke. Daher kein Main-Merge, keine Branch-/Worktree-Löschung und kein Settle. Die damaligen drei Gate-Aufrufe lieferten kein Urteil; die neuen Urteile stehen unten. Die ältere Zwischenlog-Ablage ist mit `ada6180a` auf derselben Featurebranch gesichert; keine Produktänderung.
+
+Origin-Sicherung bereits bestätigt: `f3c84fb4ee442196964387347773a75d704ebafd`, per `git ls-remote` gemessen. Alle geprüften Quellen stimmen unverändert mit HEAD überein. Acht schreibende Git-Einzelschritte bis zu dieser ersten Sicherung; der Lognachtrag folgt separat.
+
 ## Verifikation und Übergabe
 
 **Umgesetzt und lokal verifiziert, nicht merge- oder livefertig.** Schlusslauf `E-tests-final-3.log`: 513 passed, 0 failed, 24 ignored. Die echte isolierte Postgres-Leseprobe und die Leername-Gegenprobe liefen. Beide getrennten öffentlichen Contractproben bestanden zusätzlich mit je 1 passed: 6759, Items 746, aktive Helden 40, alle Helden 65, jeweils Englisch und Deutsch. Keine produktive DB, keine Einzelmatches und keine Mitgliederkennungen. Literalbefehle, Rohhashes, vorangegangene Fehler und ignorierte Grenzen: `E/NACHWEISE.md`.
@@ -62,9 +112,19 @@ Format, Shellsyntax und Clippy aller fünf betroffenen Pakete (`--all-targets --
 
 **Commits:** `5e70da3a6f40c0f1eedc78565641d8dfce582f56` (geprüfter Originalschema-Pin samt erforderlicher Analytics-Testfixture), `e65efae2c7c53dd4d17d75f51974753d6fd84d08` (API-Spiegel, gemeinsamer Leser, Zeitfilter, vorhandener Patchimport, Wrapper). Feature-Sicherungsziel: `origin/feat/brain-deadlock-api-daten`. Die Berichtssicherung folgt auf dieselbe Branch; Schlussantwort nennt den tatsächlich bestätigten Pushstand.
 
-**Gate blockiert technisch, kein Modellurteil:** Pin zweimal gegen `bfda408c`, API-Diff einmal getrennt gegen `5e70da3a`; alle drei Exit 2. `bwrap`/`unshare`: `Cannot allocate memory`. Erster Lauf zusätzlich Grok HTTP 402. Kein ALLOW und keine inhaltlichen BLOCK-Funde. Auch der kleine API-Diff scheitert am selben Werkzeugpfad. Kein verlässlich ableitbarer Reset-Zeitpunkt. Kein Modellwechsel, keine Schutzumgehung und keine weiteren erfolglosen Pollversuche. Origin-WIP ist ausdrücklich keine Mergefreigabe.
+**Frühere Gate-Ausfälle:** Pin zweimal gegen `bfda408c`, API-Diff einmal getrennt gegen `5e70da3a`; alle drei Exit 2 ohne Modellurteil. `bwrap`/`unshare`: `Cannot allocate memory`. Erster Lauf zusätzlich Grok HTTP 402. Keine inhaltlichen BLOCK-Funde, kein Modellwechsel und keine Schutzumgehung.
 
-**Offen:** Gate-Werkzeugpfad reparieren und beide Commits regulär nachprüfen, breiten Dependency-Lint im zuständigen Bereich nachziehen, Main erst nach ALLOW und aufgehobenem Hold integrieren. `live_strecke` übernimmt Installation, vorhandene Timerverdrahtung für zeitnahe Versionswechsel sowie täglichen Vollabgleich, Ingest und Liveantwortbeweis. G nutzt den oben beschriebenen Datenvertrag. Reihenfolge und Orte: `E/TODO.md`.
+**Erneute Gate-Prüfung am 07.10.2026, ausdrücklich beauftragt:** Der Orchestrator meldet den Namespace-Fehler als vorübergehend und ein erfolgreiches unverändertes G-Retry um 06:15. E wiederholt ausschließlich beide Befehle aus `E/TODO.md` Punkt 1, ohne Codeänderung. Schema: `bfda408cb988722ddceadb56bca5b72e12d12731` bis `5e70da3a6f40c0f1eedc78565641d8dfce582f56`, Exit 0, `[gpt-6.1-sol] ALLOW`. Originalantwort in `E-gate-schema-3.log`: `No merge-blocking defect found in the supplied diff; the schema pin, manifest, hash assertion, and added test fields are consistent.` API: `5e70da3a6f40c0f1eedc78565641d8dfce582f56` bis `e65efae2c7c53dd4d17d75f51974753d6fd84d08`, Exit 1, `[gpt-6.1-sol] BLOCK`. Originalantwort in `E-gate-api-2.log`: `Patch previews can be imported as complete patch text.` Der Namespace-Ausfall ist bei beiden unveränderten Wiederholungen nicht mehr aufgetreten. Das API-Gate blockiert jetzt inhaltlich; keine Mergefreigabe und kein erneutes Würfeln des BLOCK. Release-Hold unverändert; kein Main-Merge, Main-Push oder Betriebsaufruf.
+
+**Einordnung der API-Gate-Funde, nur lesend geprüft:**
+
+1. **BLOCK bestätigt:** `rust/crates/deadlock-brain/src/pg_patchnotes/api_sync.rs:177` behandelt schon eine erkannte Änderungszeile als ausreichend und überspringt damit die Originalauflösung. Eine Vorschau mit einer Änderung und Volltextlink kann so als Patch importiert werden. Derselbe unzureichende Vollständigkeitsmaßstab steht an Zeile 55 und 210, per gezieltem `rg` belegt; Zeile 153 ist zusätzlich die Kandidatenauswahl, kein Vollständigkeitsbeleg. `pg_patchnotes.rs:240–241` entfernt vor dem Einfügen die bisherigen direkten Ereignisse derselben Patchkennung. Eine kanonisch zugeordnete unvollständige Vorschau kann daher vorher vollständige Ereignisse ersetzen. Vorschlag für den gesonderten Fixer: Vollständigkeit vor Import und Ersetzung belegen, Vorschauen bis dahin sichtbar überspringen; keine Mindest-Bulletzahl als Ersatz für diesen Beleg. Kein produktiver Import und kein Löschversuch zur Prüfung.
+2. **NIT zum Resolvertyp nicht als Defekt bestätigt:** Der Gate-Kontext war unvollständig. `PatchSourceResolution` und `from_row` existieren in `pg_patchnotes.rs:540` und `:547`, per Lesen und gezieltem `rg` bestätigt. Kein Typfix und kein erneuter Compilerlauf im jetzigen reinen Reviewauftrag.
+3. **NIT zur Produzent-/Leserprobe bleibt Prüflücke:** Die Scratch-Probe belegt den Leser an konstruierten Metadaten, nicht einen vollständigen Durchlauf von `SourceStore::persist_ir` bis `load_mirrored_assets`. Eine solche gemeinsame Persistenz-/Leseprobe ist die sinnvolle Ergänzung im gesonderten Fixauftrag; hier keine Test- oder Produktänderung.
+
+Der aktuelle Auftrag erlaubt ausschließlich Wiederholung und Urteilseintrag. Kein Fix durch E und kein neuer Thread; die Hauptsession übernimmt die Weitergabe des bestätigten BLOCK an einen frischen Fixer.
+
+**Offen:** Bestätigten Vorschau-/Vollständigkeitsfehler im gesonderten frischen Fixer beheben und denselben API-Gate regulär erneut prüfen, Produzent-/Leserprobe ergänzen, breiten Dependency-Lint im zuständigen Bereich nachziehen. Der Namespace-Werkzeugausfall ist für diese beiden Wiederholungen erledigt; `E/TODO.md` bleibt im aktuellen engen Auftrag unverändert und enthält deshalb noch den früheren technischen Blocker. Main erst nach vollständigem ALLOW und aufgehobenem Hold integrieren. `live_strecke` übernimmt Installation, vorhandene Timerverdrahtung für zeitnahe Versionswechsel sowie täglichen Vollabgleich, Ingest und Liveantwortbeweis. G nutzt den oben beschriebenen Datenvertrag.
 
 Main-Merge/-Push, Releasebuild, Installation, Neustart und Tick bleiben gesperrt. Worktree und Branch bleiben erhalten; kein Settle bei offener Übergabe. Vor Berichtscommit und Featurepush wurden fünf schreibende Git-Schritte einzeln ausgeführt; keine Mergeanläufe.
 
@@ -72,7 +132,9 @@ TESTNACHWEIS[TW-1]: 513 passed, 24 ignored | Baseline: unbekannt rot
 
 WIRKUNGSPRUEFUNG[WP-1]: 6 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 7/7 geprüft
 
-Geprüfte Pfadgruppen: Manifest, OpenAPI, Assets in beiden Sprachrunden, sechs Analytics-Aufrufpfade, Patchfeed, neue Original-HTML-Abrufe und bestehende Steam-Ledger-Auflösung. Ergebnis: lokale Versionsbindung, sichtbare Fehler/Skips, keine Erfolgsverdecker und kein Matchimport. Technische Prüfblocker bleiben ausdrücklich offen.
+Geprüfte Pfadgruppen: Manifest, OpenAPI, Assets in beiden Sprachrunden, sechs Analytics-Aufrufpfade, Patchfeed, neue Original-HTML-Abrufe und bestehende Steam-Ledger-Auflösung. Ergebnis: lokale Versionsbindung, sichtbare Fehler/Skips, keine Erfolgsverdecker und kein Matchimport. Der bestätigte Vorschau-BLOCK und der breite Dependency-Lint bleiben ausdrücklich offen.
+
+Historisches Protokoll vor der ursprünglichen Berichtssicherung, nicht das neue Gate-Ergebnis:
 
 MERGEPROTOKOLL[MS-1]: 5 Git-Schritte einzeln | Anläufe: 0 | Gate: kein Urteil, Exit 2; kein Main-Merge
 

@@ -1,8 +1,14 @@
 use super::{
-    hardening, ChatRequest, ChatResponse, Duration, Instant, OpenAiCompatibleProvider,
+    hardening, provider_contract_error, Duration, Instant, OpenAiCompatibleProvider,
     ProviderAnswer, ProviderError, Result, StatusCode, Usage,
 };
-use brain_contracts::AuthorizedContext;
+use brain_contracts::{
+    provider_input::parse_unique_json, AuthorizedContext, Evidence, ModelBlock,
+    ProviderFinishReason, ProviderTurn, ToolCall, ToolConversation, ToolDefinition, ToolMessage,
+    ToolName, UsageAccounting,
+};
+use serde::Deserialize;
+use serde_json::Value;
 
 pub(super) struct Charge {
     input_per_round: u64,
@@ -12,79 +18,100 @@ pub(super) struct Charge {
 impl OpenAiCompatibleProvider {
     pub(super) fn send_chat(
         &self,
-        payload: ChatRequest,
+        mut payload: Value,
         context: &AuthorizedContext,
-        evidence: &[brain_contracts::Evidence],
-    ) -> Result<ProviderAnswer> {
-        let mut json = serde_json::to_value(payload).map_err(|_| ProviderError::InvalidConfig)?;
-        if self.config.model == "accounts/fireworks/models/deepseek-v4p1-flash" {
-            json["reasoning_effort"] = serde_json::json!("none");
-        }
+        evidence: &[Evidence],
+        tools: &[ToolDefinition],
+        conversation: &ToolConversation,
+        accounting: &mut UsageAccounting,
+    ) -> Result<ProviderTurn> {
         let route = if self.config.subscription {
             "messages"
         } else {
             "chat/completions"
         };
-        let (bytes, charge) = self.transport_json(route, &mut json, context, true)?;
-        let parsed: ChatResponse = if self.config.subscription {
+        let (bytes, charge) =
+            self.transport_json_with_accounting(route, &mut payload, context, true, accounting)?;
+        let parsed = if self.config.subscription {
             subscription_response(&bytes)?
         } else {
-            serde_json::from_slice(&bytes)
-                .map_err(|_| ProviderError::InvalidResponse("invalid chat schema".into()))?
+            compatible_response(&bytes)?
         };
-        if parsed.model.as_deref() != Some(self.config.model.as_str()) || parsed.choices.len() != 1
-        {
+        if parsed.model != self.config.model {
             return Err(ProviderError::InvalidResponse(
                 "model or choice count mismatch".into(),
             ));
         }
-        let text = parsed.choices[0].message.content.trim().to_owned();
-        if text.is_empty() {
-            return Err(ProviderError::InvalidResponse(
-                "empty provider answer".into(),
-            ));
+        let usage =
+            self.charged_usage(context, charge, parsed.input_tokens, parsed.output_tokens)?;
+        let charged = accounting.charged();
+        if accounting.unaccounted
+            || charged.input_tokens > u64::from(context.budget.max_input_tokens)
+            || charged.output_tokens > u64::from(context.budget.max_output_tokens)
+            || charged.network_rounds > context.budget.max_network_rounds
+            || charged.cost_micros > context.budget.max_cost_micros
+        {
+            return Err(ProviderError::BudgetExceeded);
         }
-        let usage = parsed
-            .usage
-            .ok_or_else(|| ProviderError::InvalidResponse("provider usage missing".into()))?;
-        let usage = self.charged_usage(
-            context,
-            charge,
-            usage.prompt_tokens,
-            usage.completion_tokens,
-        )?;
-        #[derive(serde::Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Grounded {
-            text: String,
-            cited_evidence_ids: Vec<String>,
+        if matches!(
+            parsed.finish_reason,
+            ProviderFinishReason::MaxTokens | ProviderFinishReason::Refusal
+        ) {
+            return Err(incomplete_turn(parsed.finish_reason));
         }
-        let (text, cited_evidence_ids) = if evidence.is_empty() {
-            (text, Vec::new())
-        } else {
-            let grounded: Grounded = serde_json::from_str(&text).map_err(|_| {
-                ProviderError::InvalidResponse("grounded answer envelope missing".into())
-            })?;
-            let unique: std::collections::BTreeSet<_> =
-                grounded.cited_evidence_ids.iter().collect();
-            let insufficient = grounded.text.is_empty() && unique.is_empty();
-            if (!insufficient && (grounded.text.trim().is_empty() || unique.is_empty()))
-                || unique.len() != grounded.cited_evidence_ids.len()
-                || unique
-                    .iter()
-                    .any(|id| !evidence.iter().any(|e| &e.evidence_id == *id))
-            {
-                return Err(ProviderError::InvalidResponse(
-                    "unknown, duplicate or missing citation".into(),
-                ));
+        let has_calls = parsed
+            .blocks
+            .iter()
+            .any(|block| matches!(block, ModelBlock::ToolUse { .. }));
+        let turn = if has_calls {
+            let seen: std::collections::BTreeSet<_> = conversation
+                .messages
+                .iter()
+                .filter_map(|message| match message {
+                    ToolMessage::Assistant { blocks } => Some(blocks),
+                    ToolMessage::ToolResults { .. } => None,
+                })
+                .flatten()
+                .filter_map(|block| match block {
+                    ModelBlock::ToolUse { call } => Some(call.id.as_str()),
+                    ModelBlock::Text { .. } => None,
+                })
+                .collect();
+            if parsed.blocks.iter().any(|block| matches!(block, ModelBlock::ToolUse { call } if seen.contains(call.id.as_str()))) {
+                return Err(ProviderError::InvalidResponse("duplicate tool call ID across turns".into()));
             }
-            (grounded.text, grounded.cited_evidence_ids)
+            ProviderTurn::ToolCalls {
+                blocks: parsed.blocks,
+                finish_reason: parsed.finish_reason,
+                usage,
+            }
+        } else {
+            if parsed.finish_reason != ProviderFinishReason::EndTurn {
+                return Err(incomplete_turn(parsed.finish_reason));
+            }
+            let text: String = parsed
+                .blocks
+                .into_iter()
+                .filter_map(|block| match block {
+                    ModelBlock::Text { text } => Some(text),
+                    ModelBlock::ToolUse { .. } => None,
+                })
+                .collect();
+            ProviderTurn::Final {
+                answer: grounded_answer(
+                    text,
+                    usage,
+                    evidence,
+                    !tools.is_empty() || !conversation.messages.is_empty(),
+                )?,
+                finish_reason: parsed.finish_reason,
+            }
         };
-        Ok(ProviderAnswer {
-            text,
-            cited_evidence_ids,
-            usage,
-        })
+        turn.validate(tools).map_err(provider_contract_error)?;
+        context
+            .check_deadline()
+            .map_err(|_| ProviderError::BudgetExceeded)?;
+        Ok(turn)
     }
     pub(super) fn transport_json(
         &self,
@@ -92,6 +119,23 @@ impl OpenAiCompatibleProvider {
         payload: &mut serde_json::Value,
         context: &AuthorizedContext,
         chat: bool,
+    ) -> Result<(Vec<u8>, Charge)> {
+        self.transport_json_with_accounting(
+            route,
+            payload,
+            context,
+            chat,
+            &mut UsageAccounting::default(),
+        )
+    }
+
+    fn transport_json_with_accounting(
+        &self,
+        route: &str,
+        payload: &mut serde_json::Value,
+        context: &AuthorizedContext,
+        chat: bool,
+        accounting: &mut UsageAccounting,
     ) -> Result<(Vec<u8>, Charge)> {
         let bound = context.with_request_deadline();
         let context = &bound;
@@ -115,8 +159,11 @@ impl OpenAiCompatibleProvider {
         {
             return Err(ProviderError::BudgetExceeded);
         }
+        if self.config.subscription && (!chat || route != "messages") {
+            return Err(ProviderError::InvalidConfig);
+        }
         let input = brain_contracts::provider_input::transport_input_ceiling(payload, chat)
-            .map_err(|_| ProviderError::InvalidConfig)?;
+            .map_err(provider_contract_error)?;
         let mut attempts = self
             .config
             .retry_attempts
@@ -136,34 +183,14 @@ impl OpenAiCompatibleProvider {
         if chat {
             payload["max_tokens"] = serde_json::json!(output);
         }
-        if self.config.subscription {
-            if !chat || route != "messages" {
-                return Err(ProviderError::InvalidConfig);
-            }
-            let messages = payload["messages"]
-                .as_array()
-                .ok_or(ProviderError::InvalidConfig)?;
-            if messages.len() != 2
-                || messages[0]["role"] != "system"
-                || messages[1]["role"] != "user"
-            {
-                return Err(ProviderError::InvalidConfig);
-            }
-            *payload = serde_json::json!({
-                "model": self.config.model,
-                "system": messages[0]["content"],
-                "messages": [messages[1]],
-                "max_tokens": output,
-                "stream": false,
-                "tools": [],
-                "tool_choice": {"type": "none"},
-                "output_config": {"effort": "low"}
-            });
-        }
         let reserved_cost = hardening::cost(
             hardening::price(&self.config),
-            input * attempts as u64,
-            output * attempts as u64,
+            input
+                .checked_mul(attempts as u64)
+                .ok_or(ProviderError::BudgetExceeded)?,
+            output
+                .checked_mul(attempts as u64)
+                .ok_or(ProviderError::BudgetExceeded)?,
         )?;
         if reserved_cost > budget.max_cost_micros {
             return Err(ProviderError::BudgetExceeded);
@@ -181,7 +208,6 @@ impl OpenAiCompatibleProvider {
                 request.bearer_auth(&self.config.api_key)
             }
             .json(payload);
-            // Payload encoding and retries spend time from the same original lifetime.
             lifetime
                 .check()
                 .map_err(|_| ProviderError::BudgetExceeded)?;
@@ -189,6 +215,29 @@ impl OpenAiCompatibleProvider {
             if remaining.is_zero() {
                 return Err(ProviderError::BudgetExceeded);
             }
+            let reserved = Usage {
+                input_tokens: input,
+                output_tokens: output,
+                cost_micros: hardening::cost(hardening::price(&self.config), input, output)?,
+                ..Usage::default()
+            };
+            accounting.accumulate(&UsageAccounting {
+                observed: Usage {
+                    provider: Some(
+                        if self.config.subscription {
+                            "codex_subscription"
+                        } else {
+                            "openai_compatible"
+                        }
+                        .into(),
+                    ),
+                    model: Some(self.config.model.clone()),
+                    network_rounds: 1,
+                    ..Usage::default()
+                },
+                reserved: reserved.clone(),
+                unaccounted: false,
+            });
             let result = request.timeout(self.config.timeout.min(remaining)).send();
             lifetime
                 .check()
@@ -197,6 +246,9 @@ impl OpenAiCompatibleProvider {
             match result {
                 Ok(response) if response.status().is_success() => {
                     let bytes = hardening::read_bounded(response, self.config.max_response_bytes)?;
+                    if chat {
+                        self.observe_usage(&bytes, &reserved, accounting)?;
+                    }
                     if Instant::now() >= deadline || lifetime.check().is_err() {
                         return Err(ProviderError::BudgetExceeded);
                     }
@@ -215,43 +267,60 @@ impl OpenAiCompatibleProvider {
                 {
                     last_status = response.status();
                     requested_delay = hardening::retry_after(&response)?.unwrap_or_default();
+                    if chat {
+                        match hardening::read_bounded(response, self.config.max_response_bytes) {
+                            Ok(bytes) => self.observe_usage(&bytes, &reserved, accounting)?,
+                            Err(error) => self.report_failure(&error),
+                        }
+                    }
                 }
                 Ok(response) => {
                     let status = response.status();
-                    if status == StatusCode::PRECONDITION_FAILED {
-                        let category = hardening::read_bounded(response, 4096)
-                            .map(|bytes| {
-                                let body = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
-                                for indicator in [
-                                    "credit",
-                                    "balance",
-                                    "funds",
-                                    "billing",
-                                    "payment",
-                                    "limit",
-                                    "quota",
-                                    "budget",
-                                    "exceed",
-                                    "reached",
-                                    "zero",
-                                    "billing-account",
-                                    "pay-as-you-go",
-                                    "organization",
-                                    "disabled",
-                                    "suspended",
-                                    "inactive",
-                                ] {
-                                    if body.contains(indicator) {
-                                        self.report_category(format!(
-                                            "http_412_indicator_{indicator}"
-                                        ));
-                                    }
+                    let bytes = hardening::read_bounded(
+                        response,
+                        if status == StatusCode::PRECONDITION_FAILED {
+                            4096
+                        } else {
+                            self.config.max_response_bytes
+                        },
+                    );
+                    if let Ok(bytes) = &bytes {
+                        if chat {
+                            self.observe_usage(bytes, &reserved, accounting)?;
+                        }
+                        if status == StatusCode::PRECONDITION_FAILED {
+                            let body = String::from_utf8_lossy(bytes).to_ascii_lowercase();
+                            for indicator in [
+                                "credit",
+                                "balance",
+                                "funds",
+                                "billing",
+                                "payment",
+                                "limit",
+                                "quota",
+                                "budget",
+                                "exceed",
+                                "reached",
+                                "zero",
+                                "billing-account",
+                                "pay-as-you-go",
+                                "organization",
+                                "disabled",
+                                "suspended",
+                                "inactive",
+                            ] {
+                                if body.contains(indicator) {
+                                    self.report_category(format!("http_412_indicator_{indicator}"));
                                 }
-                                precondition_category(&bytes)
-                            })
+                            }
+                        }
+                    }
+                    if status == StatusCode::PRECONDITION_FAILED {
+                        let category = bytes
+                            .as_ref()
+                            .map(|bytes| precondition_category(bytes))
                             .unwrap_or("unknown");
                         self.report_category(format!("http_412_{category}"));
-                        return Err(ProviderError::HttpStatus { status });
                     }
                     return Err(ProviderError::HttpStatus { status });
                 }
@@ -289,6 +358,68 @@ impl OpenAiCompatibleProvider {
             status: last_status,
         })
     }
+    fn observe_usage(
+        &self,
+        bytes: &[u8],
+        reservation: &Usage,
+        accounting: &mut UsageAccounting,
+    ) -> Result<()> {
+        let Ok(value) = parse_unique_json(bytes) else {
+            return Ok(());
+        };
+        let Some(usage) = value.get("usage") else {
+            return Ok(());
+        };
+        let (input, output, overflow) = if self.config.subscription {
+            let Ok(usage) = serde_json::from_value::<SubscriptionUsage>(usage.clone()) else {
+                return Ok(());
+            };
+            let input = usage
+                .input_tokens
+                .checked_add(usage.cache_creation_input_tokens)
+                .and_then(|value| value.checked_add(usage.cache_read_input_tokens));
+            (
+                input.unwrap_or(u64::MAX),
+                usage.output_tokens,
+                input.is_none(),
+            )
+        } else {
+            let Ok(usage) = serde_json::from_value::<ProviderUsage>(usage.clone()) else {
+                return Ok(());
+            };
+            (usage.prompt_tokens, usage.completion_tokens, false)
+        };
+        accounting.reserved.input_tokens -= reservation.input_tokens;
+        accounting.reserved.output_tokens -= reservation.output_tokens;
+        accounting.reserved.cost_micros -= reservation.cost_micros;
+        let cost = hardening::cost(
+            hardening::price(&self.config),
+            input.max(reservation.input_tokens),
+            output,
+        );
+        accounting.accumulate(&UsageAccounting {
+            observed: Usage {
+                input_tokens: input,
+                output_tokens: output,
+                ..Usage::default()
+            },
+            reserved: Usage {
+                input_tokens: reservation.input_tokens.saturating_sub(input),
+                cost_micros: cost.as_ref().copied().unwrap_or(u64::MAX),
+                ..Usage::default()
+            },
+            unaccounted: overflow || cost.is_err(),
+        });
+        if overflow
+            || input > reservation.input_tokens
+            || output > reservation.output_tokens
+            || accounting.unaccounted
+        {
+            return Err(ProviderError::BudgetExceeded);
+        }
+        Ok(())
+    }
+
     pub(super) fn charged_usage(
         &self,
         context: &AuthorizedContext,
@@ -299,9 +430,20 @@ impl OpenAiCompatibleProvider {
         if input > charge.input_per_round || output > charge.output_per_round {
             return Err(ProviderError::BudgetExceeded);
         }
-        // Failed calls have unknown usage; charge their FULL reservation, never zero.
-        let input = input + charge.input_per_round * (charge.rounds - 1) as u64;
-        let output = output + charge.output_per_round * (charge.rounds - 1) as u64;
+        let failed_rounds = charge
+            .rounds
+            .checked_sub(1)
+            .ok_or(ProviderError::BudgetExceeded)? as u64;
+        let input = charge
+            .input_per_round
+            .checked_mul(failed_rounds)
+            .and_then(|reserved| input.checked_add(reserved))
+            .ok_or(ProviderError::BudgetExceeded)?;
+        let output = charge
+            .output_per_round
+            .checked_mul(failed_rounds)
+            .and_then(|reserved| output.checked_add(reserved))
+            .ok_or(ProviderError::BudgetExceeded)?;
         let cost = hardening::cost(hardening::price(&self.config), input, output)?;
         if input > context.budget.max_input_tokens as u64
             || output > context.budget.max_output_tokens as u64
@@ -327,51 +469,266 @@ impl OpenAiCompatibleProvider {
     }
 }
 
-fn subscription_response(bytes: &[u8]) -> Result<ChatResponse> {
-    #[derive(serde::Deserialize)]
+#[derive(Deserialize)]
+struct SubscriptionUsage {
+    input_tokens: u64,
+    output_tokens: u64,
+    #[serde(default)]
+    cache_creation_input_tokens: u64,
+    #[serde(default)]
+    cache_read_input_tokens: u64,
+}
+
+#[derive(Deserialize)]
+struct ProviderUsage {
+    prompt_tokens: u64,
+    completion_tokens: u64,
+}
+
+struct ParsedTurn {
+    model: String,
+    blocks: Vec<ModelBlock>,
+    finish_reason: ProviderFinishReason,
+    input_tokens: u64,
+    output_tokens: u64,
+}
+
+fn invalid_schema() -> ProviderError {
+    ProviderError::InvalidResponse("invalid chat schema".into())
+}
+
+fn incomplete_turn(reason: ProviderFinishReason) -> ProviderError {
+    ProviderError::InvalidResponse(
+        match reason {
+            ProviderFinishReason::MaxTokens => "provider output truncated",
+            ProviderFinishReason::Refusal => "provider refused answer",
+            _ => "finish reason does not match provider turn",
+        }
+        .into(),
+    )
+}
+
+fn finish_reason(reason: &str, native: bool) -> Result<ProviderFinishReason> {
+    match (native, reason) {
+        (true, "end_turn") | (false, "stop") => Ok(ProviderFinishReason::EndTurn),
+        (true, "tool_use") | (false, "tool_calls") => Ok(ProviderFinishReason::ToolUse),
+        (true, "max_tokens") | (false, "length") => Ok(ProviderFinishReason::MaxTokens),
+        (true, "refusal") | (false, "content_filter") => Ok(ProviderFinishReason::Refusal),
+        _ => Err(ProviderError::InvalidResponse(
+            "unknown provider finish reason".into(),
+        )),
+    }
+}
+
+fn subscription_response(bytes: &[u8]) -> Result<ParsedTurn> {
+    #[derive(Deserialize)]
     struct Response {
         model: String,
         content: Vec<Block>,
+        stop_reason: String,
         usage: SubscriptionUsage,
     }
-    #[derive(serde::Deserialize)]
-    struct Block {
-        #[serde(rename = "type")]
-        kind: String,
-        text: Option<String>,
+    #[derive(Deserialize)]
+    #[serde(tag = "type", deny_unknown_fields)]
+    enum Block {
+        #[serde(rename = "text")]
+        Text { text: String },
+        #[serde(rename = "tool_use")]
+        ToolUse {
+            id: String,
+            name: ToolName,
+            input: Value,
+        },
+        #[serde(rename = "thinking")]
+        Thinking {
+            thinking: String,
+            signature: Option<String>,
+        },
     }
-    #[derive(serde::Deserialize)]
-    struct SubscriptionUsage {
-        input_tokens: u64,
-        output_tokens: u64,
-    }
-    let response: Response = serde_json::from_slice(bytes)
-        .map_err(|_| ProviderError::InvalidResponse("invalid chat schema".into()))?;
-    let mut text = String::new();
+    let response: Response =
+        serde_json::from_value(parse_unique_json(bytes).map_err(|_| invalid_schema())?)
+            .map_err(|_| invalid_schema())?;
+    let mut blocks = Vec::new();
     for block in response.content {
-        match block.kind.as_str() {
-            "text" => text.push_str(
-                &block
-                    .text
-                    .ok_or_else(|| ProviderError::InvalidResponse("invalid chat schema".into()))?,
-            ),
-            "thinking" => {}
-            _ => return Err(ProviderError::InvalidResponse("invalid chat schema".into())),
+        match block {
+            Block::Text { text } => blocks.push(ModelBlock::Text { text }),
+            Block::ToolUse { id, name, input } => blocks.push(ModelBlock::ToolUse {
+                call: ToolCall {
+                    id,
+                    name,
+                    arguments: input,
+                },
+            }),
+            Block::Thinking {
+                thinking,
+                signature,
+            } => {
+                let _ = (thinking, signature);
+            }
         }
     }
-    Ok(ChatResponse {
-        model: Some(response.model),
-        choices: vec![super::Choice {
-            message: super::ResponseMessage { content: text },
-        }],
-        usage: Some(super::ProviderUsage {
-            prompt_tokens: response.usage.input_tokens,
-            completion_tokens: response.usage.output_tokens,
-        }),
+    Ok(ParsedTurn {
+        model: response.model,
+        blocks,
+        finish_reason: finish_reason(&response.stop_reason, true)?,
+        input_tokens: response
+            .usage
+            .input_tokens
+            .checked_add(response.usage.cache_creation_input_tokens)
+            .and_then(|input| input.checked_add(response.usage.cache_read_input_tokens))
+            .ok_or(ProviderError::BudgetExceeded)?,
+        output_tokens: response.usage.output_tokens,
     })
 }
 
-// Der Fehlertext bleibt im Prozess. Ausgegeben werden ausschließlich feste Klassen.
+fn compatible_response(bytes: &[u8]) -> Result<ParsedTurn> {
+    #[derive(Deserialize)]
+    struct Response {
+        model: String,
+        choices: Vec<Choice>,
+        usage: ProviderUsage,
+    }
+    #[derive(Deserialize)]
+    struct Choice {
+        message: Message,
+        finish_reason: String,
+    }
+    #[derive(Deserialize)]
+    struct Message {
+        role: Option<String>,
+        content: Content,
+        #[serde(default)]
+        tool_calls: Vec<Call>,
+        refusal: Option<String>,
+    }
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Content {
+        Text(String),
+        Null(()),
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Call {
+        id: String,
+        #[serde(rename = "type")]
+        kind: String,
+        function: Function,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Function {
+        name: ToolName,
+        arguments: String,
+    }
+    let response: Response =
+        serde_json::from_value(parse_unique_json(bytes).map_err(|_| invalid_schema())?)
+            .map_err(|_| invalid_schema())?;
+    if response.choices.len() != 1 {
+        return Err(ProviderError::InvalidResponse(
+            "model or choice count mismatch".into(),
+        ));
+    }
+    let choice = response
+        .choices
+        .into_iter()
+        .next()
+        .ok_or_else(invalid_schema)?;
+    if choice
+        .message
+        .role
+        .as_deref()
+        .is_some_and(|role| role != "assistant")
+    {
+        return Err(invalid_schema());
+    }
+    if choice
+        .message
+        .refusal
+        .is_some_and(|refusal| !refusal.is_empty())
+    {
+        return Err(incomplete_turn(ProviderFinishReason::Refusal));
+    }
+    let mut blocks = Vec::new();
+    if let Content::Text(text) = choice.message.content {
+        blocks.push(ModelBlock::Text { text });
+    }
+    for call in choice.message.tool_calls {
+        if call.kind != "function" {
+            return Err(invalid_schema());
+        }
+        let arguments =
+            parse_unique_json(call.function.arguments.as_bytes()).map_err(|_| invalid_schema())?;
+        blocks.push(ModelBlock::ToolUse {
+            call: ToolCall {
+                id: call.id,
+                name: call.function.name,
+                arguments,
+            },
+        });
+    }
+    Ok(ParsedTurn {
+        model: response.model,
+        blocks,
+        finish_reason: finish_reason(&choice.finish_reason, false)?,
+        input_tokens: response.usage.prompt_tokens,
+        output_tokens: response.usage.completion_tokens,
+    })
+}
+
+fn grounded_answer(
+    text: String,
+    usage: Usage,
+    evidence: &[Evidence],
+    require_grounded: bool,
+) -> Result<ProviderAnswer> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Grounded {
+        text: String,
+        cited_evidence_ids: Vec<String>,
+    }
+    let text = text.trim().to_owned();
+    if text.is_empty() {
+        return Err(ProviderError::InvalidResponse(
+            "empty provider answer".into(),
+        ));
+    }
+    let (text, cited_evidence_ids) = if evidence.is_empty() && !require_grounded {
+        if parse_unique_json(text.as_bytes()).is_err_and(|error| error.is_data()) {
+            return Err(ProviderError::InvalidResponse(
+                "grounded answer envelope missing".into(),
+            ));
+        }
+        (text, Vec::new())
+    } else {
+        let envelope_error =
+            || ProviderError::InvalidResponse("grounded answer envelope missing".into());
+        let grounded: Grounded = serde_json::from_value(
+            parse_unique_json(text.as_bytes()).map_err(|_| envelope_error())?,
+        )
+        .map_err(|_| envelope_error())?;
+        let unique: std::collections::BTreeSet<_> = grounded.cited_evidence_ids.iter().collect();
+        let insufficient = grounded.text.is_empty() && unique.is_empty();
+        if (!insufficient && (grounded.text.trim().is_empty() || unique.is_empty()))
+            || unique.len() != grounded.cited_evidence_ids.len()
+            || unique
+                .iter()
+                .any(|id| !evidence.iter().any(|item| &item.evidence_id == *id))
+        {
+            return Err(ProviderError::InvalidResponse(
+                "unknown, duplicate or missing citation".into(),
+            ));
+        }
+        (grounded.text, grounded.cited_evidence_ids)
+    };
+    Ok(ProviderAnswer {
+        text,
+        cited_evidence_ids,
+        usage,
+    })
+}
+
 fn precondition_category(bytes: &[u8]) -> &'static str {
     let body = String::from_utf8_lossy(bytes).to_ascii_lowercase();
     if [

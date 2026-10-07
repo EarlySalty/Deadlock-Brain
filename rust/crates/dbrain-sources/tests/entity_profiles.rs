@@ -877,9 +877,10 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     .await
     .unwrap();
     assert_eq!(raw_rights, (true, true, false, false));
-    unicode_bindings_remain_verifiable_after_import(&brain_storage::PgStore::new(
-        ingest_pool.clone(),
-    ))
+    unicode_bindings_remain_verifiable_after_import(
+        &brain_storage::PgStore::new(ingest_pool.clone()),
+        &pool,
+    )
     .await;
     ingest_pool.close().await;
     pool.close().await;
@@ -1473,7 +1474,10 @@ async fn private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_origina
     }
 }
 
-async fn unicode_bindings_remain_verifiable_after_import(store: &brain_storage::PgStore) {
+async fn unicode_bindings_remain_verifiable_after_import(
+    store: &brain_storage::PgStore,
+    owner: &sqlx::PgPool,
+) {
     use brain_storage::entity_profile::semantic::project_semantic_fact;
     use dbrain_sources::entity_binding::{bind_stored_document, CatalogEntity};
 
@@ -1519,6 +1523,63 @@ async fn unicode_bindings_remain_verifiable_after_import(store: &brain_storage::
         assert_eq!(retry.bound_facts, first.bound_facts);
         assert_eq!(retry.inserted_bindings, 0);
         assert_eq!(retry.inserted_projections, 0);
+        let verify = || {
+            dbrain_sources::entity_binding::verify_stored_document_bindings(
+                store,
+                &record.source_id,
+                &record.logical_id,
+                record.revision,
+                &catalog,
+            )
+        };
+        let checked = verify().await.unwrap();
+        assert_eq!(checked.bound_facts, first.bound_facts);
+        assert_eq!(checked.inserted_bindings, 0);
+        assert_eq!(checked.inserted_projections, 0);
+        sqlx::query("DELETE FROM brain.entity_semantic_projections_v1 WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+            .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).execute(owner).await.unwrap();
+        assert!(verify().await.is_err());
+        bind_stored_document(
+            store,
+            &record.source_id,
+            &record.logical_id,
+            record.revision,
+            &catalog,
+        )
+        .await
+        .unwrap();
+        let saved:Vec<(String,String)> = sqlx::query_as("SELECT fact_id,fact_json FROM brain.entity_profile_facts_v1 WHERE source_id=$1 AND logical_id=$2 AND revision=$3 ORDER BY fact_id")
+            .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).fetch_all(owner).await.unwrap();
+        let corrupted = if index == 0 {
+            let mut fact: serde_json::Value = serde_json::from_str(&saved[0].1).unwrap();
+            fact["value"] = serde_json::json!(999);
+            fact.to_string()
+        } else {
+            saved[1].1.clone()
+        };
+        sqlx::query("UPDATE brain.entity_profile_facts_v1 SET fact_json=$5 WHERE source_id=$1 AND logical_id=$2 AND revision=$3 AND fact_id=$4")
+            .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).bind(&saved[0].0).bind(&corrupted).execute(owner).await.unwrap();
+        assert!(verify().await.is_err());
+        sqlx::query("UPDATE brain.entity_profile_facts_v1 SET fact_json=$5 WHERE source_id=$1 AND logical_id=$2 AND revision=$3 AND fact_id=$4")
+            .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).bind(&saved[0].0).bind(&saved[0].1).execute(owner).await.unwrap();
+        assert!(verify().await.is_ok());
+        sqlx::query("DELETE FROM brain.entity_semantic_projections_v1 WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+            .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64)
+            .execute(owner).await.unwrap();
+        sqlx::query("DELETE FROM brain.entity_profile_facts_v1 WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+            .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64)
+            .execute(owner).await.unwrap();
+        assert!(verify().await.is_err());
+        bind_stored_document(
+            store,
+            &record.source_id,
+            &record.logical_id,
+            record.revision,
+            &catalog,
+        )
+        .await
+        .unwrap();
+        assert!(verify().await.is_ok());
         let bindings = store
             .stored_git_entity_bindings(&identity.entity_key, &record)
             .await

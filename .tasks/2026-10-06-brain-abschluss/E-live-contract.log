@@ -1,0 +1,16 @@
+
+running 1 test
+test live_small_current_assets_contract ... schema_bytes=454617 schema_raw_sha256=d76b44f82d1da13eed5831e772498a56993ebd56f4976c118f8ecaca79747359 schema_version=3.1.0 api_version=0.1.0 colors_bytes=11675 colors_raw_sha256=67de99e9c1f0f1baabf8f704826d5268060c2338935638fb8209bc521182d036 validation=Quarantined { reasons: ["schema_drift:colors"] }
+
+thread 'live_small_current_assets_contract' (491134) panicked at crates/dbrain-sources/tests/external_sources.rs:200:5:
+small public contract failed: Quarantined { reasons: ["schema_drift:colors"] }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    live_small_current_assets_contract
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 1.05s
+

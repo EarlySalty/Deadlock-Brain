@@ -24,6 +24,15 @@ impl std::error::Error for GitKnowledgeStep {}
 
 pub(super) fn refresh_failure(error: &anyhow::Error) -> serde_json::Value {
     let mut status = serde_json::json!({"code": "ENTITY_PROFILE_REFRESH_FAILED"});
+    if let Some(dbrain_sources::SourcesError::EntityDerivation {
+        entity_key, step, ..
+    }) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<dbrain_sources::SourcesError>())
+    {
+        status["entity_key"] = serde_json::json!(entity_key);
+        status["step"] = serde_json::json!(step);
+    }
     if let Some(step) = error.downcast_ref::<GitKnowledgeStep>() {
         status["source_id"] = serde_json::json!(step.source_id);
         status["commit"] = serde_json::json!(step.commit);
@@ -45,11 +54,37 @@ pub(super) fn refresh_failure(error: &anyhow::Error) -> serde_json::Value {
                 } else { "Wissensvertrag verletzt" }
             })
         }).collect::<Vec<_>>());
-    } else if let Some(database) = error
-        .chain()
-        .find_map(|cause| cause.downcast_ref::<sqlx::Error>())
-    {
+    } else if let Some(database) = error.chain().find_map(|cause| {
+        if let Some(database) = cause.downcast_ref::<sqlx::Error>() {
+            return Some(database);
+        }
+        let storage = cause
+            .downcast_ref::<brain_storage::StorageError>()
+            .or_else(
+                || match cause.downcast_ref::<dbrain_sources::SourcesError>() {
+                    Some(dbrain_sources::SourcesError::Storage(storage))
+                    | Some(dbrain_sources::SourcesError::EntityDerivation {
+                        source: storage,
+                        ..
+                    }) => Some(storage),
+                    _ => None,
+                },
+            );
+        match storage {
+            Some(brain_storage::StorageError::Database(database)) => Some(database),
+            _ => None,
+        }
+    }) {
         status["cause"] = serde_json::json!("Datenbankfehler");
+        status["error_class"] = serde_json::json!(match database
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref()
+        {
+            Some("57014") => "query_cancelled",
+            Some("55P03") => "lock_not_available",
+            _ => "database_error",
+        });
         if let Some(database) = database.as_database_error() {
             status["sqlstate"] = serde_json::json!(database.code());
         }
@@ -451,6 +486,14 @@ pub async fn activate_refreshed_sources(
     runtime: &super::runtime_config::RuntimeConfig,
     prepared: &PreparedRefresh,
 ) -> Result<()> {
+    activate_refreshed_sources_with_expected_config(runtime, prepared, None).await
+}
+
+pub async fn activate_refreshed_sources_with_expected_config(
+    runtime: &super::runtime_config::RuntimeConfig,
+    prepared: &PreparedRefresh,
+    expected_config_sha256: Option<&str>,
+) -> Result<()> {
     let runtime_path = runtime
         .loaded_from
         .as_ref()
@@ -460,6 +503,12 @@ pub async fn activate_refreshed_sources(
         .ok_or_else(|| anyhow::anyhow!("entity_profile_binary_directory"))?
         .join("brain-candidate-activate");
     let serve_bytes = super::runtime_config::read_bounded(&runtime.serve_config, 65536)?;
+    if let Some(expected) = expected_config_sha256 {
+        ensure!(
+            crate::digest(&serve_bytes) == expected,
+            "entity_profile_resume_config_changed"
+        );
+    }
     let mut args = vec![
         "--config".into(),
         runtime_path.to_string_lossy().into_owned(),
@@ -1253,6 +1302,59 @@ mod tests {
             assert!(!status.to_string().contains("privater_Nutzwert"));
             assert!(!status.to_string().contains("SELECT"));
         }
+        let error = anyhow::Error::new(dbrain_sources::SourcesError::EntityDerivation {
+            entity_key: "brain.entities:270510".into(),
+            step: "patch_story",
+            source: brain_storage::StorageError::Database(sqlx::Error::Protocol(
+                "SELECT privater_Nutzwert FROM geheime_Daten".into(),
+            )),
+        })
+        .context("privater_Nutzwert");
+        let status = refresh_failure(&error);
+        assert_eq!(status["entity_key"], "brain.entities:270510");
+        assert_eq!(status["step"], "patch_story");
+        assert_eq!(status["error_class"], "database_error");
+        assert!(!status.to_string().contains("privater_Nutzwert"));
+        assert!(!status.to_string().contains("SELECT"));
+    }
+
+    #[tokio::test]
+    async fn derivation_timeout_keeps_safe_sqlstate_and_step() {
+        let pg = ScratchPg::start();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .port(55441)
+                    .username("brain_core_test")
+                    .database("postgres"),
+            )
+            .await
+            .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SET LOCAL statement_timeout='1ms'")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let database = sqlx::query("SELECT pg_sleep(0.02)")
+            .execute(&mut *tx)
+            .await
+            .unwrap_err();
+        let error = anyhow::Error::new(dbrain_sources::SourcesError::EntityDerivation {
+            entity_key: "brain.entities:270510".into(),
+            step: "patch_story",
+            source: brain_storage::StorageError::Database(database),
+        })
+        .context("privater_Nutzwert");
+        let status = refresh_failure(&error);
+        assert_eq!(status["step"], "patch_story");
+        assert_eq!(status["error_class"], "query_cancelled");
+        assert_eq!(status["sqlstate"], "57014");
+        assert!(!status.to_string().contains("privater_Nutzwert"));
+        assert!(!status.to_string().contains("pg_sleep"));
+        tx.rollback().await.unwrap();
+        pool.close().await;
     }
 
     #[tokio::test]

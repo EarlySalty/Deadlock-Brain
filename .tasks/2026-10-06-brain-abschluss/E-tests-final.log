@@ -1,0 +1,754 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/dbrain-sources)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/brain-feeds)
+   Compiling deadlock-brain v0.1.0 (/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/deadlock-brain)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 37s
+     Running unittests src/lib.rs (rust/target/debug/deps/brain_storage-c6551c46da918f4a)
+
+running 41 tests
+test asset_mirror::tests::mirror_read_preserves_values_and_checks_binding ... ok
+test domain_reader::tests::forged_hash_and_ambiguous_facts_fail_closed ... ok
+test domain_reader::tests::future_contract_and_malformed_domain_payload_are_rejected ... ok
+test domain_reader::tests::legacy_v1_numeric_facts_remain_readable_without_value_or_identity_changes ... ok
+test domain_reader::tests::typed_facts_rules_are_pinned_and_source_acl_is_rechecked ... ok
+test domain_reader::tests::unverified_wrong_mode_and_wrong_patch_are_not_promoted ... ok
+test domain_reader::tests::wiki_dependency_pins_reject_unknown_versions_forgery_and_duplicates ... ok
+test entity_profile::derivation::game_file_facts::json_text::tests::duplicate_keys_abort_whole_document ... ok
+test entity_profile::derivation::game_file_facts::json_text::tests::numeric_lexemes_are_never_rounded ... ok
+test entity_profile::derivation::game_file_facts::kv3::tests::malformed_and_unsupported_syntax_is_rejected_whole ... ok
+test entity_profile::derivation::game_file_facts::kv3::tests::source2_arrays_flags_and_duplicate_properties_are_preserved ... ok
+test entity_profile::derivation::game_file_facts::kv::tests::duplicate_nested_keys_have_distinct_paths_and_parent_conditions ... ok
+test entity_profile::derivation::game_file_facts::kv::tests::escape_bytes_are_preserved_without_selecting_runtime_escape_policy ... ok
+test entity_profile::derivation::game_file_facts::kv::tests::external_references_and_malformed_content_require_text_preservation ... ok
+test entity_profile::tests::patch_story_retains_structured_values_and_restricts_original_line ... ok
+test local_pg_reader::review_deadline::cancelling_a_queued_pool_request_does_not_wait_for_pool_timeout ... ok
+test local_pg_reader::review_deadline::pool_wait_is_paid_from_the_original_request_deadline ... ok
+test local_pg_reader::review_startup::cancelled_query_closes_the_transport_and_returns_capacity ... ok
+test local_pg_reader::review_startup::cancelled_startup_closes_the_transport_and_returns_capacity ... ok
+test local_pg_reader::review_startup::stalled_postgres_authentication_releases_reserved_capacity ... ok
+test local_pg_reader::review_startup::stalled_query_obeys_the_request_deadline ... ok
+test local_pg_reader::review_startup::stalled_session_initialization_obeys_the_request_deadline ... ok
+test local_pg_reader::wait_queue::tests::new_checkouts_cannot_overtake_queued_waiters ... ok
+test local_pg_reader::wait_queue::tests::removing_an_absent_waiter_never_removes_another_request ... ok
+test local_pg_reader::wait_queue::tests::timed_out_waiters_do_not_block_the_remaining_queue ... ok
+test pg_maintenance::tests::postgres_queue_races_expiry_and_checkpoint_restart ... ignored, requires dedicated /tmp/brain-maintenance-test-20261002/socket PostgreSQL fixture
+test pg_maintenance::tests::review_requires_separate_runs_and_exact_source ... ok
+test schema::tests::embedded_migrations_have_exactly_one_outer_transaction ... ok
+test source_versions::tests::api_git_and_unknown_versions_cannot_claim_original_wiki_order ... ok
+test source_versions::tests::changed_content_and_rights_remain_conflicts ... ok
+test source_versions::tests::changed_fact_or_unit_is_a_semantic_conflict ... ok
+test source_versions::tests::numeric_wiki_aliases_match_without_changing_original_revisions ... ok
+test source_versions::tests::numeric_wiki_cannot_use_local_order_or_mismatched_original_revision ... ok
+test source_versions::tests::observation_and_local_revision_do_not_change_semantics ... ok
+test source_versions::tests::original_wiki_api_order_requires_matching_url_identity_and_contract ... ok
+test source_versions::tests::original_wiki_order_accepts_page_and_url_origins ... ok
+test source_versions::tests::postgres_original_wiki_history_does_not_reset_heads_or_release_pins ... ignored, requires isolated PostgreSQL Unix socket: BRAIN_CORE_TEST_PG_SOCKET
+test source_versions::tests::url_wiki_repeat_ignores_observation_but_detects_content_conflict ... ok
+test tests::duplicate_revision_is_idempotent_but_conflict_is_rejected ... ok
+test tests::release_pins_each_logical_revision ... ok
+test tests::stale_update_cannot_resurrect_tombstone ... ok
+
+test result: ok. 39 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.65s
+
+     Running unittests src/bin/brain-migrate.rs (rust/target/debug/deps/brain_migrate-1d2c77303d77da84)
+
+running 1 test
+test tests::config_is_explicit_local_and_rejects_secrets ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/core_store.rs (rust/target/debug/deps/core_store-818a9efbc378dacf)
+
+running 4 tests
+test expired_memory_worker_cannot_commit ... ok
+test memory_atomicity_fences_release_and_restart_contract ... ok
+test postgres_atomicity_fences_release_and_restart_contract ... ignored, requires isolated PostgreSQL Unix socket: BRAIN_CORE_TEST_PG_SOCKET
+test wire_revisions_cannot_overflow_postgres_bigint ... ok
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/ir_contracts.rs (rust/target/debug/deps/ir_contracts-16a7975dd695b4fd)
+
+running 3 tests
+test actual_store_retains_common_origin_and_denies_unapproved_provider_egress ... ok
+test legacy_head_cannot_supply_missing_rights_for_versioned_origin ... ok
+test old_release_cannot_restore_revoked_egress_or_scopes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/knowledge_release.rs (rust/target/debug/deps/knowledge_release-fa663a739e2d2dc9)
+
+running 2 tests
+test imported_heads_preserve_base_and_block_preparation_commit_races ... ok
+test spielprofilmigration_ist_explizit_wiederholbar_und_erhaelt_tabellenrechte ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.16s
+
+     Running tests/local_reader_config.rs (rust/target/debug/deps/local_reader_config-c2e271c5bdbbfa1d)
+
+running 2 tests
+test explicit_reader_options_retain_socket_boundary_and_redact_passwords ... ok
+test invalid_reader_timeouts_fail_before_connecting ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/storage_upgrade.rs (rust/target/debug/deps/storage_upgrade-053009f552567a8d)
+
+running 2 tests
+test historical_fixture_checksums_and_hashes_are_pinned ... ok
+test v1_upgrade_restore_and_least_privilege ... ignored, requires scripts/test_brain_storage_upgrade.sh; never a production DSN
+
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running unittests src/lib.rs (rust/target/debug/deps/dbrain_builds-8ca0f1619ae52942)
+
+running 13 tests
+test api::tests::every_statistical_path_has_the_correct_time_filter ... ok
+test classify::tests::bullet_armor_is_resist_not_weapon_axis ... ok
+test classify::tests::headshot_booster_is_weapon_axis ... ok
+test classify::tests::spirit_armor_is_spirit_resist ... ok
+test classify::tests::weapon_shielding_is_hybrid_defense_not_weapon_axis ... ok
+test engine::tests::build_context_for_known_hero_yields_typed_evidence ... ignored, benoetigt Scratch-Postgres via DEADLOCK_CENTRAL_DSN
+test engine::tests::load_item_rows_matches_direct_sql_count ... ignored, benoetigt Scratch-Postgres via DEADLOCK_CENTRAL_DSN
+test engine::tests::playstyle_selects_requested_path ... ignored, benoetigt Scratch-Postgres via DEADLOCK_CENTRAL_DSN
+test engine::tests::resolve_hero_id_matches_numeric_and_name ... ignored, benoetigt Scratch-Postgres via DEADLOCK_CENTRAL_DSN
+test spec::tests::assemble_payload_from_llm_json_keeps_annotations_and_ability_order ... ok
+test spec::tests::name_mapping_skips_unknown_items_and_warns ... ok
+test spec::tests::skill_order_fixture_maps_currency_and_delta ... ok
+test sync::tests::sync_upsert_roundtrip_writes_and_reads_back ... ignored, benoetigt Scratch-Postgres via DEADLOCK_CENTRAL_DSN
+
+test result: ok. 8 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.29s
+
+     Running unittests src/lib.rs (rust/target/debug/deps/dbrain_sources-b0e13dc1c2a7da2d)
+
+running 213 tests
+test analytics_runtime::tests::bounded_lookup_uses_only_requested_origin_and_returns_validated_observation ... FAILED
+test analytics_runtime::tests::expired_deadline_never_starts_http ... ok
+test analytics_runtime::tests::meta_lookup_filters_hero_and_carries_window_and_schema_provenance ... FAILED
+test analytics_runtime::tests::population_uses_item_filtered_hero_matches_not_purchase_counts ... FAILED
+test analytics_runtime::tests::request_and_origin_policy_fail_closed ... ok
+test analytics_runtime::tests::response_origin_bytes_raw_rows_and_requested_window_are_bounded ... ok
+test analytics_runtime::tests::runtime_module_has_no_database_or_central_dsn_dependency ... ok
+test analytics_runtime::tests::schema_drift_is_quarantined ... ok
+test assets_api::tests::current_color_map_and_rank_tier_have_stable_identities ... ok
+test assets_api::tests::current_paths_and_retired_kinds ... ok
+test assets_api::tests::malformed_missing_wrong_container_and_duplicate_quarantine ... ok
+test assets_api::tests::version_language_and_daily_refresh_are_explicit ... ok
+test assets_api::tests::zero_is_an_id_not_a_fallback_and_parser_preserves_bytes ... ok
+test deadlock_api::tests::demo_404_is_visible_and_an_incomplete_batch_cannot_be_snapshotted ... ok
+test deadlock_api::tests::demo_economy_query_filters_user_events_by_lobby_player_slot ... ok
+test deadlock_api::tests::demo_economy_query_uses_the_metadata_player_slot_literal ... ok
+test deadlock_api::tests::demo_failed_and_timeout_jobs_are_visible ... ok
+test deadlock_api::tests::demo_identity_rejects_mismatched_account_and_steam_ids ... ok
+test deadlock_api::tests::demo_metadata_resolves_the_target_player_slot ... ok
+test deadlock_api::tests::demo_normalize_rows_adds_versioned_evidence_id ... ok
+test deadlock_api::tests::demo_normalize_rows_rejects_malformed_ndjson_line ... ok
+test deadlock_api::tests::demo_parse_job_status_accepts_done_with_result_url ... ok
+test deadlock_api::tests::demo_parse_job_status_preserves_failed_error ... ok
+test deadlock_api::tests::demo_player_state_must_not_be_empty ... ok
+test deadlock_api::tests::demo_player_state_uses_an_unambiguous_join_tick ... ok
+test deadlock_api::tests::demo_poll_total_timeout_caps_the_next_sleep ... ok
+test deadlock_api::tests::demo_poll_total_timeout_caps_the_status_request ... ok
+test deadlock_api::tests::demo_poll_wait_yields_to_the_async_runtime ... ok
+test deadlock_api::tests::demo_query_bundle_has_three_quoted_queries ... ok
+test deadlock_api::tests::demo_result_url_allows_only_the_extract_origin ... ok
+test deadlock_api::tests::demo_target_queries_use_source2_14_bit_pawn_entity_index ... ok
+test deadlock_api::tests::filters_every_requested_hero_match ... ok
+test deadlock_api::tests::rejects_match_history_row_without_non_empty_match_id ... ok
+test deadlock_api::tests::rejects_match_history_row_without_valid_hero_id ... ok
+test deadlock_api::tests::rejects_non_array_match_history ... ok
+test deadlock_api::tests::rejects_non_object_match_history_row ... ok
+test deadlock_data::tests::entity_ids_never_fall_back_to_position ... ok
+test deadlock_data::tests::patchnote_events_do_not_duplicate_when_commit_metadata_changes ... ignored, cross-crate PG-Integration: needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test deadlock_data::tests::upsert_domain_entity_roundtrip_is_idempotent_and_cleans_up ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test deadlock_data::tests::version_parser_accepts_crlf ... ok
+test external::tests::malformed_preserved_but_cannot_be_projected ... ok
+test external::tests::mirrors_and_shared_origin_are_not_independent ... ok
+test external::tests::parser_revision_is_not_a_game_or_source_revision ... ok
+test external::tests::raw_hash_is_not_normalized_hash ... ok
+test external::tests::transitive_origins_merge_deterministically ... ok
+test forum::challenge_scope_tests::quoted_browser_check_is_a_readable_post ... ok
+test forum::kernel_integration_tests::two_forum_pages_reach_release_retriever_with_dates_and_report_status ... ok
+test forum::live_browser_contract::real_public_thread_and_sitemap_use_import_parser ... ignored, Braucht den vom Nutzer freigegebenen lokalen Brave-Browser
+test forum::scratch_regression_tests::observed_reversion_and_removed_post_update_real_canonical_release ... ok
+test forum::tests::parse_thread_html_extracts_title_posts_text_and_attachments ... ok
+test forum::tests::thread_url_parser_ignores_non_threads_and_extracts_numeric_suffix ... ok
+test forum_browser::tests::another_ipv6_client_prevents_consent ... ok
+test forum_browser::tests::canonical_slug_preserves_thread_and_page_identity ... ok
+test forum_browser::tests::debug_endpoint_is_loopback_only ... ok
+test forum_browser::tests::forum_scope_rejects_other_origins_and_account_routes ... ok
+test forum_browser::tests::pending_consent_requires_the_real_process_socket ... ok
+test forum_browser::tests::public_forum_browser_smoke ... ignored, Braucht den geöffneten regulären Brave-Browser
+test forum_corpus::tests::forum_report_does_not_establish_patch_validity ... ok
+test game_files::anchored::tests::replaced_ancestor_cannot_redirect_held_directory ... ok
+test game_files::tests::amplified_paths_abort_without_partial_facts ... ok
+test game_files::tests::bound_bad_paths_duplicates_types_sizes_and_hashes_fail_before_output ... ok
+test game_files::tests::bound_limit_and_encoding_gaps_retain_verified_physical_inventory ... ok
+test game_files::tests::bound_loose_files_use_private_objects_not_changed_root_or_names ... ok
+test game_files::tests::bound_post_read_check_detects_mutation_through_an_alias ... ok
+test game_files::tests::bound_steam_identity_is_required_even_with_git_revision ... ok
+test game_files::tests::compiled_binary_and_kv3_semantics_are_not_invented ... ok
+test game_files::tests::declared_layout_only_maps_exact_gametracking_prefix ... ok
+test game_files::tests::duplicate_json_keeps_whole_raw_text_with_explicit_status ... ok
+test game_files::tests::kv_duplicates_and_conditionals_are_retained ... ok
+test game_files::tests::kv_parent_occurrences_and_escaped_keys_keep_full_scope ... ok
+test game_files::tests::raw_json_values_keep_units_unknown_and_hash_exact_content ... ok
+test game_files::tests::source_large_decimal_is_a_qualified_lexeme_in_kv3_and_json ... ok
+test game_files::tests::traversal_and_symlinks_are_not_followed ... ok
+test game_files::tests::unknown_revision_uses_content_hash_and_utf16_keeps_original_hash ... ok
+test game_files::vpk::tests::bound_embedded_and_external_payloads_use_only_held_sources ... ok
+test game_files::vpk::tests::bound_external_archive_missing_changed_truncated_and_crc_errors_are_fatal ... ok
+test game_files::vpk::tests::bound_skipped_resource_still_requires_declared_external_archive ... ok
+test game_files::vpk::tests::crc_matches_standard_test_vector ... ok
+test game_files::vpk::tests::embedded_payload_checks_current_held_file_size ... ok
+test game_files::vpk::tests::embedded_resource_is_crc_checked ... ok
+test game_files::vpk::tests::embedded_v2_payload_cannot_read_trailing_checksum_sections ... ok
+test game_files::vpk::tests::preload_and_payload_are_combined_for_embedded_external_and_preload_only_crc ... ok
+test game_files::vpk::tests::shared_directory_prefix_is_budgeted_before_path_expansion ... ok
+test game_files::vpk::tests::sibling_payload_stays_anchored_after_parent_replacement ... ok
+test game_files::vpk::tests::sparse_in_bounds_payloads_and_tree_are_budgeted_before_allocation ... ok
+test game_files::vpk::tests::tiny_packages_with_huge_declared_payloads_report_bounds_gaps ... ok
+test game_files::vpk::tests::traversal_truncation_and_oversized_directory_are_rejected ... ok
+test git_source::tests::bounded_history_diff_rename_delete_and_missing_pin ... ok
+test git_source::tests::dirty_worktree_is_never_read_and_raw_is_exact ... ok
+test git_source::tests::merge_parents_and_shallow_boundary_are_reported ... ok
+test git_source::tests::rejects_implicit_and_abbreviated_revisions ... ok
+test git_source::tests::rejects_symlink_and_blob_instead_of_commit ... ok
+test git_source::tests::source_adapter_requires_the_declared_origin ... ok
+test git_source::tests::worktree_git_file_is_supported ... ok
+test google_sheet::tests::csv_parsing_and_record_derivation_from_sheet ... ok
+test google_sheet::tests::discover_sheet_tabs_decodes_pubhtml_items ... ok
+test knowledge_contract::path_budget_tests::diagnostic_paths_have_a_cumulative_budget ... ok
+test knowledge_import::tests::defaults_do_not_import_or_publish ... ok
+test knowledge_import::tests::exact_numbers_survive_import_postgres_retry_and_canonical_projection ... ok
+test knowledge_import::tests::missing_provenance_evidence_denies_internal_storage ... ok
+test knowledge_import::tests::numeric_game_file_version_remains_locally_monotonic ... ok
+test knowledge_import::tests::numeric_url_wiki_preserves_order_without_inventing_page_identity ... ok
+test knowledge_import::tests::numeric_wiki_aliases_keep_original_text_but_share_numeric_identity ... ok
+test knowledge_import::tests::numeric_wiki_bounds_apply_to_page_and_url_identities ... ok
+test knowledge_import::tests::numeric_wiki_uses_actual_page_and_revision ... ok
+test knowledge_import::tests::prepared_metadata_preserves_original_fact_order_and_conflicts ... ok
+test knowledge_import::tests::string_version_is_preserved_and_never_guessed_as_number ... ok
+test knowledge_import::tests::unverified_or_nonredistributable_remains_internal ... ok
+test knowledge_import::tests::url_wiki_git_and_unknown_versions_remain_locally_monotonic ... ok
+test patchnotes_db::tests::classify_source_kind_maps_known_hosts ... ok
+test patchnotes_db::tests::patchnotes_source_is_readable_when_present ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN with patchnotes.changelog_posts
+test patchnotes_db::tests::posted_at_falls_back_to_patch_title_date ... ok
+test reddit::tests::created_utc_becomes_rfc3339_utc ... ok
+test reddit::tests::defaults_match_the_gentle_ingest_profile ... ok
+test reddit::tests::empty_subreddits_fall_back_to_deadlock ... ok
+test reddit::tests::listing_rss_fallback_parses_title_link_and_content ... ok
+test reddit::tests::negative_delay_seconds_are_rejected ... ok
+test reddit::tests::parse_listing_extracts_thread_id_title_selftext_author_and_permalink ... ok
+test reddit::tests::parse_thread_extracts_post_and_comments_and_ignores_more ... ok
+test reddit::tests::refresh_existing_bypasses_the_http_cache ... ok
+test reddit::tests::request_urls_target_the_public_json_and_rss_endpoints ... ok
+test reddit::tests::skip_existing_only_applies_without_refresh ... ok
+test reddit::tests::thread_permalink_parser_rejects_non_thread_urls ... ok
+test reddit::tests::thread_rss_fallback_parses_submission_and_comment_entries ... ok
+test reddit::tests::thread_rss_keeps_comments_that_precede_the_submission_entry ... ok
+test reddit::tests::thread_rss_without_submission_entry_is_rejected ... ok
+test schema_signal::tests::comment_changes_are_not_schema_changes ... ok
+test schema_signal::tests::json_signal_only_invalidates_consumed_dependency ... ok
+test schema_signal::tests::proto_add_remove_retag_type_and_raw_bytes ... ok
+test schema_signal::tests::unresolved_types_and_invalid_proto3_enum_are_quarantined ... ok
+test schema_signal::tests::unsupported_proto_is_quarantined_not_silently_ignored ... ok
+test schema_watch::tests::consumed_missing_extra_malformed_and_unknown_fields ... ok
+test schema_watch::tests::cross_path_and_extension_references_cannot_hide_contract_changes ... ok
+test schema_watch::tests::current_assets_routes_are_pinned_and_resolvable ... ok
+test schema_watch::tests::detects_breaking_nonbreaking_and_version_changes ... ok
+test schema_watch::tests::exhausted_array_validation_never_accepts_an_unchecked_tail ... ok
+test schema_watch::tests::referenced_requests_security_and_local_servers_are_quarantined ... ok
+test schema_watch::tests::refs_cannot_fetch_external_or_loop ... ok
+test schema_watch::tests::unit_changes_are_unknown_and_targeted ... ok
+test source_pins::tests::configuration_is_bounded_and_rejects_duplicate_keys ... ok
+test source_pins::tests::invalid_and_missing_pins_fail_closed ... ok
+test source_pins::tests::valid_pin_roundtrips_and_version_checks_are_enforced ... ok
+test statlocker::tests::extract_rows_reads_arrays_and_keyed_objects ... ok
+test statlocker::tests::game_mode_value_maps_known_modes ... ok
+test statlocker::tests::match_and_hero_id_from_payload_prefer_direct_keys ... ok
+test statlocker::tests::normalize_hero_handles_all_and_separators ... ok
+test statlocker::tests::normalize_patch_prefixes_only_when_needed ... ok
+test store::tests::json_string_matches_python_default_spacing_and_ascii_for_common_values ... ok
+test store::tests::patch_changes_view_deduplicates_holliday_powder_keg_scaling ... ignored, needs central Postgres via DEADLOCK_CENTRAL_DSN
+test store::tests::raw_artifacts_are_atomic_full_hash_verified_and_non_overwriting ... ok
+test store::tests::store_roundtrip_writes_reads_back_and_cleans_up ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test util::tests::form_urlencode_matches_urllib_quote_plus_for_used_values ... ok
+test util::tests::python_or_string_treats_zero_as_falsy_for_or_expressions ... ok
+test wiki_corpus::tests::blank_rendered_pages_are_not_silently_imported ... ok
+test wiki_corpus::tests::disabled_network_makes_no_requests ... ok
+test wiki_corpus::tests::duplicate_pages_limits_and_repeated_cursors_do_not_claim_completeness ... ok
+test wiki_corpus::tests::empty_filtered_batches_continue_and_icon_labels_are_preserved ... ok
+test wiki_corpus::tests::errors_missing_license_and_partial_results_fail_closed ... ok
+test wiki_corpus::tests::pagination_and_exact_revision_are_used ... ok
+test wiki_corpus::tests::pinned_corpus_is_reproducible_without_latest_discovery ... ok
+test wiki_corpus::tests::runtime_requires_wiki_revision_and_parser_pins ... ok
+test wiki_corpus::tests::tables_percentages_unicode_and_nested_history_survive_without_scripts ... ok
+test wiki_corpus::tests::template_drift_requires_an_explicit_pin_change ... ok
+test wiki_corpus::tests::template_stamp_changes_parse_cache_key_without_article_edit ... ok
+test wiki_inventory::normalize::precision_tests::ambiguous_data_retains_original_without_extracted_facts ... ok
+test wiki_inventory::normalize::precision_tests::api_decode_rejects_duplicate_keys_and_preserves_numbers ... ok
+test wiki_inventory::normalize::precision_tests::data_numbers_survive_normalization_spool_and_republication ... ok
+test wiki_inventory::normalize::precision_tests::extracts_and_raw_revisions_survive_retry_including_frozen_legacy ... ok
+test wiki_inventory::normalize::precision_tests::path_amplification_is_rejected_before_fact_allocation ... ok
+test wiki_inventory::storage::tests::persisted_content_conflict_remains_a_gap_after_original_retry_and_namespace_completion ... ok
+test wiki_inventory::tests::api_conflict_then_xml_keeps_separate_authors_captures_and_first_observations ... ok
+test wiki_inventory::tests::api_then_xml_enriches_durable_authorship_without_changing_original_revision ... ok
+test wiki_inventory::tests::checkpoint_reads_are_bounded_before_parsing_and_during_streaming ... ok
+test wiki_inventory::tests::conflict_budget_is_counted_once_in_memory_and_after_reopening ... ok
+test wiki_inventory::tests::conflict_final_parent_sync_is_retried_without_a_false_retained_confirmation ... ok
+test wiki_inventory::tests::conflict_provenance_final_sync_is_retried_before_public_retention_or_report ... ok
+test wiki_inventory::tests::contradictory_authorship_is_preserved_without_selecting_a_winner_or_granting_rights ... ok
+test wiki_inventory::tests::directory_durability_syncs_leaf_and_ancestors_and_propagates_failure ... ok
+test wiki_inventory::tests::disabled_access_missing_license_warnings_and_bad_times_fail_closed ... ok
+test wiki_inventory::tests::explicit_api_access_denial_is_latched_until_a_reviewed_reset ... ok
+test wiki_inventory::tests::failed_first_offline_batch_binds_source_before_its_first_document ... ok
+test wiki_inventory::tests::foreign_context_cannot_relabel_an_export_or_mix_spool_sources ... ok
+test wiki_inventory::tests::historical_domains_with_identical_ids_remain_separate_sources ... ok
+test wiki_inventory::tests::interrupted_provenance_step_is_recoverable_and_cannot_upgrade_original_rights ... ok
+test wiki_inventory::tests::legacy_orphans_and_interrupted_writes_are_checked_without_a_checkpoint_default ... ok
+test wiki_inventory::tests::missing_and_hidden_revisions_select_latest_identity_independently_of_readable_text ... ok
+test wiki_inventory::tests::mixed_legacy_orphans_fail_before_binding_or_writing ... ok
+test wiki_inventory::tests::network_batches_use_the_same_revision_merge_as_offline_captures ... ok
+test wiki_inventory::tests::new_spool_and_first_supplement_and_conflict_survive_normal_reopen_without_checkpoint ... ok
+test wiki_inventory::tests::newer_then_older_captures_do_not_roll_back_checkpoint_or_inventory ... ok
+test wiki_inventory::tests::offline_repetition_keeps_first_observation_and_new_revisions_preserve_history ... ok
+test wiki_inventory::tests::old_checkpoint_fields_remain_readable_and_merge_correctly ... ok
+test wiki_inventory::tests::original_and_source_binding_final_parent_sync_are_retried_for_api_and_xml ... ok
+test wiki_inventory::tests::original_v1_slot_redirect_mapping_and_distinct_observation_times_survive ... ok
+test wiki_inventory::tests::oversized_enriched_conflict_is_rejected_without_poisoning_original_resume ... ok
+test wiki_inventory::tests::provenance_final_parent_sync_is_retried_for_api_and_xml ... ok
+test wiki_inventory::tests::publication_retries_final_parent_sync_of_visible_provenance ... ok
+test wiki_inventory::tests::redirects_templates_modules_and_categories_stay_unexpanded ... ok
+test wiki_inventory::tests::rendered_extract_is_not_available_revision_text ... ok
+test wiki_inventory::tests::repeated_or_overriding_continuations_are_rejected_before_advancing ... ok
+test wiki_inventory::tests::repeated_xml_page_blocks_preserve_history_in_both_orders ... ok
+test wiki_inventory::tests::same_revision_content_model_and_facts_are_preserved_in_both_spool_branches ... ok
+test wiki_inventory::tests::same_revision_different_content_is_retained_as_conflict_without_overwrite ... ok
+test wiki_inventory::tests::same_spool_install_sync_failure_counts_original_and_conflict_at_exact_budget ... ok
+test wiki_inventory::tests::same_spool_provenance_replacement_sync_failure_retains_exact_shared_budget ... ok
+test wiki_inventory::tests::siteinfo_article_paths_are_used_for_offline_api_provenance ... ok
+test wiki_inventory::tests::source_namespace_names_distinguish_updates_json_data_and_bucket ... ok
+test wiki_inventory::tests::suppressed_content_and_unknown_revisions_remain_explicit ... ok
+test wiki_inventory::tests::traversal_includes_every_real_namespace_and_resumes_after_a_failed_request ... ok
+test wiki_inventory::tests::unbound_spool_refuses_direct_document_and_checkpoint_effects ... ok
+test wiki_inventory::tests::xml_export_preserves_each_revision_and_does_not_claim_global_completeness ... ok
+test wiki_inventory::tests::xml_query_style_article_path_and_original_http_scheme_are_preserved ... ok
+test wiki_runtime::tests::domain_numeric_projection_is_exact_or_withheld ... ok
+
+failures:
+
+---- analytics_runtime::tests::bounded_lookup_uses_only_requested_origin_and_returns_validated_observation stdout ----
+
+thread 'analytics_runtime::tests::bounded_lookup_uses_only_requested_origin_and_returns_validated_observation' (575300) panicked at crates/dbrain-sources/src/analytics_runtime.rs:712:72:
+called `Result::unwrap()` on an `Err` value: InvalidInput("analytics response quarantined: Quarantined { reasons: [\"/0:missing_required:\\\"permanent_buff_matches\\\"\", \"/0:missing_required:\\\"permanent_buff_timing_matches\\\"\", \"/0:missing_required:\\\"total_first_permanent_buff_time_s\\\"\", \"/0:missing_required:\\\"total_permanent_buffs\\\"\", \"/1:missing_required:\\\"permanent_buff_matches\\\"\", \"/1:missing_required:\\\"permanent_buff_timing_matches\\\"\", \"/1:missing_required:\\\"total_first_permanent_buff_time_s\\\"\", \"/1:missing_required:\\\"total_permanent_buffs\\\"\"] }")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- analytics_runtime::tests::meta_lookup_filters_hero_and_carries_window_and_schema_provenance stdout ----
+
+thread 'analytics_runtime::tests::meta_lookup_filters_hero_and_carries_window_and_schema_provenance' (575450) panicked at crates/dbrain-sources/src/analytics_runtime.rs:528:89:
+called `Result::unwrap()` on an `Err` value: InvalidInput("analytics response quarantined: Quarantined { reasons: [\"/0:missing_required:\\\"permanent_buff_matches\\\"\", \"/0:missing_required:\\\"permanent_buff_timing_matches\\\"\", \"/0:missing_required:\\\"total_first_permanent_buff_time_s\\\"\", \"/0:missing_required:\\\"total_permanent_buffs\\\"\", \"/1:missing_required:\\\"permanent_buff_matches\\\"\", \"/1:missing_required:\\\"permanent_buff_timing_matches\\\"\", \"/1:missing_required:\\\"total_first_permanent_buff_time_s\\\"\", \"/1:missing_required:\\\"total_permanent_buffs\\\"\"] }")
+
+---- analytics_runtime::tests::population_uses_item_filtered_hero_matches_not_purchase_counts stdout ----
+
+thread 'analytics_runtime::tests::population_uses_item_filtered_hero_matches_not_purchase_counts' (575600) panicked at crates/dbrain-sources/src/analytics_runtime.rs:553:10:
+called `Result::unwrap()` on an `Err` value: InvalidInput("analytics response quarantined: Quarantined { reasons: [\"/0:missing_required:\\\"permanent_buff_matches\\\"\", \"/0:missing_required:\\\"permanent_buff_timing_matches\\\"\", \"/0:missing_required:\\\"total_first_permanent_buff_time_s\\\"\", \"/0:missing_required:\\\"total_permanent_buffs\\\"\", \"/1:missing_required:\\\"permanent_buff_matches\\\"\", \"/1:missing_required:\\\"permanent_buff_timing_matches\\\"\", \"/1:missing_required:\\\"total_first_permanent_buff_time_s\\\"\", \"/1:missing_required:\\\"total_permanent_buffs\\\"\"] }")
+
+
+failures:
+    analytics_runtime::tests::bounded_lookup_uses_only_requested_origin_and_returns_validated_observation
+    analytics_runtime::tests::meta_lookup_filters_hero_and_carries_window_and_schema_provenance
+    analytics_runtime::tests::population_uses_item_filtered_hero_matches_not_purchase_counts
+
+test result: FAILED. 203 passed; 3 failed; 7 ignored; 0 measured; 0 filtered out; finished in 24.64s
+
+error: test failed, to rerun pass `-p dbrain-sources --lib`
+     Running unittests src/bin/brain-browser-consent.rs (rust/target/debug/deps/brain_browser_consent-a87021c8ea6cdb79)
+
+running 2 tests
+test tests::dokumentrollen_bleiben_unberuehrt ... ok
+test tests::native_objekte_werden_eindeutig_gelesen ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/bin/brain-knowledge-import.rs (rust/target/debug/deps/brain_knowledge_import-b2a8057e072f122f)
+
+running 19 tests
+test runtime::tests::connected_identity_checks_role_database_local_transport_port_and_socket ... ok
+test runtime::tests::isolated_connection_identity_is_checked_before_import ... ignored, requires isolated PostgreSQL Unix socket: BRAIN_CORE_TEST_PG_SOCKET
+test runtime::tests::runtime_reuses_exact_existing_target_and_rejects_fallbacks ... ok
+test tests::duplicates_and_unrelated_options_are_rejected ... ok
+test tests::help_has_no_operational_effect ... ok
+test tests::operational_modes_require_normal_runtime_without_a_central_dsn_fallback ... ok
+test tests::partition_count_and_exact_byte_boundaries_are_inclusive ... ok
+test tests::partition_preserves_more_than_ten_thousand_versions_of_one_document ... ok
+test tests::partition_refuses_existing_outputs_and_report_collisions ... ok
+test tests::partition_rejects_conflicts_and_invalid_lines_before_output ... ok
+test tests::partition_requires_its_three_absolute_paths_without_operational_options ... ok
+test tests::partition_retains_whitespace_duplicates_facts_and_observation_times ... ok
+test tests::partition_write_and_failure_reports_do_not_claim_import_or_overwrite ... ok
+test tests::publication_accepts_three_sources_but_keeps_the_ten_thousand_document_limit ... ok
+test tests::publication_rejects_invalid_heads_and_publishes_git_and_wiki_withdrawals ... ok
+test tests::publication_replaces_selected_pins_and_preserves_old_pins_and_current_rights ... ok
+test tests::publication_requires_new_identity_and_named_sources ... ok
+test tests::report_never_overwrites_prior_evidence ... ok
+test tests::validate_requires_absolute_paths_and_explicit_parser ... ok
+
+test result: ok. 18 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 12.85s
+
+     Running unittests src/bin/brain-wiki-pilot.rs (rust/target/debug/deps/brain_wiki_pilot-ea3c397073d8b497)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/entity_binding.rs (rust/target/debug/deps/entity_binding-57c88cde192636b3)
+
+running 8 tests
+test all_kinds_bind_without_changing_source_facts_and_repeat_identically ... ok
+test ambiguous_ids_and_title_only_matches_remain_open ... ok
+test conflicting_object_identity_is_not_overruled_by_its_path ... ok
+test explicit_class_evidence_binds_unnamed_object_and_keeps_nested_variants ... ok
+test numeric_string_keeps_git_priority_against_wiki_with_different_source_qualifiers ... ok
+test real_catalog_and_git_documents_report_coverage ... ignored, Benötigt vorhandenes Infisical-Credential auf FD 5 und echte Eingaben
+test variant_qualifiers_and_same_source_conflicts_do_not_get_arbitrary_preferences ... ok
+test wiki_object_alias_is_evidence_but_numeric_array_offset_is_not ... ok
+
+test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/entity_profiles.rs (rust/target/debug/deps/entity_profiles-0e250f0816507e3a)
+
+running 11 tests
+test all_three_entity_kinds_keep_their_binding ... ok
+test ambiguous_missing_and_duplicate_fact_bindings_fail ... ok
+test conflicting_sources_keep_both_values_and_git_preference ... ok
+test extractor_lexemes_do_not_hide_conflicts_or_merge_semantic_qualifiers ... ok
+test generic_fields_keep_subject_and_document_binding_in_comparison ... ok
+test isolated_import_is_idempotent_and_preserves_revision_binding ... ok
+test json_and_kv3_array_elements_keep_distinct_comparison_scopes ... ok
+test kv1_missing_original_scope_is_visible_and_caller_pointer_cannot_replace_it ... ok
+test kv1_profiles_compare_full_original_scope_including_frozen_documents ... ok
+test validity_is_open_or_exclusive_and_unknown_is_not_backdated ... ok
+test values_units_qualifiers_and_rights_remain_lossless ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.29s
+
+     Running tests/entity_semantic.rs (rust/target/debug/deps/entity_semantic-ff5be12b6c21b6fb)
+
+running 13 tests
+test actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals ... ignored, Externe Datenprobe: benötigt private eingefrorene Git-JSONL und lokale PostgreSQL-16-Werkzeuge
+test batch_proof_cache_reuses_only_immutable_facts_and_checks_fresh_inputs ... ok
+test canonical_numeric_conflicts_keep_originals_variants_and_exponents ... ok
+test complete_relative_scope_rejects_truncation_and_caller_markers ... ok
+test consumer_patch_conditions_keep_decimal_thresholds_and_withhold_unsafe_statements ... ok
+test derived_alias_qualifiers_withhold_whole_numbers_and_keep_private_pins ... ok
+test document_context_preserves_original_and_identity_checks ... ok
+test document_receipt_reconstructs_both_git_sources_story_and_exact_output ... ok
+test document_receipt_rejects_stale_rights_forged_bindings_and_marker_only_claims ... ok
+test header_receipt_keeps_unrelated_archive_pin_without_hydrating_its_body ... ok
+test header_receipt_preserves_exact_full_proof_without_archived_body ... ok
+test header_receipt_rejects_blob_header_acl_binding_and_semantic_tampering ... ok
+test header_receipt_rejects_changed_private_receipt_and_output ... ok
+
+test result: ok. 12 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 5.95s
+
+     Running tests/external_sources.rs (rust/target/debug/deps/external_sources-e888e00834d82b9b)
+
+running 7 tests
+test duplicate_json_keys_never_become_last_key_wins_evidence ... ok
+test fixture_manifest_is_exact_and_current_paths_are_contract_covered ... ok
+test live_small_current_assets_contract ... ignored, explicit small public contract test; never part of deterministic CI
+test match_api_rejects_malformed_missing_ambiguous_and_duplicate_without_losing_raw ... ok
+test removing_enum_is_breaking_and_missing_route_fails_closed ... ok
+test same_derivation_merges_new_origin_evidence_without_an_extra_vote ... ok
+test status_type_encoding_and_schema_version_gate_preserve_quarantine ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.65s
+
+     Running tests/knowledge_contract.rs (rust/target/debug/deps/knowledge_contract-7e516cdb19d1d46c)
+
+running 29 tests
+test all_evidence_states_are_accepted_without_promoting_hypotheses ... ok
+test changed_source_identity_for_same_game_document_is_reported_across_revisions ... ok
+test conflicting_content_is_reported_and_neither_document_is_overwritten ... ok
+test consistent_duplicates_keep_both_observations ... ok
+test different_revisions_and_cross_source_contradictions_remain_separate ... ok
+test direct_typed_deserialization_requires_nullable_fields_and_fact_value ... ok
+test duplicate_json_keys_are_rejected_including_nested_metadata ... ok
+test every_document_field_is_required ... ok
+test every_fact_and_license_field_is_required_including_nullable_fields ... ok
+test exact_json_numbers_survive_shape_check_streaming_from_value_and_observation_retry ... ok
+test fact_ids_are_unique_within_each_document_but_not_across_documents ... ok
+test game_ids_and_source_locators_reject_absolute_and_unnormalized_paths ... ok
+test hash_is_lowercase_sha256_of_exact_utf8_bytes ... ok
+test invalid_utf8_and_reader_failures_are_not_skipped ... ok
+test nullable_fields_and_arbitrary_json_fact_values_are_preserved ... ok
+test numeric_game_versions_and_nonnumeric_wiki_versions_remain_distinct ... ok
+test numeric_wiki_aliases_are_conflicts_and_original_spelling_is_preserved ... ok
+test same_revision_hash_with_changed_facts_license_or_metadata_is_a_conflict ... ok
+test seekable_validation_enforces_line_total_history_and_index_bounds_before_visit ... ok
+test seekable_validation_keeps_cross_partition_duplicate_and_fact_order_conflict ... ok
+test seekable_validation_matches_full_classification_and_exact_original_lines ... ok
+test source_text_is_retained_as_data_and_never_executed ... ok
+test unknown_revision_requires_matching_content_hash_and_is_counted ... ok
+test unverified_or_denied_license_never_grants_declared_publication ... ok
+test utc_rfc3339_is_checked_without_substituting_observation_for_revision ... ok
+test whole_input_validation_reports_each_bad_line_and_returns_no_partial_batch ... ok
+test wiki_ids_require_source_binding_or_exact_url_hash ... ok
+test wiki_without_facts_and_empty_input_are_valid ... ok
+test wrong_types_and_unknown_contract_values_report_fields ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s
+
+     Running tests/shared_contracts.rs (rust/target/debug/deps/shared_contracts-fa06e015f418179d)
+
+running 3 tests
+test quarantine_and_literal_null_roundtrip_without_fabricated_values ... ok
+test reprocessing_separates_parser_schema_and_original_source_revision ... ok
+test source_parser_persists_the_shared_versioned_contract ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/source_pins.rs (rust/target/debug/deps/source_pins-9f349252535db108)
+
+running 3 tests
+test absent_commit_noncommit_wrong_origin_and_version_are_errors ... ok
+test update_only_occurs_after_explicit_configuration_change ... ok
+test valid_pin_and_same_pin_are_reproducible_despite_head_and_worktree_changes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
+
+     Running tests/wiki_knowledge_contract.rs (rust/target/debug/deps/wiki_knowledge_contract-6c40df74eb7ef172)
+
+running 2 tests
+test network_adapter_defaults_to_disabled_and_cannot_enable_itself_from_capture_policy ... ok
+test source_crate_projects_the_same_shared_card_with_exact_source_references ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/wiki_runtime.rs (rust/target/debug/deps/wiki_runtime-9d080bc51f6d6278)
+
+running 8 tests
+test lua_programs_and_template_expressions_are_not_executed_or_promoted ... ok
+test normal_store_stage_is_idempotent_versioned_and_needs_no_second_store ... ok
+test quarantined_template_blocks_dependent_facts_without_executing_source ... ok
+test raw_retention_and_scope_are_mandatory_for_store_plan ... ok
+test scratch_guard_rejects_arbitrary_paths_before_a_database_connection ... ok
+test scratch_raw_ir_facts_release_delta_reparse_and_acl ... ignored, dedicated Unix-socket scratch cluster; run scripts/test_wiki_runtime.sh
+test shared_ir_fact_release_plan_is_loss_aware_and_review_pinned ... ok
+test transitive_template_changes_leave_unrelated_ir_and_facts_unchanged ... ok
+
+test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+     Running unittests src/bin/brain-mcp.rs (rust/target/debug/deps/brain_mcp-cea90c6e0d086bb8)
+
+running 21 tests
+test tests::clean_eof_succeeds_without_dispatch_or_delivery ... ok
+test tests::domain_rejection_is_a_successful_tool_result_but_unavailable_is_not ... ok
+test tests::example_config_uses_existing_secret_reference_and_scopes ... ok
+test tests::explicit_private_snapshot_resolves_only_configured_reference ... ok
+test tests::failed_error_delivery_stops_before_following_request ... ok
+test tests::failed_write_or_flush_stops_before_following_provider_work ... ok
+test tests::frame_limit_fits_maximum_schema_question_with_json_escaping ... ok
+test tests::frame_reader_accepts_valid_crlf_and_unterminated_eof_frames ... ok
+test tests::frame_reader_bounds_unterminated_oversized_input ... ok
+test tests::frame_reader_drains_oversized_line_and_reads_next_frame ... ok
+test tests::inline_secret_fields_are_rejected_without_echoing_their_value ... ok
+test tests::input_failure_is_sanitized_and_never_dispatches ... ok
+test tests::invalid_synthetic_token_is_not_in_diagnostics ... ok
+test tests::local_brain_endpoint_requirement_remains_enforced ... ok
+test tests::malformed_private_snapshot_has_only_sanitized_source_error ... ok
+test tests::max_valid_query_with_json_escaping_returns_clear_size_error ... ok
+test tests::mcp_requires_an_explicit_config_path ... ok
+test tests::private_snapshot_without_eof_respects_startup_budget ... ok
+test tests::relative_infisical_config_tracks_relocated_mcp_config_file ... ok
+test tests::secret_port_stub_resolves_only_the_configured_reference ... ok
+test tests::tool_arguments_cannot_supply_scopes ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running unittests src/main.rs (rust/target/debug/deps/deadlock_brain-7026c0d3e993cec2)
+
+running 96 tests
+test forum_pool_configuration_tests::single_connection_pool_is_rejected_before_secret_lookup ... ok
+test ingest_tests::patch_sync_cli_uses_existing_ledger_and_dry_run ... ok
+test ingest_tests::scheduled_ingest_stops_on_failure_without_importing_matches ... ok
+test pg_patchnotes::api_sync::tests::api_post_reuses_parser_and_exact_publication_time ... ok
+test pg_patchnotes::api_sync::tests::original_links_fail_closed_on_wrong_hosts_credentials_and_ports ... ok
+test pg_patchnotes::api_sync::tests::previews_and_cosmetic_announcements_are_not_gameplay_patches ... ok
+test pg_patchnotes::tests::classify_numeric_increase_as_buff_even_with_reduced_word ... ok
+test pg_patchnotes::tests::collects_steam_link_candidates_from_forum_teaser ... ok
+test pg_patchnotes::tests::event_hash_deduplicates_repost_and_prefixed_lines ... ok
+test pg_patchnotes::tests::expands_forum_section_headings_without_bullet_prefix ... ok
+test pg_patchnotes::tests::extract_externalpost_html_announcement_body ... ok
+test pg_patchnotes::tests::finds_official_steam_item_for_forum_patch_with_date_filter ... ok
+test pg_patchnotes::tests::legacy_compatible_patch_external_ids_include_numeric_fallback ... ok
+test pg_patchnotes::tests::match_steam_news_item_prefers_gid_candidate ... ok
+test pg_patchnotes::tests::narrative_steam_sections_parse_when_bullets_are_missing ... ok
+test pg_patchnotes::tests::parse_bullet_lines_and_event_hash_is_stable ... ok
+test pg_patchnotes::tests::parse_events_have_deduplicated_hashes_by_line ... ok
+test pg_patchnotes::tests::parses_forum_multiline_sections_with_flat_fix_still_intact ... ok
+test pg_patchnotes::tests::parses_forum_single_line_sections ... ok
+test pg_patchnotes::tests::parses_forum_square_bracket_single_line_sections ... ok
+test pg_patchnotes::tests::patch11_substantial_forum_content_prevents_steam_fallback ... ok
+test pg_patchnotes::tests::patch12_short_forum_teaser_allows_steam_match ... ok
+test pg_patchnotes::tests::patch2_compact_forum_sections_parse_granularly_and_normalize_external_id ... ok
+test pg_patchnotes::tests::posted_at_allows_plain_date_and_text ... ok
+test pg_patchnotes::tests::prepare_patch_classifies_numeric_stat_polarity ... ok
+test pg_patchnotes::tests::prepare_patch_uses_title_date_when_posted_at_missing ... ok
+test pg_patchnotes::tests::section_heading_rejects_invalid_square_bracket_sections ... ok
+test pg_patchnotes::tests::split_flat_forum_content ... ok
+test pg_patchnotes::tests::uses_steam_source_when_resolved_for_prepare ... ok
+test pg_steam_news::tests::parser_maps_manual_objective_aliases ... ok
+test pg_steam_news::tests::selects_official_items_old_to_new ... ok
+test pg_steam_news::tests::steam_content_cleanup_turns_bbcode_items_into_bullets ... ok
+test requested_build_tests::blocked_publication_keeps_its_output_and_returns_an_error ... ok
+test requested_build_tests::cli_resume_bypasses_settings_database_and_reasoner_initialization ... ok
+test requested_build_tests::concurrent_saves_only_accept_the_same_validated_request ... ok
+test requested_build_tests::publish_credentials_follow_steam_precedence_and_reject_invalid_primary ... ok
+test requested_build_tests::requested_build_commands_separate_review_from_guarded_publication ... ok
+test requested_build_tests::requested_build_receipt_requires_real_completion ... ok
+test requested_build_tests::resume_rejects_a_modified_file_before_any_publish_call ... ok
+test requested_build_tests::resume_uses_the_saved_request_without_build_or_ai_recalculation ... ok
+test requested_build_tests::saved_publication_is_atomic_read_only_and_never_overwrites_an_existing_request ... ok
+test requested_build_tests::saved_publication_rejects_changed_hash_identity_version_and_payload ... ok
+test requested_build_tests::saved_publication_rejects_oversized_non_regular_and_malformed_files ... ok
+test requested_build_tests::unconfirmed_rate_limit_is_visible_with_the_saved_resume_path ... ok
+test steam_web_api::tests::cache_hit_needs_no_reservation ... ok
+test steam_web_api::tests::denial_prevents_dispatch_and_keeps_retry_at ... ok
+test steam_web_api::tests::failed_journal_answer_is_not_reported_as_success ... ok
+test steam_web_api::tests::failed_reservation_write_and_observation_recover_unused_guard ... ok
+test steam_web_api::tests::granted_reservation_dispatches_once_and_reports_status ... ok
+test steam_web_api::tests::interrupted_request_blocks_restart_even_with_a_cache_hit ... ok
+test steam_web_api::tests::journal_failure_releases_reservation_without_dispatch ... ok
+test steam_web_api::tests::ledger_configuration_allows_only_exact_loopback_origins ... ok
+test steam_web_api::tests::ledger_outage_status_and_missing_key_block_dispatch ... ok
+test steam_web_api::tests::ledger_redirect_does_not_forward_the_internal_key ... ok
+test steam_web_api::tests::ledger_snapshot_selects_exact_ref_and_fails_closed ... ok
+test steam_web_api::tests::lost_observation_is_retried_before_next_reservation ... ok
+test steam_web_api::tests::pg_journal_survives_reconnect_and_serializes_runs ... ignored, needs scratch Postgres via DEADLOCK_BRAIN_SCRATCH_DSN
+test steam_web_api::tests::rate_limit_reports_original_retry_after ... ok
+test steam_web_api::tests::redirect_does_not_dispatch_an_unreserved_second_request ... ok
+test steam_web_api::tests::releases_unused_reservations_before_blocking_uncertain_request ... ok
+test steam_web_api::tests::restart_guard_replays_known_reservation_before_next_request ... ok
+test steam_web_api::tests::server_error_reports_status_without_retry_after ... ok
+test steam_web_api::tests::transport_failure_reports_null_status ... ok
+test steam_web_api::tests::truncated_rate_limit_body_still_reports_429 ... ok
+test steam_web_api::tests::unanswered_reservation_after_restart_is_reported_as_transport_failure ... ok
+test steam_web_api::tests::unreachable_ledger_blocks_dispatch ... ok
+test tests::analysis_run_ai_accepts_public_command_names ... ok
+test tests::batch_failure_keeps_the_complete_output_before_returning_an_error ... ok
+test tests::batch_output_errors_are_propagated ... ok
+test tests::blocking_http_client_is_built_off_the_async_runtime_thread ... ok
+test tests::clap_command_definition_is_valid ... ok
+test tests::cli_json_preserves_current_wire_statuses ... ok
+test tests::fix2_backtest_no_persist_cli ... ok
+test tests::fix2_build_no_persist_cli ... ok
+test tests::fix2_no_persist_conflicts_with_publish ... ok
+test tests::fix2_patch_impact_no_persist_cli ... ok
+test tests::parses_parse_reddit_claims_rebuild_flag ... ok
+test tests::parses_player_analyze_demo_match_flags ... ok
+test tests::parses_player_demo_calibration_status ... ok
+test tests::parses_player_fetch_demo_defaults_to_mo_evidence_options ... ok
+test tests::parses_player_review_demo_report_file ... ok
+test tests::parses_player_sync_matches_defaults_hero_to_mo ... ok
+test tests::parses_pull_reddit_with_repeated_subreddits_and_gentle_defaults ... ok
+test tests::player_fetch_demo_metadata_options_are_exact_and_detailed ... ok
+test tests::player_fetch_demo_passes_the_metadata_player_slot_to_demo_queries ... ok
+test tests::pull_assets_accepts_supported_kinds_and_default ... ok
+test tests::pull_assets_help_lists_supported_kinds_only ... ok
+test tests::pull_assets_rejects_unsupported_raw_kinds ... ok
+test tests::schreibende_befehle_bleiben_schreibfaehig ... ok
+test tests::successful_empty_and_dry_run_batches_remain_successful ... ok
+test tests::wissensabfragen_erzwingen_read_only ... ok
+test wiki_refresh::tests::failed_validation_preserves_current_and_honest_dates ... ok
+test wiki_refresh::tests::snapshot_rejects_missing_required_files_and_symlinks ... ok
+test wiki_refresh::tests::status_failure_rolls_back_current ... ok
+test wiki_refresh::tests::successful_publication_keeps_source_and_render_dates_separate ... ok
+test wiki_refresh::tests::wiki_corpus_is_opt_in_and_source_pins_are_explicit ... ok
+
+test result: ok. 95 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.35s
+
+     Running unittests src/bin/deadlock-brain-secret-exec.rs (rust/target/debug/deps/deadlock_brain_secret_exec-f4c6e32d6f38f8c9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/answer_config.rs (rust/target/debug/deps/answer_config-2b6edd11e06812f7)
+
+running 3 tests
+test answer_missing_secret_is_sanitized_without_contacting_http ... ok
+test answer_reads_explicit_config_and_private_pipe_then_uses_typed_client ... ok
+test answer_startup_budget_bounds_a_private_pipe_that_never_replies ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/runtime_tooling.rs (rust/target/debug/deps/runtime_tooling-71efecff34965452)
+
+running 4 tests
+test completion_runner_is_nonmutating_and_propagates_failure ... ok
+test enrichment_cli_exits_on_failed_batches_and_keeps_their_summary ... ignored, needs scratch Postgres via DEADLOCK_CENTRAL_DSN
+test pull_uses_explicit_config_without_hidden_environment_overrides ... ok
+test wiki_startup_checks_pins_before_credentials_or_writes ... ok
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.79s
+
+     Running unittests src/lib.rs (rust/target/debug/deps/deadlock_brain_core-7b5bd4ef8ab4e6c2)
+
+running 25 tests
+test ai::tests::central_selection_overrides_stale_caller_model_and_changes_next_request ... ok
+test ai::tests::extracts_openai_compatible_text ... ok
+test ai::tests::invalid_payload_cannot_bypass_central_model ... ok
+test ai::tests::serializes_fireworks_token_field ... ok
+test ai::tests::strip_thinking_removes_hidden_blocks ... ok
+test build_narration::tests::build_narration_prompt_contains_context_items ... ok
+test build_narration::tests::validate_narration_allows_build_item_in_text ... ok
+test build_narration::tests::validate_narration_flags_real_item_outside_context_without_changing_text ... ok
+test build_narration::tests::validate_narration_ignores_german_prose_and_keeps_text ... ok
+test config::tests::repo_root_points_at_project ... ok
+test http::bounded::tests::absolute_deadline_blocks_retry_after_first_response ... ok
+test http::bounded::tests::bounded_retry_and_rate_limit_defer ... ok
+test http::bounded::tests::bounds_declared_and_chunked_bodies ... ok
+test http::bounded::tests::expired_absolute_deadline_never_connects ... ok
+test http::bounded::tests::preserves_bytes_and_safe_headers_without_cache ... ok
+test http::bounded::tests::rate_limit_dates_and_invalid_budgets ... ok
+test http::bounded::tests::redirects_and_client_errors_are_not_retried ... ok
+test http::bounded::tests::source_reads_preserve_compressed_bytes_without_changing_legacy_decoding ... ok
+test http::bounded::tests::timeout_is_bounded ... ok
+test http::tests::allow_forbidden_returns_the_body_on_403 ... ok
+test http::tests::no_redirect_get_returns_the_redirect_response ... ok
+test http::tests::post_json_sends_body_and_reads_response ... ok
+test http::tests::rate_limits_are_retryable_server_responses ... ok
+test pg::secrets::tests::credential_reads_preserve_offset_and_allow_repeated_pool_setup ... ok
+test pg::secrets::tests::environment_names_are_strict ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+
+   Doc-tests brain_storage
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests dbrain_builds
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests dbrain_sources
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests deadlock_brain_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 1 target failed:
+    `-p dbrain-sources --lib`
