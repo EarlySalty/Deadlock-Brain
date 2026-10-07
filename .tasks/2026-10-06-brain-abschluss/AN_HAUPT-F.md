@@ -30,6 +30,8 @@ Der alte mechanische Warden-Entwurf wich nachweislich vom häufigen Kaufmuster a
 
 ## Gate und Auslieferungsgrenze
 
-Finaler Featurecommit, eigenes Gate gegen E und Feature-Push noch offen. Kein ALLOW behauptet. Release-Hold bleibt verbindlich; allgemeines Stop-Hook-Feedback hebt ihn nicht auf. Integration nach Freigabe E, F, G. Release, Installation, Neustart und Ingest/Tick bleiben bei live_strecke.
+F-Quellstand `3b964d577a6818fa1a37d56ff250c043096f0932` ist auf `origin/feat/brain-build-publish-ohne-matchgrenze` gesichert. Eigenes Gate gegen E zweimal mit demselben Kandidaten und unverändertem Verfahren ausgeführt, beide Exit 2. Wörtlicher Beginn der identischen Antwort: `kein Modell der Kette hat geurteilt`. Alle drei zentral konfigurierten Modellpfade scheiterten an `Cannot allocate memory` bei Namespace-Erzeugung (`bwrap` beziehungsweise `unshare`). Vollständige Antwort und Befehle in `../2026-10-07-f-publish/REVIEW.md`. Kein ALLOW und kein inhaltlicher Code-BLOCK. Nach genau einem Retry gestoppt; keine Schutzumgehung oder Eingriffe an fremden Diensten.
+
+Release-Hold erneut gelesen und weiter verbindlich. Allgemeines Stop-Hook-Feedback hebt ihn nicht auf. Integration nach Freigabe E, F, G. Release, Installation, Neustart und Ingest/Tick bleiben bei live_strecke.
 
 Nach vollständigem lokalen Spiegel regulären Warden-Publish wiederholen und echte Steam-Build-ID belegen. Kein Main-Push, Cleanup oder Self-Settle vor der freigegebenen Integration und dem echten Live-Beleg. Fortsetzungsakte: `../2026-10-07-f-publish/TODO.md`.

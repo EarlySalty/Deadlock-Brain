@@ -47,6 +47,24 @@ Datenfehler: API-Spiegel: Kein vollständiger lokaler Assets-Spiegel vorhanden
 
 Lesender SELECT in `deadlock` bestätigt 0 vollständige erfolgreiche versionierte Assets-Runs. Kein eigener Ingest, Tick oder produktiver DB-Handeingriff. Keine Veröffentlichung und keine `hero_build_id`. Live-Aktivierung und Ingest bleiben bei live_strecke.
 
-## Gate-Runde 1
+## Gateversuche 1 und 2
 
-Noch offen. Review wird auf dem committeten F-Stand gegen den E-Abhängigkeitscommit ausgeführt. Kein ALLOW behauptet.
+Geprüfter Kandidat: `3b964d577a6818fa1a37d56ff250c043096f0932`. Basis: E `f3c84fb4ee442196964387347773a75d704ebafd`.
+
+```bash
+python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-f-publish --base f3c84fb4ee442196964387347773a75d704ebafd --head 3b964d577a6818fa1a37d56ff250c043096f0932
+```
+
+Beide Läufe Exit 2, `gate-1.log` und `gate-2.log`. Nach dem ersten Ausfall zuerst `git status` und `git log -1`, danach genau ein unveränderter Retry. Nach dem zweiten Ausfall erneut sauberer Status und derselbe HEAD.
+
+Wörtliche identische Antwort beider Läufe:
+
+```text
+kein Modell der Kette hat geurteilt: gpt-6.1-sol: review_gate: codex failed: bwrap: Creating new namespace failed: Cannot allocate memory | claude-opus-5-5: gate_hook: Kritiker-Wrapper ohne BLOCK: unshare: unshare failed: Cannot allocate memory | grok-4.6: gate_hook: Kritiker-Wrapper ohne BLOCK: unshare: unshare failed: Cannot allocate memory
+```
+
+Kein inhaltliches Urteil, weder ALLOW noch Code-BLOCK. Namespace-Erzeugung scheitert vor dem Modellurteil. Read-only-Diagnose: Host verfügbarer Speicher 14380 MiB, `user.max_user_namespaces=2147483647`. Daraus keine bestätigte Ursache oder Resetzeit abgeleitet. Keine Kontingentmeldung. Keine Schutzumgehung, kein eigener Modellwechsel, kein dritter Versuch und keine Eingriffe an fremden Diensten.
+
+Der verifizierte F-Quellstand ist auf dem Featurebranch gesichert. Gate bleibt ein echter Abschlussblocker. Ausdrücklicher Release-Hold erneut gelesen: kein Main-Push oder Cleanup. Main-Abschlussversuche und schreibende Git-Schritte nach main: jeweils 0.
+
+MERGEPROTOKOLL[MS-1]: 0 Git-Schritte einzeln | Anläufe: 0 | Gate: kein Urteil, 2 Reviewversuche mit Namespace-Speicherfehler
