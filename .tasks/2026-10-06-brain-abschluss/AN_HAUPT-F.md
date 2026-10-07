@@ -12,6 +12,14 @@ Reguläres HTTP-Publish, Wiederaufnahme und Queue verlangen dieselbe aktuelle Ab
 
 G nutzt später den vorhandenen Reasoner als Build-Werkzeug. Keine G-Rechenschicht, kein neuer Antwortdienst oder zusätzlicher Wertespiegel in F. F-Dateigrenzen und aktuelle technische Belege stehen in `../2026-10-07-f-publish/REVIEW.md`.
 
+## Schnittstelle zu G nach Entscheidung 06:45
+
+- Verbindlich: Grund-DPS, Magazinschaden, HP, Wachstum je Boon, Werte bei beliebigen Boons und relatives Früh-zu-Spät-Wachstum liefert künftig Gs gemeinsamer Rust-Rechenkern auch für F. Keine neue Parallelrechnung; der bisher verifizierte F-Stand enthält diese Anbindung noch nicht.
+- Benötigte Schnittstelle: interner Rust-Aufruf mit stabiler Helden-ID, versionsgebundenen Originalwerten aus Es Leser und gewünschtem Boonstand; Ergebnisse mit Einheiten, Versionsbezug und ausdrücklich erkennbaren Datenlücken. G legt Cratepfad, Typen und Signaturen fest, F erfindet keinen zusätzlichen HTTP-Weg oder eigenen Ersatzkern.
+- Vor der Anbindung die Zuordnung der Fortschrittsplanung zu Boons und die Grenze zwischen Heldenbasis und bestehenden Item-/Fähigkeitseffekten klären, damit Wachstum nicht doppelt zählt. Bestehende entsprechende F-Rechnung erst nach belegtem Gleichstand ersetzen; Inventar-, Kauf-, Skill- und Publish-Abnahme bleiben bei F, Release-Hold und Live-Zuständigkeit unverändert.
+
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 2 belegt | Senke: Schnittstelle zu G (06:45)
+
 ## Verifikation
 
 Finale Suite mit Reasoner, CLI und Storage: 460 passed, 0 failed, 23 bestehend ignored, 0 filtered out. Reasoner: 286 passed, 17 ignored. Striktes Clippy der beiden Zielcrates ohne fremde Dependency-Lints, Rustfmt aller neun eigenen Rust-Dateien und eigener optimierter Debug-Build jeweils Exit 0. Keine Bestandstests gelöscht, abgeschwächt oder neu ignoriert. Ignorierte Postgres-/Live-Tests sind nicht als gelaufen gemeldet.
