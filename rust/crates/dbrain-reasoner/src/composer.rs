@@ -336,15 +336,18 @@ fn planning_order(
     meta: &crate::meta::MetaIndexWithSources,
     hero: &HeroModel,
     cfg: &ReasonerConfig,
-) -> (Vec<crate::AbilityStep>, Evidence, Vec<String>) {
+    constraints: &crate::planner::PlanningConstraints<'_>,
+) -> crate::Result<(Vec<crate::AbilityStep>, Evidence, Vec<String>)> {
+    constraints.check()?;
     let (mut order, mut source, notes) = meta.coherent_ability_order(hero);
     if order.is_empty() {
-        order = crate::progression::mechanic_order(hero, cfg);
+        order = crate::progression::mechanic_order_with_deadline(hero, cfg, constraints.deadline)?;
         if !order.is_empty() {
             source = Evidence { kind: EvidenceKind::Mechanic, detail: "Skillfolge aus den aktuellen Fähigkeiten: Freischaltungen nach Kampfnutzen, Upgrades nach zusätzlichem Kampfnutzen je Fähigkeitspunkt. Keine Matchfolge erforderlich.".into() };
         }
     }
-    (order, source, notes)
+    constraints.check()?;
+    Ok((order, source, notes))
 }
 
 pub fn compose_build_with_sources(
@@ -378,7 +381,7 @@ pub fn compose_build_with_sources_and_constraints(
 ) -> crate::Result<(BuildObject, crate::planner::PurchasePlan)> {
     constraints.check()?;
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
-    let (order, source, notes) = planning_order(meta, hero, cfg);
+    let (order, source, notes) = planning_order(meta, hero, cfg, constraints)?;
     authors.skill_notes = notes;
     authors.ability_order = order.clone();
     let (mut build, plan) = compose_build_with_author_evidence_and_constraints(
@@ -437,7 +440,7 @@ pub fn purchase_plan_with_sources(
     meta: &crate::meta::MetaIndexWithSources,
 ) -> crate::Result<crate::planner::PurchasePlan> {
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
-    let (order, _, notes) = planning_order(meta, hero, cfg);
+    let (order, _, notes) = planning_order(meta, hero, cfg, &Default::default())?;
     authors.ability_order = order;
     authors.skill_notes = notes;
     plan_core(
@@ -691,21 +694,26 @@ fn compose_build_with_author_evidence_and_constraints(
     let mut counters = Vec::new();
     let mut optional = Vec::new();
     for item in ordered {
+        constraints.check()?;
         if selected_ids.contains(&item.item.item_id) {
             continue;
         }
+        let mut built = build_item(item, hero, cfg, patch_sources(item, deltas));
+        if let Some(target) = constraints.imbues.get(&item.item.item_id) {
+            built.imbue_target = Some(*target);
+        }
         if is_shield(item) {
-            shields.push(build_item(item, hero, cfg, patch_sources(item, deltas)));
+            shields.push(built);
         } else if is_can_buy_one(item) {
-            can_buy.push(build_item(item, hero, cfg, patch_sources(item, deltas)));
+            can_buy.push(built);
         } else if is_tryhard(item) {
-            tryhard.push(build_item(item, hero, cfg, patch_sources(item, deltas)));
+            tryhard.push(built);
         } else if is_optional(item) {
-            optional.push(build_item(item, hero, cfg, patch_sources(item, deltas)));
+            optional.push(built);
         } else if is_counter(item) {
-            counters.push(build_item(item, hero, cfg, patch_sources(item, deltas)));
+            counters.push(built);
         } else {
-            optional.push(build_item(item, hero, cfg, patch_sources(item, deltas)));
+            optional.push(built);
         }
     }
     can_buy.truncate(6);
@@ -803,7 +811,11 @@ mod tests {
         let items = vec![first.item, second.item];
         let meta = population_context();
         let config = ReasonerConfig::default();
-        let deadline = brain_contracts::RequestDeadline::after(std::time::Duration::from_secs(60));
+        let now = std::time::Instant::now();
+        let deadline = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || now,
+        );
         let request = BuildPlanRequest {
             hero_id: hero.hero_id as u64,
             playstyle: ToolPlaystyle::Weapon,
@@ -854,6 +866,41 @@ mod tests {
         .unwrap();
         assert!(low.build.core.is_empty());
         assert!(low.purchase_plan.steps.is_empty());
+        let optional = low
+            .build
+            .situations
+            .iter()
+            .flat_map(|block| &block.items)
+            .find(|item| item.item_id == 1)
+            .unwrap();
+        assert_eq!(optional.imbue_target, Some(101));
+        let checks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let clock_checks = checks.clone();
+        let expiring = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || {
+                if clock_checks.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= 50 {
+                    now + std::time::Duration::from_secs(61)
+                } else {
+                    now
+                }
+            },
+        );
+        assert!(crate::plan_build_with_request(
+            &hero,
+            &items,
+            &meta,
+            &[],
+            &[],
+            &config,
+            crate::BuildRequestContext {
+                request: &request,
+                deadline: &expiring
+            },
+        )
+        .is_err());
+        assert!(checks.load(std::sync::atomic::Ordering::SeqCst) > 50);
+        assert!(expiring.check().is_err());
         let mut invalid = request.clone();
         invalid.imbues[0].ability_id = 999;
         assert!(crate::plan_build_with_request(
