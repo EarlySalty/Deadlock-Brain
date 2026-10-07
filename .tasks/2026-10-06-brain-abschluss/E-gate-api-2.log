@@ -1,0 +1,7 @@
+[gpt-6.1-sol] BLOCK: Patch previews can be imported as complete patch text.
+
+1. rust/crates/deadlock-brain/src/pg_patchnotes/api_sync.rs:177 | BLOCKING — One recognized bullet bypasses original-source resolution. The same insufficient completeness test appears at lines 55 and 210. | A preview containing one change and a full-update link takes this shortcut, so the importer receives incomplete text. The existing importer’s prune-then-insert sequence (`pg_patchnotes.rs:240–241`) also implies replacement risk for previously complete patch events.
+
+2. rust/crates/deadlock-brain/src/pg_patchnotes/api_sync.rs:175 | NIT — `PatchSourceResolution` and its `from_row` constructor are not established by the supplied context; the visible parent defines `ResolvedPatchSource`. | The remaining parent definitions are omitted. A compile check would settle whether the new resolver and tests use an existing compatible type.
+
+3. rust/crates/brain-storage/tests/support/asset_mirror.rs:15 | NIT — The mirror test manufactures the metadata expected by the reader. | `SourceStore::persist_ir` is omitted, so producer/reader compatibility remains unproven. An integration test that persists through that writer and reads through `load_mirrored_assets` would settle it.
