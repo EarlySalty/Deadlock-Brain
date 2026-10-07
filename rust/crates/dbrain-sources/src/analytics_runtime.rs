@@ -517,7 +517,9 @@ mod tests {
             "total_assists":200,"total_net_worth":300000,"total_last_hits":1000,
             "total_denies":10,"total_player_damage":500000,"total_player_damage_taken":400000,
             "total_boss_damage":10000,"total_creep_damage":200000,"total_neutral_damage":50000,
-            "total_max_health":30000,"total_shots_hit":1000,"total_shots_missed":500
+            "total_max_health":30000,"total_shots_hit":1000,"total_shots_missed":500,
+            "permanent_buff_matches":0,"permanent_buff_timing_matches":0,
+            "total_first_permanent_buff_time_s":0,"total_permanent_buffs":0
         })
     }
 
