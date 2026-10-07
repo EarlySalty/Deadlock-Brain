@@ -46,7 +46,7 @@ pub fn sync_patchnotes(
             &[&post.link],
         )?;
         let row = post_row(&post, existing.map(|row| row.get(0)))?;
-        let Some(mut resolved) = resolve_api_source(&post, |url| {
+        let Some(mut resolved) = resolve_api_source(&post, &index, |url| {
             let response = http.get_bounded(
                 url,
                 SourceHttpOptions {
@@ -61,7 +61,7 @@ pub fn sync_patchnotes(
             skipped.push(json!({"url":post.link,"reason":"preview_requires_official_fulltext","not_imported_as_patch":true}));
             continue;
         };
-        if !is_patch_candidate(&resolved.raw_content) {
+        if !is_patch_candidate(&resolved.raw_content, &index) {
             skipped.push(json!({"url":post.link,"reason":"announcement_without_patch_changes"}));
             continue;
         }
@@ -161,11 +161,14 @@ fn post_row(post: &ApiPatchPost, existing_id: Option<i64>) -> Result<PatchnoteRo
     })
 }
 
-fn is_patch_candidate(original: &str) -> bool {
-    has_patch_changes(&clean_steam_content(&cleanup_patch_content(original)))
+fn is_patch_candidate(original: &str, index: &EntityIndex) -> bool {
+    has_patch_changes(
+        &clean_steam_content(&cleanup_patch_content(original)),
+        index,
+    )
 }
 
-fn has_complete_patch_content(raw: &str) -> bool {
+fn has_complete_patch_content(raw: &str, index: &EntityIndex) -> bool {
     let content = cleanup_patch_content(raw);
     let lower = content.to_ascii_lowercase();
     let has_reference = ["http://", "https://", "www.", "[url=", "[url]"]
@@ -176,13 +179,23 @@ fn has_complete_patch_content(raw: &str) -> bool {
             .skip(1)
             .any(|suffix| suffix.trim_start().starts_with('='));
     let cleaned = clean_steam_content(&content);
-    !has_reference && has_patch_changes(&cleaned)
+    !has_reference && has_patch_changes(&cleaned, index)
 }
 
-fn has_patch_changes(content: &str) -> bool {
+fn has_patch_changes(content: &str, index: &EntityIndex) -> bool {
     patch_lines(content).iter().any(|line| {
         let line = line.trim();
-        let words: Vec<_> = line
+        let (old_value, new_value) = extract_old_new(line);
+        let has_transition = old_value.is_some() && new_value.is_some();
+        let lower = line.to_ascii_lowercase();
+        let change_subject = if has_transition {
+            lower
+                .split_once(" from ")
+                .map_or(lower.as_str(), |(subject, _)| subject)
+        } else {
+            lower.as_str()
+        };
+        let words: Vec<_> = change_subject
             .split(|character: char| !character.is_alphabetic())
             .filter(|word| !word.is_empty())
             .map(str::to_ascii_lowercase)
@@ -268,9 +281,9 @@ fn has_patch_changes(content: &str) -> bool {
                     | "crashes"
             )
         });
-        !line.to_ascii_lowercase().contains("http")
+        !lower.contains("http")
             && !cosmetic
-            && gameplay
+            && (has_transition || index.infer(change_subject).is_some() || gameplay)
             && (bullet_body(line).is_some() || is_narrative_event_line(line))
             && matches!(
                 dbrain_normalize::classify_change_type(line).as_str(),
@@ -281,6 +294,7 @@ fn has_patch_changes(content: &str) -> bool {
 
 fn resolve_api_source(
     post: &ApiPatchPost,
+    index: &EntityIndex,
     mut fetch_html: impl FnMut(&str) -> Result<String>,
 ) -> Result<Option<PatchSourceResolution>> {
     let url = trusted_original_url(&post.link)
@@ -302,7 +316,7 @@ fn resolve_api_source(
         extract_steam_announcement_body_from_html(&html, &item)
     };
     Ok(body
-        .filter(|body| has_complete_patch_content(body))
+        .filter(|body| has_complete_patch_content(body, index))
         .map(|body| PatchSourceResolution {
             raw_content: body,
             source_url: Some(url.to_string()),
@@ -330,7 +344,7 @@ mod tests {
         assert_eq!(post_row(&post, None).unwrap().id, row.id);
         assert_eq!(post_row(&post, Some(17)).unwrap().id, 17);
         let content = clean_steam_content(&cleanup_patch_content(&post.content));
-        assert!(has_patch_changes(&content));
+        assert!(has_patch_changes(&content, &EntityIndex::default()));
         let resolved = PatchSourceResolution {
             raw_content: content,
             ..PatchSourceResolution::from_row(&row)
@@ -349,6 +363,7 @@ mod tests {
                     "<p>Added new hero skins and updated item icons for everyone.</p>",
                     "<p>Improved the hero artwork and animations in this update.</p>",
                     "<p>- Added a new cosmetic item for every hero</p>",
+                    "<p>- Hero artwork increased from 1 to 2 variants</p>",
                     "<p>We introduce the latest community event. See you in the city!</p>",
                 ] {
                     let mut post = post();
@@ -360,16 +375,25 @@ mod tests {
                     } else {
                         steam_html(&post, original)
                     };
-                    assert!(!is_patch_candidate(original), "{source}/{title}/{original}");
-                    assert!(!has_complete_patch_content(original));
-                    assert!(resolve_api_source(&post, |_| Ok(html.clone()))
-                        .unwrap()
-                        .is_none());
+                    assert!(
+                        !is_patch_candidate(original, &EntityIndex::default()),
+                        "{source}/{title}/{original}"
+                    );
+                    assert!(!has_complete_patch_content(
+                        original,
+                        &EntityIndex::default()
+                    ));
+                    assert!(resolve_api_source(&post, &EntityIndex::default(), |_| Ok(
+                        html.clone()
+                    ))
+                    .unwrap()
+                    .is_none());
                 }
             }
         }
         assert!(!has_patch_changes(
-            "Full update: https://www.playdeadlock.com/cityneversleeps"
+            "Full update: https://www.playdeadlock.com/cityneversleeps",
+            &EntityIndex::default(),
         ));
     }
 
@@ -383,14 +407,78 @@ mod tests {
             "<p>Fixed a crash when entering a match.</p>",
             "<p>- Rat King: Scrap Grenade cooldown reduced from 20 to 18</p>",
         ] {
-            assert!(is_patch_candidate(original), "{original}");
-            assert!(has_complete_patch_content(original), "{original}");
+            assert!(
+                is_patch_candidate(original, &EntityIndex::default()),
+                "{original}"
+            );
+            assert!(
+                has_complete_patch_content(original, &EntityIndex::default()),
+                "{original}"
+            );
         }
     }
     #[test]
+    fn structured_changes_and_mixed_lines_keep_existing_parser_events() {
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Holliday", "Holliday");
+        let index = index.finish();
+        for original in [
+            "- Holliday: increased from 1 to 2",
+            "- Increased weapon damage from 50 to 60 and added new artwork",
+            "- Holliday: reworked primary attack",
+        ] {
+            let mut post = post();
+            post.content = "Preview only".into();
+            let row = post_row(&post, Some(17)).unwrap();
+            let expected = prepare_patch(
+                &row,
+                &PatchSourceResolution {
+                    raw_content: original.into(),
+                    ..PatchSourceResolution::from_row(&row)
+                },
+                &index,
+            )
+            .unwrap();
+            assert_eq!(expected.events.len(), 1, "{original}");
+            assert_ne!(expected.events[0].change_type, "changed");
+            if original.contains(" from ") {
+                assert!(expected.events[0].old_value.is_some());
+                assert!(expected.events[0].new_value.is_some());
+                assert!(is_patch_candidate(original, &EntityIndex::default()));
+            } else {
+                assert_eq!(expected.events[0].entity_name.as_deref(), Some("Holliday"));
+            }
+            assert!(is_patch_candidate(original, &index));
+            assert!(has_complete_patch_content(original, &index));
+            for source in ["steam", "forum"] {
+                post.source = source.into();
+                let html = if source == "forum" {
+                    post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+                    format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{original}</div></article>")
+                } else {
+                    steam_html(&post, original)
+                };
+                let mut resolved = resolve_api_source(&post, &index, |_| Ok(html.clone()))
+                    .unwrap()
+                    .unwrap();
+                resolved.raw_content =
+                    clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
+                let actual = prepare_patch(&row, &resolved, &index).unwrap();
+                assert_eq!(actual.events.len(), expected.events.len());
+                assert_eq!(
+                    actual.events[0].normalized_line,
+                    expected.events[0].normalized_line
+                );
+                assert_eq!(actual.events[0].old_value, expected.events[0].old_value);
+                assert_eq!(actual.events[0].new_value, expected.events[0].new_value);
+            }
+        }
+    }
+
+    #[test]
     fn change_bullets_do_not_make_linked_previews_complete() {
         let full = post().content;
-        assert!(has_complete_patch_content(&full));
+        assert!(has_complete_patch_content(&full, &EntityIndex::default()));
         for link in [
             "<a href=\"https://www.playdeadlock.com/cityneversleeps\">Full update</a>",
             "<a HREF = \"/full-patch\">Full patch notes</a>",
@@ -403,11 +491,14 @@ mod tests {
             for changes in [full.clone(), full.repeat(20)] {
                 let preview = format!("{changes}\n{link}");
                 let cleaned = clean_steam_content(&cleanup_patch_content(&preview));
-                assert!(has_patch_changes(&cleaned));
-                assert!(!has_complete_patch_content(&preview), "{link}");
+                assert!(has_patch_changes(&cleaned, &EntityIndex::default()));
+                assert!(!has_complete_patch_content(&preview, &EntityIndex::default()), "{link}");
             }
         }
-        assert!(!has_complete_patch_content("No gameplay changes."));
+        assert!(!has_complete_patch_content(
+            "No gameplay changes.",
+            &EntityIndex::default()
+        ));
     }
 
     #[test]
@@ -431,10 +522,11 @@ mod tests {
         let http = HttpClient::new("Deadlock-Brain-Test/1", temp.path()).unwrap();
         let raw = resolve_steam_raw_content(&http, &item);
         assert_eq!(raw, preview);
-        assert!(!has_complete_patch_content(&raw));
-        assert!(has_complete_patch_content(&resolve_steam_content(
-            &http, &item
-        )));
+        assert!(!has_complete_patch_content(&raw, &EntityIndex::default()));
+        assert!(has_complete_patch_content(
+            &resolve_steam_content(&http, &item),
+            &EntityIndex::default(),
+        ));
     }
 
     fn steam_html(post: &ApiPatchPost, body: &str) -> String {
@@ -463,7 +555,7 @@ mod tests {
         );
         let html = steam_html(&post, &full);
         let mut requests = Vec::new();
-        let mut resolved = resolve_api_source(&post, |url| {
+        let mut resolved = resolve_api_source(&post, &EntityIndex::default(), |url| {
             requests.push(url.to_string());
             Ok(html.clone())
         })
@@ -485,23 +577,31 @@ mod tests {
     #[test]
     fn unreadable_or_linked_original_never_falls_back_to_feed_teaser() {
         let post = post();
-        assert!(has_complete_patch_content(&post.content));
+        assert!(has_complete_patch_content(
+            &post.content,
+            &EntityIndex::default()
+        ));
+        assert!(resolve_api_source(&post, &EntityIndex::default(), |_| Ok(
+            "<html>No original body</html>".into()
+        ))
+        .unwrap()
+        .is_none());
         assert!(
-            resolve_api_source(&post, |_| Ok("<html>No original body</html>".into()))
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            resolve_api_source(&post, |_| Err(anyhow!("Originalabruf fehlgeschlagen"))).is_err()
+            resolve_api_source(&post, &EntityIndex::default(), |_| Err(anyhow!(
+                "Originalabruf fehlgeschlagen"
+            )))
+            .is_err()
         );
         let linked = format!(
             "{}<a href=\"https://www.playdeadlock.com/cityneversleeps\">Full patch</a>",
             post.content
         );
         assert!(
-            resolve_api_source(&post, |_| Ok(steam_html(&post, &linked)))
-                .unwrap()
-                .is_none()
+            resolve_api_source(&post, &EntityIndex::default(), |_| Ok(steam_html(
+                &post, &linked
+            )))
+            .unwrap()
+            .is_none()
         );
     }
 
@@ -522,10 +622,11 @@ mod tests {
             } else {
                 steam_html(&post, prose)
             };
-            let mut resolved = resolve_api_source(&post, |_| Ok(html.clone()))
-                .unwrap()
-                .unwrap();
-            assert!(is_patch_candidate(&resolved.raw_content));
+            let mut resolved =
+                resolve_api_source(&post, &EntityIndex::default(), |_| Ok(html.clone()))
+                    .unwrap()
+                    .unwrap();
+            assert!(is_patch_candidate(&resolved.raw_content, &index));
             resolved.raw_content =
                 clean_steam_content(&cleanup_patch_content(&resolved.raw_content));
             assert!(resolved
@@ -549,9 +650,13 @@ mod tests {
             "{}<img src=\"https://cdn.steamstatic.com/patch.png\">",
             post.content
         );
-        assert!(resolve_api_source(&post, |_| Ok(steam_html(&post, &body)))
+        assert!(
+            resolve_api_source(&post, &EntityIndex::default(), |_| Ok(steam_html(
+                &post, &body
+            )))
             .unwrap()
-            .is_none());
+            .is_none()
+        );
     }
 
     #[test]
