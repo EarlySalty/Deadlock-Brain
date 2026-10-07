@@ -16,12 +16,14 @@ Einmaliges Rust-Prüfwerkzeug für Paket Q, keine Produktpipeline und kein Antwo
 
 Die einfachen Textmuster erzeugen **vorläufige Antwortarten**, keine Goldlabels. Unbekannte Fälle bleiben unbeschriftet. `accepted_gold_cases` bleibt deshalb 0. `plan` friert die vorläufigen Erwartungen mit Quellhash und Zeilenreferenz ein. `verify` prüft ausschließlich lokale Dateiintegrität und ist kein Brain-, Discord-, Twitch- oder P1-Funktionsbeweis.
 
+Scheitert das Schreiben des Hashes nach dem JSON-Schreiben, bleibt die Datei absichtlich erhalten und die Version ungeprüft. `verify` bricht bei fehlendem Hash ab; derselbe Versionsname wird nicht überschrieben. Zur Wiederaufnahme zuerst den unvollständigen lokalen Stand erhalten, dann eine neue Quellenversion sammeln und deren Hashprüfung durchführen. Der alte Stand ist kein erfolgreich eingefrorenes Evalset. Diese Wiederaufnahme betrifft die Quellensammlung vor dem ersten Modelllauf. Ein später tatsächlich abgenommenes Evalset wird nach seinem ersten Lauf unverändert wiederverwendet, nicht durch eine neu gesammelte Version ersetzt. Private Originale werden zur Fehlerbehebung nicht gelöscht oder öffentlich übertragen.
+
 ## Befehle
 
 Vom eigenen Q-Worktree:
 
 ```sh
-cargo +1.97.1 build --locked --offline --jobs 3 --manifest-path /home/nathanael/.worktrees/brain-q-eval-20261007/.tasks/2026-10-07-brain-fertigstellung-astra/Q/collector/Cargo.toml
+/home/nathanael/.cargo/bin/cargo +1.97.1 build --locked --offline --jobs 3 --manifest-path /home/nathanael/.worktrees/brain-q-eval-20261007/.tasks/2026-10-07-brain-fertigstellung-astra/Q/collector/Cargo.toml
 ```
 
 Bestehenden privaten Teilstand unverändert prüfen, ohne Netzwerk oder Modell:
