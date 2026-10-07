@@ -392,6 +392,75 @@ fn global_contracts_preserve_payloads_and_reject_missing_identity_or_empty_data(
 }
 
 #[tokio::test]
+async fn later_core_mirror_preserves_globals_from_the_actual_older_run() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = scratch_pool(&pg).await;
+    let raw_dir = tempfile::tempdir().unwrap();
+    let store = SourceStore::new(&pool, raw_dir.path()).unwrap();
+    let (full_run, full_summary) = persist_run(&store, "full").await;
+    let mut partial_summary = full_summary.clone();
+    partial_summary["endpoints"]
+        .as_object_mut()
+        .unwrap()
+        .retain(|key, _| {
+            REQUIRED_MIRROR_KINDS
+                .iter()
+                .any(|kind| key.starts_with(&format!("{kind}/")))
+        });
+    assert_eq!(partial_summary["endpoints"].as_object().unwrap().len(), 6);
+    partial_summary["snapshots"] = json!(6);
+    partial_summary["mirrored_at"] = json!(86_501);
+    partial_summary["checked_at"] = json!(86_501);
+    let partial_run = store.begin_run("assets").await.unwrap();
+    store
+        .finish_run(partial_run, "ok", &partial_summary)
+        .await
+        .unwrap();
+    for (run, started_at, finished_at) in [
+        (full_run, "2026-10-07T00:00:00Z", "2026-10-07T00:01:00Z"),
+        (partial_run, "2026-10-08T01:00:00Z", "2026-10-08T01:01:00Z"),
+    ] {
+        sqlx::query("UPDATE brain.source_runs SET started_at=$2::text::timestamptz, finished_at=$3::text::timestamptz WHERE id=$1")
+            .bind(run).bind(started_at).bind(finished_at).execute(&pool).await.unwrap();
+    }
+    assert_eq!(latest_mirrored_client_version(&pool).await.unwrap(), 6759);
+    for kind in MIRRORED_ASSET_KINDS {
+        for language in mirrored_asset_languages(kind).unwrap() {
+            let language_arg = (!language.is_empty()).then_some(*language);
+            let loaded = load_mirrored_assets_with_receipt(&pool, 6759, kind, language_arg)
+                .await
+                .unwrap();
+            let expected_run = if REQUIRED_MIRROR_KINDS.contains(kind) {
+                partial_run
+            } else {
+                full_run
+            };
+            assert_eq!(loaded.receipt.source_run_id, expected_run);
+            assert_eq!(
+                load_mirrored_assets(&pool, 6759, kind, language)
+                    .await
+                    .unwrap(),
+                loaded.payload
+            );
+            let pinned =
+                load_mirrored_assets_for_run(&pool, expected_run, 6759, kind, language_arg)
+                    .await
+                    .unwrap();
+            assert_eq!(pinned.receipt.source_run_id, expected_run);
+            assert_eq!(pinned.payload, loaded.payload);
+            if !REQUIRED_MIRROR_KINDS.contains(kind) {
+                assert!(
+                    load_mirrored_assets_for_run(&pool, partial_run, 6759, kind, language_arg)
+                        .await
+                        .is_err()
+                );
+            }
+        }
+    }
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn receipt_binds_actual_run_manifest_original_hash_and_independent_modifiers() {
     let pg = scratch_pg::ScratchPg::start();
     let pool = scratch_pool(&pg).await;

@@ -1,5 +1,23 @@
 # Paket I: E Gate-Runden
 
+## Runde 14: Produktintegration BLOCK, genannter Reader-Kern widerlegt
+
+Gemeinsamer Produktkandidat `b63569afbf2bc6f686564063d769dbbcf0a5ef90`, Basis `ca4d877f`, unverändert Claude Opus 5.5, Exit 1. Original `/tmp/brain-i-e-product-integration-gate.log`. Vorgeschaltete Belegintegration `17974c66` und Schemapinintegration `ca4d877f` erhielten separat ALLOW und wurden tatsächlich nach main gepusht. Der vollständige Produktkandidat wurde nicht nach main gepusht und nicht deployt.
+
+```text
+BLOCK: Ein späterer Teilimport verdeckt weiterhin vorhandene Assets derselben Clientversion.
+
+1. rust/crates/brain-storage/src/asset_mirror.rs:159 | BLOCKING: Der Leser wählt nur den neuesten passenden Lauf und fällt bei fehlendem Endpoint nicht auf einen älteren vollständigen Lauf zurück. Nach einem vollständigen Import kann ein mehr als 24 Stunden späterer Import nur von items, heroes und heroes_all die globalen Assets derselben Version unlesbar machen. Zwillinge: rust/crates/dbrain-sources/src/assets_api.rs:182 markiert diesen Teilimport als vollständig; rust/crates/brain-storage/src/asset_mirror.rs:90 verlangt ebenfalls nur diese drei Arten.
+2. rust/crates/deadlock-brain/src/pg_patchnotes/api_sync.rs:173 | NIT: Ein beliebiger Link lässt auch einen vollständigen Originalbeitrag als Vorschau gelten; Zeile 212 verwirft zudem verlinkte Änderungszeilen. Vorhandene Tests belegen das selbst für einen Bildlink. Eine offizielle Volltextprobe mit harmlosem Link würde produktiven Umfang klären.
+
+WIRKUNGSPRUEFUNG[WP-1]: 2 Befunde | Zwillingssuche: keine Fundstelle | Fremddienst-Pfade: 3/3 geprüft
+HOOK-NOTE: Twin-Suche für source_document_id übersprungen, mehr als 20 Fundstellen (31, genannte eingeschlossen).
+```
+
+**Verifikation:** Der genannte SQL-Kern trifft nicht zu. Der INNER JOIN auf das angefragte Endpoint-Dokument erfolgt bereits vor ORDER BY/LIMIT. Die zusätzliche echte Scratch-PG-Gegenprobe `later_core_mirror_preserves_globals_from_the_actual_older_run` besteht: 1 passed, 0 failed, 0 ignored. Alle 13 Value-/Receipt-Zugriffe funktionieren nach einem späteren vollständigen Core6-Run derselben Version. Globale Receipts nennen weiterhin den älteren tatsächlichen Original-Run. Explizites Pinnen auf den neuen Run lehnt dort nicht vorhandene globale Daten weiterhin ab. Details und Befehle in `NACHWEIS-CORE6-GLOBAL.md`. Keine Produktimplementation geändert, keine zweite Pipeline und kein Vermischen von Run-Belegen.
+
+Dies ist der fünfte weitere erfolglose Fortsetzungs-BLOCK seit Receipt-ALLOW Runde 8 (Runden 9, 10, 11, 12, 14). Deshalb qualifizierte Fachrückgabe statt Fixer 11 oder Modellwechsel. Die Gegenprobe hebt das Gate nicht auf; kein weiteres Urteil angefordert. Core6-Kompatibilität bleibt entsprechend Spec erhalten. Der NIT ist damit weder geprüft noch geschlossen. Der vollständige Kandidat ist auf `origin/feat/brain-i-integration-blocked-20261007` gesichert. Keine analytics_runtime-Freigabe, kein F-Vertragsabschluss und kein Liveabschluss.
+
 ## Runde 13: Tatsächliche Schreibziele ALLOW
 
 Frischer Fixer 10 liefert `438b7bfac0eb70a3912e766c26427148e328c9d1`. Bestehender Schutz prüft nun Datenordner, Raw, Cache und `raw/deadlock_assets_api` vor Nebenwirkungen. CLI-Proben 10 passed, 0 failed, 0 ignored. Finale serielle Suite 545 passed, 0 failed, 19 ignored; Format und striktes Clippy Exit 0. Begrenztes Gate gegen `eeb4116c`, unverändert Claude Opus 5.5, Exit 0; Original `/tmp/brain-e-fixer10-gate-opus55.log`.
