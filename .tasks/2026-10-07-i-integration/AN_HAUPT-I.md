@@ -1,6 +1,12 @@
-# Paket I: gesicherter Spiegel, tatsächlicher Testnachweisblocker
+# Paket I: Spiegel auf Main, regulärer Liveabschluss läuft
 
-## Aktuelle qualifizierte Fachrückgabe
+## Fortsetzung nach bestätigter Testnachweisreparatur
+
+Neuer Nutzerauftrag FORTSETZUNG-I-TESTGATE-BEHOBEN.md gelesen. Spiegel b7289d11 unverändert, echter direkter cargo-slot-Lauf 6 passed, 0 failed, 0 ignored. Regulärer Main-Push tatsächlich Exit 0: 0ee3e521..b7289d11 HEAD -> main. Testnachweisblocker für diesen Lieferschritt damit überwunden, keine Hookänderung oder Übersteuerung durch I. Discovery weiterhin getrennt erhalten.
+
+Regulärer vollständiger Releasebau über brain-release erfolgreich, 5m 06s, 17 Binaries und Format-2-Manifest am exakten Main-SHA. Reguläres Install mit unabhängiger Neubau-/Hashprüfung läuft. Noch kein eigener Neustart, erster Import oder Livebeweis. Unveränderlicher Releasebaum und G-/K-Schreibbereiche unberührt; Ks neu zugeordnete Query-Literale werden nicht parallel umgestellt. Zusätzliche konkrete MCP-Quellinspektionsgrenze im Integrationsbaum gemeldet, kein alternativer Leseweg. Nachweise FORTSETZUNG-NACH-TESTGATE-REPARATUR.md. Regulären brain-serve-Neustart nach Install tatsächlich versuchen; keine Rechteumgehung.
+
+## Historische qualifizierte Fachrückgabe vor Reparatur
 
 Zusätzlicher tatsächlicher Abschlussblocker: Der Stop-Hook fordert Lieferung und Löschung aller drei genannten Branches. Zwei enthalten jedoch die ausdrücklich zu erhaltende blockierte Discovery; der separate Spiegel bleibt an der unveränderten Testnachweisschranke blockiert. Keine neue Freigabe daraus abgeleitet und keinen fremden Main-Checkout übernommen. Details in ABSCHLUSS-HOOK-BLOCKER.md. Aktenstand f45c5faa zuvor tatsächlich gepusht, Arbeitsbaum danach sauber.
 
