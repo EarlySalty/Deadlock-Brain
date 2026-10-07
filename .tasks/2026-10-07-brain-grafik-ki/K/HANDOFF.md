@@ -1,6 +1,30 @@
 # K: Exakter Stand und technische Fortsetzungsgrenze
 
-## Aktueller Fortsetzungspunkt am 7. Oktober 2026
+## Verbindlicher neuer Stand vom 7. Oktober 2026 nach Weiterbauentscheidung
+
+Dieser Abschnitt ersetzt die früheren Ist-Aussagen unten. Delegator `481426fe` bleibt zuständig. Bisheriger Hauptorchestrator `d3a1741e` ist gestoppt und wird nicht reaktiviert. Weiterbauentscheidung der Session `3fcd8f71` ist bestätigt. Keine Sessionkontakte, weiteren T3-Threads oder zentralen Register-/TODO-Edits.
+
+1. Brain: eigener detached HEAD `9fc48a08`, auf Featurebranch und origin gesichert. Aktuelles Main `ca4d877f` wurde im eigenen Kandidaten integriert; breite Compiler-/Format-/Clippyprüfungen bestanden vor dem Budgetfix. Letzter gemeinsamer Main-Gate ist tatsächlich BLOCK: Inputobergrenzen zählen spätere Wirekontrollen nicht. Frischer enger Budgetfix in Contracts/Providers/Serve-Tests ist uncommitted; noch kein Folge-ALLOW oder Brain-Mainpush. Frischer nativer Worker `aab063d35034d0c46` stoppte ohne Änderung an der weiterhin bestehenden `ctx_execute_file`-Projektrootgrenze. K holte zulässige Cargoaufrufe selbst tatsächlich nach: Contracts/Providers 79/0, Enum-HTTP 6/0, Source-Dezimalfall 1/0. Retrievalsuite 3 passed, 15 failed, 0 ignored, Exit 101, überwiegend ungültiges Release-Lesemanifest; bekannte Budgetassertion noch nicht erreicht. Details und vollständige Befehle in PRUEFWEG-CARGO-SLOT.md. Keine Rootumgehung oder Altfehlerbehauptung ohne neue Baseline.
+2. Bots: eigener detached HEAD und origin/main `4b36999d`; regulärer Gate ALLOW, Mainpush nach zwei Remote-500-Fehlern erfolgreich. Noch kein Deploy, Neustart oder echter Funktionsbeweis. Hilfshinweis-NIT bleibt offen.
+3. Twitch: eigener detached HEAD und origin/main `2ead4d55`; regulärer Gate ALLOW. Acht Releasebinaries aus dem eigenen Worktree gebaut, SHA256-gebunden, drei Frontendbuilds bestanden. Regulärer Wrapperdeploy erfolgreich. Vier neue aktive PIDs auf demselben Release, keine gelöschten exes, NRestarts 0 und Journal `-p err` leer. Das ist noch kein echter Testkonto-/Chatfunktionsbeweis. Branches und Worktrees bleiben bis zum vollständigen Liveabschluss erhalten.
+
+Cargoprüfungen ab jetzt ausschließlich über `cargo-slot`, keine alten flock-/FD-Runner. Roots `~/.worktrees`, `~/repos`, `/tmp` sind ausdrücklich freigegeben. `cargo-slot --help` tatsächlich Exit 0; das allein ist kein Testnachweis. Historische Testzahlen unten beweisen weder den Budgetfix noch die aktuelle Source-/Consumerintegration.
+
+## Korrigierte Datenschutzentscheidung der Testphase
+
+Die zwei aktuellen ausdrücklichen Nutzernachrichten und `ENTSCHEIDUNG-DATENSCHUTZ-NUTZER-2045.md`, Punkt 3 in korrigierter Fassung, ersetzen die pauschale private Antworttestsperre unten: Discord-/Twitch-Fragen samt minimal nötigem Antwortkontext dürfen über den bestehenden Luna/Codex-Abo-Provider laufen, auch für private Antwortabnahme. Discord-/Steam-IDs, Mitgliederlisten und fremde Personendaten NEVER mitsenden. Keine Community-Rohdatenfreigabe für externe Codiermodelle; lokale Bereinigung vor Provideraufruf und tatsächliche Rechtebindung müssen vor Abnahme technisch belegt werden. Freigabe ist kein Implementierungsnachweis. Kein Connector-, Modell- oder Timeoutwechsel.
+
+Keine harte Ticket-/Mod-/Teamkategoriesperre bauen oder voraussetzen. Brücke bleibt rollenbasiert: ausschließlich Inhalte, die die tatsächlich fragende Person selbst sehen darf. Bestehende Rechtebindung gegen unerlaubte Sicht prüfen. Zurückgezogener Thread `3e93aeea` bleibt unangetastet; keine Kontaktaufnahme, Warteabhängigkeit oder Ersatzimplementierung. Der frühere sequenzielle Kategoriesperrenauftrag ist ausdrücklich korrigiert.
+
+Abschlussreihenfolge bleibt Spiegel/F/G/K. Geprüfte G-Lieferung konsumieren, niemals aktives fremdes WIP oder Ersatzport. Gesicherte Enum-/Antwort-/Artefaktpfade nicht neu bauen. Echte Discord-/Twitch-Proben mit Testkonten und wiederholbare Q-Abnahme erst auf dem tatsächlichen Anschluss; Q-Wiederholung erst nach echtem I/G/K-Livegang. Alte P0-bis-P11-Grenzen ehrlich getrennt halten. Kein vorzeitiger Cleanup oder settle.
+
+## Vorgezogener eigener Discord-Kleinschritt nach endgültigem Nutzerentscheid
+
+BEFUND-NUTZERTEST-2000.md Abschnitt 21:15 und letzte ausdrückliche Nachricht ersetzen die vorherigen Abklingzeitvorgaben vollständig. EINZIGE fachliche Grenze: 50 Brain-Fragen je Nutzer und Kalendertag Europe/Berlin, Wert in bot.toml konfigurierbar. Keine 60s-Sperre, Stunden-/Kanalgrenze, globale Tagesgrenze oder zusätzlicher kurzer Cooldown. Folgefragen sofort, zählen ebenfalls gegen dieselbe Tagesgrenze. Grenze einmal kurz sichtbar, morgen geht es weiter. Mehrfachfrage je Nachricht eine vollständige zentrale Anfrage und eine Reservation. Rechte-/Datenschutz-/Plattformschutzgrenzen bleiben erhalten.
+
+Eigener sauberer Bots-main 4b36999d frisch bestätigt, eigener Branch fix/brain-discord-conversation-20261007 angelegt. Einziger nativer Writer ac371898a555bc5d4, aktualisiertes BRIEFING-DISCORD-COOLDOWN-2000.md; endgültigen Nutzervertrag geordnet per nativer Nachricht geliefert, kein Doppelwriter. Begrenzte Consumer-/Rate-/Ai-Konfigdateien und nötige Verdrahtung/Tests. 50/51, Berliner Tageswechsel einschließlich Zeitzonenwechsel und Folge-/Mehrfachfragen deterministisch prüfen. K übernimmt eigenen Gate/Main-Push/Deploy/Restart/echten Livebeweis, unabhängig von Brain/I/G. Noch keine Ergebnisse dieses laufenden Workers behaupten.
+
+## Historischer Fortsetzungspunkt vor der neuen Entscheidung
 
 Brain-Produktcheckpoint 3b4b21eaae73892b37e54afee9b4cd58e315bb60 ist regulär ALLOW und gepusht. Bestätigte gemeinsame Source-Parserdelegation committed, kein Source-WIP. Primary-K prüfte aktuellen Source-/Serve-Stand mit direkten Cargoaufrufen: Compiler, Format und striktes Clippy jeweils Exit 0. Der tatsächliche Dezimaltest wurde vor Prozessstart verweigert; keine neue Testausführung. Befehle und Logs in PRUEFWEG-FORTSETZUNG.md. Dokumentcheckpoint 232b3cb9 ebenfalls ALLOW/gepusht; nachfolgender Dokumentcheckpoint im Schlussbericht.
 
