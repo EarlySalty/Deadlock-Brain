@@ -2,12 +2,6 @@
 
 Stand 2026-06-25. Grundlage: `docs/_work/brain-capability-inventory.md` (vollständige Code-/Daten-Inventur). Die Bestandsbeschreibung unten hält diesen historischen Stand fest.
 
-## Späteres Ziel: Grafiken und kleine Webseiten
-
-Ergänzt am 07.10.2026 nach Nutzerentscheidung für Brain v2. Niedrige Priorität wegen der Tokenkosten. Das Brain soll später etwa eine DPS-Kurve über Boons oder einen Heldenvergleich als Diagramm beziehungsweise kleine Webseite ausgeben können. Daten und Kurven kommen aus derselben versionsgebundenen Rechenschicht wie Zahlenantworten und Builds; Szenario und Quellen bleiben sichtbar.
-
-Paket G trägt dieses Ziel ein. Ein Grafikrenderer, eine Webroute oder ein zusätzliches Werkzeug wird dafür jetzt nicht gebaut.
-
 ## Historischer Ist-Zustand
 
 Das Brain ist heute eine exzellente **Wissens-Aufbereitungs-Maschine**, aber noch keine **Frage-Antwort-Maschine**. Stark:

@@ -2,6 +2,30 @@
 
 status: aktiv, 07.10.2026
 
+## Korrektur zu 06:45, Punkt 5
+
+Grafiken und Webseiten baut der Nutzer separat. G baut nichts dazu und trägt nichts in die Roadmap ein; Werkzeugausgaben bleiben strukturierte Zahlenreihen. Der eigene Grafikabschnitt aus `f81e2ae2` wurde aus `docs/brain-qa-roadmap.md` entfernt. `G/PLAN.md` und Register folgen der Korrektur. Die früheren Zeitstandsabschnitte unten dokumentieren die ursprüngliche, inzwischen zurückgenommene Entscheidung.
+
+## 07.10.2026: Acht-Tool-Vertrag gesichert, acht Sheetstellen geprüft
+
+G0-06:45 ist als `3d6890c0` auf origin gesichert: `game_rules`, typisierter Boonbereich sowie API-Rang-/Zeitfilter für Profile und Vergleiche. 67 passed, 0 failed, 0 ignored; Compiler, Format, striktes Clippy und damalige Verbraucherkompilierung bestanden. Bereichsführung prüfte tatsächliche Logs/Exits und unveränderte Quell-/Referenzfingerprints. Regulärer Gate gegen `f81e2ae2`, Exit 0: `[gpt-6.1-sol] ALLOW: No grounded blocking defects found in the supplied diff.` Log `/tmp/brain-g0-0645-gate-20261007.log`, Anschluss `G/G0-0645-VERTRAG.md`. Die generischen Portsignaturen blieben unverändert. API-Rangfilter bezeichnet ausdrücklich den durchschnittlichen Rang beider Teams, keine individuelle Spielerrangklasse.
+
+`G/SHEET-MODELL.md`, Abschnitt 14, dokumentiert alle acht beschädigten Stellen. Fünf DNS-Blöcke liefern Melee und vier Signaturfähigkeiten. Flying Slash braucht echte Light-Melee-Skalierung und erhält den gültigen Null-Basiswert. Drei Scratchpadformeln sind über erhaltene Haze-Zwillinge strukturell rekonstruierbar; gelöschter Zusatzschaden und inzwischen falsch verkabelte Bonus-/Ratenzellen verhindern eine belegte eindeutige Originalzahl. Die bekannten Zwillingseingaben ergeben 78,91 DPS. Keine erfundenen Ersatzwerte und kein Rustbeweis behauptet. Original-XLSX und beide API-Payloadhashes durch Bereichsführung nachgeprüft; bytegleiche E-Probe bindet sie an 6759, nicht an den aktiven Produktionspatch.
+
+G-P (`w5pqkkyxv`, `wf_9c5666f8-dc6`) und G-K (`w120utj39`, `wf_bade480e-cb2`) sind in disjunkten Provider-/Kernelbereichen gestartet. Beide verwenden die geprüfte generische API und müssen die tatsächliche Acht-Tool-Fassung abschließend konsumieren. G-M läuft im bisherigen WIP weiter. Sheet-Anschlussbedarf wird nach seiner Rückgabe an den einzigen Reasoner-Eigentümer gegeben; kein paralleler Schreiber. E-Receipt/globale Daten, exklusiver Analytics-Anschluss und F-Integration bleiben offen. Kein Main-/Runtime-/Liveabschluss.
+
+TESTNACHWEIS[TW-1]: 67 passed, 0 ignored | Baseline: 0 rot
+
+MERGEPROTOKOLL[MS-1]: 3 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW für 3d6890c0; kein Main-Merge
+
+## 07.10.2026: Entscheidungscheckpoint auf origin
+
+`f81e2ae2` ist auf `origin/feat/brain-v2-g-20261007` gesichert. Er enthält aktualisierten Plan, Roadmapeintrag, Aufgaben-/Workerakten und die archivierten G0-Prüfbelege. Regulärer Dokumentgate gegen `b4f4b866`, Exit 0: `[gpt-6.1-sol] ALLOW: Documentation and archived verification logs only; no merge-blocking defect found.` Log `/tmp/brain-g-decisions-gate-20261007.log`. Dieses ALLOW ist kein Abnahmebeweis für die laufenden neuen Produktänderungen.
+
+**G-K-Dateigrenze vor Start präzisiert:** Zusätzlich zu `lib.rs`, `execution.rs` und `flight.rs` gehören die bestehenden `brain-kernel/src/cache.rs` und `outcome.rs` zum einzigen Kernelworker. Nach Graphify-Abfrage geprüft: Outcome hält nur Belege, Cache prüft sie ohne typisierte Tool-Unteranfrage. Erweiterung derselben Bausteine ist nötig für vollständige Toolabhängigkeiten; kein weiterer Cache oder fremder Schreiber. Serverseitiger Anfrage-Pin vor Cache-/Flight-Schlüsselbildung ist ebenfalls im Kernelbriefing festgehalten; ein fehlender Portzugang wird als begrenzter Vertragsbedarf behandelt.
+
+MERGEPROTOKOLL[MS-1]: 4 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW für f81e2ae2; kein Main-Merge
+
 ## 07.10.2026, 07:13: Entscheidungen 06:45 übernommen, G0 gesichert
 
 Die fünf Nutzerentscheidungen sind in `G/PLAN.md` einschließlich Rechenverträgen, Werkzeugen, Abnahme und Baufolge übernommen. `docs/brain-qa-roadmap.md` enthält das spätere Grafik-/Webseitenziel mit niedriger Priorität; kein Grafikbau. Wachstum wird von G und F gemeinsam gerechnet. Hidden Mechanics werden als Profilabschnitt und `game_rules` geplant. DNS-/`#REF!`-Rekonstruktion ist verbindliche weitere Abnahme. Meta-Ränge kommen aus API-Aggregaten mit Rang-/Zeitfilter, ohne Einzelmatchablage.

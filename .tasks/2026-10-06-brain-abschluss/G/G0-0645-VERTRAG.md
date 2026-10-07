@@ -1,6 +1,6 @@
 # G0-06:45: Erweiterter Werkzeugvertrag
 
-Stand: 07.10.2026. Vorhandenen geprüften Vertrag aus `b4f4b866` fortgeführt. Worker `w5dr3fr2i`, Run `wf_1cdc6a56-2a1`, abgeschlossen. Dieser Bericht wird aus der tatsächlichen Rückgabe durch die Bereichsführung abgelegt; der Worker durfte nach seiner Rollenvorgabe ausschließlich als Rückgabe berichten. Kein Git- oder Runtimeeingriff durch den Worker. Paketgate steht noch aus.
+Stand: 07.10.2026. Vorhandenen geprüften Vertrag aus `b4f4b866` fortgeführt. Worker `w5dr3fr2i`, Run `wf_1cdc6a56-2a1`, abgeschlossen. Dieser Bericht wird aus der tatsächlichen Rückgabe durch die Bereichsführung abgelegt; der Worker durfte nach seiner Rollenvorgabe ausschließlich als Rückgabe berichten. Kein Git- oder Runtimeeingriff durch den Worker. Bereichsführung sicherte den Paketcommit `3d6890c0` nach regulärem Gate ALLOW auf origin; 67 bestandene Fälle und Grenzen sind im Register belegt.
 
 ## Geänderte Produktdateien
 

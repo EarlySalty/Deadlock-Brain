@@ -6,9 +6,33 @@ status: aktiv, 07.10.2026
 
 - Auftrag: `.tasks/2026-10-06-brain-abschluss/BRIEFING-G.md`; Haupt-Orchestrator `3fcd8f71-443e-48ae-825c-527eb52fbe56`, Kommunikation über die Akte.
 - G-Thread laut Steuerung `a867ef50`; native Session `030a7b6f-d25c-482d-b66c-68185cd05dbb`, Modell `gpt-6.1-sol[1m]`, bestätigte UltraCode-Workflowstarts mit Effort `xhigh`.
-- Worktree `/home/nathanael/.worktrees/brain-g-v2-20261007`; Branch `feat/brain-v2-g-20261007`; Basis `bfda408cb988722ddceadb56bca5b72e12d12731`, HEAD `b4f4b866`. Dokumentcheckpoint `f129c91a` ist gepusht; der neue G0-Produktcheckpoint wird regulär geprüft.
+- Worktree `/home/nathanael/.worktrees/brain-g-v2-20261007`; Branch `feat/brain-v2-g-20261007`; Basis `bfda408cb988722ddceadb56bca5b72e12d12731`, HEAD `3d6890c0`. Dokumente und beide G0-Produktcheckpoints sind nach regulärem ALLOW auf origin gesichert. Laufender Rechenkern-/Provider-/Kernel-WIP ist davon nicht abgedeckt.
 - Statusproduzent: Bereichsführung G. Kein zusätzlich vergebener zentraler Versuch; keine erfundene Nummer. Keine weiteren T3-Threads.
 - Wirkung: Featurearbeit und lokale Prüfungen. Release-Hold sperrt Main-Push, Release-Build, Install, Neustart und produktiven Tick. Kein Settle bei offener Arbeit.
+
+## Korrektur zu 06:45, Punkt 5
+
+Grafiken und Webseiten baut der Nutzer separat. G baut nichts dazu und trägt nichts in die Roadmap ein; Werkzeugausgaben bleiben strukturierte Zahlenreihen. Der zuvor gesicherte eigene Grafikabschnitt wurde entfernt, Plan und Hauptübergabe berichtigt. Frühere Zeitstandsabschnitte behalten den damaligen Verlauf bei, ohne daraus einen gültigen Grafikauftrag abzuleiten.
+
+## Wache nach Vertragsabschluss
+
+Die vorhandenen nativen Journale haben für G-M, G-P und G-K noch keinen Abschlussrecord. Aktuelle Transkripte belegen laufende Prüfungen: G-M Abschlussformatierung/Clippy/isolierte Reasonerprüfung um 07:50, G-P weitere Providerprüfung um 07:53, G-K Kernelsuite um 07:52. Keine Beurteilung allein nach Dateialter und kein Ersatzschreiber. Fehlende Abschlusslogs sind noch kein grüner Paketbeweis. Gemeinsamer Buildslot serialisiert die Cargoläufe.
+
+## Vertragsfortsetzung 06:45 und Sheet-Rekonstruktion abgeschlossen
+
+G0-06:45 ist als `3d6890c0` auf dem Featurebranch gesichert. Neues `GameRulesRequest` wählt ein geschlossenes Thema; `ToolBoonRange` bindet einschließlich Min-/Max-Boons, `ToolAnalyticsSelection` trägt tatsächliche API-Badgegrenzen und Unixfenster. Badgefilter meint den durchschnittlichen Rang beider Teams, keine individuelle Spielerklasse. Bestehende generische Ports und Zähler blieben unverändert. 33 Unit-, 23 bestehende und 11 neue Integrationsfälle bestanden: 67 passed, 0 failed, 0 ignored. Bereichsführung prüfte Test-/Befehllog, fünf Exitdateien und alle zehn Quellen-/Referenzfingerprints. Bericht aus tatsächlicher Rückgabe als `G/G0-0645-VERTRAG.md` abgelegt, da Workerrolle keine Berichtsdatei schrieb. Verbrauchercheck ist ein damaliger WIP-Beleg, keine Abnahme der laufenden Provider-/Kernelarbeit.
+
+Regulärer Gate `f81e2ae2` bis `3d6890c0`, Task `bon5kff35`, Exit 0: `[gpt-6.1-sol] ALLOW: No grounded blocking defects found in the supplied diff.` Log `/tmp/brain-g0-0645-gate-20261007.log`. Drei schreibende Git-Einzelschritte: add, commit, Featurepush. Keine Mainaktion.
+
+G-S änderte ausschließlich `G/SHEET-MODELL.md`, Abschnitt 14. Die fünf DNS-Blöcke betreffen Melee und vier Signaturfähigkeiten, nicht die Primärwaffe. Flying Slash zeigt den verlorenen gültigen Basiswert 0 mit Light-Melee-Skalierung. Die drei Scratchpad-Formeln sind über erhaltene Haze-Zwillinge strukturell rekonstruiert; gelöschtes Schadensglied und fachlich falsche übrig gebliebene Raten-/Bonuseingaben lassen keine eindeutige originale Zahl zu. Für die bekannten Zwillingseingaben ergeben sich 78,91 DPS. Das ist hergeleitete Sheetarithmetik, kein ausgeführter Rust- oder Spielbeweis.
+
+Bereichsführung las den Bericht und bestätigte SHA-256 des unveränderten XLSX sowie der beiden Originalpayloads. Es gelesene Probe `E-live-game-assets-2.log` bindet dieselben Payloadbytes an 6759; daraus wird keine aktuelle Produktionsversion oder Spiegelabnahme behauptet. Anschlussbedarf für G-M: Meleeauflösung, Nicht-Spirit-Skalen, getrennte Schadens-/Heil-/Zustandsklassen und strukturierter Gegenvergleich. Wird nach Rückgabe des laufenden Rechenkernworkers im vorhandenen Stand umgesetzt, kein paralleler Reasonerschreiber.
+
+G-P/G-K sind inzwischen gegen die geprüfte generische API gestartet. Ihre endgültigen Tests müssen die nun tatsächlich verfügbare Vertragsfortsetzung konsumieren. E-Receipt/globale Daten, Analytics-Eigentum und F-Integration bleiben gesonderte Abhängigkeiten. Hold unverändert.
+
+TESTNACHWEIS[TW-1]: 67 passed, 0 ignored | Baseline: 0 rot
+
+MERGEPROTOKOLL[MS-1]: 3 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW für 3d6890c0; kein Main-Merge
 
 ## 07:13: Nutzerentscheidungen übernommen, G0-Produktcheckpoint
 
@@ -36,8 +60,10 @@ TESTNACHWEIS[TW-1]: 55 passed, 0 ignored | Baseline: 0 rot
 | plan | Ausschließlich eigene `G/PLAN.md`; kein Produktcode, Git oder Runtime | Task `wdef9ng7t`, Run `wf_f79bff70-d4b`, Start 05:42 | abgeschlossen; Bereichsführung hat G0/G-M-Grenzen und finale Baseline eingetragen |
 | G0:Werkzeugvertrag | `brain-contracts/src/{lib.rs,provider_input.rs,tools.rs}` und Cratetests | Task `wgid0g5cj`, Run `wf_45c9b56b-428`, Agent `a3a054b7281fbde9e` | abgeschlossen mit Vertragskonflikt; native Fortsetzung nach bestätigtem TaskStop beendet |
 | G0-R1:Vertragfix | Ausschließlich dieselben drei Vertragsdateien und Cratetests; keine weiteren G0-Schreiber | Fixworkflow `w1ozge7jw` / `wf_563c24f7-221` gestoppt; Fortsetzung durch frischen Vordergrundworker `af3b631553a29ed1f` | abgeschlossen; 55 passed, 0 failed, 0 ignored; b4f4b866 mit Gate ALLOW gepusht |
-| G0-06:45:Vertragsfortsetzung | Dieselben drei Brain-Vertragsdateien und unmittelbar zugehörige Tests; eigener neuer Bericht und Rohbelege | Task `w5dr3fr2i`, Run `wf_1cdc6a56-2a1`, Briefing `G/BRIEFING-G0-0645.md` | gestartet nach b4f4b866 ALLOW; achter Toolname, Boonbereich und Analytics-Auswahl; noch kein Abschlussbeweis |
-| G-S:Sheetrekonstruktion | Ausschließlich `G/SHEET-MODELL.md`, eigener Rekonstruktionsbericht und schmale Belege; kein Produktcode | Task `w3rx1jcpj`, Run `wf_c7702e0e-8d1`, Briefing `G/BRIEFING-G-S.md` | gestartet; gezielte acht beschädigte Stellen, kein Wiederholen der Gesamtrecherche |
+| G0-06:45:Vertragsfortsetzung | Dieselben drei Brain-Vertragsdateien und unmittelbar zugehörige Tests; eigener neuer Bericht und Rohbelege | Task `w5dr3fr2i`, Run `wf_1cdc6a56-2a1`, Briefing `G/BRIEFING-G0-0645.md` | abgeschlossen; tatsächlich nur tools.rs und tool_extensions.rs verändert, 67 passed, 0 failed, 0 ignored; 3d6890c0 mit Gate ALLOW gepusht |
+| G-S:Sheetrekonstruktion | Ausschließlich `G/SHEET-MODELL.md`, eigener Rekonstruktionsbericht und schmale Belege; kein Produktcode | Task `w3rx1jcpj`, Run `wf_c7702e0e-8d1`, Briefing `G/BRIEFING-G-S.md` | abgeschlossen; alle acht Stellen in Abschnitt 14, belegbare Struktur rekonstruiert, gelöschte Scratchpad-Eingaben unbekannt; Rustbeweis offen |
+| G-P:Providertransport | Ausschließlich `brain-providers/src/{lib.rs,transport.rs,hardening.rs}` und direkt zugehörige Tests | Task `w5pqkkyxv`, Run `wf_9c5666f8-dc6`, Briefing `G/BRIEFING-G-P.md` | gestartet gegen verifizierte generische G0-API b4f4b866; Schlussprüfung muss Vertragsfortsetzung konsumieren |
+| G-K:Werkzeugloop und Cache | Ausschließlich `brain-kernel/src/{lib.rs,execution.rs,flight.rs,cache.rs,outcome.rs}` und zugehörige Tests | Task `w120utj39`, Run `wf_bade480e-cb2`, Briefing `G/BRIEFING-G-K.md` | gestartet gegen dieselbe verifizierte generische API; Anfrage-Pin und vollständige Cacheabhängigkeiten gehören dazu |
 | G-M:Rechenkern | Reasoner-Modelle, reine Konverter, Exports, Mechanik und vorhandene Simulation gemäß `BRIEFING-G-M.md`; Fs Loader bleiben unverändert | Ursprünglicher Task `win5xzl3o` gestoppt; Resume `wthzcnb2d`, Run `wf_08b3462e-169`, Agent `af3dcfc2c09526a0b`, Start 06:36 | Wiederaufnahme im vorhandenen WIP bestätigt; noch kein Abschlussrecord, kein zweiter Schreiber |
 
 Vollständige abgeschlossene Workflow-Rückgaben liegen unter `/tmp/claude-1000/-home-nathanael-repos-Deadlock-Brain/030a7b6f-d25c-482d-b66c-68185cd05dbb/tasks/`: `w6krhelmo.output`, `wyqxc1iva.output`. Die anfänglich ausgegebenen, damals nicht vorhandenen Transkriptordner sind kein Ergebnisnachweis.

@@ -18,7 +18,7 @@ Graphify vor Bestandssuche über `--graph /home/nathanael/repos/Deadlock-Brain/g
 
 ## 3. Arbeitsstand
 
-Worktree `/home/nathanael/.worktrees/brain-g-v2-20261007`, Branch `feat/brain-v2-g-20261007`. Start erst nach tatsächlichem G0-Vertragsabschluss; Bereichsführung gibt dessen HEAD und Nachweise im Startauftrag mit. Dokumentcheckpoint `f129c91a` ist gepusht. G-M schreibt getrennt Reasoner, G-K getrennt Kernel. Uncommittierte eigene und fremde G-Paketstände erhalten. Kein Git, Produktions-DB, Releasebuild, Deploy, Neustart oder neuer Agent/Workflow/T3-Thread durch dich.
+Worktree `/home/nathanael/.worktrees/brain-g-v2-20261007`, Branch `feat/brain-v2-g-20261007`. Gepushter HEAD `f81e2ae2`. G0s Transport-/Turn-/Zählersignaturen sind in `b4f4b866` mit 55 passed, 0 failed, 0 ignored und regulärem Gate ALLOW verifiziert; endgültige Formen stehen in `G/G0-VERTRAG.md`. Du darfst auf dieser stabilen Transport-API beginnen. G0 ergänzt getrennt im Vertragsbereich die Entscheidung 06:45 (`game_rules`, Boonbereich, Analytics-Auswahl), ohne deinen Providerbereich zu ändern. Verwende die generischen validierten Namen/Unteranfragen, keine handgeschriebene Sieben-Tool-Liste. Die Schlussverifikation muss gegen den dann tatsächlichen erweiterten Vertragsstand laufen; ein Zwischen-Compilerfehler während fremder Vertragsfortsetzung ist kein Abschlussbeweis. Bei einer echten fehlenden oder inkompatiblen Signatur konkrete kleinste Lücke zurückgeben, nicht parallel G0 ändern. G-M schreibt getrennt Reasoner; G-K ist noch nicht gestartet. Uncommittierte eigene und fremde G-Paketstände erhalten. Kein Git, Produktions-DB, Releasebuild, Deploy, Neustart oder neuer Agent/Workflow/T3-Thread durch dich.
 
 ## 4. Beweisziel
 

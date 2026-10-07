@@ -1,6 +1,6 @@
 # Community-Sheet: Modell und Befunde
 
-status: erledigt für Sheetanalyse, 07.10.2026. Rust-Umsetzung und Laufzeitabgleich offen.
+status: Sheetanalyse und gezielte Prüfung aller acht beschädigten Stellen abgeschlossen, 07.10.2026. Belegbare Rechenabsicht rekonstruiert; gelöschte Scratchpad-Eingaben bleiben ausdrücklich unbekannt. Rust-Umsetzung und Laufzeitabgleich offen.
 
 Vollständiger öffentlicher XLSX-Export, keine Produktänderung, kein Git-Schritt des Sheetworkers, kein Datenbankschreiben und kein Dienstaufruf. Die ergänzenden API-Abrufe betreffen öffentliche Spielwerte.
 
@@ -65,7 +65,7 @@ Alle vier Defined Names stehen mit `hidden=1`, `localSheetId=0` in `xl/workbook.
 - Heroes nach damage calculator, Damage Comparison, ttk und haze.
 - raw_hero_data sowie raw_items_and_abilities nach hero query.
 - raw_items_and_abilities importiert die öffentliche Item-API.
-- hero query ruft für Waffen und Fähigkeiten einzelne Item-URLs auf. Der Rechenblock des damage calculator ist nicht vollständig aus diesem Abfragetab verkabelt, sondern enthält manuelle Auswahlwerte und Basisschäden.
+- hero query ruft in den fünf beschädigten Blöcken Melee und die vier Signaturfähigkeiten einzeln ab. Primär- und Sekundärwaffe stehen nur im Filterindex B3/B4, nicht in diesen fünf Einzelabfragen. Der Rechenblock des damage calculator ist nicht vollständig aus diesem Abfragetab verkabelt, sondern enthält manuelle Auswahlwerte und Basisschäden.
 - Hidden Mechanics, Boons/AP, shopBonuses, Hero meta ranking und scratchpad haben keine echten externen Blattbezüge in ihren Formeldefinitionen. `#REF!` im Scratchpad ist ein kaputter Bezug, kein Blatt namens REF.
 
 ## 1. Heroes
@@ -267,7 +267,7 @@ Wachstumsexperiment A28=`A27+B28`, B28=`A27*B27`; A29=`A28*0.07+A28` vergleicht 
 
 Kaputte Formeln F62=`$C$6*(A62+#REF!)*(1+$D$3)`, G62=`$A$6*(B62+#REF!)*(1+$D$3)`, H62=`$A$6*(#REF!+A62)`. Alle drei Caches enthalten wörtlich `#REF!`.
 
-API-Felder: cycle_time, intra_burst_cycle_time, burst_shot_count, bullets, Reload; API liefert zusätzlich fertige shots_per_second sowie damage_per_second mit und ohne Reload. Die Bedeutung der Burstintervalle ist gegen diese gelieferten Felder zu prüfen. Die Sheet-G3-Größe ist ein Verhältnis von Zeitanteilen, keine eigenständige RPM-Formel. Status: Versuchsblatt, nicht als verbindliche Mechanik behandeln.
+API-Felder: cycle_time, intra_burst_cycle_time, burst_shot_count, bullets, Reload; API liefert zusätzlich fertige shots_per_second sowie damage_per_second mit und ohne Reload. Die Bedeutung der Burstintervalle ist gegen diese gelieferten Felder zu prüfen. Die Sheet-G3-Größe ist ein Verhältnis von Zeitanteilen, keine eigenständige RPM-Formel. Status: Versuchsblatt. Die drei kaputten Formeln werden gemäß Entscheidung 06:45 rekonstruiert, nicht ausgelassen. Abschnitt 14 trennt ihre belegbare Rechenstruktur von gelöschten Eingaben und inzwischen fachlich falschen Nachbarbezügen.
 
 ## 11. raw_hero_data
 
@@ -297,13 +297,13 @@ API-Felder: hero, id, class_name, name, heroes. Dieser Tab ist ein Index und imp
 
 Visuell: echtes Google-GViz-Rendering A1:T20, Yamato-Hero-ID 27, zugehörige Waffen/Fähigkeiten und sichtbare DNS-Fehler. Keine vollständige Originalformatierung; die übrigen Spalten und Inhalte sind nur über das vollständige XLSX belegt.
 
-44 Formeldefinitionen. Auswahl und Lookups verbinden raw_hero_data mit raw_items_and_abilities. Abfragen in A11/G11/M11/S11/Y11 verwenden Einzel-URLs von `https://assets.deadlock-api.com/v2/items/<id>` und IMPORTJSONAPI. Beispiel M11:
+44 Formeldefinitionen. Auswahl und Lookups verbinden raw_hero_data mit raw_items_and_abilities. Abfragen in A11/G11/M11/S11/Y11 verwenden Einzel-URLs von `https://assets.deadlock-api.com/v2/items/<id>` und IMPORTJSONAPI. Wörtliche Originalformel M11 aus `xl/worksheets/sheet13.xml`:
 
-`IMPORTJSONAPI(CONCAT("https://assets.deadlock-api.com/v2/items/",B7), "$..[?(@.value>0 || @.bonus)]", "~, value, scale_function, stat_scale")`
+`IMPORTJSONAPI(concat("https://assets.deadlock-api.com/v2/items/",B7), "$..[?(@.value>0 || @.bonus)]", "~, value, scale_function.class_name,scale_function.stat_scale, bonus,name")`
 
 Alle fünf abgefragten Blöcke haben einen gecachten DNS-Fehler:
 
-- A11, Item 3334760137, Yamato-Waffe.
+- A11, Item 3334760137, Melee (`ability_melee_yamato`), nicht die Yamato-Waffe.
 - G11, Item 3255651252, Power Slash.
 - M11, Item 2566573207, Flying Slash.
 - S11, Item 2366960452, Crimson Slash.
@@ -311,7 +311,90 @@ Alle fünf abgefragten Blöcke haben einen gecachten DNS-Fehler:
 
 XLSX-DUMMYFUNCTION-Fallbacks bewahren Google-Funktionen beziehungsweise gecachte Ergebnisse für Excel. Ein lokaler Excel-Neuberechnungslauf kann IMPORTJSONAPI und QUERY nicht ohne Weiteres ausführen. Das Archiv muss deshalb unverändert bleiben.
 
-API-Felder: hero.id und items.signature*/weapon_primary, item.id/class_name/name, properties mit value/bonus und scale_function/stat_scale. Status: vorgesehener Faktenzugriff, im vorhandenen Cache fehlgeschlagen. Die Filterbedingung value>0 kann außerdem relevante nullwertige und negative Properties ausblenden.
+API-Felder: hero.id, items.weapon_melee und items.signature1 bis signature4, item.id/class_name/name, Properties mit value/scale_function sowie upgrades[].property_upgrades mit bonus/name/upgrade_type/scale_stat_filter. Die rekursive Abfrage umfasst auch Upgradezeilen, nicht nur Basisproperties. Status: Faktenzugriff im Cache fehlgeschlagen; seine rekonstruierte Absicht und konkrete Rechnungen stehen in Abschnitt 14. Der alte Filter kann gültige 0- und negative Basiswerte ausblenden, insbesondere den über Light Melee skalierenden Flying-Slash-Schaden.
+
+## 14. Gezielte Rekonstruktion der acht beschädigten Stellen
+
+Diese Ergänzung untersucht ausschließlich A11/G11/M11/S11/Y11 in hero query sowie F62/G62/H62 in scratchpad und deren unmittelbare Belege. Die vollständige erste Tabanalyse bleibt erhalten. Acht Stellen sind einzeln zugeordnet; das bedeutet nicht, dass gelöschte Zelladressen oder drei eindeutige Scratchpad-Zahlen wiedergefunden wurden. Keine Neuberechnung oder Änderung des XLSX, keine neue Netzprobe, kein ausgeführter Rustvergleich.
+
+### Originalintegrität und wiederverwendete Versionsbindung
+
+Das Original `community-sheet.xlsx` wurde erneut ausschließlich gelesen: 7.312.248 Bytes, SHA-256 `992d0e5914036a3f4e4de159f91bae9569bf81aaae9c2222242e95da8253a8c0`. Originalformeln, Caches und Nachbarzellen stammen aus `xl/worksheets/sheet13.xml`, `sheet10.xml` und dem bereits untersuchten Vergleich `sheet9.xml`; Texte aus `xl/sharedStrings.xml`. Vorhandene Bilder `10-scratchpad.png`, `09-haze.png` und `13-hero-query.png` bleiben unverändert. Der begrenzte Bildausschnitt von hero query belegt Y11 nicht visuell; dafür ist das vollständige Original-XML maßgeblich.
+
+Die vorhandenen Rohdateien im gemeinsamen G/sheet-Verzeichnis wurden gegen ihre bisherigen Hashes geprüft. Es existiert außerdem ein bereits abgeschlossener versionsgebundener Beleg:
+
+`/home/nathanael/.worktrees/brain-e-deadlock-api/.tasks/2026-10-06-brain-abschluss/E-live-game-assets-2.log`
+
+- Zeile 16: `client_version=6759 kind=items language=english bytes=6037726 entities=746 raw_sha256=86540843b94601ca753068767f1320649e03634e22c070fe2aead8d6faf85287`.
+- Zeile 20: `client_version=6759 kind=heroes_all language=english bytes=1862430 entities=65 raw_sha256=172aa578b4624c6c7800b72467336347c0ce0a3303e3319f8a54e221668a5edb`.
+
+Diese beiden Hashes und Größen stimmen exakt mit den vorhandenen `current-api-items.json` und `current-api-heroes.json` überein. Die Abrufe selbst waren ungepinnt; ihre vorhandenen Bytes sind damit auch gegen Es Probe für 6759 belegt. Das ist kein Nachweis der aktiven Produktionsversion, einer Balancepatchzuordnung oder eines heutigen vollständigen lokalen Spiegels. Das Manifest und `G/API-PROBEN.json` werden nicht umetikettiert. Es Probelauf wurde hier nur gelesen, nicht erneut ausgeführt.
+
+Nachstehende JSON-Pointer beziehen sich auf diese unveränderten Arraydateien: Yamato steht in Heroes unter `/20`, Melee in Items unter `/262`, Power Slash unter `/263`, Flying Slash unter `/264`, Crimson Slash unter `/265`, Shadow Transformation unter `/266`, Fixation unter `/141`. Die IDs sind die Identität; Arraypositionen sind lediglich Belegorte dieses konkreten Exports.
+
+### DNS-Blöcke: Original, Feldzuordnung und nachgelagerte Absicht
+
+Wörtliche Originalformeln, ohne führendes Gleichheitszeichen wie im XML:
+
+```text
+A11: IMPORTJSONAPI(concat("https://assets.deadlock-api.com/v2/items/",B5), "$..[?(@.value>0 || @.bonus)]", "~, value, scale_function.class_name,scale_function.stat_scale, bonus,name")
+G11: IMPORTJSONAPI(concat("https://assets.deadlock-api.com/v2/items/",B6), "$..[?(@.value>0 || @.bonus)]", "~, value, scale_function.class_name,scale_function.stat_scale, bonus,name")
+M11: IMPORTJSONAPI(concat("https://assets.deadlock-api.com/v2/items/",B7), "$..[?(@.value>0 || @.bonus)]", "~, value, scale_function.class_name,scale_function.stat_scale, bonus,name")
+S11: IMPORTJSONAPI(concat("https://assets.deadlock-api.com/v2/items/",B8), "$..[?(@.value>0 || @.bonus)]", "~, value, scale_function.class_name,scale_function.stat_scale, bonus,name")
+Y11: IMPORTJSONAPI(concat("https://assets.deadlock-api.com/v2/items/",B9), "$..[?(@.value>0 || @.bonus)]", "~, value, scale_function.class_name,scale_function.stat_scale, bonus,name")
+```
+
+Jeder Cache lautet `ERROR: DNS error: https://assets.deadlock-api.com/v2/items/<ID>` mit der unten genannten ID. A1 ist Yamato, B1=`vlookup(A1,raw_hero_data!$A$2:$F$99,2,false)` mit Cache 27. A3 enthält den exportierten FILTER von `raw_items_and_abilities!A1:D799` nach dieser Hero-ID. B5:D9 erhalten die fünf IDs, Klassennamen und Anzeigenamen; A10/G10/M10/S10/Y10 übernehmen D5:D9 als Blocküberschriften. B3/B4 enthalten hingegen die beiden echten Waffen-IDs 440716503/2725537392. Das widerlegt die frühere Bezeichnung von A11 als Waffenabfrage.
+
+Die sechs Ausgabespalten sind für A11 A:F, für G11 G:L, für M11 M:R, für S11 S:X und für Y11 Y:AD: Schlüssel-/Pfadkennung `~`, roher `value`, `scale_function.class_name`, `scale_function.stat_scale`, `bonus`, `name`. Basisproperties und rekursiv gefundene Upgradeobjekte müssen getrennte Zeilen bleiben. Bei Upgradezeilen stehen Zielproperty und Zuwachs in `name`/`bonus`; fehlendes `value` ist dort kein Schaden 0. Für Rust wird der Belegpfad als eindeutiger JSON-Pointer erhalten. Die genaue Darstellung von `~`, Zeilenreihenfolge und Größenbeschränkung des Google-Helfers sind ohne dessen Implementierung nicht belegt und werden nicht als Originalausgabe nachgebaut.
+
+Benachbarte Summen sind H2=`sumif(C11:C39,"scale_function_tech_damage",D11:D39)`, I2 entsprechend I/J, J2 O/P und K2 U/V. L2 besitzt weder Formel noch Cache; H3=`sum(H2:L2)` umfasst somit nur vier verkabelte Summen. Der Nullcache von H3 stammt aus fehlgeschlagenen Importen. Für die vorhandenen Basisproperties ergibt die beabsichtigte Klassensumme 0 + 1,85 + 0 + 0,37 = 2,22 Schadenspunkte je Spirit. Das ist ein Summenwert von Basisratios, kein Gesamtfähigkeitsschaden und keine Upgradeauswertung. Insbesondere `EAddToScale`-Boni stehen in der fünften Spalte und werden von diesen SUMIFs nicht eingerechnet.
+
+Die folgenden Rechnungen verwenden, wo Spirit benötigt wird, ausdrücklich insgesamt 38 Spirit aus Heroes!M3. hero query selbst legt keinen Spirit- oder AP-Zustand fest. Es sind hergeleitete Rohwerte ohne Resist, Amp, Items oder Wirkungsereignisse, keine Rust- oder Spielmechanikbeweise.
+
+| Nr./Originalzelle | Eindeutiger Eingang und Nachbarbeleg | Belegbare Wiederherstellung und Rechnung | Verbleibende Grenze |
+| --- | --- | --- | --- |
+| 1. A11 | B5=3334760137, C5=`ability_melee_yamato`, D5/A10=Melee. `/20/items/weapon_melee` bestätigt die Klasse. | Melee-Propertyansicht aus `/262/properties`, nicht WeaponProfile. Schaden kommt aus `/20/starting_stats/light_melee_damage/value`=55 und `heavy_melee_damage/value`=128: bei 0 Boons ohne zusätzliche Boni 55 je leichtem oder 128 je schwerem Schlag. Die Ability selbst hat kein `Damage`-Feld und keinen Tech-Damage-Scale. Gültige Basiswerte `AbilityCooldown`=0 und `TechPower`=0 bleiben erhalten. | Schlagtyp ist im Query nicht ausgewählt. `MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL`=1,58 liegt vor, aber seine hier nicht belegte Wachstums-/Einheitenregel wird nicht erfunden. Kein Waffen-DPS oder einziger pauschaler Melee-Schaden aus diesem Block. |
+| 2. G11 | B6=3255651252, C6=`citadel_ability_power_slash`, D6/G10=Power Slash; `/20/items/signature1`. | `/263/properties/FullChargeDamage`: value=145, Tech-Damage-Scale=1,85. Basis: 145 + 1,85 × 38 = 215,3. `/263/upgrades/2/property_upgrades/0` addiert 150; `/1` addiert über `EAddToScale`, `ETechPower` weitere 0,5 zur Ratio. Mit T3: 295 + 2,35 × 38 = 384,3. Bei dem bereits vorhandenen damage-calculator-Spirit 168 sind es 689,8 statt dessen B22=698,2, Differenz −8,4 wegen Sheet-Ratio 2,4 statt Roh-Ratio 2,35. | Full Charge ist eine ausdrücklich benannte Variante. Die Rohwerte `ShortChargeDamagePct`=30 und `MediumChargeDamagePct`=50 liefern allein noch keine geprüfte Charge-Zeitfunktion. Kein Cast-DPS aus der Ratio. |
+| 3. M11 | B7=2566573207, C7=`citadel_ability_flying_strike`, D7/M10=Flying Slash; `/20/items/signature2`. | `/264/properties/Damage`: value=`"0"`, Klasse `scale_function_single_stat`, Eingang `ELightMeleeDamage`, stat_scale=1,2, css_class=`melee_damage`. Rekonstruierter statgebundener Recheneingang: 0 + 1,2 × Light-Melee-Wert. Bei Grundwert 55 ist dessen lineare Projektion 66 Schadenspunkte. Der alte `value>0`-Filter verliert genau diese Property trotz ihres nichtnulligen skalierten Beitrags. | 66 ist die hergeleitete lineare Single-Stat-Projektion, nicht ein ausgeführter Spielbeweis. Die bestehende Spirit-only-Abilityprojektion genügt dafür nicht. Light-Melee-Modifikatoren und die konkrete Single-Stat-Regel müssen im gemeinsamen Kern unterstützt oder als unbekannt ausgewiesen werden; nicht durch 1,2 × Spirit ersetzen. |
+| 4. S11 | B8=2366960452, C8=`citadel_ability_healing_slash`, D8/S10=Crimson Slash; `/20/items/signature3`. | `/265/properties/Damage`: 55, Tech-Damage-Scale 0,37. Basis: 55 + 0,37 × 38 = 69,06. `/265/upgrades/2/property_upgrades/1` addiert 0,6 zur `ETechPower`-Ratio, nicht zum Basisschaden: mit T3 55 + 0,97 × 38 = 91,86. `/properties/HealFixedHealth`=55 mit eigener Klasse `scale_function_healing_spirit_scale` und stat_scale=1,035871 bleibt ein separater Heilbeitrag. | Der Name einer Heilskalierung belegt nicht ihre Funktion oder deren Eingang; daher keine erfundene Rechnung 55 + 1,035871 × Spirit. Auch `HealMaxHealth`=0 mit T2-Bonus 6 und T3-Heilskalierungsbonus 0,4 bleiben getrennt vom Schaden. Heilung, Melee-Buff und Trefferbedingungen brauchen ihre jeweiligen Regeln. |
+| 5. Y11 | B9=3319782965, C9=`citadel_ability_infinity_slash`, D9/Y10=Shadow Transformation; `/20/items/signature4`. | `/266/properties` ist eine Zustands-/Buffansicht, kein direkter Tech-Damage-Block. `AbilityDuration`=5 s, `BulletResist`/`TechResist` je 30 %, `WeaponDamageBonus`=0 und `AbilityCooldown`=150 s. Aus den getrennten Upgrades folgen vor weiteren Modifikatoren 5+3=8 s Dauer, 30+30=60 % je Resist, 0+7=7 Waffenbonus und 150−20=130 s Cooldown. Die 7 bleiben ein Rohbonus, solange seine normalisierte Einheit nicht belegt ist. | Kein direkter Schadensbeitrag erfinden. Dauerverlängerung bei Kill, `MaxHealthRegen`, Resisteffekt und Bonusintegration brauchen Ereignis-/Einheitenregeln. L2 war nicht verkabelt; ein nachträglich erfundener fünfter Spirit-Multi wäre keine Reparatur des Originals. |
+
+Der gemeinsame Datenzugang ersetzt alle fünf DNS-Aufrufe durch lokale Entitätsauflösung unter demselben Pin. Er behält alle Properties, auch 0, negative Werte, Einheiten und getrennte Upgradearten. Es gibt keinen zweiten Importer, keinen Reparaturabruf pro Item und keine stillschweigende Anwendung sämtlicher AP-Upgrades.
+
+### Scratchpad: gemeinsame Herkunft und drei Einzelbefunde
+
+Originale Überschriften A61:H61: `base dmg`, `weapon dmg`, `dmg per shot`, `no shred dps`, `total dps`, `no wpn dmg`, `no fire rate`, `baseline`. A62=100, B62=`A62+A62*$C$3` mit Cache 400. C62 hat weder Formel noch Cache; D62=`$C$6*C62` und E62=`D62*(1+$D$3)` haben deshalb Cache 0. Diese Nullcaches belegen keinen Schaden 0.
+
+Der bereits vorhandene haze-Block ist ein konkreter Formelzwilling, nicht bloß eine ähnliche Beschriftung: haze!H2:O2 enthält dieselbe Folge von Größen, wobei H2=`haze dmg` der Scratchpad-Spalte `base dmg` entspricht; H3/I3/J3/K3/L3 entsprechen A62/B62/C62/D62/E62. Seine erhaltenen Formeln M3/N3/O3 entsprechen genau F62/G62/H62. Das fehlende zusätzliche Schadensglied steht dort in G3, `F3*$A$3+$E$3`, mit Fixation-Stacks, Schaden je Stack und E3=`C3*0.03`. Damit lässt sich die Funktion des gelöschten Glieds als weiterer Schaden je Schuss rekonstruieren. Weder seine ursprüngliche Scratchpad-Adresse noch die dort beabsichtigte Quelle, Höhe oder ein konkreter Held lassen sich beweisen. Dass der Zwilling Haze behandelt, beweist nicht, dass der experimentelle Scratchpadfall ebenfalls Haze war.
+
+Auch die erhaltenen absoluten Bezüge sind im Scratchpad inzwischen fachlich falsch: C3=3 ist Sevens Burstzahl, D3=0,198 s dessen `C3*B3`-Zeit, C6=2 ist Sinclairs Burstzahl und A6 ist der Text `sinclair`. Im haze-Zwilling wären C3 Waffenbonus, D3 Shred-Eingabe, C6 effektive Schussrate und A6 Grundschussrate. A59/B59 nennen zwar Enemy Resist/0, sind aber nicht in F62/G62/H62 verkabelt. Nur `#REF!` durch 0 oder eine andere Zelle zu ersetzen würde diese zusätzlichen Typ-/Einheitenfehler erhalten; G62/H62 multiplizierten weiterhin einen Heldennamen.
+
+Der belegbare gemeinsame Ausdruck verwendet deshalb benannte Eingänge statt kaputter Zelladressen: `b` Grundschaden je Schuss, `w` dimensionsloser direkter Waffenbonus, `r0` Grundschüsse/s, `r` effektive Schüsse/s, `q` zusätzliches Schadensglied je Schuss, `s` der dimensionslose Sheet-Shred-Eingang. `1+s` beschreibt hier die erhaltene Sheet-Vergleichsformel, keine allgemeine Resistregel. Der Zwilling hält `q` zwischen den Varianten fest. Weil haze!G3 über E3 selbst vom Waffenbonus abhängt, entfernt „no wpn dmg“ nur den direkten Bonus auf `b`, nicht sämtliche Waffenbonusfolgen. Ein echter Gegenvergleich mit neu berechnetem Proc-Beitrag ist ein anderes Szenario.
+
+| Nr./Originalzelle und Cache | Wörtliche Originalformel | Erhaltener Formelzwilling | Engste belegbare Rekonstruktion, Einheit DPS |
+| --- | --- | --- | --- |
+| 6. F62, `#REF!` | `$C$6*(A62+#REF!)*(1+$D$3)` | haze!M3=`$C$6*(H3+G3)*(1+$D$3)`; F61=`no wpn dmg` | `r × (b+q) × (1+s)`. Grundschaden statt waffenverstärktem Schaden, effektive Rate und zusätzliches Schadensglied erhalten. Für A62=100 bleibt die Form `r × (100+q) × (1+s)`; r, q und s sind keine belegten Scratchpad-Eingaben. |
+| 7. G62, `#REF!` | `$A$6*(B62+#REF!)*(1+$D$3)` | haze!N3=`$A$6*(I3+G3)*(1+$D$3)`; G61=`no fire rate` | `r0 × (b×(1+w)+q) × (1+s)`. Direkter Waffenbonus erhalten, nur effektive Rate durch Grundrate ersetzen. Der Cache B62=400 beweist lediglich 100×(1+3), keinen belegten Waffenbonus, weil C3 eine Burstzahl ist. |
+| 8. H62, `#REF!` | `$A$6*(#REF!+A62)` | haze!O3=`$A$6*(G3+H3)`; H61=`baseline` | `r0 × (q+b)`. Grundrate und Grundschaden, kein direkter Waffenbonus und kein Shred-Faktor; das zusätzliche Glied bleibt ausdrücklich enthalten. „Baseline“ ist somit nicht einfach nackte Waffen-DPS. |
+
+Ein vollständig belegter Zahlenzeuge für alle drei Strukturen ist der unveränderte Zwilling, nicht eine erfundene Scratchpad-Eingabe: haze!B1=17 Boons, H3=B3=7,691, F3=1 Stack, A3=0,2 Schaden/Stack, E3=0, G3=0,2; C3=D3=B6=0, A6=C6=10 Schüsse/s. M3, N3 und O3 ergeben jeweils `10 × (7,691+0,2) = 78,91 DPS`; bei F6=4 und G6=0,8 ergeben M6/N6/O6 jeweils 84,91 DPS. Die gleiche Zahl bei drei ausgeschalteten Boni ist erwartbar, kein Nachweis einer pauschalen Gleichheit der Varianten. Diese Werte sind aus Originaleingaben nachgerechnet, nicht neu in das Workbook geschrieben.
+
+Der vorhandene Raw-Beleg Fixation, ID 1080948381, erklärt den Zwilling zusätzlich: `/141/properties/DamageBonusFixedPerStack/value`=`"0.2"`, T3-Flatzuwachs 0,11, also 0,31 je Stack vor weiterer Skalierung; MaxStacks 40 plus T2-Bonus 40 ergibt 80. Die API führt die Waffenbonus-Skalierung jedoch als `EBaseWeaponDamageIncrease` mit T3-`EAddToScale` 0,00035, nicht als die Sheet-Konstante 0,03. Ihre Einheitenkonversion und Proc-/Stack-Anwendung sind damit noch nicht belegt. `q` darf im Produkt nur aus den gemeinsamen belegten Beiträgen eines expliziten Szenarios entstehen. Es gibt weder ein festes Haze-q noch einen stillen Ersatzwert 0 für den gelöschten Bezug.
+
+### Umsetzbarer Anschluss für G-M und ausdrücklich offene Beweise
+
+Graphify wurde zuerst gegen den Worktree versucht, dessen Graph fehlt, anschließend gegen den vorhandenen globalen und Deadlock-Brain-Graph. Kein neuer Extraktionslauf. Die folgenden vorhandenen beziehungsweise parallel entstandenen Rust-Eingänge wurden danach nur gelesen; sie sind veränderlicher G-M-WIP, kein hier verifiziertes Release:
+
+- `/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs`: `calculation_models_from_payloads(heroes, items, hero_source, item_source)` und `ability_model_from_payload(payload, slot)` sind vorhandene reine Eingänge. Der erste hält Originalitems in `CalculationModels.item_payloads`, Quellen pro ID und löst die vier Signaturen auf. Genau diese Strecke benutzen, keine separate JSON-Parserpipeline.
+- `/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/types.rs`: `CalculationModels`, `SourcedHeroModel.starting_stats/raw`, `CalculationScenario` mit `ProgressionInput` und `SpiritInput::Total`, AP-Reihenfolge und Zielzustand tragen Versionspin, Melee-Grundwerte und Szenario. `CalculationResult.ability_properties` kann projizierte einzelne Werte liefern. Rohproperty, Skalentyp, Upgradeart, Einheit und JSON-Pointer müssen zusätzlich über die vorhandenen Payload-/Quellenbelege erhalten bleiben.
+- `/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation.rs`: `calculate_hero(models, hero_id, scenario)` benutzt die gemeinsame Projektion und `combat::ability_value`; daraus Schaden, Waffen- und Fähigkeitsbeiträge gewinnen. Eine Liste nackter Spiritratios ersetzt diese Rechnung nicht.
+
+Begrenzte Erweiterungen im bestehenden Kern sind konkret erforderlich: Melee über `items.weapon_melee` statt nur Signaturplätze 1 bis 4 auflösen; Nicht-Spirit-Skalen wie `ELightMeleeDamage` und `EBaseWeaponDamageIncrease` typisiert erhalten und mit belegter Regel auswerten; Heil-/Dauer-/Zustandsklassen nicht fälschlich als Spirit-Schaden behandeln. Der gelesene Abilityparser erfasst `stat_scale` für `ETechPower` oder `scale_function_tech_damage`, nicht allgemein diese anderen Eingänge. Ununterstützte Skalen dürfen daher nicht als gültiger unskalierter Nullschaden erscheinen. Die vorhandenen Upgradebeiträge mit `bonus`, `EAddToScale` und `scale_stat_filter` getrennt auf Basiswert oder Ratio buchen.
+
+Für die drei Vergleichsrechnungen dieselben bereits modellierten Waffen-/Proc-Beiträge, AP- und Zielregeln verwenden. Direkten Waffenbonus, Rate und Sheet-Vergleichsfaktor als getrennte Achsen auswerten; Schadenstypen und tatsächliche Resists pro Beitrag beachten. Die algebraische Sheet-Abnahme mit festgehaltenem q bleibt von einem echten Gegenvergleich mit neu ausgewerteten Effekten getrennt. Keine Scratchpad-Konstanten, kein freier Formeleditor und keine zusätzliche Simulation. Mit unbekanntem q oder unbekannter Eingangsregel bleiben die abhängigen F/G/H-Werte `unknown` mit konkretem Grund, während unabhängige Waffenmetriken weiter berechenbar sind.
+
+Offene Beweise sind begrenzt und benannt: originale Scratchpad-Adresse und konkretes zusätzliches Schadensglied, dessen Ereignis-/Schadenstyp, dortiger Bonus-/Ratenzustand, Single-Stat- und Heilskalierungsregeln, volle Charge-/Buff-/Stack-Anwendungssemantik und ausgeführte Rustparität. Die Absicht der acht Stellen wird nicht mehr pauschal ausgelassen. Ein eindeutiger numerischer Scratchpad-Ersatz ist mit diesem Original nicht belegbar; die fehlende Regel oder Eingabe wird gemeldet statt erfunden.
 
 ## Aktueller öffentlicher API-Abgleich
 
@@ -322,7 +405,7 @@ Zusätzliche unveränderte Quellen im gemeinsamen Beweisverzeichnis:
 | current-api-heroes.json | 2026-10-07T03:27:54Z | 172aa578b4624c6c7800b72467336347c0ce0a3303e3319f8a54e221668a5edb |
 | current-api-items.json | 2026-10-07T03:28:13Z | 86540843b94601ca753068767f1320649e03634e22c070fe2aead8d6faf85287 |
 
-Adressen: `https://api.deadlock-api.com/v1/assets/heroes` und `/v1/assets/items`. 65 Hero- und 746 Itemdatensätze. Diese Abrufe sind nicht explizit an eine client_version gebunden. Sie belegen aktuelle Endpointwerte zum Abrufzeitpunkt, keinen freigegebenen Gleichstand mit Paket E oder dem aktiven Produktionspatch.
+Adressen: `https://api.deadlock-api.com/v1/assets/heroes` und `/v1/assets/items`. 65 Hero- und 746 Itemdatensätze. Diese Abrufe waren nicht explizit an eine client_version gebunden. Abschnitt 14 belegt inzwischen die bytegleiche Bindung an Es aufgezeichnete Items-/Heroes-all-Probe für 6759. Weiterhin kein Nachweis des aktiven Produktionspatches und keine automatische Herkunftsfreigabe.
 
 | Held | API Bullet | API Ammo | API Schüsse/s | API Grund-DPS | API DPS mit Reload | API Magazinschaden |
 |---|---:|---:|---:|---:|---:|---:|
@@ -352,9 +435,9 @@ Für die Rust-Umsetzung:
 1. Paket E als versionsgebundene Wahrheit verwenden. Öffentliche Endpoint-Proben und dieses Sheet liefern keine gemeinsame Patch-ID.
 2. Grundwerte, Boon-Zustand, Spirit, Shopausgaben und Szenarioparameter separat führen; keine Max-Level-Spirit-Konstante übernehmen.
 3. API-eigene Waffenmetriken und vorhandene Mechanik wiederverwenden. Burst-/Reload-/Falloff-Modell gegen deren Roh- und abgeleitete Felder abgleichen.
-4. Sheet-Formelparität und reale Mechanikparität getrennt ausweisen. Kaputte Formeln, DNS-Caches, alte Shopboni und Meta-Meinungen dürfen keine Produkt-Wahrheit werden.
+4. Sheet-Formelparität und reale Mechanikparität getrennt ausweisen. Abschnitt 14 rekonstruiert die acht beschädigten Stellen; ihre belegbare Absicht wird im gemeinsamen Kern abgebildet, Originalfehlerstrings werden nicht übernommen. Alte Shopboni und Meta-Meinungen sind keine Produkt-Wahrheit.
 5. Für Hidden Mechanics fehlen im Sheet belastbare Quellen vieler globaler Konstanten. Benötigte globale API-/Konfigfelder als eigene Lücke führen, keine Werte erfinden.
-6. Die fünf hero-query-Einzelabrufe durch vorhandene lokale API-Entitäten ersetzen, sofern die vollständigen Properties vorliegen. Kein zweiter Importer nötig.
+6. Die fünf hero-query-Einzelabrufe für Melee und vier Signaturen durch dieselben lokal gespiegelten IDs/Properties/Upgrades ersetzen. Die vollständigen Rohfelder sind in den wiederverwendeten Proben vorhanden; Abschnitt 14 benennt die noch nötigen reinen Modell-/Skalenänderungen. Kein zweiter Importer nötig.
 7. Ränge und Perzentile sind nicht im Sheet vorhanden. Sie werden aus demselben versionsgebundenen, aktiven Hero-Satz berechnet; Stichprobengröße, Gleichstände und Richtung der Metrik müssen sichtbar sein.
 
 Offen: vollständige Originaldarstellung von raw_hero_data und hero query sowie versionsgebundener Abgleich von Boon-Kurve, Ability-Upgrades, globalen Hidden Mechanics und den manuellen Ratios. Export und Untersuchung umfassen die 13 vorhandenen Tabs; der Bericht bleibt am bestätigten eigenen Worktree-Übergabeort.
