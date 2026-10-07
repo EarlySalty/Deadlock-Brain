@@ -15,6 +15,7 @@ pub enum ToolName {
     DamageCalculate,
     PatchHistory,
     BuildPlan,
+    GameRules,
     ServerKnowledge,
 }
 
@@ -27,6 +28,7 @@ impl ToolName {
             Self::DamageCalculate => "damage_calculate",
             Self::PatchHistory => "patch_history",
             Self::BuildPlan => "build_plan",
+            Self::GameRules => "game_rules",
             Self::ServerKnowledge => "server_knowledge",
         }
     }
@@ -203,18 +205,66 @@ pub struct EntityFindRequest {
     pub language: ToolLanguage,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToolAnalyticsSelection {
+    pub min_average_badge: Option<u32>,
+    pub max_average_badge: Option<u32>,
+    pub min_unix_timestamp: i64,
+    pub max_unix_timestamp: i64,
+}
+
+impl ToolAnalyticsSelection {
+    fn validate(&self) -> Result<(), PortError> {
+        if self
+            .min_average_badge
+            .into_iter()
+            .chain(self.max_average_badge)
+            .any(|badge| badge > 116)
+            || self
+                .min_average_badge
+                .zip(self.max_average_badge)
+                .is_some_and(|(min, max)| min > max)
+        {
+            return Err(invalid("Ungültiger Analytics-Rangbereich"));
+        }
+        if self.min_unix_timestamp < 0 || self.max_unix_timestamp <= self.min_unix_timestamp {
+            return Err(invalid("Ungültiger Analytics-Zeitraum"));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityProfileRequest {
     pub entity: ToolEntityRef,
     pub fields: Vec<String>,
     pub scenario: Option<ToolScenario>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analytics: Option<ToolAnalyticsSelection>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolRankPopulation {
     ActiveHeroes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToolBoonRange {
+    pub min_boons: u32,
+    pub max_boons: u32,
+}
+
+impl ToolBoonRange {
+    fn validate(&self) -> Result<(), PortError> {
+        if self.min_boons > self.max_boons {
+            return Err(invalid("Ungültiger Boonbereich"));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -224,6 +274,10 @@ pub struct HeroCompareRequest {
     pub metrics: Vec<String>,
     pub scenario: ToolScenario,
     pub ranking_population: Option<ToolRankPopulation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boon_range: Option<ToolBoonRange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub analytics: Option<ToolAnalyticsSelection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -274,6 +328,26 @@ pub struct BuildPlanRequest {
     pub imbues: Vec<ToolImbue>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolGameRuleTopic {
+    KillBounty,
+    Comeback,
+    Urn,
+    Midboss,
+    ResistStacking,
+    Resources,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GameRulesRequest {
+    pub topic: ToolGameRuleTopic,
+    pub entity: Option<ToolEntityRef>,
+    pub game_time_seconds: Option<f64>,
+    pub scenario: Option<ToolScenario>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServerKnowledgeRequest {
@@ -290,6 +364,7 @@ pub enum ToolSubrequest {
     DamageCalculate(DamageCalculateRequest),
     PatchHistory(PatchHistoryRequest),
     BuildPlan(BuildPlanRequest),
+    GameRules(GameRulesRequest),
     ServerKnowledge(ServerKnowledgeRequest),
 }
 
@@ -310,6 +385,7 @@ impl ToolSubrequest {
                 serde_json::from_value(arguments.clone()).map(Self::PatchHistory)
             }
             ToolName::BuildPlan => serde_json::from_value(arguments.clone()).map(Self::BuildPlan),
+            ToolName::GameRules => serde_json::from_value(arguments.clone()).map(Self::GameRules),
             ToolName::ServerKnowledge => {
                 serde_json::from_value(arguments.clone()).map(Self::ServerKnowledge)
             }
@@ -323,6 +399,9 @@ impl ToolSubrequest {
             Self::EntityProfile(request) => {
                 validate_entity(&request.entity)?;
                 validate_fields(&request.fields, true)?;
+                if let Some(analytics) = &request.analytics {
+                    analytics.validate()?;
+                }
                 request
                     .scenario
                     .as_ref()
@@ -334,6 +413,12 @@ impl ToolSubrequest {
                     return Err(invalid("Heldenvergleich benötigt mindestens zwei Helden"));
                 }
                 validate_fields(&request.metrics, true)?;
+                if let Some(range) = &request.boon_range {
+                    range.validate()?;
+                }
+                if let Some(analytics) = &request.analytics {
+                    analytics.validate()?;
+                }
                 request.scenario.validate()
             }
             Self::DamageCalculate(request) => {
@@ -363,6 +448,16 @@ impl ToolSubrequest {
                     return Err(invalid("Buildbudget muss positiv sein"));
                 }
                 validate_imbues(&request.imbues)
+            }
+            Self::GameRules(request) => {
+                if let Some(entity) = &request.entity {
+                    validate_entity(entity)?;
+                }
+                validate_optional_number(request.game_time_seconds, true)?;
+                request
+                    .scenario
+                    .as_ref()
+                    .map_or(Ok(()), ToolScenario::validate)
             }
             Self::ServerKnowledge(request) => {
                 validate_text(&request.question)?;
@@ -875,6 +970,8 @@ fn forbidden_argument(name: &str) -> bool {
             | "release"
             | "release_id"
             | "client_version"
+            | "mechanic_revision"
+            | "patch_membership"
             | "version"
             | "deadline"
             | "deadline_ms"
@@ -1437,6 +1534,33 @@ mod tests {
         error.result.evidence_ids.clear();
         error.dependencies.clear();
         assert!(error.validate_for(&call, &request, Some(&game)).is_ok());
+    }
+
+    #[test]
+    fn regeln_verwerfen_nichtendliche_spielzeit_und_szenariowerte() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let request = ToolSubrequest::GameRules(GameRulesRequest {
+                topic: ToolGameRuleTopic::ResistStacking,
+                entity: None,
+                game_time_seconds: Some(value),
+                scenario: None,
+            });
+            assert!(request.validate().is_err());
+            let scenario: ToolScenario = serde_json::from_value(json!({
+                "progression":{"kind":"boons","value":0},
+                "target":{"kind":"player","values":{}}
+            }))
+            .unwrap();
+            let mut scenario = scenario;
+            scenario.target.as_mut().unwrap().values.bullet_resist = Some(value);
+            let request = ToolSubrequest::GameRules(GameRulesRequest {
+                topic: ToolGameRuleTopic::ResistStacking,
+                entity: None,
+                game_time_seconds: Some(0.0),
+                scenario: Some(scenario),
+            });
+            assert!(request.validate().is_err());
+        }
     }
 
     #[test]
