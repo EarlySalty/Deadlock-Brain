@@ -59,6 +59,6 @@ if [[ -z "${DEADLOCK_CENTRAL_DSN:-}" ]]; then
   exit 1
 fi
 
-"$BRAIN_BIN" pull assets --data-dir /home/nathanael/.local/share/deadlock-brain
+"$BRAIN_BIN" pull assets
 "$BRAIN_BIN" pg sync-patchnotes
 "$BRAIN_BIN" pull build-data --hero all

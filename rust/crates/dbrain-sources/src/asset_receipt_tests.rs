@@ -116,6 +116,224 @@ async fn persist_run(store: &SourceStore<'_>, marker: &str) -> (i64, Value) {
     (run, summary)
 }
 
+async fn original_documents(pool: &sqlx::PgPool) -> Vec<(i64, String, Value)> {
+    sqlx::query_as(
+        "SELECT id, raw_path, to_jsonb(d)-'raw_path' FROM brain.source_documents d ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn fresh_mirror_moves_verified_originals_without_changing_receipts() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = scratch_pool(&pg).await;
+    let old_dir = tempfile::tempdir().unwrap();
+    let new_dir = tempfile::tempdir().unwrap();
+    let old_store = SourceStore::new(&pool, old_dir.path()).unwrap();
+    let (old_run, summary) = persist_run(&old_store, "original").await;
+    let before = original_documents(&pool).await;
+    let originals: Vec<_> = before
+        .iter()
+        .map(|(_, path, _)| std::fs::read(path).unwrap())
+        .collect();
+    let store = SourceStore::new(&pool, new_dir.path()).unwrap();
+    let new_run = store.begin_run("assets").await.unwrap();
+    let reused = reuse_mirror_if_fresh(&store, summary.clone(), &resolve_kinds(&[]).unwrap(), 101)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reused["reused_local_mirror"], true);
+    assert_eq!(reused["checked_at"], 101);
+    assert_eq!(reused["mirrored_at"], summary["mirrored_at"]);
+    assert_eq!(reused["endpoints"], summary["endpoints"]);
+    store.finish_run(new_run, "ok", &reused).await.unwrap();
+    let after = original_documents(&pool).await;
+    assert_eq!(before.len(), after.len());
+    for (((old_id, _, old_document), (new_id, path, document)), raw) in
+        before.iter().zip(&after).zip(&originals)
+    {
+        assert_eq!(old_id, new_id);
+        assert_eq!(old_document, document);
+        assert!(Path::new(path).starts_with(new_dir.path()));
+        assert_eq!(std::fs::read(path).unwrap(), *raw);
+        assert_eq!(
+            crate::store::stable_hash_bytes(raw),
+            document["content_hash"]
+        );
+    }
+    old_dir.close().unwrap();
+    let loaded = load_mirrored_assets_with_receipt(&pool, 6759, "items", Some("english"))
+        .await
+        .unwrap();
+    assert_eq!(loaded.receipt.source_run_id, old_run);
+    assert_eq!(loaded.payload[0]["observation"], "original");
+    assert!(
+        load_mirrored_assets_for_run(&pool, old_run, 6759, "items", Some("english"))
+            .await
+            .is_ok()
+    );
+    assert!(
+        reuse_mirror_if_fresh(&store, reused, &resolve_kinds(&[]).unwrap(), 102)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(original_documents(&pool).await, after);
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn identical_ir_repoints_only_raw_path_to_verified_new_originals() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = scratch_pool(&pg).await;
+    let old_dir = tempfile::tempdir().unwrap();
+    let new_dir = tempfile::tempdir().unwrap();
+    let old_store = SourceStore::new(&pool, old_dir.path()).unwrap();
+    let raw = b" \n[{\"id\":0,\"name\":\"Original\"}]\n";
+    let ir = prepare_assets(
+        "items",
+        transport(
+            asset_url("items", ENDPOINTS[0].1, 6759, "english"),
+            raw.to_vec(),
+        ),
+        None,
+    )
+    .unwrap();
+    let id = old_store
+        .persist_ir(
+            "6759/items/english",
+            "Originaltitel",
+            &ir,
+            &json!({"kind":"items"}),
+        )
+        .await
+        .unwrap();
+    let before = original_documents(&pool).await;
+    old_dir.close().unwrap();
+    let store = SourceStore::new(&pool, new_dir.path()).unwrap();
+    let mut later_response = transport(
+        asset_url("items", ENDPOINTS[0].1, 6759, "english"),
+        raw.to_vec(),
+    );
+    later_response.observed_at = 200;
+    let repeated = prepare_assets("items", later_response, None).unwrap();
+    let reused_id = store
+        .persist_ir(
+            "6759/items/english",
+            "Anderer Titel",
+            &repeated,
+            &json!({"changed":true}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reused_id, id);
+    let after = original_documents(&pool).await;
+    assert_eq!(after.len(), 1);
+    assert_eq!(before[0].0, after[0].0);
+    assert_eq!(before[0].2, after[0].2);
+    assert!(Path::new(&after[0].1).starts_with(new_dir.path()));
+    assert_eq!(std::fs::read(&after[0].1).unwrap(), raw);
+    assert!(store
+        .ensure_original(id, SOURCE, ir.provenance().raw_sha256.as_str())
+        .await
+        .unwrap());
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn missing_or_modified_originals_cannot_reuse_a_fresh_mirror() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = scratch_pool(&pg).await;
+    let old_dir = tempfile::tempdir().unwrap();
+    let new_dir = tempfile::tempdir().unwrap();
+    let old_store = SourceStore::new(&pool, old_dir.path()).unwrap();
+    let (_, summary) = persist_run(&old_store, "original").await;
+    let before = original_documents(&pool).await;
+    let id = summary["endpoints"]["items/english"]["source_document_id"]
+        .as_i64()
+        .unwrap();
+    let (_, original_path, original_document) =
+        before.iter().find(|(row_id, _, _)| *row_id == id).unwrap();
+    let raw = std::fs::read(original_path).unwrap();
+    let store = SourceStore::new(&pool, new_dir.path()).unwrap();
+    for replacement in [None, Some(b"[]".as_slice())] {
+        if let Some(replacement) = replacement {
+            std::fs::write(original_path, replacement).unwrap();
+        } else {
+            std::fs::remove_file(original_path).unwrap();
+        }
+        assert!(
+            reuse_mirror_if_fresh(&store, summary.clone(), &resolve_kinds(&[]).unwrap(), 101)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let after = original_documents(&pool).await;
+        let (_, path, document) = after.iter().find(|(row_id, _, _)| *row_id == id).unwrap();
+        assert_eq!(path, original_path);
+        assert_eq!(document, original_document);
+    }
+    std::fs::write(original_path, &raw).unwrap();
+    assert!(
+        reuse_mirror_if_fresh(&store, summary.clone(), &resolve_kinds(&[]).unwrap(), 102)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let after = original_documents(&pool).await;
+    let (_, path, _) = after.iter().find(|(row_id, _, _)| *row_id == id).unwrap();
+    std::fs::write(path, b"tampered").unwrap();
+    assert!(
+        reuse_mirror_if_fresh(&store, summary.clone(), &resolve_kinds(&[]).unwrap(), 103)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    std::fs::write(path, &raw).unwrap();
+    let mut wrong_hash = summary.clone();
+    wrong_hash["endpoints"]["items/english"]["raw_sha256"] = json!("wrong");
+    assert!(
+        reuse_mirror_if_fresh(&store, wrong_hash, &resolve_kinds(&[]).unwrap(), 103)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let mut missing_hash = summary.clone();
+    missing_hash["endpoints"]["items/english"]
+        .as_object_mut()
+        .unwrap()
+        .remove("raw_sha256");
+    assert!(
+        reuse_mirror_if_fresh(&store, missing_hash, &resolve_kinds(&[]).unwrap(), 103)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(!store
+        .ensure_original(
+            id,
+            "wrong_source",
+            crate::store::stable_hash_bytes(&raw).as_str()
+        )
+        .await
+        .unwrap());
+    std::fs::remove_file(path).unwrap();
+    std::os::unix::fs::symlink(original_path, path).unwrap();
+    assert!(
+        reuse_mirror_if_fresh(&store, summary, &resolve_kinds(&[]).unwrap(), 103)
+            .await
+            .is_err()
+    );
+    assert!(store
+        .ensure_original(id, SOURCE, crate::store::stable_hash_bytes(&raw).as_str())
+        .await
+        .is_err());
+    assert_eq!(std::fs::read(original_path).unwrap(), raw);
+    pool.close().await;
+}
+
 #[test]
 fn global_contracts_preserve_payloads_and_reject_missing_identity_or_empty_data() {
     for kind in ["npc_units", "misc_entities", "modifiers"] {

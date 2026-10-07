@@ -828,10 +828,9 @@ struct PullAssetsArgs {
     #[arg(
         long,
         value_name = "PFAD",
-        default_value = "/home/nathanael/.local/share/deadlock-brain",
-        help = "Dauerhaftes Datenverzeichnis außerhalb des Release-Arbeitsbaums."
+        help = "Datenverzeichnis; sonst gemeinsame Konfiguration, standardmäßig /home/nathanael/.local/share/deadlock-brain."
     )]
-    data_dir: PathBuf,
+    data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -1603,7 +1602,7 @@ async fn run(cli: Cli) -> Result<()> {
     } = &command
     {
         anyhow::ensure!(
-            args.data_dir.is_absolute(),
+            args.data_dir.as_ref().is_none_or(|path| path.is_absolute()),
             "Das Datenverzeichnis muss absolut sein."
         );
     }
@@ -1612,9 +1611,11 @@ async fn run(cli: Cli) -> Result<()> {
         source: PullCommands::Assets(args),
     } = &command
     {
-        settings.data_dir = args.data_dir.clone();
-        settings.raw_dir = args.data_dir.join("raw");
-        settings.cache_dir = args.data_dir.join("cache");
+        if let Some(data_dir) = &args.data_dir {
+            settings.data_dir = data_dir.clone();
+            settings.raw_dir = data_dir.join("raw");
+            settings.cache_dir = data_dir.join("cache");
+        }
     }
     if let Commands::Entities(args) = &command {
         let pool = pg_pool_for_command(&command).await?;
@@ -1883,36 +1884,29 @@ mod ingest_tests {
                 panic!("wrong dispatch")
             };
             assert_eq!(args.kind, [kind]);
-            assert_eq!(args.data_dir, PathBuf::from("/durable/brain-data"));
+            assert_eq!(args.data_dir, Some(PathBuf::from("/durable/brain-data")));
         }
     }
 
     #[test]
-    fn assets_cli_defaults_to_the_durable_forum_directory() {
+    fn assets_cli_defers_to_shared_settings_with_a_durable_default() {
         let assets = Cli::try_parse_from(["deadlock-brain", "pull", "assets"]).unwrap();
-        let forum = Cli::try_parse_from(["deadlock-brain", "pull", "forum"]).unwrap();
         let Commands::Pull {
             source: PullCommands::Assets(assets),
         } = assets.command
         else {
             panic!("wrong dispatch")
         };
-        let Commands::Pull {
-            source: PullCommands::Forum(forum),
-        } = forum.command
-        else {
-            panic!("wrong dispatch")
-        };
+        assert_eq!(assets.data_dir, None);
         assert_eq!(
-            assets.data_dir,
+            config::default_data_dir(),
             PathBuf::from("/home/nathanael/.local/share/deadlock-brain")
         );
-        assert_eq!(assets.data_dir, forum.data_dir);
-        assert!(assets.data_dir.is_absolute());
+        assert!(config::default_data_dir().is_absolute());
     }
 
     #[test]
-    fn scheduled_assets_ingest_passes_the_durable_directory_to_the_cli() {
+    fn scheduled_assets_ingest_preserves_the_shared_configured_directory() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let result = std::process::Command::new("bash")
             .arg(root.join("scripts/run_build_data_with_infisical.sh"))
@@ -1921,6 +1915,7 @@ mod ingest_tests {
             .env("HOME", "/nonexistent")
             .env("LOAD_INFISICAL", "0")
             .env("DEADLOCK_CENTRAL_DSN", "unused-test-value")
+            .env("DEADLOCK_BRAIN_DATA_DIR", "/configured/brain-data")
             .env("DEADLOCK_BRAIN_BIN", "/bin/echo")
             .env("DEADLOCK_BRAIN_ROOT", root)
             .output()
@@ -1930,8 +1925,7 @@ mod ingest_tests {
         let calls: Vec<_> = output.lines().collect();
         assert_eq!(calls.len(), 3);
         let assets_call: Vec<_> = calls[0].split_whitespace().collect();
-        assert_eq!(assets_call.len(), 4);
-        assert_eq!(assets_call[2], "--data-dir");
+        assert_eq!(assets_call, ["pull", "assets"]);
         let parsed = Cli::try_parse_from(
             std::iter::once("deadlock-brain").chain(assets_call.iter().copied()),
         )
@@ -1942,10 +1936,7 @@ mod ingest_tests {
         else {
             panic!("wrong dispatch")
         };
-        assert_eq!(
-            args.data_dir,
-            PathBuf::from("/home/nathanael/.local/share/deadlock-brain")
-        );
+        assert_eq!(args.data_dir, None);
         assert_eq!(calls[1], "pg sync-patchnotes");
         assert_eq!(calls[2], "pull build-data --hero all");
     }

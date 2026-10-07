@@ -103,10 +103,8 @@ pub(crate) async fn pull_assets_inner(
          AND summary->>'client_version'=$1 AND summary->>'parser_revision'=$2 ORDER BY id DESC LIMIT 1",
     ).bind(client_version.to_string()).bind(PARSER_REVISION).fetch_optional(store.pool()).await?;
     if let Some(previous) = previous {
-        let mut summary: Value = serde_json::from_str(&previous)?;
-        if mirror_is_fresh(&summary, selected, now) {
-            summary["checked_at"] = json!(now);
-            summary["reused_local_mirror"] = json!(true);
+        let summary: Value = serde_json::from_str(&previous)?;
+        if let Some(summary) = reuse_mirror_if_fresh(store, summary, selected, now).await? {
             return Ok(summary);
         }
     }
@@ -198,6 +196,52 @@ pub(crate) async fn pull_assets_inner(
         "parser_revision":PARSER_REVISION,"mirrored_at":mirrored_at,"checked_at":mirrored_at,
         "mirror_complete":mirror_complete,"reused_local_mirror":false}),
     )
+}
+
+async fn reuse_mirror_if_fresh(
+    store: &SourceStore<'_>,
+    mut summary: Value,
+    selected: &[(String, &'static str)],
+    now: i64,
+) -> Result<Option<Value>> {
+    if !mirror_is_fresh(&summary, selected, now)
+        || !ensure_mirror_originals(store, &summary).await?
+    {
+        return Ok(None);
+    }
+    summary["checked_at"] = json!(now);
+    summary["reused_local_mirror"] = json!(true);
+    Ok(Some(summary))
+}
+
+async fn ensure_mirror_originals(store: &SourceStore<'_>, summary: &Value) -> Result<bool> {
+    let Some(manifest_id) = summary["manifest_document_id"].as_i64() else {
+        return Ok(false);
+    };
+    let Some(manifest_hash) = summary["manifest_raw_sha256"].as_str() else {
+        return Ok(false);
+    };
+    if !store
+        .ensure_original(manifest_id, SOURCE, manifest_hash)
+        .await?
+    {
+        return Ok(false);
+    }
+    let Some(endpoints) = summary["endpoints"].as_object() else {
+        return Ok(false);
+    };
+    for endpoint in endpoints.values() {
+        let Some(id) = endpoint["source_document_id"].as_i64() else {
+            return Ok(false);
+        };
+        let Some(hash) = endpoint["raw_sha256"].as_str() else {
+            return Ok(false);
+        };
+        if !store.ensure_original(id, SOURCE, hash).await? {
+            return Ok(false);
+        }
+    }
+    Ok(!endpoints.is_empty())
 }
 
 fn asset_url(kind: &str, endpoint: &str, client_version: i64, language: &str) -> String {

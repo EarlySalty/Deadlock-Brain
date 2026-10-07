@@ -1316,6 +1316,9 @@ mod scratch_regression_tests {
         sqlx::query("UPDATE brain.source_documents SET metadata=metadata || jsonb_build_object('sitemap_lastmod','A','archive_version',2) WHERE id=$1")
             .bind(doc).execute(pool).await.unwrap();
         assert!(thread_document_exists(pool, 4, Some("A")).await.unwrap());
+        let changed_raw = store
+            .write_raw(SOURCE, "thread:4", b"changed sitemap observation", "json")
+            .unwrap();
         let changed_doc = store
             .upsert_source_document(SourceDocumentInput {
                 source: SOURCE,
@@ -1323,7 +1326,7 @@ mod scratch_regression_tests {
                 title: Some("fixture"),
                 url: Some("https://forums.playdeadlock.com/threads/fixture.4/"),
                 content_type: "application/json",
-                raw_path: &raw,
+                raw_path: &changed_raw,
                 content: b"changed sitemap observation",
                 metadata: &json!({"archive_version":2,"complete":false,"sitemap_lastmod":"B"}),
             })

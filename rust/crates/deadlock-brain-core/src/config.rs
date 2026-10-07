@@ -80,17 +80,13 @@ pub fn repo_root() -> PathBuf {
 }
 
 pub fn default_data_dir() -> PathBuf {
-    repo_root().join("data")
+    PathBuf::from("/home/nathanael/.local/share/deadlock-brain")
 }
 
 pub fn load_settings() -> Result<Settings> {
     let project_root = repo_root();
     let dotenv = DotEnv::load(&project_root.join(".env"))?;
-    let data_dir = path_setting(
-        &dotenv,
-        "DEADLOCK_BRAIN_DATA_DIR",
-        project_root.join("data"),
-    );
+    let data_dir = path_setting(&dotenv, "DEADLOCK_BRAIN_DATA_DIR", default_data_dir());
     let fireworks_api_key = setting(&dotenv, "FIREWORK_API_KEY")
         .or_else(|| setting(&dotenv, "FIREWORKS_API_KEY"))
         .filter(|value| !value.trim().is_empty());
@@ -222,6 +218,52 @@ impl DotEnv {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn data_directory_probe() {
+        let configured = env::var("DEADLOCK_BRAIN_DATA_DIR")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from);
+        assert_eq!(
+            path_setting(
+                &DotEnv::default(),
+                "DEADLOCK_BRAIN_DATA_DIR",
+                default_data_dir()
+            ),
+            configured.clone().unwrap_or_else(default_data_dir)
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.env");
+        fs::write(&path, "DEADLOCK_BRAIN_DATA_DIR='/configured/dotenv-data'\n").unwrap();
+        let dotenv = DotEnv::load(&path).unwrap();
+        assert_eq!(
+            path_setting(&dotenv, "DEADLOCK_BRAIN_DATA_DIR", default_data_dir()),
+            configured.unwrap_or_else(|| PathBuf::from("/configured/dotenv-data"))
+        );
+        assert!(default_data_dir().is_absolute());
+        assert!(!default_data_dir().starts_with(repo_root()));
+    }
+
+    #[test]
+    fn data_directory_settings_keep_existing_environment_and_dotenv_priority() {
+        for configured in [None, Some("/configured/env-data"), Some("")] {
+            let mut process = std::process::Command::new(env::current_exe().unwrap());
+            process
+                .env_clear()
+                .args(["--exact", "config::tests::data_directory_probe"]);
+            if let Some(configured) = configured {
+                process.env("DEADLOCK_BRAIN_DATA_DIR", configured);
+            }
+            let output = process.output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        }
+    }
 
     #[test]
     fn repo_root_points_at_project() {
