@@ -254,7 +254,7 @@ fn gameplay_event_content(content: &str, index: &EntityIndex) -> Option<String> 
                 projected.push(format!("- {clause}"));
                 has_events = true;
             }
-            if matches!(delimiter, " and " | " but " | " while ") {
+            if matches!(delimiter, ";" | " and " | " but " | " while ") {
                 inherited_subject = subject.or(inherited_subject);
             } else {
                 inherited_subject = None;
@@ -703,6 +703,75 @@ mod tests {
     }
 
     #[test]
+    fn semicolon_clauses_inherit_subjects_until_an_explicit_replacement() {
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Holliday", "Holliday");
+        index.insert("ability", "Scrap Grenade", "Scrap Grenade");
+        let index = index.finish();
+        for (original, expected_entities) in [
+            (
+                "- Holliday: damage increased from 50 to 60; cooldown reduced from 10 to 8",
+                &["Holliday", "Holliday"][..],
+            ),
+            (
+                "- Holliday: damage increased from 50 to 60; added knockback",
+                &["Holliday", "Holliday"][..],
+            ),
+            (
+                "- Holliday: damage increased from 50 to 60; Scrap Grenade: added knockback; added a stun",
+                &["Holliday", "Scrap Grenade", "Scrap Grenade"][..],
+            ),
+            (
+                "- Holliday: added artwork; added knockback; added new artwork",
+                &["Holliday"][..],
+            ),
+        ] {
+            for source in ["steam", "forum"] {
+                let mut post = post();
+                post.source = source.into();
+                if source == "forum" {
+                    post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+                }
+                let row = post_row(&post, Some(17)).unwrap();
+                let resolved = PatchSourceResolution {
+                    raw_content: original.into(),
+                    ..PatchSourceResolution::from_row(&row)
+                };
+                assert!(is_patch_candidate(original, &index), "{source}/{original}");
+                assert!(has_complete_patch_content(original, &index));
+                let baseline = prepare_patch(&row, &resolved, &index).unwrap();
+                let prepared = prepare_api_patch(&row, &resolved, &index).unwrap();
+                assert_eq!(prepared.raw_payload_text, baseline.raw_payload_text);
+                assert_eq!(prepared.raw_payload_hash, baseline.raw_payload_hash);
+                assert_eq!(prepared.snapshot_payload_text, baseline.snapshot_payload_text);
+                assert_eq!(prepared.snapshot_payload_hash, baseline.snapshot_payload_hash);
+                assert_eq!(prepared.source_external_id, baseline.source_external_id);
+                assert_eq!(prepared.patch_external_id, baseline.patch_external_id);
+                assert_eq!(
+                    prepared.events.iter().map(|event| event.entity_name.as_deref()).collect::<Vec<_>>(),
+                    expected_entities.iter().copied().map(Some).collect::<Vec<_>>(),
+                    "{source}/{original}"
+                );
+                for event in &prepared.events {
+                    assert!(!event.normalized_line.contains("artwork"));
+                    assert_eq!(event.metadata["patch_id"], 17);
+                    assert_eq!(event.metadata["patch_external_id"], "patch_17");
+                    assert_eq!(event.metadata["url"], post.link);
+                    assert_eq!(event.metadata["source_kind"], source);
+                }
+                if original.contains("cooldown") {
+                    let event = &prepared.events[1];
+                    assert_eq!(event.change_type, "buff");
+                    assert_eq!(event.old_value.as_deref(), Some("10"));
+                    assert_eq!(event.new_value.as_deref(), Some("8"));
+                } else {
+                    assert_eq!(prepared.events.last().unwrap().change_type, "added");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn numbers_and_hero_mentions_require_a_gameplay_subject_in_the_same_clause() {
         let mut index = EntityIndex::default();
         index.insert("hero", "Holliday", "Holliday");
@@ -718,6 +787,8 @@ mod tests {
                 "- Added Holliday emotes",
                 "- Added emotes for hero Holliday",
                 "- Holliday: added banners for the community",
+                "- Holliday: added artwork; added new hero skins",
+                "- Holliday: added artwork; Visitors: added knockback; added a stun",
                 "- Added posters featuring Holliday",
                 "- Visitor count increased from 1 to 2 and Holliday is our favourite hero",
                 "- Visitor count increased from 1 to 2. Holliday is our favourite hero",
