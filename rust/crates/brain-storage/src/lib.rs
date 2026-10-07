@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod asset_mirror;
 mod domain_reader;
 mod entity_derivation_store;
 pub mod entity_profile;

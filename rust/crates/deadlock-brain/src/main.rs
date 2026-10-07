@@ -818,10 +818,19 @@ struct PullAssetsArgs {
             "colors",
             "build_tags",
             "npc_units",
+            "generic_data",
+            "misc_entities",
+            "modifiers",
         ],
-        help = "Endpoint auswaehlen. Mehrfach nutzbar. Default: items/heroes."
+        help = "Endpoints auswählen. Mehrfach nutzbar. Standard: vollständige Spieldaten je Clientversion, Englisch und Deutsch; Modifiers ohne Sprache."
     )]
     kind: Vec<String>,
+    #[arg(
+        long,
+        value_name = "PFAD",
+        help = "Datenverzeichnis; sonst gemeinsame Konfiguration, standardmäßig /home/nathanael/.local/share/deadlock-brain."
+    )]
+    data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -1546,6 +1555,33 @@ fn run_from_cli() -> Result<()> {
     }
 }
 
+fn assets_storage_path(path: &std::path::Path) -> Result<PathBuf> {
+    anyhow::ensure!(
+        path.is_absolute(),
+        "Das Datenverzeichnis muss absolut sein. Wähle mit --data-dir oder DEADLOCK_BRAIN_DATA_DIR einen dauerhaften absoluten Pfad."
+    );
+    let mut resolved = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                resolved.pop();
+            }
+            other => {
+                resolved.push(other.as_os_str());
+                match fs::canonicalize(&resolved) {
+                    Ok(canonical) => resolved = canonical,
+                    Err(error) if error.kind() == ErrorKind::NotFound => {}
+                    Err(error) => {
+                        return Err(error).context("Das Datenverzeichnis ist nicht prüfbar.");
+                    }
+                }
+            }
+        }
+    }
+    Ok(resolved)
+}
+
 async fn run(cli: Cli) -> Result<()> {
     let Cli { command } = cli;
     let command = match command {
@@ -1569,7 +1605,31 @@ async fn run(cli: Cli) -> Result<()> {
     {
         return print_json(&wiki_refresh::run(args).await?);
     }
-    let settings = config::load_settings()?;
+    let mut settings = config::load_settings()?;
+    if let Commands::Pull {
+        source: PullCommands::Assets(args),
+    } = &command
+    {
+        if let Some(data_dir) = &args.data_dir {
+            settings.data_dir = data_dir.clone();
+            settings.raw_dir = data_dir.join("raw");
+            settings.cache_dir = data_dir.join("cache");
+        }
+        let build_root = assets_storage_path(&settings.project_root)?;
+        let source_dir = settings.raw_dir.join(dbrain_sources::assets_api::SOURCE);
+        for path in [
+            &settings.data_dir,
+            &settings.raw_dir,
+            &settings.cache_dir,
+            &source_dir,
+        ] {
+            let storage_path = assets_storage_path(path)?;
+            anyhow::ensure!(
+                !storage_path.starts_with(&build_root),
+                "Das Datenverzeichnis oder eines seiner Schreibziele liegt im löschbaren Build-Arbeitsbaum. Wähle mit --data-dir oder DEADLOCK_BRAIN_DATA_DIR einen dauerhaften absoluten Pfad außerhalb dieses Arbeitsbaums."
+            );
+        }
+    }
     if let Commands::Entities(args) = &command {
         let pool = pg_pool_for_command(&command).await?;
         return pg_entities::run(args, &pool).await;
@@ -1796,6 +1856,114 @@ fn run_pg(
             },
         )?),
         PgCommands::ImportPatchnote(args) => run_pg_patchnote(http, ledger, args),
+    }
+}
+
+#[cfg(test)]
+mod ingest_tests {
+    use super::*;
+
+    #[test]
+    fn assets_cli_accepts_global_kinds_and_a_durable_data_directory() {
+        for kind in [
+            "items",
+            "heroes",
+            "heroes_all",
+            "generic_data",
+            "npc_units",
+            "misc_entities",
+            "modifiers",
+        ] {
+            let parsed = Cli::try_parse_from([
+                "deadlock-brain",
+                "pull",
+                "assets",
+                "--kind",
+                kind,
+                "--data-dir",
+                "/durable/brain-data",
+            ])
+            .unwrap();
+            let Commands::Pull {
+                source: PullCommands::Assets(args),
+            } = parsed.command
+            else {
+                panic!("wrong dispatch")
+            };
+            assert_eq!(args.kind, [kind]);
+            assert_eq!(args.data_dir, Some(PathBuf::from("/durable/brain-data")));
+        }
+    }
+
+    #[test]
+    fn assets_cli_defers_to_shared_settings_with_a_durable_default() {
+        let assets = Cli::try_parse_from(["deadlock-brain", "pull", "assets"]).unwrap();
+        let Commands::Pull {
+            source: PullCommands::Assets(assets),
+        } = assets.command
+        else {
+            panic!("wrong dispatch")
+        };
+        assert_eq!(assets.data_dir, None);
+        assert_eq!(
+            config::default_data_dir(),
+            PathBuf::from("/home/nathanael/.local/share/deadlock-brain")
+        );
+        assert!(config::default_data_dir().is_absolute());
+    }
+
+    #[test]
+    fn scheduled_assets_ingest_preserves_the_shared_configured_directory() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let result = std::process::Command::new("bash")
+            .arg(root.join("scripts/run_build_data_with_infisical.sh"))
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", "/nonexistent")
+            .env("LOAD_INFISICAL", "0")
+            .env("DEADLOCK_CENTRAL_DSN", "unused-test-value")
+            .env("DEADLOCK_BRAIN_DATA_DIR", "/configured/brain-data")
+            .env("DEADLOCK_BRAIN_BIN", "/bin/echo")
+            .env("DEADLOCK_BRAIN_ROOT", root)
+            .output()
+            .unwrap();
+        assert!(result.status.success());
+        let output = String::from_utf8(result.stdout).unwrap();
+        let calls: Vec<_> = output.lines().collect();
+        assert_eq!(calls.len(), 2);
+        let assets_call: Vec<_> = calls[0].split_whitespace().collect();
+        assert_eq!(assets_call, ["pull", "assets"]);
+        let parsed = Cli::try_parse_from(
+            std::iter::once("deadlock-brain").chain(assets_call.iter().copied()),
+        )
+        .unwrap();
+        let Commands::Pull {
+            source: PullCommands::Assets(args),
+        } = parsed.command
+        else {
+            panic!("wrong dispatch")
+        };
+        assert_eq!(args.data_dir, None);
+        assert_eq!(calls[1], "pull build-data --hero all");
+        assert!(!output.contains("sync-patchnotes"));
+    }
+
+    #[test]
+    fn scheduled_ingest_stops_on_failure_without_importing_matches() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        let script = root.join("scripts/run_build_data_with_infisical.sh");
+        let text = fs::read_to_string(&script).unwrap();
+        assert!(!text.contains("population sync"));
+        assert!(!text.contains("population stats"));
+        let result = std::process::Command::new("bash")
+            .arg(script)
+            .env("LOAD_INFISICAL", "0")
+            .env("DEADLOCK_CENTRAL_DSN", "unused-test-value")
+            .env("DEADLOCK_BRAIN_BIN", "/bin/false")
+            .env("DEADLOCK_BRAIN_ROOT", root)
+            .output()
+            .unwrap();
+        assert_eq!(result.status.code(), Some(1));
     }
 }
 
