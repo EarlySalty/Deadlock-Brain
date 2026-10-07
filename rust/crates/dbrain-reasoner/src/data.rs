@@ -23,7 +23,7 @@ fn parse_json(text: String, context: &str) -> Result<Value> {
         .map_err(|error| ReasonerError::Data(format!("{context}: ungültiges JSON: {error}")))
 }
 
-fn number(value: Option<&Value>) -> Option<f64> {
+pub(crate) fn number(value: Option<&Value>) -> Option<f64> {
     value
         .and_then(|value| {
             value
@@ -49,10 +49,17 @@ fn integer(value: Option<&Value>) -> i64 {
 }
 
 pub(crate) fn ability_id(value: &Value) -> Option<i64> {
-    ["id", "ability_id", "abilityId", "external_id", "item_id"]
+    let raw = ["id", "ability_id", "abilityId", "external_id", "item_id"]
         .iter()
-        .find_map(|key| number(value.get(*key)).map(|value| value as i64))
-        .filter(|value| *value > 0)
+        .find_map(|key| value.get(*key).filter(|value| !value.is_null()))?;
+    if let Some(id) = raw
+        .as_i64()
+        .or_else(|| raw.as_str()?.trim().parse::<i64>().ok())
+    {
+        return (id > 0).then_some(id);
+    }
+    let id = raw.as_f64()?;
+    (id > 0.0 && id.fract() == 0.0 && id <= 9_007_199_254_740_992.0).then_some(id as i64)
 }
 
 pub(crate) fn ability_class_name(value: &Value) -> String {
@@ -337,7 +344,9 @@ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
             }
             let input = string(function.get("specific_stat_scale_type"));
             let class = string(function.get("class_name"));
-            if input == "ETechPower" || class == "scale_function_tech_damage" {
+            if class == "scale_function_tech_damage"
+                || class == "scale_function_single_stat" && input == "ETechPower"
+            {
                 scaling.push(ScalingStat {
                     stat: name.clone(),
                     per_level: 0.0,
@@ -486,6 +495,321 @@ fn base_health(payload: &Value) -> f64 {
         .unwrap_or_default()
 }
 
+pub fn ability_model_from_payload(payload: &Value, slot: i64) -> Result<AbilityModel> {
+    if ability_id(payload).is_none() || slot <= 0 {
+        return Err(ReasonerError::Data(
+            "Fähigkeit benötigt eine positive ID und einen gültigen Platz".into(),
+        ));
+    }
+    ability_model(payload, slot)
+        .ok_or_else(|| ReasonerError::Data("Klassenname der Fähigkeit fehlt".into()))
+}
+
+pub fn item_model_from_payload(payload: &Value) -> Result<ItemModel> {
+    let item_id = ability_id(payload)
+        .ok_or_else(|| ReasonerError::Data("Item benötigt eine positive ID".into()))?;
+    let slot = payload
+        .get("item_slot_type")
+        .and_then(Value::as_str)
+        .filter(|slot| matches!(*slot, "weapon" | "vitality" | "spirit"))
+        .ok_or_else(|| ReasonerError::Data(format!("Item {item_id}: Shopkategorie fehlt")))?;
+    let properties = property_values(payload.get("properties"));
+    let is_active = payload
+        .get("is_active_item")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let model = ItemModel {
+        property_damage_types: property_damage_types(payload),
+        property_spirit_scaling: property_spirit_scaling(payload),
+        component_items: payload
+            .get("component_items")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect(),
+        class_name: ability_class_name(payload),
+        description: snapshot_description(payload),
+        item_id,
+        name: string(payload.get("name")),
+        slot: slot_type(slot),
+        tier: integer(payload.get("item_tier")),
+        cost: integer(payload.get("cost")),
+        is_active,
+        shopable: payload
+            .get("shopable")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        disabled: payload
+            .get("disabled")
+            .or_else(|| payload.get("IsDisabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        damage_axis: DamageType::None,
+        defense_kind: Vec::new(),
+        passive_properties: passive_property_values(payload.get("properties")),
+        conditional_properties: payload
+            .get("properties")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter(|(_, property)| {
+                property
+                    .get("usage_flags")
+                    .and_then(Value::as_array)
+                    .is_some_and(|flags| {
+                        flags
+                            .iter()
+                            .any(|flag| flag.as_str() == Some("ConditionallyApplied"))
+                    })
+            })
+            .map(|(name, _)| name.clone())
+            .collect(),
+        condition: classify_condition(payload, is_active),
+        proc_cooldown: properties
+            .iter()
+            .find(|(name, _)| name.to_ascii_lowercase().contains("proccooldown"))
+            .map(|(_, value)| *value)
+            .filter(|value| *value > 0.0),
+        imbueable: is_imbue_marker(payload.get("imbue"))
+            || description_text(payload)
+                .to_ascii_lowercase()
+                .contains("imbued"),
+        properties,
+    };
+    Ok(model)
+}
+
+pub fn hero_model_from_payload(
+    payload: &Value,
+    abilities: &[Value],
+    stats: &[ScalingStat],
+) -> Result<HeroModel> {
+    hero_model(payload, abilities, stats)
+}
+
+fn weapon_timing(payload: &Value) -> crate::WeaponTiming {
+    let info = payload.get("weapon_info").unwrap_or(&Value::Null);
+    crate::WeaponTiming {
+        pellets: number(info.get("bullets")),
+        burst_shot_count: number(info.get("burst_shot_count"))
+            .filter(|v| *v >= 1.0 && v.fract() == 0.0)
+            .map(|v| v as usize),
+        cycle_time: number(info.get("cycle_time")),
+        intra_burst_cycle_time: number(info.get("intra_burst_cycle_time")),
+        reload_single_bullets: info.get("reload_single_bullets").and_then(Value::as_bool),
+        reload_single_bullets_initial_delay: number(
+            info.get("reload_single_bullets_initial_delay"),
+        ),
+        reload_single_bullets_allow_cancel: info
+            .get("reload_single_bullets_allow_cancel")
+            .and_then(Value::as_bool),
+        recycle_time: number(info.get("recycle_time")),
+        raw_reload_duration: number(info.get("reload_duration")),
+    }
+}
+
+fn raw_weapon_metrics(
+    payload: &Value,
+    source: &crate::ModelSource,
+) -> BTreeMap<String, crate::MeasuredValue> {
+    [
+        ("bullet_damage", "damage/projectile"),
+        ("damage_per_shot", "damage/shot"),
+        ("damage_per_magazine", "damage/magazine"),
+        ("damage_per_second", "damage/s"),
+        ("damage_per_second_with_reload", "damage/s"),
+        ("shots_per_second", "shots/s"),
+        ("shots_per_second_with_reload", "shots/s"),
+        ("bullets_per_second", "projectiles/s"),
+        ("bullets_per_second_with_reload", "projectiles/s"),
+        ("clip_size", "shots"),
+        ("bullets", "projectiles/shot"),
+        ("reload_duration", "s"),
+        ("cycle_time", "s"),
+        ("intra_burst_cycle_time", "s"),
+        ("recycle_time", "source_value"),
+        ("reload_single_bullets_initial_delay", "s"),
+        ("damage_falloff_start_range", "source_distance"),
+        ("damage_falloff_end_range", "source_distance"),
+        ("damage_falloff_start_scale", "factor"),
+        ("damage_falloff_end_scale", "factor"),
+        ("damage_falloff_bias", "source_value"),
+        ("crit_bonus_start", "source_value"),
+        ("crit_bonus_end", "source_value"),
+        ("crit_bonus_start_range", "source_distance"),
+        ("crit_bonus_end_range", "source_distance"),
+    ]
+    .into_iter()
+    .map(|(key, unit)| {
+        let mut origin = source.clone();
+        origin.json_pointer.push_str(&format!("/weapon_info/{key}"));
+        let value = match number(payload.pointer(&format!("/weapon_info/{key}"))) {
+            Some(value) => crate::MeasuredValue::Known {
+                value,
+                unit: unit.into(),
+                sources: vec![origin],
+                rule: None,
+            },
+            None => crate::MeasuredValue::Unknown {
+                unit: unit.into(),
+                reason: "Rohfeld fehlt oder ist nicht endlich".into(),
+                missing_fields: vec![origin.json_pointer.clone()],
+                sources: vec![origin],
+            },
+        };
+        (key.into(), value)
+    })
+    .collect()
+}
+
+pub fn calculation_models_from_payloads(
+    heroes: &Value,
+    items: &Value,
+    hero_source: &crate::ModelSource,
+    item_source: &crate::ModelSource,
+) -> Result<crate::CalculationModels> {
+    if hero_source.client_version <= 0
+        || hero_source.client_version != item_source.client_version
+        || hero_source.language != item_source.language
+        || !matches!(hero_source.kind.as_str(), "heroes" | "heroes_all")
+        || item_source.kind != "items"
+        || hero_source.document_id.is_empty()
+        || item_source.document_id.is_empty()
+    {
+        return Err(ReasonerError::Data(
+            "Modellquellen benötigen dieselbe positive Spielversion".into(),
+        ));
+    }
+    let hero_rows = heroes
+        .as_array()
+        .ok_or_else(|| ReasonerError::Data("Heldensatz ist kein Array".into()))?;
+    let item_rows = items
+        .as_array()
+        .ok_or_else(|| ReasonerError::Data("Itemsatz ist kein Array".into()))?;
+    let mut output = crate::CalculationModels {
+        client_version: hero_source.client_version,
+        heroes: BTreeMap::new(),
+        weapons: BTreeMap::new(),
+        items: Vec::new(),
+        item_sources: BTreeMap::new(),
+        item_payloads: BTreeMap::new(),
+    };
+    let mut by_class = BTreeMap::new();
+    for (index, raw) in item_rows.iter().enumerate() {
+        let id = ability_id(raw)
+            .ok_or_else(|| ReasonerError::Data(format!("Itemzeile {index}: positive ID fehlt")))?;
+        let mut source = item_source.clone();
+        source.json_pointer.push_str(&format!("/{index}"));
+        if output.item_sources.insert(id, source.clone()).is_some() {
+            return Err(ReasonerError::Data(format!("Doppelte Item-ID {id}")));
+        }
+        let class = ability_class_name(raw);
+        if class.is_empty() || by_class.insert(class, raw).is_some() {
+            return Err(ReasonerError::Data(format!(
+                "Item {id}: Klassenname fehlt oder ist mehrdeutig"
+            )));
+        }
+        output.item_payloads.insert(id, raw.clone());
+        if raw
+            .get("weapon_info")
+            .and_then(Value::as_object)
+            .is_some_and(|v| !v.is_empty())
+        {
+            output.weapons.insert(
+                id,
+                crate::SourcedWeaponModel {
+                    item_id: id,
+                    profile: weapon_profile(raw),
+                    timing: weapon_timing(raw),
+                    raw: raw.clone(),
+                    raw_metrics: raw_weapon_metrics(raw, &source),
+                    source,
+                },
+            );
+        }
+        if raw.get("type").and_then(Value::as_str) == Some("upgrade") {
+            output.items.push(item_model_from_payload(raw)?);
+        }
+    }
+    for (index, raw) in hero_rows.iter().enumerate() {
+        let id = ability_id(raw).ok_or_else(|| {
+            ReasonerError::Data(format!("Heldenzeile {index}: positive ID fehlt"))
+        })?;
+        let mut unknowns = Vec::new();
+        let mut ability_sources = BTreeMap::new();
+        let mut parsed = Vec::new();
+        for slot in 1..=4 {
+            if let Some(class) = raw
+                .pointer(&format!("/items/signature{slot}"))
+                .and_then(Value::as_str)
+            {
+                if let Some(ability) = by_class.get(class) {
+                    let model = ability_model_from_payload(ability, slot)?;
+                    ability_sources.insert(
+                        model.ability_id,
+                        output.item_sources[&model.ability_id].clone(),
+                    );
+                    parsed.push(model);
+                } else {
+                    unknowns.push(format!("Referenzierte Fähigkeit {class} fehlt"));
+                }
+            } else {
+                unknowns.push(format!("Referenz /items/signature{slot} fehlt"));
+            }
+        }
+        let melee_ability = raw
+            .pointer("/items/weapon_melee")
+            .and_then(Value::as_str)
+            .and_then(|class| by_class.get(class))
+            .map(|payload| ability_model_from_payload(payload, 1))
+            .transpose()?;
+        if let Some(melee) = &melee_ability {
+            ability_sources.insert(
+                melee.ability_id,
+                output.item_sources[&melee.ability_id].clone(),
+            );
+        }
+        let resolve_weapon = |key: &str| {
+            raw.pointer(&format!("/items/{key}"))
+                .and_then(Value::as_str)
+                .and_then(|class| by_class.get(class))
+                .and_then(|raw| ability_id(raw))
+                .filter(|id| output.weapons.contains_key(id))
+        };
+        let primary_weapon = resolve_weapon("weapon_primary");
+        let secondary_weapon = resolve_weapon("weapon_secondary");
+        let mut payload = raw.clone();
+        if let Some(id) = primary_weapon {
+            payload["weapon_info"] = output.weapons[&id].raw["weapon_info"].clone();
+        } else {
+            unknowns.push("Referenzierte Primärwaffe fehlt".into());
+        }
+        let mut model = hero_model(&payload, &[], &[])?;
+        model.abilities = parsed;
+        model.damage_plan =
+            crate::mechanics::damage_plan(&model, &crate::ReasonerConfig::default());
+        let mut source = hero_source.clone();
+        source.json_pointer.push_str(&format!("/{index}"));
+        let sourced = crate::SourcedHeroModel {
+            model,
+            source,
+            raw: raw.clone(),
+            starting_stats: property_values(raw.get("starting_stats")),
+            primary_weapon,
+            secondary_weapon,
+            melee_ability,
+            ability_sources,
+            unknowns,
+        };
+        if output.heroes.insert(id, sourced).is_some() {
+            return Err(ReasonerError::Data(format!("Doppelte Helden-ID {id}")));
+        }
+    }
+    Ok(output)
+}
+
 fn weapon_profile(payload: &Value) -> WeaponProfile {
     let info = payload.get("weapon_info").and_then(Value::as_object);
     let get = |names: &[&str]| {
@@ -493,18 +817,41 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
             .iter()
             .find_map(|name| number(info.and_then(|info| info.get(*name))))
     };
-    let shots_per_second = get(&["shots_per_second", "bullets_per_second"])
+    let timing = weapon_timing(payload);
+    let shots_per_second = get(&["shots_per_second"])
         .or_else(|| {
-            get(&["cycle_time"])
-                .filter(|value| *value > 0.0)
-                .map(|value| 1.0 / value)
+            match (
+                timing.burst_shot_count,
+                timing.cycle_time,
+                timing.intra_burst_cycle_time,
+            ) {
+                (Some(count), Some(cycle), Some(intra)) if cycle + count as f64 * intra > 0.0 => {
+                    Some(count as f64 / (cycle + count as f64 * intra))
+                }
+                (_, Some(cycle), _) if cycle > 0.0 => Some(1.0 / cycle),
+                _ => None,
+            }
         })
+        .or_else(|| get(&["bullets_per_second"]).map(|rate| rate / timing.pellets.unwrap_or(1.0)))
         .unwrap_or_default();
+    let pellets = timing.pellets.unwrap_or(1.0);
+    let clip_size = get(&["clip_size"]).unwrap_or_default();
+    let raw_reload = get(&["reload_duration"]).unwrap_or_default();
+    let reload_duration = if timing.reload_single_bullets == Some(true) {
+        timing
+            .reload_single_bullets_initial_delay
+            .unwrap_or_default()
+            + clip_size * raw_reload
+    } else {
+        raw_reload
+    };
     WeaponProfile {
-        bullet_damage: get(&["bullet_damage"]).unwrap_or_default(),
+        bullet_damage: get(&["damage_per_shot"])
+            .or_else(|| get(&["bullet_damage"]).map(|v| v * pellets))
+            .unwrap_or_default(),
         shots_per_second,
-        clip_size: get(&["clip_size"]).unwrap_or_default(),
-        reload_duration: get(&["reload_duration"]).unwrap_or_default(),
+        clip_size,
+        reload_duration,
         range: get(&["range"]).unwrap_or_default(),
         falloff_start_range: get(&["damage_falloff_start_range", "falloff_start_range"])
             .unwrap_or_default(),
@@ -548,7 +895,7 @@ fn validate_hero_spirit_scaling(payload: &Value) -> Result<()> {
 
 fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Result<HeroModel> {
     validate_hero_spirit_scaling(payload)?;
-    let hero_id = integer(payload.get("id"));
+    let hero_id = ability_id(payload).unwrap_or(0);
     let name = string(payload.get("name"));
     if hero_id == 0 || name.is_empty() {
         return Err(ReasonerError::Data(
@@ -591,10 +938,23 @@ fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Re
     };
     let mut all_scaling = scaling_stats(payload.get("scaling_stats"));
     all_scaling.extend(stats.iter().cloned());
+    let pellets = weapon_timing(payload).pellets.unwrap_or(1.0);
+    for stat in &mut all_scaling {
+        if stat.stat == "EBulletDamage" {
+            stat.per_level *= pellets;
+            stat.per_spirit = stat.per_spirit.map(|value| value * pellets);
+        }
+    }
+    let mut standard_level_up_upgrades = numeric_object(payload.get("standard_level_up_upgrades"));
+    if let Some(damage) =
+        standard_level_up_upgrades.get_mut("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL")
+    {
+        *damage *= pellets;
+    }
     Ok(HeroModel {
         base_spirit_power: number(payload.pointer("/starting_stats/tech_power/value"))
             .unwrap_or_default(),
-        standard_level_up_upgrades: numeric_object(payload.get("standard_level_up_upgrades")),
+        standard_level_up_upgrades,
         standard_upgrade_levels: standard_upgrade_levels(payload),
         level_rewards: level_rewards(payload),
         cost_bonuses: serde_json::from_value(
@@ -1098,87 +1458,11 @@ fn item_models_from_mirror(
             continue;
         }
         let classification = dbrain_builds::classify::classify_item(payload);
-        let class_name = string(payload.get("class_name"));
-        let properties = property_values(payload.get("properties"));
-        let passive_properties = passive_property_values(payload.get("properties"));
-        let conditional_properties = payload
-            .get("properties")
-            .and_then(Value::as_object)
-            .into_iter()
-            .flatten()
-            .filter(|(_, property)| {
-                property
-                    .get("usage_flags")
-                    .and_then(Value::as_array)
-                    .is_some_and(|flags| {
-                        flags
-                            .iter()
-                            .any(|flag| flag.as_str() == Some("ConditionallyApplied"))
-                    })
-            })
-            .map(|(name, _)| name.clone())
-            .collect();
-        let asset_proc_cooldown = properties
-            .iter()
-            .find(|(name, _)| name.to_ascii_lowercase().contains("proccooldown"))
-            .map(|(_, value)| *value)
-            .filter(|value| *value > 0.0);
-        let proc_cooldown = asset_proc_cooldown;
-        let cost = integer(payload.get("cost"));
-        let is_active = payload
-            .get("is_active_item")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let shopable = payload
-            .get("shopable")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
-        let disabled = payload
-            .get("disabled")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let model = ItemModel {
-            property_damage_types: property_damage_types(payload),
-            property_spirit_scaling: property_spirit_scaling(payload),
-            component_items: payload
-                .get("component_items")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect(),
-            class_name: class_name.clone(),
-            description: snapshot_description(payload),
-            item_id,
-            name: string(payload.get("name")),
-            slot: match payload.get("item_slot_type").and_then(Value::as_str) {
-                Some("weapon") => SlotType::Weapon,
-                Some("spirit") => SlotType::Spirit,
-                Some("vitality") => SlotType::Vitality,
-                _ => {
-                    return Err(ReasonerError::Data(format!(
-                        "API-Item {item_id} hat keine gültige Slot-Kategorie."
-                    )))
-                }
-            },
-            tier: integer(payload.get("item_tier")),
-            cost,
-            is_active,
-            shopable,
-            disabled,
-            damage_axis: damage_type(&classification.damage_axis),
-            defense_kind: classification.defense_kind,
-            properties,
-            passive_properties,
-            conditional_properties,
-            condition: classify_condition(payload, is_active),
-            proc_cooldown,
-            imbueable: is_imbue_marker(payload.get("imbue"))
-                || description_text(payload)
-                    .to_ascii_lowercase()
-                    .contains("imbued"),
-        };
+        let mut model = item_model_from_payload(payload)?;
+        model.damage_axis = damage_type(&classification.damage_axis);
+        model.defense_kind = classification.defense_kind;
+        model.shopable = payload.get("shopable").and_then(Value::as_bool).unwrap_or(true);
+        let asset_proc_cooldown = model.proc_cooldown;
         let mut fields = BTreeMap::new();
         for (name, value) in &model.properties {
             fields.insert(
