@@ -145,25 +145,64 @@ fn load_post_row(
     post: &ApiPatchPost,
 ) -> Result<PatchnoteRow> {
     let url = trusted_original_url(&post.link).ok_or_else(|| anyhow!("Ungültige Patchquelle"))?;
+    let canonical = canonical_post_url(&url);
+    let mut identities = vec![canonical.to_string()];
+    if let Some(gid) = extract_steam_event_gid(url.as_str()) {
+        identities.push(format!(
+            "https://steamcommunity.com/app/1422450/event/{gid}"
+        ));
+    } else if let Some(gid) =
+        extract_steam_gid(url.as_str()).filter(|_| url.host_str() == Some("steamcommunity.com"))
+    {
+        identities.push(format!(
+            "https://steamcommunity.com/app/1422450/announcements/detail/{gid}"
+        ));
+        identities.push(format!("https://steamcommunity.com/app/1422450/externalpost/steam_community_announcements/{gid}"));
+    }
     let existing = client.query_opt(
-        "SELECT id FROM patchnotes.changelog_posts WHERE url=$1 OR url=$2 \
-         ORDER BY (url=$1) DESC, id LIMIT 1",
-        &[&url.as_str(), &post.link.as_str()],
+        "SELECT id FROM patchnotes.changelog_posts \
+         WHERE rtrim(split_part(split_part(url, '#', 1), '?', 1), '/') = ANY($1) \
+         ORDER BY (url=$2) DESC, (url=$3) DESC, (url=$4) DESC, id LIMIT 1",
+        &[
+            &identities,
+            &canonical.as_str(),
+            &url.as_str(),
+            &post.link.as_str(),
+        ],
     )?;
     post_row(post, existing.map(|row| row.get(0)))
 }
 
-fn post_row(post: &ApiPatchPost, existing_id: Option<i64>) -> Result<PatchnoteRow> {
-    let url = trusted_original_url(&post.link).ok_or_else(|| anyhow!("Ungültige Patchquelle"))?;
-    let mut canonical = url;
+fn canonical_post_url(url: &Url) -> Url {
+    let mut canonical = url.clone();
     canonical.set_query(None);
     canonical.set_fragment(None);
+    let path = canonical.path().trim_end_matches('/').to_string();
+    canonical.set_path(&path);
+    if let Some(gid) = extract_steam_event_gid(url.as_str()) {
+        canonical
+            .set_host(Some("store.steampowered.com"))
+            .expect("Fester Steam-Host");
+        canonical.set_path(&format!("/news/app/1422450/view/{gid}"));
+    } else if let Some(gid) =
+        extract_steam_gid(url.as_str()).filter(|_| url.host_str() == Some("steamcommunity.com"))
+    {
+        canonical.set_path(&format!("/games/1422450/announcements/detail/{gid}"));
+    }
+    canonical
+}
+
+fn post_row(post: &ApiPatchPost, existing_id: Option<i64>) -> Result<PatchnoteRow> {
+    let mut url =
+        trusted_original_url(&post.link).ok_or_else(|| anyhow!("Ungültige Patchquelle"))?;
+    let canonical = canonical_post_url(&url);
     let hash = stable_hash(canonical.as_str().as_bytes());
     let id = existing_id.unwrap_or(-i64::from_str_radix(&hash[..15], 16)?.max(1));
+    url.set_query(None);
     Ok(PatchnoteRow {
         id,
         title: Some(post.title.trim().into()),
-        url: Some(canonical.to_string()),
+        url: Some(url.to_string()),
         posted_at: Some(post.pub_date.clone()),
         raw_content: Some(post.content.clone()),
         translated_content: None,
@@ -924,7 +963,7 @@ mod tests {
             "gid":"703281025618282632",
             "event_name":post.title,
             "rtime32_start_time":1791241532_i64,
-            "announcement_body":{"headline":post.title,"body":body}
+            "announcement_body":{"gid":"184467000000000001","headline":post.title,"body":body}
         }]);
         let encoded = events
             .to_string()
@@ -1075,6 +1114,110 @@ mod tests {
             let undiscovered = load_post_row(&mut tx, &post).unwrap();
             assert!(undiscovered.id < 0);
             assert_eq!(undiscovered.id, post_row(&post, None).unwrap().id);
+        }
+        let store = "https://store.steampowered.com/news/app/1422450/view/703281025618282632";
+        let event = "https://steamcommunity.com/app/1422450/event/703281025618282632";
+        let announcement =
+            "https://steamcommunity.com/games/1422450/announcements/detail/184467000000000001";
+        let app_announcement =
+            "https://steamcommunity.com/app/1422450/announcements/detail/184467000000000001";
+        let forum = "https://forums.playdeadlock.com/threads/update.75046";
+        for (stored, link) in [
+            (store.to_string(), format!("{store}?l=english#notes")),
+            (format!("{store}?l=english#notes"), store.to_string()),
+            (store.to_string(), format!("{store}/")),
+            (format!("{store}/"), store.to_string()),
+            (
+                format!("{store}/?l=english#notes"),
+                format!("{event}#notes"),
+            ),
+            (format!("{event}/#notes"), format!("{store}?l=english")),
+            (
+                announcement.to_string(),
+                format!("{app_announcement}/?l=english#notes"),
+            ),
+            (format!("{app_announcement}/"), announcement.to_string()),
+            (forum.to_string(), format!("{forum}/?page=1#post-1")),
+            (format!("{forum}/?page=1#post-1"), forum.to_string()),
+            (forum.to_string(), format!("{forum}/")),
+            (format!("{forum}/"), forum.to_string()),
+        ] {
+            let mut post = post();
+            post.source = if link.starts_with("https://forums.") {
+                "forum"
+            } else {
+                "steam"
+            }
+            .into();
+            post.link = link.clone();
+            validate_post(&post).unwrap();
+            tx.execute(
+                "INSERT INTO patchnotes.changelog_posts VALUES (17, $1)",
+                &[&stored],
+            )
+            .unwrap();
+            let row = load_post_row(&mut tx, &post).unwrap();
+            assert_eq!(row.id, 17, "{stored} -> {link}");
+            let mut row_url = trusted_original_url(&link).unwrap();
+            row_url.set_query(None);
+            assert_eq!(row.url.as_deref(), Some(row_url.as_str()));
+            let body = "[p]- Weapon damage increased from 50 to 60[/p]";
+            let html = if post.source == "forum" {
+                format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{body}</div></article>")
+            } else {
+                steam_html(&post, body)
+            };
+            let index = EntityIndex::default();
+            let resolved = resolve_api_source(&post, &index, |_| Ok(html.clone()))
+                .unwrap()
+                .unwrap();
+            assert_eq!(resolved.raw_content, body);
+            let prepared = prepare_api_patch(&row, &resolved, &index).unwrap();
+            assert_eq!(prepared.patch_external_id, "patch_17");
+            assert_eq!(prepared.events.len(), 1);
+            assert_eq!(prepared.events[0].metadata["patch_id"], 17);
+            let request_url = trusted_original_url(&link).unwrap();
+            assert_eq!(prepared.source_external_id, request_url.as_str());
+            let payload: Value = serde_json::from_str(&prepared.raw_payload_text).unwrap();
+            assert_eq!(payload["source_url"], request_url.as_str());
+            assert_eq!(payload["resolved_from"], format!("{PATCH_FEED_URL}:{link}"));
+            let new_id = post_row(&post, None).unwrap().id;
+            post.link = stored;
+            validate_post(&post).unwrap();
+            assert_eq!(post_row(&post, None).unwrap().id, new_id);
+            tx.execute("DELETE FROM patchnotes.changelog_posts", &[])
+                .unwrap();
+            assert_eq!(load_post_row(&mut tx, &post).unwrap().id, new_id);
+        }
+        let mut known_post = post();
+        known_post.link = store.into();
+        let store_id = post_row(&known_post, None).unwrap().id;
+        known_post.link = announcement.into();
+        let announcement_id = post_row(&known_post, None).unwrap().id;
+        assert_ne!(store_id, announcement_id);
+        tx.execute(
+            "INSERT INTO patchnotes.changelog_posts VALUES (17, $1), (19, $2)",
+            &[&store, &announcement],
+        )
+        .unwrap();
+        for link in [
+            "https://store.steampowered.com/news/app/1422450/view/703281025618282631?l=english#notes",
+            "https://steamcommunity.com/app/1422450/event/703281025618282631/",
+            "https://steamcommunity.com/games/1422450/announcements/detail/703281025618282632",
+            "https://steamcommunity.com/app/1422450/announcements/detail/703281025618282632/",
+            "https://store.steampowered.com/news/app/1422450/view/184467000000000001",
+            "https://steamcommunity.com/app/1422450/event/184467000000000001",
+            "https://steamcommunity.com/games/1422450/announcements/detail/184467000000000002",
+        ] {
+            let mut post = post();
+            post.link = link.into();
+            validate_post(&post).unwrap();
+            let row = load_post_row(&mut tx, &post).unwrap();
+            assert!(row.id < 0, "{link}");
+            assert_ne!(row.id, store_id);
+            assert_ne!(row.id, announcement_id);
+            let html = steam_html(&post, "[p]- Weapon damage increased from 50 to 60[/p]");
+            assert!(resolve_api_source(&post, &EntityIndex::default(), |_| Ok(html.clone())).unwrap().is_none());
         }
         tx.rollback().unwrap();
     }
