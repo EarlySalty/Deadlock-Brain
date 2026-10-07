@@ -1,4 +1,12 @@
-# Paket I: Fachrückgabe nach Gesamt-BLOCK und verweigertem Fixerzugriff
+# Paket I: aktive Lieferung mit tatsächlich ausgelöstem Discovery-Schnitt
+
+## Aktueller Stand nach gemeinsamer Prüfung
+
+Die eine fachliche URL-Runde ist abgeschlossen, c0e38302. Gemeinsamer tatsächlicher Kandidat af473608: 558 passed, 25 ignored; Format und bestehendes paketbegrenztes striktes Clippy Exit 0. Expliziter gemeinsamer Gate mit claude-opus-5-5 Exit 0, ALLOW mit den zwei erhaltenen NITs. Original /tmp/brain-i-af473608-common-gate-opus55.log.
+
+Der danach regulär ausgeführte Main-Push wurde vom unveränderten tatsächlichen Hook erneut geprüft und verweigert: [gpt-6.1-sol] BLOCK. Kein eigener Modellwechsel, Hookbypass oder Main-Push. Zwei neue inhaltliche Funde am Code bestätigt: Forumseiten ohne Originalbeitragsbindung liefern ihren ersten sichtbaren Beitrag; der kosmetische Vollklausel-Veto verwirft auch den gebundenen Gameplaygegenstand Metal Skin. Keine zweite Discovery-Fixrunde. Der vom Nutzer vorgeschriebene Schnitt ist damit tatsächlich ausgelöst, nicht durch einen Toolfehler.
+
+Discovery vollständig auf origin/feat/brain-patch-discovery bei af473608 erhalten. Eigener Integrationsbaum jetzt feat/brain-assets-mirror-20261007 auf ca4d877f mit übernommenen Spiegeldateien. Patchimport, Forumoriginalauswahl und Discovery bleiben identisch zu main; neuer sync-patchnotes-CLI-/Timerpfad ausgeschlossen. Mirror-Abnahme, Gate und Lieferung folgen regulär. Kein Deploy, analytics_runtime oder F/G-Publish-Beweis daraus abgeleitet. Vollständige aktuelle Nachweise in PRUEFUNG-KANDIDAT-AF473608.md und REVIEW-RUNDE-22-MAIN-GATE.md.
 
 ## Aktive frische Fortsetzung vom 07.10.2026
 

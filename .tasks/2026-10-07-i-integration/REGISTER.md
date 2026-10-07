@@ -15,6 +15,12 @@ Fixer 15 bestätigte regulären Quellzugriff und lieferte erste uncommittierte L
 
 Neueste Entscheidung ENTSCHEIDUNG-PARALLEL-FERTIGSTELLEN.md gelesen: I/G/K parallel in getrennten Bereichen, F direkt nach Spiegel-Merge gegen dann aktuellen main und gesicherten geprüften G-Vertrag. Keine fremden Sessions oder Docs verwalten, analytics_runtime erst ausdrücklich als Datei freigeben. Die eine URL-Fixrunde und Discovery-Fallback nur bei neuem inhaltlichem Fund bleiben unverändert. Noch kein neuer Test/Gate/ALLOW, Merge oder Livebeweis.
 
+## Aktueller tatsächlicher Discovery-Schnitt
+
+Gemeinsamer af473608-Kandidat: 558 passed, 25 ignored, Format und bestehendes paketbegrenztes striktes Clippy Exit 0. Expliziter Gesamt-Gate claude-opus-5-5 ALLOW, tatsächlicher regulärer Main-Push aber vom unveränderten Hook mit [gpt-6.1-sol] BLOCK verweigert. Zwei neue tatsächliche Discovery-Funde am Code bestätigt. Kein Modellwechsel oder Hookbypass durch I, kein Main-Push. REVIEW-RUNDE-22-MAIN-GATE.md enthält beide Urteile und Verifikation.
+
+Vom Nutzer vorgeschriebener Fallback ausgelöst. feat/brain-patch-discovery lokal und auf origin hält exakt af473608. Gemeinsamer Kandidatenbranch ebenfalls gesichert. Eigener Integrationsbaum jetzt auf feat/brain-assets-mirror-20261007 von ca4d877f; Spiegeldateien übernommen, bestehender Patchimport und Forumcode durch leeren Diff gegen main unverändert bestätigt. Kein zweiter Discovery-Fixer oder zusätzlicher Worker. Eigenes Spiegeltesting läuft, Kennung bcos1y3en; noch kein Spiegel-Gate, Merge oder Livebeweis. F beginnt nach tatsächlichem Spiegel-Merge.
+
 ## Fachliche Runde und gemeinsame Integration
 
 Fixer 15 beendet, keine aktiven eigenen nativen Kinder. Ergebnis c0e38302cd85c9c650ca07f658af037cedb81124, ausschließlich api_sync.rs. Suite 558 passed/25 ignored, erweiterte echte Scratch-PG-Probe 1 passed/0 ignored; Format/Compiler/Clippy Exit 0. Begrenzter Selbst-Gate Claude Opus 5.5 BLOCK, ursprünglicher Aliasbefund durch tatsächlichen vorhandenen Alias und explizite PG-Gegenprobe nicht bestätigt. Bericht FIXER-15-BERICHT.md, Original /tmp/brain-fixer15-self-gate-opus55.log. Kein begrenzter Retry, Main-Push oder Deploy. Die vorgeschriebene gemeinsame Prüfung gegen aktuellen main folgt am tatsächlich integrierten Kandidaten. Keine zweite fachliche Discovery-Fixrunde.
