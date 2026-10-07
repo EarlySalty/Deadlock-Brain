@@ -1,5 +1,49 @@
 # Paket E: API-Datenbasis für Brain v2, Release-Hold gilt
 
+## E-Fix1
+
+**Stand 07.10.2026:** Vorschau-BLOCK behoben, Selbstprüfung ALLOW. Produktcommit `09af1e6b` auf `feat/brain-deadlock-api-daten`. Bericht und Rohbelege werden separat auf derselben Featurebranch gesichert. Keine Integration oder Betriebsaktion; der Release-Hold bleibt bestehen. Die älteren offenen Angaben unterhalb dieses Abschnitts beschreiben den Stand vor E-Fix1.
+
+**Ursache und Fix:** Die drei Stellen in `pg_patchnotes/api_sync.rs` verwechselten eine erkannte Änderungszeile mit vollständigem Patchtext. Sie verwenden jetzt `has_complete_patch_content`: Änderungsinhalt genügt erst ohne Link-/Verweisbelege im unbereinigten Text. API-Vorschauen mit Volltextlink lösen daher die Originalauflösung aus. Auch abgerufene Originalkörper und das endgültige Resolverergebnis müssen denselben Maßstab erfüllen. Der Schlussguard steht vor kanonischer Zuordnung, Import und Ersetzung der bisherigen Ereignisse. Der bestehende Steam-Rückfall bereinigte Link-Markup zu früh; der gemeinsame Resolver erhält für die API-Prüfung jetzt den Originalkörper. Der bisherige Einzelimport behält sein bereinigtes Verhalten. Kein zweiter Patchparser und keine Mindest-Bulletzahl.
+
+**Zwillingssuche:** Der Worktree besitzt keinen eigenen Graphen. Nach dem erfolglosen lokalen Graphify-Aufruf wurden der globale Graph, `resolve_patch_source` und die Auswirkung von `resolve_steam_content` abgefragt. Gezieltes `rg` belegte die drei Vollständigkeitsstellen und den zusätzlichen Bereinigungszwilling im Steam-Rückfall. Die Kandidatenauswahl bleibt eine Discovery-Heuristik, kein Vollständigkeitsbeleg.
+
+**Prüfbelege:** Schlusslauf `E-Fix1-tests-2.log`: 516 passed, 0 failed, 24 ignored, 0 filtered, 31 Ergebnisblöcke, Exit 0. Darin liefen die beiden neuen Vorschau-/Steam-Rückfalltests und die neue echte Produzent-/Leserprobe. Letztere verwendet `prepare_assets`, `SourceStore::persist_ir`, das vorhandene Run-Journal und `brain_storage::asset_mirror::load_mirrored_assets`: zwei Versionen, drei Arten und beide Sprachen, unveränderte JSON-Werte sowie Rohbytes und Hashes. Ein laufender beziehungsweise fehlgeschlagener neuer Run bleibt unlesbar, die ältere Version bleibt verfügbar. Postgres wird im isolierten temporären Cluster ohne TCP gestartet; Socket, Datenverzeichnis und Testrolle werden vor dem Tabellenaufbau geprüft. Der bestehende Storage-Test und der neue Produzententest teilen denselben ausgegliederten Scratch-Cluster-Helfer. Keine produktive DB und keine Matchdaten. 24 ignorierte Bestandsproben wurden nicht als ausgeführt gewertet.
+
+```bash
+SQLX_OFFLINE=true /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-e-deadlock-api/rust/Cargo.toml -p brain-storage -p deadlock-brain-core -p dbrain-sources -p dbrain-builds -p deadlock-brain -j 2 --no-fail-fast -- --test-threads=1
+/home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/.worktrees/brain-e-deadlock-api/rust/Cargo.toml -p brain-storage -p deadlock-brain-core -p dbrain-sources -p dbrain-builds -p deadlock-brain -- --check
+SQLX_OFFLINE=true /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-e-deadlock-api/rust/Cargo.toml -p brain-storage -p deadlock-brain-core -p dbrain-sources -p dbrain-builds -p deadlock-brain --all-targets --no-deps -j 2 -- -D warnings
+```
+
+Format und Clippy: jeweils Exit 0, `E-Fix1-fmt.log` und `E-Fix1-clippy.log`. Kein breiter Dependency-Lauf und keine Änderung an `dbrain-enrich`. Der erste eigene Compilerlauf scheiterte an einer nicht vorhandenen direkten Regex-Abhängigkeit. Der Fix verwendet vorhandene Stringoperationen, keine zusätzliche Abhängigkeit; der Fehlerlauf bleibt in `E-Fix1-tests.log` erhalten. Der Schutz-Hook verweigerte mutierendes `cargo fmt`; formatiert wurden stattdessen die eigenen Dateien mit `rustfmt`, danach bestand der oben angegebene Formatcheck.
+
+**Selbstprüfung:**
+
+```bash
+python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-e-deadlock-api --base 5e70da3a6f40c0f1eedc78565641d8dfce582f56 --head 09af1e6b
+```
+
+Ein Anlauf, Exit 0. Gate-Antwort wörtlich:
+
+```text
+[gpt-6.1-sol] ALLOW: No demonstrated merge-blocking defect in the supplied revision.
+```
+
+Die vollständige unveränderte Antwort liegt in `E-Fix1-gate.log`. Zwei nicht blockierende Hinweise: Der Maßstab überspringt auch vollständige Originaltexte mit beiläufigen Links oder Bild-URLs. Dieses konservative Verhalten wird ausdrücklich beibehalten, statt daraus unbelegte Vollständigkeit abzuleiten. Außerdem sah das Gate den älteren Testbeleg `E-tests-final-3.log`; der aktuelle Lauf mit den neuen Tests ist jetzt als `E-Fix1-tests-2.log` beigefügt. Kein Exit 2, kein Retry und kein erneutes Würfeln eines BLOCK.
+
+**Übergabe:** Gs `asset_mirror`-Lesevertrag bleibt unverändert. Integration erst nach Hold-Ende durch die Hauptsession. Kein Main-Push, Releasebuild, Installieren, Neustart, Tick, Löschen von Branch oder Worktree und kein Settle. Sicherungsziel ist `origin/feat/brain-deadlock-api-daten`; die Schlussmeldung nennt den bestätigten Pushstand.
+
+TESTNACHWEIS[TW-1]: 516 passed, 24 ignored | Baseline: unbekannt rot
+
+WIRKUNGSPRUEFUNG[WP-1]: 2 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 3/3 geprüft
+
+Die zwei behobenen Befunde sind der dreifache Vollständigkeitsfehler und der zu früh bereinigte Steam-Rückfall. Geprüfte Fremddienst-Pfadgruppen: Feed, Original-HTML und bestehende Steam-Ledger-Auflösung. Unvollständige Ergebnisse werden vor der schreibenden Wirkung sichtbar übersprungen; Fehler bleiben Fehler. Die neue Persistenz-/Leseprobe schließt die bisherige Nachweislücke.
+
+MERGEPROTOKOLL[MS-1]: 5 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW, Exit 0; kein Main-Merge
+
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: AN_HAUPT-E.md, Abschnitt E-Fix1
+
 ## Schnittstelle zu G, Entscheidung 05:25
 
 G (`a867ef50`) besitzt Rechenschicht, Entitätsansichten und Werkzeuge im Antwortdienst. E liefert ausschließlich den versionsgebundenen Import und den gemeinsamen lokalen Leser. Keine Dokumentpakete, Steckbriefveröffentlichung, Rechenschicht oder zusätzlichen Antwortwege durch E.

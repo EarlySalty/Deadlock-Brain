@@ -1,0 +1,5 @@
+[gpt-6.1-sol] ALLOW: No demonstrated merge-blocking defect in the supplied revision.
+
+1. rust/crates/deadlock-brain/src/pg_patchnotes/api_sync.rs:167 | NIT — Any URL or `href` makes otherwise complete patch text fail the completeness check. | Full originals containing incidental links or image URLs are visibly skipped too. Add a complete-original fixture with an unrelated link to document this conservative tradeoff.
+
+2. .tasks/2026-10-06-brain-abschluss/E-tests-final-3.log:1 | NIT — The recorded run predates the new persistence roundtrip and preview regression tests. | It does not establish that those tests pass at this HEAD. A deterministic run including the newly added tests would close that evidence gap.
