@@ -2,6 +2,22 @@
 
 status: aktiv, 07.10.2026
 
+## Rechenkern und Fehlerabrechnung zurückgegeben
+
+G-K-R1 und G-M-06:45 sind tatsächlich abgeschlossen, keine Produktwriter mehr aktiv. Fehlerabrechnung und letzte JSON-Prüfung: Contracts/Provider 113 passed/0 failed/0 ignored; drei Crates 170 passed/18 gleiche Baselinefehler. Quellenbindung 50/50 erneut geprüft, tatsächliche Exitdateien gelesen. Bericht `G/G-K-R1-NACHWEISE.md`.
+
+Wachstum, Kurven und acht rekonstruierte Sheetrechnungen laufen im gemeinsamen Reasonerkern. 34 Rechenfälle bestanden; Gesamtsuite 321 passed/4 gleiche DB-Fixturefehler/0 ignored, drei Produktionsfixtures ausdrücklich ausgeschlossen. Neue Planer-Testfixture-Regression behoben, keine Planer-Produktänderung. Bericht `G/G-M-0645-NACHWEISE.md`. Zahlen sind an Originalprobe 6759 gebunden, kein Produktions-/Balancepatchbeweis.
+
+**F-Anschluss jetzt geliefert:** `project_hero`, `hero_growth`, `compare_hero_curves`, `calculate_hero_with_deadline` und `compare_sheet_scenarios` öffentlich im vorhandenen Reasoner. Bei mehrstufigem Wachstum keinen einzelnen Level/AP-Zustand als Erwartung pinnen. Eigentumsübergabe von Fs verbleibenden Planparametern weiterhin erforderlich; G ändert den Planer nicht ungefragt.
+
+Produktänderungen gehen jetzt in kohärenten Checkpoints durch den regulären Gate. Gebaut: ja, Teilpakete. Reviewt: diese Fortsetzungen noch nicht. Gemergt: nein. Live: nein. G-V bleibt an die unten gemeldeten E/F-/Rechteverträge gebunden; kein Ersatzbau.
+
+## Anschlusscheckpoint 5c2afa66 auf origin
+
+Tatsächlicher G-V-Bestand, vorhandener reiner BuildObject-Eingang und begrenzte Restlieferungen sind gesichert. Regulärer Dokumentgate gegen `5a442391`, Task `bpsxk5xn9`, Exit 0: `[gpt-6.1-sol] ALLOW: no reviewable changes`, Log `/tmp/brain-g-integration-contracts-gate-20261007.log`. Vier Dokumentdateien, drei schreibende Git-Einzelschritte, Featurepush bestätigt. Laufender Produkt-WIP blieb unstaged. G-M arbeitet an finaler isolierter Suite, G-K-R1 an eigener Schlussprüfung; kein Produktreview oder Livebeweis aus dem Dokumentgate.
+
+MERGEPROTOKOLL[MS-1]: 3 Git-Schritte einzeln | Anläufe: 0 | Gate: [gpt-6.1-sol] ALLOW: no reviewable changes; kein Main-Merge
+
 ## G-V: bestätigte Restlieferungen vor Integration
 
 Lesender Vorcheck abgeschlossen: `wvxlh36sq` / `wf_b7f373c0-174`, Bericht `G/G-V-ANSCHLUSS.md`. E am tatsächlichen Commit `81074170`, F an `46fd8674`, Quellen und Nebenpfade nach Graphify geprüft. **Korrektur zum älteren Bedarf:** Ein reiner BuildObject-Eingang existiert bereits als `plan_build_with_playstyle`, einschließlich tatsächlich angewandtem Spielstil. Kein neuer Planer, Composer oder Buildwrapper nötig.

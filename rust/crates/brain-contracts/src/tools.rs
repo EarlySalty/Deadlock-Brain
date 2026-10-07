@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::entity_profile::EntityKind;
-use crate::{AuthorizedContext, Evidence, PortError, ProviderAnswer, Query, Usage};
+use crate::{
+    Accounted, AuthorizedContext, Evidence, PortError, PortFailure, ProviderAnswer, Query, Usage,
+    UsageAccounting,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -886,6 +889,22 @@ pub trait ToolExecutionPort: Send + Sync {
         call_id: &str,
         request: &ToolRequest,
     ) -> Result<ToolExecution, PortError>;
+
+    fn execute_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        game_context: Option<&PinnedGameContext>,
+        call_id: &str,
+        request: &ToolRequest,
+    ) -> Result<Accounted<ToolExecution>, PortFailure> {
+        self.execute(query, context, game_context, call_id, request)
+            .map(|value| Accounted {
+                accounting: UsageAccounting::observed(value.usage.clone()),
+                value,
+            })
+            .map_err(PortFailure::from)
+    }
 
     fn validate_dependencies(
         &self,

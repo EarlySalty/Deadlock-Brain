@@ -303,6 +303,94 @@ pub struct Usage {
     pub cost_micros: u64,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UsageAccounting {
+    pub observed: Usage,
+    pub reserved: Usage,
+    pub unaccounted: bool,
+}
+
+impl Usage {
+    pub fn accumulate(&mut self, other: &Self) -> bool {
+        self.provider = other.provider.clone().or_else(|| self.provider.clone());
+        self.model = other.model.clone().or_else(|| self.model.clone());
+        let mut overflow = false;
+        macro_rules! add {
+            ($field:ident) => {
+                self.$field = self.$field.checked_add(other.$field).unwrap_or_else(|| {
+                    overflow = true;
+                    self.$field.saturating_add(other.$field)
+                });
+            };
+        }
+        add!(input_tokens);
+        add!(output_tokens);
+        add!(network_rounds);
+        add!(cost_micros);
+        !overflow
+    }
+}
+
+impl UsageAccounting {
+    pub fn observed(usage: Usage) -> Self {
+        Self {
+            observed: usage,
+            ..Self::default()
+        }
+    }
+
+    pub fn accumulate(&mut self, other: &Self) {
+        self.unaccounted |= other.unaccounted;
+        self.unaccounted |= !self.observed.accumulate(&other.observed);
+        self.unaccounted |= !self.reserved.accumulate(&other.reserved);
+        let mut total = self.observed.clone();
+        self.unaccounted |= !total.accumulate(&self.reserved);
+    }
+
+    pub fn charged(&self) -> Usage {
+        let mut total = self.observed.clone();
+        total.accumulate(&self.reserved);
+        total
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Accounted<T> {
+    pub value: T,
+    pub accounting: UsageAccounting,
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[error("{error}")]
+pub struct PortFailure {
+    pub error: PortError,
+    pub accounting: Option<Box<UsageAccounting>>,
+}
+
+impl PortFailure {
+    pub fn before_call(error: PortError) -> Self {
+        Self::accounted(error, UsageAccounting::default())
+    }
+
+    pub fn accounted(error: PortError, accounting: UsageAccounting) -> Self {
+        Self {
+            error,
+            accounting: Some(Box::new(accounting)),
+        }
+    }
+}
+
+impl From<PortError> for PortFailure {
+    fn from(error: PortError) -> Self {
+        Self {
+            error,
+            accounting: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AnswerStatus {
@@ -502,6 +590,36 @@ pub trait RetrievalPort: Send + Sync {
 }
 
 pub trait AnswerProviderPort: Send + Sync {
+    fn answer_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> std::result::Result<Accounted<ProviderAnswer>, PortFailure> {
+        self.answer(query, context, evidence)
+            .map(|value| Accounted {
+                accounting: UsageAccounting::observed(value.usage.clone()),
+                value,
+            })
+            .map_err(PortFailure::from)
+    }
+
+    fn answer_turn_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        tools: &[tools::ToolDefinition],
+        conversation: &tools::ToolConversation,
+    ) -> std::result::Result<Accounted<tools::ProviderTurn>, PortFailure> {
+        self.answer_turn(query, context, evidence, tools, conversation)
+            .map(|value| Accounted {
+                accounting: UsageAccounting::observed(value.usage().clone()),
+                value,
+            })
+            .map_err(PortFailure::from)
+    }
+
     fn answer(
         &self,
         query: &Query,
@@ -535,6 +653,75 @@ pub trait AnswerProviderPort: Send + Sync {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn fehlerabrechnung_trennt_beobachtung_reservierung_und_fehlende_abrechnung() {
+        let error = PortError::BudgetExceeded;
+        assert_eq!(
+            PortFailure::before_call(error.clone()).accounting,
+            Some(Box::new(UsageAccounting::default()))
+        );
+        assert_eq!(PortFailure::from(error.clone()).accounting, None);
+        let accounting = UsageAccounting {
+            observed: Usage {
+                input_tokens: 7,
+                output_tokens: 3,
+                network_rounds: 2,
+                ..Usage::default()
+            },
+            reserved: Usage {
+                input_tokens: 50,
+                output_tokens: 20,
+                cost_micros: 100,
+                ..Usage::default()
+            },
+            unaccounted: false,
+        };
+        let failure = PortFailure::accounted(error.clone(), accounting.clone());
+        assert_eq!(failure.error, error);
+        assert_eq!(failure.accounting, Some(Box::new(accounting.clone())));
+        assert_eq!(accounting.charged().input_tokens, 57);
+        assert_eq!(accounting.charged().network_rounds, 2);
+        let encoded = serde_json::to_value(&accounting).unwrap();
+        assert_eq!(encoded["observed"]["input_tokens"], 7);
+        assert_eq!(encoded["reserved"]["input_tokens"], 50);
+        assert_eq!(
+            serde_json::from_value::<UsageAccounting>(encoded).unwrap(),
+            accounting
+        );
+    }
+
+    #[test]
+    fn fehlerabrechnung_ueberlauf_erhaelt_zaehler_und_schliesst_sicher() {
+        let mut accounting = UsageAccounting::observed(Usage {
+            input_tokens: u64::MAX,
+            network_rounds: u32::MAX,
+            ..Usage::default()
+        });
+        accounting.accumulate(&UsageAccounting::observed(Usage {
+            input_tokens: 1,
+            network_rounds: 1,
+            output_tokens: 3,
+            ..Usage::default()
+        }));
+        assert!(accounting.unaccounted);
+        assert_eq!(accounting.observed.input_tokens, u64::MAX);
+        assert_eq!(accounting.observed.network_rounds, u32::MAX);
+        assert_eq!(accounting.observed.output_tokens, 3);
+        let mut accounting = UsageAccounting::observed(Usage {
+            input_tokens: u64::MAX,
+            ..Usage::default()
+        });
+        accounting.accumulate(&UsageAccounting {
+            reserved: Usage {
+                input_tokens: 1,
+                ..Usage::default()
+            },
+            ..UsageAccounting::default()
+        });
+        assert!(accounting.unaccounted);
+        assert_eq!(accounting.reserved.input_tokens, 1);
+    }
 
     #[test]
     fn textport_default_bleibt_kompatibel_und_verweigert_werkzeuganfragen() {

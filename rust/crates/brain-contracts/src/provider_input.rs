@@ -5,8 +5,67 @@ use crate::tools::{
     ToolName,
 };
 use crate::{Evidence, PortError, Query};
+use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::Serialize;
 use serde_json::{json, Value};
+
+struct Unique(Value);
+impl<'de> Deserialize<'de> for Unique {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct UniqueVisitor;
+        impl<'de> Visitor<'de> for UniqueVisitor {
+            type Value = Unique;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("JSON with unique object keys")
+            }
+            fn visit_bool<E: serde::de::Error>(self, value: bool) -> Result<Unique, E> {
+                Ok(Unique(Value::Bool(value)))
+            }
+            fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<Unique, E> {
+                Ok(Unique(value.into()))
+            }
+            fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<Unique, E> {
+                Ok(Unique(value.into()))
+            }
+            fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<Unique, E> {
+                serde_json::Number::from_f64(value)
+                    .map(|v| Unique(Value::Number(v)))
+                    .ok_or_else(|| E::custom("non-finite JSON number"))
+            }
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Unique, E> {
+                Ok(Unique(Value::String(value.to_owned())))
+            }
+            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Unique, E> {
+                Ok(Unique(Value::String(value)))
+            }
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Unique, E> {
+                Ok(Unique(Value::Null))
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Unique, A::Error> {
+                let mut values = Vec::new();
+                while let Some(Unique(value)) = seq.next_element()? {
+                    values.push(value);
+                }
+                Ok(Unique(Value::Array(values)))
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Unique, A::Error> {
+                let mut values = serde_json::Map::new();
+                while let Some((key, Unique(value))) = map.next_entry::<String, Unique>()? {
+                    if values.insert(key, value).is_some() {
+                        return Err(serde::de::Error::custom("duplicate JSON object key"));
+                    }
+                }
+                Ok(Unique(Value::Object(values)))
+            }
+        }
+        d.deserialize_any(UniqueVisitor)
+    }
+}
+
+pub fn parse_unique_json(raw: &[u8]) -> Result<Value, serde_json::Error> {
+    drop(serde_json::from_slice::<Unique>(raw)?.0);
+    serde_json::from_slice(raw)
+}
 
 const FRAMING: u64 = 64;
 const PER_MESSAGE: u64 = 16;
@@ -273,8 +332,10 @@ pub fn transport_input_ceiling(payload: &Value, chat: bool) -> Result<u64, PortE
                 let call = ToolCall {
                     id: string(&call["id"])?.into(),
                     name: parse_name(&call["function"]["name"])?,
-                    arguments: serde_json::from_str(string(&call["function"]["arguments"])?)
-                        .map_err(|_| envelope_error())?,
+                    arguments: parse_unique_json(
+                        string(&call["function"]["arguments"])?.as_bytes(),
+                    )
+                    .map_err(|_| envelope_error())?,
                 };
                 calls.register(call)?;
             }
@@ -432,6 +493,96 @@ fn envelope_error() -> PortError {
 mod tests {
     use super::*;
     use crate::tools::ToolResult;
+
+    #[test]
+    fn unique_json_rejects_duplicate_decoded_keys_at_every_depth() {
+        for raw in [
+            r#"{"query":"A","query":"B","language":"german"}"#,
+            concat!(
+                r#"{"query":"A","qu"#,
+                "\\u0065",
+                r#"ry":"B","language":"german"}"#
+            ),
+            r#"{"nested":{"value":null,"value":1}}"#,
+            r#"[{"nested":[{"value":1,"value":2}]}]"#,
+            concat!(r#"{"ä":1,""#, "\\u00e4", r#"":2}"#),
+        ] {
+            let error = parse_unique_json(raw.as_bytes()).unwrap_err();
+            assert!(error.is_data());
+        }
+    }
+
+    #[test]
+    fn unique_json_preserves_numbers_arrays_null_and_independent_objects() {
+        for raw in [
+            r#"{"left":{"value":null},"right":{"value":1},"rows":[{"value":2},{"value":3}]}"#,
+            r#"[null,true,false,"äöüß",[],{},-9223372036854775808,18446744073709551615,1.25,-0.0,1e30]"#,
+            "null",
+            "12",
+            "1e400",
+            "184467440737095516160",
+            "\"text\"",
+        ] {
+            assert_eq!(
+                parse_unique_json(raw.as_bytes()).map_err(|error| (
+                    error.classify(),
+                    error.line(),
+                    error.column()
+                )),
+                serde_json::from_str::<Value>(raw).map_err(|error| (
+                    error.classify(),
+                    error.line(),
+                    error.column()
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn unique_json_keeps_serde_recursion_number_and_complete_input_limits() {
+        let mut invalid = vec![
+            "NaN".to_owned(),
+            "{} {}".to_owned(),
+            "{\"a\":1,}".to_owned(),
+        ];
+        invalid.push(format!("{}null{}", "[".repeat(128), "]".repeat(128)));
+        for raw in invalid {
+            let expected = serde_json::from_str::<Value>(&raw).unwrap_err();
+            let actual = parse_unique_json(raw.as_bytes()).unwrap_err();
+            assert_eq!(actual.classify(), expected.classify());
+            assert_eq!(actual.line(), expected.line());
+            assert_eq!(actual.column(), expected.column());
+        }
+        let accepted = format!("{}null{}", "[".repeat(127), "]".repeat(127));
+        assert_eq!(
+            parse_unique_json(accepted.as_bytes()).unwrap(),
+            serde_json::from_str::<Value>(&accepted).unwrap()
+        );
+    }
+
+    #[test]
+    fn wire_input_rejects_duplicate_keys_in_encoded_argument_history() {
+        let (query, definitions, conversation) = fixture();
+        let mut payload = grounded_turn_payload(
+            &query,
+            &[],
+            &definitions,
+            &conversation,
+            ToolWireFormat::OpenAiCompatible,
+        )
+        .unwrap();
+        for raw in [
+            r#"{"query":"A","query":"B","language":"german"}"#,
+            concat!(
+                r#"{"query":"A","qu"#,
+                "\\u0065",
+                r#"ry":"B","language":"german"}"#
+            ),
+        ] {
+            payload["messages"][2]["tool_calls"][0]["function"]["arguments"] = json!(raw);
+            assert!(transport_input_ceiling(&payload, true).is_err());
+        }
+    }
 
     #[test]
     fn counts_decoded_text_not_http_escaping_or_model_name() {
