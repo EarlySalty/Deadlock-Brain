@@ -12,6 +12,9 @@ use sqlx::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+#[path = "support/asset_mirror.rs"]
+mod asset_mirror;
+
 fn record(source: &str, id: &str, revision: u64) -> SourceRecordV2 {
     let mut record = SourceRecordV2 {
         source_id: source.into(),
@@ -179,6 +182,7 @@ async fn imported_heads_preserve_base_and_block_preparation_commit_races() {
     assert_eq!(user, "brain_core_test");
     let store = PgStore::new(pool.clone());
     store.migrate_core().await.unwrap();
+    asset_mirror::check(&pool).await;
     let prefix = format!(
         "knowledge-release-{}-{}",
         std::process::id(),

@@ -11,7 +11,7 @@ use serde_json::{json, Map, Value};
 use std::{collections::BTreeSet, path::Path};
 
 pub const SOURCE: &str = "deadlock_assets_api";
-pub const PARSER_REVISION: &str = "dbrain-assets/2";
+pub const PARSER_REVISION: &str = "dbrain-assets/3";
 // Keep the current main endpoint fix; do not revive the retired assets host.
 pub const BASE_URL: &str = "https://api.deadlock-api.com";
 pub const ENDPOINTS: &[(&str, &str)] = &[
@@ -24,7 +24,8 @@ pub const ENDPOINTS: &[(&str, &str)] = &[
     ("npc_units", "/v1/assets/npc-units"),
 ];
 const RETIRED_KINDS: &[&str] = &["raw_items", "raw_heroes"];
-const DEFAULT_KINDS: &[&str] = &["items", "heroes"];
+const DEFAULT_KINDS: &[&str] = &["items", "heroes", "heroes_all"];
+const LANGUAGES: &[&str] = &["english", "german"];
 
 #[derive(Debug, Clone, Default)]
 pub struct PullAssetsOptions {
@@ -72,7 +73,38 @@ pub(crate) async fn pull_assets_inner(
     http: &HttpClient,
     selected: &[(String, &'static str)],
 ) -> Result<Value> {
-    // One small schema request, not an automatic baseline upgrade or bulk job.
+    let manifest = SourceIr::from_http(
+        SOURCE,
+        PARSER_REVISION,
+        http.get_bounded(
+            &format!("{BASE_URL}/v1/assets/steam-info"),
+            SourceHttpOptions::default(),
+        )?,
+    )?;
+    let client_version = manifest
+        .payload()?
+        .get("client_version")
+        .and_then(Value::as_i64)
+        .filter(|version| *version > 0)
+        .ok_or_else(|| SourcesError::invalid_input("Assets-Manifest ohne gültige Clientversion"))?;
+    let manifest_id = store.persist_ir(
+        &format!("steam_info/{client_version}"), "Deadlock Assets Versionsmanifest", &manifest,
+        &json!({"role":"client_manifest","client_version":client_version,"not_patch_mapping":true}),
+    ).await?;
+    let now = deadlock_brain_core::now_epoch_seconds()
+        .map_err(|error| SourcesError::invalid_input(error.to_string()))?;
+    let previous = sqlx::query_scalar::<_, String>(
+        "SELECT summary::text FROM brain.source_runs WHERE source='assets' AND status='ok' \
+         AND summary->>'client_version'=$1 AND summary->>'parser_revision'=$2 ORDER BY id DESC LIMIT 1",
+    ).bind(client_version.to_string()).bind(PARSER_REVISION).fetch_optional(store.pool()).await?;
+    if let Some(previous) = previous {
+        let mut summary: Value = serde_json::from_str(&previous)?;
+        if mirror_is_fresh(&summary, selected, now) {
+            summary["checked_at"] = json!(now);
+            summary["reused_local_mirror"] = json!(true);
+            return Ok(summary);
+        }
+    }
     let baseline = OpenApiSnapshot::pinned()?;
     let schema_response = http.get_bounded(
         OPENAPI_URL,
@@ -99,15 +131,34 @@ pub(crate) async fn pull_assets_inner(
     let mut staged = Vec::new();
     let mut first_error = None;
     for (kind, endpoint) in selected {
-        let response = http.get_bounded(
-            &format!("{BASE_URL}{endpoint}"),
-            SourceHttpOptions::default(),
-        )?;
-        let ir = prepare_assets(kind, response, Some(&report))?;
-        let title = format!("Deadlock Assets API {kind}");
-        match store.persist_ir(kind, &title, &ir, &json!({"endpoint":endpoint,"schema_report":report,"contract_coverage":"container_and_consumed_fields"})).await {
-            Ok(document_id) => staged.push((kind.clone(), ir, document_id)),
-            Err(error) => { if first_error.is_none() { first_error=Some(error); } }
+        let languages = if DEFAULT_KINDS.contains(&kind.as_str()) {
+            LANGUAGES
+        } else {
+            &["english"]
+        };
+        for language in languages {
+            let url = asset_url(kind, endpoint, client_version, language);
+            let response = http.get_bounded(&url, SourceHttpOptions::default())?;
+            let ir = prepare_assets(kind, response, Some(&report))?;
+            let key = format!("{kind}/{language}");
+            let pinned = DEFAULT_KINDS.contains(&kind.as_str());
+            let document_key = if pinned {
+                format!("{client_version}/{key}")
+            } else {
+                format!("unversioned/{kind}")
+            };
+            let title = format!("Deadlock Assets API {document_key}");
+            let details = json!({"kind":kind,"endpoint":endpoint,
+                "client_version":pinned.then_some(client_version),"language":pinned.then_some(language),
+                "schema_report":report,"contract_coverage":"container_and_consumed_fields"});
+            match store.persist_ir(&document_key, &title, &ir, &details).await {
+                Ok(document_id) => staged.push((kind.clone(), key, ir, document_id)),
+                Err(error) => {
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                }
+            }
         }
     }
     // No EntitySnapshot is written before all selected payloads pass preflight.
@@ -116,15 +167,54 @@ pub(crate) async fn pull_assets_inner(
     }
     let mut summary = Map::new();
     let mut total = 0usize;
-    for (kind, ir, document_id) in staged {
+    for (kind, key, ir, document_id) in staged {
         let snapshots = snapshots_for(&kind, ir.payload()?)?;
         let count = store
             .insert_many_snapshots(&snapshots, Some(document_id))
             .await?;
-        summary.insert(kind, json!({"url":ir.provenance().locator,"snapshots":count,"raw_sha256":ir.provenance().raw_sha256,"source_document_id":document_id,"validation":ir.validation()}));
+        summary.insert(key, json!({"url":ir.provenance().locator,"snapshots":count,"raw_sha256":ir.provenance().raw_sha256,"source_document_id":document_id,"validation":ir.validation()}));
         total += count;
     }
-    Ok(json!({"endpoints":summary,"snapshots":total,"schema_drift":report}))
+    let mirror_complete = DEFAULT_KINDS.iter().all(|kind| {
+        LANGUAGES
+            .iter()
+            .all(|language| summary.contains_key(&format!("{kind}/{language}")))
+    });
+    Ok(
+        json!({"endpoints":summary,"snapshots":total,"schema_drift":report,
+        "client_version":client_version,"manifest_document_id":manifest_id,
+        "parser_revision":PARSER_REVISION,"mirrored_at":now,"checked_at":now,
+        "mirror_complete":mirror_complete,"reused_local_mirror":false}),
+    )
+}
+
+fn asset_url(kind: &str, endpoint: &str, client_version: i64, language: &str) -> String {
+    let separator = if endpoint.contains('?') { '&' } else { '?' };
+    if DEFAULT_KINDS.contains(&kind) {
+        format!(
+            "{BASE_URL}{endpoint}{separator}client_version={client_version}&language={language}"
+        )
+    } else {
+        format!("{BASE_URL}{endpoint}")
+    }
+}
+
+fn mirror_is_fresh(summary: &Value, selected: &[(String, &'static str)], now: i64) -> bool {
+    summary["mirrored_at"]
+        .as_i64()
+        .is_some_and(|at| now >= at && now - at < 86_400)
+        && selected.iter().all(|(kind, _)| {
+            let languages = if DEFAULT_KINDS.contains(&kind.as_str()) {
+                LANGUAGES
+            } else {
+                &["english"]
+            };
+            languages.iter().all(|language| {
+                summary["endpoints"][format!("{kind}/{language}")]["source_document_id"]
+                    .as_i64()
+                    .is_some_and(|id| id > 0)
+            })
+        })
 }
 
 /// DB-free adapter path used by fixtures and the opt-in small live contract test.
@@ -165,7 +255,7 @@ pub fn consumed_contract(kind: &str) -> Result<Value> {
     let text = json!({"type":"string","minLength":1});
     let entry = match kind {
         "items" | "heroes" | "heroes_all" => {
-            json!({"type":"object","required":["id"],"properties":{"id":id,"name":text,"class_name":text}})
+            json!({"type":"object","required":["id"],"properties":{"id":id,"name":{"type":"string"},"class_name":text}})
         }
         "ranks" => {
             json!({"type":"object","required":["tier","name"],"properties":{"tier":id,"name":text}})
@@ -297,7 +387,8 @@ mod tests {
             resolve_kinds(&[]).unwrap(),
             vec![
                 ("items".into(), "/v1/assets/items"),
-                ("heroes".into(), "/v1/assets/heroes?only_active=true")
+                ("heroes".into(), "/v1/assets/heroes?only_active=true"),
+                ("heroes_all".into(), "/v1/assets/heroes")
             ]
         );
         for kind in ["raw_items", "raw_heroes", "bogus"] {
@@ -309,6 +400,26 @@ mod tests {
                 .len(),
             1
         );
+    }
+    #[test]
+    fn version_language_and_daily_refresh_are_explicit() {
+        assert_eq!(asset_url("heroes", ENDPOINTS[1].1, 6759, "german"),
+            "https://api.deadlock-api.com/v1/assets/heroes?only_active=true&client_version=6759&language=german");
+        assert_eq!(
+            asset_url("items", ENDPOINTS[0].1, 6757, "english"),
+            "https://api.deadlock-api.com/v1/assets/items?client_version=6757&language=english"
+        );
+        let selected = resolve_kinds(&["items".into()]).unwrap();
+        let summary = json!({"mirrored_at":1000,"endpoints":{
+            "items/english":{"source_document_id":1},"items/german":{"source_document_id":2}}});
+        assert!(mirror_is_fresh(&summary, &selected, 1001));
+        assert!(!mirror_is_fresh(&summary, &selected, 87400));
+        assert!(!mirror_is_fresh(&summary, &selected, 999));
+        assert!(!mirror_is_fresh(
+            &summary,
+            &resolve_kinds(&[]).unwrap(),
+            1001
+        ));
     }
     #[test]
     fn zero_is_an_id_not_a_fallback_and_parser_preserves_bytes() {
@@ -345,6 +456,89 @@ mod tests {
             .unwrap()
             .is_quarantined());
     }
+    #[test]
+    fn empty_asset_names_preserve_stable_identity_and_raw_values() {
+        let raw = br#"[{"id":0,"name":"","class_name":"internal_ability"}]"#;
+        for kind in DEFAULT_KINDS {
+            let ir = prepare_assets(kind, response(raw), None).unwrap();
+            assert!(!ir.is_quarantined());
+            assert_eq!(ir.raw(), raw);
+            assert_eq!(ir.payload().unwrap()[0]["name"], "");
+            assert_eq!(
+                asset_entities(kind, ir.payload().unwrap()).unwrap()[0].external_id,
+                "0"
+            );
+            assert!(
+                prepare_assets(kind, response(br#"[{"id":0,"name":false}]"#), None)
+                    .unwrap()
+                    .is_quarantined()
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "explizite öffentliche Assets-Probe ohne DB oder Nutzerdaten"]
+    fn live_versioned_game_assets_contract() {
+        assert_eq!(
+            std::env::var("DBRAIN_EXTERNAL_LIVE_CONTRACT").as_deref(),
+            Ok("1")
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let http = HttpClient::new("Deadlock-Brain-Contract/1", temp.path()).unwrap();
+        let options = SourceHttpOptions {
+            attempts: 1,
+            ..Default::default()
+        };
+        let manifest = SourceIr::from_http(
+            SOURCE,
+            PARSER_REVISION,
+            http.get_bounded(&format!("{BASE_URL}/v1/assets/steam-info"), options.clone())
+                .unwrap(),
+        )
+        .unwrap();
+        let version = manifest.payload().unwrap()["client_version"]
+            .as_i64()
+            .unwrap();
+        assert!(version > 0);
+        let schema = http
+            .get_bounded(
+                OPENAPI_URL,
+                SourceHttpOptions {
+                    max_bytes: 1024 * 1024,
+                    ..options.clone()
+                },
+            )
+            .unwrap();
+        schema.ensure_success().unwrap();
+        let report = OpenApiSnapshot::pinned()
+            .unwrap()
+            .compare(
+                &OpenApiSnapshot::from_raw(schema.content).unwrap(),
+                &asset_dependencies(),
+            )
+            .unwrap();
+        for (kind, endpoint) in resolve_kinds(&[]).unwrap() {
+            for language in LANGUAGES {
+                let response = http
+                    .get_bounded(
+                        &asset_url(&kind, endpoint, version, language),
+                        options.clone(),
+                    )
+                    .unwrap();
+                let ir = prepare_assets(&kind, response, Some(&report)).unwrap();
+                assert!(
+                    !ir.is_quarantined(),
+                    "{kind}/{language}: {:?}",
+                    ir.validation()
+                );
+                let entities = asset_entities(&kind, ir.payload().unwrap()).unwrap();
+                assert!(!entities.is_empty());
+                println!("client_version={version} kind={kind} language={language} bytes={} entities={} raw_sha256={}",
+                    ir.raw().len(), entities.len(), ir.provenance().raw_sha256);
+            }
+        }
+    }
+
     #[test]
     fn current_color_map_and_rank_tier_have_stable_identities() {
         let colors = json!({"neutral":{"red":1,"green":2,"blue":3,"alpha":255}});
