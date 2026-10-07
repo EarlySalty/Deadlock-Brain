@@ -126,6 +126,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     query: &Query,
     context: &AuthorizedContext,
     session: &ToolSession,
+    purpose: AnswerPurpose,
 ) -> KernelAnswer {
     let started = (kernel.clock)();
     let elapsed = || {
@@ -155,6 +156,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                 session,
                 &dependencies,
                 ToolValidationPurpose::Provider,
+                purpose,
             )?;
             let input = grounded_turn_input_ceiling(
                 query,
@@ -235,7 +237,8 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         &next,
                         session,
                         &dependencies,
-                        ToolValidationPurpose::Publication,
+                        ToolValidationPurpose::Provider,
+                        purpose,
                     )?;
                     remaining(context, &accounting.charged(), elapsed())
                         .ok_or(PortError::BudgetExceeded)?;
@@ -268,6 +271,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                             session,
                             &dependencies,
                             ToolValidationPurpose::Provider,
+                            purpose,
                         )?;
                         let next = remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
@@ -302,6 +306,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                             session,
                             &dependencies,
                             ToolValidationPurpose::Provider,
+                            purpose,
                         )?;
                         for item in dependencies
                             .iter()

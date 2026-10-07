@@ -168,6 +168,7 @@ impl<R, P> Kernel<R, P> {
         session: &ToolSession,
         dependencies: &[ToolEvidenceDependency],
         purpose: ToolValidationPurpose,
+        answer_purpose: AnswerPurpose,
     ) -> Result<(), PortError> {
         context.check_deadline()?;
         let binding = self
@@ -187,7 +188,9 @@ impl<R, P> Kernel<R, P> {
             purpose,
         )?;
         context.check_deadline()?;
-        if purpose == ToolValidationPurpose::Provider {
+        if purpose == ToolValidationPurpose::Provider
+            && answer_purpose == AnswerPurpose::ExternalPublication
+        {
             binding.port.validate_dependencies(
                 query,
                 context,
@@ -287,7 +290,7 @@ impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
         session: Option<&ToolSession>,
     ) -> KernelAnswer {
         if let Some(session) = session.filter(|session| !session.definitions.is_empty()) {
-            return execution::answer_tools(self, query, context, session);
+            return execution::answer_tools(self, query, context, session, purpose);
         }
         execution::answer(
             &self.retrieval,
@@ -323,13 +326,15 @@ impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
                 session,
                 &answer.tool_dependencies,
                 ToolValidationPurpose::Cache,
+                purpose,
             )?;
             self.validate_tools(
                 query,
                 context,
                 session,
                 &answer.tool_dependencies,
-                ToolValidationPurpose::Publication,
+                ToolValidationPurpose::Provider,
+                purpose,
             )?;
         } else if !answer.tool_dependencies.is_empty() {
             return Err(PortError::Unavailable(
@@ -790,7 +795,11 @@ mod tests {
         revoke_cache: bool,
         block_final: Option<Arc<std::sync::Barrier>>,
         deny_publication: bool,
+        deny_provider: bool,
+        revoke_provider_on_cache: bool,
+        validations: Vec<ToolValidationPurpose>,
         private_input: bool,
+        internal_input: bool,
         mismatch_result: bool,
         cancel_tool: bool,
         tool_usage: Usage,
@@ -900,6 +909,10 @@ mod tests {
                 uncited.visibility = SourceVisibility::Private;
                 uncited.allowed_scopes.insert("private".into());
             }
+            if state.internal_input {
+                uncited.visibility = SourceVisibility::Internal;
+                uncited.allowed_scopes.insert("docs.internal".into());
+            }
             Ok(brain_contracts::ToolExecution {
                 result: brain_contracts::ToolResult {
                     call_id: if state.mismatch_result {
@@ -941,8 +954,12 @@ mod tests {
             purpose: ToolValidationPurpose,
         ) -> Result<(), PortError> {
             let mut state = self.state.lock().unwrap();
+            state.validations.push(purpose);
             if state.revoke_cache && purpose == ToolValidationPurpose::Cache {
                 state.invalid_source = true;
+            }
+            if state.revoke_provider_on_cache && purpose == ToolValidationPurpose::Cache {
+                state.deny_provider = true;
             }
             for dependency in dependencies {
                 if dependency.game_context.as_ref() != pin
@@ -960,6 +977,19 @@ mod tests {
                         "Quelle wurde zurückgenommen".into(),
                     ));
                 }
+            }
+            if state.deny_provider
+                && purpose == ToolValidationPurpose::Provider
+                && dependencies.iter().any(|dependency| {
+                    dependency
+                        .evidence
+                        .iter()
+                        .any(|item| item.evidence_id.ends_with("uncited"))
+                })
+            {
+                return Err(PortError::PermissionDenied(
+                    "Weitergabe nicht freigegeben".into(),
+                ));
             }
             if state.deny_publication
                 && purpose == ToolValidationPurpose::Publication
@@ -1726,6 +1756,217 @@ mod tests {
             AnswerStatus::UnauthorizedEvidence
         );
         assert_eq!(state.lock().unwrap().calls, 1);
+    }
+
+    #[test]
+    fn internal_read_traegt_den_zweck_frisch_ohne_publikationsrecht() {
+        for purpose in [
+            AnswerPurpose::InternalRead,
+            AnswerPurpose::ExternalPublication,
+        ] {
+            let call = find_call("first");
+            let (kernel, state) = tool_kernel(
+                std::slice::from_ref(&call),
+                vec![tool_turn(vec![call.clone()]), final_turn(&["first-cited"])],
+            );
+            {
+                let mut state = state.lock().unwrap();
+                state.internal_input = true;
+                state.deny_publication = true;
+            }
+            let outcome = kernel.answer_with_purpose(
+                &query(AnswerProfile::Explain),
+                &context(&["docs.internal"], &["public", "internal"]),
+                purpose,
+            );
+            let state = state.lock().unwrap();
+            if purpose == AnswerPurpose::InternalRead {
+                assert_eq!(outcome.answer.status, AnswerStatus::Answered);
+                assert_eq!(outcome.tool_dependencies[0].evidence.len(), 2);
+                assert_eq!(outcome.accounting.observed.network_rounds, 2);
+                assert_eq!(state.calls, 2);
+                assert!(!state
+                    .validations
+                    .contains(&ToolValidationPurpose::Publication));
+            } else {
+                assert_eq!(outcome.answer.status, AnswerStatus::UnauthorizedEvidence);
+                assert!(outcome.answer.citations.is_empty());
+                assert_eq!(outcome.accounting.observed.network_rounds, 1);
+                assert_eq!(state.calls, 1);
+                assert!(state
+                    .validations
+                    .contains(&ToolValidationPurpose::Publication));
+            }
+        }
+    }
+
+    #[test]
+    fn internal_read_cache_trennt_publikation_und_prueft_weitergabe_erneut() {
+        let call = find_call("first");
+        let (kernel, state) = tool_kernel(
+            std::slice::from_ref(&call),
+            vec![
+                tool_turn(vec![call.clone()]),
+                final_turn(&["first-cited"]),
+                tool_turn(vec![call.clone()]),
+            ],
+        );
+        {
+            let mut state = state.lock().unwrap();
+            state.internal_input = true;
+            state.deny_publication = true;
+        }
+        let cache = CachedKernel::new(kernel, 8, std::time::Duration::from_secs(30));
+        let request = query(AnswerProfile::Explain);
+        let context = context(&["docs.internal"], &["public", "internal"]);
+        let fresh = cache.answer_accounted(&request, &context);
+        assert_eq!(fresh.value.status, AnswerStatus::Answered);
+        assert_eq!(fresh.accounting.observed.network_rounds, 2);
+        let mut next = request.clone();
+        next.request_id = "cache-reader".into();
+        let reused = cache.answer_accounted(&next, &context);
+        assert_eq!(reused.value.status, AnswerStatus::Answered);
+        assert_eq!(reused.value.request_id, next.request_id);
+        assert_eq!(reused.accounting, UsageAccounting::default());
+        {
+            let state = state.lock().unwrap();
+            assert_eq!(state.calls, 2);
+            assert!(state.validations.contains(&ToolValidationPurpose::Cache));
+            assert!(!state
+                .validations
+                .contains(&ToolValidationPurpose::Publication));
+        }
+        let publication = cache.answer_for_publication_accounted(&next, &context);
+        assert_eq!(publication.value.status, AnswerStatus::UnauthorizedEvidence);
+        assert!(publication.value.citations.is_empty());
+        assert_eq!(publication.accounting.observed.network_rounds, 1);
+        assert_eq!(state.lock().unwrap().calls, 3);
+        assert_eq!(cache.answer(&next, &context).status, AnswerStatus::Answered);
+        state.lock().unwrap().revoke_provider_on_cache = true;
+        let revoked = cache.answer_accounted(&next, &context);
+        assert_eq!(revoked.value.status, AnswerStatus::UnauthorizedEvidence);
+        assert!(revoked.value.citations.is_empty());
+        assert_eq!(revoked.accounting, UsageAccounting::default());
+        assert_eq!(state.lock().unwrap().calls, 3);
+    }
+
+    #[test]
+    fn internal_read_flight_folger_bewahrt_zweck_und_prueft_unzitierte_weitergabe() {
+        for revoke in [false, true] {
+            let call = find_call("first");
+            let (kernel, state) = tool_kernel(
+                std::slice::from_ref(&call),
+                vec![tool_turn(vec![call.clone()]), final_turn(&["first-cited"])],
+            );
+            let request = query(AnswerProfile::Explain);
+            let context = context(&["docs.internal"], &["public", "internal"]);
+            let session = kernel
+                .prepare_tools(&request, &context.with_request_deadline())
+                .unwrap()
+                .unwrap();
+            let key = crate::flight::request_key(
+                &request,
+                &context,
+                AnswerPurpose::InternalRead,
+                Some(&session),
+            )
+            .unwrap();
+            assert_ne!(
+                key,
+                crate::flight::request_key(
+                    &request,
+                    &context,
+                    AnswerPurpose::ExternalPublication,
+                    Some(&session),
+                )
+                .unwrap()
+            );
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            {
+                let mut state = state.lock().unwrap();
+                state.internal_input = true;
+                state.deny_publication = true;
+                state.block_final = Some(barrier.clone());
+                state.revoke_provider_on_cache = revoke;
+            }
+            let cache = Arc::new(CachedKernel::new(
+                kernel,
+                8,
+                std::time::Duration::from_secs(30),
+            ));
+            let leader_cache = cache.clone();
+            let leader_request = request.clone();
+            let leader_context = context.clone();
+            let leader = std::thread::spawn(move || {
+                leader_cache.answer_accounted(&leader_request, &leader_context)
+            });
+            barrier.wait();
+            let follower_cache = cache.clone();
+            let mut follower_request = request.clone();
+            follower_request.request_id = "internal-follower".into();
+            let follower = std::thread::spawn(move || {
+                follower_cache.answer_accounted(&follower_request, &context)
+            });
+            cache.flights.wait_for_waiter(&key);
+            barrier.wait();
+            let leader = leader.join().unwrap();
+            assert_eq!(leader.value.status, AnswerStatus::Answered);
+            assert_eq!(leader.accounting.observed.network_rounds, 2);
+            let follower = follower.join().unwrap();
+            assert_eq!(
+                follower.value.status,
+                if revoke {
+                    AnswerStatus::UnauthorizedEvidence
+                } else {
+                    AnswerStatus::Answered
+                }
+            );
+            assert_eq!(follower.value.request_id, "internal-follower");
+            assert_eq!(follower.accounting, UsageAccounting::default());
+            if revoke {
+                assert!(follower.value.citations.is_empty());
+            }
+            let state = state.lock().unwrap();
+            assert_eq!(state.calls, 2);
+            assert_eq!(state.executions.len(), 1);
+            assert!(state.validations.contains(&ToolValidationPurpose::Cache));
+            assert!(!state
+                .validations
+                .contains(&ToolValidationPurpose::Publication));
+        }
+    }
+
+    #[test]
+    fn internal_read_prueft_scope_und_weitergabe_auch_vor_finaler_ausgabe() {
+        for (scopes, egress) in [
+            (Vec::new(), vec!["public", "internal"]),
+            (vec!["docs.internal"], vec!["public"]),
+        ] {
+            let call = find_call("first");
+            let (kernel, state) = tool_kernel(
+                std::slice::from_ref(&call),
+                vec![tool_turn(vec![call.clone()]), final_turn(&["first-cited"])],
+            );
+            state.lock().unwrap().internal_input = true;
+            let result =
+                kernel.answer_accounted(&query(AnswerProfile::Explain), &context(&scopes, &egress));
+            assert_eq!(result.value.status, AnswerStatus::UnauthorizedEvidence);
+            assert!(result.value.citations.is_empty());
+            assert_eq!(result.accounting.observed.network_rounds, 1);
+            assert_eq!(state.lock().unwrap().calls, 1);
+        }
+        let call = find_call("first");
+        let (kernel, state) = tool_kernel(
+            std::slice::from_ref(&call),
+            vec![tool_turn(vec![call.clone()]), final_turn(&["first-cited"])],
+        );
+        state.lock().unwrap().mutate_final = Some(|state| state.deny_provider = true);
+        let result =
+            kernel.answer_accounted(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+        assert_eq!(result.value.status, AnswerStatus::UnauthorizedEvidence);
+        assert!(result.value.citations.is_empty());
+        assert_eq!(result.accounting.observed.network_rounds, 2);
+        assert_eq!(state.lock().unwrap().calls, 2);
     }
 
     #[test]
