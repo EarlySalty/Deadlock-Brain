@@ -128,6 +128,38 @@ pub fn mechanic_order(hero: &HeroModel, cfg: &ReasonerConfig) -> Vec<AbilityStep
     order
 }
 
+pub fn at_boons(
+    base: &HeroModel,
+    order: &[AbilityStep],
+    boons: usize,
+    cfg: &ReasonerConfig,
+) -> crate::Result<(HeroModel, ProgressionEvidence)> {
+    if base.level_curve.is_empty() || base.level_rewards.is_empty() {
+        return Err(crate::ReasonerError::Data(
+            "Boon-Zustand benötigt vollständige Levelbelohnungen".into(),
+        ));
+    }
+    let mut earned = None;
+    let mut count = 0usize;
+    for level in &base.level_curve {
+        count += usize::from(base.standard_upgrade_levels.contains(&level.level));
+        if count == boons {
+            earned = Some(level.required_souls);
+            break;
+        }
+    }
+    let souls = earned.ok_or_else(|| {
+        crate::ReasonerError::Data(format!("{boons} Boons sind in der Levelkurve nicht belegt"))
+    })?;
+    let projected = at_souls(base, order, souls, cfg);
+    if projected.1.standard_boons != boons {
+        return Err(crate::ReasonerError::Data(format!(
+            "{boons} Boons besitzen keinen eindeutigen Zustand in der gebundenen Levelkurve"
+        )));
+    }
+    Ok(projected)
+}
+
 pub fn at_souls(
     base: &HeroModel,
     order: &[AbilityStep],
