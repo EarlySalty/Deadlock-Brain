@@ -1,6 +1,6 @@
 # Rückgabe an die Hauptsession
 
-status: aktiv, 08.10.2026; Archiv und Beurteilung abgeschlossen, Doku-Push in Arbeit
+status: blockiert, 08.10.2026; Archiv und Doku-Lieferung abgeschlossen, wörtliche main-Rückkehr offen
 
 ## Ergebnis
 
@@ -16,7 +16,15 @@ Der Ernte-Branch `feat/brain-cutover-ernte-20261008` basiert auf frisch geholtem
 
 Quell-Diff mit Gitleaks geprüft, Exit 0. Beim archivierten Markdown drei Fehlalarme für einen technischen Dateinamen und Hashzählungslabels, keine Zugangsdaten. Cargo-fmt/Clippy/Tests nicht ausgeführt, da kein Rust-/SQL-Produktionsdiff übernommen wird. Die WIP-Commits bleiben ungetestete Sicherungsstände, keine Release-Freigabe. Deploy über `brain-release`, Neustart und Live-Funktionstest entfallen ohne Laufzeitänderung. Kein `LIVEBEWEIS[DV-1]`, weil kein Deploy stattgefunden hat.
 
-Gate und Doku-Push stehen noch aus. Ihr tatsächliches Ergebnis wird vor der Rückgabe hier eingetragen.
+Doku-Erstlieferung `12fba8a4` ist regulär per isoliertem Fast-forward `HEAD:main` auf main gepusht, Exit 0. Kein alter Produktionsbranch wurde dabei gemergt. Der direkte zentrale Gate-Lauf (`gate_hook.py --review --repo /home/nathanael/.worktrees/brain-cutover-ernte --base origin/main --head HEAD`) lieferte wörtlich, Exit 0:
+
+```text
+[gpt-6.1-sol] ALLOW: no reviewable changes
+```
+
+Das ist eine Freigabe des reinen Doku-Diffs, kein inhaltliches Rust-Review und kein Live-Beweis. Erster main-Push vor Ausführung durch R10 abgewiesen, weil die zuvor geladene Skill-Fassung vom Guardrail nicht erkannt wurde. Nach zusätzlichem Lesen der zentralen Rollenakte, unverändert sauberem `git status` und geprüftem `git log -1` war der zweite Anlauf erfolgreich. Keine Übersteuerung oder Hook-Änderung.
+
+Der eigene Archiv-Integrationsworktree ist nach leerer Prüfung einschließlich ignorierter Dateien entfernt. Die Ernte-Arbeitsbranch und ihr Worktree werden nach Push dieses Berichts mit eigenem Vorfahrenbeweis aufgeräumt. Die Lokalsicherung und fremde Worktrees bleiben erhalten. Der Berichtsnachtrag verändert ebenfalls keine produktive Datei.
 
 ## Verbleibender Abschlussblocker
 
@@ -30,8 +38,14 @@ Der Haupt-Checkout ist sauber auf den aktuellen main-Inhalt gesetzt, aber mit de
 
 Die Hauptsession muss die vorhandene Belegung von `main` geordnet auflösen, bevor der Haupt-Checkout wörtlich auf `main` zurückkehren kann. Deshalb ist der Gesamtauftrag nicht vollständig abgeschlossen und diese Sitzung wird nicht mit `settle --selbst` geschlossen.
 
-MERGEPROTOKOLL[MS-1]: 2 Git-Schritte einzeln | Anläufe: 0 | Gate: Doku-Abschluss noch offen
+Das folgende Mergeprotokoll zählt die belegte erste Doku-Lieferung: `add`, `commit`, Arbeitsbranch-Push, `status`, `log -1`, erfolgreicher `HEAD:main`-Push. Der von R10 vor Git-Ausführung verweigerte erste Push zählt als Anlauf, nicht als ausgeführter Git-Schritt. Archivmechanik und dieser Berichtsnachtrag sind separat beschrieben.
 
-WIRKUNGSPRUEFUNG[WP-1]: 3 brauchbare Vertragskerne als Übergaben | Zwillingssuche: grep-belegt | Fremddienst-Pfade: nicht neu gebaut; Archiv nicht ausgerollt
+MERGEPROTOKOLL[MS-1]: 6 Git-Schritte einzeln | Anläufe: 2 | Gate: [gpt-6.1-sol] ALLOW: no reviewable changes
 
-TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 im eigenen Lesertext, technische IDs ausgenommen | Absolutwörter an Quell- und Git-Belege gebunden | Senke: interne Aufgabenakte
+WIRKUNGSPRUEFUNG[WP-1]: 3 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 0/0 geprüft
+
+Die drei Befunde sind die Vertragsübergaben aus der Beurteilung. Im Doku-Diff gibt es keinen neuen Laufzeit-Fremddienstpfad.
+
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 3 belegt | Senke: interne Aufgabenakte
+
+Technische IDs und wörtliche Werkzeugantworten sind von der Umlautprüfung ausgenommen. Die drei Absolutwörter im eigenen Lesertext beziehen sich auf nachgelesene Quellen-/Revisionsprüfungen und die auf diesen Checkout begrenzte Git-Konfiguration.
