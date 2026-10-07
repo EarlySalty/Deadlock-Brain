@@ -1,5 +1,16 @@
 # Paket I: Register
 
+## Aktueller Vorrangstand nach Nutzernachtrag 20:30
+
+Verbindlich: aktualisierte `ENTSCHEIDUNG-WEITERBAU-2015.md`, Punkt 2. Zuerst genau eine frische Lookupfixrunde und danach wirklicher gemeinsamer Gesamt-Gate; Discovery erst bei neuem inhaltlichem Fund separat. Vorbereiteter eigener Mirrorbranch auf ca4d877f erhalten, gemeinsamer E-Branch b3d22f77 unverändert.
+
+Einziger frischer Fixer 14 regulär mit E-Worktree als tatsächlichem Session-/Shellroot gestartet, durch Nachtrag geordnet von Schnitt auf Lookupfix angepasst, kein zweiter paralleler Fixer. Tatsächlich erneut gestoppt: context-mode `ctx_execute_file` behält kanonischen MCP-Projektroot und verweigert pg_patchnotes.rs im freigegebenen E-Worktree. Keine Produktänderungen oder neue Tests/Gates; nur cargo-slot --help Exit 0. Dies ist ein Werkzeugblocker, kein neuer inhaltlicher Fund und kein ALLOW. Keine alternativen Tools/Worker/Wrapper oder Schutzänderung. Keine aktiven eigenen Agenten.
+
+Neue Fachrückgabe `REVIEW-RUNDE-20-MCP-ROOT.md` und Nachtrag `FIXER-14-NACHTRAG-2030.md`; ursprüngliches sofortiges Schnittbriefing in diesem Punkt überholt. Regulären MCP-Arbeitsroot im zuständigen Harness-/Routingbereich korrigieren, bevor die eine beauftragte Fixrunde tatsächlich ausgeführt werden kann. Der frühere Zustand unten bleibt als Historie erhalten; bisherige Testzahlen gelten für Kandidat 501 vor diesem neuen Auftrag, nicht als neue Prüfung nach Sperrbehebung.
+
+## Historischer Stand vor der neuen Rootfreigabe
+
+
 status: blockiert, gemeinsamer E-Kandidat in Runde 18 BLOCK; Fixer 13 durch Werkzeug-Schutzgrenze gestoppt, qualifizierte Fachrückgabe am 07.10.2026
 
 Intent-/Auftragsthread: `8827da25-c1f8-44f2-bef8-f3a7b7dd3137`. Delegator: `481426fe-b477-42b3-91c6-901811fcba1d`. Gestoppter Haupt-Orchestrator `d3a1741e-82bc-4a48-865b-2845c663dca7` wird nicht reaktiviert. Fachrückgabe ausschließlich als `AN_HAUPT-I.md`, keine Sessionkontakte oder neuen Threads.

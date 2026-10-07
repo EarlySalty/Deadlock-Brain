@@ -1,5 +1,18 @@
 # Paket I: Fachrückgabe nach Gesamt-BLOCK und verweigertem Fixerzugriff
 
+## Neue qualifizierte Rückgabe nach Nutzernachtrag 20:30
+
+Neuester tatsächlicher Auftrag ersetzt die sofortige Schnittreihenfolge: genau eine frische URL-/Bestands-ID-Fixrunde, anschließend tatsächlicher gemeinsamer Gesamt-Gate mit bisherigem Urteilmodell. Bei ALLOW vollständigen gemeinsamen Spiegel-/Discovery-Scope liefern, Discovery erst bei neuem inhaltlichem Fund ausgliedern. Keine weitere Discovery-Fixschleife, kein zweiter paralleler Fixer.
+
+Der einzige frische Fixer 14 erhielt den regulär eingetretenen E-Arbeitsroot und den laufend zugestellten Nachtrag. Tatsächliches Hauptsession-pwd `/home/nathanael/.worktrees/brain-e-deadlock-api`. Nachtrag vollständig gelesen; Vorbereitungsbranch `feat/brain-assets-mirror-20261007` auf ca4d877f erhalten und zum gemeinsamen E-Branch b3d22f77 zurückgekehrt. Keine Produktänderungen, Staging, Commits oder Pushes durch den Fixer.
+
+**Tatsächlicher erneuter Werkzeugblocker:** context-mode `ctx_execute_file` verweigert `rust/crates/deadlock-brain/src/pg_patchnotes.rs` im E-Worktree, weil der MCP-Server weiter `/home/nathanael/repos/Deadlock-Brain` als zugelassenen Projektroot verwendet: `resolves outside the project root`. Host-/Shellroot ist korrekt, MCP-Dateiconfinement nicht mitgewechselt. Keine alternativen Tool-/Worker-/Wrapperwege oder Hook-/Berechtigungsänderungen versucht. Neuer nativer Kontext beendet, keine aktive eigene Native-Arbeit. Nur `cargo-slot --help` Exit 0; kein neuer Compiler-, Test- oder Gatebeweis. Die nachfolgenden Testzahlen sind historische Nachweise des Kandidaten 501, keine Prüfung nach Sperrbehebung.
+
+**Urteil:** Reguläre MCP-Rootzuordnung im zuständigen Harness-/Routingbereich auf den bereits freigegebenen E-Worktree bringen, bevor diese eine tatsächliche Fixrunde starten kann. Das ist keine Codefixrunde und kein neuer inhaltlicher Gatefund; den Discovery-Fallback deshalb nicht vorzeitig auslösen oder fünf gleiche Schutzablehnungen als fachliche Runden ausgeben. Vollständiger Bericht `REVIEW-RUNDE-20-MCP-ROOT.md`, Nachtrag `FIXER-14-NACHTRAG-2030.md`. Gemeinsamer Produktstand b3d22f77, Kandidat 501 auf Remote und F auf 46fd8674 unverändert. Kein neuer gemeinsamer Gate/ALLOW, vollständiger E-Main-Push oder Deploy/Import/Livebeweis. analytics_runtime, F/G-Anschluss, Warden-Publish/hero_build_id und Cleanup/Self-Settle weiterhin offen. Keine fremden Threads reaktiviert, zentrale Akte bleibt beim Delegator.
+
+## Historische Rückgabe vor dem neuen Nutzerauftrag
+
+
 Stand: 07.10.2026. Bezug: `ENTSCHEIDUNG-I-PATCH-ORIGINAL.md`, 16:09 UTC. **Blockiert, nicht fertig.** Kein neuer T3-Thread, keine Sessionkontakte und keine Reaktivierung des gestoppten Haupt-Orchestrators.
 
 ## Tatsächlicher Stand und Urteil
