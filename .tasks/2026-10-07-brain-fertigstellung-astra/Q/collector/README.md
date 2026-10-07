@@ -9,6 +9,7 @@ Einmaliges Rust-Prüfwerkzeug für Paket Q, keine Produktpipeline und kein Antwo
 - `twitch`: `twitch_analytics.public.twitch_chat_messages`, echte Nachrichtenreferenzen im UUID-Format, maximal 1000 zuletzt protokollierte Nichtkommandos. Bot-/Sprach-/Authentizitätsprüfung bleibt offen.
 - `twitch-brain`: vorhandener Brain-Chat-Audit, Fragen mit UUID-Nachrichtenreferenz. Ein Auditdatensatz allein beweist keine erfolgreiche Zustellung.
 - `public-heroes`, `public-items`: aktuelle öffentliche Endpunkte aus dem bestehenden Assets-Adapter. Keine privaten Eingaben im Request. Snapshots sind normalisierte JSON-Container, keine ungeänderten HTTP-Byte-Receipts.
+- `public-patches`: bestehender öffentlicher Steam-News-Endpunkt für App 1422450, Suchumfang 500 Beiträge wie im vorhandenen Patchimporter. Speichert die 41 beim Q-Abruf vorhandenen offiziellen Feedbeiträge; fremde Nachrichtenfeeds werden ausgeschlossen. Die Feedauswahl ist noch keine Gameplayklassifikation. Fünf tatsächliche Zahlenpatches sind separat in `P2-ORIGINALQUELLEN.md` mit festgehaltenen Erwartungen dokumentiert. Keine privaten Fragen und keine Chat-Zustellung.
 
 ## Datenschutz und Versionierung
 

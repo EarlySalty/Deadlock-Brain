@@ -47,4 +47,4 @@ Erwartete Antwortart zur Pocket-Kernfrage: **Praktische, quellengebundene Gegenm
 
 ## Was dies nicht beweist
 
-Keine Modellantwort, keine Discord-/Twitch-Zustellung und kein P1-Zeitwert. Keine fünf Originalpatchstichproben und keine Zusage, welcher Patch der jüngste bestätigte Gameplay-Patch ist. Diese Fakten werden getrennt vom privaten Teilset gehalten; die noch offenen Herkunfts-/Goldlabelprüfungen werden nicht als vollständig ausgegeben.
+Keine Modellantwort, keine Discord-/Twitch-Zustellung und kein P1-Zeitwert. Fünf separat vorbereitete Originalpatchstichproben stehen inzwischen in `P2-ORIGINALQUELLEN.md`; ihre Antwortabnahme ist offen. Keine Zusage, welcher Patch über sämtliche Quellen hinweg der jüngste bestätigte Gameplay-Patch ist. Diese Fakten werden getrennt vom privaten Teilset gehalten; die noch offenen Herkunfts-/Goldlabelprüfungen werden nicht als vollständig ausgegeben.

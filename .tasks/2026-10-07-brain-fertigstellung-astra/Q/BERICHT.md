@@ -1,16 +1,16 @@
 # Q: echte Evaluation und Live-Abnahme
 
-Stand der letzten lokalen Integritätsprüfung: 2026-10-07, 11:49:38 UTC. Versuch 1, Produzent `q-eval`. Paket bleibt aktiv und nicht abgenommen.
+Stand der letzten lokalen Integritätsprüfung: 2026-10-07, 12:01:46 UTC. Versuch 1, Produzent `q-eval`. Paket bleibt aktiv und nicht abgenommen.
 
 ## Urteil
 
 **Quellen lokal gesichert; private Antwortabnahme weiter gesperrt.** Die Entscheidung `ENTSCHEIDUNG-Q-K-DATENSCHUTZ.md` vom 2026-10-07, 10:55 UTC wurde umgesetzt. Die Quellensammlung wurde trotz der Remotegrenze fortgesetzt. Keine aktive Testnachricht, kein privater Modellaufruf, keine Produktkorrektur, kein Dienstrestart.
 
 1. Vier lokale Quellen sind mit SHA256 gebunden. Der eingefrorene Teilplan enthält **166 vorläufige Kandidateneinträge, 0 akzeptierte Goldfälle**. Das ist kein vollständig beschriftetes Set mit mindestens 30 echten Fragen. Herkunft, mögliche Überschneidungen und Sollfakten je Fall bleiben zu prüfen.
-2. Pocket und Haze sind in den menschlichen Originalen aus #bot-logs und im Teilplan vorhanden. Aktuelle öffentliche Originalfakten wurden unabhängig gesichert; siehe `ORIGINALFAKTEN.md`. Fünf echte Patchstichproben fehlen noch.
+2. Pocket und Haze sind in den menschlichen Originalen aus #bot-logs und im Teilplan vorhanden. Aktuelle öffentliche Originalfakten wurden unabhängig gesichert; siehe `ORIGINALFAKTEN.md`. Fünf öffentliche Originalpatchstichproben sind inzwischen in `P2-ORIGINALQUELLEN.md` mit Erwartungen vorbereitet, aber noch nicht als Brainantworten abgenommen.
 3. Ein zum Nutzer gehöriger Twitch-Testkanal wurde über die bestehende Owner-/Identitätsrelation lesend bestätigt. Aktuelle Botteilnahme und Sendeberechtigung sind nicht geprüft. Es wurde nichts gesendet.
 4. Der tatsächlich konfigurierte Brain-Provider bleibt ein remote weiterleitender Codex-Abo-Proxy. Im untersuchten Host-/Zentralproviderbestand ist kein freigegebener tatsächlich lokal rechnender Zentralprovider belegt. Kein Wechsel oder Start eines Providers durch Q.
-5. Das eigene Rust-Prüfwerkzeug hat drei bestandene Tests. Acht bestehende isolierte HTTP-Consumer-Tests bestanden zusätzlich. Beide Nachweise ersetzen keine reale Discord-/Twitch-Antwort oder Ende-zu-Ende-Laufzeit.
+5. Das eigene Rust-Prüfwerkzeug hat fünf bestandene Tests. Acht bestehende isolierte HTTP-Consumer-Tests bestanden zusätzlich. Beide Nachweise ersetzen keine reale Discord-/Twitch-Antwort oder Ende-zu-Ende-Laufzeit.
 
 ## Herkunft und Bestand
 
@@ -56,11 +56,13 @@ Teilplan: `partial-plan-v1.json`, SHA256 `c2332949206a0773b604391d7f540c9520598a
 
 Unbeschriftet bedeutet nicht Unsinn. Überschneidungen zwischen Quellen sind nicht bereinigt. **Vollständige Evalsetversion: keine. Akzeptierte Goldfälle: 0. Baseline- und Wiederholungsläufe mit privaten Fragen: 0.**
 
-Die Prüfung um 11:49:38 UTC bestätigte drei private Verzeichnisse mit 0700 und 15 private Dateien mit 0600, ohne Symlinks oder abweichende Modi. Git-Ignore wurde für die privaten Quellen und den Teilplan geprüft. `verify` bestätigte vier Quellbindungen und 166 Einträge, Exit 0. Die separat gespeicherte Eigentumsnotiz wurde in der Modiprüfung erfasst; sie ist nicht Teil der vier gehashten Quellbindungen.
+Die Prüfung um 12:01:46 UTC bestätigte vier private Verzeichnisse mit 0700 und 17 private Dateien mit 0600, ohne Symlinks oder abweichende Modi. Git-Ignore wurde für die privaten Quellen und den Teilplan geprüft. `verify` bestätigte vier Quellbindungen und 166 Einträge, Exit 0. Die separat gespeicherte Eigentumsnotiz wurde in der Modiprüfung erfasst; sie ist nicht Teil der vier gehashten Quellbindungen.
 
 ## Öffentliche Originalfakten und Kanalnachweis
 
 Originalfaktenversion: `q-original-v1-20261007`. Öffentliche Assets-Abfrage um 11:19:14 UTC, aktuelle Endpunkte aus dem bestehenden Assets-Adapter. 40 Helden und 746 Entitäten lokal gesichert. `ORIGINALFAKTEN.md` enthält aktuelle Haze-Spirit-Skalierungen und Pockets Mechaniken samt Grenzen der Konterbehauptungen. Historische Wiki-Werte vom Juli wurden nicht als aktuelles Gold verwendet. Die Hashes binden normalisierte Snapshotcontainer, keine unveränderten HTTP-Byte-Receipts.
+
+Öffentliche Patchquelle zusätzlich eingefroren: `q-patches-v1-20261007`, erfasst 11:59:00 UTC. 41 offizielle Steam-Feedbeiträge aus dem bestehenden 500-Beiträge-Suchumfang; fremde Nachrichtenfeeds ausgeschlossen. SHA256 `490208eeb5cf0952f2dfb20c1bd8f78882c0090c996bb999bc37622abfaa19e0`, Digestvergleich um 12:01:46 UTC erfolgreich. Fünf tatsächlich numerische Gameplaypatches vom 05.10., 16.09., 22.08., 12.08. und 28.07.2026 haben feste Erwartungen und originale Inhaltshashes in `P2-ORIGINALQUELLEN.md`. Sie sind keine zusätzlichen echten P0-Fragen. Neuere Heldenankündigung und Zahlenpatch bleiben getrennt; das vollständige Forum ist nicht abgeglichen. Keine Behauptung eines weltweit jüngsten Gameplaypatches.
 
 Eigentum: genau eine konfigurierte Ownerreferenz und ein damit verknüpfter Twitch-Kanal; vorgesehener Zielkanal stimmt mit dieser Relation überein. Historisch 18502 Chatzeilen, vom 2026-01-31 bis 2026-10-06. Die private Notiz nennt keinen geschätzten exakten Beobachtungszeitpunkt: `observed_utc=null`, Erfassungszeit 11:40:59 UTC. Aktuelle Botteilnahme und Sendeberechtigung offen; aktive Nachrichten 0.
 
@@ -80,18 +82,22 @@ Dieser Befehl prüft den gespeicherten Teilplan ohne Netzwerk oder Modell. Er is
 /home/nathanael/.worktrees/brain-q-eval-20261007/.tasks/2026-10-07-brain-fertigstellung-astra/Q/collector/target/debug/brain-q-source-snapshot verify q-partial-v1-20261007
 ```
 
-Eigene Werkzeugprüfungen: `cargo fmt`, drei Tests, Clippy mit `--all-targets -- -D warnings` und Build erfolgreich. Tests und Clippy verwendeten `--locked --offline --jobs 3`. Nach letzter Codeänderung wurde formatiert, getestet, gelintet und gebaut; ein früheres `fmt --check` war ebenfalls erfolgreich.
+Eigene Werkzeugprüfungen nach Ergänzung des öffentlichen Steam-Snapshotzugangs: `cargo fmt`, fünf Tests, Clippy mit `--all-targets -- -D warnings` und Build erfolgreich. Tests und Clippy verwendeten `--locked --offline --jobs 3`. Nach letzter Codeänderung wurde formatiert, getestet, gelintet und gebaut. Unmittelbar davor war auch ein `fmt --check` erfolgreich. Der neue Zugang verwendet den bestehenden Originalquellen-Endpunkt, kein LLM, keinen Produktimporter und keine neue Provideranbindung. Der private Teilplan blieb unverändert; erneutes `verify` Exit 0.
 
 ```sh
 /home/nathanael/.cargo/bin/cargo +1.97.1 test --locked --offline --jobs 3 --manifest-path /home/nathanael/.worktrees/brain-q-eval-20261007/.tasks/2026-10-07-brain-fertigstellung-astra/Q/collector/Cargo.toml -- --include-ignored
 /home/nathanael/.cargo/bin/cargo +1.97.1 test --locked --offline --jobs 3 --manifest-path /home/nathanael/.worktrees/brain-q-eval-20261007/rust/Cargo.toml -p brain-client --test consumer_http -- --include-ignored
 ```
 
-Werkzeug: 3 passed, 0 failed, 0 ignored. Consumer-HTTP: 8 passed, 0 failed, 0 ignored, 0 filtered, Exit 0; Build 49.03 Sekunden, Testlauf 0.28 Sekunden. Der erste Consumer-Aufruf mit nicht über Rustup gestartetem Cargo scheiterte mit Exit 101 vor Testbeginn. Der korrigierte absolute Cargo-Aufruf lief erfolgreich. Keine unbelegte Altfehlerbehauptung.
+Werkzeug: 5 passed, 0 failed, 0 ignored, 0 filtered. Consumer-HTTP: 8 passed, 0 failed, 0 ignored, 0 filtered, Exit 0; Build 49.03 Sekunden, Testlauf 0.28 Sekunden. Der erste Consumer-Aufruf mit nicht über Rustup gestartetem Cargo scheiterte mit Exit 101 vor Testbeginn. Der korrigierte absolute Cargo-Aufruf lief erfolgreich. Keine unbelegte Altfehlerbehauptung.
 
 Die acht Consumer-Tests benutzen echte isolierte Loopback-HTTP-Fixtures für Auth-/Unicodevertrag, Redirectverbot, Request-/Responsegrenzen, Statusfehler, Vertragsdrift, synthetische Durchsatzmessung und Deadline. Kein privater Inhalt, kein Produktionsdienststopp und keine Produktions-DSN. Das bereitet P8 vor, beweist aber keine kurze reale Chat-Ausfallantwort. Die synthetische Durchsatzprobe wird nicht als Produktions-SLO bezeichnet.
 
-TESTNACHWEIS[TW-1]: 11 passed, 0 ignored | Baseline: nicht gemessen, keine Altfehler als rot behauptet
+TESTNACHWEIS[TW-1]: 13 passed, 0 ignored | Baseline: nicht gemessen, keine Altfehler als rot behauptet
+
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 3 belegt | Senke: Q/BERICHT.md
+
+Die Textprüfung bezieht sich auf den Lesertext dieses Berichts, nicht auf technische IDs oder Pfade. Der vorhandene Gedankenstrichprüfer bestätigte auch Originalfakten, Patchstichproben und README. Die drei Absolutwörter betreffen den eigenen Datei-Scope, die fehlende vollständige Kategorienabnahme und die ausdrücklich begrenzte frühere Refprobe.
 
 ## Live-Infrastruktur: erneute Beobachtung 11:41:49 UTC
 
@@ -115,7 +121,7 @@ Health, aktive Prozesse und leeres Fehlerjournal zählen nicht als zugestellte A
 |---|---|---|
 | P0 | teilweise, nicht abgenommen | Quellen und vorläufige Erwartungen eingefroren. Keine 30 akzeptierten Goldfälle, nicht alle sechs Kategorien abgenommen. |
 | P1 | blockiert | Remotegrenze; keine echten Discord-/DM-/Twitch-Antwortläufe, keine Ende-zu-Ende-Zeit. |
-| P2 | offen | Aktuelle Assets-Fakten vorhanden, fünf Originalpatchstichproben fehlen. |
+| P2 | teilweise, nicht abgenommen | Fünf Originalpatchstichproben mit Erwartungen vorbereitet. Brainantworten, kosmetische Forumgegenprobe und gemeinsame Aktualitätsbindung offen. |
 | P3 | blockiert | Kein Livewortlaut. Soll: Coachingkanal `1494373349944459355` beziehungsweise Coachingwebsite; Pate in Ich-Form. |
 | P4 | blockiert | Keine drei echten Selbstbildantworten. |
 | P5 | blockiert | Keine reale Prüfung ehrlicher Antwortgrenzen. |
@@ -147,8 +153,12 @@ Der Werkzeugcommit enthält `.gitignore`, Cargo-Manifest/-Lock, Rust-Prüfwerkze
 python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-q-eval-20261007 --base f6f5cef65f1f946113f0b8216c6475f6d38ec928 --head b8ceec93
 ```
 
-Exit 0: `[gpt-6.1-sol] ALLOW: No merge-blocking defect found in the supplied diff.` Ein NIT betrifft JSON-Schreiben vor anschließendem Digest-Schreiben: bei Digestfehler bleibt eine unveränderliche, unverifizierbare Datei. Danach wurde im README die sichere Wiederaufnahme vor dem ersten Modelllauf dokumentiert und der Cargo-Pfad korrigiert. Diese nachträgliche Dokumentation ist nicht vom Urteil für `b8ceec93` umfasst. Kein BLOCK, keine eigene Produktreviewrolle, keine zusätzlichen T3-Threads.
+Exit 0: `[gpt-6.1-sol] ALLOW: No merge-blocking defect found in the supplied diff.` Ein NIT betrifft JSON-Schreiben vor anschließendem Digest-Schreiben: bei Digestfehler bleibt eine unveränderliche, unverifizierbare Datei. Danach wurde im README die sichere Wiederaufnahme vor dem ersten Modelllauf dokumentiert und der Cargo-Pfad korrigiert.
+
+Der anschließende sichere Berichtscommit `ce0fb179` wurde mit derselben Basis durch denselben Gate geprüft, erneut Exit 0 und ALLOW. NIT: fehlende fokussierte Dateisystemtests für Hashintegrität, Modiverweigerung und Schreibfehler-Recovery. Die tatsächlichen lokalen Hash-/Modiprüfungen sind oben getrennt dokumentiert; sie werden nicht als solche Unit-Testabdeckung ausgegeben. Kein BLOCK, keine eigene Produktreviewrolle, keine zusätzlichen T3-Threads. Die danach ergänzte öffentliche Patch-Snapshotfunktion samt fünf Tests ist noch nicht von diesen beiden SHA-bezogenen Urteilen umfasst.
 
 Kein Push, Merge, Deploy, Restart, Cleanup oder settle bis zu diesem Berichtsstand. Produktdeploys bleiben bei I/G/K. Nur eigene Q-Dateien bearbeitet; zentrale Akten, Produktdateien, DB-Inhalte und fremde Worktrees unverändert. Der aktive Worktree samt privaten Originalen bleibt erhalten.
 
-Nächster fachlicher Schritt: Herkunfts-/Goldprüfung des lokalen Teilstands und fünf aktuelle Originalpatchstichproben im freigegebenen lokalen Umfang. Eine private Antwortabnahme wird erst nach belegter Freigabe des bestehenden Datenflusses ausgeführt. Keine erneute pauschale Quellenbereitstellungsfrage; die konkrete Orchestratorentscheidung ist bereits umgesetzt.
+Der Orchestrator hat im selben Q-Auftrag die unabhängige Integration des sicheren Collector-/Methodikstands nach finalem eigenem Gate beauftragt. Zulässig sind Quellcode und nichtpersonenbezogene Metadaten, keine privaten Originale oder Teilpläne. Keine unnötigen Dienstneustarts, kein Ersatz der offenen Nutzerentscheidung durch einen Modellwechsel. Derselbe Thread bleibt für die echte Nach-Deploy-Evaluation zuständig; kein Self-Settle. Vor einem späteren Cleanup müssen die privaten ignorierten Originale samt Hashbindung und Zugriffsrechten außerhalb des zu löschenden Worktrees nachweislich erhalten sein. Der aktuelle Worktree bleibt daher aktiv; eine externe Sicherung oder Löschung wird hier nicht behauptet.
+
+Nächster fachlicher Schritt: Herkunfts-/Goldprüfung des lokalen Teilstands im freigegebenen lokalen Umfang. Fünf Patchquellen sind vorbereitet, ihre Antwortabnahme bleibt offen. Eine private Antwortabnahme wird erst nach belegter Freigabe des bestehenden Datenflusses ausgeführt. Keine erneute pauschale Quellenbereitstellungsfrage; die konkrete Orchestratorentscheidung ist bereits umgesetzt.

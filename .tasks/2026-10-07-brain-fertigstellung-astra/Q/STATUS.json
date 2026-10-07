@@ -2,24 +2,29 @@
   "paket": "Q",
   "versuch": 1,
   "produzent": "q-eval",
-  "zeit_utc": "2026-10-07T11:49:38Z",
+  "zeit_utc": "2026-10-07T12:01:46Z",
   "status": "aktiv_remote_abnahme_blockiert",
+  "integrationsentscheidung": "Orchestrator beauftragt sicheren Collector-/Methodikstand nach finalem eigenen Gate unabhängig von gesperrter privater Antwortabnahme zu integrieren und zu pushen",
+  "cleanup_sperre": "Private ignorierte Originale samt Hashbindung und Zugriffsrechten vor jeder späteren Worktree-Löschung nachweislich außerhalb erhalten; aktueller Worktree aktiv",
+  "externe_private_sicherung_belegt": false,
   "entscheidung": "ENTSCHEIDUNG-Q-K-DATENSCHUTZ.md vom 2026-10-07 10:55 UTC umgesetzt; Quellensammlung fortgesetzt, private Antwortprobe gesperrt",
   "herkunfts_sha": "f6f5cef65f1f946113f0b8216c6475f6d38ec928",
   "gepruefter_sha": "bfda408cb988722ddceadb56bca5b72e12d12731",
   "werkzeug_sha": "b8ceec93c059e32d170372a8734593165dc7710a",
+  "werkzeug_sha_scope": "erster Werkzeugcommit; aktueller Patch-Snapshotzugang danach ergänzt",
+  "werkzeug_quellcode_sha256": "c7628ed475f5a5dfe86639bd2a3140ea3ba56c808be65f30b6922a0d78229735",
   "gebaut": true,
-  "reviewt": true,
-  "review_scope": "nur Werkzeugcommit b8ceec93; spätere Dokumentationsänderungen noch ungeprüft",
+  "reviewt": false,
+  "review_scope": "ce0fb179 nach erster Dokumentation mit ALLOW geprüft; aktueller zusätzlicher Patch-Snapshotzugang noch ungeprüft",
   "gate": {
     "base": "f6f5cef65f1f946113f0b8216c6475f6d38ec928",
-    "head": "b8ceec93c059e32d170372a8734593165dc7710a",
+    "head": "ce0fb179",
     "modell": "gpt-6.1-sol",
     "urteil": "ALLOW",
     "exit": 0,
     "nits": 1,
-    "nit": "JSON kann bei anschließendem Digest-Schreibfehler eingefroren, aber unverifizierbar bleiben",
-    "nacharbeit": "Recovery und fester Cargo-Pfad anschließend im README dokumentiert; noch uncommitted"
+    "nit": "Fokussierte Dateisystemtests für Integrität, Modiverweigerung und Schreibfehler-Recovery fehlen",
+    "nacharbeit": "Tatsächliche lokale Hash-/Modiprüfungen getrennt ausgewiesen; neue öffentliche Patch-Snapshotfunktion anschließend ergänzt, finaler Gate offen"
   },
   "gemergt": false,
   "gepusht": false,
@@ -91,7 +96,15 @@
     "items_snapshot_sha256": "6c93c2f5449f34c4b2d45600491739fdbc2871755f0aed83fe453459d3e5f65a",
     "hash_scope": "normalisierte Snapshotcontainer einschließlich Abrufzeit, keine unveränderten HTTP-Byte-Receipts",
     "haze_und_pocket_aktuell_unabhaengig_geprueft": true,
-    "fuenf_originalpatchstichproben": false
+    "fuenf_originalpatchstichproben_vorbereitet": true,
+    "patchstichproben_antwortabnahme": false,
+    "patchstichproben_version": "q-patches-v1-20261007",
+    "patchstichproben_bericht": "P2-ORIGINALQUELLEN.md",
+    "patch_snapshot_sha256": "490208eeb5cf0952f2dfb20c1bd8f78882c0090c996bb999bc37622abfaa19e0",
+    "patch_snapshot_erfasst_utc": "2026-10-07T11:59:00Z",
+    "offizielle_steam_feedbeitraege": 41,
+    "steam_suchumfang": 500,
+    "gesamtes_forum_aktualitaet_abgeglichen": false
   },
   "eigener_twitch_testkanal": {
     "eigentum_lesend_verifiziert": true,
@@ -118,9 +131,9 @@
   "datenschutz": {
     "private_verzeichnisse": "0700",
     "private_dateien": "0600",
-    "modipruefung_utc": "2026-10-07T11:49:38Z",
-    "gepruefte_private_verzeichnisse": 3,
-    "gepruefte_private_dateien": 15,
+    "modipruefung_utc": "2026-10-07T12:01:46Z",
+    "gepruefte_private_verzeichnisse": 4,
+    "gepruefte_private_dateien": 17,
     "abweichende_modi_oder_symlinks": 0,
     "private_quellen_und_teilplan_gitignored": true,
     "private_modellaufrufe": 0,
@@ -129,7 +142,7 @@
     "db_schreibabfragen": 0
   },
   "tests": {
-    "werkzeug": {"passed": 3, "failed": 0, "ignored": 0, "exit": 0},
+    "werkzeug": {"passed": 5, "failed": 0, "ignored": 0, "filtered": 0, "exit": 0},
     "bestehende_consumer_http": {
       "passed": 8,
       "failed": 0,
@@ -183,7 +196,7 @@
   "p_kriterien": {
     "P0": "teilweise_nicht_abgenommen",
     "P1": "blockiert",
-    "P2": "offen",
+    "P2": "teilweise_nicht_abgenommen",
     "P3": "blockiert",
     "P4": "blockiert",
     "P5": "blockiert",
@@ -197,6 +210,6 @@
   "blocker": [
     "Bestehender Live-Provider leitet remote weiter. Keine private Antwortprobe bis belegter Freigabe; kein eigenmächtiger Wechsel.",
     "Quellen vorhanden, aber Authentizität, Überschneidungen, fallbezogene Originalfakten und vollständige Goldlabels offen. 166 Kandidaten sind keine 30 akzeptierten Goldfragen.",
-    "Fünf Originalpatchstichproben, echte Chat-Zustellungen, aktuelle gemeinsame Integratorabnahme und vollständiger Discord-exe-Nachweis fehlen."
+    "Originalpatchstichproben vorbereitet, aber ihre Brainantworten und kosmetische Forumgegenprobe noch offen. Echte Chat-Zustellungen, aktuelle gemeinsame Integratorabnahme und vollständiger Discord-exe-Nachweis fehlen."
   ]
 }

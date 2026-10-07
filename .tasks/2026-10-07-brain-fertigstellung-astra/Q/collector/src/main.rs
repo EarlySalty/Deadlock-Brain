@@ -227,6 +227,7 @@ fn public_assets(source: &str) -> Result<Vec<Value>> {
     let url = match source {
         "public-heroes" => "https://api.deadlock-api.com/v1/assets/heroes?only_active=true",
         "public-items" => "https://api.deadlock-api.com/v1/assets/items",
+        "public-patches" => "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=1422450&count=500&maxlength=0",
         _ => return Err("invalid_public_source"),
     };
     let output = Command::new("curl")
@@ -245,9 +246,26 @@ fn public_assets(source: &str) -> Result<Vec<Value>> {
     if !output.status.success() {
         return Err("public_source_request_failed");
     }
-    let rows: Vec<Value> =
-        serde_json::from_slice(&output.stdout).map_err(|_| "public_source_invalid_json")?;
-    Ok(rows)
+    public_rows(source, &output.stdout)
+}
+
+fn public_rows(source: &str, bytes: &[u8]) -> Result<Vec<Value>> {
+    let value: Value = serde_json::from_slice(bytes).map_err(|_| "public_source_invalid_json")?;
+    if source == "public-patches" {
+        if value["appnews"]["appid"] != 1_422_450 {
+            return Err("public_patch_app_mismatch");
+        }
+        let rows = value["appnews"]["newsitems"]
+            .as_array()
+            .ok_or("public_patch_news_missing")?;
+        Ok(rows
+            .iter()
+            .filter(|row| row["feedname"] == "steam_community_announcements")
+            .cloned()
+            .collect())
+    } else {
+        value.as_array().cloned().ok_or("public_source_not_array")
+    }
 }
 
 fn snapshot(version: &str, source: &str, pages: usize) -> Result<()> {
@@ -261,7 +279,7 @@ fn snapshot(version: &str, source: &str, pages: usize) -> Result<()> {
         "dm" => (postgres("deadlock", "SELECT COALESCE(json_agg(q), '[]'::json) FROM (SELECT json_build_object('row_id',c.id,'user_id',c.user_id,'guild_id',c.guild_id,'timestamp',c.created_at) AS source_ref, c.content AS original, 'bot.concierge_conversations.user' AS provenance FROM bot.concierge_conversations c WHERE c.role='user' AND NOT EXISTS (SELECT 1 FROM core.user_privacy p WHERE p.user_id=c.user_id AND p.opted_out) ORDER BY c.created_at DESC,c.id DESC LIMIT 1000) q")?, None),
         "twitch" => (postgres("twitch_analytics", "SELECT COALESCE(json_agg(q), '[]'::json) FROM (SELECT json_build_object('row_id',id,'message_id',message_id,'channel',streamer_login,'chatter_id',chatter_id,'timestamp',message_ts) AS source_ref, content AS original, 'public.twitch_chat_messages' AS provenance, 'needs_human_origin_check' AS sample_authenticity FROM public.twitch_chat_messages WHERE NOT is_command AND content IS NOT NULL AND message_id ~ '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$' ORDER BY message_ts DESC,id DESC LIMIT 1000) q")?, None),
         "twitch-brain" => (postgres("twitch_analytics", "SELECT COALESCE(json_agg(q), '[]'::json) FROM (SELECT json_build_object('row_id',id,'message_id',message_id,'broadcaster_user_id',broadcaster_user_id,'chatter_user_id',chatter_user_id,'timestamp',created_at) AS source_ref, question AS original, 'public.tb_chat_brain_answers.question' AS provenance, 'needs_original_chat_and_authenticity_check' AS sample_authenticity FROM public.tb_chat_brain_answers WHERE message_id ~ '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$' ORDER BY created_at DESC,id DESC LIMIT 1000) q")?, None),
-        "public-heroes" | "public-items" => (public_assets(source)?, None),
+        "public-heroes" | "public-items" | "public-patches" => (public_assets(source)?, None),
         _ => return Err("invalid_source"),
     };
     let mut candidates = Vec::new();
@@ -389,6 +407,7 @@ fn run() -> Result<()> {
         "twitch-brain",
         "public-heroes",
         "public-items",
+        "public-patches",
     ]
     .contains(&args[0].as_str())
     {
@@ -430,6 +449,34 @@ mod tests {
         assert_eq!(
             response_kind("Wie countert man Pocket?"),
             "game_original_source"
+        );
+    }
+
+    #[test]
+    fn public_patch_rows_exclude_third_party_news_without_gold_labelling() {
+        let payload = json!({"appnews":{"appid":1422450,"newsitems":[
+            {"feedname":"steam_community_announcements","title":"fixture"},
+            {"feedname":"external_news","title":"fixture"}
+        ]}});
+        let bytes = serde_json::to_vec(&payload).unwrap();
+        let rows = public_rows("public-patches", &bytes).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].get("accepted_gold").is_none());
+        assert_eq!(public_rows("public-items", b"[]").unwrap().len(), 0);
+    }
+
+    #[test]
+    fn public_patch_rows_reject_wrong_app_and_missing_news() {
+        assert_eq!(
+            public_rows(
+                "public-patches",
+                br#"{"appnews":{"appid":1,"newsitems":[]}}"#
+            ),
+            Err("public_patch_app_mismatch")
+        );
+        assert_eq!(
+            public_rows("public-patches", br#"{"appnews":{"appid":1422450}}"#),
+            Err("public_patch_news_missing")
         );
     }
 
