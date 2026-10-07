@@ -456,8 +456,9 @@ pub fn render_hero_compare(input: &HeroCompareInput) -> Result<RenderedHeroCompa
     }
     for (index, line) in footer.iter().enumerate() {
         svg.push_str(&format!(
-            r##"<text x="36" y="{}" font-size="14" font-family="monospace">{}</text>"##,
+            r##"<text x="36" y="{}" font-size="14" font-family="monospace" textLength="{}" lengthAdjust="spacingAndGlyphs" xml:space="preserve">{}</text>"##,
             505 + index * 20,
+            name_width(line).min(width - 72),
             escape(line)
         ));
     }

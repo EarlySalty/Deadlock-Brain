@@ -453,7 +453,7 @@ fn complete_long_names_fit_svg_legend_and_end_label_bounds() {
         );
         assert!(rendered.html.contains(&format!("min-width:{width}px")));
         let labels = svg
-            .select(&selector("text[textLength]"))
+            .select(&selector("text[textLength]:not([font-size])"))
             .collect::<Vec<_>>();
         assert_eq!(labels.len(), 4);
         for hero in &input.heroes {
@@ -496,6 +496,103 @@ fn complete_long_names_fit_svg_legend_and_end_label_bounds() {
                 .map(node_text)
                 .collect::<Vec<_>>()
         );
+    }
+}
+
+#[test]
+fn complete_maximum_provenance_fits_svg_footer_bounds() {
+    for glyph in ["漢", "W", "&", "\u{1f9ea}"] {
+        for long_names in [false, true] {
+            let mut input = synthetic_input();
+            input.binding.result_id = glyph.repeat(160);
+            input.binding.version.snapshot_id = glyph.repeat(160);
+            input.binding.version.client_version = glyph.repeat(160);
+            input.binding.conditions = vec![glyph.repeat(300); 16];
+            input.sources = (0..32)
+                .map(|index| {
+                    let prefix = format!("{index:02}");
+                    CompareSource {
+                        source_id: format!("{prefix}{}", glyph.repeat(158)),
+                        evidence: glyph.repeat(1000),
+                        version: input.binding.version.clone(),
+                        publication: PublicationStatus::PublicApproved,
+                    }
+                })
+                .collect();
+            for (index, hero) in input.heroes.iter_mut().enumerate() {
+                hero.binding = input.binding.clone();
+                hero.source_ids = input
+                    .sources
+                    .iter()
+                    .map(|source| source.source_id.clone())
+                    .collect();
+                if long_names {
+                    hero.hero_name = format!("{index}{}", glyph.repeat(39));
+                }
+            }
+            let rendered = render_hero_compare(&input).unwrap();
+            assert_eq!(rendered, render_hero_compare(&input).unwrap());
+            let svg = Html::parse_fragment(&rendered.svg);
+            let root = svg.select(&selector("svg")).next().unwrap();
+            let width = root.value().attr("width").unwrap().parse::<f64>().unwrap();
+            let height = root.value().attr("height").unwrap().parse::<f64>().unwrap();
+            let footer = svg
+                .select(&selector("text[font-family='monospace'][font-size='14']"))
+                .collect::<Vec<_>>();
+            assert!(!footer.is_empty());
+            assert!(footer
+                .iter()
+                .any(|node| node_text(*node).chars().count() == 82));
+            for (index, node) in footer.iter().enumerate() {
+                let x = node.value().attr("x").unwrap().parse::<f64>().unwrap();
+                let y = node.value().attr("y").unwrap().parse::<f64>().unwrap();
+                let length = node
+                    .value()
+                    .attr("textLength")
+                    .expect("Footer muss seine Zeichenbreite begrenzen")
+                    .parse::<f64>()
+                    .unwrap();
+                assert_eq!(node.value().attr("lengthAdjust"), Some("spacingAndGlyphs"));
+                assert!(node.value().attrs.iter().any(|(name, value)| {
+                    name.local.as_ref() == "space"
+                        && name.ns.as_ref() == "http://www.w3.org/XML/1998/namespace"
+                        && value.as_ref() == "preserve"
+                }));
+                assert_eq!(
+                    length,
+                    (node_text(*node).chars().count() as f64 * 9.0).min(width - 72.0)
+                );
+                assert!(length > 0.0 && x + length <= width - 36.0);
+                assert_eq!(y, 505.0 + index as f64 * 20.0);
+                assert!(y + 14.0 < height);
+            }
+            let compact = |value: String| {
+                value
+                    .chars()
+                    .filter(|character| !character.is_whitespace())
+                    .collect::<String>()
+            };
+            let html = Html::parse_document(&rendered.html);
+            assert_eq!(
+                compact(footer.iter().map(|node| node_text(*node)).collect()),
+                compact(
+                    html.select(&selector("section li"))
+                        .map(node_text)
+                        .collect()
+                )
+            );
+            let original = render_hero_compare(&synthetic_input()).unwrap();
+            let original_svg = Html::parse_fragment(&original.svg);
+            assert_eq!(
+                svg.select(&selector("polyline"))
+                    .map(|node| node.value().attr("points").unwrap())
+                    .collect::<Vec<_>>(),
+                original_svg
+                    .select(&selector("polyline"))
+                    .map(|node| node.value().attr("points").unwrap())
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 }
 
