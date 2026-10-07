@@ -1,43 +1,40 @@
-# Paket I: qualifizierte Fachrückgabe nach dem einmalig freigegebenen Gate
+# Paket I: Fachrückgabe nach Gesamt-BLOCK und verweigertem Fixerzugriff
 
-Stand: 07.10.2026. Bezug: `ENTSCHEIDUNG-I-READER-GATE.md`, 15:09 UTC. Auftrag und Eigentum unverändert, kein neuer Thread und keine Reaktivierung des gestoppten Haupt-Orchestrators.
+Stand: 07.10.2026. Bezug: `ENTSCHEIDUNG-I-PATCH-ORIGINAL.md`, 16:09 UTC. **Blockiert, nicht fertig.** Kein neuer T3-Thread, keine Sessionkontakte und keine Reaktivierung des gestoppten Haupt-Orchestrators.
 
-## Ergebnis
+## Tatsächlicher Stand und Urteil
 
-Gegenprobe `90c178001258d050c781a42c4c9b2fd7cef99bbf` in den tatsächlichen Integrationskandidaten übernommen. Geprüfter HEAD `860793d7f89d2af9f7510d663e56d592fedf18b2`, Tree `9b917e98bbe2ef24c97319991d2d6bdbbf379254`, aktueller frisch geholter origin/main `ca4d877f13042c9a7a7023e54f6bf2c688b69ac4`. Gemeinsame Suite 554 passed, 0 failed, 24 ignored, 32 Targets; Reader-Gegenprobe tatsächlich darin bestanden. Format und striktes Clippy einschließlich brain-serve Exit 0.
+Die begrenzten Originalquellenfixes `aca42a50` und `b70dc6b6` einschließlich ihrer Nachweise und der erhaltenen Core6-Gegenprobe in den tatsächlichen gemeinsamen Kandidaten übernommen: HEAD `501d3725e691c713f4b04468fd9d6b77977ae91c`, Tree `4cca98fe791105203b8951a4f24c6c4abaf43cab`, Basis `ca4d877f13042c9a7a7023e54f6bf2c688b69ac4`. Kandidat auf `origin/feat/brain-i-integration-blocked-20261007` tatsächlich gesichert. E-Produktbasis bleibt `d3d3c5b68bea07a3e11c09572b200bbefd7b55cf`; Fixer 13 lieferte keine Produktänderung.
 
-Genau ein evidenzgestützter gemeinsamer Gate mit unverändert Claude Opus 5.5 ausgeführt, Exit 1:
+Gemeinsamer Produkt-Gate mit unverändert Claude Opus 5.5, Exit 1:
 
 ```text
-BLOCK: Der Patchimport kann fremden Inhalt falsch zuordnen und bei einem zulässigen Link den Tageslauf abbrechen.
+BLOCK: The patch import can assign an existing patch a new ID.
 ```
 
-Der zuvor widerlegte Reader-Verlust wird im neuen Urteil nicht mehr genannt. Stattdessen zwei neue echte Producer-Fehler, beide unabhängig reproduziert:
+Neuer berechtigter Kern am tatsächlichen Code nachgelesen: `load_post_row` sucht fragmentfreie Anfrage-URL und Feedlink; `post_row` entfernt anschließend zusätzlich die Query. Bestehender queryfreier Patch wird bei `?l=english#notes` ohne passenden Quelldokumenteintrag nicht gefunden und erhält eine neue negative ID. Der vorhandene Query-Test legt die queryhaltige Anfrage als Bestand an und trifft diesen Fall nicht. Query-/Slash-/tatsächlich identische Steam-Ereignis-URL-Varianten im vorhandenen Lookup korrigieren, unterschiedliche Ereignis-/Announcement-GIDs nicht vermischen. Dieser neue Fehler ist hier statisch bestätigt, noch nicht durch eine neue echte PG-Regression reproduziert. Originalurteil samt zwei offenen NITs in `REVIEW-RUNDE-18.md` und `/tmp/brain-i-e-patch-candidate-gate-opus55.log`.
 
-1. **Steam-Ereignisbindung:** Angefragt GID ...632, einziges vorhandenes Ereignis GID ...631. Der bestehende HTML-Leser fällt auf dieses fremde Ereignis zurück; dessen Gameplaybody landet in einem tatsächlichen PreparedPatch unter der angefragten ...632-URL. Ursache: Titel-/Zeit-Auswahl ohne sichere Bindung an das angefragte Ereignis. Begrenzte Lösung: vorhandenen Aufrufer/Leser an die tatsächlich angefragte Originalidentität binden und nicht passende Originale ablehnen. Legacy-Aufrufer und Announcement-Vertrag prüfen, keinen zweiten Parser bauen.
-2. **Fragmentabbruch:** Steam- und Forum-Links mit Fragment passieren validate_post. Der Resolver übergibt sie unverändert an den echten HTTP-Core, der vor dem Netzwerkzugriff Err liefert. Dieser Err propagiert durch den Import; das bestehende set-e-Skript führt den anschließenden Builddatenlauf nicht aus. Begrenzte Lösung: Abruf-URL im vorhandenen Übergang konsistent kanonisieren, HTTP-Sicherheitsguard nicht lockern und Herkunftsbinding erhalten.
+## Frischer Fixer 13: tatsächliche Schutzablehnung
 
-Zwei einmalige diagnostische Zeugen bestanden, 0 failed, 0 ignored, 112 filtered; das belegt erkannte Fehler, keine grüne Produktfunktion. Temporäre cfg(test)-Anbindung vollständig entfernt; Produktcode unverändert. Die kontrollierte Steam-HTML-Probe ist synthetisch und belegt Parserverhalten, nicht Häufigkeit im echten Feed. Die Fragmentprobe ruft echten Guard und Resolver auf, aber absichtlich kein Netzwerk oder produktives SQL. Tageslaufabbruch zusätzlich am tatsächlichen Skript-/Fehlerpfad bestätigt, nicht absichtlich produktiv ausgelöst. Bildlink-NIT bleibt getrennt offen.
+Fixer 13 nach diesem echten BLOCK gestartet, ausschließlich bestehender E-Arbeitsbaum und Lookupkern. Der Zugriff auf `/home/nathanael/.worktrees/brain-e-deadlock-api/rust/crates/deadlock-brain/src/pg_patchnotes.rs` wurde durch die Werkzeug-Schutzgrenze verweigert: außerhalb des zugelassenen Projektroots. Ausgang/Branch und Graphify bestätigt; keine Änderungen, Commits, Scratchprobe oder Selbst-Gate. Agent beendet, keine aktive eigene Native-Arbeit.
 
-**Urteil:** Der neue Restkern ist real und begrenzt, kein fortbestehender Reader-/Spec-Widerspruch. Gemäß Entscheidung Schritt 4 Urteil samt reproduzierbaren Szenarien zurückgegeben. Kein weiterer Gate, Fixer 11 oder Produktfix. Für eine weitere beauftragte Korrektur diese zwei bestehenden Patchpfade isoliert bearbeiten, danach dasselbe Urteilmodell; kein Core6-Bruch oder zweiter Fallback.
+**Urteil:** Der vorgeschriebene frische Fixerkontext kann seinen übernommenen Arbeitsbaum nicht regulär lesen. Nicht über Hauptsession, anderen Worker, Toolweg, Wrapper oder Hook-/Berechtigungsänderung übernommen. Das ist ein tatsächlicher Zugriffsblocker, kein neuer inhaltlicher Gate-BLOCK. G/K-Prüfsperren ebenfalls unangetastet. Für Fortsetzung muss das reguläre Routing dem frischen nativen Fixerkontext den bestehenden E-Worktree als zulässigen Projektroot bereitstellen; keine Schutzlockerung durch diese Session. Volle Rückgabe in `REVIEW-RUNDE-19-SCHUTZBLOCKER.md` und Auftrag `FIXER-13-AUFTRAG.md`. Zentrale Akte bleibt beim Delegator.
 
-## Sicherung und Nachweise
+## Prüf- und Sicherungsnachweise
 
-Kandidat `860793d7` ist auf `origin/feat/brain-i-integration-blocked-20261007` gepusht; nicht nach main. E-Produktbasis `90c17800`, Diagnose und aktualisierte Akte im eigenen E-Aufgabenordner. Vollständiges Urteil, Befehle und genaue Originalausgabe in `REVIEW.md` und `NACHWEIS-PATCH-GATE-BLOCK.md`; reproduzierbare Diagnosequelle `PATCH-GATE-DIAGNOSE.rs`. Originale:
+Am tatsächlichen Kandidaten: Formatcheck und striktes Clippy einschließlich brain-serve Exit 0. Vollständige bestehende E-Suite 558 passed, 0 failed, 25 ignored, 0 filtered, Exit 0. Zusätzlich die vorhandene ignorierte Bestands-ID-Probe ausdrücklich in eigener isolierter PostgreSQL-16-Instanz mit privatem Unixsocket ohne TCP ausgeführt: 1 passed, 0 failed, 0 ignored, 116 filtered, Exit 0; anschließend eigene Instanz beendet. Erster Aufruf ohne Scratch-DSN scheiterte tatsächlich mit `Scratch-DB fehlt: NotPresent`, Exit 101, 0 passed/1 failed. Das war eine korrigierte Prüfvoraussetzung, kein behaupteter alter Produktfehler. Befehle und alle Logpfade in `PRUEFUNG-KANDIDAT-501.md`.
 
-- `/tmp/brain-i-e-evidence-candidate-tests.log`, Format `/tmp/brain-i-e-evidence-candidate-fmt.log`, Clippy `/tmp/brain-i-e-evidence-candidate-clippy.log`.
-- `/tmp/brain-i-e-evidence-common-gate-opus55.log`.
-- `/tmp/brain-i-new-patch-blocker-diagnostics.log` und `/tmp/brain-i-new-patch-blocker-diagnostics-clippy.log`.
+TESTNACHWEIS[TW-1]: 558 passed, 25 ignored | Baseline: keine Altfehler behauptet
+TESTNACHWEIS[TW-1]: 1 passed, 0 ignored | Baseline: ausdrückliche bestehende Scratch-PG-Probe, Erstlauf ohne DSN fehlgeschlagen
 
-TESTNACHWEIS[TW-1]: 554 passed, 24 ignored | Baseline: keine Altfehler behauptet
-TESTNACHWEIS[TW-1]: 2 passed, 0 ignored | Baseline: einmalige Fehlerdiagnosen, keine Produktfreigabe
+Read-only-Rust-Liveprobe erneut gegen Kandidat 501 gebaut, Exit 0, noch nicht live ausgeführt. Ausschließlich eigene Cargo-Prüfartefakte nach `/tmp/brain-i-verified-target-20261007.vYUnv5/target` verschoben, nicht gelöscht; Kandidatenquelle anschließend sauber einschließlich ignorierter Dateien. Regulärer Releasewrapper und Hooks unverändert. Neue Nachweise und Briefing im eigenen E-Aufgabenordner; kein fremder WIP verändert.
 
-Zählbereich bis Erstellung dieser Akte: Fetch, Gegenproben-Merge, Kandidaten-Featurepush. Frühere Main-Teilintegration und spätere reine Aktenpublikation getrennt.
+Zählbereich der folgenden Zeile ausschließlich bereits bestätigte neue Kandidatensicherung auf Featurebranch. Native Fixer 13 ohne Git-Mutation; spätere reine Aktenpublikation getrennt ausweisen.
 
-MERGEPROTOKOLL[MS-1]: 3 Git-Schritte einzeln | Anläufe: 1 | Gate: [claude-opus-5-5] BLOCK, zwei neue Patchfehler reproduziert
+MERGEPROTOKOLL[MS-1]: 1 Git-Schritte einzeln | Anläufe: 1 | Gate: [claude-opus-5-5] Gesamt-BLOCK; frischer Fixer durch Projektroot-Schutzgrenze gestoppt
 
-## Offener Abschluss
+## Offene Lieferung
 
-Main enthält nur die früher freigegebenen Beleg-/Schemapinstufen `17974c66` und `ca4d877f`; kein vollständiger E-Produktstand nach main gepusht. Kein regulärer Releasebuild/install, eigener Neustart, produktiver vollständiger Assets-/Patch-/Builddatenimport oder Live-Receipt-/Originalhashbeweis. Keine analytics_runtime-Freigabe. F bleibt unverändert auf `46fd8674`, Toolbudget/Imbues/ursprünglicher Abbruch und gemeinsame PurchasePlan-/InventoryEvaluation-Belege offen. Kein G-Rechenkern dupliziert oder fremder WIP übernommen. Keine neue Warden-Veröffentlichung oder hero_build_id. Kein Cleanup und kein Self-Settle.
+Main enthält weiterhin die separat freigegebenen Beleg-/Schemapinstufen `17974c66` und `ca4d877f`; der vollständige E-Produktstand nicht nach main gepusht. Kein regulärer Releasebuild/install, eigener Neustart, produktiver vollständiger Assets-/Patch-/Builddatenimport oder Live-Receipt-/Originalhashbeweis. Keine analytics_runtime-Freigabe. F unverändert auf `46fd8674`; Budget/Imbues/ursprünglicher Abbruch, dieselben PurchasePlan-/InventoryEvaluation-Belege, tatsächlich gelieferter geprüfter G-Kern und gemeinsamer F/G-Vertragsabschluss offen. Keine neue Warden-Veröffentlichung oder hero_build_id. Kein Cleanup oder Self-Settle bei offener Lieferung. Eigene Branches und Worktrees erhalten.
 
-LIVEBEWEIS[DV-1]: PID 2645590->nicht erhoben | exe ohne (deleted) zuletzt vorgeprüft | journal -p err nicht geprüft | Anker "nicht geprüft" in Binary | Funktion: kein eigener Deploy oder vollständiger Liveimport bewiesen | Ort: http://127.0.0.1:8788/readyz, nur früherer Vorcheck
+LIVEBEWEIS[DV-1]: PID 2645590->nicht neu gestartet | exe ohne (deleted) nach Deploy nicht geprüft | journal -p err nicht geprüft | Anker "nicht geprüft" in Binary | Funktion: kein eigener Deploy oder vollständiger Liveimport bewiesen | Ort: http://127.0.0.1:8788/readyz, nur früherer Vorcheck
