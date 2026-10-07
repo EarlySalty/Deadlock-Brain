@@ -14,6 +14,8 @@ Graphify zuerst, vorhandene Inventur danach an echten Quellen prüfen. Bestehend
 
 ## Datenschutz und tatsächliche Abhängigkeiten
 
+Nachtrag des Delegators 10:55 UTC: ENTSCHEIDUNG-Q-K-DATENSCHUTZ.md am neuen Aufgabenort lesen. Q belegt codex_subscription auf127.0.0.1:18769 als externe Verarbeitung. Q inventarisiert vorhandenen tatsächlich lokalen Zentralprovider rein lesend; diese Inventur nicht duplizieren. Erlaubte öffentliche Pfade weiterführen, private FAQ-/DM-/Communitykontexte davor sperren. Exakt bereits erlaubte eigene Invite-Minimalprojektion Enum plus Zeitpunkt erhalten. Kleinste nötige Entscheidung für vollständige private Verarbeitung erst auf belegtem Q-Lokalproviderbestand formulieren, kein Modell-/Timeoutwechsel oder neue Antwortengine.
+
 NEVER read, print or write plaintext secrets.
 MUST NOT send private user/community data to remote models.
 Auch rohe Nutzer-/Communityfragen gehen nicht als Nebenprodukt an externe Modelle. Loopbackproxy ist keine lokale Verarbeitung. Keine private FAQ/DM als sicher freigegeben behaupten. Keine Produktions-/Communitydaten in deinem Modellkontext lesen; keine Livefragen aus History für diese Quellprüfung laden. Nur Code, Dokumentation und vorhandene neutrale Prüfverträge.
