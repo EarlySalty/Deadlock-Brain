@@ -1,11 +1,11 @@
 {
   "fixture_version": 1,
   "schema": {
-    "file": "openapi-20260925.json",
+    "file": "openapi-20261007.json",
     "source_url": "https://api.deadlock-api.com/openapi.json",
-    "observed_date": "2026-09-25",
-    "bytes": 380364,
-    "raw_sha256": "341bc2b2681d0bc353df721974bdbf46290c1f0645eba594d18381c3a2cbbc70",
+    "observed_date": "2026-10-07",
+    "bytes": 454617,
+    "raw_sha256": "d76b44f82d1da13eed5831e772498a56993ebd56f4976c118f8ecaca79747359",
     "openapi_version": "3.1.0",
     "api_version": "0.1.0",
     "revision_kind": "content-addressed observation; not a deployment commit"
