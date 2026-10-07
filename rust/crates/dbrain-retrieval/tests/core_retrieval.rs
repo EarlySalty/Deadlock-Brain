@@ -1,14 +1,16 @@
 use brain_contracts::*;
 use brain_storage::MemoryRepository;
 use dbrain_retrieval::{fuse_ranked, DenseEntry, DenseIndex, HybridRetriever, ReleaseRetriever};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 fn record(id: &str, revision: u64) -> SourceRecordV2 {
+    let content = format!("Abrams {id} revision {revision}");
     SourceRecordV2 {
         source_id: "fixture".into(),
         logical_id: id.into(),
         revision,
-        content_hash: format!("{id}-{revision}"),
-        content: format!("Abrams {id} revision {revision}"),
+        content_hash: format!("{:x}", Sha256::digest(content.as_bytes())),
+        content,
         visibility: SourceVisibility::Public,
         allowed_scopes: BTreeSet::new(),
         tombstone: false,
@@ -53,6 +55,46 @@ async fn store() -> MemoryRepository {
     store.publish(&r).await.unwrap();
     store
 }
+#[tokio::test]
+async fn typed_domain_objects_cannot_bypass_source_acl_via_generic_retrieval() {
+    let store = store().await;
+    let mut derived = record("derived", 1);
+    derived.content = "Abrams sensitive derived fact".into();
+    derived.content_hash = format!("{:x}", Sha256::digest(derived.content.as_bytes()));
+    let content_hash = derived.content_hash.clone();
+    derived
+        .metadata
+        .insert("domain_contract".into(), "brain.domain.v1".into());
+    store.apply_record(derived).unwrap();
+    let release = store.release_from_heads("r2", "v1", "p1").unwrap();
+    store.publish(&release).await.unwrap();
+    let mut context = context();
+    context.knowledge_release = "r2".into();
+    let lexical = ReleaseRetriever::new(store.clone(), 10);
+    let hits = lexical.retrieve(&query(), &context).unwrap();
+    assert_eq!(hits.len(), 2);
+    assert!(hits
+        .iter()
+        .all(|hit| hit.logical_id != "derived" && !hit.content.contains("sensitive")));
+    let index = DenseIndex {
+        release_id: "r2".into(),
+        identity: identity(),
+        entries: vec![DenseEntry {
+            document: DocumentRevision {
+                source_id: "fixture".into(),
+                logical_id: "derived".into(),
+                revision: 1,
+                content_hash,
+            },
+            vector: vec![1.0, 0.0],
+        }],
+    };
+    let hybrid = HybridRetriever::new(store, FixtureEmbedding { wrong: true }, index, 10).unwrap();
+    let (dense_hits, usage) = hybrid.retrieve_with_usage(&query(), &context).unwrap();
+    assert_eq!(dense_hits, hits);
+    assert_eq!(usage.network_rounds, 0);
+}
+
 #[tokio::test]
 async fn release_pinning_acl_tombstone_and_forged_evidence() {
     let store = store().await;
@@ -167,7 +209,7 @@ fn index() -> DenseIndex {
                 source_id: "fixture".into(),
                 logical_id: "b".into(),
                 revision: 1,
-                content_hash: "b-1".into(),
+                content_hash: record("b", 1).content_hash,
             },
             vector: vec![1.0, 0.0],
         }],

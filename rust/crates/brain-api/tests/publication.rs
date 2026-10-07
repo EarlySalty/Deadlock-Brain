@@ -107,6 +107,39 @@ async fn current_canonical_egress_revocation_rejects_pinned_provider_inputs() {
 }
 
 #[tokio::test]
+async fn current_canonical_egress_revocation_invalidates_a_warm_release_index() {
+    for remove_origin in [false, true] {
+        let store = MemoryRepository::default();
+        let original = record("a", 1, true, false);
+        store.apply_record(original.clone()).unwrap();
+        publish(&store).await;
+        let retrieval = ReleaseRetriever::new(store.clone(), 10);
+        let q = query(AnswerProfile::Explain);
+        let hits = retrieval.retrieve(&q, &context()).unwrap();
+        assert_eq!(hits.len(), 1);
+        let mut revoked = original;
+        revoked.revision = 2;
+        if remove_origin {
+            revoked
+                .metadata
+                .remove(brain_contracts::source::ORIGIN_METADATA_KEY);
+        } else {
+            let mut origin = brain_contracts::source::origin_from_record(&revoked).unwrap();
+            origin.policy.provider_egress_allowed = false;
+            origin.bind_record(&mut revoked).unwrap();
+        }
+        store.apply_record(revoked).unwrap();
+        assert_eq!(retrieval.retrieve(&q, &context()).unwrap().len(), 1);
+        assert!(retrieval
+            .validate_evidence(&q, &context(), &hits, true)
+            .is_err());
+        retrieval
+            .validate_evidence(&q, &context(), &hits, false)
+            .unwrap();
+    }
+}
+
+#[tokio::test]
 async fn provider_requires_current_origin_for_canonical_inputs_but_preserves_legacy_inputs() {
     use brain_contracts::source::ORIGIN_METADATA_KEY;
     for canonical in [false, true] {

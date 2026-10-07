@@ -425,6 +425,22 @@ async fn all_admitted_body_read_timeouts_return_their_permits() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn invalid_service_deadlines_fail_closed_instead_of_being_clamped() {
+    for budget in [0, 60001] {
+        let server = Server::new(budget, None).await;
+        let mut stream = request(server.address, "normal").await;
+        let reply = response(&mut stream, Duration::from_millis(400)).await;
+        if budget == 0 && reply.starts_with("HTTP/1.1 504 ") {
+            status(&reply, 504);
+        } else {
+            status(&reply, 503);
+        }
+        assert_eq!(server.calls.load(Ordering::SeqCst), 0);
+        server.finish().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn client_abort_cancels_late_worker_before_provider() {
     let gate = Arc::new(Gate::default());
     let mut server = Server::new(5000, Some(gate.clone())).await;
