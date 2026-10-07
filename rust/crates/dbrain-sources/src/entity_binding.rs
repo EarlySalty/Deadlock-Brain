@@ -331,23 +331,20 @@ pub async fn bind_stored_document(
     catalog: &[CatalogEntity],
 ) -> brain_storage::Result<StoredBindingSummary> {
     use brain_storage::entity_profile::{
-        project_entity_facts,
-        semantic::{project_semantic_fact, semantic_projection},
+        semantic::{project_semantic_fact_with_context, semantic_projection_with_context},
+        EntityDocumentContext,
     };
     let record = store
         .stored_entity_source(source_id, logical_id, revision)
         .await?;
-    let document: KnowledgeDocument = serde_json::from_str(
-        record
-            .metadata
-            .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
-            .ok_or_else(|| {
-                brain_storage::StorageError::Json(<serde_json::Error as serde::de::Error>::custom(
-                    "Originaldokument fehlt",
-                ))
-            })?,
-    )?;
+    let context = EntityDocumentContext::new(&record)?;
+    let document = KnowledgeDocument::deserialize(context.document())?;
     let coverage = bind_document(&document, catalog);
+    let original_prefix = format!(
+        "{}:{}:{}:",
+        document.source_id, document.document_id, document.revision
+    );
+    drop(document);
     let mut result = StoredBindingSummary {
         bound_facts: coverage.bindings.len(),
         unresolved_fact_ids: coverage.unresolved_fact_ids,
@@ -381,15 +378,11 @@ pub async fn bind_stored_document(
         identity.identity_evidence.sort();
         identity.identity_evidence.dedup();
         let previous: BTreeMap<_, _> = store
-            .stored_git_entity_bindings(&key, &record)
+            .stored_git_entity_bindings_with_context(&key, &context)
             .await?
             .into_iter()
             .map(|binding| (binding.original_fact.fact_id.clone(), binding))
             .collect();
-        let original_prefix = format!(
-            "{}:{}:{}:",
-            document.source_id, document.document_id, document.revision
-        );
         identity
             .identity_evidence
             .extend(previous.values().flat_map(|binding| {
@@ -408,31 +401,36 @@ pub async fn bind_stored_document(
                 .map(|binding| binding.fact.fact_id.clone())
                 .collect();
             let mut projections = Vec::new();
-            for (binding, original) in chunk.iter().zip(project_entity_facts(&record, &ids)?) {
+            for (binding, original) in chunk.iter().zip(context.project(&ids)?) {
                 if let Some(previous) = previous.get(&original.fact_id) {
                     if let Some(projection) = &previous.semantic_projection {
-                        project_semantic_fact(
+                        project_semantic_fact_with_context(
                             &original,
                             projection,
-                            &record,
+                            &context,
                             &previous.binding_identity,
                         )?;
-                        project_semantic_fact(&original, projection, &record, &identity)?;
+                        project_semantic_fact_with_context(
+                            &original, projection, &context, &identity,
+                        )?;
                         projections.push((original.fact_id, projection.clone()));
                         continue;
                     }
                 }
-                if let Some(projection) =
-                    semantic_projection(&original, &binding.relative_pointer, &record, &identity)?
-                {
+                if let Some(projection) = semantic_projection_with_context(
+                    &original,
+                    &binding.relative_pointer,
+                    &context,
+                    &identity,
+                )? {
                     projections.push((original.fact_id, projection));
                 }
             }
             result.inserted_bindings += store
-                .store_entity_fact_bindings(&identity, &record, &ids)
+                .store_entity_fact_bindings_with_context(&identity, &context, &ids)
                 .await?;
             result.inserted_projections += store
-                .store_entity_semantic_projections(&key, &record, &projections)
+                .store_entity_semantic_projections_with_context(&key, &context, &projections)
                 .await?;
         }
         result.entity_keys.push(key);

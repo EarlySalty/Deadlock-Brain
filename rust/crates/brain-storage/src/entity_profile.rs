@@ -9,7 +9,7 @@ use brain_contracts::{
     SourceRecordV2,
 };
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[path = "entity_semantic.rs"]
 pub mod semantic;
@@ -28,74 +28,123 @@ pub fn project_entity_facts(
     record: &SourceRecordV2,
     fact_ids: &[String],
 ) -> crate::Result<Vec<EntityProfileFact>> {
-    record.validate()?;
-    let origin = origin_from_record(record).map_err(|_| invalid("Quellherkunft fehlt"))?;
-    let document: Value = serde_json::from_str(
-        record
-            .metadata
-            .get(crate::source_versions::DOCUMENT_METADATA_KEY)
-            .ok_or_else(|| invalid("Originaldokument fehlt"))?,
-    )?;
-    if document["document_id"] != record.logical_id
-        || document["source_id"] != record.source_id
-        || document["content_sha256"] != record.content_hash
-        || document["content"] != record.content
-    {
-        return Err(invalid("Dokument und Quelle stimmen nicht überein"));
-    }
-    let source_kind = match document["source_kind"].as_str() {
-        Some("wiki") => ProfileSourceKind::Wiki,
-        Some("game_file") => ProfileSourceKind::GameFile,
-        _ => return Err(invalid("Quellenart fehlt")),
-    };
-    let facts = document["facts"]
-        .as_array()
-        .ok_or_else(|| invalid("Fakten fehlen"))?;
-    let mut result = Vec::new();
-    for id in fact_ids {
-        let matches: Vec<_> = facts
-            .iter()
-            .filter(|f| f["fact_id"].as_str() == Some(id))
-            .collect();
-        if matches.len() != 1 || result.iter().any(|f: &EntityProfileFact| f.fact_id == *id) {
-            return Err(invalid("Faktenzuordnung ist nicht eindeutig"));
+    EntityDocumentContext::new(record)?.project(fact_ids)
+}
+
+/// Dokumentlokaler Originalbeleg. Die private Bindung verhindert den Austausch der Quelle.
+pub struct EntityDocumentContext<'a> {
+    record: &'a SourceRecordV2,
+    document: Value,
+    by_id: BTreeMap<String, usize>,
+    origin: brain_contracts::source::OriginArtifact,
+    source_kind: ProfileSourceKind,
+}
+
+impl<'a> EntityDocumentContext<'a> {
+    pub fn new(record: &'a SourceRecordV2) -> crate::Result<Self> {
+        record.validate()?;
+        let origin = origin_from_record(record).map_err(|_| invalid("Quellherkunft fehlt"))?;
+        let document: Value = serde_json::from_str(
+            record
+                .metadata
+                .get(crate::source_versions::DOCUMENT_METADATA_KEY)
+                .ok_or_else(|| invalid("Originaldokument fehlt"))?,
+        )?;
+        if document["document_id"] != record.logical_id
+            || document["source_id"] != record.source_id
+            || document["content_sha256"] != record.content_hash
+            || document["content"] != record.content
+        {
+            return Err(invalid("Dokument und Quelle stimmen nicht überein"));
         }
-        let fact = matches[0];
-        let text = |key: &str| {
-            fact[key]
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| invalid("Faktenfeld fehlt"))
+        let source_kind = match document["source_kind"].as_str() {
+            Some("wiki") => ProfileSourceKind::Wiki,
+            Some("game_file") => ProfileSourceKind::GameFile,
+            _ => return Err(invalid("Quellenart fehlt")),
         };
-        result.push(EntityProfileFact {
-            fact_id: id.clone(),
-            subject: text("subject")?,
-            predicate: text("predicate")?,
-            value: fact["value"].clone(),
-            unit: serde_json::from_value(fact["unit"].clone())?,
-            qualifiers: serde_json::from_value(fact["qualifiers"].clone())?,
-            evidence_status: text("evidence_status")?,
-            validity: PatchValidity::Unknown {
-                reason: "Quelle belegt keine Patchgrenzen".into(),
-            },
-            provenance: ProfileProvenance {
-                source_kind,
-                origin: origin.clone(),
-                original_revision: document["revision"]
-                    .as_str()
-                    .ok_or_else(|| invalid("Originalrevision fehlt"))?
-                    .into(),
-                observed_at: document["observed_at"]
-                    .as_str()
-                    .ok_or_else(|| invalid("Quellenzeit fehlt"))?
-                    .into(),
-                source_span: serde_json::from_value(fact["source_span"].clone())?,
-                license: document["license"].clone(),
-                document_metadata: serde_json::from_value(document["metadata"].clone())?,
-            },
-        });
+        let facts = document["facts"]
+            .as_array()
+            .ok_or_else(|| invalid("Fakten fehlen"))?;
+        let mut by_id = BTreeMap::new();
+        for (position, fact) in facts.iter().enumerate() {
+            let id = fact["fact_id"]
+                .as_str()
+                .ok_or_else(|| invalid("Fakten-ID fehlt"))?;
+            if by_id.insert(id.to_owned(), position).is_some() {
+                return Err(invalid("Faktenzuordnung ist nicht eindeutig"));
+            }
+        }
+        Ok(Self {
+            record,
+            document,
+            by_id,
+            origin,
+            source_kind,
+        })
     }
-    Ok(result)
+
+    pub fn record(&self) -> &'a SourceRecordV2 {
+        self.record
+    }
+    pub fn document(&self) -> &Value {
+        &self.document
+    }
+    pub(crate) fn fact_index(&self) -> &BTreeMap<String, usize> {
+        &self.by_id
+    }
+
+    pub fn project(&self, fact_ids: &[String]) -> crate::Result<Vec<EntityProfileFact>> {
+        let document = &self.document;
+        let facts = document["facts"]
+            .as_array()
+            .ok_or_else(|| invalid("Fakten fehlen"))?;
+        let mut seen = BTreeSet::new();
+        let mut result = Vec::new();
+        for id in fact_ids {
+            if !seen.insert(id) {
+                return Err(invalid("Faktenzuordnung ist nicht eindeutig"));
+            }
+            let fact = self
+                .by_id
+                .get(id)
+                .and_then(|position| facts.get(*position))
+                .ok_or_else(|| invalid("Faktenzuordnung ist nicht eindeutig"))?;
+            let text = |key: &str| {
+                fact[key]
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| invalid("Faktenfeld fehlt"))
+            };
+            result.push(EntityProfileFact {
+                fact_id: id.clone(),
+                subject: text("subject")?,
+                predicate: text("predicate")?,
+                value: fact["value"].clone(),
+                unit: serde_json::from_value(fact["unit"].clone())?,
+                qualifiers: serde_json::from_value(fact["qualifiers"].clone())?,
+                evidence_status: text("evidence_status")?,
+                validity: PatchValidity::Unknown {
+                    reason: "Quelle belegt keine Patchgrenzen".into(),
+                },
+                provenance: ProfileProvenance {
+                    source_kind: self.source_kind,
+                    origin: self.origin.clone(),
+                    original_revision: document["revision"]
+                        .as_str()
+                        .ok_or_else(|| invalid("Originalrevision fehlt"))?
+                        .into(),
+                    observed_at: document["observed_at"]
+                        .as_str()
+                        .ok_or_else(|| invalid("Quellenzeit fehlt"))?
+                        .into(),
+                    source_span: serde_json::from_value(fact["source_span"].clone())?,
+                    license: document["license"].clone(),
+                    document_metadata: serde_json::from_value(document["metadata"].clone())?,
+                },
+            });
+        }
+        Ok(result)
+    }
 }
 
 pub fn validity_contains(validity: &PatchValidity, patch: &str) -> bool {
@@ -306,6 +355,18 @@ impl PgStore {
         record: &SourceRecordV2,
         fact_ids: &[String],
     ) -> crate::Result<usize> {
+        let context = EntityDocumentContext::new(record)?;
+        self.store_entity_fact_bindings_with_context(entity, &context, fact_ids)
+            .await
+    }
+
+    pub async fn store_entity_fact_bindings_with_context(
+        &self,
+        entity: &EntityIdentity,
+        context: &EntityDocumentContext<'_>,
+        fact_ids: &[String],
+    ) -> crate::Result<usize> {
+        let record = context.record();
         if entity.entity_key.trim().is_empty()
             || entity.name.trim().is_empty()
             || entity.identity_evidence.is_empty()
@@ -326,7 +387,7 @@ impl PgStore {
                 "Faktenbindung widerspricht der gespeicherten Quellrevision",
             ));
         }
-        let facts = project_entity_facts(&original, fact_ids)?;
+        let facts = context.project(fact_ids)?;
         sqlx::query("INSERT INTO brain.entity_profile_entities_v1(entity_key,identity_json) VALUES($1,$2) ON CONFLICT(entity_key) DO NOTHING").bind(&entity.entity_key).bind(&identity).execute(&mut *tx).await?;
         let stored_identity: Value = sqlx::query_scalar("SELECT identity_json FROM brain.entity_profile_entities_v1 WHERE entity_key=$1 FOR UPDATE")
             .bind(&entity.entity_key).fetch_one(&mut *tx).await?;
@@ -382,8 +443,18 @@ impl PgStore {
                         qualifiers: serde_json::from_str(&qualifiers)?,
                         unit,
                     };
-                    semantic::project_semantic_fact(&fact, &projection, &original, &previous)?;
-                    semantic::project_semantic_fact(&fact, &projection, &original, entity)?;
+                    semantic::project_semantic_fact_with_context(
+                        &fact,
+                        &projection,
+                        context,
+                        &previous,
+                    )?;
+                    semantic::project_semantic_fact_with_context(
+                        &fact,
+                        &projection,
+                        context,
+                        entity,
+                    )?;
                 }
                 sqlx::query("UPDATE brain.entity_profile_facts_v1 SET binding_identity_json=$6 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5")
                     .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).bind(&identity).execute(&mut *tx).await?;

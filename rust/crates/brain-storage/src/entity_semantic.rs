@@ -1,4 +1,4 @@
-use super::{invalid, project_entity_facts};
+use super::{invalid, EntityDocumentContext};
 use crate::{PgStore, Result};
 use brain_contracts::{
     entity_profile::{EntityIdentity, EntityProfileFact, ProfileSourceKind},
@@ -23,47 +23,6 @@ pub struct SemanticProjection {
     pub predicate: String,
     pub qualifiers: Map<String, Value>,
     pub unit: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct SemanticBinding<'a> {
-    pub record: &'a SourceRecordV2,
-    pub identity: &'a EntityIdentity,
-}
-
-pub(crate) fn verify_bound_original(
-    fact: &EntityProfileFact,
-    binding: SemanticBinding<'_>,
-) -> Result<()> {
-    let original = project_entity_facts(binding.record, std::slice::from_ref(&fact.fact_id))?;
-    if original[0] != *fact || binding.identity.entity_key.is_empty() {
-        return Err(invalid(
-            "Semantischer Originalbeleg widerspricht der Bindung",
-        ));
-    }
-    Ok(())
-}
-
-fn bound_relative_pointer(
-    fact: &EntityProfileFact,
-    binding: SemanticBinding<'_>,
-    relative_pointer: &str,
-) -> Result<String> {
-    verify_bound_original(fact, binding)?;
-    let document: Value = serde_json::from_str(
-        &binding.record.metadata[crate::source_versions::DOCUMENT_METADATA_KEY],
-    )?;
-    bound_relative_pointer_from_facts(
-        fact,
-        binding.identity,
-        &binding.record.source_id,
-        &binding.record.logical_id,
-        document["facts"]
-            .as_array()
-            .ok_or_else(|| invalid("Originalfakten fehlen"))?,
-        relative_pointer,
-        None,
-    )
 }
 
 fn bound_relative_pointer_from_facts(
@@ -186,11 +145,37 @@ pub fn semantic_projection(
     if !numeric_original(fact) {
         return Ok(None);
     }
-    let binding = SemanticBinding {
-        record,
-        identity: binding_identity,
-    };
-    let relative = bound_relative_pointer(fact, binding, relative_pointer)?;
+    let context = EntityDocumentContext::new(record)?;
+    semantic_projection_with_context(fact, relative_pointer, &context, binding_identity)
+}
+
+pub fn semantic_projection_with_context(
+    fact: &EntityProfileFact,
+    relative_pointer: &str,
+    context: &EntityDocumentContext<'_>,
+    binding_identity: &EntityIdentity,
+) -> Result<Option<SemanticProjection>> {
+    if !numeric_original(fact) {
+        return Ok(None);
+    }
+    let original = context.project(std::slice::from_ref(&fact.fact_id))?;
+    if original[0] != *fact || binding_identity.entity_key.is_empty() {
+        return Err(invalid(
+            "Semantischer Originalbeleg widerspricht der Bindung",
+        ));
+    }
+    let record = context.record();
+    let relative = bound_relative_pointer_from_facts(
+        fact,
+        binding_identity,
+        &record.source_id,
+        &record.logical_id,
+        context.document()["facts"]
+            .as_array()
+            .ok_or_else(|| invalid("Originalfakten fehlen"))?,
+        relative_pointer,
+        Some(context.fact_index()),
+    )?;
     semantic_projection_verified(fact, relative_pointer, &relative)
 }
 
@@ -282,10 +267,20 @@ pub fn project_semantic_fact(
     record: &SourceRecordV2,
     binding_identity: &EntityIdentity,
 ) -> Result<EntityProfileFact> {
-    if semantic_projection(
+    let context = EntityDocumentContext::new(record)?;
+    project_semantic_fact_with_context(original, projection, &context, binding_identity)
+}
+
+pub fn project_semantic_fact_with_context(
+    original: &EntityProfileFact,
+    projection: &SemanticProjection,
+    context: &EntityDocumentContext<'_>,
+    binding_identity: &EntityIdentity,
+) -> Result<EntityProfileFact> {
+    if semantic_projection_with_context(
         original,
         &projection.relative_pointer,
-        record,
+        context,
         binding_identity,
     )?
     .as_ref()
@@ -307,6 +302,25 @@ impl PgStore {
         &self,
         entity_key: &str,
         record: &SourceRecordV2,
+    ) -> Result<Vec<super::derivation::StoredGitBinding>> {
+        self.stored_git_entity_bindings_inner(entity_key, record, None)
+            .await
+    }
+
+    pub async fn stored_git_entity_bindings_with_context(
+        &self,
+        entity_key: &str,
+        context: &EntityDocumentContext<'_>,
+    ) -> Result<Vec<super::derivation::StoredGitBinding>> {
+        self.stored_git_entity_bindings_inner(entity_key, context.record(), Some(context))
+            .await
+    }
+
+    async fn stored_git_entity_bindings_inner(
+        &self,
+        entity_key: &str,
+        record: &SourceRecordV2,
+        context: Option<&EntityDocumentContext<'_>>,
     ) -> Result<Vec<super::derivation::StoredGitBinding>> {
         let revision =
             i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
@@ -342,12 +356,18 @@ impl PgStore {
         if bindings.is_empty() {
             return Ok(Vec::new());
         }
-        let document: Value = serde_json::from_str(
-            record
-                .metadata
-                .get(crate::source_versions::DOCUMENT_METADATA_KEY)
-                .ok_or_else(|| invalid("Originaldokument fehlt"))?,
-        )?;
+        let parsed;
+        let document = if let Some(context) = context {
+            context.document()
+        } else {
+            parsed = serde_json::from_str::<Value>(
+                record
+                    .metadata
+                    .get(crate::source_versions::DOCUMENT_METADATA_KEY)
+                    .ok_or_else(|| invalid("Originaldokument fehlt"))?,
+            )?;
+            &parsed
+        };
         if document["source_kind"] != "game_file" {
             return Ok(Vec::new());
         }
@@ -423,6 +443,18 @@ impl PgStore {
         record: &SourceRecordV2,
         projections: &[(String, SemanticProjection)],
     ) -> Result<usize> {
+        let context = EntityDocumentContext::new(record)?;
+        self.store_entity_semantic_projections_with_context(entity_key, &context, projections)
+            .await
+    }
+
+    pub async fn store_entity_semantic_projections_with_context(
+        &self,
+        entity_key: &str,
+        context: &EntityDocumentContext<'_>,
+        projections: &[(String, SemanticProjection)],
+    ) -> Result<usize> {
+        let record = context.record();
         if projections.len() > 10_000 {
             return Err(invalid("Zu viele semantische Projektionen"));
         }
@@ -438,7 +470,7 @@ impl PgStore {
             ));
         }
         let ids: Vec<_> = projections.iter().map(|(id, _)| id.clone()).collect();
-        let originals = project_entity_facts(record, &ids)?;
+        let originals = context.project(&ids)?;
         let mut total = 0;
         for ((fact_id, projection), original) in projections.iter().zip(originals) {
             let (bound, identity): (String, Value) = sqlx::query_as("SELECT fact_json,binding_identity_json FROM brain.entity_profile_facts_v1 WHERE entity_key=$1 AND source_id=$2 AND logical_id=$3 AND revision=$4 AND fact_id=$5 FOR SHARE")
@@ -449,7 +481,7 @@ impl PgStore {
                     "Gespeicherte Entitätsbindung widerspricht der Projektion",
                 ));
             }
-            project_semantic_fact(&original, projection, record, &identity)?;
+            project_semantic_fact_with_context(&original, projection, context, &identity)?;
             if serde_json::from_str::<EntityProfileFact>(&bound)? != original {
                 return Err(invalid("Originalbindung widerspricht der Projektion"));
             }
