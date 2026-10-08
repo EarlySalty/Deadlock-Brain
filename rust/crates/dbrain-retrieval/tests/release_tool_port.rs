@@ -225,7 +225,40 @@ fn actual_port_preserves_request_receipt_and_current_purpose_permissions() {
         )
         .is_err());
     runtime
-        .block_on(store.apply(&record(3, false, false, true)))
+        .block_on(store.apply(&record(3, false, true, false)))
+        .unwrap();
+    for purpose in [
+        ToolValidationPurpose::Provider,
+        ToolValidationPurpose::Cache,
+    ] {
+        assert!(port
+            .validate_dependencies(&query, &context, None, &execution.dependencies, purpose)
+            .is_err());
+    }
+    port.validate_dependencies(
+        &query,
+        &context,
+        None,
+        &execution.dependencies,
+        ToolValidationPurpose::Publication,
+    )
+    .unwrap();
+    assert!(port
+        .execute(&query, &context, None, &call.id, &request)
+        .is_err());
+    runtime
+        .block_on(store.apply(&record(4, true, true, false)))
+        .unwrap();
+    for purpose in [
+        ToolValidationPurpose::Provider,
+        ToolValidationPurpose::Publication,
+        ToolValidationPurpose::Cache,
+    ] {
+        port.validate_dependencies(&query, &context, None, &execution.dependencies, purpose)
+            .unwrap();
+    }
+    runtime
+        .block_on(store.apply(&record(5, true, true, true)))
         .unwrap();
     for purpose in [
         ToolValidationPurpose::Provider,
