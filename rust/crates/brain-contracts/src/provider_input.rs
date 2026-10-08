@@ -77,7 +77,7 @@ pub struct ChatMessage {
     pub content: String,
 }
 
-fn discord_display_text(text: &str) -> String {
+pub fn discord_display_text(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while !rest.is_empty() {
@@ -165,6 +165,14 @@ pub fn grounded_messages(query: &Query, evidence: &[Evidence]) -> Vec<ChatMessag
                     item.citation.as_str()
                 };
                 let content = evidence_display_content(item);
+                let (citation, content) = if crate::discord_task::is_task_query(query) {
+                    (
+                        discord_display_text(citation),
+                        discord_display_text(&content),
+                    )
+                } else {
+                    (citation.to_owned(), content)
+                };
                 json!({
                     "id": item.evidence_id,
                     "citation": citation,

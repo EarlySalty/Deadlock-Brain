@@ -137,6 +137,25 @@ where
         claimed_user: Option<u64>,
         allow_discord_reads: bool,
     ) -> ApiResponse {
+        self.handle_answer_with_task(
+            authorization,
+            body,
+            deadline,
+            claimed_user,
+            allow_discord_reads,
+            None,
+        )
+    }
+
+    fn handle_answer_with_task(
+        &self,
+        authorization: Option<&str>,
+        body: &[u8],
+        deadline: brain_contracts::RequestDeadline,
+        claimed_user: Option<u64>,
+        allow_discord_reads: bool,
+        task: Option<brain_contracts::discord_task::DiscordAnswerTask>,
+    ) -> ApiResponse {
         if deadline.check().is_err() {
             return deadline_response();
         }
@@ -153,7 +172,7 @@ where
             return json_error(401, "unauthorized", "Bearer Token fehlt oder ist ungültig");
         };
 
-        let query: Query = match serde_json::from_slice(body) {
+        let mut query: Query = match serde_json::from_slice(body) {
             Ok(query) => query,
             Err(_) => return json_error(400, "invalid_request", "Query Contract ist ungültig"),
         };
@@ -161,6 +180,44 @@ where
             return json_error(400, "invalid_request", "Query Contract ist ungültig");
         }
 
+        if let Some(task) = &task {
+            let principal = match self.policy.authenticate(token) {
+                Ok(principal) => principal,
+                Err(_) => return json_error(401, "unauthorized", "Zugangsdaten sind ungültig"),
+            };
+            if !task.valid()
+                || claimed_user.is_none_or(|id| id == 0)
+                || allow_discord_reads
+                || !self
+                    .discord_consumers
+                    .contains(&(principal.actor_id, principal.channel))
+                || query.requested_scopes != std::collections::BTreeSet::from(["bot.public".into()])
+                || query.domain.is_some()
+                || query.answer_context.is_some()
+                || query.patch.is_some()
+                || query.mode.is_some()
+                || query.profile != brain_contracts::AnswerProfile::Explain
+            {
+                return json_error(403, "forbidden", "Bot-Aufgabe ist nicht freigegeben");
+            }
+            query.text = brain_contracts::discord_task::without_platform_ids(&query.text);
+            if query.text.trim().is_empty() {
+                return json_error(400, "invalid_request", "Die Frage enthält keinen Sachtext");
+            }
+            let purpose = match task.capability {
+                brain_contracts::discord_task::DiscordAnswerCapability::Concierge => {
+                    "bot_task:concierge"
+                }
+                brain_contracts::discord_task::DiscordAnswerCapability::Faq => "bot_task:faq",
+            };
+            query.answer_context = Some(brain_contracts::AnswerContext::Discord(
+                brain_contracts::DiscordAnswerContext {
+                    purpose: Some(purpose.into()),
+                    input_kind: Some(brain_contracts::AnswerInputKind::Message),
+                    ..Default::default()
+                },
+            ));
+        }
         let knowledge_release = match self.release_for_token(token) {
             Ok(release) => release,
             Err(response) => return response,
@@ -200,7 +257,14 @@ where
         }
         // `/v1/answer` always publishes externally. This purpose is not a Query
         // field, scope, header or credential option the client can downgrade.
-        if context.principal.scopes.contains("bot.public") {
+        if task.is_some() {
+            context.principal.scopes = std::collections::BTreeSet::from(["bot.public".into()]);
+            context
+                .principal
+                .provider_egress
+                .retain(|scope| scope == "public");
+        }
+        if context.principal.scopes.contains("bot.public") && task.is_none() {
             use std::io::Read;
             let mut nonce = [0u8; 32];
             if std::fs::File::open("/dev/urandom")
@@ -252,6 +316,9 @@ where
             context.principal.channel.clone(),
         ));
         public_text::prepare(&mut answer, &query, discord);
+        if let Some(task) = task {
+            tracing::info!(capability = ?task.capability, request_id = %query.request_id, status = ?answer.status, "Discord-Bot-Aufgabe abgeschlossen");
+        }
         answer_response(&answer)
     }
 }
@@ -338,6 +405,100 @@ mod tests {
     use brain_policy::{AuthGrant, CredentialRegistry};
 
     use super::*;
+
+    #[tokio::test]
+    async fn bot_tasks_reuse_answer_without_private_reads_or_platform_ids() {
+        use brain_contracts::discord_task::{DiscordAnswerCapability, DiscordAnswerTask};
+        struct Recorder(Arc<std::sync::Mutex<Vec<(Query, AuthorizedContext)>>>);
+        impl AnswerKernelPort for Recorder {
+            fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push((query.clone(), context.clone()));
+                FixedKernel {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                }
+                .answer(query, context)
+            }
+            fn answer_for_publication(
+                &self,
+                query: &Query,
+                context: &AuthorizedContext,
+            ) -> AnswerResponse {
+                self.answer(query, context)
+            }
+        }
+        let recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let service = ApiService::new(
+            PolicyEngine::new(CredentialRegistry::new(vec![
+                AuthGrant::from_secret(
+                    "bot",
+                    "discord-bot",
+                    "discord",
+                    scopes(&["bot.public"]),
+                    scopes(&["public"]),
+                ),
+                AuthGrant::from_secret(
+                    "other",
+                    "other",
+                    "http",
+                    scopes(&["bot.public"]),
+                    scopes(&["public"]),
+                ),
+            ])),
+            Recorder(recorded.clone()),
+            "release",
+            2000,
+            Budget::default(),
+        )
+        .with_discord_consumers(BTreeSet::from([("discord-bot".into(), "discord".into())]));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server =
+            tokio::spawn(async move { axum::serve(listener, router(service)).await.unwrap() });
+        let mut query = query(&["bot.public"]);
+        query.text = "Wo finde ich Hilfe? <@123456789012345678>".into();
+        let task = DiscordAnswerTask {
+            capability: DiscordAnswerCapability::Concierge,
+            channel_id: 123456789012345678,
+        };
+        let client = brain_client::AsyncBrainClient::new_local(
+            &endpoint,
+            "bot",
+            std::time::Duration::from_secs(2),
+        )
+        .unwrap();
+        client
+            .answer_discord_task(&query, 76561197960265839, &task)
+            .await
+            .unwrap();
+        let other = brain_client::AsyncBrainClient::new_local(
+            &endpoint,
+            "other",
+            std::time::Duration::from_secs(2),
+        )
+        .unwrap();
+        assert!(other.answer_discord_task(&query, 42, &task).await.is_err());
+        query.answer_context = Some(brain_contracts::AnswerContext::Discord(
+            brain_contracts::DiscordAnswerContext {
+                topic: Some("Fremddaten".into()),
+                ..Default::default()
+            },
+        ));
+        assert!(client.answer_discord_task(&query, 42, &task).await.is_err());
+        let records = recorded.lock().unwrap();
+        assert_eq!(records.len(), 1);
+        assert!(!records[0].0.text.contains("123456789012345678"));
+        assert!(records[0].1.discord.is_none());
+        assert!(!records[0]
+            .1
+            .principal
+            .scopes
+            .iter()
+            .any(|s| s.starts_with("discord.request:")));
+        server.abort();
+    }
 
     #[tokio::test]
     async fn discord_identitaet_und_private_read_gate_bleiben_an_der_anfrage() {
