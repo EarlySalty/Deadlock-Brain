@@ -170,6 +170,14 @@ fn charged_property(name: &str) -> bool {
     )
 }
 
+pub(crate) fn passive_damage_ability(ability: &AbilityModel) -> bool {
+    ability.properties.contains_key("DamageBonusFixedPerStack")
+        || ability
+            .properties
+            .get("BuildUpBulletPercentPerHit")
+            .is_some_and(|value| *value > 0.0)
+}
+
 pub(crate) fn ability_spirit(ability: &AbilityModel, stats: &InventoryStats) -> f64 {
     stats.spirit
         + if ability.charges > 0 {
@@ -1073,7 +1081,7 @@ fn simulate(
     };
     let mut ability_ready = vec![0.0; hero.abilities.len()];
     let mut buildup = vec![0.0; hero.abilities.len()];
-    let mut burn_until = vec![0.0; hero.abilities.len()];
+    let mut burn_until = vec![0.0f64; hero.abilities.len()];
     let mut last_hit = vec![f64::NEG_INFINITY; hero.abilities.len()];
     let mut proc_ready = vec![0.0; items.len()];
     let mut buff_ready = vec![0.0; items.len()];
@@ -1714,69 +1722,78 @@ fn simulate(
                 }
             }
         }
+        let frame_end = time + duration;
+        let mut events = vec![(frame_end, FrameEvent::Boundary)];
         for (idx, item) in items.iter().enumerate() {
             if activated[idx] && item.imbueable {
-                let damage = value(item, "Damage")
-                    + item
-                        .property_spirit_scaling
-                        .get("Damage")
-                        .copied()
-                        .unwrap_or_default()
-                        * stats.spirit;
-                let damage_type = item
-                    .property_damage_types
-                    .get("Damage")
-                    .unwrap_or(&crate::DamageType::None);
-                out.proc_damage += damage_event(
-                    damage,
-                    damage_type,
-                    &stats,
-                    hit,
-                    time,
-                    &mut spirit_events,
-                    &mut leech_sum,
-                    &mut target_remaining,
-                );
+                events.push((time, FrameEvent::ItemActivation(idx)));
+            }
+            if matches!(item.condition, ConditionKind::None)
+                && time == last_cast
+                && time >= proc_ready[idx]
+                && !item_proc_damage[idx].is_empty()
+            {
+                events.push((time, FrameEvent::CastProc(idx)));
             }
         }
-        let mut ultimate_events = BTreeMap::new();
-        let mut excluded_spirit_events = Vec::new();
+        for (idx, event) in pending_hits.iter().enumerate() {
+            if event.at < window && event.at < frame_end {
+                events.push((event.at.max(time), FrameEvent::AbilityHit(idx)));
+            }
+        }
+        for (at, idx) in &delayed_item_hits {
+            if *at < window && *at < frame_end {
+                events.push((at.max(time), FrameEvent::DelayedItem(*idx)));
+            }
+        }
+        for (idx, binding) in active_bindings.iter().enumerate() {
+            if binding.end < window && binding.end < frame_end {
+                events.push((binding.end.max(time), FrameEvent::Binding(idx)));
+            }
+        }
         for event in &pending_damage {
-            let elapsed = (event.end.min(time + duration) - event.start.max(time)).max(0.0);
-            let dealt = damage_event(
-                elapsed * event.rate,
-                &event.damage_type,
-                &stats,
-                hit,
-                event.start.max(time),
-                if event.item_proc_disabled {
-                    &mut excluded_spirit_events
-                } else {
-                    &mut spirit_events
-                },
-                &mut leech_sum,
-                &mut target_remaining,
-            );
-            out.ability_damage += dealt;
-            if dealt > 0.0 {
-                if let Some(source) = event.ultimate_source {
-                    ultimate_events
-                        .entry(source)
-                        .or_insert(event.start.max(time));
+            for at in [event.start, event.end] {
+                if at > time && at < frame_end {
+                    events.push((at, FrameEvent::Boundary));
                 }
             }
-            leech_sum += dealt * event.heal.max(0.0);
         }
-        pending_damage.retain(|event| event.end > time + duration);
-        for event in &pending_hits {
-            if event.at < window && event.at <= time + duration {
-                let landed = target_remaining.health > 0.0 && hit > 0.0;
+        if let Some(scenario) = scenario {
+            for change in &scenario.target.changes {
+                if change.at_seconds > time && change.at_seconds < frame_end {
+                    events.push((change.at_seconds, FrameEvent::Boundary));
+                }
+            }
+        }
+        if time < channel_until {
+            out.channel_seconds += duration.min(channel_until - time);
+        }
+        let shot_at = next_shot_at.max(time).max(channel_until).max(reload_until);
+        if shot_at < frame_end && rate > 0.0 && clip >= 1.0 {
+            events.push((shot_at, FrameEvent::Shot));
+        }
+        let mut cursor = time;
+        let mut shots = 0.0;
+        let mut gun_damage = 0.0;
+        let mut excluded_spirit_events = Vec::new();
+        while !events.is_empty() && target_remaining.health > 0.0 {
+            if deadline.is_some_and(|deadline| deadline.check().is_err()) {
+                break;
+            }
+            events.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
+            let (at, action) = events.pop().unwrap();
+            let mut ultimate_events = BTreeMap::new();
+            for event in &pending_damage {
+                let elapsed = (event.end.min(at) - event.start.max(cursor)).max(0.0);
+                if elapsed <= 0.0 {
+                    continue;
+                }
                 let dealt = damage_event(
-                    event.damage,
+                    elapsed * event.rate,
                     &event.damage_type,
                     &stats,
                     hit,
-                    event.at,
+                    at,
                     if event.item_proc_disabled {
                         &mut excluded_spirit_events
                     } else {
@@ -1786,388 +1803,399 @@ fn simulate(
                     &mut target_remaining,
                 );
                 out.ability_damage += dealt;
+                leech_sum += dealt * event.heal.max(0.0);
                 if dealt > 0.0 {
                     if let Some(source) = event.ultimate_source {
-                        ultimate_events.entry(source).or_insert(event.at);
-                    }
-                }
-                leech_sum += dealt * event.heal.max(0.0);
-                if landed {
-                    target_amplification.on_hit(event.interaction, event.at);
-                    let own_health = (maximum_health - incoming.health_damage - self_damage_sum
-                        + leech_sum)
-                        .clamp(0.0, maximum_health);
-                    leech_sum += event
-                        .interaction
-                        .missing_health_heal(own_health, maximum_health)
-                        * hit;
-                    if let Some(class) = event.interaction.reset_ability_class {
-                        if let Some(idx) = hero
-                            .abilities
-                            .iter()
-                            .position(|ability| ability.class_name == class)
-                        {
-                            ability_ready[idx] = time;
-                            charges[idx] = (charges[idx] + 1).min(max_charges[idx]);
-                            if charges[idx] == max_charges[idx] {
-                                charge_ready[idx] = None;
-                            }
-                        }
+                        ultimate_events.entry(source).or_insert(at);
                     }
                 }
             }
-        }
-        pending_hits.retain(|event| event.at > time + duration);
-        for (idx, item) in items.iter().enumerate() {
-            if value(item, "DelayBeforeStun") <= 0.0 || !item_texts[idx].contains("ultimate") {
-                continue;
-            }
-            if let Some((&source, &at)) = ultimate_events
-                .iter()
-                .filter(|(source, _)| **source > item_ultimate_seen[idx])
-                .max_by_key(|(source, _)| *source)
-            {
-                item_ultimate_seen[idx] = source;
-                delayed_item_hits.push((at + value(item, "DelayBeforeStun"), idx));
-            }
-        }
-        for (at, idx) in &delayed_item_hits {
-            if *at >= window || *at > time + duration || target_remaining.health <= 0.0 {
-                continue;
-            }
-            let item = items[*idx];
-            let damage = value(item, "Damage")
-                + item
-                    .property_spirit_scaling
-                    .get("Damage")
-                    .copied()
-                    .unwrap_or(0.0)
-                    * stats.spirit;
-            let damage_type = item
-                .property_damage_types
-                .get("Damage")
-                .unwrap_or(&crate::DamageType::None);
-            out.proc_damage += damage_event(
-                damage,
-                damage_type,
-                &stats,
-                hit,
-                *at,
-                &mut spirit_events,
-                &mut leech_sum,
-                &mut target_remaining,
-            );
-            let stun = value(item, "StunDuration");
-            if stun > 0.0 {
-                ability_effects.push((*at + stun, "StunDuration".into(), stun));
-            }
-            out.item_activations
-                .entry(item.item_id)
-                .or_default()
-                .push(*at);
-            if detailed && out.sequence.len() < 16 {
-                out.sequence
-                    .push(format!("{at:.1}s: {} nach Ult-Treffer", item.name));
-            }
-        }
-        delayed_item_hits.retain(|(at, _)| *at > time + duration);
-
-        for binding in &mut active_bindings {
-            let elapsed = (binding.end.min(time + duration) - binding.start.max(time)).max(0.0);
-            if moving && stats.control <= 0.0 {
-                binding.travelled += 8.0 * (1.0 - stats.slow.clamp(0.0, 100.0) / 100.0) * elapsed;
-            }
-            if binding.end <= time + duration
-                && binding.range > 0.0
-                && binding.travelled < binding.range
-            {
-                out.ability_damage += damage_event(
-                    binding.damage,
-                    &binding.damage_type,
-                    &stats,
-                    hit,
-                    binding.end,
-                    &mut spirit_events,
-                    &mut leech_sum,
-                    &mut target_remaining,
-                );
-                ability_effects.push((
-                    binding.end + binding.root,
-                    "ImmobilizeDuration".into(),
-                    binding.root,
-                ));
-                if detailed && out.sequence.len() < 16 {
-                    out.sequence.push(format!(
-                        "{:.1}s: Flucht verhindert, {:.2}s festgesetzt",
-                        binding.end, binding.root
-                    ));
-                }
-            }
-        }
-        active_bindings.retain(|binding| binding.end > time + duration);
-        let mut shots = 0.0;
-        let mut gun_damage = 0.0;
-        if time < channel_until {
-            out.channel_seconds += duration.min(channel_until - time);
-        }
-        let mut shot_at = next_shot_at.max(time).max(channel_until).max(reload_until);
-        while shot_at < time + duration
-            && rate > 0.0
-            && clip >= 1.0
-            && target_remaining.health > 0.0
-        {
-            if deadline.is_some_and(|deadline| deadline.check().is_err()) {
-                break;
-            }
-            if shot_at < reload_until {
-                break;
-            }
-            if reload_pending {
-                ammo = clip.floor();
-                reload_pending = false;
-                magazine_shots = 0;
-            }
-            if ammo < 1.0 {
-                break;
-            }
-            let mut stack_bonus = 0.0;
             for (idx, ability) in hero.abilities.iter().enumerate() {
-                if ability.properties.contains_key("DamageBonusFixedPerStack") {
-                    if shot_at >= stack_until[idx] {
-                        stack_counts[idx] = 0.0;
-                    }
-                    stack_bonus += stack_counts[idx]
-                        * ability_value(ability, "DamageBonusFixedPerStack", &stats);
-                }
-            }
-            let dealt = target_remaining.receive_damage(
-                (bullet + stack_bonus * (1.0 + stats.weapon_amp)) * hit,
-                &crate::DamageType::Weapon,
-                shot_at,
-                stats.bullet_shred,
-                0.0,
-            );
-            gun_damage += dealt;
-            for (idx, ability) in hero.abilities.iter().enumerate() {
-                let Some(max) = ability
+                let burn_duration = ability
                     .properties
-                    .get("MaxStacks")
-                    .filter(|_| ability.properties.contains_key("DamageBonusFixedPerStack"))
-                else {
-                    continue;
-                };
-                let before = stack_counts[idx];
-                let headshot = scenario.map_or(0.0, |s| s.headshot_fraction);
-                let headshot_stacks = ability
-                    .properties
-                    .get("HeadshotStacks")
+                    .get("BurnDuration")
                     .copied()
-                    .unwrap_or(1.0);
-                stack_counts[idx] =
-                    (before + hit * (1.0 + headshot * (headshot_stacks - 1.0))).min(*max);
-                stack_until[idx] = shot_at + ability_value(ability, "AbilityDuration", &stats);
-                let proc_count = ability_value(ability, "ProcDamageStackCount", &stats);
-                if proc_count > 0.0
-                    && (stack_counts[idx] / proc_count).floor() > (before / proc_count).floor()
-                {
-                    let crossings =
-                        (stack_counts[idx] / proc_count).floor() - (before / proc_count).floor();
-                    out.proc_damage += damage_event(
-                        ability_value(ability, "ProcDamage", &stats) * crossings,
-                        &crate::DamageType::Spirit,
+                    .unwrap_or(0.0);
+                let elapsed = (burn_until[idx].min(at) - cursor).max(0.0);
+                if elapsed > 0.0 && burn_duration > 0.0 {
+                    let damage = (ability.base_effect
+                        + prepared[idx].damage_scale(ability_spirit(ability, &stats)))
+                        / burn_duration
+                        * elapsed;
+                    out.ability_damage += damage_event(
+                        damage,
+                        &ability.damage_type,
                         &stats,
                         1.0,
-                        shot_at,
+                        at,
+                        if ability.item_proc_disabled {
+                            &mut excluded_spirit_events
+                        } else {
+                            &mut spirit_events
+                        },
+                        &mut leech_sum,
+                        &mut target_remaining,
+                    );
+                }
+            }
+            for binding in &mut active_bindings {
+                let elapsed = (binding.end.min(at) - binding.start.max(cursor)).max(0.0);
+                if moving && stats.control <= 0.0 {
+                    binding.travelled +=
+                        8.0 * (1.0 - stats.slow.clamp(0.0, 100.0) / 100.0) * elapsed;
+                }
+            }
+            cursor = at;
+            if target_remaining.health <= 0.0 {
+                break;
+            }
+            match action {
+                FrameEvent::ItemActivation(idx) | FrameEvent::DelayedItem(idx) => {
+                    let item = items[idx];
+                    let damage = value(item, "Damage")
+                        + item
+                            .property_spirit_scaling
+                            .get("Damage")
+                            .copied()
+                            .unwrap_or(0.0)
+                            * stats.spirit;
+                    out.proc_damage += damage_event(
+                        damage,
+                        item.property_damage_types
+                            .get("Damage")
+                            .unwrap_or(&crate::DamageType::None),
+                        &stats,
+                        hit,
+                        at,
                         &mut spirit_events,
                         &mut leech_sum,
                         &mut target_remaining,
                     );
-                    *out.ability_procs.entry(ability.ability_id).or_default() += crossings as usize;
+                    if matches!(action, FrameEvent::DelayedItem(_)) {
+                        let stun = value(item, "StunDuration");
+                        if stun > 0.0 {
+                            ability_effects.push((at + stun, "StunDuration".into(), stun));
+                        }
+                        out.item_activations
+                            .entry(item.item_id)
+                            .or_default()
+                            .push(at);
+                        if detailed && out.sequence.len() < 16 {
+                            out.sequence
+                                .push(format!("{at:.1}s: {} nach Ult-Treffer", item.name));
+                        }
+                    }
                 }
-            }
-            for (idx, interaction) in interactions.iter().enumerate() {
-                let damage = interaction.magazine_spirit_damage(
-                    weapon.bullet_damage,
-                    stats.spirit,
-                    hit,
-                    magazine_buffs[idx],
-                );
-                out.proc_damage += damage_event(
-                    damage,
-                    &crate::DamageType::Spirit,
-                    &stats,
-                    1.0,
-                    shot_at,
-                    &mut spirit_events,
-                    &mut leech_sum,
-                    &mut target_remaining,
-                );
-            }
-            for (idx, item) in items.iter().enumerate() {
-                if !matches!(item.condition, ConditionKind::ShotBound)
-                    || shot_at < proc_ready[idx]
-                    || hit <= 0.0
-                {
-                    continue;
+                FrameEvent::AbilityHit(idx) => {
+                    let event = &pending_hits[idx];
+                    let landed = hit > 0.0;
+                    let dealt = damage_event(
+                        event.damage,
+                        &event.damage_type,
+                        &stats,
+                        hit,
+                        at,
+                        if event.item_proc_disabled {
+                            &mut excluded_spirit_events
+                        } else {
+                            &mut spirit_events
+                        },
+                        &mut leech_sum,
+                        &mut target_remaining,
+                    );
+                    out.ability_damage += dealt;
+                    leech_sum += dealt * event.heal.max(0.0);
+                    if dealt > 0.0 {
+                        if let Some(source) = event.ultimate_source {
+                            ultimate_events.entry(source).or_insert(at);
+                        }
+                    }
+                    if landed {
+                        target_amplification.on_hit(event.interaction, at);
+                        let own_health =
+                            (maximum_health - incoming.health_damage - self_damage_sum + leech_sum)
+                                .clamp(0.0, maximum_health);
+                        leech_sum += event
+                            .interaction
+                            .missing_health_heal(own_health, maximum_health)
+                            * hit;
+                        if let Some(class) = event.interaction.reset_ability_class {
+                            if let Some(idx) = hero
+                                .abilities
+                                .iter()
+                                .position(|ability| ability.class_name == class)
+                            {
+                                ability_ready[idx] = at;
+                                charges[idx] = (charges[idx] + 1).min(max_charges[idx]);
+                                if charges[idx] == max_charges[idx] {
+                                    charge_ready[idx] = None;
+                                }
+                            }
+                        }
+                    }
                 }
-                if let Some(cooldown) = item.proc_cooldown.filter(|value| *value > 0.0) {
-                    for (damage, scale, kind) in &item_proc_damage[idx] {
-                        out.proc_damage += damage_event(
-                            *damage + scale * stats.spirit,
-                            kind,
+                FrameEvent::Binding(idx) => {
+                    let binding = &active_bindings[idx];
+                    if binding.range > 0.0 && binding.travelled < binding.range {
+                        out.ability_damage += damage_event(
+                            binding.damage,
+                            &binding.damage_type,
                             &stats,
                             hit,
-                            shot_at,
+                            at,
+                            &mut spirit_events,
+                            &mut leech_sum,
+                            &mut target_remaining,
+                        );
+                        ability_effects.push((
+                            at + binding.root,
+                            "ImmobilizeDuration".into(),
+                            binding.root,
+                        ));
+                        if detailed && out.sequence.len() < 16 {
+                            out.sequence.push(format!(
+                                "{at:.1}s: Flucht verhindert, {:.2}s festgesetzt",
+                                binding.root
+                            ));
+                        }
+                    }
+                }
+                FrameEvent::CastProc(idx) => {
+                    if let Some(cooldown) = items[idx].proc_cooldown.filter(|v| *v > 0.0) {
+                        for (damage, scale, kind) in &item_proc_damage[idx] {
+                            out.proc_damage += damage_event(
+                                *damage + scale * stats.spirit,
+                                kind,
+                                &stats,
+                                hit,
+                                at,
+                                &mut spirit_events,
+                                &mut leech_sum,
+                                &mut target_remaining,
+                            );
+                        }
+                        proc_ready[idx] = at + cooldown;
+                    }
+                }
+                FrameEvent::Shot => {
+                    if reload_pending {
+                        ammo = clip.floor();
+                        reload_pending = false;
+                        magazine_shots = 0;
+                    }
+                    if ammo < 1.0 {
+                        continue;
+                    }
+                    let mut stack_bonus = 0.0;
+                    for (idx, ability) in hero.abilities.iter().enumerate() {
+                        if ability.properties.contains_key("DamageBonusFixedPerStack") {
+                            if at >= stack_until[idx] {
+                                stack_counts[idx] = 0.0;
+                            }
+                            stack_bonus += stack_counts[idx]
+                                * ability_value(ability, "DamageBonusFixedPerStack", &stats);
+                        }
+                    }
+                    gun_damage += target_remaining.receive_damage(
+                        (bullet + stack_bonus * (1.0 + stats.weapon_amp)) * hit,
+                        &crate::DamageType::Weapon,
+                        at,
+                        stats.bullet_shred,
+                        0.0,
+                    );
+                    for (idx, ability) in hero.abilities.iter().enumerate() {
+                        if let Some(max) = ability
+                            .properties
+                            .get("MaxStacks")
+                            .filter(|_| ability.properties.contains_key("DamageBonusFixedPerStack"))
+                        {
+                            let before = stack_counts[idx];
+                            let headshot = scenario.map_or(0.0, |s| s.headshot_fraction);
+                            let headshot_stacks = ability
+                                .properties
+                                .get("HeadshotStacks")
+                                .copied()
+                                .unwrap_or(1.0);
+                            stack_counts[idx] = (before
+                                + hit * (1.0 + headshot * (headshot_stacks - 1.0)))
+                                .min(*max);
+                            stack_until[idx] =
+                                at + ability_value(ability, "AbilityDuration", &stats);
+                            let proc_count = ability_value(ability, "ProcDamageStackCount", &stats);
+                            if proc_count > 0.0
+                                && (stack_counts[idx] / proc_count).floor()
+                                    > (before / proc_count).floor()
+                            {
+                                let crossings = (stack_counts[idx] / proc_count).floor()
+                                    - (before / proc_count).floor();
+                                out.proc_damage += damage_event(
+                                    ability_value(ability, "ProcDamage", &stats) * crossings,
+                                    &crate::DamageType::Spirit,
+                                    &stats,
+                                    1.0,
+                                    at,
+                                    &mut spirit_events,
+                                    &mut leech_sum,
+                                    &mut target_remaining,
+                                );
+                                *out.ability_procs.entry(ability.ability_id).or_default() +=
+                                    crossings as usize;
+                            }
+                        }
+                        let per_hit = ability
+                            .properties
+                            .get("BuildUpBulletPercentPerHit")
+                            .copied()
+                            .unwrap_or(0.0);
+                        if per_hit > 0.0 {
+                            let burn_duration = ability
+                                .properties
+                                .get("BurnDuration")
+                                .copied()
+                                .unwrap_or(0.0);
+                            if at - last_hit[idx]
+                                > ability
+                                    .properties
+                                    .get("BuildUpDuration")
+                                    .copied()
+                                    .unwrap_or(0.0)
+                            {
+                                buildup[idx] = 0.0;
+                            }
+                            last_hit[idx] = at;
+                            if burn_until[idx] > at {
+                                burn_until[idx] = (burn_until[idx]
+                                    + hit
+                                        * ability
+                                            .properties
+                                            .get("RefillDuration")
+                                            .copied()
+                                            .unwrap_or(0.0))
+                                .min(at + burn_duration);
+                            } else {
+                                buildup[idx] += hit * per_hit;
+                                if buildup[idx] >= 100.0 {
+                                    burn_until[idx] = at + burn_duration;
+                                    buildup[idx] = 0.0;
+                                    *out.ability_procs.entry(ability.ability_id).or_default() += 1;
+                                }
+                            }
+                        }
+                    }
+                    for (idx, interaction) in interactions.iter().enumerate() {
+                        let damage = interaction.magazine_spirit_damage(
+                            weapon.bullet_damage,
+                            stats.spirit,
+                            hit,
+                            magazine_buffs[idx],
+                        );
+                        out.proc_damage += damage_event(
+                            damage,
+                            &crate::DamageType::Spirit,
+                            &stats,
+                            1.0,
+                            at,
                             &mut spirit_events,
                             &mut leech_sum,
                             &mut target_remaining,
                         );
                     }
-                    proc_ready[idx] = shot_at + cooldown;
+                    for (idx, item) in items.iter().enumerate() {
+                        if !matches!(item.condition, ConditionKind::ShotBound)
+                            || at < proc_ready[idx]
+                            || hit <= 0.0
+                        {
+                            continue;
+                        }
+                        if let Some(cooldown) = item.proc_cooldown.filter(|value| *value > 0.0) {
+                            for (damage, scale, kind) in &item_proc_damage[idx] {
+                                out.proc_damage += damage_event(
+                                    *damage + scale * stats.spirit,
+                                    kind,
+                                    &stats,
+                                    hit,
+                                    at,
+                                    &mut spirit_events,
+                                    &mut leech_sum,
+                                    &mut target_remaining,
+                                );
+                            }
+                            proc_ready[idx] = at + cooldown;
+                        }
+                    }
+                    shots += 1.0;
+                    ammo -= 1.0;
+                    magazine_shots += 1;
+                    next_shot_at =
+                        at + crate::mechanics::weapon_shot_interval(magazine_shots, rate, timing);
+                    if ammo < 1.0 && (target_remaining.health > 0.0 || pressure) {
+                        magazine_buffs.fill(false);
+                        let convention = scenario
+                            .map_or(crate::ReloadConvention::AfterFireInterval, |s| {
+                                s.reload_convention
+                            });
+                        let reload_start = if convention == crate::ReloadConvention::AfterLastShot {
+                            at
+                        } else {
+                            next_shot_at
+                        };
+                        reload_until = reload_start
+                            + crate::mechanics::weapon_reload_seconds(
+                                clip.floor(),
+                                &hero.weapon,
+                                timing,
+                                stats.reload,
+                            );
+                        reload_pending = true;
+                        out.reloads += 1;
+                        next_shot_at = reload_until;
+                        if detailed && out.sequence.len() < 16 {
+                            out.sequence.push(format!(
+                                "{reload_start:.6}s: Nachladen bis {reload_until:.6}s"
+                            ));
+                        }
+                    }
+                    if target_remaining.health <= 0.0 {
+                        weapon_kill_at = Some(at);
+                    } else if next_shot_at < frame_end {
+                        events.push((next_shot_at, FrameEvent::Shot));
+                    }
                 }
+                FrameEvent::Boundary => {}
             }
-            shots += 1.0;
-            ammo -= 1.0;
-            magazine_shots += 1;
-            next_shot_at =
-                shot_at + crate::mechanics::weapon_shot_interval(magazine_shots, rate, timing);
-            if ammo < 1.0 && (target_remaining.health > 0.0 || pressure) {
-                magazine_buffs.fill(false);
-                let convention = scenario.map_or(crate::ReloadConvention::AfterFireInterval, |s| {
-                    s.reload_convention
-                });
-                let reload_start = if convention == crate::ReloadConvention::AfterLastShot {
-                    shot_at
-                } else {
-                    next_shot_at
-                };
-                reload_until = reload_start
-                    + crate::mechanics::weapon_reload_seconds(
-                        clip.floor(),
-                        &hero.weapon,
-                        timing,
-                        stats.reload,
-                    );
-                reload_pending = true;
-                out.reloads += 1;
-                next_shot_at = reload_until;
-                if detailed && out.sequence.len() < 16 {
-                    out.sequence.push(format!(
-                        "{reload_start:.6}s: Nachladen bis {reload_until:.6}s"
-                    ));
+            for (idx, item) in items.iter().enumerate() {
+                let delay = value(item, "DelayBeforeStun");
+                if delay <= 0.0 || !item_texts[idx].contains("ultimate") {
+                    continue;
                 }
-            }
-            if target_remaining.health <= 0.0 {
-                weapon_kill_at = Some(shot_at);
-                break;
-            }
-            shot_at = next_shot_at;
-        }
-        target_remaining.advance(time + duration);
-        fired = shots > 0.0;
-        out.shots += shots;
-        out.weapon_damage += gun_damage;
-        for (idx, ability) in hero.abilities.iter().enumerate() {
-            let per_hit = ability
-                .properties
-                .get("BuildUpBulletPercentPerHit")
-                .copied()
-                .unwrap_or(0.0);
-            if per_hit <= 0.0 {
-                continue;
-            }
-            let burn_duration = ability
-                .properties
-                .get("BurnDuration")
-                .copied()
-                .unwrap_or(0.0);
-            if time - last_hit[idx]
-                > ability
-                    .properties
-                    .get("BuildUpDuration")
-                    .copied()
-                    .unwrap_or(0.0)
-            {
-                buildup[idx] = 0.0;
-            }
-            if fired {
-                last_hit[idx] = time;
-                if burn_until[idx] > time {
-                    burn_until[idx] = (burn_until[idx]
-                        + shots
-                            * hit
-                            * ability
-                                .properties
-                                .get("RefillDuration")
-                                .copied()
-                                .unwrap_or(0.0))
-                    .min(time + burn_duration);
-                } else {
-                    buildup[idx] += shots * hit * per_hit;
-                    if buildup[idx] >= 100.0 {
-                        burn_until[idx] = time + burn_duration;
-                        buildup[idx] = 0.0;
-                        *out.ability_procs.entry(ability.ability_id).or_default() += 1;
+                if let Some((&source, &at)) = ultimate_events
+                    .iter()
+                    .filter(|(source, _)| **source > item_ultimate_seen[idx])
+                    .max_by_key(|(source, _)| *source)
+                {
+                    item_ultimate_seen[idx] = source;
+                    let due = at + delay;
+                    if due < window && due < frame_end {
+                        events.push((due, FrameEvent::DelayedItem(idx)));
+                    } else {
+                        delayed_item_hits.push((due, idx));
                     }
                 }
             }
-            if burn_until[idx] > time && burn_duration > 0.0 {
-                let damage = (ability.base_effect
-                    + prepared[idx].damage_scale(ability_spirit(ability, &stats)))
-                    / burn_duration
-                    * (burn_until[idx] - time).min(duration);
-                out.ability_damage += damage_event(
-                    damage,
-                    &ability.damage_type,
-                    &stats,
-                    1.0,
-                    time,
-                    if ability.item_proc_disabled {
-                        &mut excluded_spirit_events
-                    } else {
-                        &mut spirit_events
-                    },
-                    &mut leech_sum,
-                    &mut target_remaining,
-                );
-            }
         }
-
+        pending_damage.retain(|event| event.end > frame_end);
+        pending_hits.retain(|event| event.at >= frame_end);
+        active_bindings.retain(|binding| binding.end >= frame_end);
+        delayed_item_hits.retain(|(at, _)| *at >= frame_end);
+        target_remaining.advance(frame_end);
+        fired = shots > 0.0;
+        out.shots += shots;
+        out.weapon_damage += gun_damage;
         out.utility += if hit > 0.0 {
             gun_damage * utility_contact / hit
         } else {
             0.0
         };
-        for (idx, item) in items.iter().enumerate() {
-            if target_remaining.health <= 0.0 {
-                break;
-            }
-            if time < proc_ready[idx] || item_proc_damage[idx].is_empty() {
-                continue;
-            }
-            let trigger = match item.condition {
-                ConditionKind::None => time == last_cast,
-                _ => false,
-            };
-            if !trigger {
-                continue;
-            }
-            if let Some(cooldown) = item.proc_cooldown.filter(|v| *v > 0.0) {
-                for (damage, scale, damage_type) in &item_proc_damage[idx] {
-                    out.proc_damage += damage_event(
-                        *damage + scale * stats.spirit,
-                        damage_type,
-                        &stats,
-                        hit,
-                        time,
-                        &mut spirit_events,
-                        &mut leech_sum,
-                        &mut target_remaining,
-                    );
-                }
-                proc_ready[idx] = time + cooldown;
-            }
-        }
         let health = ((hero.base_health * (1.0 + stats.health_pct / 100.0) + stats.health)
             * (1.0 - stats.health_loss).max(0.0))
         .max(1.0);
@@ -2206,10 +2234,14 @@ fn simulate(
                 }
             }
         }
-        let contact_end = if target_available && hero.abilities.is_empty() {
-            target_remaining
-                .killed_at
-                .or(weapon_kill_at)
+        let contact_end = if target_available {
+            weapon_kill_at
+                .or_else(|| {
+                    hero.abilities
+                        .is_empty()
+                        .then_some(target_remaining.killed_at)
+                        .flatten()
+                })
                 .unwrap_or(time + duration)
         } else {
             time + duration
@@ -2331,6 +2363,17 @@ fn periodic_duration(ability: &AbilityModel) -> f64 {
         0.0
     }
 }
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum FrameEvent {
+    ItemActivation(usize),
+    AbilityHit(usize),
+    DelayedItem(usize),
+    Binding(usize),
+    CastProc(usize),
+    Shot,
+    Boundary,
+}
+
 struct DamagePeriod {
     source_aura: bool,
     item_proc_disabled: bool,
@@ -2668,6 +2711,127 @@ pub(crate) mod tests {
         item.properties.insert("RegenerationDuration".into(), 7.0);
         item.description = "Dealing <span>spirit damage</span> to enemy Heroes grants regeneration. Stacks when dealing damage to different heroes.".into();
         crate::item::build_item_model(&item).unwrap()
+    }
+
+    fn event_scenario(window_seconds: f64) -> crate::CalculationScenario {
+        crate::CalculationScenario {
+            progression: crate::ProgressionInput::Boons(0),
+            expected_level: None,
+            expected_unspent_ap: None,
+            spirit: crate::SpiritInput::Total(0.0),
+            weapon_bonus_percent: None,
+            fire_rate_bonus_percent: None,
+            item_ids: Vec::new(),
+            purchases: Vec::new(),
+            inventory_rules: None,
+            max_active_items: None,
+            ability_order: Vec::new(),
+            imbues: BTreeMap::new(),
+            secondary_fire: false,
+            use_abilities: true,
+            target: crate::CalculationTarget {
+                health: 600.0,
+                regeneration: 100.0,
+                shields: [0.0; 3],
+                is_hero: true,
+                bullet: crate::DamageModifiers::default(),
+                spirit: crate::DamageModifiers::default(),
+                changes: Vec::new(),
+            },
+            hit_fraction: 1.0,
+            headshot_fraction: 0.0,
+            headshot_bonus: None,
+            distance_source_units: None,
+            window_seconds,
+            reload_convention: crate::ReloadConvention::AfterFireInterval,
+        }
+    }
+
+    #[test]
+    fn weapon_kills_before_a_later_burst_in_the_same_frame() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 600.0;
+        let mut flask = ability(1, 1000.0, 1000.0);
+        flask.properties.insert("ExplodeDelay".into(), 0.1);
+        hero.abilities = vec![flask];
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 1.0,
+            ..ReasonerConfig::default()
+        };
+        for evaluate in [evaluate_inventory, evaluate_inventory_fast] {
+            let result = evaluate(&hero, &[], &cfg);
+            let duel = &result.scenarios[0];
+            assert_eq!(duel.weapon_damage, 600.0);
+            assert_eq!(duel.ability_damage, 0.0);
+            assert_eq!(duel.shots, 1.0);
+            assert_eq!(duel.first_ttk, Some(0.0));
+            assert_eq!(duel.contact_seconds, 0.0);
+        }
+    }
+
+    #[test]
+    fn a_burst_between_two_shots_uses_forward_regeneration() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 300.0;
+        hero.weapon.shots_per_second = 1.0 / 0.15;
+        let mut flask = ability(1, 200.0, 1000.0);
+        flask.properties.insert("ExplodeDelay".into(), 0.1);
+        hero.abilities = vec![flask];
+        let scenario = event_scenario(1.0);
+        let result = simulate_calculation(
+            &hero,
+            &[],
+            &scenario,
+            &crate::WeaponTiming::default(),
+            &BTreeMap::new(),
+        );
+        assert!((result.weapon_damage - 415.0).abs() < 1e-8, "{result:?}");
+        assert_eq!(result.ability_damage, 200.0);
+        assert!((result.first_ttk.unwrap() - 0.15).abs() < 1e-8);
+    }
+
+    #[test]
+    fn queued_bursts_land_in_time_order_not_cast_order() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 0.0;
+        let mut first = ability(1, 500.0, 1000.0);
+        first.properties.insert("ExplodeDelay".into(), 0.35);
+        let mut second = ability(2, 200.0, 1000.0);
+        second.properties.insert("ExplodeDelay".into(), 0.05);
+        hero.abilities = vec![first, second];
+        let scenario = event_scenario(0.4);
+        let result = simulate_calculation(
+            &hero,
+            &[],
+            &scenario,
+            &crate::WeaponTiming::default(),
+            &BTreeMap::new(),
+        );
+        assert_eq!(result.casts[&1], 1);
+        assert_eq!(result.casts[&2], 1);
+        assert!((result.ability_damage - 610.0).abs() < 1e-8, "{result:?}");
+    }
+
+    #[test]
+    fn cast_procs_and_periodic_damage_do_not_travel_back_before_shots() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 500.0;
+        let mut dot = ability(1, 100.0, 1000.0);
+        dot.duration = Some(0.2);
+        dot.tick_rate = Some(0.2);
+        hero.abilities = vec![dot];
+        let mut proc = item(1, "ProcDamage", 200.0);
+        proc.proc_cooldown = Some(1000.0);
+        proc.property_damage_types
+            .insert("ProcDamage".into(), DamageType::Spirit);
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 1.0,
+            ..ReasonerConfig::default()
+        };
+        let result = evaluate_inventory(&hero, &[proc], &cfg);
+        assert_eq!(result.scenarios[0].proc_damage, 200.0);
+        assert_eq!(result.scenarios[0].weapon_damage, 400.0);
+        assert_eq!(result.scenarios[0].ability_damage, 0.0);
     }
 
     #[test]

@@ -992,28 +992,35 @@ fn calculate_inner(
         !effect.contains("MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL")
             && !effect.contains("MODIFIER_VALUE_OUT_OF_COMBAT_HEALTH_REGEN")
     });
-    if scenario.use_abilities {
+    if scenario.use_abilities
+        || hero
+            .abilities
+            .iter()
+            .any(crate::combat::passive_damage_ability)
+    {
         combat_uncertain |= !sourced.unknowns.is_empty();
         unknowns.extend(sourced.unknowns.clone());
-        if hero.abilities.iter().any(|ability| {
+    }
+    if scenario.use_abilities
+        && hero.abilities.iter().any(|ability| {
             ability
                 .properties
                 .get("AbilityResourceCost")
                 .is_some_and(|cost| *cost > 0.0)
-        }) {
-            combat_uncertain = true;
-            unknowns.push("Ressourcenverbrauch und Wiederaufbau für AbilityResourceCost sind nicht als Ereignisse belegt".into());
-        }
-        if hero.abilities.iter().any(|ability| {
-            ability.properties.contains_key("DamageBonusFixedPerStack")
-                && ability
-                    .properties
-                    .get("ProcDamageStackCount")
-                    .is_some_and(|count| *count > 0.0)
-        }) {
-            combat_uncertain = true;
-            unknowns.push("Wiederholte Stack-Procs am Stacklimit sind nicht belegt".into());
-        }
+        })
+    {
+        combat_uncertain = true;
+        unknowns.push("Ressourcenverbrauch und Wiederaufbau für AbilityResourceCost sind nicht als Ereignisse belegt".into());
+    }
+    if hero.abilities.iter().any(|ability| {
+        ability.properties.contains_key("DamageBonusFixedPerStack")
+            && ability
+                .properties
+                .get("ProcDamageStackCount")
+                .is_some_and(|count| *count > 0.0)
+    }) {
+        combat_uncertain = true;
+        unknowns.push("Wiederholte Stack-Procs am Stacklimit sind nicht belegt".into());
     }
     let mut put = |name: &str, value, unit: &str, rule: &str| {
         metrics.insert(name.into(), known(value, unit, &sources, rule));
@@ -1274,7 +1281,10 @@ fn calculate_inner(
         for (key, property) in &view.properties {
             if let MeasuredValue::Unknown { reason, .. } = &property.value {
                 unknowns.push(format!("Fähigkeit {}: {key}: {reason}", ability.ability_id));
-                if !melee && scenario.use_abilities && property.kind != AbilityPropertyKind::Other {
+                if !melee
+                    && (scenario.use_abilities || crate::combat::passive_damage_ability(ability))
+                    && property.kind != AbilityPropertyKind::Other
+                {
                     combat_uncertain = true;
                 }
             }
@@ -1553,9 +1563,9 @@ fn calculate_inner(
         );
     }
     if !scenario.use_abilities {
-        hero.abilities.clear();
+        hero.abilities.retain(crate::combat::passive_damage_ability);
     }
-    if simulate && (scenario.use_abilities || !items.is_empty()) {
+    if simulate && (scenario.use_abilities || !hero.abilities.is_empty() || !items.is_empty()) {
         check_deadline(deadline)?;
         if !scenario.target.is_hero {
             combat_uncertain = true;

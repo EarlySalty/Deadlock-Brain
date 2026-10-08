@@ -205,7 +205,17 @@ fn discrete_weapon_kills_include_last_shot_and_reload_convention() {
     ] {
         input.reload_convention = convention;
         for id in [13, 25, 7] {
+            input.ability_order = if id == 13 {
+                vec![crate::AbilityStep {
+                    ability_id: 2948410412,
+                    currency_type: 2,
+                    delta: -1,
+                }]
+            } else {
+                Vec::new()
+            };
             let result = calculate_hero(&models, id, &input).unwrap();
+            assert!(result.combat.as_ref().unwrap().casts.is_empty());
             let damage = number(&result, "damage_per_shot");
             let clip = number(&result, "clip_size") as usize;
             let required = (input.target.health / damage).ceil() as usize;
@@ -347,10 +357,24 @@ fn censored_ttk_never_gets_finite_rank() {
     assert_eq!(ranking.population_total, 5);
     assert_eq!(ranking.population_valid, 0);
     assert!(ranking.ranks.is_empty());
-    assert!(ranking
-        .missing
-        .values()
-        .all(|reason| reason == "not_killed_within_window"));
+    assert_eq!(ranking.missing.len(), 5);
+    for (&id, reason) in &ranking.missing {
+        let result = calculate_hero(&models, id, &input).unwrap();
+        let MeasuredValue::Unknown {
+            reason: metric_reason,
+            ..
+        } = &result.metrics["ttk"]
+        else {
+            panic!("uncertified TTK received a rankable metric for hero {id}");
+        };
+        assert_eq!(reason, metric_reason);
+        assert_eq!(result.combat.as_ref().unwrap().first_ttk, None);
+        if id == 13 {
+            assert!(result.metrics["simulated_weapon_damage"].value().is_none());
+        } else {
+            assert_eq!(reason, "not_killed_within_window");
+        }
+    }
 }
 
 #[test]
@@ -475,6 +499,46 @@ fn recorded_fixation_stacks_follow_each_shot_without_confirming_unknown_rules() 
         "FIXATION_ABGLEICH shots={} weapon_damage={} damage_per_stack={}",
         combat.shots, combat.weapon_damage, fixation.properties["DamageBonusFixedPerStack"]
     );
+}
+
+#[test]
+fn disabled_casts_preserve_recorded_fixation_and_its_ranking_uncertainty() {
+    let models = models();
+    let mut input = scenario();
+    input.window_seconds = 0.5;
+    input.target.health = 1_000_000.0;
+    input.ability_order = vec![crate::AbilityStep {
+        ability_id: 1080948381,
+        currency_type: 2,
+        delta: -1,
+    }];
+    let result = calculate_hero(&models, 13, &input).unwrap();
+    let combat = result.combat.as_ref().unwrap();
+    let fixation = models.heroes[&13]
+        .model
+        .abilities
+        .iter()
+        .find(|ability| ability.ability_id == 1080948381)
+        .unwrap();
+    close(combat.shots, 5.0);
+    close(
+        combat.weapon_damage,
+        5.0 * 5.26 + 10.0 * fixation.properties["DamageBonusFixedPerStack"],
+    );
+    assert!(combat.casts.is_empty());
+    assert!(result.metrics["simulated_weapon_damage"].value().is_none());
+    let ranked = rank_heroes(
+        &models,
+        &input,
+        "simulated_weapon_damage",
+        MetricDirection::HigherIsBetter,
+    )
+    .unwrap();
+    assert!(ranked.missing.contains_key(&13));
+    assert!(!ranked.ranks.iter().any(|rank| rank.hero_id == 13));
+    input.use_abilities = true;
+    let enabled = calculate_hero(&models, 13, &input).unwrap();
+    close(combat.weapon_damage, enabled.combat.unwrap().weapon_damage);
 }
 
 #[test]
