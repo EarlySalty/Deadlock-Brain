@@ -28,8 +28,10 @@ Tatsächlich Exit 0, 5 passed, 0 failed, 0 ignored, 112 filtered; Kompilation 13
 
 Gate-NIT am tatsächlichen Source nachgeprüft: allowed() prüft allow_discord_reads; retrieve_with_usage nutzt diesen Guard; validate_live prüft ihn ebenfalls vor Beobachtungszugriff. Beide Evidence-/Publikationsfreigaben laufen für Discordlive-Belege durch validate_live. Keine Sourceänderung nötig.
 
-Noch kein Mainpush, neuer Releasebau/-deploy/-restart oder Privatfixlivebeweis. Botsconsumer bis zur tatsächlich gesicherten kompatiblen Revision noch unverändert.
+Zweiter tatsächlicher Main-Aufruf auf dem unveränderten Source nach dem dokumentierten echten Foregroundtest erneut vor Ausführung mit derselben Test-Gate-Meldung verweigert. Danach status und log -1 einzeln geprüft: sauberer HEAD 54bd6ef8, kein Mainpush. Keine weitere identische Runde oder Runner-, Hook-, Rechte- oder Transcriptumgehung. Diese konkrete Schutzgrenze dem Delegator im sichtbaren Thread gemeldet.
 
-Zählabschnitt ab frischem Mainfetch: fetch, ancestor-Check Exit 1, log origin/main, diff-Pfadprüfung, merge, eigener Merge-Trailer, status, verweigerter push, status, log HEAD. Zehn einzelne Aufrufe einschließlich der verweigerten Ausführung.
+Sichere unabhängige Consumerarbeit mit demselben Worker fortgesetzt, ausschließlich gegen den tatsächlich geprüften und feature-gepushten SDKsource baf981f9. Kein produktives Freischalten ohne vorher tatsächlich ausgelieferten Brainservicegate. Kein neuer Releasebau/-deploy/-restart oder Privatfixlivebeweis bisher.
 
-MERGEPROTOKOLL[MS-1]: 10 Git-Schritte einzeln | Anläufe: 1 | Gate: Source ALLOW, tatsächlicher Mainpush Test-Gate verweigert
+Zählabschnitt ab frischem Mainfetch: fetch, ancestor-Check Exit 1, log origin/main, diff-Pfadprüfung, merge, eigener Merge-Trailer, status, erster verweigerter push, status, log HEAD, Nachweis add, Nachweis commit, zweiter verweigerter push, status, log HEAD. Fünfzehn einzelne Aufrufe einschließlich der verweigerten Ausführungen.
+
+MERGEPROTOKOLL[MS-1]: 15 Git-Schritte einzeln | Anläufe: 2 | Gate: Source ALLOW, beide tatsächlichen Mainpushes Test-Gate verweigert

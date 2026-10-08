@@ -10,7 +10,9 @@ Stand: 8. Oktober 2026, aktiver Bau. Derselbe K-Auftrag, keine neue Produktfreig
 
 ## Lieferzustand
 
-SDK auf altem Consumerpin hat keinen Readrestriktionsanschluss. Begrenzter Bau im bestehenden zentralen Client/API/Context/Discordlivepfad. Noch keine Sourceprüfung, kein Sourcecommit, Gate oder Privatfixlivebeweis. Orts-WIP bleibt in bisherigen Brain-/Twitchbäumen unangetastet, keine neue Typabhängigkeit im dringenden Fix.
+Gemeinsamer Readgate Source baf981f9 geprüft, committed und auf eigenem Featurebranch gesichert. Regulärer Gate r1 gpt-6.1-sol ALLOW. Neue Main-Taskdocs ohne Produktionsdelta geordnet integriert, eigener Merge ee9b1422, Nachweiscommit 54bd6ef8. Zwei tatsächliche HEAD:main-Aufrufe vor Ausführung durch Test-Gate verweigert, auch nach echtem Primary-Foregroundtest des aktuellen Source mit 5 passed, 0 failed, 0 ignored, Exit 0. Sauberer Kandidat nach Denys geprüft. Keine weiteren identischen Anläufe, Hook-/Rechte-/Runner- oder Transcriptumgehung. Kein Main-/Liveabschluss.
+
+Derselbe Worker baut jetzt den sicheren Consumer gegen den überprüften feature-gepushten SDKsource baf981f9 im bestehenden Botsbaum. Keine neuen Resolver, Projekte oder Ortsabhängigkeit, keine produktive Aktivierung vor tatsächlich geliefertem Brainservicegate. Foreman führt Git/Gate. Details in BAU.md und REVIEW.md. Orts-WIP bleibt unangetastet.
 
 ## Getrennter bereits vorliegender Beleg
 
