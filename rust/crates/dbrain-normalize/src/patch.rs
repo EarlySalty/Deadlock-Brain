@@ -365,6 +365,27 @@ fn expand_inline_bullets(raw_line: &str) -> Vec<String> {
     if stripped.is_empty() {
         return vec![raw_line.to_string()];
     }
+    if stripped.starts_with("- ") && split_subject(&stripped[2..]).0.is_some() {
+        let mut grouped = Vec::<String>::new();
+        for part in stripped[2..]
+            .split(" - ")
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+        {
+            if split_subject(part).0.is_none() {
+                if let Some(current) = grouped.last_mut() {
+                    current.push_str(" - ");
+                    current.push_str(part);
+                    continue;
+                }
+            }
+            grouped.push(part.to_string());
+        }
+        return grouped
+            .into_iter()
+            .map(|part| format!("- {part}"))
+            .collect();
+    }
     if stripped.starts_with("- ") && stripped.contains(" - ") {
         let pieces = stripped[2..].split(" - ").collect::<Vec<_>>();
         if pieces.len() > 1
@@ -1068,6 +1089,56 @@ mod tests {
             .hero_names
             .insert(normalize_key(name), name.to_string());
         index
+    }
+
+    #[test]
+    fn concrete_hero_changes_keep_nested_ability_descriptions() {
+        for (hero, line) in [
+            (
+                "Rat King",
+                "- Rat King: Rule, Ratannia! - Now falls faster while charging",
+            ),
+            (
+                "Rat King",
+                "- Rat King: Rule, Ratannia! - T1 +1m/s Move Speed to +2m/s Move Speed",
+            ),
+            (
+                "Sinclair",
+                "- Sinclair: Vexing Bolt - Now does half damage to objectives",
+            ),
+        ] {
+            let payload = json!({
+                "title": "Minor Update - 10-05-2026",
+                "url": "https://store.steampowered.com/news/app/1422450/view/703281025618282632",
+                "raw_content": line,
+            });
+            let (events, skipped) =
+                parse_patchnote_snapshot(17, 17, "patch_17", &payload, &hero_index(hero)).unwrap();
+            assert_eq!(skipped, 0, "{line}");
+            assert_eq!(events.len(), 1, "{line}");
+            assert_eq!(events[0].entity_name.as_deref(), Some(hero));
+            assert_eq!(events[0].raw_line, line);
+            let (_, remainder) = split_subject(line.trim_start_matches("- "));
+            assert_eq!(events[0].normalized_line, remainder);
+        }
+        let lines = [
+            "- Rat King: Rule, Ratannia! - Now falls faster while charging",
+            "- Sinclair: Vexing Bolt - Now does half damage to objectives",
+        ];
+        let mut index = hero_index("Rat King");
+        index
+            .hero_names
+            .insert(normalize_key("Sinclair"), "Sinclair".into());
+        let payload = json!({"raw_content": lines.join(" ")});
+        let (events, skipped) =
+            parse_patchnote_snapshot(17, 17, "patch_17", &payload, &index).unwrap();
+        assert_eq!(skipped, 0);
+        assert_eq!(events.len(), lines.len());
+        for (line, event) in lines.iter().zip(&events) {
+            let (subject, remainder) = split_subject(line.trim_start_matches("- "));
+            assert_eq!(event.entity_name, subject);
+            assert_eq!(event.normalized_line, remainder);
+        }
     }
 
     #[test]
