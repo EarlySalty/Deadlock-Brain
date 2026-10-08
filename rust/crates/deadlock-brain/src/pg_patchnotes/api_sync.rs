@@ -31,7 +31,9 @@ pub fn sync_patchnotes(
     for post in &posts {
         validate_post(post)?;
     }
-    posts.sort_by(|left, right| left.pub_date.cmp(&right.pub_date));
+    posts.sort_by_cached_key(|post| {
+        DateTime::parse_from_rfc3339(&post.pub_date).expect("Veröffentlichungszeit wurde geprüft")
+    });
     let dsn = env::var(dsn_env)
         .map_err(|_| anyhow!("{dsn_env} ist nicht gesetzt; DSN wird nicht ausgegeben"))?;
     let mut client = Client::connect(&dsn, NoTls)
@@ -528,25 +530,6 @@ fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
     !cosmetic && !unrelated_subject && gameplay && has_change_action(&change_subject)
 }
 
-fn has_change_action(text: &str) -> bool {
-    if matches!(
-        dbrain_normalize::classify_change_type(text).as_str(),
-        "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
-    ) {
-        return true;
-    }
-    let lower = text.to_ascii_lowercase();
-    let change = lower
-        .rsplit_once(" - ")
-        .map_or(lower.as_str(), |(_, change)| change)
-        .trim();
-    change.starts_with("now ")
-        || change.split_once(" to ").is_some_and(|(old, new)| {
-            old.chars().any(|character| character.is_ascii_digit())
-                && new.chars().any(|character| character.is_ascii_digit())
-        })
-}
-
 fn resolve_api_source(
     post: &ApiPatchPost,
     index: &EntityIndex,
@@ -871,6 +854,23 @@ mod tests {
             for (line, event) in [lines[10], lines[19]].iter().zip(&prepared.events) {
                 assert_eq!(event.normalized_line, line.trim_start_matches("- "));
                 assert_eq!(event.subject.as_deref(), event.entity_name.as_deref());
+            }
+            for first in [lines[10], lines[11], lines[16], lines[19]] {
+                let flat = PatchSourceResolution {
+                    raw_content: format!("{first} {}", lines[0]),
+                    ..resolved.clone()
+                };
+                let prepared = prepare_api_patch(&row, &flat, &index).unwrap();
+                assert_eq!(prepared.events.len(), 2, "{source}/{first}");
+                assert_eq!(
+                    prepared.events[0].normalized_line,
+                    first.trim_start_matches("- ")
+                );
+                assert_eq!(
+                    prepared.events[1].normalized_line,
+                    lines[0].trim_start_matches("- ")
+                );
+                assert_eq!(prepared.events[1].entity_name, None);
             }
         }
     }
