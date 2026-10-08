@@ -1,4 +1,3 @@
-//! Coalesce identical in-flight requests, including failures, without caching failures.
 #[cfg(test)]
 mod c3_shared_validation;
 #[cfg(test)]
@@ -11,9 +10,6 @@ use std::{
     sync::{Arc, Condvar, Mutex},
     time::{Duration, Instant},
 };
-// A single result must not keep an arbitrarily large uncited source pack alive
-// while followers validate it. At most 128 coordinator entries are active;
-// HTTP worker permits additionally bound followers through actual completion.
 const MAX_SHARED_RESULT_BYTES: usize = 1024 * 1024;
 #[derive(Default)]
 pub(super) struct Coordinator {
@@ -55,6 +51,15 @@ impl Drop for Cleanup<'_> {
     }
 }
 impl Coordinator {
+    #[cfg(test)]
+    pub(super) fn wait_for_waiter(&self, key: &str) {
+        let flight = self.flights.lock().unwrap().get(key).unwrap().clone();
+        let mut state = flight.state.lock().unwrap();
+        while state.waiters == 0 {
+            state = flight.ready.wait(state).unwrap();
+        }
+    }
+
     fn run(
         &self,
         key: String,
@@ -94,8 +99,6 @@ impl Coordinator {
                 state.result = Some(if result.retained_bytes() <= MAX_SHARED_RESULT_BYTES {
                     result.clone()
                 } else {
-                    // The leader owns the complete validated result. Do not
-                    // strip dependencies and then share its sensitive text.
                     AnswerResponse {
                         contract_version: result.answer.contract_version.clone(),
                         request_id: result.answer.request_id.clone(),
@@ -114,6 +117,8 @@ impl Coordinator {
         } else {
             let mut state = flight.state.lock().map_err(|_| unavailable())?;
             state.waiters += 1;
+            #[cfg(test)]
+            flight.ready.notify_all();
             loop {
                 let mut remaining = timeout.saturating_sub(started.elapsed());
                 if let Some(deadline) = deadline {
@@ -151,10 +156,19 @@ pub(super) fn cache_key(
 ) -> Result<String, serde_json::Error> {
     cache_key_for_purpose(query, context, AnswerPurpose::InternalRead)
 }
+#[cfg(test)]
 pub(super) fn cache_key_for_purpose(
     query: &Query,
     context: &AuthorizedContext,
     purpose: AnswerPurpose,
+) -> Result<String, serde_json::Error> {
+    request_key(query, context, purpose, None)
+}
+pub(super) fn request_key(
+    query: &Query,
+    context: &AuthorizedContext,
+    purpose: AnswerPurpose,
+    session: Option<&ToolSession>,
 ) -> Result<String, serde_json::Error> {
     serde_json::to_string(&(
         "brain.policy.v3",
@@ -177,6 +191,13 @@ pub(super) fn cache_key_for_purpose(
         &query.patch,
         &query.mode,
         &query.requested_scopes,
+        session.map(|session| {
+            (
+                &session.game_context,
+                &session.definitions,
+                &session.provider_identity,
+            )
+        }),
     ))
 }
 #[cfg(test)]
@@ -221,11 +242,29 @@ fn private_read_gate_trennt_flightbindung_bei_gleicher_frage() {
 }
 
 impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for CachedKernel<R, P> {
+    fn answer_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> Accounted<AnswerResponse> {
+        self.answer_with_purpose(query, context, AnswerPurpose::InternalRead)
+            .into_accounted()
+    }
+    fn answer_for_publication_accounted(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> Accounted<AnswerResponse> {
+        self.answer_with_purpose(query, context, AnswerPurpose::ExternalPublication)
+            .into_accounted()
+    }
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
         self.answer_with_purpose(query, context, AnswerPurpose::InternalRead)
+            .answer
     }
     fn answer_for_publication(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
         self.answer_with_purpose(query, context, AnswerPurpose::ExternalPublication)
+            .answer
     }
 }
 impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
@@ -234,13 +273,14 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
         query: &Query,
         context: &AuthorizedContext,
         purpose: AnswerPurpose,
-    ) -> AnswerResponse {
+    ) -> KernelAnswer {
         let bound = context.with_request_deadline();
         let context = &bound;
         let start = Instant::now();
         if query.validate().is_err()
             || query.conversation_id != context.conversation_id
             || !(1..=60000).contains(&context.deadline_ms)
+            || context.knowledge_release.trim().is_empty()
             || !query.requested_scopes.is_subset(&context.principal.scopes)
         {
             return response(
@@ -250,7 +290,8 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
                 "Ungültiger Anfragekontext.",
                 Vec::new(),
                 Usage::default(),
-            );
+            )
+            .into();
         }
         if context.check_deadline().is_err() {
             return response(
@@ -260,78 +301,97 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
                 "Request Deadline erreicht.",
                 Vec::new(),
                 Usage::default(),
-            );
+            )
+            .into();
         }
-        // Fact uniqueness depends on the complete currently visible candidate set, not
-        // just on an old winning citation. Reuse the existing fresh selection path for
-        // every fact request, including would-be single-flight followers.
-        if query.profile == brain_contracts::AnswerProfile::Fact {
+        let session = match self.inner.prepare_tools(query, context) {
+            Ok(session) => session,
+            Err(error) => {
+                return response(
+                    query,
+                    context,
+                    super::execution::validation_status(&error),
+                    "Werkzeugkontext konnte nicht sicher gebunden werden.",
+                    Vec::new(),
+                    Usage::default(),
+                )
+                .into()
+            }
+        };
+        if context.discord.is_some()
+            || (query.profile == brain_contracts::AnswerProfile::Fact
+                && !session
+                    .as_ref()
+                    .is_some_and(|session| !session.definitions.is_empty()))
+        {
             return self
                 .inner
-                .answer_with_purpose(query, context, purpose)
-                .answer;
+                .answer_prepared(query, context, purpose, session.as_ref());
         }
-        let key = match cache_key_for_purpose(query, context, purpose) {
+        let key = match request_key(query, context, purpose, session.as_ref()) {
             Ok(key) => key,
             Err(_) => {
                 return self
                     .inner
-                    .answer_with_purpose(query, context, purpose)
-                    .answer
+                    .answer_prepared(query, context, purpose, session.as_ref())
             }
         };
         match self.flights.run(
             key,
             Duration::from_millis(context.deadline_ms),
             context.request_deadline.as_ref(),
-            || self.answer_cached(query, context, purpose),
+            || self.answer_cached(query, context, purpose, session.as_ref()),
         ) {
             Ok((mut answer, shared)) => {
+                if shared {
+                    answer.answer.request_id = query.request_id.clone();
+                    answer.answer.usage = Usage::default();
+                    answer.accounting = UsageAccounting::default();
+                }
                 if context.check_deadline().is_err() {
-                    return response(
+                    return KernelAnswer::from(response(
                         query,
                         context,
                         AnswerStatus::BudgetExceeded,
                         "Request Deadline erreicht.",
                         Vec::new(),
-                        Usage::default(),
-                    );
+                        answer.accounting.observed.clone(),
+                    ))
+                    .with_accounting(answer.accounting);
                 }
                 if shared {
-                    if !answer.dependencies.is_empty() {
-                        if let Err(error) = super::execution::validate_output(
-                            &self.inner.retrieval,
+                    if let Err(error) = self.inner.validate_reuse(
+                        query,
+                        context,
+                        &answer,
+                        purpose,
+                        session.as_ref(),
+                    ) {
+                        return response(
                             query,
                             context,
-                            &answer.dependencies,
-                            purpose,
-                        ) {
-                            return response(
-                                query,
-                                context,
-                                super::execution::validation_status(&error),
-                                "Geteilte Evidenz konnte nicht sicher bestätigt werden.",
-                                Vec::new(),
-                                Usage::default(),
-                            );
-                        }
+                            super::execution::validation_status(&error),
+                            "Geteilte Evidenz konnte nicht sicher bestätigt werden.",
+                            Vec::new(),
+                            Usage::default(),
+                        )
+                        .into();
                     }
-                    answer.answer.request_id = query.request_id.clone();
-                    answer.answer.usage = Usage::default();
                 }
                 if context.check_deadline().is_err()
                     || start.elapsed().as_millis() >= context.deadline_ms as u128
                 {
-                    return response(
+                    return KernelAnswer::from(response(
                         query,
                         context,
                         AnswerStatus::BudgetExceeded,
                         "Request Deadline erreicht.",
                         Vec::new(),
-                        Usage::default(),
-                    );
+                        answer.accounting.observed.clone(),
+                    ))
+                    .with_accounting(answer.accounting);
                 }
-                answer.answer
+                answer
             }
             Err(PortError::BudgetExceeded) => response(
                 query,
@@ -340,7 +400,8 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
                 "Wartebudget ausgeschöpft.",
                 Vec::new(),
                 Usage::default(),
-            ),
+            )
+            .into(),
             Err(_) => response(
                 query,
                 context,
@@ -348,7 +409,8 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
                 "Request-Koordination nicht verfügbar.",
                 Vec::new(),
                 Usage::default(),
-            ),
+            )
+            .into(),
         }
     }
 }
@@ -447,7 +509,6 @@ mod retained_pack_tests {
                             logical_id: "uncited".into(),
                             revision: 1,
                             kind: brain_contracts::EvidenceKind::Prose,
-                            // Retained capacity counts too; reserving needs no huge test payload.
                             content: String::with_capacity(1024 * 1024 + 1),
                             citation: "fixture".into(),
                             visibility: brain_contracts::SourceVisibility::Public,
@@ -457,6 +518,9 @@ mod retained_pack_tests {
                             patch: None,
                         }]
                         .into(),
+                        accounting: UsageAccounting::default(),
+                        tool_dependencies: Arc::from([]),
+                        build_executions: Arc::from([]),
                     }
                 })
                 .unwrap()

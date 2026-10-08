@@ -1,26 +1,39 @@
-//! In-process result only. Validation inputs are deliberately NOT part of any wire contract.
 use super::*;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct KernelAnswer {
     pub answer: AnswerResponse,
-    // One immutable pack is shared by cache and flight waiters; cloning a result does not
-    // duplicate uncited source bodies. Citations remain a separately selected public subset.
+    pub accounting: UsageAccounting,
     pub dependencies: Arc<[Evidence]>,
+    pub tool_dependencies: Arc<[ToolEvidenceDependency]>,
+    pub build_executions: Arc<[brain_contracts::ToolExecution]>,
 }
 impl From<AnswerResponse> for KernelAnswer {
     fn from(answer: AnswerResponse) -> Self {
         Self {
+            accounting: UsageAccounting::observed(answer.usage.clone()),
             dependencies: answer.citations.clone().into(),
+            tool_dependencies: Arc::from([]),
+            build_executions: Arc::from([]),
             answer,
         }
     }
 }
 impl KernelAnswer {
-    /// Conservative retained-payload accounting, not an estimate of total process RSS.
-    /// Include string capacities and generous per-tree-entry overhead without serializing
-    /// source contents or allocating another buffer. Saturate rather than wrap on overflow.
+    pub fn with_accounting(mut self, accounting: UsageAccounting) -> Self {
+        self.answer.usage = accounting.observed.clone();
+        self.accounting = accounting;
+        self
+    }
+
+    pub fn into_accounted(self) -> Accounted<AnswerResponse> {
+        Accounted {
+            value: self.answer,
+            accounting: self.accounting,
+        }
+    }
+
     pub fn retained_bytes(&self) -> usize {
         let strings = [
             &self.answer.contract_version,
@@ -36,15 +49,106 @@ impl KernelAnswer {
         for evidence in self.dependencies.iter().chain(&self.answer.citations) {
             bytes = bytes.saturating_add(evidence_bytes(evidence));
         }
-        for value in [&self.answer.usage.provider, &self.answer.usage.model]
-            .into_iter()
-            .flatten()
+        for dependency in self.tool_dependencies.iter() {
+            bytes = bytes.saturating_add(std::mem::size_of::<ToolEvidenceDependency>());
+            bytes = bytes.saturating_add(json_bytes(dependency.request.arguments()));
+            let typed_bytes = serde_json::to_value(dependency.request.subrequest())
+                .map(|value| json_bytes(&value))
+                .unwrap_or(usize::MAX);
+            bytes = bytes.saturating_add(typed_bytes);
+            if let Some(pin) = &dependency.game_context {
+                bytes = bytes.saturating_add(pin.mechanic_revision.capacity());
+            }
+            bytes = bytes.saturating_add(
+                dependency
+                    .evidence
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<Evidence>()),
+            );
+            for evidence in &dependency.evidence {
+                bytes = bytes.saturating_add(evidence_bytes(evidence));
+            }
+        }
+        for execution in self.build_executions.iter() {
+            bytes = bytes.saturating_add(std::mem::size_of::<brain_contracts::ToolExecution>());
+            bytes = bytes.saturating_add(json_bytes(&execution.result.result));
+            bytes = bytes.saturating_add(
+                execution
+                    .result
+                    .evidence_ids
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<String>()),
+            );
+            bytes = bytes.saturating_add(execution.result.call_id.capacity());
+            bytes = bytes.saturating_add(
+                execution
+                    .dependencies
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<ToolEvidenceDependency>()),
+            );
+            for value in [&execution.usage.provider, &execution.usage.model]
+                .into_iter()
+                .flatten()
+            {
+                bytes = bytes.saturating_add(value.capacity());
+            }
+            for id in &execution.result.evidence_ids {
+                bytes = bytes.saturating_add(id.capacity());
+            }
+            for dependency in &execution.dependencies {
+                bytes = bytes.saturating_add(json_bytes(dependency.request.arguments()));
+                let typed_bytes = serde_json::to_value(dependency.request.subrequest())
+                    .map(|value| json_bytes(&value))
+                    .unwrap_or(usize::MAX);
+                bytes = bytes.saturating_add(typed_bytes);
+                if let Some(pin) = &dependency.game_context {
+                    bytes = bytes.saturating_add(pin.mechanic_revision.capacity());
+                }
+                bytes = bytes.saturating_add(
+                    dependency
+                        .evidence
+                        .capacity()
+                        .saturating_mul(std::mem::size_of::<Evidence>()),
+                );
+                for evidence in &dependency.evidence {
+                    bytes = bytes.saturating_add(evidence_bytes(evidence));
+                }
+            }
+        }
+        for value in [
+            &self.answer.usage.provider,
+            &self.answer.usage.model,
+            &self.accounting.observed.provider,
+            &self.accounting.observed.model,
+            &self.accounting.reserved.provider,
+            &self.accounting.reserved.model,
+        ]
+        .into_iter()
+        .flatten()
         {
             bytes = bytes.saturating_add(value.capacity());
         }
         bytes
     }
 }
+fn json_bytes(value: &serde_json::Value) -> usize {
+    let base = std::mem::size_of::<serde_json::Value>();
+    match value {
+        serde_json::Value::String(text) => base.saturating_add(text.capacity()),
+        serde_json::Value::Array(values) => values.iter().fold(
+            base.saturating_add(values.capacity().saturating_mul(base)),
+            |bytes, value| bytes.saturating_add(json_bytes(value)),
+        ),
+        serde_json::Value::Object(values) => values.iter().fold(base, |bytes, (key, value)| {
+            bytes
+                .saturating_add(256)
+                .saturating_add(key.capacity())
+                .saturating_add(json_bytes(value))
+        }),
+        _ => base,
+    }
+}
+
 fn evidence_bytes(e: &Evidence) -> usize {
     let mut bytes = std::mem::size_of::<Evidence>();
     for s in [
@@ -118,7 +222,10 @@ mod tests {
                 citations: Vec::new(),
                 usage: Usage::default(),
             },
+            accounting: UsageAccounting::default(),
             dependencies: vec![dependency].into(),
+            tool_dependencies: Arc::from([]),
+            build_executions: Arc::from([]),
         };
         assert!(outcome.retained_bytes() >= bytes);
         let reused = outcome.clone();
