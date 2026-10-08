@@ -917,6 +917,7 @@ struct SimulationTarget {
     shields: crate::defense::DamageLedger,
     killed_at: Option<f64>,
     updated_at: f64,
+    damage_interval_start: Option<f64>,
 }
 
 impl SimulationTarget {
@@ -937,6 +938,7 @@ impl SimulationTarget {
             shields,
             killed_at: None,
             updated_at: 0.0,
+            damage_interval_start: None,
         }
     }
 
@@ -964,29 +966,27 @@ impl DamageReceiver for SimulationTarget {
             return 0.0;
         }
         self.advance(at);
-        let mut modifiers = self
-            .settings
-            .as_ref()
-            .map(|settings| {
-                let change = settings
-                    .changes
-                    .iter()
-                    .rev()
-                    .find(|change| change.at_seconds <= at);
-                match kind {
-                    crate::DamageType::Weapon => {
-                        change.map_or(&settings.bullet, |change| &change.bullet)
+        let mut modifiers =
+            self.settings
+                .as_ref()
+                .map(|settings| {
+                    let change = settings.changes.iter().rev().find(|change| {
+                        change.at_seconds <= self.damage_interval_start.unwrap_or(at)
+                    });
+                    match kind {
+                        crate::DamageType::Weapon => {
+                            change.map_or(&settings.bullet, |change| &change.bullet)
+                        }
+                        crate::DamageType::Spirit => {
+                            change.map_or(&settings.spirit, |change| &change.spirit)
+                        }
+                        crate::DamageType::Hybrid | crate::DamageType::None => {
+                            return crate::DamageModifiers::default();
+                        }
                     }
-                    crate::DamageType::Spirit => {
-                        change.map_or(&settings.spirit, |change| &change.spirit)
-                    }
-                    crate::DamageType::Hybrid | crate::DamageType::None => {
-                        return crate::DamageModifiers::default();
-                    }
-                }
-                .clone()
-            })
-            .unwrap_or_default();
+                    .clone()
+                })
+                .unwrap_or_default();
         modifiers.point_shreds.push(shred / 100.0);
         modifiers.amplifications.push(amp);
         let damage = crate::mechanics::damage_factors(damage.max(0.0), &modifiers)
@@ -1783,6 +1783,7 @@ fn simulate(
             events.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
             let (at, action) = events.pop().unwrap();
             let mut ultimate_events = BTreeMap::new();
+            target_remaining.damage_interval_start = Some(cursor);
             for event in &pending_damage {
                 let elapsed = (event.end.min(at) - event.start.max(cursor)).max(0.0);
                 if elapsed <= 0.0 {
@@ -1838,6 +1839,7 @@ fn simulate(
                     );
                 }
             }
+            target_remaining.damage_interval_start = None;
             for binding in &mut active_bindings {
                 let elapsed = (binding.end.min(at) - binding.start.max(cursor)).max(0.0);
                 if moving && stats.control <= 0.0 {
@@ -2832,6 +2834,52 @@ pub(crate) mod tests {
         assert_eq!(result.scenarios[0].proc_damage, 200.0);
         assert_eq!(result.scenarios[0].weapon_damage, 400.0);
         assert_eq!(result.scenarios[0].ability_damage, 0.0);
+    }
+
+    #[test]
+    fn periodic_and_passive_burn_damage_use_the_preceding_intervals_target_state() {
+        for passive in [false, true] {
+            let mut hero = hero();
+            hero.weapon.bullet_damage = 0.0;
+            let mut dot = ability(1, 100.0, 1000.0);
+            if passive {
+                dot.properties = BTreeMap::from([
+                    ("BuildUpBulletPercentPerHit".into(), 100.0),
+                    ("BuildUpDuration".into(), 1.0),
+                    ("BurnDuration".into(), 0.2),
+                ]);
+            } else {
+                dot.duration = Some(0.2);
+                dot.tick_rate = Some(0.2);
+            }
+            hero.abilities = vec![dot];
+            let mut scenario = event_scenario(0.2);
+            scenario.use_abilities = !passive;
+            scenario.target.regeneration = 0.0;
+            scenario.target.changes = [(0.1, 1.0), (0.15, 0.0), (0.2, 1.0)]
+                .map(|(at_seconds, resist)| crate::TargetChange {
+                    at_seconds,
+                    bullet: crate::DamageModifiers::default(),
+                    spirit: crate::DamageModifiers {
+                        resist,
+                        ..Default::default()
+                    },
+                })
+                .to_vec();
+            let result = simulate_calculation(
+                &hero,
+                &[],
+                &scenario,
+                &crate::WeaponTiming::default(),
+                &BTreeMap::new(),
+            );
+            assert!(
+                (result.ability_damage - 75.0).abs() < 1e-8,
+                "{passive}: {result:?}"
+            );
+            assert!((result.target_remaining_health - 525.0).abs() < 1e-8);
+            assert_eq!(result.first_ttk, None);
+        }
     }
 
     #[test]

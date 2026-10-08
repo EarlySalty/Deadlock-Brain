@@ -1333,8 +1333,9 @@ fn calculate_inner(
                 .and_then(serde_json::Value::as_f64)
                 .is_some()
                 && weapon.timing.pellets.is_some();
-        let rate_known =
-            weapon.profile.shots_per_second.is_finite() && weapon.profile.shots_per_second > 0.0;
+        let rate_known = crate::mechanics::weapon_timing_known(&weapon.timing)
+            && weapon.profile.shots_per_second.is_finite()
+            && weapon.profile.shots_per_second > 0.0;
         let clip_known = raw
             .get("clip_size")
             .and_then(serde_json::Value::as_f64)
@@ -1484,11 +1485,16 @@ fn calculate_inner(
             blockers.push("Nachladefelder fehlen oder Nachladefaktor ist ungültig".into());
         }
         if damage_known {
+            let mut bullet_modifiers = scenario.target.bullet.clone();
+            bullet_modifiers
+                .point_shreds
+                .push(stats.bullet_shred / 100.0);
+            bullet_modifiers.amplifications.push(stats.weapon_amp);
             let factors = crate::mechanics::damage_factors(
                 projected.bullet_damage
                     * (1.0
                         + scenario.headshot_fraction * scenario.headshot_bonus.unwrap_or_default()),
-                &scenario.target.bullet,
+                &bullet_modifiers,
             )?;
             for (name, value, unit) in [
                 (

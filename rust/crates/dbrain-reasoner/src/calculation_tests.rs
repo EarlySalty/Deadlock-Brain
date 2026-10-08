@@ -254,6 +254,89 @@ fn burst_weapon_uses_real_intra_and_inter_burst_gaps() {
 }
 
 #[test]
+fn declared_bursts_never_certify_missing_or_negative_timing() {
+    let baseline = models();
+    let weapon_id = baseline.heroes[&2].primary_weapon.unwrap();
+    for field in ["cycle_time", "intra_burst_cycle_time", "negative_gap"] {
+        let mut raw = raw_assets();
+        let weapon = raw["items"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|item| item["id"] == weapon_id)
+            .unwrap();
+        let info = weapon["weapon_info"].as_object_mut().unwrap();
+        if field == "negative_gap" {
+            info.insert("cycle_time".into(), json!(-0.1));
+        } else {
+            info.remove(field);
+        }
+        let models = calculation_models_from_payloads(
+            &raw["heroes"],
+            &raw["items"],
+            &source("heroes"),
+            &source("items"),
+        )
+        .unwrap();
+        let weapon = &models.weapons[&weapon_id];
+        assert_eq!(weapon.profile.shots_per_second, 0.0);
+        assert!(!crate::mechanics::weapon_timing_known(&weapon.timing));
+        assert!(
+            crate::mechanics::weapon_shot_interval(3, 10.0, Some(&weapon.timing)).is_infinite()
+        );
+        assert!(crate::mechanics::weapon_cycle_seconds(
+            &baseline.weapons[&weapon_id].profile,
+            Some(&weapon.timing),
+            ReloadConvention::AfterFireInterval,
+        )
+        .is_none());
+        let result = calculate_hero(&models, 2, &scenario()).unwrap();
+        for metric in [
+            "shots_per_second",
+            "weapon_dps",
+            "weapon_dps_with_reload",
+            "ttk",
+        ] {
+            assert!(
+                matches!(result.metrics[metric], MeasuredValue::Unknown { .. }),
+                "{field}: {metric}"
+            );
+        }
+        assert!(result.combat.is_none());
+        assert!(result.metrics["damage_per_shot"].value().is_some());
+        assert!(result.metrics["health"].value().is_some());
+    }
+}
+
+#[test]
+fn unconditional_inventory_shred_matches_scalar_and_real_shot_damage() {
+    let mut models = models();
+    let item = crate::item_model_from_payload(&json!({
+        "id": 1, "class_name": "scalar_shred_contract", "name": "Prüfgegenstand",
+        "cost": 800, "item_slot_type": "vitality", "shopable": true,
+        "properties": {"BulletResistReduction": {"value": 20.0}}
+    }))
+    .unwrap();
+    assert_eq!(item.condition, crate::ConditionKind::None);
+    models.item_sources.insert(1, source("items"));
+    models.items.push(item);
+    let mut input = scenario();
+    input.item_ids = vec![1];
+    input.target.health = 1_000_000.0;
+    input.target.bullet.resist = 0.25;
+    input.window_seconds = 0.05;
+    let result = calculate_hero(&models, 25, &input).unwrap();
+    close(number(&result, "target_effective_bullet_resist"), 0.05);
+    close(number(&result, "effective_damage_per_shot"), 17.34 * 0.95);
+    let combat = result.combat.as_ref().unwrap();
+    close(combat.shots, 1.0);
+    close(
+        combat.weapon_damage,
+        number(&result, "effective_damage_per_shot"),
+    );
+}
+
+#[test]
 fn pellet_damage_and_single_reload_apply_once() {
     let models = models();
     let mut input = scenario();

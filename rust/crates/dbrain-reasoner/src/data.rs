@@ -909,7 +909,11 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
         bullet_damage: get(&["damage_per_shot"])
             .or_else(|| get(&["bullet_damage"]).map(|v| v * pellets))
             .unwrap_or_default(),
-        shots_per_second,
+        shots_per_second: if crate::mechanics::weapon_timing_known(&timing) {
+            shots_per_second
+        } else {
+            0.0
+        },
         clip_size,
         reload_duration,
         range: get(&["range"]).unwrap_or_default(),

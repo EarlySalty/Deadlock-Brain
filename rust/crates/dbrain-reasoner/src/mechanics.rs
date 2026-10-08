@@ -370,12 +370,30 @@ pub fn damage_factors(
     })
 }
 
+pub(crate) fn weapon_timing_known(timing: &crate::WeaponTiming) -> bool {
+    if let Some(count) = timing.burst_shot_count.filter(|count| *count > 1) {
+        match (timing.cycle_time, timing.intra_burst_cycle_time) {
+            (Some(cycle), Some(intra)) => {
+                cycle.is_finite()
+                    && cycle >= 0.0
+                    && intra.is_finite()
+                    && intra > 0.0
+                    && (cycle + count as f64 * intra).is_finite()
+            }
+            _ => false,
+        }
+    } else {
+        true
+    }
+}
+
 pub fn weapon_shot_interval(
     shot_index: usize,
     rate: f64,
     timing: Option<&crate::WeaponTiming>,
 ) -> f64 {
-    if rate <= 0.0 {
+    if !rate.is_finite() || rate <= 0.0 || timing.is_some_and(|timing| !weapon_timing_known(timing))
+    {
         return f64::INFINITY;
     }
     if let Some(timing) = timing {
@@ -418,7 +436,12 @@ pub fn weapon_cycle_seconds(
     timing: Option<&crate::WeaponTiming>,
     convention: crate::ReloadConvention,
 ) -> Option<f64> {
-    if !weapon.clip_size.is_finite() || weapon.clip_size < 1.0 || weapon.shots_per_second <= 0.0 {
+    if !weapon.clip_size.is_finite()
+        || weapon.clip_size < 1.0
+        || !weapon.shots_per_second.is_finite()
+        || weapon.shots_per_second <= 0.0
+        || timing.is_some_and(|timing| !weapon_timing_known(timing))
+    {
         return None;
     }
     let shots = weapon.clip_size.floor();
