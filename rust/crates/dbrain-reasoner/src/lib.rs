@@ -216,6 +216,7 @@ fn plan_build_with_family_policy(
     options: PlanningOptions<'_>,
 ) -> Result<PlannedBuild> {
     options.constraints.check()?;
+    let provenance = publish::calculation_provenance(hero, items, snapshots, config)?;
     let mut hero = hero.clone();
     let mut items = items.to_vec();
     let mut deltas = patch::compute_patch_delta_with_snapshots(&hero, events, snapshots);
@@ -266,6 +267,10 @@ fn plan_build_with_family_policy(
         );
     }
     build.family_discovery = discovery;
+    if let Some(provenance) = provenance {
+        publish::bind_calculated_build(&mut build, provenance)?;
+    }
+    options.constraints.check()?;
     Ok(PlannedBuild {
         build,
         scored,
