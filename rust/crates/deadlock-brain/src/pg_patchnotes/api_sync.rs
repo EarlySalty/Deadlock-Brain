@@ -915,6 +915,34 @@ mod tests {
     }
 
     #[test]
+    fn change_qualifiers_stay_with_their_change() {
+        let index = patch_index();
+        let row = post_row(&post(), Some(17)).unwrap();
+        for line in [
+            "- Sinclair: Damage increased from 50 to 60 - only against objectives",
+            "- Sinclair: Damage increased from 50 to 60 - only after fixing a reload bug",
+            "- Sinclair: Vexing Bolt - Now does half damage to objectives - only while charging",
+        ] {
+            let resolved = PatchSourceResolution {
+                raw_content: line.into(),
+                ..PatchSourceResolution::from_row(&row)
+            };
+            for prepared in [
+                prepare_patch(&row, &resolved, &index).unwrap(),
+                prepare_api_patch(&row, &resolved, &index).unwrap(),
+            ] {
+                assert!(is_patch_candidate(&prepared, &index));
+                assert_eq!(prepared.events.len(), 1, "{line}");
+                assert_eq!(prepared.events[0].entity_name.as_deref(), Some("Sinclair"));
+                assert_eq!(
+                    prepared.events[0].normalized_line,
+                    line.trim_start_matches("- ")
+                );
+            }
+        }
+    }
+
+    #[test]
     fn section_changes_keep_unknown_subjects_unbound() {
         let index = patch_index();
         let row = post_row(&post(), Some(17)).unwrap();

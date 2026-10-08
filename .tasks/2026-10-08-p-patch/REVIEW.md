@@ -1,5 +1,7 @@
 # P: Befunde und regulärer Gate
 
+Historischer Bericht des Vorgängers P. In P2 ist das Kosmetikveto entfernt: Erkannte Patches behalten kosmetische und ungebundene Änderungszeilen.
+
 1. Bestätigt: first_post_html nimmt den ersten sichtbaren Beitrag ohne Originalbindung. API-Import akzeptiert bislang Folgeseiten und kann vorhandene Ereignisse ersetzen. Bindung wird vor dem vorhandenen Reader geprüft.
 2. Bestätigt: Kosmetikveto prüft die ganze Klausel einschließlich gebundenem Namen Metal Skin. Prüfung muss auf den Änderungsteil begrenzt werden; kosmetische Änderungen am selben Item bleiben ausgeschlossen.
 3. Im erhaltenen P-Stand bereits korrigiert: resolve_api_source ruft die Originalquelle immer ab, Feedauszüge dienen nicht als Volltextfallback. Vorhandene Regression unlinked_feed_teaser_never_replaces_original_events wird beibehalten.

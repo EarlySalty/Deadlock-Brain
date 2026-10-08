@@ -2024,10 +2024,10 @@ fn expand_inline_bullets_with(raw_line: &str, changes_only: bool) -> Vec<String>
             .filter(|part| !part.is_empty())
         {
             if split_subject(part).0.is_none() {
-                if let Some(current) = grouped
-                    .last_mut()
-                    .filter(|current| !has_change_action(current))
-                {
+                if let Some(current) = grouped.last_mut().filter(|current| {
+                    !has_change_action(current)
+                        || !part.chars().next().is_some_and(is_inline_bullet_start)
+                }) {
                     current.push_str(" - ");
                     current.push_str(part);
                     continue;

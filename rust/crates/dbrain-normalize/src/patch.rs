@@ -375,10 +375,10 @@ fn expand_inline_bullets(raw_line: &str) -> Vec<String> {
             .filter(|part| !part.is_empty())
         {
             if split_subject(part).0.is_none() {
-                if let Some(current) = grouped
-                    .last_mut()
-                    .filter(|current| !has_change_action(current))
-                {
+                if let Some(current) = grouped.last_mut().filter(|current| {
+                    !has_change_action(current)
+                        || !part.chars().next().is_some_and(is_inline_bullet_start)
+                }) {
                     current.push_str(" - ");
                     current.push_str(part);
                     continue;
@@ -1163,6 +1163,29 @@ mod tests {
             let (subject, remainder) = split_subject(line.trim_start_matches("- "));
             assert_eq!(event.entity_name, subject);
             assert_eq!(event.normalized_line, remainder);
+        }
+    }
+
+    #[test]
+    fn change_qualifiers_stay_with_their_change() {
+        for line in [
+            "- Sinclair: Damage increased from 50 to 60 - only against objectives",
+            "- Sinclair: Damage increased from 50 to 60 - only after fixing a reload bug",
+            "- Sinclair: Vexing Bolt - Now does half damage to objectives - only while charging",
+        ] {
+            assert_eq!(expand_inline_bullets(line), [line]);
+            let payload = json!({"raw_content": line});
+            let (events, skipped) =
+                parse_patchnote_snapshot(17, 17, "patch_17", &payload, &hero_index("Sinclair"))
+                    .unwrap();
+            assert_eq!(skipped, 0);
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].entity_name.as_deref(), Some("Sinclair"));
+            assert_eq!(events[0].raw_line, line);
+            assert_eq!(
+                events[0].normalized_line,
+                line.trim_start_matches("- Sinclair: ")
+            );
         }
     }
 
