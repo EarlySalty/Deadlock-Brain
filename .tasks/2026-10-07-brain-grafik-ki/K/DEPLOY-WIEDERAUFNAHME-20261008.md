@@ -43,6 +43,20 @@ Fresh fetch bestätigt origin/main ef2f1f95257c37d50e1ffd6d4da7c14b3202c30c. Geg
 
 Der bestehende Parentthread wurde nach Statusprüfung ready über den normalen T3-Weg mit dem gesicherten Consumerrelease und der vorherigen konkreten Installationsgrenze informiert, sequence 1928804. Kein neuer Thread, Worker oder fremder Zugriff.
 
+## Konkrete gemeinsame Layoutursache empirisch belegt
+
+b1w3swz9t tatsächlich Exit 1: Cargo erfolgreich in 12m25s, danach STOPP: No such file or directory (os error 2). Im retained ef2f1f95-Target sind die fertig kompilierten Binaries vorhanden, beispielhaft brain-browser-consent 4227696 Bytes, 2 Hardlinks. target/release/deps und target/release/build fehlen tatsächlich.
+
+Nur Buildlayout-Schlüssel gelesen, keine Zugangsdaten: /home/nathanael/.cargo/config.toml:11 setzt build-dir = "/home/nathanael/.cache/rust-build/{workspace-path-hash}". Bestehendes cargo metadata --no-deps bestätigt für den Releasequellworktree build_directory /home/nathanael/.cache/rust-build/4c/9a5269b3bb883d statt target/release/deps. Cargo und Rustup bleiben unverändert, Cargo 1.99.0.
+
+Unveränderter Helfer fs_safe.rs:133-138 verlangt dagegen target/release/deps und kontrolliert dort die Cargo-Hardlinkaliases. Nach erfolgreichem Cargoabschluss bricht build.rs:54 bereits beim ersten cargo_artifact-Aufruf ab; deshalb kein Artefakttransferprotokoll. Die getrennte aktuelle Cargo-Zwischenablage und diese Lookupannahme passen nicht zusammen. Das erklärt den erneut reproduzierten Dateifehler ohne Privilegienwechsel; die zwischenzeitlichen Mainwechsel sind ein zusätzlicher unabhängiger Guardbefund.
+
+Der Helfer erstellt Kommandos mit env_clear (source.rs:61-72); ein vorgeschobenes CARGO_BUILD_BUILD_DIR am äußeren Aufruf repariert diesen inneren Build nicht. Keine solche Scheinreparatur verwendet. Keine falschen Aliases hergestellt, keine globalen Cachepfade verschoben oder gelöscht, keine gemeinsame Cargo-Konfiguration verändert.
+
+Konkrete Lösungsrichtung für den zuständigen Helferauftrag: run_cargo im bestehenden Rust-Helfer an die kontrollierte eigene Buildablage binden, zum Beispiel CARGO_BUILD_BUILD_DIR auf denselben bereits geprüften Targetpfad setzen. Hardlink-, Besitzer-, Mode-, Source-/Main- und Doppelverify-Grenzen erhalten, bestehenden echten Cargo-/forged-bundle-Test auf die konfigurierte getrennte Zwischenablage nachziehen; Gate und reguläre Installation des Helfers. K hat dafür keine Freigabe zur Änderung des fest installierten Helfers und verlangt eine geordnete zuständige Reparatur, keinen alternativen Deploymentpfad. Keine weitere identische Releasewiederholung vor dieser Kompatibilitätskorrektur.
+
+Der aktuelle Consumerrelease bleibt fertig und hashgeprüft, aber vor dem Brainreadgate nicht aktiviert. Alle eigenen Releasejobs sind tatsächlich beendet; kein aktiver Doppelbuild oder neuer Sourceworker.
+
 ## Livegrenze
 
 Zuletzt tatsächlich: brain-serve PID 3178539, exe auf b7289d11 ohne deleted; dl-bot 2766584 und dl-web 2766645 auf 0fb873c6 ohne deleted. User-Units deadlock-bot-rust und deadlock-web-rust aktiv, NRestarts 0. Gleichnamige System-Units sind nicht die produktiven User-Units und wurden nicht gestartet. Start-/Journal-/Funktionsbeweis für neue Quellen steht aus.
