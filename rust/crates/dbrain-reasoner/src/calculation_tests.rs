@@ -364,23 +364,18 @@ fn invalid_recorded_pellet_counts_never_certify_primary_or_secondary_damage() {
             .find(|item| item["id"] == weapon_id)
             .unwrap();
         weapon["weapon_info"]["bullets"] = json!(pellets);
-        let mut models = calculation_models_from_payloads(
+        let parsed = calculation_models_from_payloads(
             &raw["heroes"],
             &raw["items"],
             &source("heroes"),
             &source("items"),
-        )
-        .unwrap();
+        );
+        if !pellets.is_null() {
+            assert!(parsed.is_err());
+            continue;
+        }
+        let mut models = parsed.unwrap();
         assert_eq!(models.weapons[&weapon_id].timing.pellets, None);
-        assert!(!models.heroes[&25]
-            .model
-            .scaling
-            .iter()
-            .any(|scale| scale.stat == "EBulletDamage"));
-        assert!(!models.heroes[&25]
-            .model
-            .standard_level_up_upgrades
-            .contains_key("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL"));
         models.heroes.get_mut(&25).unwrap().secondary_weapon = Some(alternate_id);
         for secondary_fire in [false, true] {
             for boons in [0, 35] {
@@ -404,26 +399,33 @@ fn invalid_recorded_pellet_counts_never_certify_primary_or_secondary_damage() {
         }
     }
     for pellets in [0.0, 0.5, f64::NAN, f64::INFINITY] {
-        let mut models = models();
-        models.heroes.get_mut(&25).unwrap().secondary_weapon = Some(alternate_id);
-        models
-            .weapons
-            .get_mut(&alternate_id)
-            .unwrap()
-            .timing
-            .pellets = Some(pellets);
-        let input = CalculationScenario {
-            secondary_fire: true,
-            spirit: SpiritInput::Total(40.0),
-            ..scenario()
-        };
-        let result = calculate_hero(&models, 25, &input).unwrap();
-        assert!(matches!(
-            result.metrics["damage_per_shot"],
-            MeasuredValue::Unknown { .. }
-        ));
-        assert!(result.combat.is_none());
-        assert!(result.metrics["health"].value().is_some());
+        for invalid_weapon in [weapon_id, alternate_id] {
+            let mut models = models();
+            models.heroes.get_mut(&25).unwrap().secondary_weapon = Some(alternate_id);
+            models
+                .weapons
+                .get_mut(&invalid_weapon)
+                .unwrap()
+                .timing
+                .pellets = Some(pellets);
+            for secondary_fire in [false, true] {
+                if invalid_weapon == alternate_id && !secondary_fire {
+                    continue;
+                }
+                let input = CalculationScenario {
+                    secondary_fire,
+                    spirit: SpiritInput::Total(40.0),
+                    ..scenario()
+                };
+                let result = calculate_hero(&models, 25, &input).unwrap();
+                assert!(matches!(
+                    result.metrics["damage_per_shot"],
+                    MeasuredValue::Unknown { .. }
+                ));
+                assert!(result.combat.is_none());
+                assert!(result.metrics["health"].value().is_some());
+            }
+        }
     }
 }
 

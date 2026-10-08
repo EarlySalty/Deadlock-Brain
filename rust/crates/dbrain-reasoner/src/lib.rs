@@ -21,9 +21,9 @@ pub mod lab;
 
 static PLANNING_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 pub use data::{
-    ability_damage_units, ability_model_from_payload, calculation_models_from_payloads,
-    enrich_frozen_models, hero_model_from_payload, item_model_from_payload,
-    refresh_ability_derived,
+    ability_damage_units, ability_model_from_payload, ability_property_scale, ability_scale_input,
+    calculation_models_from_payloads, enrich_frozen_models, hero_model_from_payload,
+    item_model_from_payload, refresh_ability_derived,
 };
 mod damage_conditions;
 mod data;

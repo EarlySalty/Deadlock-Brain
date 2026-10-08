@@ -320,7 +320,7 @@ pub(crate) fn scaling_stats(value: Option<&Value>) -> Vec<ScalingStat> {
         .unwrap_or_default()
 }
 
-pub(crate) fn ability_scale_input(value: &str) -> crate::AbilityScaleInput {
+pub fn ability_scale_input(value: &str) -> crate::AbilityScaleInput {
     match value {
         "ETechPower" => crate::AbilityScaleInput::Spirit,
         "ELightMeleeDamage" => crate::AbilityScaleInput::LightMeleeDamage,
@@ -331,7 +331,7 @@ pub(crate) fn ability_scale_input(value: &str) -> crate::AbilityScaleInput {
     }
 }
 
-pub(crate) fn ability_property_scale(property: &Value) -> Option<crate::AbilityPropertyScale> {
+pub fn ability_property_scale(property: &Value) -> Option<crate::AbilityPropertyScale> {
     let function = property
         .get("scale_function")
         .filter(|value| !value.is_null())?;
@@ -638,6 +638,13 @@ pub fn hero_model_from_payload(
     hero_model(payload, abilities, stats)
 }
 
+fn weapon_pellet_multiplier(payload: &Value) -> Option<f64> {
+    match payload.pointer("/weapon_info/bullets") {
+        None | Some(Value::Null) => Some(1.0),
+        Some(raw) => number(Some(raw)).filter(|value| crate::mechanics::valid_pellet_count(*value)),
+    }
+}
+
 fn weapon_timing(payload: &Value) -> crate::WeaponTiming {
     let info = payload.get("weapon_info").unwrap_or(&Value::Null);
     crate::WeaponTiming {
@@ -895,6 +902,7 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
                 .filter(|rate| rate.is_finite() && *rate >= 0.0)
         })
         .unwrap_or_default();
+    let pellets = weapon_pellet_multiplier(payload);
     let clip_size = get(&["clip_size"]).unwrap_or_default();
     let raw_reload = get(&["reload_duration"]).unwrap_or_default();
     let reload_duration = if timing.reload_single_bullets == Some(true) {
@@ -909,9 +917,10 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
         bullet_damage: get(&["damage_per_shot"])
             .or_else(|| {
                 get(&["bullet_damage"])
-                    .zip(timing.pellets)
+                    .zip(pellets)
                     .map(|(damage, pellets)| damage * pellets)
             })
+            .filter(|value| value.is_finite() && *value >= 0.0)
             .unwrap_or_default(),
         shots_per_second: if crate::mechanics::weapon_timing_known(&timing) {
             shots_per_second
@@ -1006,25 +1015,32 @@ fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Re
     };
     let mut all_scaling = scaling_stats(payload.get("scaling_stats"));
     all_scaling.extend(stats.iter().cloned());
-    let pellets = weapon_timing(payload).pellets;
-    all_scaling.retain(|stat| stat.stat != "EBulletDamage" || pellets.is_some());
-    if let Some(pellets) = pellets {
-        for stat in &mut all_scaling {
-            if stat.stat == "EBulletDamage" {
-                stat.per_level *= pellets;
-                stat.per_spirit = stat.per_spirit.map(|value| value * pellets);
+    let pellets = weapon_pellet_multiplier(payload).ok_or_else(|| {
+        ReasonerError::Data("Ungültige Projektilzahl für Schadens- und Wachstumsrechnung".into())
+    })?;
+    for stat in &mut all_scaling {
+        if stat.stat == "EBulletDamage" {
+            stat.per_level *= pellets;
+            stat.per_spirit = stat.per_spirit.map(|value| value * pellets);
+            if !stat.per_level.is_finite()
+                || stat.per_spirit.is_some_and(|value| !value.is_finite())
+            {
+                return Err(ReasonerError::Data(
+                    "Waffenskalierung ist nicht endlich".into(),
+                ));
             }
         }
     }
     let mut standard_level_up_upgrades = numeric_object(payload.get("standard_level_up_upgrades"));
-    if let Some(pellets) = pellets {
-        if let Some(damage) =
-            standard_level_up_upgrades.get_mut("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL")
-        {
-            *damage *= pellets;
+    if let Some(damage) =
+        standard_level_up_upgrades.get_mut("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL")
+    {
+        *damage *= pellets;
+        if !damage.is_finite() {
+            return Err(ReasonerError::Data(
+                "Waffenwachstum ist nicht endlich".into(),
+            ));
         }
-    } else {
-        standard_level_up_upgrades.remove("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL");
     }
     Ok(HeroModel {
         base_spirit_power: number(payload.pointer("/starting_stats/tech_power/value"))
@@ -3023,6 +3039,51 @@ mod tests {
             })
             .unwrap()
             .clone()
+    }
+
+    #[test]
+    fn pellet_count_is_checked_for_damage_and_every_growth_conversion() {
+        let mut raw = recorded_weapon_payload();
+        raw["weapon_info"]
+            .as_object_mut()
+            .unwrap()
+            .remove("damage_per_shot");
+        raw["weapon_info"]["bullet_damage"] = serde_json::json!(10);
+        raw["weapon_info"]["shots_per_second"] = serde_json::json!(3);
+        let mut hero = serde_json::json!({
+            "id": 1, "name": "Recorded weapon projection",
+            "weapon_info": raw["weapon_info"],
+            "scaling_stats": {"EBulletDamage":{"per_level":2,"per_spirit":0.5}},
+            "standard_level_up_upgrades":{"MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL":4}
+        });
+        for invalid in [
+            serde_json::json!(-1),
+            serde_json::json!(0),
+            serde_json::json!(0.5),
+            serde_json::json!("NaN"),
+            serde_json::json!("Infinity"),
+            serde_json::json!(true),
+        ] {
+            raw["weapon_info"]["bullets"] = invalid.clone();
+            hero["weapon_info"] = raw["weapon_info"].clone();
+            assert!(weapon_timing(&raw).pellets.is_none());
+            assert_eq!(weapon_profile(&raw).bullet_damage, 0.0);
+            assert!(hero_model_from_payload(&hero, &[], &[]).is_err());
+        }
+        for valid in [serde_json::json!(3), serde_json::json!("3")] {
+            raw["weapon_info"]["bullets"] = valid;
+            hero["weapon_info"] = raw["weapon_info"].clone();
+            let model = hero_model_from_payload(&hero, &[], &[]).unwrap();
+            assert_eq!(model.weapon.bullet_damage, 30.0);
+            assert_eq!(model.scaling[0].per_level, 6.0);
+            assert_eq!(model.scaling[0].per_spirit, Some(1.5));
+            assert_eq!(
+                model.standard_level_up_upgrades["MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL"],
+                12.0
+            );
+        }
+        hero["weapon_info"]["bullets"] = serde_json::json!(1e308);
+        assert!(hero_model_from_payload(&hero, &[], &[]).is_err());
     }
 
     #[test]
