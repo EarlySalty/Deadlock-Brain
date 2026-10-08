@@ -57,6 +57,8 @@ Konkrete Lösungsrichtung für den zuständigen Helferauftrag: run_cargo im best
 
 Der aktuelle Consumerrelease bleibt fertig und hashgeprüft, aber vor dem Brainreadgate nicht aktiviert. Alle eigenen Releasejobs sind tatsächlich beendet; kein aktiver Doppelbuild oder neuer Sourceworker.
 
+Konkrete Layoutursache über normalen bestehenden Parentthread zugestellt, sequence 1937797. Vorheriges read meldete ready, normaler send traf running-Race; anschließend vorgesehene bewusste --force-Option für dieselbe Statusmeldung verwendet. Keine neue Session oder Modellwahl. Helfer-Kompatibilitätsreparatur geordnet angefordert, kein Freigabe- oder Fertigergebnis daraus behauptet. K bleibt für den bestehenden Auftrag verfügbar; kein Cleanup oder settle vor Aktivierung und Livebeweis.
+
 ## Livegrenze
 
 Zuletzt tatsächlich: brain-serve PID 3178539, exe auf b7289d11 ohne deleted; dl-bot 2766584 und dl-web 2766645 auf 0fb873c6 ohne deleted. User-Units deadlock-bot-rust und deadlock-web-rust aktiv, NRestarts 0. Gleichnamige System-Units sind nicht die produktiven User-Units und wurden nicht gestartet. Start-/Journal-/Funktionsbeweis für neue Quellen steht aus.
