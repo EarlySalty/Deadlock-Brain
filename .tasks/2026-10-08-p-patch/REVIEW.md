@@ -1,0 +1,12 @@
+# P: Befunde und regulärer Gate
+
+1. Bestätigt: first_post_html nimmt den ersten sichtbaren Beitrag ohne Originalbindung. API-Import akzeptiert bislang Folgeseiten und kann vorhandene Ereignisse ersetzen. Bindung wird vor dem vorhandenen Reader geprüft.
+2. Bestätigt: Kosmetikveto prüft die ganze Klausel einschließlich gebundenem Namen Metal Skin. Prüfung muss auf den Änderungsteil begrenzt werden; kosmetische Änderungen am selben Item bleiben ausgeschlossen.
+3. Im erhaltenen P-Stand bereits korrigiert: resolve_api_source ruft die Originalquelle immer ab, Feedauszüge dienen nicht als Volltextfallback. Vorhandene Regression unlinked_feed_teaser_never_replaces_original_events wird beibehalten.
+4. Bestätigt: section_heading erkennt kurze narrative Änderungen als Überschrift, expand_inline_bullets kann Sternchenzeilen als Text mit Sternchen normalisieren. Gameplayprojektion muss den vorhandenen Reader verwenden und kurze echte Änderungen vor der Überschriftenerkennung bewerten.
+
+Noch kein eigenes Gateurteil. Das historische ALLOW wird nicht wiederverwendet. Historischer Featurestand: 45 Patchtests bestanden, 1 DB-Scratchtest ignoriert; striktes Clippy und Formatcheck Exit 0. Die ausdrückliche Freigabe aus ENTSCHEIDUNG-WACHE-037.md Abschnitt 1 erlaubt jetzt ausschließlich den bestehenden 11-zeiligen Readerexport. Dieser ist im eigenen engen Mainlieferworktree integriert, ohne fremde Kommentarlöschungen. Gemeinsame Prüfung läuft separat.
+
+Scratch-Reimportregression verwendet echte import_prepared_patch-Transaktionen mit einem schema-only-Abzug der bestehenden Tabellen einschließlich Fremdschlüssel und Constraints. Fixturetexte bleiben synthetisch. Zwei vollständige Originaländerungen, verkürzte Feedauszüge, unveränderte Dokument-/Snapshotbindung, Patch- und Knowledgeereignisse sowie fremde Quellen und Abruffehler werden geprüft. Kein Produktionszustand wird manuell geändert.
+
+Die echte Reimportprüfung fand zwei zusätzliche Fehler im autorisierten Patchpfad: gemischte kompakte Abschnittszeilen und narrative Folgezeilen verloren das gebundene Item. patch_lines verwendet jetzt denselben vorhandenen Abschnittsreader auch je Einzelzeile. Anschließend scheiterte die echte SQL-Transaktion am untypisierten Parameter $20 des gemeinsamen Update-/Insertparametersatzes. Der Kandidaten-CTE bindet diesen insertseitigen Hash ausdrücklich als text, ohne Kandidatenauswahl oder Ereignishashes zu verändern. Beide Fehler wurden am realen Prüflauf beobachtet; keine unbelegte Altfehlerbehauptung.

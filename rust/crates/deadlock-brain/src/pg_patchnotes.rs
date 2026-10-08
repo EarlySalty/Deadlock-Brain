@@ -13,6 +13,9 @@ use sha2::{Digest, Sha256};
 
 use crate::steam_web_api::{self, PgObservationJournal, SteamLedger, SteamWebApiError};
 
+mod api_sync;
+pub use api_sync::sync_patchnotes;
+
 const SOURCE: &str = "deadlock_patchnotes_db";
 const IMPORTER: &str = "deadlock_patchnotes_db_pg";
 const STEAM_APPID: u32 = 1_422_450;
@@ -65,9 +68,6 @@ struct SteamAppNewsItem {
 #[derive(Debug, Clone, Deserialize)]
 struct SteamPartnerEvent {
     gid: String,
-    event_name: String,
-    #[serde(default)]
-    rtime32_start_time: Option<i64>,
     #[serde(default)]
     announcement_body: Option<SteamAnnouncementBody>,
 }
@@ -75,7 +75,7 @@ struct SteamPartnerEvent {
 #[derive(Debug, Clone, Deserialize)]
 struct SteamAnnouncementBody {
     #[serde(default)]
-    headline: Option<String>,
+    gid: Option<String>,
     #[serde(default)]
     body: String,
 }
@@ -214,6 +214,14 @@ pub fn import_patchnote(
     let index = load_entity_index(&mut client)?;
     let resolved = resolve_patch_source(http, ledger, &mut client, &patch)?;
     let prepared = prepare_patch(&patch, &resolved, &index)?;
+    import_prepared_patch(&mut client, options, prepared)
+}
+
+fn import_prepared_patch(
+    client: &mut Client,
+    options: &ImportPatchnoteOptions,
+    prepared: PreparedPatch,
+) -> Result<Value> {
     if options.dry_run {
         return Ok(summary_json(
             true,
@@ -273,6 +281,16 @@ fn resolve_patch_source(
     client: &mut Client,
     row: &PatchnoteRow,
 ) -> Result<PatchSourceResolution> {
+    resolve_patch_source_with(http, ledger, client, row, resolve_steam_content)
+}
+
+fn resolve_patch_source_with(
+    http: &HttpClient,
+    ledger: &SteamLedger,
+    client: &mut Client,
+    row: &PatchnoteRow,
+    resolve_content: fn(&HttpClient, &SteamAppNewsItem) -> String,
+) -> Result<PatchSourceResolution> {
     let posted_at = row_posted_at(row)?;
     let candidates = collect_steam_links(row);
     let source_kind = classify_source_kind(row.url.as_deref());
@@ -292,15 +310,20 @@ fn resolve_patch_source(
             return Ok(PatchSourceResolution::from_row(row));
         }
     };
-    let item = match_steam_news_item(row, posted_at, &candidates, &items)
-        .or_else(|| find_matching_official_news_item(row, posted_at, &items));
+    let item = match_steam_news_item(row, posted_at, &candidates, &items).or_else(|| {
+        if candidates.iter().any(|candidate| candidate.gid.is_some()) {
+            None
+        } else {
+            find_matching_official_news_item(row, posted_at, &items)
+        }
+    });
 
     let Some(item) = item else {
         return Ok(PatchSourceResolution::from_row(row));
     };
 
     Ok(PatchSourceResolution {
-        raw_content: resolve_steam_content(http, &item),
+        raw_content: resolve_content(http, &item),
         source_url: Some(item.url),
         source_kind: "steam".to_string(),
         resolved_from: Some(format!("steam_gid:{}", item.gid)),
@@ -403,16 +426,15 @@ fn fetch_steam_news_items(
 }
 
 fn resolve_steam_content(http: &HttpClient, item: &SteamAppNewsItem) -> String {
-    let api_content = clean_steam_content(&item.contents);
-    let full_body = fetch_steam_announcement_body(http, item)
+    clean_steam_content(&resolve_steam_raw_content(http, item))
+}
+
+fn resolve_steam_raw_content(http: &HttpClient, item: &SteamAppNewsItem) -> String {
+    fetch_steam_announcement_body(http, item)
         .ok()
         .flatten()
-        .map(|body| clean_steam_content(&body))
-        .filter(|body| !body.is_empty());
-    match full_body {
-        Some(body) => body,
-        None => api_content,
-    }
+        .filter(|body| !clean_steam_content(body).is_empty())
+        .unwrap_or_else(|| item.contents.clone())
 }
 
 fn fetch_steam_announcement_body(
@@ -446,50 +468,29 @@ fn extract_steam_announcement_body_from_html(
     let raw_store = extract_html_attribute(html, "data-partnereventstore")?;
     let decoded = decode_basic_entities(raw_store);
     let events: Vec<SteamPartnerEvent> = serde_json::from_str(&decoded).ok()?;
-    let wanted_gid = extract_steam_view_gid(html);
-    let wanted_title = normalize_steam_title(Some(&item.title));
-    let wanted_time = steam_item_time(item)
-        .map(|value| value.timestamp())
-        .unwrap_or_default();
-
-    if let Some(event) = wanted_gid.as_deref().and_then(|gid| {
-        events
-            .iter()
-            .find(|event| event.gid == gid && has_announcement_body(event))
-    }) {
-        return event
-            .announcement_body
-            .as_ref()
-            .map(|body| body.body.clone());
-    }
-
-    let mut best: Option<(i64, &SteamPartnerEvent)> = None;
-    for event in &events {
-        if !has_announcement_body(event) {
-            continue;
-        }
-        let event_title = normalize_steam_title(
+    let event = if let Some(gid) = extract_steam_event_gid(&item.url) {
+        events.iter().find(|event| event.gid == gid)
+    } else if let Some(gid) =
+        extract_steam_gid(&item.url).or_else(|| (!item.gid.is_empty()).then(|| item.gid.clone()))
+    {
+        events.iter().find(|event| {
             event
                 .announcement_body
                 .as_ref()
-                .and_then(|body| body.headline.as_deref())
-                .or(Some(event.event_name.as_str())),
-        );
-        let mut score = title_similarity(&wanted_title, &event_title) as i64 * 50;
-        if let Some(event_time) = event.rtime32_start_time {
-            score -= ((event_time - wanted_time).abs() / 60).min(10_000);
-        }
-        if score > best.as_ref().map_or(i64::MIN, |value| value.0) {
-            best = Some((score, event));
-        }
-    }
-
-    best.and_then(|(_, event)| {
-        event
-            .announcement_body
-            .as_ref()
-            .map(|body| body.body.clone())
-    })
+                .is_some_and(|body| body.gid.as_deref() == Some(gid.as_str()))
+        })
+    } else {
+        let gid = extract_steam_view_gid(html)?;
+        events.iter().find(|event| event.gid == gid)
+    }?;
+    has_announcement_body(event)
+        .then(|| {
+            event
+                .announcement_body
+                .as_ref()
+                .map(|body| body.body.clone())
+        })
+        .flatten()
 }
 
 fn has_announcement_body(event: &SteamPartnerEvent) -> bool {
@@ -505,6 +506,17 @@ fn extract_html_attribute<'a>(html: &'a str, attribute: &str) -> Option<&'a str>
     let rest = &html[start..];
     let end = rest.find('"')?;
     Some(&rest[..end])
+}
+
+fn extract_steam_event_gid(raw_url: &str) -> Option<String> {
+    let url = reqwest::Url::parse(raw_url).ok()?;
+    let gid = match url.host_str()? {
+        "store.steampowered.com" => url.path().strip_prefix("/news/app/1422450/view/")?,
+        "steamcommunity.com" => url.path().strip_prefix("/app/1422450/event/")?,
+        _ => return None,
+    }
+    .trim_end_matches('/');
+    (!gid.is_empty() && gid.chars().all(|ch| ch.is_ascii_digit())).then(|| gid.to_string())
 }
 
 fn extract_steam_view_gid(html: &str) -> Option<String> {
@@ -683,10 +695,15 @@ fn extract_http_tokens(text: &str) -> Vec<String> {
 }
 
 fn normalize_url_token(raw: &str) -> String {
-    raw.trim()
+    let decoded = decode_basic_entities(raw);
+    decoded
+        .trim()
         .trim_start_matches('(')
         .trim_start_matches('<')
         .trim_start_matches('"')
+        .split(['<', '>', '"', '\''])
+        .next()
+        .unwrap_or_default()
         .trim_end_matches(&[')', '>', ']', '"', '\'', ';', ',', '.'][..])
         .to_string()
 }
@@ -701,19 +718,16 @@ fn is_steam_news_url(url: &str) -> bool {
             || lower.contains("steam_community_announcements"))
 }
 
-fn extract_steam_gid(url: &str) -> Option<String> {
+fn extract_steam_gid(raw_url: &str) -> Option<String> {
+    let url = reqwest::Url::parse(&normalize_url_token(raw_url)).ok()?;
     for marker in [
         "externalpost/steam_community_announcements/",
         "/announcements/detail/",
     ] {
-        let lower = url.to_lowercase();
-        if let Some(offset) = lower.find(marker) {
-            let digits = lower[offset + marker.len()..]
-                .chars()
-                .take_while(|ch| ch.is_ascii_digit())
-                .collect::<String>();
-            if !digits.is_empty() {
-                return Some(digits);
+        if let Some((_, gid)) = url.path().split_once(marker) {
+            let gid = gid.trim_end_matches('/');
+            if !gid.is_empty() && gid.chars().all(|ch| ch.is_ascii_digit()) {
+                return Some(gid.to_string());
             }
         }
     }
@@ -732,6 +746,10 @@ fn match_steam_news_item(
                 return Some(item.clone());
             }
         }
+    }
+
+    if candidates.iter().any(|candidate| candidate.gid.is_some()) {
+        return None;
     }
 
     let wanted_urls = candidates
@@ -1429,7 +1447,8 @@ fn insert_patch_events(
         let updated = tx.execute(
             r#"
             WITH candidate AS (
-                SELECT pe.id
+                -- The shared insert parameters include an otherwise unused hash.
+                SELECT pe.id, $20::text AS incoming_event_hash
                 FROM brain.patch_events pe
                 WHERE lower(regexp_replace(TRIM(BOTH FROM coalesce(pe.patch_title, '')), '\s+', ' ', 'g')) = $21
                   AND pe.entity_type = $10
@@ -1644,6 +1663,10 @@ fn patch_lines(content: &str) -> Vec<String> {
 
     let mut lines = Vec::new();
     for raw in normalized.lines() {
+        if let Some(flat_lines) = split_square_bracket_forum_lines(raw.trim()) {
+            lines.extend(flat_lines);
+            continue;
+        }
         for part in expand_inline_bullets(raw) {
             lines.push(part);
         }
@@ -2293,6 +2316,107 @@ mod tests {
 
         assert_eq!(item.gid, "1799088287841594");
         assert!(item.title.contains("Shop Rework"));
+        let foreign = SteamAppNewsItem {
+            gid: "1799088287841593".into(),
+            title: row.title.clone().unwrap(),
+            date: row_posted_at(&row).unwrap().unwrap().timestamp(),
+            ..items[1].clone()
+        };
+        assert!(
+            match_steam_news_item(&row, row_posted_at(&row).unwrap(), &candidates, &[foreign],)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn html_link_tokens_keep_concrete_announcement_identity() {
+        let html = r#"<meta property="og:url" content="https://store.steampowered.com/news/app/1422450/view/456"><div data-partnereventstore="[{&quot;gid&quot;:&quot;456&quot;,&quot;announcement_body&quot;:{&quot;gid&quot;:&quot;123&quot;,&quot;body&quot;:&quot;- Weapon damage increased from 50 to 60&quot;}}]"></div>"#;
+        for url in [
+            "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/123",
+            "https://steamcommunity.com/games/1422450/announcements/detail/123",
+        ] {
+            for suffix in [
+                "\">Full</a>",
+                "\">",
+                "\"&gt;",
+                "'>Full</a>",
+                "&quot;&gt;Full&lt;/a&gt;",
+                "?l=english#notes\">Full</a>",
+            ] {
+                let token = format!("{url}{suffix}");
+                assert_eq!(extract_steam_gid(&token).as_deref(), Some("123"), "{token}");
+                let item = SteamAppNewsItem {
+                    gid: String::new(),
+                    title: "Minor Update".into(),
+                    url: token.clone(),
+                    contents: String::new(),
+                    date: 1791241532,
+                    author: None,
+                    feedlabel: None,
+                    feedname: Some("steam_community_announcements".into()),
+                };
+                assert_eq!(
+                    extract_steam_announcement_body_from_html(html, &item).as_deref(),
+                    Some("- Weapon damage increased from 50 to 60"),
+                    "{token}"
+                );
+                let foreign = html.replace("&quot;123&quot;", "&quot;122&quot;");
+                assert!(
+                    extract_steam_announcement_body_from_html(&foreign, &item).is_none(),
+                    "{token}"
+                );
+                for field in ["url", "raw_content", "translated_content"] {
+                    let mut row = PatchnoteRow {
+                        id: 17,
+                        title: Some(item.title.clone()),
+                        url: Some("https://forums.playdeadlock.com/threads/update.17/".into()),
+                        posted_at: Some("2026-10-05T23:05:32Z".into()),
+                        raw_content: None,
+                        translated_content: None,
+                    };
+                    match field {
+                        "url" => row.url = Some(token.clone()),
+                        "raw_content" => row.raw_content = Some(format!("<a href=\"{token}")),
+                        _ => row.translated_content = Some(format!("<a href=\"{token}")),
+                    }
+                    let candidates = collect_steam_links(&row);
+                    assert_eq!(candidates.len(), 1, "{field}/{token}");
+                    assert_eq!(
+                        explicit_steam_gid(&candidates),
+                        Some("123"),
+                        "{field}/{token}"
+                    );
+                    let matching = SteamAppNewsItem {
+                        gid: "123".into(),
+                        url: url.into(),
+                        ..item.clone()
+                    };
+                    let foreign = SteamAppNewsItem {
+                        gid: "122".into(),
+                        url: url.replace("123", "122"),
+                        ..item.clone()
+                    };
+                    assert!(
+                        match_steam_news_item(
+                            &row,
+                            row_posted_at(&row).unwrap(),
+                            &candidates,
+                            std::slice::from_ref(&foreign)
+                        )
+                        .is_none(),
+                        "{field}/{token}"
+                    );
+                    let matched = match_steam_news_item(
+                        &row,
+                        row_posted_at(&row).unwrap(),
+                        &candidates,
+                        &[foreign, matching],
+                    )
+                    .unwrap();
+                    assert_eq!(matched.gid, "123", "{field}/{token}");
+                }
+            }
+        }
     }
 
     #[test]
@@ -2460,13 +2584,27 @@ mod tests {
         };
         let html = r#"
             <meta property="og:url" content="https://store.steampowered.com/news/app/1422450/view/669466707009471267">
-            <div data-partnereventstore="[{&quot;gid&quot;:&quot;669466707009471267&quot;,&quot;event_name&quot;:&quot;Six New Heroes&quot;,&quot;rtime32_start_time&quot;:1755549720,&quot;announcement_body&quot;:{&quot;headline&quot;:&quot;Six New Heroes&quot;,&quot;body&quot;:&quot;[h3]The Hideout[/h3][p]Welcome to the Hideout![/p][h3]Hero Voting[/h3][p]Today we introduce Mina.[/p]&quot;}}]"></div>
+            <div data-partnereventstore="[{&quot;gid&quot;:&quot;669466707009471267&quot;,&quot;event_name&quot;:&quot;Six New Heroes&quot;,&quot;rtime32_start_time&quot;:1755549720,&quot;announcement_body&quot;:{&quot;gid&quot;:&quot;1808061939479652&quot;,&quot;headline&quot;:&quot;Six New Heroes&quot;,&quot;body&quot;:&quot;[h3]The Hideout[/h3][p]Welcome to the Hideout![/p][h3]Hero Voting[/h3][p]Today we introduce Mina.[/p]&quot;}}]"></div>
         "#;
 
         let body = extract_steam_announcement_body_from_html(html, &item).expect("body");
 
         assert!(body.contains("[h3]The Hideout[/h3]"));
         assert!(body.contains("Today we introduce Mina."));
+        for invalid in [
+            html.replace("&quot;gid&quot;:&quot;1808061939479652&quot;,", ""),
+            html.replace(
+                "&quot;gid&quot;:&quot;1808061939479652&quot;",
+                "&quot;gid&quot;:&quot;1808061939479651&quot;",
+            ),
+        ] {
+            assert!(extract_steam_announcement_body_from_html(&invalid, &item).is_none());
+        }
+        let misleading_view = html.replace("669466707009471267", "669466707009471268");
+        assert_eq!(
+            extract_steam_announcement_body_from_html(&misleading_view, &item),
+            Some(body)
+        );
     }
 
     #[test]

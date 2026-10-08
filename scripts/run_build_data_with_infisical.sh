@@ -60,4 +60,5 @@ if [[ -z "${DEADLOCK_CENTRAL_DSN:-}" ]]; then
 fi
 
 "$BRAIN_BIN" pull assets
+"$BRAIN_BIN" pg sync-patchnotes
 "$BRAIN_BIN" pull build-data --hero all
