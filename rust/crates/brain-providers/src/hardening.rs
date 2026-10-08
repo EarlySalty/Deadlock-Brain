@@ -133,20 +133,27 @@ pub(super) fn cost(price: PriceCeiling, input: u64, output: u64) -> Result<u64> 
         .ok_or(ProviderError::BudgetExceeded)
 }
 pub(super) fn read_bounded(response: reqwest::blocking::Response, limit: usize) -> Result<Vec<u8>> {
-    if response.content_length().is_some_and(|n| n > limit as u64) {
-        return Err(ProviderError::ResponseTooLarge);
-    }
+    let (result, bytes) = read_bounded_observed(response, limit);
+    result.map(|()| bytes)
+}
+pub(super) fn read_bounded_observed(
+    response: reqwest::blocking::Response,
+    limit: usize,
+) -> (Result<()>, Vec<u8>) {
+    let announced_overflow = response.content_length().is_some_and(|n| n > limit as u64);
     let mut bytes = Vec::new();
-    response
+    let result = response
         .take(limit as u64 + 1)
         .read_to_end(&mut bytes)
-        .map_err(|_| {
-            ProviderError::InvalidResponse("truncated or timed-out provider body".into())
-        })?;
-    if bytes.len() > limit {
-        return Err(ProviderError::ResponseTooLarge);
-    }
-    Ok(bytes)
+        .map_err(ProviderError::BodyTransport);
+    let result = result.and_then(|_| {
+        if announced_overflow || bytes.len() > limit {
+            Err(ProviderError::ResponseTooLarge)
+        } else {
+            Ok(())
+        }
+    });
+    (result, bytes)
 }
 pub(super) fn retry_after(response: &reqwest::blocking::Response) -> Result<Option<Duration>> {
     let Some(header) = response.headers().get(reqwest::header::RETRY_AFTER) else {

@@ -30,6 +30,8 @@ pub struct PriceCeiling {
     pub output_micros_per_token: u64,
 }
 
+mod audit;
+pub use audit::OutputDeviation;
 mod circuit;
 mod embeddings;
 mod hardening;
@@ -84,6 +86,8 @@ pub enum ProviderError {
     InvalidConfig,
     #[error("Provider transport failed")]
     Http(#[from] reqwest::Error),
+    #[error("Provider body transport failed")]
+    BodyTransport(#[source] std::io::Error),
     #[error("Provider antwortete mit HTTP {status}")]
     HttpStatus { status: StatusCode },
     #[error("Provider Budget ist ausgeschöpft")]
@@ -92,24 +96,43 @@ pub enum ProviderError {
     CircuitOpen,
     #[error("Provider Antwort überschreitet das Größenlimit")]
     ResponseTooLarge,
+    #[error("local response audit unavailable")]
+    AuditUnavailable,
     #[error("Provider Antwort ist ungültig: {0}")]
     InvalidResponse(String),
 }
 
 pub type Result<T> = std::result::Result<T, ProviderError>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenAiCompatibleProvider {
     client: Client,
     config: ProviderConfig,
     circuit: std::sync::Arc<std::sync::Mutex<circuit::Circuit>>,
-    reported_failures: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
+    audit: Option<std::sync::Arc<dyn brain_contracts::response_audit::ResponseAuditPort>>,
+}
+
+impl std::fmt::Debug for OpenAiCompatibleProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpenAiCompatibleProvider")
+            .field("config", &self.config)
+            .field("audit_enabled", &self.audit.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct CodexSubscriptionProvider(OpenAiCompatibleProvider);
 
 impl CodexSubscriptionProvider {
+    pub fn with_response_audit(
+        mut self,
+        audit: std::sync::Arc<dyn brain_contracts::response_audit::ResponseAuditPort>,
+    ) -> Self {
+        self.0 = self.0.with_response_audit(audit);
+        self
+    }
+
     pub fn new(config: ProviderConfig) -> Result<Self> {
         if !config.subscription {
             return Err(ProviderError::InvalidConfig);
@@ -163,15 +186,20 @@ impl AnswerProviderPort for CodexSubscriptionProvider {
 }
 
 impl OpenAiCompatibleProvider {
-    fn report_failure(&self, error: &ProviderError) {
+    fn report_failure(&self, request_id: Option<&str>, error: &ProviderError) {
         let category = match error {
             ProviderError::HttpStatus { status } => format!("http_{}", status.as_u16()),
+            ProviderError::Http(error) if error.is_builder() || error.is_decode() => {
+                "invalid_config".into()
+            }
             ProviderError::Http(error) if error.is_timeout() => "transport_timeout".into(),
             ProviderError::Http(error) if error.is_connect() => "transport_connect".into(),
             ProviderError::Http(_) => "transport".into(),
+            ProviderError::BodyTransport(_) => "transport_body".into(),
             ProviderError::InvalidConfig => "invalid_config".into(),
             ProviderError::BudgetExceeded => "budget_exceeded".into(),
             ProviderError::CircuitOpen => "circuit_open".into(),
+            ProviderError::AuditUnavailable => "audit_unavailable".into(),
             ProviderError::ResponseTooLarge => "response_too_large".into(),
             ProviderError::InvalidResponse(message) => match message.as_str() {
                 "invalid chat schema" => "chat_schema",
@@ -189,18 +217,28 @@ impl OpenAiCompatibleProvider {
             }
             .into(),
         };
-        self.report_category(category);
+        self.report_category(request_id, category);
     }
 
-    fn report_category(&self, category: String) {
-        let first = self
-            .reported_failures
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(category.clone());
-        if first {
-            eprintln!("Brain-Antwortprovider: Fehlerklasse {category}");
-        }
+    fn report_category(&self, request_id: Option<&str>, category: String) {
+        self.report_event("provider_failure", request_id, category);
+    }
+
+    fn report_event(&self, event: &'static str, request_id: Option<&str>, category: String) {
+        let request_id =
+            request_id.map(|id| brain_contracts::response_audit::diagnostic_text(id, None));
+        eprintln!(
+            "{}",
+            serde_json::json!({"event":event, "request_id":request_id, "error_class":category})
+        );
+    }
+
+    pub fn with_response_audit(
+        mut self,
+        audit: std::sync::Arc<dyn brain_contracts::response_audit::ResponseAuditPort>,
+    ) -> Self {
+        self.audit = Some(audit);
+        self
     }
 
     pub fn new(config: ProviderConfig) -> Result<Self> {
@@ -236,18 +274,16 @@ impl OpenAiCompatibleProvider {
             client,
             config,
             circuit: std::sync::Arc::new(std::sync::Mutex::new(circuit::Circuit::default())),
-            reported_failures: Default::default(),
+            audit: None,
         })
     }
 
     fn request(
         &self,
-        query: &Query,
         context: &AuthorizedContext,
-        evidence: &[Evidence],
-        tools: &[ToolDefinition],
-        conversation: &ToolConversation,
+        request: transport::ChatRequest<'_>,
         accounting: &mut UsageAccounting,
+        transport_failure: &mut Option<bool>,
     ) -> Result<ProviderTurn> {
         context
             .check_deadline()
@@ -258,10 +294,10 @@ impl OpenAiCompatibleProvider {
             ToolWireFormat::OpenAiCompatible
         };
         let mut payload = grounded_turn_payload_with_quality(
-            query,
-            evidence,
-            tools,
-            conversation,
+            request.query,
+            request.evidence,
+            request.tools,
+            request.conversation,
             format,
             self.config.quality_filters,
         )
@@ -272,7 +308,7 @@ impl OpenAiCompatibleProvider {
         if self.config.model == "accounts/fireworks/models/deepseek-v4p1-flash" {
             payload["reasoning_effort"] = serde_json::json!("none");
         }
-        self.send_chat(payload, context, evidence, tools, conversation, accounting)
+        self.send_chat(payload, context, request, accounting, transport_failure)
     }
 }
 
@@ -349,20 +385,23 @@ impl AnswerProviderPort for OpenAiCompatibleProvider {
         }
         if let Err(error) = hardening::authorize_turn(query, context, evidence, tools, conversation)
         {
-            self.report_failure(&error);
+            self.report_failure(Some(&query.request_id), &error);
             return Err(PortFailure::before_call(PortError::InvalidResponse(
                 "provider context or egress denied".into(),
             )));
         }
         let mut accounting = UsageAccounting::default();
-        let result = self.with_circuit(|| {
+        let result = self.with_circuit(|transport_failure| {
             self.request(
-                query,
                 context,
-                evidence,
-                tools,
-                conversation,
+                transport::ChatRequest {
+                    query,
+                    evidence,
+                    tools,
+                    conversation,
+                },
                 &mut accounting,
+                transport_failure,
             )
         });
         eprintln!(
@@ -383,7 +422,7 @@ impl AnswerProviderPort for OpenAiCompatibleProvider {
         match result {
             Ok(value) => Ok(Accounted { value, accounting }),
             Err(error) => {
-                self.report_failure(&error);
+                self.report_failure(Some(&query.request_id), &error);
                 let error = match error {
                     ProviderError::BudgetExceeded => PortError::BudgetExceeded,
                     ProviderError::InvalidResponse(message) => PortError::InvalidResponse(message),

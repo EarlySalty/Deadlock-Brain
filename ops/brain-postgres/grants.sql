@@ -97,6 +97,11 @@ BEGIN
     GRANT SELECT ON brain.entity_derived_receipts_v1 TO brain_service, brain_readonly;
     GRANT SELECT, INSERT ON brain.entity_derived_receipts_v1 TO brain_ingest;
   END IF;
+  IF to_regclass('brain.response_deviations_v1') IS NOT NULL THEN
+    REVOKE ALL ON brain.response_deviations_v1 FROM brain_service, brain_ingest, brain_readonly, PUBLIC;
+    GRANT INSERT ON brain.response_deviations_v1 TO brain_service;
+    GRANT SELECT(audit_id) ON brain.response_deviations_v1 TO brain_service;
+  END IF;
   IF EXISTS (SELECT FROM pg_namespace WHERE nspname = 'brain_legacy') THEN
     EXECUTE 'REVOKE ALL ON SCHEMA brain_legacy FROM PUBLIC';
     EXECUTE 'GRANT USAGE ON SCHEMA brain_legacy TO brain_readonly';
