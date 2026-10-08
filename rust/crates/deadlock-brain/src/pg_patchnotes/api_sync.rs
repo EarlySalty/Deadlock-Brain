@@ -128,7 +128,7 @@ fn trusted_original_url(raw: &str) -> Option<Url> {
     }
     url.set_fragment(None);
     match url.host_str()? {
-        "forums.playdeadlock.com" if url.path().starts_with("/threads/") => Some(url),
+        "forums.playdeadlock.com" if forum_thread_id(&url).is_some() => Some(url),
         "store.steampowered.com" if url.path().starts_with("/news/app/1422450/view/") => Some(url),
         "steamcommunity.com"
             if url.path().starts_with("/games/1422450/announcements/")
@@ -138,6 +138,61 @@ fn trusted_original_url(raw: &str) -> Option<Url> {
         }
         _ => None,
     }
+}
+
+fn forum_thread_id(url: &Url) -> Option<u64> {
+    let slug = url.path().strip_prefix("/threads/")?.trim_end_matches('/');
+    if slug.contains('/')
+        || url
+            .query_pairs()
+            .any(|(key, value)| key != "page" || value != "1")
+    {
+        return None;
+    }
+    let (_, id) = slug.rsplit_once('.')?;
+    id.parse::<u64>().ok().filter(|id| *id > 0)
+}
+
+fn bound_forum_original(html: &str, url: &Url) -> Result<Option<String>> {
+    let Some(thread_id) = forum_thread_id(url) else {
+        return Ok(None);
+    };
+    if extract_html_attribute(html, "data-content-key")
+        != Some(format!("thread-{thread_id}").as_str())
+    {
+        return Ok(None);
+    }
+    // XenForo's main entity describes the start post, not the visible replies.
+    let Some(script) = html
+        .split("<script type=\"application/ld+json\">")
+        .nth(1)
+        .and_then(|script| script.split("</script>").next())
+    else {
+        return Ok(None);
+    };
+    let Ok(document) = serde_json::from_str::<Value>(script) else {
+        return Ok(None);
+    };
+    let original = &document["mainEntity"];
+    if original["@type"] != "DiscussionForumPosting"
+        || original["url"]
+            .as_str()
+            .and_then(trusted_original_url)
+            .and_then(|url| forum_thread_id(&url))
+            != Some(thread_id)
+    {
+        return Ok(None);
+    }
+    let Some(text) = original["text"].as_str() else {
+        return Ok(None);
+    };
+    let body = dbrain_sources::forum::first_post_html(html)?;
+    let normalize =
+        |text: &str| normalize_patch_line(&clean_steam_content(&cleanup_patch_content(text)));
+    if normalize(text).is_empty() || normalize(text) != normalize(&body) {
+        return Ok(None);
+    }
+    Ok(Some(body))
 }
 
 fn load_post_row(
@@ -262,14 +317,16 @@ fn gameplay_event_content(content: &str, index: &EntityIndex) -> Option<String> 
             continue;
         }
         let body = bullet_body(line);
-        if body.is_none() && section_heading(line).is_some() {
+        let body = normalize_patch_line(body.as_deref().unwrap_or(line));
+        let body = bullet_body(&body).unwrap_or(body);
+        if !matches!(
+            dbrain_normalize::classify_change_type(&body).as_str(),
+            "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
+        ) && section_heading(line).is_some()
+        {
             projected.push(line.to_string());
             continue;
         }
-        if body.is_none() && !is_narrative_event_line(line) {
-            continue;
-        }
-        let body = normalize_patch_line(body.as_deref().unwrap_or(line));
         let lower = body.to_ascii_lowercase();
         let mut separators = [";", "!", "?", ". ", " and ", " but ", " while "]
             .into_iter()
@@ -331,7 +388,12 @@ fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
                     | "weapon_or_internal"
             )
         });
-    let words: Vec<_> = clause
+    let change_words = if bound_entity {
+        &change_subject
+    } else {
+        clause
+    };
+    let words: Vec<_> = change_words
         .split(|character: char| !character.is_alphabetic())
         .filter(|word| !word.is_empty())
         .map(str::to_ascii_lowercase)
@@ -406,7 +468,7 @@ fn resolve_api_source(
         .ok_or_else(|| anyhow!("Ungültige Originalquelle im Patchfeed"))?;
     let html = fetch_html(url.as_str())?;
     let body = if post.source == "forum" {
-        Some(dbrain_sources::forum::first_post_html(&html)?)
+        bound_forum_original(&html, &url)?
     } else {
         let item = SteamAppNewsItem {
             gid: String::new(),
@@ -476,7 +538,7 @@ mod tests {
                     post.title = title.into();
                     let html = if source == "forum" {
                         post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
-                        format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{original}</div></article>")
+                        forum_html(&post, original)
                     } else {
                         steam_html(&post, original)
                     };
@@ -578,7 +640,7 @@ mod tests {
                 post.content = "Preview only".into();
                 let html = if source == "forum" {
                     post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
-                    format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{original}</div></article>")
+                    forum_html(&post, original)
                 } else {
                     steam_html(&post, original)
                 };
@@ -615,7 +677,7 @@ mod tests {
                 let fulltext = format!("[h3]Gameplay Changes[/h3][p]{original}[/p]");
                 let html = if source == "forum" {
                     post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
-                    format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{fulltext}</div></article>")
+                    forum_html(&post, &fulltext)
                 } else {
                     steam_html(&post, &fulltext)
                 };
@@ -868,7 +930,7 @@ mod tests {
                     post.source = source.into();
                     let html = if source == "forum" {
                         post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
-                        format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{original}</div></article>")
+                        forum_html(&post, original)
                     } else {
                         steam_html(&post, original)
                     };
@@ -958,6 +1020,96 @@ mod tests {
         ));
     }
 
+    // Synthetic HTML wrappers carry XenForo's original-post metadata.
+    fn forum_html(post: &ApiPatchPost, body: &str) -> String {
+        let url = trusted_original_url(&post.link).unwrap();
+        let thread_id = forum_thread_id(&url).unwrap();
+        let original = json!({"mainEntity": {"@type":"DiscussionForumPosting",
+            "url":canonical_post_url(&url).as_str(),
+            "text":clean_steam_content(&cleanup_patch_content(body))}});
+        format!("<html data-content-key=\"thread-{thread_id}\"><script type=\"application/ld+json\">{original}</script><article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{body}</div></article></html>")
+    }
+
+    #[test]
+    fn forum_original_binding_rejects_replies_foreign_threads_and_missing_metadata() {
+        let mut post = post();
+        post.source = "forum".into();
+        post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+        let original = "- Weapon damage increased from 50 to 60";
+        let valid = forum_html(&post, original);
+        assert!(
+            resolve_api_source(&post, &EntityIndex::default(), |_| Ok(valid.clone()))
+                .unwrap()
+                .is_some()
+        );
+        for invalid in [
+            valid.replace("thread-75046", "thread-75047"),
+            valid.replace("application/ld+json", "text/plain"),
+            valid.replace("DiscussionForumPosting", "Comment"),
+            valid.replace(
+                "\"url\":\"https://forums.playdeadlock.com/threads/update.75046\"",
+                "\"url\":\"https://forums.playdeadlock.com/threads/update.75047\"",
+            ),
+            valid.replace(
+                "<div class=\"bbWrapper\">- Weapon damage increased from 50 to 60",
+                "<div class=\"bbWrapper\">- Weapon damage increased from 70 to 80",
+            ),
+        ] {
+            assert_ne!(valid, invalid);
+            assert!(
+                resolve_api_source(&post, &EntityIndex::default(), |_| Ok(invalid.clone()))
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        for suffix in ["page-2", "?page=2", "unread", "?order=desc"] {
+            post.link = format!("https://forums.playdeadlock.com/threads/update.75046/{suffix}");
+            assert!(validate_post(&post).is_err(), "{suffix}");
+        }
+    }
+
+    #[test]
+    fn bound_metal_skin_and_compact_changes_keep_gameplay_but_not_cosmetics() {
+        let mut index = EntityIndex::default();
+        index.insert("item", "Metal Skin", "Metal Skin");
+        index.insert("hero", "Holliday", "Holliday");
+        let index = index.finish();
+        let mut post = post();
+        post.source = "forum".into();
+        post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+        for original in [
+            "- Metal Skin: cooldown reduced from 22 to 20",
+            "* Metal Skin: cooldown reduced from 22 to 20",
+            "Metal Skin: cooldown reduced from 22 to 20",
+            "[ Items ] * Metal Skin: cooldown reduced from 22 to 20",
+            "Holliday: added knockback",
+            "* Holliday: added knockback",
+        ] {
+            let html = forum_html(&post, original);
+            let resolved = resolve_api_source(&post, &index, |_| Ok(html.clone()))
+                .unwrap()
+                .unwrap();
+            let prepared =
+                prepare_api_patch(&post_row(&post, Some(17)).unwrap(), &resolved, &index).unwrap();
+            assert_eq!(prepared.events.len(), 1, "{original}");
+            assert_eq!(
+                prepared.events[0].entity_name.as_deref(),
+                Some(if original.contains("Metal Skin") {
+                    "Metal Skin"
+                } else {
+                    "Holliday"
+                })
+            );
+        }
+        for original in [
+            "- Metal Skin: added artwork",
+            "* Metal Skin: added new hero skins",
+            "Metal Skin: improved animations",
+        ] {
+            assert!(!is_patch_candidate(original, &index), "{original}");
+        }
+    }
+
     fn steam_html(post: &ApiPatchPost, body: &str) -> String {
         let events = json!([{
             "gid":"703281025618282632",
@@ -1030,7 +1182,7 @@ mod tests {
             assert_eq!(request_url.as_str(), link.split('#').next().unwrap());
             let body = "[p]- Weapon damage increased from 50 to 60[/p]";
             let html = if source == "forum" {
-                format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{body}</div></article>")
+                forum_html(&post, body)
             } else {
                 steam_html(&post, body)
             };
@@ -1091,7 +1243,7 @@ mod tests {
             assert_eq!(row.id, 17, "{link}");
             let body = "[p]- Weapon damage increased from 50 to 60[/p]";
             let html = if source == "forum" {
-                format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{body}</div></article>")
+                forum_html(&post, body)
             } else {
                 steam_html(&post, body)
             };
@@ -1163,7 +1315,7 @@ mod tests {
             assert_eq!(row.url.as_deref(), Some(row_url.as_str()));
             let body = "[p]- Weapon damage increased from 50 to 60[/p]";
             let html = if post.source == "forum" {
-                format!("<article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{body}</div></article>")
+                forum_html(&post, body)
             } else {
                 steam_html(&post, body)
             };
@@ -1318,7 +1470,7 @@ mod tests {
             post.source = source.into();
             let html = if source == "forum" {
                 post.link = "https://forums.playdeadlock.com/threads/six-new-heroes.75046/".into();
-                format!("<html><article class=\"js-post\" data-content=\"post-1\"><div class=\"bbWrapper\">{prose}</div></article><article class=\"js-post\" data-content=\"post-2\"><div class=\"bbWrapper\">- Mina: Damage increased from 10 to 20</div></article></html>")
+                format!("{}<article class=\"js-post\" data-content=\"post-2\"><div class=\"bbWrapper\">- Mina: Damage increased from 10 to 20</div></article>", forum_html(&post, prose))
             } else {
                 steam_html(&post, prose)
             };
