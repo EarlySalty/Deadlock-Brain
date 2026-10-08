@@ -1,3 +1,5 @@
+mod acceptance;
+
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -391,6 +393,18 @@ fn verify(version: &str) -> Result<()> {
 
 fn run() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.len() == 3 && args[0] == "compare-private" {
+        return acceptance::compare(Path::new(&args[1]), Path::new(&args[2]));
+    }
+    if args.len() == 2 && args[0] == "audit" {
+        return acceptance::audit(Path::new(&args[1]));
+    }
+    if args.len() == 3 && args[0] == "prepare-review" {
+        return acceptance::prepare(Path::new(&args[1]), Path::new(&args[2]));
+    }
+    if args.len() == 2 && args[0] == "check-review" {
+        return acceptance::check(Path::new(&args[1]));
+    }
     if args.len() == 2 && args[0] == "plan" {
         return plan(&args[1]);
     }

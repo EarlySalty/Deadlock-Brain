@@ -1,0 +1,73 @@
+{
+  "schema": "brain.q2.required-real-cases.v1",
+  "version": "q2-required-cases-v1-20261008",
+  "source": "BEFUND-NUTZERTEST-2000.md und ausdrücklicher Q2-Auftrag",
+  "original_messages_in_public_artifact": false,
+  "accepted_gold_cases": 0,
+  "private_original_binding": "pending",
+  "cases": [
+    {
+      "id": "user-item-interaction",
+      "topic": "Armor Piercing Rounds gegen Plated Armor",
+      "expected_response_kind": "game_original_source",
+      "transport_group": "user-first-game-message",
+      "expected": ["Aktuelle Entität und gegebenenfalls geänderten Namen aus Originaldaten klären", "Procchance, Kugelabwehr, On-Hit-Verhinderung und Resistenz getrennt erklären", "Keine pauschale Garantie für jede Kugel und kein Verweis an Nani"],
+      "facts": {"current_entity_name": "Armor Piercer", "class_name": "upgrade_aprounds", "proc_chance_percent": 55, "plated_deflection_percent": 30, "plated_on_hit_prevention_percent": 50},
+      "fact_scope": "Öffentliche Werte geprüft. Namensalias und vollständige Wechselwirkungsrechnung gegen ausgelieferten Rust-Kern noch offen."
+    },
+    {
+      "id": "user-haze-spirit",
+      "topic": "Haze und Magic-/Spirit-Schaden",
+      "expected_response_kind": "game_original_source",
+      "transport_group": "user-three-questions-one-message",
+      "expected": ["Konkrete Spirit-Skalierungen unterscheiden", "Nicht sämtliche Kugeln pauschal als Spirit-Schaden behandeln"],
+      "facts": {"sleep_dagger_damage": 65, "sleep_dagger_spirit_scale": 2.2, "smoke_bomb_duration": 8, "smoke_bomb_spirit_scale": 0.1, "bullet_dance_duration": 3.5, "bullet_dance_spirit_scale": 0.03, "fixation_first_upgrade_proc_damage": 40, "fixation_first_upgrade_spirit_scale": 0.8, "fixation_first_upgrade_stacks": 20}
+    },
+    {
+      "id": "user-new-player-help",
+      "topic": "Hilfe für schlechten oder neuen Spieler",
+      "expected_response_kind": "coaching_or_community_help",
+      "transport_group": "user-three-questions-one-message",
+      "expected": ["Konkrete Einstiegshilfe und passender Coaching-/Patenweg", "Discord-Coachingziel aus P3, Twitch-Coachingwebsite oder Discord", "Patenangebot in Ich-Form, kein Verweis auf einen anderen Antwortbot"],
+      "independent_current_source_check": "pending"
+    },
+    {
+      "id": "user-pocket-counter",
+      "topic": "Pocket kontern",
+      "expected_response_kind": "game_original_source",
+      "transport_group": "user-three-questions-one-message",
+      "expected": ["Praktische Gegenmaßnahmen mit Cast- und Fluchttiming", "Keine unbelegte Itemgarantie", "Keine historische Zahl als aktuelle Zahl ausgeben"],
+      "facts": {"affliction_base_dps": 32, "affliction_spirit_scale": 0.21, "affliction_debuff_duration": 10},
+      "additional_evidence": "Vorhandene Q/ORIGINALFAKTEN.md. Cloak-, Satchel-, Silence- und Knockdown-Beschreibungen vor Lauf erneut an Wissensstand binden."
+    },
+    {
+      "id": "user-invite-at-right-place",
+      "topic": "Deadlock spielen, Frage am zuständigen Discord-Ort",
+      "expected_response_kind": "server_or_own_status",
+      "transport_group": "user-location-message",
+      "expected": ["Konkrete Hilfe oder nächster gültiger Schritt", "Kein Rückverweis in denselben Bereich", "Minimaler berechtigter Ortskontext tatsächlich verwendet", "Keine Einladung senden"],
+      "independent_current_invite_source_check": "pending",
+      "private_original_location_binding": "pending"
+    }
+  ],
+  "transport_assertions": {
+    "user-three-questions-one-message": {"part_questions": 3, "mentions": 3, "message_events": 1, "brain_question_reservations": 1, "all_parts_answered": "required", "provider_calls": "observe_not_assume"},
+    "first_and_followup": {"immediate_followup": "required", "time_window": "none", "daily_user_limit": "read_from_bot.toml", "expected_default": 50, "day_timezone": "Europe/Berlin"}
+  },
+  "public_original_assets": {
+    "version": "q2-original-v1-20261008",
+    "source_url": "https://api.deadlock-api.com/v1/assets/items",
+    "snapshot_container_sha256": "491e31de7281f022badaec6eb2e9de070893b5423877e76e4112fe059cdbb4a1",
+    "entity_count": 746,
+    "source_scope": "Independenter öffentlicher Abzug, kein Beweis des laufenden Brain-Wissensstands"
+  },
+  "patch_samples": {
+    "reuse": "Q/P2-ORIGINALQUELLEN.md",
+    "version": "q-patches-v1-20261007",
+    "snapshot_container_sha256": "490208eeb5cf0952f2dfb20c1bd8f78882c0090c996bb999bc37622abfaa19e0",
+    "sample_count": 5,
+    "count_as_real_questions": false,
+    "current_knowledge_binding": "pending",
+    "cosmetic_forum_control": "pending"
+  }
+}
