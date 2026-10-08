@@ -19,6 +19,15 @@ fn version(program: &str) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_string())
 }
 
+fn build_dir_override(target: &Path) -> Result<String> {
+    let path = target.to_str().context("Targetpfad ist kein UTF-8")?;
+    ensure!(
+        !path.contains(['"', '\\']) && !path.chars().any(char::is_control),
+        "Targetpfad ist für die Cargo-Konfiguration ungeeignet"
+    );
+    Ok(format!("build.build-dir=\"{path}\""))
+}
+
 fn run_cargo(source: &Path, target: &Path) -> Result<()> {
     ensure!(
         fs_safe::uid() == OPERATOR,
@@ -38,6 +47,8 @@ fn run_cargo(source: &Path, target: &Path) -> Result<()> {
         .args(source::BUILD_ARGS)
         .arg("--target-dir")
         .arg(target)
+        .arg("--config")
+        .arg(build_dir_override(target)?)
         .stdout(Stdio::inherit())
         .status()?;
     ensure!(
