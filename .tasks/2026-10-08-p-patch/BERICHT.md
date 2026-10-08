@@ -38,7 +38,9 @@ TESTNACHWEIS[TW-1]: 45 passed, 1 ignored | Baseline: n/a rot
 
 Baseline n/a: kein vorbestehender Fehler behauptet, kein Baselinevergleich durchgeführt. Der ignorierte Bestandstest erfordert die eigene DB brain_fixer12_patch_lookup und DEADLOCK_BRAIN_SCRATCH_DSN. Er wurde nicht als ausgeführt ausgegeben.
 
-Prüfbindung: API-Modul SHA256 `39a6114ee0218c9c48eb21a3a601761917cef61bfd57f2101318ad931b5168ca`. Test- und Clippy-Logs liegen unverändert und ungepusht in der eigenen Akte als `tests.log` und `clippy.log`. Archivcheckpoint, kein Lieferbranch auf aktuellem Main.
+Prüfbindung: API-Modul SHA256 `39a6114ee0218c9c48eb21a3a601761917cef61bfd57f2101318ad931b5168ca`. Code und Fachakte im Checkpoint c8db98a9 auf origin/feat/brain-patch-discovery gesichert. Die unveränderten Prüfprotokolle wurden ohne Überschreiben oder Löschen nach `/tmp/brain-p-patch-c8db98a9-tests.log` und `/tmp/brain-p-patch-c8db98a9-clippy.log` verschoben. Archivcheckpoint, kein Lieferbranch auf aktuellem Main.
+
+Der Abschluss-Hook fordert einen pauschalen Merge des Archivbranches mit 34 gegenüber Main zusätzlichen Commits. Das widerspricht dem konkreten Auftrag, keine pauschale Altbranchübernahme und kein Archivcleanup durchzuführen. Der Branch bleibt deshalb geschützt erhalten. Kein Hook wurde abgeschaltet oder umgangen; der tatsächliche Scopeblocker wird zurückgegeben.
 
 MERGEPROTOKOLL[MS-1]: 9 Git-Schritte einzeln | Anläufe: 0 | Gate: nicht gestartet, Readerabhängigkeit außerhalb P-Eigentum
 
