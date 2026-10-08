@@ -50,6 +50,7 @@ pub struct CombatScenarioEvaluation {
     pub target_remaining_health: f64,
     pub target_remaining_shields: [f64; 3],
     pub time_resolution_seconds: f64,
+    pub weapon_timing_unknown: bool,
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct InventoryEvaluation {
@@ -782,6 +783,13 @@ fn evaluate_core_with_deadline(
         result.score += (scenario.damage_score + scenario.survival_score) / 3.0;
         result.scenarios.push(scenario);
     }
+    if result
+        .scenarios
+        .iter()
+        .any(|scenario| scenario.weapon_timing_unknown)
+    {
+        result.unknown_effects.push("Waffentiming ist ungültig oder lässt die Ereigniszeit nicht fortschreiten; weitere Schüsse sind nicht quantifiziert".into());
+    }
     if !detailed {
         result.assumptions.clear();
     }
@@ -1107,6 +1115,7 @@ fn simulate(
     let mut target_remaining = SimulationTarget::new(out.target_health, scenario);
     let mut next_shot_at: f64 = 0.0;
     let mut magazine_shots = 0usize;
+    let mut magazine_started_at = 0.0;
     let mut weapon_kill_at = None;
     let mut target_generation = 0usize;
     let mut buff_targets = vec![0usize; items.len()];
@@ -1988,6 +1997,9 @@ fn simulate(
                     if ammo < 1.0 {
                         continue;
                     }
+                    if magazine_shots == 0 {
+                        magazine_started_at = at;
+                    }
                     let mut stack_bonus = 0.0;
                     for (idx, ability) in hero.abilities.iter().enumerate() {
                         if ability.properties.contains_key("DamageBonusFixedPerStack") {
@@ -2130,6 +2142,10 @@ fn simulate(
                     magazine_shots += 1;
                     next_shot_at =
                         at + crate::mechanics::weapon_shot_interval(magazine_shots, rate, timing);
+                    if !next_shot_at.is_finite() || next_shot_at <= at {
+                        out.weapon_timing_unknown = true;
+                        next_shot_at = f64::INFINITY;
+                    }
                     if ammo < 1.0 && (target_remaining.health > 0.0 || pressure) {
                         magazine_buffs.fill(false);
                         let convention = scenario
@@ -2150,7 +2166,14 @@ fn simulate(
                             );
                         reload_pending = true;
                         out.reloads += 1;
-                        next_shot_at = reload_until;
+                        next_shot_at =
+                            if reload_until.is_finite() && reload_until > magazine_started_at {
+                                reload_until
+                            } else {
+                                out.weapon_timing_unknown = true;
+                                reload_until = f64::INFINITY;
+                                f64::INFINITY
+                            };
                         if detailed && out.sequence.len() < 16 {
                             out.sequence.push(format!(
                                 "{reload_start:.6}s: Nachladen bis {reload_until:.6}s"
@@ -2748,6 +2771,131 @@ pub(crate) mod tests {
             distance_source_units: None,
             window_seconds,
             reload_convention: crate::ReloadConvention::AfterFireInterval,
+        }
+    }
+
+    #[test]
+    fn zero_length_magazine_cycles_never_requeue_at_the_same_timestamp() {
+        let mut hero = hero();
+        hero.weapon.clip_size = 1.0;
+        hero.weapon.reload_duration = 0.0;
+        let mut scenario = event_scenario(1.0);
+        scenario.hit_fraction = 0.0;
+        scenario.reload_convention = crate::ReloadConvention::AfterLastShot;
+        let timing = crate::WeaponTiming::default();
+        let innate = BTreeMap::new();
+        let anchor = std::time::Instant::now();
+        let deadline = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || anchor,
+        );
+        let result = simulate_calculation(&hero, &[], &scenario, &timing, &innate);
+        assert_eq!(result.shots, 1.0);
+        assert!(result.weapon_timing_unknown);
+        assert_eq!(result.reloads, 1);
+        assert_eq!(result.weapon_damage, 0.0);
+        assert_eq!(result.target_remaining_health, scenario.target.health);
+        assert_eq!(result.elapsed_seconds, scenario.window_seconds);
+        assert_eq!(result.end_reason, CombatEndReason::WindowElapsed);
+        assert_eq!(
+            simulate_calculation_with_deadline(&hero, &[], &scenario, &timing, &innate, &deadline,)
+                .unwrap(),
+            result
+        );
+        assert_eq!(deadline.remaining(), Ok(std::time::Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn zero_reload_keeps_valid_firing_cycles_and_after_last_shot_boundaries() {
+        for (clip, convention, reload, shots) in [
+            (1.0, crate::ReloadConvention::AfterFireInterval, 0.0, 3.0),
+            (2.0, crate::ReloadConvention::AfterLastShot, 0.0, 5.0),
+            (1.0, crate::ReloadConvention::AfterLastShot, 0.025, 5.0),
+        ] {
+            let mut hero = hero();
+            hero.weapon.clip_size = clip;
+            hero.weapon.shots_per_second = 20.0;
+            hero.weapon.reload_duration = reload;
+            for hit in [0.0, 1.0] {
+                let mut scenario = event_scenario(0.125);
+                scenario.target.regeneration = 0.0;
+                scenario.hit_fraction = hit;
+                scenario.reload_convention = convention;
+                let result = simulate_calculation(
+                    &hero,
+                    &[],
+                    &scenario,
+                    &crate::WeaponTiming::default(),
+                    &BTreeMap::new(),
+                );
+                assert_eq!(result.shots, shots, "{clip} {convention:?} {reload} {hit}");
+                assert!(!result.weapon_timing_unknown);
+                assert!((result.weapon_damage - shots * 10.0 * hit).abs() < 1e-9);
+                assert_eq!(result.elapsed_seconds, scenario.window_seconds);
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_reload_never_schedules_backwards_through_public_inventory_paths() {
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 1.0,
+            incoming_pressure_dps: Some(0.0),
+            ..ReasonerConfig::default()
+        };
+        let bindings = BTreeMap::new();
+        let anchor = std::time::Instant::now();
+        let deadline = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || anchor,
+        );
+        for reload in [-0.5, f64::NAN, f64::INFINITY] {
+            let mut hero = hero();
+            hero.weapon.clip_size = 2.0;
+            hero.weapon.reload_duration = reload;
+            for result in [
+                evaluate_inventory(&hero, &[], &cfg),
+                evaluate_inventory_fast(&hero, &[], &cfg),
+                evaluate_inventory_refs_fast(&hero, &[], &cfg),
+                evaluate_inventory_with_bindings(&hero, &[], &cfg, &bindings),
+                evaluate_inventory_refs_fast_with_bindings(&hero, &[], &cfg, &bindings),
+                evaluate_inventory_with_deadline(&hero, &[], &cfg, &bindings, &deadline).unwrap(),
+            ] {
+                assert!(result.score.is_finite());
+                assert!(!result.unknown_effects.is_empty());
+                for scenario in result.scenarios {
+                    assert!(scenario.weapon_timing_unknown);
+                    assert_eq!(scenario.shots, 2.0);
+                    assert_eq!(scenario.reloads, 1);
+                    assert_eq!(scenario.elapsed_seconds, 1.0);
+                    assert!(scenario.weapon_damage <= 20.0);
+                }
+            }
+            for convention in [
+                crate::ReloadConvention::AfterLastShot,
+                crate::ReloadConvention::AfterFireInterval,
+            ] {
+                let mut scenario = event_scenario(1.0);
+                scenario.hit_fraction = 0.0;
+                scenario.reload_convention = convention;
+                let timing = crate::WeaponTiming::default();
+                let innate = BTreeMap::new();
+                let result = simulate_calculation(&hero, &[], &scenario, &timing, &innate);
+                assert_eq!(result.shots, 2.0);
+                assert_eq!(result.weapon_damage, 0.0);
+                assert_eq!(
+                    simulate_calculation_with_deadline(
+                        &hero,
+                        &[],
+                        &scenario,
+                        &timing,
+                        &innate,
+                        &deadline,
+                    )
+                    .unwrap(),
+                    result
+                );
+            }
         }
     }
 

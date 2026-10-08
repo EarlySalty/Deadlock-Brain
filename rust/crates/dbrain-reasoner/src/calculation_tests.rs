@@ -571,6 +571,124 @@ fn invalid_weapon_capacity_or_reload_inputs_only_block_dependent_metrics() {
 }
 
 #[test]
+fn zero_length_weapon_cycles_block_simulation_without_hiding_independent_metrics() {
+    let mut models = models();
+    let weapon_id = models.heroes[&25].primary_weapon.unwrap();
+    let weapon = models.weapons.get_mut(&weapon_id).unwrap();
+    weapon.profile.clip_size = 1.0;
+    weapon.profile.reload_duration = 0.0;
+    weapon.raw["weapon_info"]["clip_size"] = json!(1.0);
+    weapon.raw["weapon_info"]["reload_duration"] = json!(0.0);
+    weapon.timing.reload_single_bullets = Some(false);
+    weapon.timing.raw_reload_duration = Some(0.0);
+    let mut input = CalculationScenario {
+        window_seconds: 1.0,
+        hit_fraction: 0.0,
+        reload_convention: ReloadConvention::AfterLastShot,
+        ..scenario()
+    };
+    for use_abilities in [false, true] {
+        input.use_abilities = use_abilities;
+        for result in [
+            calculate_hero(&models, 25, &input).unwrap(),
+            calculate_hero_with_deadline(&models, 25, &input, &deadline()).unwrap(),
+            project_hero(&models, 25, &input, &deadline()).unwrap(),
+        ] {
+            assert!(result.combat.is_none());
+            for metric in ["weapon_dps_with_reload", "ttk"] {
+                assert!(matches!(
+                    result.metrics[metric],
+                    MeasuredValue::Unknown { .. }
+                ));
+            }
+            close(number(&result, "damage_per_shot"), 17.34);
+            close(number(&result, "reload_duration"), 0.0);
+            assert!(result.metrics["health"].value().is_some());
+        }
+    }
+    input.use_abilities = false;
+    input.reload_convention = ReloadConvention::AfterFireInterval;
+    let positive = calculate_hero(&models, 25, &input).unwrap();
+    close(positive.combat.as_ref().unwrap().shots, 4.0);
+    assert!(positive.metrics["weapon_dps_with_reload"].value().is_some());
+    input.reload_convention = ReloadConvention::AfterLastShot;
+    let weapon = models.weapons.get_mut(&weapon_id).unwrap();
+    weapon.profile.clip_size = 2.0;
+    weapon.raw["weapon_info"]["clip_size"] = json!(2.0);
+    let positive = calculate_hero(&models, 25, &input).unwrap();
+    close(positive.combat.as_ref().unwrap().shots, 7.0);
+    assert!(positive.metrics["weapon_dps_with_reload"].value().is_some());
+    let weapon = models.weapons.get_mut(&weapon_id).unwrap();
+    weapon.raw["weapon_info"]["reload_duration"] = json!(1.0);
+    weapon.timing.reload_single_bullets = Some(true);
+    weapon.timing.reload_single_bullets_initial_delay = Some(0.5);
+    weapon.timing.raw_reload_duration = Some(-0.1);
+    let invalid = calculate_hero(&models, 25, &input).unwrap();
+    assert!(invalid.combat.is_none());
+    assert!(matches!(
+        invalid.metrics["reload_duration"],
+        MeasuredValue::Unknown { .. }
+    ));
+    assert!(invalid.metrics["weapon_dps"].value().is_some());
+}
+
+#[test]
+fn runtime_zero_cycles_leave_partial_damage_unconfirmed_and_unranked() {
+    let mut models = models();
+    let weapon_id = models.heroes[&25].primary_weapon.unwrap();
+    let weapon = models.weapons.get_mut(&weapon_id).unwrap();
+    weapon.profile.clip_size = 2.0;
+    weapon.profile.reload_duration = 0.0;
+    weapon.raw["weapon_info"]["clip_size"] = json!(2.0);
+    weapon.raw["weapon_info"]["reload_duration"] = json!(0.0);
+    weapon.timing.reload_single_bullets = Some(false);
+    weapon.timing.raw_reload_duration = Some(0.0);
+    let mut item = crate::combat::tests::item(1, "BonusClipSizePercent", -50.0);
+    item.is_active = true;
+    item.properties.extend([
+        ("AbilityDuration".into(), 60.0),
+        ("AbilityCooldown".into(), 60.0),
+    ]);
+    models.item_sources.insert(1, source("items"));
+    models.items.push(item);
+    let input = CalculationScenario {
+        window_seconds: 1.0,
+        item_ids: vec![1],
+        reload_convention: ReloadConvention::AfterLastShot,
+        ..scenario()
+    };
+    for result in [
+        calculate_hero(&models, 25, &input).unwrap(),
+        calculate_hero_with_deadline(&models, 25, &input, &deadline()).unwrap(),
+    ] {
+        let combat = result.combat.as_ref().unwrap();
+        assert!(combat.weapon_timing_unknown);
+        assert_eq!(combat.shots, 1.0);
+        assert!(combat.weapon_damage > 0.0);
+        for metric in [
+            "simulated_weapon_damage",
+            "simulated_damage_per_second",
+            "ttk",
+        ] {
+            assert!(matches!(
+                result.metrics[metric],
+                MeasuredValue::Unknown { .. }
+            ));
+        }
+        assert!(result.metrics["weapon_dps"].value().is_some());
+    }
+    let ranked = rank_heroes(
+        &models,
+        &input,
+        "simulated_weapon_damage",
+        MetricDirection::HigherIsBetter,
+    )
+    .unwrap();
+    assert!(ranked.missing.contains_key(&25));
+    assert!(!ranked.ranks.iter().any(|rank| rank.hero_id == 25));
+}
+
+#[test]
 fn unknown_upgrade_types_leave_scalar_ability_properties_unconfirmed() {
     let mut raw = raw_assets();
     let ability = raw["items"]

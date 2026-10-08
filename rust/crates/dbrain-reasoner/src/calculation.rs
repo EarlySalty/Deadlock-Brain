@@ -1508,6 +1508,8 @@ fn calculate_inner(
                                 "reasoner/reload-cycle/v1",
                             ),
                         );
+                    } else if projected.shots_per_second > 0.0 {
+                        blockers.push("Waffenzyklus hat keine endliche positive Dauer".into());
                     }
                 }
             } else {
@@ -1648,7 +1650,11 @@ fn calculate_inner(
                     &sourced.starting_stats,
                 ),
             };
-            let uncertain = combat_uncertain;
+            let uncertain = combat_uncertain || evaluated.weapon_timing_unknown;
+            if evaluated.weapon_timing_unknown {
+                unknowns
+                    .push("Waffentiming lässt keine belegte fortschreitende Schussfolge zu".into());
+            }
             let simulation_rule = if evaluated.time_resolution_seconds == 0.0 {
                 "reasoner/weapon-events/v1"
             } else {

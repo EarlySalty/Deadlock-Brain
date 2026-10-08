@@ -409,11 +409,16 @@ pub fn weapon_shot_interval(
             let period = cycle + count as f64 * intra;
             if count > 1 && period > 0.0 && intra > 0.0 {
                 let scale = count as f64 / period / rate;
-                return if shot_index.is_multiple_of(count) {
+                let interval = if shot_index.is_multiple_of(count) {
                     cycle + intra
                 } else {
                     intra
                 } * scale;
+                return if interval.is_finite() && interval > 0.0 {
+                    interval
+                } else {
+                    f64::INFINITY
+                };
             }
         }
     }
@@ -426,13 +431,34 @@ pub fn weapon_reload_seconds(
     timing: Option<&crate::WeaponTiming>,
     speed_percent: f64,
 ) -> f64 {
-    let raw = timing
-        .filter(|timing| timing.reload_single_bullets == Some(true))
-        .and_then(|timing| {
-            Some(timing.reload_single_bullets_initial_delay? + clip * timing.raw_reload_duration?)
-        })
-        .unwrap_or(weapon.reload_duration);
-    raw / (1.0 + speed_percent / 100.0)
+    let speed = 1.0 + speed_percent / 100.0;
+    if !clip.is_finite() || clip < 1.0 || !speed.is_finite() || speed <= 0.0 {
+        return f64::INFINITY;
+    }
+    let valid = |value: f64| value.is_finite() && value >= 0.0;
+    let raw =
+        if let Some(timing) = timing.filter(|timing| timing.reload_single_bullets == Some(true)) {
+            match (
+                timing.reload_single_bullets_initial_delay,
+                timing.raw_reload_duration,
+            ) {
+                (Some(delay), Some(duration)) if valid(delay) && valid(duration) => {
+                    delay + clip * duration
+                }
+                _ => return f64::INFINITY,
+            }
+        } else {
+            weapon.reload_duration
+        };
+    if !valid(raw) {
+        return f64::INFINITY;
+    }
+    let duration = raw / speed;
+    if valid(duration) {
+        duration
+    } else {
+        f64::INFINITY
+    }
 }
 
 pub fn weapon_cycle_seconds(
@@ -1024,6 +1050,105 @@ fn reload_value(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reload_timing_rejects_invalid_components_without_a_standard_reload_fallback() {
+        let weapon = hero().weapon;
+        assert_eq!(weapon_reload_seconds(20.0, &weapon, None, 100.0), 1.0);
+        for raw in [-1.0, f64::NAN, f64::INFINITY] {
+            let mut changed = weapon.clone();
+            changed.reload_duration = raw;
+            assert_eq!(
+                weapon_reload_seconds(20.0, &changed, None, 0.0),
+                f64::INFINITY
+            );
+            assert!(weapon_cycle_seconds(
+                &changed,
+                None,
+                crate::ReloadConvention::AfterFireInterval,
+            )
+            .is_none());
+        }
+        for speed in [-100.0, -200.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(
+                weapon_reload_seconds(20.0, &weapon, None, speed),
+                f64::INFINITY
+            );
+        }
+        for (delay, duration) in [
+            (None, Some(0.2)),
+            (Some(0.5), None),
+            (Some(-0.1), Some(0.2)),
+            (Some(0.5), Some(-0.1)),
+            (Some(f64::NAN), Some(0.2)),
+            (Some(0.5), Some(f64::INFINITY)),
+        ] {
+            let timing = crate::WeaponTiming {
+                reload_single_bullets: Some(true),
+                reload_single_bullets_initial_delay: delay,
+                raw_reload_duration: duration,
+                ..Default::default()
+            };
+            assert_eq!(
+                weapon_reload_seconds(3.0, &weapon, Some(&timing), 0.0),
+                f64::INFINITY
+            );
+        }
+        let timing = crate::WeaponTiming {
+            reload_single_bullets: Some(true),
+            reload_single_bullets_initial_delay: Some(0.5),
+            raw_reload_duration: Some(0.2),
+            ..Default::default()
+        };
+        assert!((weapon_reload_seconds(3.0, &weapon, Some(&timing), 0.0) - 1.1).abs() < 1e-9);
+        assert_eq!(
+            weapon_reload_seconds(f64::INFINITY, &weapon, None, 0.0),
+            f64::INFINITY
+        );
+        assert_eq!(
+            weapon_reload_seconds(0.5, &weapon, None, 0.0),
+            f64::INFINITY
+        );
+        assert_eq!(
+            weapon_reload_seconds(
+                1e308,
+                &weapon,
+                Some(&crate::WeaponTiming {
+                    raw_reload_duration: Some(2.0),
+                    ..timing
+                }),
+                0.0
+            ),
+            f64::INFINITY
+        );
+    }
+
+    #[test]
+    fn zero_reload_only_has_a_cycle_when_firing_advances_time() {
+        let mut weapon = hero().weapon;
+        weapon.reload_duration = 0.0;
+        weapon.clip_size = 1.0;
+        assert_eq!(
+            weapon_cycle_seconds(&weapon, None, crate::ReloadConvention::AfterLastShot),
+            None
+        );
+        assert_eq!(
+            weapon_cycle_seconds(&weapon, None, crate::ReloadConvention::AfterFireInterval),
+            Some(0.2)
+        );
+        weapon.clip_size = 2.0;
+        assert_eq!(
+            weapon_cycle_seconds(&weapon, None, crate::ReloadConvention::AfterLastShot),
+            Some(0.2)
+        );
+        let timing = crate::WeaponTiming {
+            burst_shot_count: Some(2),
+            cycle_time: Some(1.0),
+            intra_burst_cycle_time: Some(1e-308),
+            ..Default::default()
+        };
+        assert_eq!(weapon_shot_interval(1, 1e308, Some(&timing)), f64::INFINITY);
+    }
+
     #[test]
     fn thresholds_nonhero_and_unmeasured_heals_are_not_guaranteed_combat_value() {
         for name in [
