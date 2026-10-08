@@ -8,6 +8,11 @@ Gesamt-Q ist noch nicht abgenommen. Kein neuer Thread und keine zweite Quellensa
 - Neue lokale Prüfliste: `/home/nathanael/.local/share/brain-q2-private-20261008/review/review-v1.json`, Vorbereitungshash `afc6b5436982b755450c27730a56baad2928b51f0b7b8d16b9370095ab9d5762`. 166 ungeprüfte Einträge; 37 mögliche Dubletten. Datei MUST NOT in die Codiermodellkonversation gelangen.
 - Neue öffentliche Originalassets: `/home/nathanael/.local/share/brain-q2-private-20261008/public-assets/`, Snapshotcontainerhash `491e31de7281f022badaec6eb2e9de070893b5423877e76e4112fe059cdbb4a1`.
 - Sichere Verträge: `FALLVERTRAEGE.json`, `LAUFVERTRAG.json`, `METHODIK.md`. Referenzierte alte Patch-/Pocket-/Haze-Belege unverändert.
+- Ergänzende Originalbindung: `ORIGINALBINDUNG.md`. Neuer getrennt gesicherter Logabzug `q2-required-source-v1-20261008`, kein Ersatz des alten Sets. Geschützte Kopie unter `/home/nathanael/.local/share/brain-q2-private-20261008/required-user-sources/`; öffentliche Coachingabzüge unter `public-web-originals/`. Originale nicht an das Codiermodell geben. Die reine Stichwortprüfung bindet noch keinen Pflichtfall automatisch.
+
+## Bereits gestartete eigene Kontrollaufträge
+
+`b1d39twbo` wiederholt die vorhandene dl-brain-Library; `bdca849wx` die gesamte modglue-Fixturesuite. Beide nutzen den eigenen unveränderten Botscheckout und cargo-slot. Beim Aktenstand noch kein Ergebnis. Nicht parallel duplizieren, keine fremden Builds oder Dienste stoppen. Nach eigener Jobmeldung die geschützten Protokolle `private/k-daily-controls.log` und `private/k-modglue-controls.log` auf tatsächliche Exit-/Passed-Zahlen prüfen; erst danach Erfolg dokumentieren und unabhängig sichern. Fixtures bleiben getrennt von Gold-, Provider- und Kanalabnahme.
 
 ## Reihenfolge
 

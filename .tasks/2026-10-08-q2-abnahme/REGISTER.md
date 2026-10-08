@@ -15,5 +15,8 @@
 | Sourcegate | Collectorfix `b215876e`, gpt-6.1-sol ALLOW, regulär erneut bestätigt; 17 Collector-Tests bestanden |
 | Gesicherter Teilstand | `2e0de01f0da4bbb7f6630832b52b0694ea566c6f` regulär auf main gepusht, Remote-SHA unabhängig bestätigt; Gesamtgate gpt-6.1-sol ALLOW, keine Produktaktivierung |
 | Status | aktive Runner-/Quellvorbereitung gemäß neuer K-Übergabe; keine Provider- oder Liveabnahme gestartet |
+| Eigene laufende Kontrollen | Bestehende dl-brain-Library `b1d39twbo` und modglue-Suite `bdca849wx` über cargo-slot; noch kein Ergebnis, keine Erfolgsaussage |
+| Neue Originalbelege | Öffentlicher Coachingweg geprüft; bestehender Collector mit getrennt gesicherter Zusatzquelle; Pflichtfallbindung weiter offen |
+| Neue Prozessbindung | 03:17 bis 03:20 UTC: Brain weiterhin b7289d11, Discord tatsächlich 0fb873c6 statt geliefertem 8e1b8f03; keine Livefreigabe |
 
 Keine Koordination mit fremden Sessions. Produktcheckouts, zentrale Akten und Produktdateien unverändert. Cleanup und Self-Settle erst nach tatsächlichem Gesamtabschluss.

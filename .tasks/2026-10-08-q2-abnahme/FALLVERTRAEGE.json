@@ -29,7 +29,9 @@
       "expected_response_kind": "coaching_or_community_help",
       "transport_group": "user-three-questions-one-message",
       "expected": ["Konkrete Einstiegshilfe und passender Coaching-/Patenweg", "Discord-Coachingziel aus P3, Twitch-Coachingwebsite oder Discord", "Patenangebot in Ich-Form, kein Verweis auf einen anderen Antwortbot"],
-      "independent_current_source_check": "pending"
+      "independent_current_source_check": "public_coaching_page_and_pinned_bot_source_checked_deployed_knowledge_pending",
+      "public_original_facts": {"community_coaching_cost": "free", "coaching_home": "https://deutsche-deadlock-community.de/coaching", "request_path": "/coaching/anfrage", "human_coach_not_immediate_assignment": true, "brain_pate_offer_in_first_person": "required_by_spec", "request_form_completion_verified": false},
+      "fact_evidence": "ORIGINALBINDUNG.md"
     },
     {
       "id": "user-pocket-counter",
@@ -46,7 +48,9 @@
       "expected_response_kind": "server_or_own_status",
       "transport_group": "user-location-message",
       "expected": ["Konkrete Hilfe oder nächster gültiger Schritt", "Kein Rückverweis in denselben Bereich", "Minimaler berechtigter Ortskontext tatsächlich verwendet", "Keine Einladung senden"],
-      "independent_current_invite_source_check": "pending",
+      "independent_current_invite_source_check": "pinned_docs_and_hint_checked_location_divergence_pending",
+      "public_original_facts": {"invite_cost": "free", "friend_code_step_supported_by_existing_source": true, "send_invite_authorized": false, "docs_and_source_channel_binding_agree": false},
+      "fact_evidence": "ORIGINALBINDUNG.md",
       "private_original_location_binding": "pending"
     }
   ],

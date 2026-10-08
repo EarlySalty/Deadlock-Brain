@@ -12,7 +12,7 @@ Die neue lokale Prüfung findet 37 mögliche Dubletten unter diesen 166 Einträg
 
 `FALLVERTRAEGE.json` hält die fünf verbindlichen Nutzerfälle und die gemeinsame dreifache Nachrichtenform fest. Originalnachrichten und Ortsbindung sind noch lokal zu vervollständigen. Drei Teilfragen bleiben eine Nachricht mit einer Reservierung; Modellaufrufe werden gesondert beobachtet. Die Datei wird nicht als fertiges 30er-Set ausgegeben.
 
-Aktuelle öffentliche Itemoriginale wurden mit dem vorhandenen Collector erneut eingefroren, 746 Entitäten. Haze-Kernwerte und Pockets Affliction stimmen mit den vorbereiteten Fakten überein. Für die Itemfrage zeigt die aktuelle Quelle `Armor Piercer`, Klasse `upgrade_aprounds`, Procchance 55; Plated Armor nennt 30 Prozent Kugelabwehr und 50 Prozent On-Hit-Verhinderung. Namensalias und vollständige Wechselwirkungsrechnung gegen den ausgelieferten Rust-Kern sind noch zu prüfen. Kein pauschales Soll zur Wechselwirkung erfunden. Einladungsablauf und Coachingquelle noch nicht als aktuell unabhängig geprüft ausgegeben.
+Aktuelle öffentliche Itemoriginale wurden mit dem vorhandenen Collector erneut eingefroren, 746 Entitäten. Haze-Kernwerte und Pockets Affliction stimmen mit den vorbereiteten Fakten überein. Für die Itemfrage zeigt die aktuelle Quelle `Armor Piercer`, Klasse `upgrade_aprounds`, Procchance 55; Plated Armor nennt 30 Prozent Kugelabwehr und 50 Prozent On-Hit-Verhinderung. Namensalias und vollständige Wechselwirkungsrechnung gegen den ausgelieferten Rust-Kern sind noch zu prüfen. Kein pauschales Soll zur Wechselwirkung erfunden. Der öffentliche Coachingweg ist inzwischen unabhängig geprüft; die Einladungsquelle bleibt wegen abweichender Ortsbindung nur teilweise bestätigt, siehe `ORIGINALBINDUNG.md`.
 
 Die fünf bisherigen Originalpatchstichproben wurden als bestehende Erwartungen übernommen. Kein neuer Patch-Livebeweis und keine aktuelle Gesamtwissensbindung behauptet. `METHODIK.md`, `COLLECTOR.md` und `LAUFVERTRAG.json` trennen private Rohbelege, feste Vergleichsschicht, echte Zustellung und gemessene/reservierte/unbekannte Abrechnung. Eine ausführbare Kanalwiederholung ist noch nicht geliefert.
 
@@ -23,6 +23,14 @@ Der Delegator hat den Teilcheckpoint ausdrücklich als Zwischenstand bestätigt,
 Der vorhandene Einzeltest lief nach einem vor Testbeginn abgebrochenen ENOSPC-Versuch erfolgreich: 1 passed, 0 failed, 0 ignored, 332 filtered, Exit 0. Der Testprofilbau dauerte 10m46s, der Fixturelauf 0,03s. Weder Zeit noch synthetische Wirefälle sind P1- oder Goldbelege. Quellen-, Lock- und Protokollhashes sowie Wiederholungsbefehl stehen in `CONSUMER-BINDUNG.md`.
 
 Die echte Callback-/Consumer-/SDK-Kette und die requestgebundene Lesesperre sind damit lokal gebunden. K exportiert darüber keinen tatsächlichen Accounted-/ToolExecution-Messnachweis. Der vom Delegator bei G angefragte sichere Messnachweis und die G/K-Livebedingung bleiben offen. Weiterarbeit an festem 30er-Set und wiederholbarem Lauf bleibt derselbe Auftrag; kein Cleanup, Self-Settle oder Endstatus aus diesem Kontrolllauf.
+
+## Zusätzliche Originalvorbereitung
+
+Die kostenlose öffentliche Coachingseite wurde mit Moli gelesen und an die vorhandene Botsquelle gebunden. Der echte Anfragelink führt nach `/coaching/anfrage`; dort ist die Anwendungshülle mit Anmeldung beobachtet, kein ausgefülltes Formular. Das menschliche Community-Coaching wird nicht mit dem eigenen Brain-Patenangebot verwechselt. Kein Kontakt, Login oder Formularversand.
+
+Einladungsdokumentation und vorhandener Rust-Hinweis unterstützen den Freundescode als nächsten Schritt. Ihre Kanalkennungen weichen aber voneinander ab; der tatsächliche berechtigte Ort bleibt lokal zu prüfen. Q korrigiert keine fremden Quellen und sendet keine Einladung.
+
+Der vorhandene Collector ergänzte die bisherige Quelle unverändert um einen getrennten lesenden Abzug: 166 menschlich markierte Lognachrichten, 12 ungeprüfte Parserkandidaten, 0 Sammlungsfehler, 0 Goldfälle. Eine reine lokale Stichwortzählung findet darin keine englischen Armor-Namen und keine gemeinsame Haze-/Pocket-/Hilfenachricht mit drei numerischen Discord-Erwähnungen. Daraus folgt kein sicherer Abwesenheitsbeweis für andere Formulierungen. Getrennte Treffer werden nicht zur ursprünglichen Dreifachnachricht zusammengesetzt. Alte Kandidatenzahl, Prüfliste und Sicherungen bleiben unverändert; Zusatzquelle und unabhängige Kopie sind gebunden. Details und Hashes in `ORIGINALBINDUNG.md`.
 
 ## Erhaltene lokale Artefakte
 
@@ -43,6 +51,14 @@ Die neue Inventarmethode bildet SHA256 über eine sortierte JSON-Zuordnung relat
 
 Die ersten Proben verwendeten unbestätigte Standardpfade/Ports und lieferten 404. Nach Lesen der tatsächlich laufenden Konfiguration und der implementierten Routen wurden die richtigen Ziele geprüft. Die 404 werden nicht als Produktionsausfall ausgegeben. Keine fremden Dienste angehalten oder neu gestartet.
 
+### Erneut tatsächlich gelesen, 03:17:34 bis 03:20:34 UTC
+
+Brain läuft inzwischen als PID 573910, aber weiterhin mit demselben `b7289d11`-Binary und demselben Hash. Die neue Readybindung ist `maintenance/docs-d44f7191…`, Hash `04e2ff19…`; Wissensbindung und Prozess haben sich gegenüber der ersten Beobachtung geändert. Beide HTTP-Proben sind 200 und JSON. Keine abgeschlossene G/K-Produktintegration daraus abgeleitet; Providerkonfiguration in dieser zweiten Probe nicht erneut gelesen.
+
+Der tatsächliche Discordprozess ist jetzt vollständig gebunden: Wrapper 2766542, Binary-PID 2766584, Release `0fb873c6887c6ec8df6ce50d15c8ded9781fbadf`, Binaryhash `700d9ab5…`, kein deleted, NRestarts 0. Der gelieferte und lokal geprüfte Consumer `8e1b8f03` läuft damit noch nicht. Der lesende Twitchprüfer bestätigt vier aktive Prozesse auf `51c8a674a371d0e623687940e6b8ca3492f96c92`, Exit 0; auch das ist keine echte Testantwort. Vollständige Hashes in STATUS. Q hat nichts deployt oder neu gestartet.
+
+Beim Nachlesen war der Twitchprüfer nicht unter dem zunächst angesetzten Homepfad vorhanden; `command -v` klärte den tatsächlichen Pfad `/usr/local/bin/deploy-twitch-release`. Der unbestätigte Name `dl-bot.service` war nicht die aktive Unit; die tatsächliche `deadlock-bot-rust.service` wurde aus der Unitliste ermittelt. Keine falsche Ausfallmeldung aus diesen Namensproben.
+
 ## Präzise offene Teile
 
 1. **Goldset:** Lokale fachliche Originalprüfung, Bereinigung und feste Sollfakten für mindestens 30 echte Fälle stehen aus. Der Codiermodellkontext darf private Originale nicht lesen; automatische Etiketten wären kein Ersatz. Prüfliste liegt geschützt bereit. Die aktuelle Testfreigabe wird nicht wieder als Datenschutzsperre ausgegeben.
@@ -56,7 +72,7 @@ Die ersten Proben verwendeten unbestätigte Standardpfade/Ports und lieferten 40
 | P0 | Teilvorbereitung. 166 Kandidaten, 37 Dublettenkandidaten, 0 Goldfälle. Kein fertiges 30er-Set. |
 | P1 | Nicht abgenommen. 0 echte Erwähnungs-/DM-/Twitch-Testantworten, keine Ende-zu-Ende-Zeit. |
 | P2 | Fünf historische Originalerwartungen vorbereitet. Aktuelle Wissensbindung, Antworten und kosmetische Gegenprobe offen. |
-| P3 | Erwartete Coaching-/Patenantwortart festgehalten. Originalquelle und Livewortlaut offen. |
+| P3 | Öffentlicher Coachingweg unabhängig geprüft. Paten-/Originalnachrichtenbindung, eingespeiste Wissensversion und Livewortlaut offen. |
 | P4 | Antwortart ohne Interna vorbereitet. Drei echte Selbstbildantworten offen. |
 | P5 | Ehrliche Antwortgrenze als Antwortart vorbereitet. Echte Fälle und Antworten offen. |
 | P6 | Eigener Status nicht abgenommen. Keine Einladung gesendet. |
@@ -71,6 +87,8 @@ Die ersten Proben verwendeten unbestätigte Standardpfade/Ports und lieferten 40
 Alle Cargo-Aufrufe liefen über `cargo-slot`, Toolchain 1.97.1. `test --locked --offline --jobs 3 -- --include-ignored`: 17 passed, 0 failed, 0 ignored, 0 filtered. Clippy mit `--all-targets -- -D warnings`, Build und `fmt --check` jeweils Exit 0. Dateisystemtests prüfen echte Dateien; neue synthetische Testfixtures werden nicht als Gold- oder Kanalfragen gezählt. Baseline nicht gemessen, keine Altfehlerbehauptung.
 
 TESTNACHWEIS[TW-1]: 18 passed, 0 ignored | Baseline: nicht gemessen; 17 Collector-Tests plus 1 Consumerfixture, keine Altfehlerbehauptung
+
+Zwei zusätzliche eigene Kontrollaufträge sind gestartet: vorhandene dl-brain-Library und gesamte modglue-Fixturesuite auf unverändertem `8e1b8f03`, beide ausschließlich über cargo-slot. Sie sollen die vorhandenen 50/51-, Nutzertrennungs-, Berlin-/Zeitumstellungs-, Mehrfachnachrichten- und privaten Folgekontrollen wiederholen. Noch keine Ergebniszeile beobachtet, deshalb keine zusätzliche Passed-Zahl. Geschützte Logs und Jobkennungen in der eigenen Akte; keine Produktionsnachrichten oder Zählereingriffe.
 
 TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 1 belegt | Senke: .tasks/2026-10-08-q2-abnahme/BERICHT.md
 
