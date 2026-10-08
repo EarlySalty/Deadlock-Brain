@@ -3,6 +3,7 @@ use crate::{AnswerStatus, PortError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 pub const PUBLIC_API_VERSION: &str = "brain.public.v1";
+pub const UNVERIFIED_PREFIX: &str = "Ungeprüft: ";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublicCitation {

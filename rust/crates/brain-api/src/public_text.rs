@@ -5,6 +5,19 @@ pub const COACHING_URL: &str = "https://deutsche-deadlock-community.de/coaching"
 pub const COACHING_REFERENCE: &str = "[[coaching]]";
 
 pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool) {
+    if matches!(
+        answer.status,
+        AnswerStatus::Answered | AnswerStatus::Unverified | AnswerStatus::BuildRejected
+    ) {
+        answer.text = brain_contracts::provider_input::discord_display_text(&answer.text);
+    }
+    if answer.status == AnswerStatus::Unverified {
+        answer.text = format!(
+            "{}{}",
+            brain_contracts::public_api::UNVERIFIED_PREFIX,
+            answer.text.trim()
+        );
+    }
     if answer.status == AnswerStatus::InsufficientEvidence {
         let question = query.text.to_lowercase();
         let twitch_bot = [
@@ -23,7 +36,7 @@ pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool)
         .into();
     } else if matches!(
         answer.status,
-        AnswerStatus::Answered | AnswerStatus::BuildRejected
+        AnswerStatus::Answered | AnswerStatus::Unverified | AnswerStatus::BuildRejected
     ) {
         let destination = if discord {
             format!("<#{}>", COACHING_CHANNEL_ID)
@@ -64,6 +77,28 @@ mod tests {
             citations: Vec::new(),
             usage: Usage::default(),
         }
+    }
+
+    #[test]
+    fn unverified_text_is_delivered_with_legacy_wire_status_and_platform_owned_link() {
+        let mut response = answer(
+            AnswerStatus::Unverified,
+            "Hilfreiche Antwort <@123456789012345678> [[coaching]]",
+        );
+        prepare(&mut response, &query("Pocket"), true);
+        assert_eq!(response.status, AnswerStatus::Unverified);
+        assert!(response
+            .text
+            .starts_with(brain_contracts::public_api::UNVERIFIED_PREFIX));
+        assert!(!response.text.contains("<@"));
+        assert!(!response.text.contains(COACHING_REFERENCE));
+        let wire = super::super::answer_response(&response);
+        assert_eq!(wire.status, 200);
+        let public: brain_contracts::PublicAnswerResponse =
+            serde_json::from_str(&wire.body).unwrap();
+        assert_eq!(public.status, AnswerStatus::InsufficientEvidence);
+        assert_eq!(public.text, response.text);
+        assert!(public.citations.is_empty());
     }
 
     #[test]

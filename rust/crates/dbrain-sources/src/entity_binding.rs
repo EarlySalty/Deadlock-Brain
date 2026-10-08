@@ -330,7 +330,13 @@ pub async fn bind_stored_document(
     revision: u64,
     catalog: &[CatalogEntity],
 ) -> brain_storage::Result<StoredBindingSummary> {
-    stored_document_bindings(store, source_id, logical_id, revision, catalog, false).await
+    match verify_stored_document_bindings(store, source_id, logical_id, revision, catalog).await {
+        Ok(verified) => Ok(verified),
+        Err(brain_storage::StorageError::Json(_)) => {
+            stored_document_bindings(store, source_id, logical_id, revision, catalog, false).await
+        }
+        Err(error) => Err(error),
+    }
 }
 
 pub async fn verify_stored_document_bindings(
