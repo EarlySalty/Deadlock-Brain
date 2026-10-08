@@ -21,6 +21,26 @@ pub(super) fn check(name: &str, field: &str, expected: &str) -> ResponseCheck {
     }
 }
 
+fn diagnostic_metadata(value: &str, person_id: Option<u64>) -> String {
+    let mut result = String::new();
+    for character in diagnostic_text(value, person_id).chars() {
+        let escaped = if character.is_control() {
+            character.escape_default().collect::<String>()
+        } else {
+            character.to_string()
+        };
+        if result.len() + escaped.len() > 1024 {
+            break;
+        }
+        result.push_str(&escaped);
+    }
+    if result.trim().is_empty() {
+        "response".into()
+    } else {
+        result
+    }
+}
+
 impl OpenAiCompatibleProvider {
     pub fn record_response_deviation(
         &self,
@@ -53,9 +73,9 @@ impl OpenAiCompatibleProvider {
                     request_id: project(&query.request_id),
                     model: project(&self.config.model),
                     check: ResponseCheck {
-                        check: project(&output.check.check),
-                        field: project(&output.check.field),
-                        expected: project(&output.check.expected),
+                        check: diagnostic_metadata(&output.check.check, person_id),
+                        field: diagnostic_metadata(&output.check.field, person_id),
+                        expected: diagnostic_metadata(&output.check.expected, person_id),
                     },
                     raw_output: raw,
                     raw_output_complete: output.complete,

@@ -69,6 +69,14 @@ async fn actual_http_validation_deviations_are_durable_private_and_do_not_trip_t
         ),
         (
             "grounded_envelope",
+            json!({"text":json!({"text":"fixture", "cited_evidence_ids":["evidence-a"], "bad\nfield":0}).to_string()}),
+        ),
+        (
+            "grounded_envelope",
+            json!({"quality_filters":false,"text":json!({"text":"fixture", "cited_evidence_ids":["evidence-a"], "bad\nfield":0}).to_string()}),
+        ),
+        (
+            "grounded_envelope",
             json!({"quality_filters":false,"audit_failure":true,"finish_reason":"length","text":"truncated ungrounded fixture"}),
         ),
     ];
@@ -267,6 +275,12 @@ async fn actual_http_validation_deviations_are_durable_private_and_do_not_trip_t
         .unwrap()
         .contains("finish_reason"));
     assert_eq!(rows.last().unwrap().6, "unchecked_returned");
+    for row in &rows[9..11] {
+        let expected = row.3["expected"].as_str().unwrap();
+        assert!(!expected.chars().any(char::is_control));
+        assert!(expected.contains("bad\\nfield"));
+        assert!(row.2.contains("bad"));
+    }
     for role in ["brain_service", "brain_readonly", "brain_ingest"] {
         let pool = PgPoolOptions::new()
             .max_connections(1)
@@ -304,5 +318,9 @@ async fn actual_http_validation_deviations_are_durable_private_and_do_not_trip_t
     .await
     .unwrap();
     assert_eq!(timestamps, rows.len() as i64);
+    sqlx::raw_sql("ALTER TABLE brain.response_deviations_v1 ALTER COLUMN raw_output DROP NOT NULL; GRANT SELECT(raw_output) ON brain.response_deviations_v1 TO brain_service").execute(&owner).await.unwrap();
+    assert!(store.migrate_response_audit().await.is_err());
+    let grant_preserved: bool = sqlx::query_scalar("SELECT has_column_privilege('brain_service','brain.response_deviations_v1','raw_output','SELECT')").fetch_one(&owner).await.unwrap();
+    assert!(grant_preserved);
     owner.close().await;
 }

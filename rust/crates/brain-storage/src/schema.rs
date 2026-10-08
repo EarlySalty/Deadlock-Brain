@@ -154,18 +154,23 @@ async fn check_read_headers(connection: &mut PgConnection) -> Result<(), PortErr
     Ok(())
 }
 
+async fn check_response_audit(connection: &mut PgConnection) -> Result<(), PortError> {
+    sqlx::query("SELECT audit_id,recorded_at,request_id,model,check_json,raw_output,raw_output_complete,source_ids,evidence_ids,disposition,identifiers_redacted FROM brain.response_deviations_v1 LIMIT 0")
+        .fetch_all(&mut *connection).await.map_err(compatibility_error)?;
+    let valid: bool = sqlx::query_scalar(RESPONSE_AUDIT_SHAPE_PROBE)
+        .fetch_one(connection)
+        .await
+        .map_err(compatibility_error)?;
+    if !valid {
+        return Err(invalid("incompatible response audit schema"));
+    }
+    Ok(())
+}
+
 impl PgStore {
     pub async fn check_response_audit_schema(&self) -> Result<(), PortError> {
-        sqlx::query("SELECT audit_id,recorded_at,request_id,model,check_json,raw_output,raw_output_complete,source_ids,evidence_ids,disposition,identifiers_redacted FROM brain.response_deviations_v1 LIMIT 0")
-            .fetch_all(&self.pool).await.map_err(compatibility_error)?;
-        let valid: bool = sqlx::query_scalar(RESPONSE_AUDIT_SHAPE_PROBE)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(compatibility_error)?;
-        if !valid {
-            return Err(invalid("incompatible response audit schema"));
-        }
-        Ok(())
+        let mut connection = self.pool.acquire().await.map_err(compatibility_error)?;
+        check_response_audit(&mut connection).await
     }
 
     pub async fn migrate_response_audit(&self) -> Result<(), PortError> {
@@ -184,8 +189,8 @@ impl PgStore {
             .execute(&mut *tx)
             .await
             .map_err(migration_error)?;
-        tx.commit().await.map_err(migration_error)?;
-        self.check_response_audit_schema().await
+        check_response_audit(&mut tx).await?;
+        tx.commit().await.map_err(migration_error)
     }
 
     pub async fn check_entity_profile_schema(&self) -> Result<(), PortError> {
@@ -325,6 +330,7 @@ impl PgStore {
             .await
             .map_err(migration_error)?;
         check_read_headers(&mut tx).await?;
+        check_response_audit(&mut tx).await?;
         tx.commit().await.map_err(migration_error)
     }
 }
