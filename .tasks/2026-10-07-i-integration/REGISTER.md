@@ -1,5 +1,12 @@
 # Paket I: Register
 
+## Aktuelle qualifizierte Rückgabe: G-Vertragskorrektur nötig
+
+status: blockiert nach fünftem tatsächlichem F-Gate. Nativer F-Ausführer beendet, keine aktive Fix-/Prüf-/Importarbeit. F f1ed9eb2b9929f2d7541e409cd313aaaf64d099f, Tree b6aa20b092548be2fcf8aaa65777a445e6959a93, sauber und als blockierter Featurecheckpoint auf origin gesichert, Push Exit 0. Finale Tests 552/0/23, Format/Check/Clippy Exit 0, finaler Gate claude-opus-5-5 BLOCK Exit 1 in combat.rs und calculation.rs außerhalb F-Eigentum. Keine sechste eigenmächtige Runde. Frischer Main 400381e6 hat seit Gatebasis cf02c9a0 keinen Fixdelta in diesen zwei Dateien.
+
+F-G-BLOCK-F1ED9EB2.md und F-PRUEFBEFEHLE-F1ED9EB2.md bilden die Übergabe an den Delegator: bestehenden G-Ausführer für Trefferzeit-Reihenfolge und Erhalt passiver Fähigkeiten einsetzen, danach gesicherte Fixcommits an denselben erhaltenen F-Kontext. I allein für Main/Release/Deploy und echten Warden-Publish. E-Betriebsnachtrag abgeschlossen; P exklusiv für Discovery. Keine Mainlieferung, hero_build_id, Cleanup oder Self-Settle behauptet. Alle früheren Abschnitte unten sind ihre damaligen Zustände.
+
+
 ## Tatsächliche Fortsetzung nach Testnachweisreparatur
 
 status: aktiv, E-Spiegel tatsächlich auf Main und live; genau ein bestehender nativer F-Ausführer arbeitet weiter. Nutzerbestätigung a593c5d, neuer direkter cargo-slot-Lauf 6/0/0 und tatsächlicher Main-Push b7289d11 Exit 0 dokumentiert. Regulärer Release/Install mit unabhängigen Neubauten abgeschlossen, 17/17 Binaryhashes in beiden Layouts. Regulärer brain-serve-Neustart Exit 0 nach erforderlicher R10-Rollenlektüre, PID 3178539 am tatsächlichen b7289d11; Ready-JSON, Prozesshash und leeres Fehlerjournal geprüft. E-Assets-Run 743, Clientversion 6759, mirror_complete=true, 14 tatsächliche Originalhashbindungen geprüft. Normaler Gesamtjob assets + build-data all am 08.10.2026 00:05:51 CEST Exit 0 beendet; build_data-Run 744 status ok, 40 Heldeneinträge. Timer waiting 03:30, dauerhafte Runtime statt fremdem brain-live-main. Eigene Dokumente LIVE-SPIEGEL-B7289D11.md, TIMER-RUNTIME-NACH-MAIN.md.

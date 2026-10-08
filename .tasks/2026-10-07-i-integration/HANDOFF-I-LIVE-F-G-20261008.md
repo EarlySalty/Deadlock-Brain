@@ -1,4 +1,15 @@
-# I: E live, gleicher F/G-Ausführer aktiv
+# I: E live, F nach fünftem Gate am G-Kern blockiert
+
+## Verbindlich jüngster Stand
+
+Nativer F-Ausführer a985976ec7f8d3018 abgeschlossen, keine aktiven eigenen Kinder. F sauber f1ed9eb2b9929f2d7541e409cd313aaaf64d099f, Tree b6aa20b092548be2fcf8aaa65777a445e6959a93. Parent hat ihn als ausdrücklich blockierten geprüften Checkpoint auf origin/feat/brain-build-publish-ohne-matchgrenze gesichert, Exit 0. 552 passed/0 failed/23 ignored, finaler Source unverändert committet; Format/Check/Clippy Exit 0. Wörtliche Kommandos F-PRUEFBEFEHLE-F1ED9EB2.md. Keine alte G-342/12-Reparatur oder ausgeführte 23 Fixturefälle behaupten.
+
+Fünfter tatsächlicher Gate am f1ed9eb2, claude-opus-5-5 BLOCK Exit 1. combat.rs:1913 und Zwillinge müssen tatsächliche Trefferzeit beachten; calculation.rs:1555/995 darf bei use_abilities=false passive Wirkungen nicht löschen. Beide gehören G, F schreibt dort nicht. Keine sechste eigenmächtige Fixrunde oder unveränderte Gate-Neuwürfelung. Frisch geholter Main 400381e681a2e08283db46094d1bbbde037e2813 hat gegenüber Gatebasis cf02c9a0 keinen Dateidelta in diesen zwei Dateien und somit keinen dortigen Fix. Kein sonstiger gesichert gelieferter passender Fix bekannt.
+
+Qualifizierte Rückfrage ausschließlich in eigener AN_HAUPT-I.md und F-G-BLOCK-F1ED9EB2.md an Delegator: bestehenden G-Ausführer mit diesen zwei minimalen Vertragskorrekturen beauftragen, geprüfte gesicherte Commits liefern, anschließend denselben erhaltenen F-Kontext für Übernahme/Folgegate fortsetzen. Native Endbelege enthalten fünf tatsächliche BLOCK-Runden, unverändertes Urteilmodell nach erstem Fallback, 94 eigene Git-Schritte. Parentcheckpoint/fetch-Kontrolle getrennt 6 Git-Schritte. ed529bb repariert Nachweise, keinen Inhalts-BLOCK. Keine zusätzliche Produktfreigabe nötig.
+
+E-Betriebsnachtrag ff-only cf02c9a0 und neuer vollständiger Dienstlauf 746/747 mit Version 6762 bleibt abgeschlossen. P exklusiv für Discovery, Q2/V nicht übernehmen. Keine F-Mainlieferung, Warden-ID, eigener Release, Cleanup oder Self-Settle. Source und ignorierte F-Belege erhalten. Frühere Sessionwache 63124c0f ist laut aktuellem CronDelete-Ergebnis nicht mehr registriert; keine neue Wache oder laufenden eigenen Tests. Die folgenden Abschnitte sind historische Zwischenstände.
+
 
 ## Gesicherter Stand
 

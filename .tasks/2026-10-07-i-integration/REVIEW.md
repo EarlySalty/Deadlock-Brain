@@ -1,4 +1,11 @@
-# Paket I: E Gate-Runden
+# Paket I: E- und F-Gate-Runden
+
+## F-Runde 5: blockierter G-Kern, qualifizierte Eigentumsübergabe
+
+F f1ed9eb2b9929f2d7541e409cd313aaaf64d099f, Tree b6aa20b092548be2fcf8aaa65777a445e6959a93, tatsächlicher Gate gegen cf02c9a0: claude-opus-5-5 BLOCK, Exit 1. combat.rs:1913 und zusammengehörige Ereignisstellen vertauschen laut Gate Trefferzeiten; calculation.rs:1555/995 verliert bei use_abilities=false passive Wirkungen. Beide Dateien liegen bei G. Native F-Fixschleife nach fünf tatsächlichen BLOCKs beendet, keine sechste eigenmächtige Runde oder Scopeausweitung. F-G-BLOCK-F1ED9EB2.md enthält minimale G-Korrektur, Wortlautbindung und Übergabevertrag.
+
+Finaler unverändert committeter Source: Format/Check/Clippy Exit 0, Tests 552 passed/0 failed/23 ignored. 23 Fälle nicht ausgeführt; Ignore-Annotationen seit ce512460 unverändert, keine Reparatur der früheren zwölf G-Fehler behauptet. Exakte Befehle F-PRUEFBEFEHLE-F1ED9EB2.md. Geprüfter Stand als ausdrücklich blockierter Featurecheckpoint auf origin gesichert, kein Main oder Livepublish. Frischer Main 400381e6 hat seit Gatebasis keinen Delta in den zwei betroffenen Kern-Dateien. Weiter nach Gs gesichertem Fix und tatsächlichem Folgegate mit demselben Urteilmodell. E-Live 746/747 bleibt abgeschlossen, Discovery bei P.
+
 
 ## Runde 23: eigenständiger Spiegel ALLOW, tatsächlicher Testnachweisblocker
 

@@ -1,4 +1,17 @@
-# Paket I: Spiegel live, F/G-Integration läuft
+# Paket I: E live, F am G-Rechenkern blockiert
+
+## Qualifizierte Rückgabe nach fünf F-Gaterunden
+
+FRAGE AN ORCHESTRATOR: Bitte die zwei offenen G-Kernbefunde aus F-G-BLOCK-F1ED9EB2.md dem bestehenden G-Ausführer zuordnen und geprüfte gesicherte Fixcommits an I liefern. combat.rs braucht tatsächliche Trefferzeit-Reihenfolge; calculation.rs muss bei use_abilities=false passive Fähigkeiten erhalten. I/F ändern keine G-Datei und starten keine sechste eigenmächtige Fixrunde. Nach Lieferung derselbe F-Kontext für Übernahme/Folgegate, I anschließend allein Main/Release/Deploy/Warden-Publish.
+
+Erhaltener sauberer F-Stand f1ed9eb2b9929f2d7541e409cd313aaaf64d099f, Tree b6aa20b092548be2fcf8aaa65777a445e6959a93. Tatsächlich auf origin/feat/brain-build-publish-ohne-matchgrenze als blockierter geprüfter Checkpoint gesichert, Push Exit 0. Finaler Gate claude-opus-5-5 BLOCK, Exit 1; beide Befunde außerhalb F-Schreibgrenze. Keine Mainlieferung oder Warden-ID. Frisch geholter origin/main 400381e6 hat gegenüber Gatebasis cf02c9a0 keine Änderung an diesen zwei Kern-Dateien. Kein bereits dort gelieferter Fix übersehen.
+
+Format/Check/Clippy Exit 0, tatsächliche finale Suite am unverändert committeten Source 552 passed, 0 failed, 23 ignored. Die 23 Fälle wurden nicht ausgeführt; Annotationen seit ce512460 unverändert, frühere zwölf G-Fehler nicht als repariert behauptet. Wörtliche Kommandos F-PRUEFBEFEHLE-F1ED9EB2.md. Native F-Arbeit beendet, Source und lokale Belege erhalten. ed529bb beseitigt keinen Inhalts-BLOCK. Discovery ausschließlich bei P; E-Betriebsnachtrag 746/747 abgeschlossen. I-Gesamtauftrag nicht fertig, kein Cleanup oder Self-Settle.
+
+TESTNACHWEIS[TW-1]: 552 passed, 23 ignored | Baseline: frühere zwölf G-Fehler nicht als behoben behauptet
+
+MERGEPROTOKOLL[MS-1]: 6 Git-Schritte einzeln | Anläufe: 1 | Gate: fünfter F-Gate BLOCK, claude-opus-5-5; Parent nur Featurecheckpoint gepusht
+
 
 ## Fortsetzung nach bestätigter Testnachweisreparatur
 
