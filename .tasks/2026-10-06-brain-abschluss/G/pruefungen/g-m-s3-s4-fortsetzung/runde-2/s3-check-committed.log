@@ -1,0 +1,8 @@
+cargo-slot: Slot 1, optimiert=0
+    Checking brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/crates/brain-contracts)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/crates/dbrain-reasoner)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/crates/deadlock-brain-core)
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/crates/dbrain-population)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.41s
+cargo-slot: EXIT=0

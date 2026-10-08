@@ -1,0 +1,4 @@
+BLOCK: Boon-stat projection erases calculated Spirit scaling.
+
+1. rust/crates/dbrain-reasoner/src/calculation.rs:0 (calculate_inner) | BLOCKING: The boon overwrite discards Spirit scaling for both `starting.light_melee_damage` and `starting.ooc_health_regen`. | `projected_starting_stats` adds the Spirit term, then this loop replaces it with raw base plus boon gain—even at zero boons. Melee-dependent ability projections inherit the wrong damage.
+2. rust/crates/dbrain-reasoner/src/calculation.rs:0 (project_property_value) | NIT: Zero-coefficient `LightMeleeDamage` scaling still requires a melee metric. | The missing-metric return precedes the zero-coefficient check, producing `Unknown` when the known base alone determines the result.

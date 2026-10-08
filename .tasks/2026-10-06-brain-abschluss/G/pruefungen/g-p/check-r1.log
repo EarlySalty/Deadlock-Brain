@@ -1,0 +1,54 @@
+    Checking libc v0.2.186
+    Checking zerofrom v0.1.8
+    Checking stable_deref_trait v1.2.1
+    Checking yoke v0.8.3
+    Checking zerovec v0.11.6
+    Checking tinystr v0.8.3
+    Checking socket2 v0.6.4
+    Checking mio v1.2.1
+    Checking smallvec v1.15.2
+    Checking tokio v1.52.3
+    Checking icu_locale_core v2.2.0
+    Checking zerotrie v0.2.4
+    Checking potential_utf v0.1.5
+    Checking icu_collections v2.2.0
+    Checking icu_provider v2.2.0
+    Checking getrandom v0.2.17
+    Checking futures-io v0.3.32
+    Checking ring v0.17.14
+    Checking futures-util v0.3.32
+    Checking icu_normalizer v2.2.0
+    Checking icu_properties v2.2.0
+    Checking rustls-webpki v0.103.13
+    Checking idna_adapter v1.2.2
+    Checking hyper v1.10.1
+    Checking rustls v0.23.41
+    Checking serde v1.0.228
+    Checking tracing v0.1.44
+    Checking idna v1.1.0
+    Checking tower v0.5.3
+    Checking hyper-util v0.1.20
+    Checking tokio-rustls v0.26.4
+    Checking serde_json v1.0.150
+    Checking url v2.5.8
+    Checking async-compression v0.4.42
+    Checking tokio-util v0.7.18
+    Checking bitflags v2.13.0
+    Checking serde_urlencoded v0.7.1
+    Checking tower-http v0.6.11
+    Checking thiserror v1.0.69
+    Checking hyper-rustls v0.27.9
+    Checking brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+    Checking reqwest v0.12.28
+    Checking brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers)
+warning: unused import: `ModelBlock`
+ --> crates/brain-providers/src/lib.rs:7:54
+  |
+7 |     AnswerProviderPort, AuthorizedContext, Evidence, ModelBlock, PortError, ProviderAnswer,
+  |                                                      ^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `brain-providers` (lib test) generated 1 warning (run `cargo fix --lib -p brain-providers --tests` to apply 1 suggestion)
+warning: `brain-providers` (lib) generated 1 warning (1 duplicate)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 34.34s

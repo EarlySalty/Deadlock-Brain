@@ -1,0 +1,772 @@
+   Compiling errno v0.3.14
+   Compiling httpdate v1.0.3
+   Compiling mime v0.3.17
+   Compiling unicase v2.9.0
+   Compiling nix v0.29.0
+   Compiling signal-hook-registry v1.4.8
+   Compiling mime_guess v2.0.5
+   Compiling tokio v1.52.3
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling axum-core v0.5.6
+   Compiling serde_path_to_error v0.1.20
+   Compiling matchit v0.8.4
+   Compiling tokio-util v0.7.18
+   Compiling hyper v1.10.1
+   Compiling tower v0.5.3
+   Compiling async-compression v0.4.42
+   Compiling tokio-rustls v0.26.4
+   Compiling tower-http v0.6.11
+   Compiling tokio-stream v0.1.18
+   Compiling sqlx-core v0.8.6
+   Compiling tokio-postgres v0.7.18
+   Compiling hyper-util v0.1.20
+   Compiling hyper-rustls v0.27.9
+   Compiling postgres v0.19.14
+   Compiling sqlx-postgres v0.8.6
+   Compiling reqwest v0.12.28
+   Compiling tokio-tungstenite v0.28.0
+   Compiling axum v0.8.9
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers)
+   Compiling uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/vendor/uplink-infisical-transport)
+   Compiling sqlx v0.8.6
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-api)
+   Compiling dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+   Compiling brain-client v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-client)
+   Compiling wait-timeout v0.2.1
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-ingestion)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-wiki)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 27s
+     Running unittests src/lib.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/brain_providers-77d57315454c2ebb)
+
+running 11 tests
+test circuit::tests::circuit_opens_allows_one_probe_and_recovers ... ok
+test circuit::tests::failed_probe_restarts_cooldown ... ok
+test hardening::tests::cost_overflow_fails_closed ... ok
+test hardening::tests::endpoint_and_price_are_explicit ... ok
+test tests::debug_redacts_token ... ok
+test tests::invalid_json_is_rejected_without_fallback ... ok
+test tests::request_budget_limits_retries_and_output_tokens ... ok
+test tests::retries_rate_limit_and_parses_typed_response ... ok
+test tests::subscription_uses_native_messages_without_credentials_or_tools ... ok
+test tests::zero_round_budget_blocks_before_network ... ok
+test transport::precondition_tests::specific_rejections_take_precedence_over_model_mentions ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/faults.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/faults-f9e1f3df25d77d19)
+
+running 33 tests
+test authentication_redirect_and_missing_usage_do_not_retry ... ok
+test both_wire_forms_preserve_tools_nullable_content_and_two_turn_binding ... ok
+test bounded_chunked_response_and_timeout_are_errors ... ok
+test cancellation_during_first_provider_attempt_prevents_a_retry ... ok
+test cancelled_provider_and_embedding_calls_never_open_a_connection ... ok
+test cost_input_and_egress_fail_before_any_socket ... ok
+test cumulative_budgets_block_repeated_history_before_second_socket ... ok
+test duplicate_call_ids_from_earlier_turns_are_rejected ... ok
+test duplicate_raw_arguments_fail_closed_in_both_wire_forms_without_retry ... ok
+test duplicate_wire_response_keys_including_unknown_nested_objects_are_rejected ... ok
+test embeddings_restore_indices_and_reject_duplicates_or_dimension_errors ... ok
+test extended_contract_names_boon_ranges_and_analytics_use_the_same_transport ... ok
+test fehlerabrechnung_beide_wireformen_erhalten_usage_nach_parser_und_validierungsfehlern ... ok
+test fehlerabrechnung_budgetueberschreitung_behaelt_gemessene_usage ... ok
+test fehlerabrechnung_erfolg_traegt_messung_und_retriereservierung_getrennt ... ok
+test fehlerabrechnung_fehlende_oder_ambige_usage_bleibt_reserviert_statt_gemessen ... ok
+test fehlerabrechnung_http_retry_usage_ist_beobachtet_und_nicht_zweimal_reserviert ... ok
+test fehlerabrechnung_lokale_validierung_hat_belegte_null_ohne_socket ... ok
+test fehlerabrechnung_retry_und_spaeterer_parserfehler_kumulieren_reservierung_und_messung ... ok
+test final_answer_json_rejects_duplicate_decoded_keys_in_both_wire_forms ... ok
+test final_tool_answers_keep_json_citation_and_no_answer_contract ... ok
+test full_native_options_and_cached_input_are_charged ... ok
+test grounded_no_answer_signal_is_exact_and_preserves_usage ... ok
+test known_finish_reasons_must_match_complete_turns ... ok
+test legacy_final_text_keeps_plain_answers_but_rejects_duplicate_json_without_evidence ... ok
+test malformed_tool_names_ids_arguments_and_blocks_are_not_repaired ... ok
+test retries_charge_full_wire_input_output_and_configured_cost ... ok
+test server_error_retries_but_retry_after_beyond_deadline_does_not ... ok
+test tool_history_binding_and_egress_fail_before_network ... ok
+test transiente_http_fehlerkoerper_erhalten_fruehere_gemessene_usage ... ok
+test transiente_http_fehlerkoerper_erhalten_status_retry_und_reservierung ... ok
+test transiente_http_fehlerkoerper_respektieren_retry_und_budgetgrenzen ... ok
+test transiente_http_fehlerkoerper_timeout_respektiert_die_urspruengliche_frist ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.68s
+
+     Running unittests src/lib.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/brain_serve-31b4697a9574d24f)
+
+running 48 tests
+test analytics::tests::cancelled_analytics_request_cannot_start_an_http_retry ... ok
+test analytics::tests::delayed_fifth_lookup_keeps_original_deadline_after_slot_release ... ok
+test analytics::tests::fifth_lookup_expires_on_one_deadline_while_four_slots_are_occupied ... ok
+test analytics::tests::fixture_rejects_truncated_or_unbounded_request_headers ... ok
+test analytics::tests::fixture_waits_for_complete_fragmented_request_headers ... ok
+test analytics::tests::incongruent_population_cannot_become_a_match_prior ... ok
+test analytics::tests::ordinary_brain_answer_uses_meta_and_match_population_without_patch_claim ... ok
+test analytics::tests::runtime_rejects_missing_grant_wrong_patch_and_unapproved_window ... ok
+test analytics::tests::second_snapshot_exhaustion_rejects_direct_kernel_service_and_http_answers ... ok
+test analytics::tests::snapshot_exhaustion_never_starts_meta_or_population_http ... ok
+test config::entity_profile_tests::model_context_preserves_grants_and_requires_explicit_normal_consumer ... ok
+test config::entity_profile_tests::optional_maintenance_path_preserves_defaults_and_requires_absolute_paths ... ok
+test config::tests::analytics_window_and_schema_are_explicit_when_runtime_is_configured ... ok
+test config::tests::c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft ... ok
+test config::tests::c9_releasebindung_ist_explizit_und_widersprueche_scheitern ... ok
+test config::tests::credentials_require_explicit_valid_scopes_and_unambiguous_secret_references ... ok
+test config::tests::every_required_section_and_field_is_fail_closed ... ok
+test config::tests::example_parses_without_secret_values_and_preserves_pilot_defaults ... ok
+test config::tests::maintenance_docs_require_exact_public_scope_and_matching_standard_pin ... ok
+test config::tests::missing_malformed_and_oversized_config_are_sanitized ... ok
+test config::tests::numeric_limits_and_pins_are_not_silently_clamped_or_defaulted ... ok
+test config::tests::operator_docs_release_requires_both_explicit_pins_to_match ... ok
+test config::tests::provider_endpoint_is_explicit_https_or_loopback_and_priced ... ok
+test config::tests::second_brain_credential_ist_in_der_oeffentlichen_registry_unbekannt ... ok
+test config::tests::unknown_and_inline_secret_fields_are_rejected_without_echoing_values ... ok
+test discord_live::tests::alte_ungueltige_und_zukuenftige_beobachtungen_werden_verworfen ... ok
+test discord_live::tests::grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget ... FAILED
+test discord_live::tests::historische_live_fragen_erreichen_den_bestehenden_nichts_fall ... ok
+test discord_live::tests::kurze_cachezeit_beginnt_beim_beobachten_und_laeuft_lokal_ab ... ok
+test discord_live::tests::netzwerkbudget_erfasst_den_abruf_und_validierung_bleibt_lokal ... ok
+test discord_live::tests::oeffentliche_live_fakten_ueber_bestehenden_resolver ... FAILED
+test discord_live::tests::packing_reserviert_kosten_nach_bisherigem_verbrauch ... ok
+test discord_live::tests::parallele_anfragen_behalten_getrennte_gueltige_beobachtungen ... ok
+test discord_live::tests::private_felder_und_falsche_zulassung_werden_verworfen ... ok
+test discord_live::tests::reine_live_packs_werden_lokal_und_leere_packs_ablehnend_geprueft ... ok
+test discord_live::tests::statische_sperre_und_providerfreigabe_bleiben_verbindlich ... ok
+test health::binding_tests::maintenance_binding_checks_public_scope_and_current_head_publication ... ok
+test health::binding_tests::maintenance_binding_keeps_internal_documents_outside_the_public_view ... ok
+test health::binding_tests::public_profiles_cannot_replace_a_denied_scoped_document ... ok
+test operator_socket::tests::private_rechte_und_tatsaechliche_peer_uid_werden_geprueft ... ok
+test secrets::tests::absent_empty_and_invalid_bearer_secrets_fail_closed ... ok
+test secrets::tests::duplicate_credentials_are_not_ambiguous_and_debug_is_redacted ... ok
+test secrets::tests::password_is_required_only_for_explicit_password_authentication ... ok
+test secrets::tests::subscription_does_not_load_a_provider_secret ... ok
+test secrets::tests::vorhandene_interne_referenz_wird_validiert_und_nicht_ausgegeben ... ok
+test service::entity_profile_tests::configured_reader_requires_existing_operator_config_without_new_pool ... ok
+test service::entity_profile_tests::effective_uid_matches_kernel_peer_credentials ... ok
+test service::entity_profile_tests::model_consumer_binding_is_exact_and_does_not_grant_operator_egress ... ok
+
+failures:
+
+---- discord_live::tests::grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget stdout ----
+Brain-Antwortprovider: Fehlerklasse chat_schema
+
+thread 'discord_live::tests::grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget' (3721769) panicked at crates/brain-serve/src/discord_live.rs:833:18:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("invalid chat schema")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- discord_live::tests::oeffentliche_live_fakten_ueber_bestehenden_resolver stdout ----
+
+thread 'discord_live::tests::oeffentliche_live_fakten_ueber_bestehenden_resolver' (3721918) panicked at crates/brain-serve/src/discord_live.rs:916:10:
+Bestehender Infisicalresolver muss verfügbar sein.: SecretSource
+
+
+failures:
+    discord_live::tests::grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget
+    discord_live::tests::oeffentliche_live_fakten_ueber_bestehenden_resolver
+
+test result: FAILED. 46 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.47s
+
+error: test failed, to rerun pass `-p brain-serve --lib`
+     Running unittests src/main.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/brain_serve-6cb6284f61161347)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_pilot.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/local_pilot-30933d018cb346e7)
+
+running 7 tests
+test pilot_acceptance_rejects_returned_private_or_unknown_citations ... ok
+test pilot_baseline_mismatch_fails_and_parked_sources_survive_unwind ... ok
+test pilot_phase_after_restart ... FAILED
+test pilot_phase_empty_rebuild ... FAILED
+test pilot_phase_ingest ... FAILED
+test pilot_phase_reader_failures ... FAILED
+test pilot_rejection_requires_the_expected_authorization_status ... ok
+
+failures:
+
+---- pilot_phase_after_restart stdout ----
+
+thread 'pilot_phase_after_restart' (3721987) panicked at crates/brain-serve/tests/local_pilot.rs:55:58:
+pilot database required: NotPresent
+
+---- pilot_phase_empty_rebuild stdout ----
+
+thread 'pilot_phase_empty_rebuild' (3721992) panicked at crates/brain-serve/tests/local_pilot.rs:55:58:
+pilot database required: NotPresent
+
+---- pilot_phase_ingest stdout ----
+
+thread 'pilot_phase_ingest' (3722012) panicked at crates/brain-serve/tests/local_pilot.rs:55:58:
+pilot database required: NotPresent
+
+---- pilot_phase_reader_failures stdout ----
+
+thread 'pilot_phase_reader_failures' (3722015) panicked at crates/brain-serve/tests/local_pilot.rs:55:58:
+pilot database required: NotPresent
+
+
+failures:
+    pilot_phase_after_restart
+    pilot_phase_empty_rebuild
+    pilot_phase_ingest
+    pilot_phase_reader_failures
+
+test result: FAILED. 3 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `-p brain-serve --test local_pilot`
+     Running tests/process.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/process-8c519ba7bca79952)
+
+running 11 tests
+test ambient_config_is_not_a_startup_source ... ok
+test each_required_secret_is_checked_before_database_or_bind ... ok
+test help_does_not_require_configuration_or_credentials ... ok
+test incomplete_configuration_and_inline_secrets_never_reach_startup ... ok
+test missing_config_and_bad_arguments_exit_without_echoing_input ... ok
+test private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password ... FAILED
+test private_snapshot_without_eof_cannot_hold_main_past_startup_deadline ... ok
+test secret_delay_and_database_startup_share_one_absolute_budget ... ok
+test sigterm_during_database_startup_exits_cleanly_without_binding ... ok
+test unavailable_database_is_bounded_and_ignores_legacy_and_ambient_dsns ... ok
+test unavailable_explicit_infisical_source_is_redacted_and_never_reaches_startup ... ok
+
+failures:
+
+---- private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password stdout ----
+
+thread 'private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password' (3722056) panicked at crates/brain-serve/tests/process.rs:223:61:
+scratch socket required: NotPresent
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password
+
+test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.37s
+
+error: test failed, to rerun pass `-p brain-serve --test process`
+     Running tests/process_e2e.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/process_e2e-91b53e8c61df0e1f)
+
+running 1 test
+test binary_loopback_health_readiness_shutdown_and_no_fallback ... FAILED
+
+failures:
+
+---- binary_loopback_health_readiness_shutdown_and_no_fallback stdout ----
+
+thread 'binary_loopback_health_readiness_shutdown_and_no_fallback' (3722576) panicked at crates/brain-serve/tests/process_e2e.rs:234:61:
+scratch socket required: NotPresent
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    binary_loopback_health_readiness_shutdown_and_no_fallback
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p brain-serve --test process_e2e`
+     Running unittests src/lib.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/dbrain_sources-0129d93eb2a88f54)
+
+running 212 tests
+test analytics_runtime::tests::bounded_lookup_uses_only_requested_origin_and_returns_validated_observation ... ok
+test analytics_runtime::tests::expired_deadline_never_starts_http ... ok
+test analytics_runtime::tests::meta_lookup_filters_hero_and_carries_window_and_schema_provenance ... ok
+test analytics_runtime::tests::population_uses_item_filtered_hero_matches_not_purchase_counts ... ok
+test analytics_runtime::tests::request_and_origin_policy_fail_closed ... ok
+test analytics_runtime::tests::response_origin_bytes_raw_rows_and_requested_window_are_bounded ... ok
+test analytics_runtime::tests::runtime_module_has_no_database_or_central_dsn_dependency ... ok
+test analytics_runtime::tests::schema_drift_is_quarantined ... ok
+test assets_api::tests::current_color_map_and_rank_tier_have_stable_identities ... ok
+test assets_api::tests::current_paths_and_retired_kinds ... ok
+test assets_api::tests::malformed_missing_wrong_container_and_duplicate_quarantine ... ok
+test assets_api::tests::zero_is_an_id_not_a_fallback_and_parser_preserves_bytes ... ok
+test deadlock_api::tests::demo_404_is_visible_and_an_incomplete_batch_cannot_be_snapshotted ... ok
+test deadlock_api::tests::demo_economy_query_filters_user_events_by_lobby_player_slot ... ok
+test deadlock_api::tests::demo_economy_query_uses_the_metadata_player_slot_literal ... ok
+test deadlock_api::tests::demo_failed_and_timeout_jobs_are_visible ... ok
+test deadlock_api::tests::demo_identity_rejects_mismatched_account_and_steam_ids ... ok
+test deadlock_api::tests::demo_metadata_resolves_the_target_player_slot ... ok
+test deadlock_api::tests::demo_normalize_rows_adds_versioned_evidence_id ... ok
+test deadlock_api::tests::demo_normalize_rows_rejects_malformed_ndjson_line ... ok
+test deadlock_api::tests::demo_parse_job_status_accepts_done_with_result_url ... ok
+test deadlock_api::tests::demo_parse_job_status_preserves_failed_error ... ok
+test deadlock_api::tests::demo_player_state_must_not_be_empty ... ok
+test deadlock_api::tests::demo_player_state_uses_an_unambiguous_join_tick ... ok
+test deadlock_api::tests::demo_poll_total_timeout_caps_the_next_sleep ... ok
+test deadlock_api::tests::demo_poll_total_timeout_caps_the_status_request ... ok
+test deadlock_api::tests::demo_poll_wait_yields_to_the_async_runtime ... ok
+test deadlock_api::tests::demo_query_bundle_has_three_quoted_queries ... ok
+test deadlock_api::tests::demo_result_url_allows_only_the_extract_origin ... ok
+test deadlock_api::tests::demo_target_queries_use_source2_14_bit_pawn_entity_index ... ok
+test deadlock_api::tests::filters_every_requested_hero_match ... ok
+test deadlock_api::tests::rejects_match_history_row_without_non_empty_match_id ... ok
+test deadlock_api::tests::rejects_match_history_row_without_valid_hero_id ... ok
+test deadlock_api::tests::rejects_non_array_match_history ... ok
+test deadlock_api::tests::rejects_non_object_match_history_row ... ok
+test deadlock_data::tests::entity_ids_never_fall_back_to_position ... ok
+test deadlock_data::tests::patchnote_events_do_not_duplicate_when_commit_metadata_changes ... ok
+test deadlock_data::tests::upsert_domain_entity_roundtrip_is_idempotent_and_cleans_up ... ok
+test deadlock_data::tests::version_parser_accepts_crlf ... ok
+test external::tests::malformed_preserved_but_cannot_be_projected ... ok
+test external::tests::mirrors_and_shared_origin_are_not_independent ... ok
+test external::tests::parser_revision_is_not_a_game_or_source_revision ... ok
+test external::tests::raw_hash_is_not_normalized_hash ... ok
+test external::tests::transitive_origins_merge_deterministically ... ok
+test forum::challenge_scope_tests::quoted_browser_check_is_a_readable_post ... ok
+test forum::kernel_integration_tests::two_forum_pages_reach_release_retriever_with_dates_and_report_status ... ok
+test forum::live_browser_contract::real_public_thread_and_sitemap_use_import_parser ... FAILED
+test forum::scratch_regression_tests::observed_reversion_and_removed_post_update_real_canonical_release ... ok
+test forum::tests::parse_thread_html_extracts_title_posts_text_and_attachments ... ok
+test forum::tests::thread_url_parser_ignores_non_threads_and_extracts_numeric_suffix ... ok
+test forum_browser::tests::another_ipv6_client_prevents_consent ... ok
+test forum_browser::tests::canonical_slug_preserves_thread_and_page_identity ... ok
+test forum_browser::tests::debug_endpoint_is_loopback_only ... ok
+test forum_browser::tests::forum_scope_rejects_other_origins_and_account_routes ... ok
+test forum_browser::tests::pending_consent_requires_the_real_process_socket ... ok
+test forum_browser::tests::public_forum_browser_smoke ... FAILED
+test forum_corpus::tests::forum_report_does_not_establish_patch_validity ... ok
+test game_files::anchored::tests::replaced_ancestor_cannot_redirect_held_directory ... ok
+test game_files::tests::amplified_paths_abort_without_partial_facts ... ok
+test game_files::tests::bound_bad_paths_duplicates_types_sizes_and_hashes_fail_before_output ... ok
+test game_files::tests::bound_limit_and_encoding_gaps_retain_verified_physical_inventory ... ok
+test game_files::tests::bound_loose_files_use_private_objects_not_changed_root_or_names ... ok
+test game_files::tests::bound_post_read_check_detects_mutation_through_an_alias ... ok
+test game_files::tests::bound_steam_identity_is_required_even_with_git_revision ... ok
+test game_files::tests::compiled_binary_and_kv3_semantics_are_not_invented ... ok
+test game_files::tests::declared_layout_only_maps_exact_gametracking_prefix ... ok
+test game_files::tests::duplicate_json_keeps_whole_raw_text_with_explicit_status ... ok
+test game_files::tests::kv_duplicates_and_conditionals_are_retained ... ok
+test game_files::tests::kv_parent_occurrences_and_escaped_keys_keep_full_scope ... ok
+test game_files::tests::raw_json_values_keep_units_unknown_and_hash_exact_content ... ok
+test game_files::tests::source_large_decimal_is_a_qualified_lexeme_in_kv3_and_json ... ok
+test game_files::tests::traversal_and_symlinks_are_not_followed ... ok
+test game_files::tests::unknown_revision_uses_content_hash_and_utf16_keeps_original_hash ... ok
+test game_files::vpk::tests::bound_embedded_and_external_payloads_use_only_held_sources ... ok
+test game_files::vpk::tests::bound_external_archive_missing_changed_truncated_and_crc_errors_are_fatal ... ok
+test game_files::vpk::tests::bound_skipped_resource_still_requires_declared_external_archive ... ok
+test game_files::vpk::tests::crc_matches_standard_test_vector ... ok
+test game_files::vpk::tests::embedded_payload_checks_current_held_file_size ... ok
+test game_files::vpk::tests::embedded_resource_is_crc_checked ... ok
+test game_files::vpk::tests::embedded_v2_payload_cannot_read_trailing_checksum_sections ... ok
+test game_files::vpk::tests::preload_and_payload_are_combined_for_embedded_external_and_preload_only_crc ... ok
+test game_files::vpk::tests::shared_directory_prefix_is_budgeted_before_path_expansion ... ok
+test game_files::vpk::tests::sibling_payload_stays_anchored_after_parent_replacement ... ok
+test game_files::vpk::tests::sparse_in_bounds_payloads_and_tree_are_budgeted_before_allocation ... ok
+test game_files::vpk::tests::tiny_packages_with_huge_declared_payloads_report_bounds_gaps ... ok
+test game_files::vpk::tests::traversal_truncation_and_oversized_directory_are_rejected ... ok
+test git_source::tests::bounded_history_diff_rename_delete_and_missing_pin ... ok
+test git_source::tests::dirty_worktree_is_never_read_and_raw_is_exact ... ok
+test git_source::tests::merge_parents_and_shallow_boundary_are_reported ... ok
+test git_source::tests::rejects_implicit_and_abbreviated_revisions ... ok
+test git_source::tests::rejects_symlink_and_blob_instead_of_commit ... ok
+test git_source::tests::source_adapter_requires_the_declared_origin ... ok
+test git_source::tests::worktree_git_file_is_supported ... ok
+test google_sheet::tests::csv_parsing_and_record_derivation_from_sheet ... ok
+test google_sheet::tests::discover_sheet_tabs_decodes_pubhtml_items ... ok
+test knowledge_contract::path_budget_tests::diagnostic_paths_have_a_cumulative_budget ... ok
+test knowledge_import::tests::defaults_do_not_import_or_publish ... ok
+test knowledge_import::tests::exact_numbers_survive_import_postgres_retry_and_canonical_projection ... ok
+test knowledge_import::tests::missing_provenance_evidence_denies_internal_storage ... ok
+test knowledge_import::tests::numeric_game_file_version_remains_locally_monotonic ... ok
+test knowledge_import::tests::numeric_url_wiki_preserves_order_without_inventing_page_identity ... ok
+test knowledge_import::tests::numeric_wiki_aliases_keep_original_text_but_share_numeric_identity ... ok
+test knowledge_import::tests::numeric_wiki_bounds_apply_to_page_and_url_identities ... ok
+test knowledge_import::tests::numeric_wiki_uses_actual_page_and_revision ... ok
+test knowledge_import::tests::prepared_metadata_preserves_original_fact_order_and_conflicts ... ok
+test knowledge_import::tests::string_version_is_preserved_and_never_guessed_as_number ... ok
+test knowledge_import::tests::unverified_or_nonredistributable_remains_internal ... ok
+test knowledge_import::tests::url_wiki_git_and_unknown_versions_remain_locally_monotonic ... ok
+test patchnotes_db::tests::classify_source_kind_maps_known_hosts ... ok
+test patchnotes_db::tests::patchnotes_source_is_readable_when_present ... ok
+test patchnotes_db::tests::posted_at_falls_back_to_patch_title_date ... ok
+test reddit::tests::created_utc_becomes_rfc3339_utc ... ok
+test reddit::tests::defaults_match_the_gentle_ingest_profile ... ok
+test reddit::tests::empty_subreddits_fall_back_to_deadlock ... ok
+test reddit::tests::listing_rss_fallback_parses_title_link_and_content ... ok
+test reddit::tests::negative_delay_seconds_are_rejected ... ok
+test reddit::tests::parse_listing_extracts_thread_id_title_selftext_author_and_permalink ... ok
+test reddit::tests::parse_thread_extracts_post_and_comments_and_ignores_more ... ok
+test reddit::tests::refresh_existing_bypasses_the_http_cache ... ok
+test reddit::tests::request_urls_target_the_public_json_and_rss_endpoints ... ok
+test reddit::tests::skip_existing_only_applies_without_refresh ... ok
+test reddit::tests::thread_permalink_parser_rejects_non_thread_urls ... ok
+test reddit::tests::thread_rss_fallback_parses_submission_and_comment_entries ... ok
+test reddit::tests::thread_rss_keeps_comments_that_precede_the_submission_entry ... ok
+test reddit::tests::thread_rss_without_submission_entry_is_rejected ... ok
+test schema_signal::tests::comment_changes_are_not_schema_changes ... ok
+test schema_signal::tests::json_signal_only_invalidates_consumed_dependency ... ok
+test schema_signal::tests::proto_add_remove_retag_type_and_raw_bytes ... ok
+test schema_signal::tests::unresolved_types_and_invalid_proto3_enum_are_quarantined ... ok
+test schema_signal::tests::unsupported_proto_is_quarantined_not_silently_ignored ... ok
+test schema_watch::tests::consumed_missing_extra_malformed_and_unknown_fields ... ok
+test schema_watch::tests::cross_path_and_extension_references_cannot_hide_contract_changes ... ok
+test schema_watch::tests::current_assets_routes_are_pinned_and_resolvable ... ok
+test schema_watch::tests::detects_breaking_nonbreaking_and_version_changes ... ok
+test schema_watch::tests::exhausted_array_validation_never_accepts_an_unchecked_tail ... ok
+test schema_watch::tests::referenced_requests_security_and_local_servers_are_quarantined ... ok
+test schema_watch::tests::refs_cannot_fetch_external_or_loop ... ok
+test schema_watch::tests::unit_changes_are_unknown_and_targeted ... ok
+test source_pins::tests::configuration_is_bounded_and_rejects_duplicate_keys ... ok
+test source_pins::tests::invalid_and_missing_pins_fail_closed ... ok
+test source_pins::tests::valid_pin_roundtrips_and_version_checks_are_enforced ... ok
+test statlocker::tests::extract_rows_reads_arrays_and_keyed_objects ... ok
+test statlocker::tests::game_mode_value_maps_known_modes ... ok
+test statlocker::tests::match_and_hero_id_from_payload_prefer_direct_keys ... ok
+test statlocker::tests::normalize_hero_handles_all_and_separators ... ok
+test statlocker::tests::normalize_patch_prefixes_only_when_needed ... ok
+test store::tests::json_string_matches_python_default_spacing_and_ascii_for_common_values ... ok
+test store::tests::patch_changes_view_deduplicates_holliday_powder_keg_scaling ... ok
+test store::tests::raw_artifacts_are_atomic_full_hash_verified_and_non_overwriting ... ok
+test store::tests::store_roundtrip_writes_reads_back_and_cleans_up ... ok
+test util::tests::form_urlencode_matches_urllib_quote_plus_for_used_values ... ok
+test util::tests::python_or_string_treats_zero_as_falsy_for_or_expressions ... ok
+test wiki_corpus::tests::blank_rendered_pages_are_not_silently_imported ... ok
+test wiki_corpus::tests::disabled_network_makes_no_requests ... ok
+test wiki_corpus::tests::duplicate_pages_limits_and_repeated_cursors_do_not_claim_completeness ... ok
+test wiki_corpus::tests::empty_filtered_batches_continue_and_icon_labels_are_preserved ... ok
+test wiki_corpus::tests::errors_missing_license_and_partial_results_fail_closed ... ok
+test wiki_corpus::tests::pagination_and_exact_revision_are_used ... ok
+test wiki_corpus::tests::pinned_corpus_is_reproducible_without_latest_discovery ... ok
+test wiki_corpus::tests::runtime_requires_wiki_revision_and_parser_pins ... ok
+test wiki_corpus::tests::tables_percentages_unicode_and_nested_history_survive_without_scripts ... ok
+test wiki_corpus::tests::template_drift_requires_an_explicit_pin_change ... ok
+test wiki_corpus::tests::template_stamp_changes_parse_cache_key_without_article_edit ... ok
+test wiki_inventory::normalize::precision_tests::ambiguous_data_retains_original_without_extracted_facts ... ok
+test wiki_inventory::normalize::precision_tests::api_decode_rejects_duplicate_keys_and_preserves_numbers ... ok
+test wiki_inventory::normalize::precision_tests::data_numbers_survive_normalization_spool_and_republication ... ok
+test wiki_inventory::normalize::precision_tests::extracts_and_raw_revisions_survive_retry_including_frozen_legacy ... ok
+test wiki_inventory::normalize::precision_tests::path_amplification_is_rejected_before_fact_allocation ... ok
+test wiki_inventory::storage::tests::persisted_content_conflict_remains_a_gap_after_original_retry_and_namespace_completion ... ok
+test wiki_inventory::tests::api_conflict_then_xml_keeps_separate_authors_captures_and_first_observations ... ok
+test wiki_inventory::tests::api_then_xml_enriches_durable_authorship_without_changing_original_revision ... ok
+test wiki_inventory::tests::checkpoint_reads_are_bounded_before_parsing_and_during_streaming ... ok
+test wiki_inventory::tests::conflict_budget_is_counted_once_in_memory_and_after_reopening ... ok
+test wiki_inventory::tests::conflict_final_parent_sync_is_retried_without_a_false_retained_confirmation ... ok
+test wiki_inventory::tests::conflict_provenance_final_sync_is_retried_before_public_retention_or_report ... ok
+test wiki_inventory::tests::contradictory_authorship_is_preserved_without_selecting_a_winner_or_granting_rights ... ok
+test wiki_inventory::tests::directory_durability_syncs_leaf_and_ancestors_and_propagates_failure ... ok
+test wiki_inventory::tests::disabled_access_missing_license_warnings_and_bad_times_fail_closed ... ok
+test wiki_inventory::tests::explicit_api_access_denial_is_latched_until_a_reviewed_reset ... ok
+test wiki_inventory::tests::failed_first_offline_batch_binds_source_before_its_first_document ... ok
+test wiki_inventory::tests::foreign_context_cannot_relabel_an_export_or_mix_spool_sources ... ok
+test wiki_inventory::tests::historical_domains_with_identical_ids_remain_separate_sources ... ok
+test wiki_inventory::tests::interrupted_provenance_step_is_recoverable_and_cannot_upgrade_original_rights ... ok
+test wiki_inventory::tests::legacy_orphans_and_interrupted_writes_are_checked_without_a_checkpoint_default ... ok
+test wiki_inventory::tests::missing_and_hidden_revisions_select_latest_identity_independently_of_readable_text ... ok
+test wiki_inventory::tests::mixed_legacy_orphans_fail_before_binding_or_writing ... ok
+test wiki_inventory::tests::network_batches_use_the_same_revision_merge_as_offline_captures ... ok
+test wiki_inventory::tests::new_spool_and_first_supplement_and_conflict_survive_normal_reopen_without_checkpoint ... ok
+test wiki_inventory::tests::newer_then_older_captures_do_not_roll_back_checkpoint_or_inventory ... ok
+test wiki_inventory::tests::offline_repetition_keeps_first_observation_and_new_revisions_preserve_history ... ok
+test wiki_inventory::tests::old_checkpoint_fields_remain_readable_and_merge_correctly ... ok
+test wiki_inventory::tests::original_and_source_binding_final_parent_sync_are_retried_for_api_and_xml ... ok
+test wiki_inventory::tests::original_v1_slot_redirect_mapping_and_distinct_observation_times_survive ... ok
+test wiki_inventory::tests::oversized_enriched_conflict_is_rejected_without_poisoning_original_resume ... ok
+test wiki_inventory::tests::provenance_final_parent_sync_is_retried_for_api_and_xml ... ok
+test wiki_inventory::tests::publication_retries_final_parent_sync_of_visible_provenance ... ok
+test wiki_inventory::tests::redirects_templates_modules_and_categories_stay_unexpanded ... ok
+test wiki_inventory::tests::rendered_extract_is_not_available_revision_text ... ok
+test wiki_inventory::tests::repeated_or_overriding_continuations_are_rejected_before_advancing ... ok
+test wiki_inventory::tests::repeated_xml_page_blocks_preserve_history_in_both_orders ... ok
+test wiki_inventory::tests::same_revision_content_model_and_facts_are_preserved_in_both_spool_branches ... ok
+test wiki_inventory::tests::same_revision_different_content_is_retained_as_conflict_without_overwrite ... ok
+test wiki_inventory::tests::same_spool_install_sync_failure_counts_original_and_conflict_at_exact_budget ... ok
+test wiki_inventory::tests::same_spool_provenance_replacement_sync_failure_retains_exact_shared_budget ... ok
+test wiki_inventory::tests::siteinfo_article_paths_are_used_for_offline_api_provenance ... ok
+test wiki_inventory::tests::source_namespace_names_distinguish_updates_json_data_and_bucket ... ok
+test wiki_inventory::tests::suppressed_content_and_unknown_revisions_remain_explicit ... ok
+test wiki_inventory::tests::traversal_includes_every_real_namespace_and_resumes_after_a_failed_request ... ok
+test wiki_inventory::tests::unbound_spool_refuses_direct_document_and_checkpoint_effects ... ok
+test wiki_inventory::tests::xml_export_preserves_each_revision_and_does_not_claim_global_completeness ... ok
+test wiki_inventory::tests::xml_query_style_article_path_and_original_http_scheme_are_preserved ... ok
+test wiki_runtime::tests::domain_numeric_projection_is_exact_or_withheld ... ok
+
+failures:
+
+---- forum::live_browser_contract::real_public_thread_and_sitemap_use_import_parser stdout ----
+
+thread 'forum::live_browser_contract::real_public_thread_and_sitemap_use_import_parser' (3723385) panicked at crates/dbrain-sources/src/forum.rs:1349:14:
+called `Result::unwrap()` on an `Err` value: ForumBrowserError("Brave-Debugverbindung fehlgeschlagen")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- forum_browser::tests::public_forum_browser_smoke stdout ----
+
+thread 'forum_browser::tests::public_forum_browser_smoke' (3724125) panicked at crates/dbrain-sources/src/forum_browser.rs:732:14:
+Öffentliche Brave-Verbindung: ForumBrowserError("Brave-Debugverbindung fehlgeschlagen")
+
+
+failures:
+    forum::live_browser_contract::real_public_thread_and_sitemap_use_import_parser
+    forum_browser::tests::public_forum_browser_smoke
+
+test result: FAILED. 210 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.98s
+
+error: test failed, to rerun pass `-p dbrain-sources --lib`
+     Running unittests src/bin/brain-browser-consent.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/brain_browser_consent-bfb62c2b5dcc8f58)
+
+running 2 tests
+test tests::dokumentrollen_bleiben_unberuehrt ... ok
+test tests::native_objekte_werden_eindeutig_gelesen ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/bin/brain-knowledge-import.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/brain_knowledge_import-78fde6a2754ed233)
+
+running 19 tests
+test runtime::tests::connected_identity_checks_role_database_local_transport_port_and_socket ... ok
+test runtime::tests::isolated_connection_identity_is_checked_before_import ... FAILED
+test runtime::tests::runtime_reuses_exact_existing_target_and_rejects_fallbacks ... ok
+test tests::duplicates_and_unrelated_options_are_rejected ... ok
+test tests::help_has_no_operational_effect ... ok
+test tests::operational_modes_require_normal_runtime_without_a_central_dsn_fallback ... ok
+test tests::partition_count_and_exact_byte_boundaries_are_inclusive ... ok
+test tests::partition_preserves_more_than_ten_thousand_versions_of_one_document ... ok
+test tests::partition_refuses_existing_outputs_and_report_collisions ... ok
+test tests::partition_rejects_conflicts_and_invalid_lines_before_output ... ok
+test tests::partition_requires_its_three_absolute_paths_without_operational_options ... ok
+test tests::partition_retains_whitespace_duplicates_facts_and_observation_times ... ok
+test tests::partition_write_and_failure_reports_do_not_claim_import_or_overwrite ... ok
+test tests::publication_accepts_three_sources_but_keeps_the_ten_thousand_document_limit ... ok
+test tests::publication_rejects_invalid_heads_and_publishes_git_and_wiki_withdrawals ... ok
+test tests::publication_replaces_selected_pins_and_preserves_old_pins_and_current_rights ... ok
+test tests::publication_requires_new_identity_and_named_sources ... ok
+test tests::report_never_overwrites_prior_evidence ... ok
+test tests::validate_requires_absolute_paths_and_explicit_parser ... ok
+
+failures:
+
+---- runtime::tests::isolated_connection_identity_is_checked_before_import stdout ----
+
+thread 'runtime::tests::isolated_connection_identity_is_checked_before_import' (3725553) panicked at crates/dbrain-sources/src/bin/brain-knowledge-import/runtime.rs:176:56:
+explicit scratch socket required: NotPresent
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    runtime::tests::isolated_connection_identity_is_checked_before_import
+
+test result: FAILED. 18 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.07s
+
+error: test failed, to rerun pass `-p dbrain-sources --bin brain-knowledge-import`
+     Running unittests src/bin/brain-wiki-pilot.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/brain_wiki_pilot-8f292fcb59adafdb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/entity_binding.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/entity_binding-26e3fda98fcfd977)
+
+running 8 tests
+test all_kinds_bind_without_changing_source_facts_and_repeat_identically ... ok
+test ambiguous_ids_and_title_only_matches_remain_open ... ok
+test conflicting_object_identity_is_not_overruled_by_its_path ... ok
+test explicit_class_evidence_binds_unnamed_object_and_keeps_nested_variants ... ok
+test numeric_string_keeps_git_priority_against_wiki_with_different_source_qualifiers ... ok
+test real_catalog_and_git_documents_report_coverage ... FAILED
+test variant_qualifiers_and_same_source_conflicts_do_not_get_arbitrary_preferences ... ok
+test wiki_object_alias_is_evidence_but_numeric_array_offset_is_not ... ok
+
+failures:
+
+---- real_catalog_and_git_documents_report_coverage stdout ----
+
+thread 'real_catalog_and_git_documents_report_coverage' (3727691) panicked at crates/dbrain-sources/tests/entity_binding.rs:183:6:
+DB-Verbindung: Infisical benötigt ein reguläres Runtime Credential.
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    real_catalog_and_git_documents_report_coverage
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p dbrain-sources --test entity_binding`
+     Running tests/entity_profiles.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/entity_profiles-7caeab4caea6664d)
+
+running 11 tests
+test all_three_entity_kinds_keep_their_binding ... ok
+test ambiguous_missing_and_duplicate_fact_bindings_fail ... ok
+test conflicting_sources_keep_both_values_and_git_preference ... ok
+test extractor_lexemes_do_not_hide_conflicts_or_merge_semantic_qualifiers ... ok
+test generic_fields_keep_subject_and_document_binding_in_comparison ... ok
+test isolated_import_is_idempotent_and_preserves_revision_binding ... ok
+test json_and_kv3_array_elements_keep_distinct_comparison_scopes ... ok
+test kv1_missing_original_scope_is_visible_and_caller_pointer_cannot_replace_it ... ok
+test kv1_profiles_compare_full_original_scope_including_frozen_documents ... ok
+test validity_is_open_or_exclusive_and_unknown_is_not_backdated ... ok
+test values_units_qualifiers_and_rights_remain_lossless ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.14s
+
+     Running tests/entity_semantic.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/entity_semantic-75870a674929b2f6)
+
+running 13 tests
+test actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals ... ok
+test batch_proof_cache_reuses_only_immutable_facts_and_checks_fresh_inputs ... ok
+test canonical_numeric_conflicts_keep_originals_variants_and_exponents ... ok
+test complete_relative_scope_rejects_truncation_and_caller_markers ... ok
+test consumer_patch_conditions_keep_decimal_thresholds_and_withhold_unsafe_statements ... ok
+test derived_alias_qualifiers_withhold_whole_numbers_and_keep_private_pins ... ok
+test document_context_preserves_original_and_identity_checks ... ok
+test document_receipt_reconstructs_both_git_sources_story_and_exact_output ... ok
+test document_receipt_rejects_stale_rights_forged_bindings_and_marker_only_claims ... ok
+test header_receipt_keeps_unrelated_archive_pin_without_hydrating_its_body ... ok
+test header_receipt_preserves_exact_full_proof_without_archived_body ... ok
+test header_receipt_rejects_blob_header_acl_binding_and_semantic_tampering ... ok
+test header_receipt_rejects_changed_private_receipt_and_output ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 86.06s
+
+     Running tests/external_sources.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/external_sources-10d62776d5498c3c)
+
+running 7 tests
+test duplicate_json_keys_never_become_last_key_wins_evidence ... ok
+test fixture_manifest_is_exact_and_current_paths_are_contract_covered ... ok
+test live_small_current_assets_contract ... FAILED
+test match_api_rejects_malformed_missing_ambiguous_and_duplicate_without_losing_raw ... ok
+test removing_enum_is_breaking_and_missing_route_fails_closed ... ok
+test same_derivation_merges_new_origin_evidence_without_an_extra_vote ... ok
+test status_type_encoding_and_schema_version_gate_preserve_quarantine ... ok
+
+failures:
+
+---- live_small_current_assets_contract stdout ----
+
+thread 'live_small_current_assets_contract' (3738486) panicked at crates/dbrain-sources/tests/external_sources.rs:161:5:
+assertion `left == right` failed
+  left: Err(NotPresent)
+ right: Ok("1")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    live_small_current_assets_contract
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.46s
+
+error: test failed, to rerun pass `-p dbrain-sources --test external_sources`
+     Running tests/knowledge_contract.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/knowledge_contract-0b8b52eccd7424c1)
+
+running 29 tests
+test all_evidence_states_are_accepted_without_promoting_hypotheses ... ok
+test changed_source_identity_for_same_game_document_is_reported_across_revisions ... ok
+test conflicting_content_is_reported_and_neither_document_is_overwritten ... ok
+test consistent_duplicates_keep_both_observations ... ok
+test different_revisions_and_cross_source_contradictions_remain_separate ... ok
+test direct_typed_deserialization_requires_nullable_fields_and_fact_value ... ok
+test duplicate_json_keys_are_rejected_including_nested_metadata ... ok
+test every_document_field_is_required ... ok
+test every_fact_and_license_field_is_required_including_nullable_fields ... ok
+test exact_json_numbers_survive_shape_check_streaming_from_value_and_observation_retry ... ok
+test fact_ids_are_unique_within_each_document_but_not_across_documents ... ok
+test game_ids_and_source_locators_reject_absolute_and_unnormalized_paths ... ok
+test hash_is_lowercase_sha256_of_exact_utf8_bytes ... ok
+test invalid_utf8_and_reader_failures_are_not_skipped ... ok
+test nullable_fields_and_arbitrary_json_fact_values_are_preserved ... ok
+test numeric_game_versions_and_nonnumeric_wiki_versions_remain_distinct ... ok
+test numeric_wiki_aliases_are_conflicts_and_original_spelling_is_preserved ... ok
+test same_revision_hash_with_changed_facts_license_or_metadata_is_a_conflict ... ok
+test seekable_validation_enforces_line_total_history_and_index_bounds_before_visit ... ok
+test seekable_validation_keeps_cross_partition_duplicate_and_fact_order_conflict ... ok
+test seekable_validation_matches_full_classification_and_exact_original_lines ... ok
+test source_text_is_retained_as_data_and_never_executed ... ok
+test unknown_revision_requires_matching_content_hash_and_is_counted ... ok
+test unverified_or_denied_license_never_grants_declared_publication ... ok
+test utc_rfc3339_is_checked_without_substituting_observation_for_revision ... ok
+test whole_input_validation_reports_each_bad_line_and_returns_no_partial_batch ... ok
+test wiki_ids_require_source_binding_or_exact_url_hash ... ok
+test wiki_without_facts_and_empty_input_are_valid ... ok
+test wrong_types_and_unknown_contract_values_report_fields ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.56s
+
+     Running tests/shared_contracts.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/shared_contracts-bdd3661e6a502d78)
+
+running 3 tests
+test quarantine_and_literal_null_roundtrip_without_fabricated_values ... ok
+test reprocessing_separates_parser_schema_and_original_source_revision ... ok
+test source_parser_persists_the_shared_versioned_contract ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/source_pins.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/source_pins-5338b3b23aaac627)
+
+running 3 tests
+test absent_commit_noncommit_wrong_origin_and_version_are_errors ... ok
+test update_only_occurs_after_explicit_configuration_change ... ok
+test valid_pin_and_same_pin_are_reproducible_despite_head_and_worktree_changes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.93s
+
+     Running tests/wiki_knowledge_contract.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/wiki_knowledge_contract-dbf37d8795deaf8c)
+
+running 2 tests
+test network_adapter_defaults_to_disabled_and_cannot_enable_itself_from_capture_policy ... ok
+test source_crate_projects_the_same_shared_card_with_exact_source_references ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/wiki_runtime.rs (/tmp/brain-g-k-r3-20261007-target/debug/deps/wiki_runtime-d8d1f0ba06229637)
+
+running 8 tests
+test lua_programs_and_template_expressions_are_not_executed_or_promoted ... ok
+test normal_store_stage_is_idempotent_versioned_and_needs_no_second_store ... ok
+test quarantined_template_blocks_dependent_facts_without_executing_source ... ok
+test raw_retention_and_scope_are_mandatory_for_store_plan ... ok
+test scratch_guard_rejects_arbitrary_paths_before_a_database_connection ... ok
+test scratch_raw_ir_facts_release_delta_reparse_and_acl ... FAILED
+test shared_ir_fact_release_plan_is_loss_aware_and_review_pinned ... ok
+test transitive_template_changes_leave_unrelated_ir_and_facts_unchanged ... ok
+
+failures:
+
+---- scratch_raw_ir_facts_release_delta_reparse_and_acl stdout ----
+
+thread 'scratch_raw_ir_facts_release_delta_reparse_and_acl' (3739686) panicked at crates/dbrain-sources/tests/wiki_runtime.rs:246:56:
+use the scratch test wrapper: NotPresent
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    scratch_raw_ir_facts_release_delta_reparse_and_acl
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+error: test failed, to rerun pass `-p dbrain-sources --test wiki_runtime`
+   Doc-tests brain_providers
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests brain_serve
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests dbrain_sources
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 9 targets failed:
+    `-p brain-serve --lib`
+    `-p brain-serve --test local_pilot`
+    `-p brain-serve --test process`
+    `-p brain-serve --test process_e2e`
+    `-p dbrain-sources --lib`
+    `-p dbrain-sources --bin brain-knowledge-import`
+    `-p dbrain-sources --test entity_binding`
+    `-p dbrain-sources --test external_sources`
+    `-p dbrain-sources --test wiki_runtime`

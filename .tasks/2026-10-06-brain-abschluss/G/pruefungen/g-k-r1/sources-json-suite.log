@@ -1,0 +1,18 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 54.63s
+     Running tests/external_sources.rs (/tmp/brain-g-k-20261007-target/debug/deps/external_sources-520b5f6b154b391c)
+
+running 6 tests
+test duplicate_json_keys_never_become_last_key_wins_evidence ... ok
+test fixture_manifest_is_exact_and_current_paths_are_contract_covered ... ok
+test match_api_rejects_malformed_missing_ambiguous_and_duplicate_without_losing_raw ... ok
+test removing_enum_is_breaking_and_missing_route_fails_closed ... ok
+test same_derivation_merges_new_origin_evidence_without_an_extra_vote ... ok
+test status_type_encoding_and_schema_version_gate_preserve_quarantine ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 3.05s
+

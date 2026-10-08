@@ -1,0 +1,5 @@
+86 Quellen seit letzter Formatprüfung
+0 inzwischen verändert
+2 abweichend vom letzten grünen Compiler-/Testlauf
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/src/transport.rs
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/tests/faults.rs

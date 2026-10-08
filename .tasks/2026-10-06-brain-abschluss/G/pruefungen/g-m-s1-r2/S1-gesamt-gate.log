@@ -1,0 +1,3 @@
+[gpt-6.1-sol] ALLOW: No merge-blocking defect found in the supplied changes.
+
+1. rust/crates/dbrain-reasoner/src/mechanics.rs:388 | NIT: Negative burst cycles pass validation here and in `weapon_cycle_seconds` at line 435 | With count=3, cycle=-0.15, intra=0.1, and rate=3, `weapon_shot_interval(3, …)` returns −0.333 seconds. Both helpers should reject negative cycle times.

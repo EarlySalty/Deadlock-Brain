@@ -1,0 +1,9 @@
+{
+  "start_head": "1b5ea4527576c1b8b622e86e81067b396889f2b0",
+  "fix_head": "3242fb36ed847dc06ef71d92c71108614b5d493f",
+  "files": 46,
+  "changed": [],
+  "manifest_sha256": "34bd77bb9c3ae27e2d8207ee1015e790b6c24d528d8350165295a5b0ef56d2d7",
+  "gate": "[gpt-6.1-sol] ALLOW: No blocking defect found. Answer purpose is propagated consistently, and final responses and reused answers retain provider validation.",
+  "scope": "AnswerPurpose korrigiert; Build-Schutz unverändert offen"
+}

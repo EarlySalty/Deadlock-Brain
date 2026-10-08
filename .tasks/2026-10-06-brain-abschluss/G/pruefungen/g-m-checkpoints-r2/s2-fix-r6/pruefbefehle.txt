@@ -1,0 +1,9 @@
+/home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner -- --check
+EXIT=0
+flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo check --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target
+EXIT=0
+flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- -D warnings
+EXIT=0
+python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base bd83d7abdef812a30daa47aa5f6a78de4f42263a --head 8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206
+EXIT=1
+TESTS_AUSGEFUEHRT=false

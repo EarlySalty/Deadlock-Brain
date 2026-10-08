@@ -1,0 +1,29 @@
+01 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --porcelain=v1
+02 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 rev-parse HEAD
+03 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --stat
+04 git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 rev-parse HEAD
+05 git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 status --porcelain=v1
+06 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff -- rust/crates/dbrain-reasoner/src/combat.rs
+07 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff -- rust/crates/dbrain-reasoner/src/combat.rs
+08 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 add /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs
+09 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 apply --cached --reverse --unidiff-zero /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/S2-HOLDBACK.patch
+10 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --name-only
+11 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 show :rust/crates/dbrain-reasoner/src/combat.rs
+12 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached -- rust/crates/dbrain-reasoner/src/combat.rs
+13 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --check
+14 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff -- rust/crates/dbrain-reasoner/src/combat.rs
+15 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 commit -m "fix(brain): Abgeschlossenes Nachladen und Druckdauer erhalten" -m "Co-authored-by: GPT 6.1 Sol <modell@local>"
+16 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 rev-parse HEAD
+17 git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 checkout --detach 8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206
+18 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --porcelain=v1
+19 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -1 --format=fuller
+20 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --porcelain=v1
+21 git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 rev-parse HEAD
+22 git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 status --porcelain=v1
+23 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --name-only aefe916a3197911e8ef5b22c602d766a8303e36e 8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206
+24 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --stat bd83d7abdef812a30daa47aa5f6a78de4f42263a 8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206
+25 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 show 8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206:rust/crates/dbrain-reasoner/src/combat.rs
+GIT_SCHRITTE=25
+GIT_SCHREIBSCHRITTE=4
+GIT_LESESCHRITTE=21
+EXIT_ALLE_GIT_SCHRITTE=0

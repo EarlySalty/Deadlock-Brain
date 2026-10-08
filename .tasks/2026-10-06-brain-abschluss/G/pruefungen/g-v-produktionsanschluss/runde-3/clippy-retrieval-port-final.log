@@ -1,0 +1,30 @@
+cargo-slot: Slot 3, optimiert=0
+    Checking tokio v1.52.3
+    Checking getrandom v0.3.4
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Checking ahash v0.8.12
+    Checking scraper v0.20.0
+    Checking tokio-util v0.7.18
+    Checking tokio-stream v0.1.18
+    Checking hyper v1.10.1
+    Checking sqlx-core v0.8.6
+    Checking tokio-rustls v0.26.4
+    Checking hyper-util v0.1.20
+    Checking tower v0.5.3
+    Checking async-compression v0.4.42
+    Checking hyper-rustls v0.27.9
+    Checking sqlx-postgres v0.8.6
+    Checking tower-http v0.6.11
+    Checking tokio-postgres v0.7.18
+    Checking reqwest v0.12.28
+    Checking postgres v0.19.14
+    Checking uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+    Checking sqlx v0.8.6
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 10s
+cargo-slot: EXIT=0

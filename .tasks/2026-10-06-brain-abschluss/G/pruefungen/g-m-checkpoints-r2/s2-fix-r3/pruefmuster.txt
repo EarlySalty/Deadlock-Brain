@@ -1,0 +1,5 @@
+-----BEGIN [A-Z ]*PRIVATE KEY-----
+(?i:bearer)[[:space:]]+[A-Za-z0-9._~-]{12,}
+(?:sk-|ghp_|github_pat_|xox[baprs]-|hf_)[A-Za-z0-9_-]{16,}
+postgres(?:ql)?://[^[:space:]@/]+:[^[:space:]@/]+@
+(?i:api[_-]?key|client[_-]?secret|password)[[:space:]]*[:=][[:space:]]*[^[:space:]]{12,}

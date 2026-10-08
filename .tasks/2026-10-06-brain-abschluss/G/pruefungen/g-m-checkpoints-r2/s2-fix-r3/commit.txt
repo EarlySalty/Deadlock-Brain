@@ -1,0 +1,5 @@
+fix(brain): ProcChance für physischen Bonus-Schaden prüfen
+
+Chanceguard und Diagnose berücksichtigen beide Bonus-Proc-Eigenschaften. Eine unmittelbare Regression deckt Schüsse und Casts mit fehlender, nullprozentiger, teilweiser und sicherer Chance ab.
+
+Co-authored-by: GPT 6.1 Sol <modell@local>

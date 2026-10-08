@@ -1,0 +1,17 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.98s
+     Running tests/tool_evidence_loop.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/tool_evidence_loop-edca53b0c9c8c36b)
+
+running 6 tests
+test beide_provider_fuehren_belegte_folgerunden_mit_allen_abhaengigkeiten ... ok
+test knappes_erstbudget_startet_keinen_provider ... ok
+test konkrete_provider_pruefen_unzitierte_scopes_und_egress_vor_folgetransport ... ok
+test konkrete_provider_verwerfen_unbekannte_finalzitate_mit_abrechnung ... ok
+test rechteverlust_eines_unzitierten_belegs_verhindert_finale_ausgabe ... ok
+test unzitierte_utf8_belege_stoppen_folgerunde_vor_provideraufruf ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+

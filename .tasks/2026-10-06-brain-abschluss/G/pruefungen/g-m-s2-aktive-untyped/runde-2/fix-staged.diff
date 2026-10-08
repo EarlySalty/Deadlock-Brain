@@ -1,0 +1,341 @@
+diff --git a/rust/crates/dbrain-reasoner/src/combat.rs b/rust/crates/dbrain-reasoner/src/combat.rs
+index 79b422e7..dd1a8be6 100644
+--- a/rust/crates/dbrain-reasoner/src/combat.rs
++++ b/rust/crates/dbrain-reasoner/src/combat.rs
+@@ -942,7 +942,12 @@ impl DamageReceiver for SimulationTarget {
+                     crate::DamageType::Weapon => {
+                         change.map_or(&settings.bullet, |change| &change.bullet)
+                     }
+-                    _ => change.map_or(&settings.spirit, |change| &change.spirit),
++                    crate::DamageType::Spirit => {
++                        change.map_or(&settings.spirit, |change| &change.spirit)
++                    }
++                    crate::DamageType::Hybrid | crate::DamageType::None => {
++                        return crate::DamageModifiers::default();
++                    }
+                 }
+                 .clone()
+             })
+@@ -1357,7 +1362,10 @@ fn simulate(
+                 };
+             }
+         }
+-        if time >= channel_until && target_available {
++        if time >= channel_until
++            && target_available
++            && scenario.is_none_or(|scenario| scenario.use_abilities)
++        {
+             let mut best = None;
+             for (idx, ability) in hero.abilities.iter().enumerate() {
+                 if ability.properties.contains_key("DamageBonusFixedPerStack")
+@@ -3409,6 +3417,310 @@ pub(crate) mod tests {
+         }
+     }
+ 
++    #[test]
++    fn public_simulations_suppress_recorded_casts_channels_and_cast_procs() {
++        let raw: serde_json::Value =
++            serde_json::from_str(include_str!("../testdata/calculation/recorded-assets.json"))
++                .unwrap();
++        let anchor = std::time::Instant::now();
++        let deadline = brain_contracts::RequestDeadline::after_with_clock(
++            std::time::Duration::from_secs(60),
++            move || anchor,
++        );
++        let timing = crate::WeaponTiming::default();
++        let innate = BTreeMap::new();
++        for (class, slot) in [
++            ("ability_sleep_dagger", 1),
++            ("citadel_ability_storm_cloud", 4),
++            ("ability_warden_crowd_control", 1),
++        ] {
++            let payload = raw["items"]
++                .as_array()
++                .unwrap()
++                .iter()
++                .find(|item| item["class_name"] == class)
++                .unwrap();
++            let recorded = crate::data::ability_model_from_payload(payload, slot).unwrap();
++            let ability_id = recorded.ability_id;
++            let mut hero = hero();
++            hero.weapon.bullet_damage = 0.0;
++            hero.abilities = vec![recorded];
++            let mut bound = item(7, "AmmoReloadPercent", 50.0);
++            bound.imbueable = true;
++            bound
++                .properties
++                .extend([("Damage".into(), 44.0), ("AbilityCooldown".into(), 30.0)]);
++            bound
++                .property_damage_types
++                .insert("Damage".into(), DamageType::Spirit);
++            let mut cast_proc = item(8, "TestProcDamage", 25.0);
++            cast_proc.proc_cooldown = Some(1.0);
++            cast_proc
++                .property_damage_types
++                .insert("TestProcDamage".into(), DamageType::Spirit);
++            let items = [bound, cast_proc];
++            let mut scenario = explicit_test_scenario(4.0);
++            scenario.imbues.insert(7, ability_id);
++            for enabled in [false, true] {
++                scenario.use_abilities = enabled;
++                let plain = simulate_calculation(&hero, &items, &scenario, &timing, &innate);
++                let checked = simulate_calculation_with_deadline(
++                    &hero, &items, &scenario, &timing, &innate, &deadline,
++                )
++                .unwrap();
++                assert_eq!(plain, checked);
++                if enabled {
++                    assert!(plain.casts[&ability_id] > 0);
++                    assert!(plain.ability_damage > 0.0);
++                    assert!(plain.proc_damage >= 69.0);
++                    assert_eq!(plain.item_activations[&7], vec![0.0]);
++                    if class == "citadel_ability_storm_cloud" {
++                        assert!((plain.channel_seconds - 4.0).abs() < 1e-9);
++                    }
++                } else {
++                    assert!(plain.casts.is_empty());
++                    assert!(plain.ability_procs.is_empty());
++                    assert_eq!(plain.ability_damage, 0.0);
++                    assert_eq!(plain.channel_seconds, 0.0);
++                    assert_eq!(plain.proc_damage, 0.0);
++                    assert!(plain.item_activations.is_empty());
++                    assert_eq!(plain.target_remaining_health, scenario.target.health);
++                    assert_eq!(plain.remaining_health, hero.base_health);
++                }
++                println!("recorded class={class} unversioned; synthetic hero/scenario/items enabled={enabled} casts={:?} ability={} proc={} channel={}", plain.casts, plain.ability_damage, plain.proc_damage, plain.channel_seconds);
++            }
++        }
++        assert_eq!(deadline.remaining(), Ok(std::time::Duration::from_secs(60)));
++    }
++
++    #[test]
++    fn suppressing_casts_preserves_recorded_passive_stack_damage() {
++        for synthetic_proc in [false, true] {
++            let mut hero = stack_test_hero(true);
++            hero.weapon.shots_per_second = 25.0;
++            hero.weapon.clip_size = 100.0;
++            if synthetic_proc {
++                hero.abilities[0].properties.extend([
++                    ("ProcDamageStackCount".into(), 20.0),
++                    ("ProcDamage".into(), 40.0),
++                ]);
++            }
++            let passive = hero.clone();
++            hero.abilities.push(ability(11, 65.0, 1000.0));
++            let mut scenario = explicit_test_scenario(1.0);
++            scenario.use_abilities = false;
++            let timing = crate::WeaponTiming::default();
++            let innate = BTreeMap::new();
++            let anchor = std::time::Instant::now();
++            let deadline = brain_contracts::RequestDeadline::after_with_clock(
++                std::time::Duration::from_secs(60),
++                move || anchor,
++            );
++            let expected = simulate_calculation(&passive, &[], &scenario, &timing, &innate);
++            assert_eq!(expected.shots, 25.0);
++            assert!((expected.weapon_damage - 310.0).abs() < 1e-9);
++            assert_eq!(
++                expected.proc_damage,
++                if synthetic_proc { 40.0 } else { 0.0 }
++            );
++            assert_eq!(expected.ability_procs.is_empty(), !synthetic_proc);
++            for actual in [
++                simulate_calculation(&hero, &[], &scenario, &timing, &innate),
++                simulate_calculation_with_deadline(
++                    &hero,
++                    &[],
++                    &scenario,
++                    &timing,
++                    &innate,
++                    &deadline,
++                )
++                .unwrap(),
++            ] {
++                assert_eq!(actual, expected);
++                assert!(actual.casts.is_empty());
++                assert_eq!(actual.channel_seconds, 0.0);
++            }
++            scenario.use_abilities = true;
++            let active = simulate_calculation(&hero, &[], &scenario, &timing, &innate);
++            assert_eq!(active.casts[&11], 1);
++            assert_eq!(active.ability_damage, 65.0);
++            println!("recorded passive unversioned; synthetic weapon/scenario/active ability synthetic_proc={synthetic_proc}: suppressed shots={} weapon={} passive_proc={} active_damage={}", expected.shots, expected.weapon_damage, expected.proc_damage, active.ability_damage);
++        }
++    }
++
++    #[test]
++    fn actual_target_receiver_keeps_untyped_damage_independent_of_typed_modifiers() {
++        let stats = InventoryStats {
++            bullet_shred: 40.0,
++            spirit_shred: 70.0,
++            weapon_amp: 0.6,
++            spirit_amp: 0.9,
++            bullet_leech: 50.0,
++            spirit_leech: 80.0,
++            ..InventoryStats::default()
++        };
++        let mut scenario = explicit_test_scenario(3.0);
++        scenario.target.health = 1000.0;
++        scenario.target.regeneration = 5.0;
++        scenario.target.shields = [30.0, 100.0, 200.0];
++        let modifiers = crate::DamageModifiers {
++            resist: 0.5,
++            independent_resists: vec![0.25],
++            point_shreds: vec![0.2],
++            relative_reductions: vec![0.5],
++            amplifications: vec![0.5],
++            damage_reductions: vec![0.2],
++        };
++        for kind in [DamageType::None, DamageType::Hybrid] {
++            let mut plain = SimulationTarget::new(scenario.target.health, Some(&scenario));
++            let mut changed_scenario = scenario.clone();
++            changed_scenario.target.bullet = modifiers.clone();
++            changed_scenario.target.spirit = modifiers.clone();
++            changed_scenario.target.changes = vec![crate::TargetChange {
++                at_seconds: 1.0,
++                bullet: crate::DamageModifiers {
++                    resist: -0.5,
++                    amplifications: vec![2.0],
++                    damage_reductions: vec![0.9],
++                    ..modifiers.clone()
++                },
++                spirit: crate::DamageModifiers {
++                    resist: 0.9,
++                    amplifications: vec![3.0],
++                    damage_reductions: vec![0.7],
++                    ..modifiers.clone()
++                },
++            }];
++            let mut changed =
++                SimulationTarget::new(scenario.target.health, Some(&changed_scenario));
++            let mut events = Vec::new();
++            let mut leech = 0.0;
++            for (at, health) in [(0.0, 950.0), (1.2, 876.0), (2.0, 800.0)] {
++                for target in [&mut plain, &mut changed] {
++                    assert_eq!(
++                        damage_event(
++                            80.0,
++                            &kind,
++                            &stats,
++                            1.0,
++                            at,
++                            &mut events,
++                            &mut leech,
++                            target
++                        ),
++                        80.0
++                    );
++                    assert!((target.health - health).abs() < 1e-9);
++                    assert_eq!(target.shields.remaining, [0.0, 100.0, 200.0]);
++                }
++                assert!(events.is_empty());
++                assert_eq!(leech, 0.0);
++                println!("synthetic actual receiver kind={kind:?} at={at} health={health} damage=80 shields={:?}", changed.shields.remaining);
++            }
++        }
++        let mut typed_scenario = scenario.clone();
++        typed_scenario.target.bullet = modifiers.clone();
++        typed_scenario.target.spirit = modifiers;
++        for kind in [DamageType::Weapon, DamageType::Spirit] {
++            let mut target = SimulationTarget::new(1000.0, Some(&typed_scenario));
++            assert!((target.receive_damage(100.0, &kind, 0.0, 0.0, 0.0) - 94.5).abs() < 1e-9);
++        }
++        let mut generic = SimulationTarget::new(1000.0, Some(&scenario));
++        assert_eq!(
++            generic.receive_damage(100.0, &DamageType::None, 0.0, 0.0, 0.5),
++            150.0
++        );
++        assert_eq!(generic.health, 880.0);
++        assert_eq!(generic.shields.remaining, [0.0, 100.0, 200.0]);
++        assert_eq!(
++            generic.receive_damage(2000.0, &DamageType::None, 0.0, 0.0, 0.0),
++            880.0
++        );
++        assert_eq!(generic.killed_at, Some(0.0));
++        assert_eq!(
++            generic.receive_damage(80.0, &DamageType::None, 2.0, 0.0, 0.0),
++            0.0
++        );
++    }
++
++    #[test]
++    fn public_untyped_recorded_proc_ignores_timed_bullet_and_spirit_modifiers() {
++        let raw: serde_json::Value =
++            serde_json::from_str(include_str!("../testdata/calculation/sheet-6759.json")).unwrap();
++        assert_eq!(raw["provenance"]["client_version"], 6759);
++        let payload = raw["items"]
++            .as_array()
++            .unwrap()
++            .iter()
++            .find(|item| item["id"] == 395867183)
++            .unwrap();
++        let mut proc = crate::data::item_model_from_payload(payload).unwrap();
++        proc.property_damage_types.clear();
++        proc.proc_cooldown = Some(0.4);
++        let mut hero = hero();
++        hero.weapon.bullet_damage = 0.0;
++        hero.weapon.shots_per_second = 2.5;
++        let mut scenario = explicit_test_scenario(1.0);
++        scenario.use_abilities = false;
++        scenario.target.shields = [30.0, 100.0, 200.0];
++        let timing = crate::WeaponTiming::default();
++        let innate = BTreeMap::new();
++        let anchor = std::time::Instant::now();
++        let deadline = brain_contracts::RequestDeadline::after_with_clock(
++            std::time::Duration::from_secs(60),
++            move || anchor,
++        );
++        let expected = simulate_calculation(
++            &hero,
++            std::slice::from_ref(&proc),
++            &scenario,
++            &timing,
++            &innate,
++        );
++        assert_eq!(expected.shots, 3.0);
++        assert_eq!(expected.proc_damage, 120.0);
++        assert_eq!(expected.weapon_damage, 0.0);
++        assert_eq!(expected.target_remaining_health, 1910.0);
++        assert_eq!(expected.target_remaining_shields, [0.0, 100.0, 200.0]);
++        scenario.target.bullet.resist = 0.8;
++        scenario.target.spirit.resist = 0.5;
++        scenario.target.spirit.amplifications = vec![2.0];
++        scenario.target.changes = vec![crate::TargetChange {
++            at_seconds: 0.4,
++            bullet: crate::DamageModifiers {
++                resist: -0.2,
++                amplifications: vec![1.0],
++                ..crate::DamageModifiers::default()
++            },
++            spirit: crate::DamageModifiers {
++                resist: 0.9,
++                amplifications: vec![3.0],
++                ..crate::DamageModifiers::default()
++            },
++        }];
++        for actual in [
++            simulate_calculation(
++                &hero,
++                std::slice::from_ref(&proc),
++                &scenario,
++                &timing,
++                &innate,
++            ),
++            simulate_calculation_with_deadline(
++                &hero,
++                std::slice::from_ref(&proc),
++                &scenario,
++                &timing,
++                &innate,
++                &deadline,
++            )
++            .unwrap(),
++        ] {
++            assert_eq!(actual, expected);
++        }
++        println!("recorded Mystic Shot version=6759; synthetic missing type/cooldown/hero/scenario: proc={} health={} shields={:?}", expected.proc_damage, expected.target_remaining_health, expected.target_remaining_shields);
++    }
++
+     #[test]
+     fn stack_bonus_shred_matches_default_fast_and_binding_paths() {
+         let cfg = ReasonerConfig {

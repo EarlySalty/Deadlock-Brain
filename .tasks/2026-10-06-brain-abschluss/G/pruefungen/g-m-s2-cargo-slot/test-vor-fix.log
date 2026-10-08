@@ -1,0 +1,13 @@
+cargo-slot: Slot 1, optimiert=0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+error[E0609]: no field `resistances` on type `types::DamageModifiers`
+    --> crates/dbrain-reasoner/src/combat.rs:3478:36
+     |
+3478 |             scenario.target.bullet.resistances.push(resistance);
+     |                                    ^^^^^^^^^^^ unknown field
+     |
+     = note: available fields are: `resist`, `independent_resists`, `point_shreds`, `relative_reductions`, `amplifications`, `damage_reductions`
+
+For more information about this error, try `rustc --explain E0609`.
+error: could not compile `dbrain-reasoner` (lib test) due to 1 previous error
+cargo-slot: EXIT=101

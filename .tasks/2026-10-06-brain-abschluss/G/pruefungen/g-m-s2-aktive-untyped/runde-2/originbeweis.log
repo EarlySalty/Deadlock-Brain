@@ -1,0 +1,8 @@
+git -C /home/nathanael/.worktrees/brain-g-v2-20261007 push origin HEAD:refs/heads/feat/brain-v2-g-20261007
+Exit 0
+To github.com:EarlySalty/Deadlock-Brain.git
+   bd83d7ab..e58a5c59  HEAD -> feat/brain-v2-g-20261007
+
+git -C /home/nathanael/.worktrees/brain-g-v2-20261007 ls-remote --exit-code origin refs/heads/feat/brain-v2-g-20261007
+Exit 0
+e58a5c59d874848cf977bd0c3e7e77d7a4157d74	refs/heads/feat/brain-v2-g-20261007

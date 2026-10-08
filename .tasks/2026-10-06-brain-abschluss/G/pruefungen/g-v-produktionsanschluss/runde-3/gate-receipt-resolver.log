@@ -1,0 +1,3 @@
+ALLOW: No merge-blocking defect found in the supplied diff.
+
+1. rust/crates/brain-storage/tests/mirror_game_context.rs:318 | NIT: Both the lock-observation loop and `pending.await` lack timeouts | A query-matching or cancellation regression can hang the suite indefinitely because the fixture clock never advances. Bound both waits with wall-clock timeouts.

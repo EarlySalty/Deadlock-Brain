@@ -1,0 +1,20 @@
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+error[E0277]: the trait bound `inventory::InventoryRules: Default` is not satisfied
+   --> crates/dbrain-reasoner/src/calculation_tests.rs:499:68
+    |
+499 |     let rules = crate::inventory::InventoryRules { max_slots: 1, ..Default::default() };
+    |                                                                    ^^^^^^^^^^^^^^^^^^ the trait `Default` is not implemented for `inventory::InventoryRules`
+    |
+help: consider annotating `inventory::InventoryRules` with `#[derive(Default)]`
+   --> crates/dbrain-reasoner/src/inventory.rs:6:1
+    |
+  6 + #[derive(Default)]
+  7 | pub struct InventoryRules {
+    |
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `dbrain-reasoner` (lib test) due to 1 previous error

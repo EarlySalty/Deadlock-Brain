@@ -1,0 +1,16 @@
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs:601:
+                 name.as_str(),
+                 "ProcBonusMagicDamage" | "ProcBonusPhysicalDamage"
+             )
+-        })
+-            && (item.properties.get("ProcChance") != Some(&100.0)
+-                || item
+-                    .proc_cooldown
+-                    .is_none_or(|cooldown| !cooldown.is_finite() || cooldown <= 0.0))
++        }) && (item.properties.get("ProcChance") != Some(&100.0)
++            || item
++                .proc_cooldown
++                .is_none_or(|cooldown| !cooldown.is_finite() || cooldown <= 0.0))
+         {
+             unknown.insert(format!("{}: deterministischer Bonus-Proc benötigt belegte 100 Prozent ProcChance und eine positive ProcCooldown", item.name));
+         }

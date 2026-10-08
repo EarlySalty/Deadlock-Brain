@@ -1,0 +1,287 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-feeds)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 36.57s
+     Running unittests src/lib.rs (/tmp/brain-g-k-20261007-target/debug/deps/brain_kernel-9a921c78eb39511d)
+
+running 36 tests
+test fact_relevance::tests::ambiguous_alias_does_not_select_highest_bm25_score ... ok
+test fact_relevance::tests::entity_field_alias_and_numeric_anchors ... ok
+test fact_relevance::tests::metadata_aliases_use_release_tokenizer_and_real_delimiters ... ok
+test fact_relevance::tests::patch_mode_and_provenance_are_required_when_requested ... ok
+test fact_relevance::tests::same_entity_field_with_two_sources_is_not_selected_by_score ... ok
+test fact_relevance::tests::specific_field_outranks_generic_field_for_one_entity ... ok
+test flight::c3_shared_validation::shared_answer_follower_revalidates_and_distinguishes_reader_failure_from_denial ... ok
+test flight::retained_pack_tests::oversized_uncited_pack_is_not_retained_for_single_flight_followers ... ok
+test flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success ... FAILED
+test flight::review_publication::publication_and_internal_requests_do_not_share_flights_or_cache_entries ... ok
+test flight::review_publication::publication_follower_rechecks_uncited_head_after_successful_leader ... ok
+test flight::tests::concurrent_failures_are_shared_but_not_retained ... ok
+test outcome::tests::uncited_dependency_pack_is_shared_accounted_and_absent_from_wire_response ... ok
+test tests::actor_scopes_provider_mechanik_und_szenario_trennen_wiederverwendung ... ok
+test tests::boonkurven_analytics_und_regeln_erhalten_die_tatsaechliche_erweiterte_unteranfrage ... ok
+test tests::build_never_falls_back_to_generative_prose ... ok
+test tests::cache_hit_prueft_unzitierte_quellen_und_grants_und_loest_pin_requestgebunden ... ok
+test tests::explain_path_calls_provider_for_public_evidence ... ok
+test tests::fact_path_does_not_call_provider ... ok
+test tests::fehlende_belege_und_unvollstaendige_abschlussgruende_sind_keine_antwort ... ok
+test tests::internal_evidence_requires_internal_egress ... ok
+test tests::prose_shaped_like_a_domain_certificate_is_not_a_deterministic_capability ... ok
+test tests::provider_egress_und_publikationsfreigabe_gelten_auch_fuer_unzitierte_toolinputs ... ok
+test tests::single_flight_follower_prueft_vollstaendige_typisierte_toolabhaengigkeiten ... ok
+test tests::successful_fact_domain_and_provider_paths_reject_late_validation ... ok
+test tests::tool_abbruch_behält_die_urspruengliche_deadline_und_verhindert_folgerunden ... ok
+test tests::typed_domain_intent_separates_cache_and_single_flight_keys ... ok
+test tests::unauthorized_evidence_never_reaches_provider ... ok
+test tests::unbekannte_felder_actor_und_version_werden_vor_ausfuehrung_verweigert ... ok
+test tests::unzitierter_privater_input_und_falsche_ergebniszuordnung_stoppen_die_folgerunde ... ok
+test tests::versionswechsel_bildet_vor_cache_und_flight_einen_neuen_schluessel ... ok
+test tests::vollstaendige_belege_und_pin_werden_nach_finalturn_erneut_geprueft ... ok
+test tests::werkzeugloop_beschafft_belege_ohne_initiales_textprofil_und_traegt_alle_unteranfragen ... ok
+test tests::wiederholte_call_ids_werden_vor_zweiter_ausfuehrung_abgewiesen ... ok
+test tests::wiederholte_modellhistorie_ist_vor_dem_zweiten_versand_vollstaendig_reserviert ... ok
+test tests::zweite_runde_retries_und_externe_toolnutzung_teilen_dasselbe_budget ... ok
+
+failures:
+
+---- flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success stdout ----
+
+thread 'flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success' (2249820) panicked at crates/brain-kernel/src/flight/review_dependencies.rs:154:55:
+called `Result::unwrap()` on an `Err` value: Timeout
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success
+
+test result: FAILED. 35 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.77s
+
+error: test failed, to rerun pass `-p brain-kernel --lib`
+     Running tests/core_kernel.rs (/tmp/brain-g-k-20261007-target/debug/deps/core_kernel-f20b7619fa965abe)
+
+running 8 tests
+test asset_hero_entity_and_field_records_share_identity ... FAILED
+test assets_feed_field_answers_through_release_kernel ... FAILED
+test cache_separates_principal_release_and_rechecks_current_acl ... FAILED
+test forged_provider_citation_is_rejected_and_failure_not_cached ... FAILED
+test irrelevant_excerpts_produce_insufficient_evidence_with_charged_usage ... FAILED
+test patch_agnostic_fact_does_not_establish_release_patch_or_mode ... FAILED
+test retrieval_and_provider_share_a_budget ... FAILED
+test revocation_during_provider_call_prevents_publication ... FAILED
+
+failures:
+
+---- asset_hero_entity_and_field_records_share_identity stdout ----
+
+thread 'asset_hero_entity_and_field_records_share_identity' (2250468) panicked at crates/brain-kernel/tests/core_kernel.rs:185:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- assets_feed_field_answers_through_release_kernel stdout ----
+
+thread 'assets_feed_field_answers_through_release_kernel' (2250473) panicked at crates/brain-kernel/tests/core_kernel.rs:261:89:
+called `Result::unwrap()` on an `Err` value: Quarantined("hero starting_stats.max_move_speed.value missing or not numeric")
+
+---- cache_separates_principal_release_and_rechecks_current_acl stdout ----
+
+thread 'cache_separates_principal_release_and_rechecks_current_acl' (2250566) panicked at crates/brain-kernel/tests/core_kernel.rs:368:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+
+---- forged_provider_citation_is_rejected_and_failure_not_cached stdout ----
+
+thread 'forged_provider_citation_is_rejected_and_failure_not_cached' (2250567) panicked at crates/brain-kernel/tests/core_kernel.rs:427:9:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: ProviderError
+
+---- irrelevant_excerpts_produce_insufficient_evidence_with_charged_usage stdout ----
+
+thread 'irrelevant_excerpts_produce_insufficient_evidence_with_charged_usage' (2250569) panicked at crates/brain-kernel/tests/core_kernel.rs:460:5:
+assertion `left == right` failed
+  left: "Evidenz konnte nicht geladen werden."
+ right: "Dazu hab ich gerade nichts Genaues, frag am besten direkt im Discord nach."
+
+---- patch_agnostic_fact_does_not_establish_release_patch_or_mode stdout ----
+
+thread 'patch_agnostic_fact_does_not_establish_release_patch_or_mode' (2250570) panicked at crates/brain-kernel/tests/core_kernel.rs:92:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+
+---- retrieval_and_provider_share_a_budget stdout ----
+
+thread 'retrieval_and_provider_share_a_budget' (2250571) panicked at crates/brain-kernel/tests/core_kernel.rs:509:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+
+---- revocation_during_provider_call_prevents_publication stdout ----
+
+thread 'revocation_during_provider_call_prevents_publication' (2250573) panicked at crates/brain-kernel/tests/core_kernel.rs:406:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: UnauthorizedEvidence
+
+
+failures:
+    asset_hero_entity_and_field_records_share_identity
+    assets_feed_field_answers_through_release_kernel
+    cache_separates_principal_release_and_rechecks_current_acl
+    forged_provider_citation_is_rejected_and_failure_not_cached
+    irrelevant_excerpts_produce_insufficient_evidence_with_charged_usage
+    patch_agnostic_fact_does_not_establish_release_patch_or_mode
+    retrieval_and_provider_share_a_budget
+    revocation_during_provider_call_prevents_publication
+
+test result: FAILED. 0 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+
+error: test failed, to rerun pass `-p brain-kernel --test core_kernel`
+     Running tests/evidence_errors.rs (/tmp/brain-g-k-20261007-target/debug/deps/evidence_errors-57b4a11db99a1c72)
+
+running 6 tests
+test cache_hit_timeout_fails_closed_without_provider_retry_and_does_not_cache_failure ... FAILED
+test permission_budget_and_invalid_reader_responses_are_distinct ... FAILED
+test real_postgres_connection_failure_is_unavailable_not_permission_denied ... ok
+test six_hundred_parallel_requests_with_reader_faults_never_report_false_permission_denials ... FAILED
+test technical_reader_failures_are_unavailable_at_every_handoff_not_unauthorized ... FAILED
+test unavailable_roundtrips_through_the_public_response_contract ... ok
+
+failures:
+
+---- cache_hit_timeout_fails_closed_without_provider_retry_and_does_not_cache_failure stdout ----
+
+thread 'cache_hit_timeout_fails_closed_without_provider_retry_and_does_not_cache_failure' (2250578) panicked at crates/brain-kernel/tests/evidence_errors.rs:183:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- permission_budget_and_invalid_reader_responses_are_distinct stdout ----
+
+thread 'permission_budget_and_invalid_reader_responses_are_distinct' (2250582) panicked at crates/brain-kernel/tests/evidence_errors.rs:162:13:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: UnauthorizedEvidence
+
+---- six_hundred_parallel_requests_with_reader_faults_never_report_false_permission_denials stdout ----
+
+thread '<unnamed>' (2250586) panicked at crates/brain-kernel/tests/evidence_errors.rs:228:29:
+unexpected status for technical reader fault: InsufficientEvidence
+
+thread 'six_hundred_parallel_requests_with_reader_faults_never_report_false_permission_denials' (2250585) panicked at crates/brain-kernel/tests/evidence_errors.rs:238:27:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+
+---- technical_reader_failures_are_unavailable_at_every_handoff_not_unauthorized stdout ----
+
+thread 'technical_reader_failures_are_unavailable_at_every_handoff_not_unauthorized' (2250594) panicked at crates/brain-kernel/tests/evidence_errors.rs:126:13:
+assertion `left == right` failed: reader timeout, read 1
+  left: InsufficientEvidence
+ right: Unavailable
+
+
+failures:
+    cache_hit_timeout_fails_closed_without_provider_retry_and_does_not_cache_failure
+    permission_budget_and_invalid_reader_responses_are_distinct
+    six_hundred_parallel_requests_with_reader_faults_never_report_false_permission_denials
+    technical_reader_failures_are_unavailable_at_every_handoff_not_unauthorized
+
+test result: FAILED. 2 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p brain-kernel --test evidence_errors`
+     Running tests/patch_validity.rs (/tmp/brain-g-k-20261007-target/debug/deps/patch_validity-257615001661bea8)
+
+running 6 tests
+test cached_provider_answer_is_not_reused_after_head_patch_change ... ok
+test canonical_known_patch_with_legacy_null_still_answers_directly ... ok
+test direct_fact_never_answers_old_or_unknown_as_requested_patch ... ok
+test head_patch_change_during_provider_call_blocks_handoff ... ok
+test unknown_fact_remains_answerable_without_game_patch_claim ... ok
+test unknown_patch_fact_cannot_hide_a_conflict_with_known_fact ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests/pr61_dependencies.rs (/tmp/brain-g-k-20261007-target/debug/deps/pr61_dependencies-bdb42558c4c4ed56)
+
+running 5 tests
+test cached_answer_must_track_uncited_inputs ... ok
+test concurrent_fact_reuse_reselects_instead_of_sharing_a_stale_selection ... ok
+test facts_reselect_newly_visible_conflicts_and_aliases_without_model_calls ... ok
+test revoked_uncited_inputs_do_not_create_successful_cache_entries ... ok
+test uncited_input_revoked_during_provider_call_must_block_publication ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/review_dependencies.rs (/tmp/brain-g-k-20261007-target/debug/deps/review_dependencies-230b7dab56ae2959)
+
+running 6 tests
+test cache_hit_revalidates_uncited_input_acl_and_tombstone ... FAILED
+test concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner ... FAILED
+test fact_reuse_rechecks_newly_visible_conflict_and_alias_collision ... FAILED
+test fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads ... FAILED
+test hybrid_fact_limit_cannot_hide_a_pinned_conflicting_value ... ok
+test uncited_provider_input_revoked_during_call_must_not_publish_or_cache ... FAILED
+
+failures:
+
+---- cache_hit_revalidates_uncited_input_acl_and_tombstone stdout ----
+
+thread 'cache_hit_revalidates_uncited_input_acl_and_tombstone' (2250707) panicked at crates/brain-kernel/tests/review_dependencies.rs:170:9:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner stdout ----
+
+thread 'concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner' (2250727) panicked at crates/brain-kernel/tests/review_dependencies.rs:443:55:
+called `Result::unwrap()` on an `Err` value: Timeout
+
+---- fact_reuse_rechecks_newly_visible_conflict_and_alias_collision stdout ----
+
+thread 'fact_reuse_rechecks_newly_visible_conflict_and_alias_collision' (2251149) panicked at crates/brain-kernel/tests/review_dependencies.rs:237:9:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+
+---- fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads stdout ----
+
+thread 'fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads' (2251150) panicked at crates/brain-kernel/tests/review_dependencies.rs:349:9:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+
+---- uncited_provider_input_revoked_during_call_must_not_publish_or_cache stdout ----
+
+thread 'uncited_provider_input_revoked_during_call_must_not_publish_or_cache' (2251211) panicked at crates/brain-kernel/tests/review_dependencies.rs:136:9:
+assertion `left == right` failed: tombstone=false
+  left: InsufficientEvidence
+ right: UnauthorizedEvidence
+
+
+failures:
+    cache_hit_revalidates_uncited_input_acl_and_tombstone
+    concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner
+    fact_reuse_rechecks_newly_visible_conflict_and_alias_collision
+    fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads
+    uncited_provider_input_revoked_during_call_must_not_publish_or_cache
+
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.42s
+
+error: test failed, to rerun pass `-p brain-kernel --test review_dependencies`
+   Doc-tests brain_kernel
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 4 targets failed:
+    `-p brain-kernel --lib`
+    `-p brain-kernel --test core_kernel`
+    `-p brain-kernel --test evidence_errors`
+    `-p brain-kernel --test review_dependencies`

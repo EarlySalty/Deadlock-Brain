@@ -1,0 +1,94 @@
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:46:    pub fn validate(&self) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:63:    pub fn validate(&self, definitions: &[ToolDefinition]) -> Result<ToolRequest, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:218:    fn validate(&self) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:262:    fn validate(&self) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:372:    fn parse(name: ToolName, arguments: &Value) -> Result<Self, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:396:    fn validate(&self) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:474:    fn validate(&self) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:541:    fn validate(&self) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:557:fn validate_optional_number(value: Option<f64>, nonnegative: bool) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:564:fn validate_numeric_id(id: u64) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:571:fn validate_numeric_ids(ids: &[u64]) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:582:fn validate_entity(entity: &ToolEntityRef) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:586:fn validate_imbues(imbues: &[ToolImbue]) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:598:fn validate_text(text: &str) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:605:fn validate_fields(fields: &[String], required: bool) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:691:    pub fn validate(&self, definitions: &[ToolDefinition]) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:707:    pub fn into_answer(self) -> Result<ProviderAnswer, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:737:    pub fn validate(&self, definitions: &[ToolDefinition]) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:780:    pub fn validate(&self) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:808:    ) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:877:    ) -> Result<Vec<ToolDefinition>, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:888:    ) -> Result<ToolExecution, PortError>;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:890:    fn validate_dependencies(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:897:    ) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:904:pub fn validate_definitions(definitions: &[ToolDefinition]) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:918:) -> Result<Vec<&'a ToolCall>, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:936:pub(crate) fn validate_id(id: &str) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:943:fn validate_ids(ids: &[String]) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:994:fn validate_schema(schema: &Value) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:1113:fn validate_arguments(value: &Value, schema: &Value) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:1793:            ) -> Result<ToolExecution, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:1827:                .validate_dependencies(&query, &context, None, &[], purpose)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:25:    next.budget.max_network_rounds = next
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:27:        .max_network_rounds
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:28:        .checked_sub(usage.network_rounds)?;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:44:        input_tokens: a.input_tokens.checked_add(b.input_tokens)?,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:45:        output_tokens: a.output_tokens.checked_add(b.output_tokens)?,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:46:        network_rounds: a.network_rounds.checked_add(b.network_rounds)?,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:47:        cost_micros: a.cost_micros.checked_add(b.cost_micros)?,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:56:) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:72:) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:129:    let result = (|| -> Result<brain_contracts::ProviderAnswer, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:136:            if next.budget.max_network_rounds == 0 || next.budget.max_output_tokens == 0 {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:164:            let turn = kernel.provider.answer_turn(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:175:                    .checked_mul(u64::from(turn_charge.network_rounds))
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:181:            if turn.usage().network_rounds == 0 {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:568:    if provider_context.budget.max_network_rounds == 0
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:140:    pub max_network_rounds: u32,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:149:            max_network_rounds: 4,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:302:    pub network_rounds: u32,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:469:    ) -> std::result::Result<Vec<Evidence>, PortError>;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:475:    ) -> std::result::Result<(Vec<Evidence>, Usage), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:485:    ) -> std::result::Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:497:    ) -> std::result::Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:510:    ) -> std::result::Result<ProviderAnswer, PortError>;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:512:    fn answer_turn(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:519:    ) -> std::result::Result<tools::ProviderTurn, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:548:            ) -> std::result::Result<ProviderAnswer, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:559:                        network_rounds: 1,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:593:            .answer_turn(&query, &context, &[], &[], &conversation)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:603:            .answer_turn(&query, &context, &[], &tools, &conversation)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:613:            .answer_turn(&query, &context, &[], &[], &history)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:620:            .answer_turn(&domain_query, &context, &[], &[], &conversation)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs:625:            .answer_turn(&invalid_query, &context, &[], &[], &conversation)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:38:    ) -> Result<Option<PinnedGameContext>, PortError>;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:45:    ) -> Result<(), PortError>;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:107:    ) -> Result<Option<ToolSession>, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:142:    ) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:153:        binding.port.validate_dependencies(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:162:            binding.port.validate_dependencies(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:262:    ) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:339:        ) -> Result<Vec<Evidence>, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:348:        ) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:371:        ) -> Result<Vec<Evidence>, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:381:        ) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:402:        ) -> Result<ProviderAnswer, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:415:                    network_rounds: 1,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:763:        ) -> Result<Option<PinnedGameContext>, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:778:        ) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:798:        ) -> Result<Vec<ToolDefinition>, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:808:        ) -> Result<brain_contracts::ToolExecution, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:859:        fn validate_dependencies(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:866:        ) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:911:        ) -> Result<ProviderAnswer, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:914:        fn answer_turn(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:921:        ) -> Result<brain_contracts::ProviderTurn, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:995:                network_rounds: 1,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1008:                network_rounds: 1,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1085:        assert_eq!(answer.answer.usage.network_rounds, 2);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1272:                        network_rounds: 1,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1317:        assert_eq!(answer.usage.network_rounds, 1);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1328:                answer.usage.network_rounds = final_rounds;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1334:            state.lock().unwrap().tool_usage.network_rounds = tool_rounds;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1336:            context.budget.max_network_rounds = rounds;

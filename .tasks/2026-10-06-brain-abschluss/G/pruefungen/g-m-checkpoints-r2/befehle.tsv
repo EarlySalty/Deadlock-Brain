@@ -1,0 +1,46 @@
+Gruppe	Befehl	Exit	Bezug
+Start	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 rev-parse HEAD	0	bd83d7abdef812a30daa47aa5f6a78de4f42263a
+Start	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 ls-remote --exit-code --heads origin refs/heads/feat/brain-v2-g-20261007	0	bd83d7abdef812a30daa47aa5f6a78de4f42263a
+Quellen	SHA256-Abgleich Startmanifest gegen zwölf tatsächliche Dateien	0	12/12 identisch; start.log
+S2 Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 add -- /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/planner.rs	0	Zwei eigene Dateien
+S2 Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 apply --cached --reverse --unidiff-zero /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/S2-HOLDBACK.patch	0	S3-Wrapper unverändert unstaged
+S2 Grenze	Indexliste und SHA256, Wrapperabwesenheit und Plannervergleich	0	S2-r1-compiler-clippy.log
+S2 Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --check	0	Keine Formatfehler
+S2 Commit	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 commit -m "feat(brain): Gelieferte Kampfsimulation als S2 sichern" -m "Co-authored-by: GPT 6.1 Sol <modell@local>"	0	54f76ba0315df6299d8bdc5e5c7c9f380d54d22c
+S2 SHA	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 rev-parse HEAD	0	54f76ba0315df6299d8bdc5e5c7c9f380d54d22c
+S2 Prüfbaum	git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 checkout --detach 54f76ba0315df6299d8bdc5e5c7c9f380d54d22c	0	Bestehender eigener Prüfbaum
+S2 Compiler	flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo check --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target	0	17,91 s
+S2 Clippy	flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- -D warnings	0	26,71 s; einschließlich Abhängigkeiten
+S2 Format	/home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner -- --check	0	Keine Ausgabe
+S2 Gate R1	python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base bd83d7abdef812a30daa47aa5f6a78de4f42263a --head 54f76ba0315df6299d8bdc5e5c7c9f380d54d22c	1	[gpt-6.1-sol] BLOCK: Exact kill times produce incorrect contact durations.; S2-r1-gate.log
+S2 Deny	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --short --untracked-files=no	0	Fremde Akten und S3 erhalten; Primärindex leer
+S2 Deny	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -1 --format=fuller	0	54f76ba0315df6299d8bdc5e5c7c9f380d54d22c; vorgeschriebener einzelner Trailer
+S2 Fix R2	Frischer nativer coder-Fixer abgeschlossen und Rohbelege konsumiert	0	d12986c4eaaf6477a28b2fa672b43d1a5a8c561a; Compiler/Clippy/Format Exit 0; zwölf Quellen geprüft, elf bytegleich, nur enger Combatfix
+S2 Gate R2	python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base bd83d7abdef812a30daa47aa5f6a78de4f42263a --head d12986c4eaaf6477a28b2fa672b43d1a5a8c561a	1	[gpt-6.1-sol] BLOCK: Physical bonus procs ignore their configured probability.; s2-fix-r2/S2-r2-gate.log; kein Push
+S2 Deny R2	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --short --untracked-files=no	0	Fremde Akten und S3 erhalten
+S2 Deny R2	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -1 --format=fuller	0	d12986c4eaaf6477a28b2fa672b43d1a5a8c561a
+S2 Fix R3	Frischer nativer coder-Fixer abgeschlossen, vollständige Rohbelege konsumiert	0	9f965c88952177195a9ebba07b1de38357e2e585; Compiler/Clippy/Format Exit 0; elf andere Quellen bytegleich; beide bisherigen Fixes erhalten
+S2 Gate R3	python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base bd83d7abdef812a30daa47aa5f6a78de4f42263a --head 9f965c88952177195a9ebba07b1de38357e2e585	1	[gpt-6.1-sol] BLOCK: Stack bonus damage bypasses weapon amplification.; s2-fix-r3/S2-r3-gate.log; kein Push
+S2 Deny R3	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --short --untracked-files=no	0	Fremde Akten und S3 erhalten
+S2 Deny R3	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -1 --format=fuller	0	9f965c88952177195a9ebba07b1de38357e2e585
+S2 Fix R4	Frischer nativer coder-Fixer abgeschlossen, Rohbelege konsumiert	0	89fa8a1919afa3a01e5f4b03ecdf0427a645d84f; Compiler/Clippy/Format Exit 0; elf andere Quellen bytegleich; S3-Wrapper erhalten
+S2 Gate R4	python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base bd83d7abdef812a30daa47aa5f6a78de4f42263a --head 89fa8a1919afa3a01e5f4b03ecdf0427a645d84f	1	[gpt-6.1-sol] BLOCK: Partial ammo refills can strand the weapon.; kein Push
+S2 Deny R4	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --short --untracked-files=no	0	Fremde Akten und S3 erhalten
+S2 Deny R4	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -1 --format=fuller	0	89fa8a1919afa3a01e5f4b03ecdf0427a645d84f
+Werkzeuggrenze	ctx_execute_file auf s2-fix-r4/S2-r4-gate.log	abgewiesen	Worktree liegt außerhalb des Context-Mode-Projektroots; nicht wiederholt, keine Freigabe-/Konfigänderung, kein alternativer Dateizugriff. Zuvor bereits zulässig eingelesene/indexierte Belege über ctx_search konsumiert
+S2 Fix R5	Frischer nativer coder-Fixer abgeschlossen, vollständige Rohbelege konsumiert	0	aefe916a3197911e8ef5b22c602d766a8303e36e; Compiler/Clippy/Format Exit 0; elf andere Quellen bytegleich; S3-Wrapper erhalten
+S2 Gate R5	python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base bd83d7abdef812a30daa47aa5f6a78de4f42263a --head aefe916a3197911e8ef5b22c602d766a8303e36e	1	[gpt-6.1-sol] BLOCK: Completed reloads can lose ammo, and pressure runs can report truncated durations.; kein Push
+S2 Deny R5	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --short --untracked-files=no	0	Fremde Akten und S3 erhalten
+S2 Deny R5	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -1 --format=fuller	0	aefe916a3197911e8ef5b22c602d766a8303e36e
+S2 Fix R6	Fünfter frischer nativer coder-Fixer abgeschlossen, vollständige Rohbelege konsumiert	0	8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206; Compiler/Clippy/Format Exit 0; elf andere Quellen bytegleich; S3-Wrapper erhalten
+S2 Gate R6	python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base bd83d7abdef812a30daa47aa5f6a78de4f42263a --head 8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206	1	[gpt-6.1-sol] BLOCK: stack damage skips shred, and duplicate items replay effects.; kein Push
+S2 Deny R6	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --short --untracked-files=no	0	Fremde Akten und S3 erhalten
+S2 Deny R6	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -1 --format=fuller	0	8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206
+Ende Prüfbaum	git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 rev-parse HEAD	0	8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206
+Ende Prüfbaum	git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 status --porcelain=v1 --untracked-files=all	0	Sauber, keine Ausgabe
+Ende Origin	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 ls-remote --exit-code --heads origin refs/heads/feat/brain-v2-g-20261007	0	bd83d7abdef812a30daa47aa5f6a78de4f42263a; kein ungeprüfter Folgestand gesichert
+Ende Quellen	sha256sum -c /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/bereichs-quellen-ende.sha256	0	12/12 endgültige Arbeitsquellen gebunden; 11/12 bytegleich mit Start, Ausnahme beauftragte Combatfixes
+Ende Kette	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log --reverse --format='%H%x09%P%x09%s' bd83d7abdef812a30daa47aa5f6a78de4f42263a..8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206	0	Sechs lokale S2-Commits, Eltern-SHAs belegt
+Ende Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --stat	0	Leer, keine Ausgabe
+Paketgrenze	Rückgabe nach fünf erfolglosen frischen Fixrunden und sechs S2-Gates	BLOCK	S3/S4 nicht begonnen, kein S3-Übergabevertrag, keine Tests, kein Main/Release/Deploy/Runtime/Cleanup/Settle
+S3/S4 Vorbereitung	Restfunktionen data.rs, lib.rs-Grenze und öffentliche Recheneingänge geprüft	0	Data ausschließlich ability_scale_input/ability_property_scale; S4 34 vorhandene Testdefinitionen, kein Testlauf

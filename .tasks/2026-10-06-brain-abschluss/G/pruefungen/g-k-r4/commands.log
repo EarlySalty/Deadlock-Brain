@@ -1,0 +1,80 @@
+START_HEAD=b352472fbe75429a221cefe5a59133f41bd35520
+BASELINE_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-kernel --package brain-providers --package brain-serve --locked --offline --jobs 3 --target-dir /tmp/brain-g-k-r4-20261007-target --no-fail-fast -- --include-ignored --test-threads=1
+BASELINE_EXIT=101
+BASELINE_KERNEL=71 passed, 18 failed, 0 ignored, 0 filtered
+BASELINE_PROVIDERS=44 passed, 0 failed, 0 ignored, 0 filtered
+BASELINE_SERVE=59 passed, 8 failed, 0 ignored, 0 filtered
+FORMAT_COMMAND=/home/nathanael/.cargo/bin/rustfmt --edition 2021 --config skip_children=true /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve/tests/tool_evidence_loop.rs
+FORMAT_EXIT=0
+FMT_COMMAND=/home/nathanael/.cargo/bin/rustfmt --check --edition 2021 --config skip_children=true /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve/tests/tool_evidence_loop.rs
+FMT_EXIT=0
+CHECK_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo check --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-kernel --package brain-providers --package brain-serve --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-k-r4-20261007-target
+CHECK_EXIT=0
+CLIPPY_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-kernel --package brain-providers --package brain-serve --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-k-r4-20261007-target -- -D warnings
+CLIPPY_EXIT=0
+INTEGRATION_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-serve --test tool_evidence_loop --locked --offline --jobs 3 --target-dir /tmp/brain-g-k-r4-20261007-target -- --include-ignored --test-threads=1
+INTEGRATION_FIRST_EXIT=101; eigener Test hatte Import-, Borrow- und Cow-Fehler; vor der erfolgreichen Prüfung korrigiert
+INTEGRATION_FINAL_EXIT=0
+INTEGRATION=6 passed, 0 failed, 0 ignored, 0 filtered
+INTEGRATION_CASES=14 Fälle mit konkreten Providern, 20 tatsächliche HTTP-Loopbackanfragen
+SUITES_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-kernel --package brain-providers --package brain-serve --locked --offline --jobs 3 --target-dir /tmp/brain-g-k-r4-20261007-target --no-fail-fast -- --include-ignored --test-threads=1
+SOURCE_FILES=423
+SOURCE_MANIFEST_SHA256=c5d13bec5538421d4af6eefa5eb8d40bb394aa203420d7113f9433a65b96667f
+SOURCE_MATCH_COMMAND=sha256sum --check --status /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-k-r4/sources.sha256
+SOURCE_MATCH_EXIT=0
+OWN_EXECUTION_SHA256=76777e28786bff46e7c7e91840c1ab46d7082464b2030853b91e53999351dcb2
+OWN_TEST_SHA256=c71de704bbf0f1eb34d7694a8733e8c27d3a1f4527cb551139c1ab8e6ce0ed2f
+OWNERSHIP=execution.rs, unmittelbare Providerfixture in Kernel-lib.rs und tool_evidence_loop.rs; Reasoner-WIP und Akte unverändert
+SUITES_INITIAL=nach neu auftretenden Assertionfehlern in der alten initial.is_empty-Providerfixture und einer dadurch blockierten Barrierprobe beendet; kein vollständiger Suite-Exit; Rohlog suites-initial-aborted.log
+FIXTURE=alte Leerbelegannahme durch genaue Erwartung der gesammelten zitierten und unzitierten Beleg-IDs ersetzt; keine produktive Kernel-lib.rs-Änderung
+KERNEL_FIXTURE_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-kernel --lib --locked --offline --jobs 3 --target-dir /tmp/brain-g-k-r4-20261007-target -- --include-ignored --test-threads=1
+KERNEL_FIXTURE_EXIT=101
+KERNEL_FIXTURE=57 passed, 1 failed, 0 ignored, 0 filtered; derselbe Flight-Fehler wie Baseline
+FINAL_FORMAT_FILES=Kernel-lib.rs, execution.rs und tool_evidence_loop.rs; gezielt mit rustfmt --edition 2021 --config skip_children=true
+FINAL_FMT_EXIT=0
+FINAL_CHECK_EXIT=0
+FINAL_CLIPPY_EXIT=0
+FINAL_SOURCE_MANIFEST=sources-final.sha256
+FINAL_SOURCE_MANIFEST_SHA256=33f4b6a208918ccb6c74054f5a916426f4742aae0bb64f7dc611a11165c51404
+OWN_KERNEL_LIB_SHA256=3cff4d3868906171ed6fa0febe5bd1a9f410b35bf2ba1559b23c8aa69c55f58e
+FINAL_SOURCE_MATCH_COMMAND=sha256sum --check --status /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-k-r4/sources-final.sha256
+LIMITS=Loopback mit konkreter Autorisierung, Serialisierung, Parser und Transport; Werkzeugdaten und Spielbindung sind kontrollierte Fakes; keine echte Luna-, Spiegel-, Build- oder Live-Abnahme; kein Push/main/runtime
+SUITES_FINAL_EXIT=101
+SUITES_FINAL=71/18 Kernel, 44/0 Provider, 65/8 Serve; 0 ignored, 0 filtered
+SOURCE_DRIFT=alte Manifestprüfung Exit 1; fremde Änderung ausschließlich Serve-discord_live.rs, finish_reason=stop in vorhandener HTTP-Testfixture; selbst nicht bearbeitet oder gestaged
+SUITES_FINAL_NEW_FAILURE=analytics::tests::second_snapshot_exhaustion_rejects_direct_kernel_service_and_http_answers; HTTP 504 statt 200; nutzt Kernel ohne Werkzeuganschluss; kein Flake-Urteil und keine Änderung außerhalb Eigentum
+BOUND_CHECK_COMMAND=derselbe CHECK_COMMAND, nach Quelle-Drift erneut ausgeführt; check-bound.log
+BOUND_CHECK_EXIT=0
+BOUND_CLIPPY_COMMAND=derselbe CLIPPY_COMMAND, nach Quelle-Drift erneut ausgeführt; clippy-bound.log
+BOUND_CLIPPY_EXIT=0
+BOUND_SUITES_COMMAND=derselbe SUITES_COMMAND, nach Quelle-Drift erneut ausgeführt; suites-bound.log
+BOUND_SUITES_EXIT=101
+BOUND_KERNEL=71 passed, 18 failed, 0 ignored, 0 filtered
+BOUND_PROVIDERS=44 passed, 0 failed, 0 ignored, 0 filtered
+BOUND_SERVE=66 passed, 7 failed, 0 ignored, 0 filtered
+BOUND_INTEGRATION=6 passed, 0 failed, 0 ignored, 0 filtered; Bestandteil des vollständigen Serve-Laufs
+BOUND_FAILURE_DELTA=0 neu, 1 entfernt; Entfernung ist der von fremder Testfixtureänderung betroffene Discord-Test, keine eigene Wirkung
+BOUND_ANALYTICS_RESULT=im erneuten vollständigen Lauf bestanden; erster HTTP-504-Befund bleibt im Rohlog dokumentiert, keine Flake-Ausrede
+BOUND_SOURCE_FILES=423
+BOUND_SOURCE_MANIFEST=sources-bound.sha256
+BOUND_SOURCE_MANIFEST_SHA256=9bb7a4fe6cedea60394c055568290a4791ccc560e13d3999d5fbd952117df3ec
+BOUND_SOURCE_MATCH_COMMAND=sha256sum --check --status /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-k-r4/sources-bound.sha256
+BOUND_SOURCE_MATCH_EXIT=0
+BASELINE_LIMIT=Serve-Vergleich nicht ausschließlich eigenes Delta, wegen fremder Testfixtureänderung; Kernel- und Provider-Fehlermengen unverändert
+GIT_ADD_COMMAND=git -C /home/nathanael/.worktrees/brain-g-v2-20261007 add /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve/tests/tool_evidence_loop.rs
+GIT_ADD_EXIT=0
+GIT_COMMIT_COMMAND=git -C /home/nathanael/.worktrees/brain-g-v2-20261007 commit -m "fix(brain): Werkzeugbelege an konkrete Providerfolgen weitergeben" -m "Co-authored-by: GPT 6.1 Sol <modell@local>" -m "Co-Authored-By: Claude Code <noreply@anthropic.com>"
+GIT_COMMIT_EXIT=0
+FIX_HEAD=78fed322c27da64eed83175532fce6f7eaa67309
+GATE_COMMAND=python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base b352472fbe75429a221cefe5a59133f41bd35520 --head 78fed322c27da64eed83175532fce6f7eaa67309
+GATE_PROCESS_WINDOW_MS=7200000
+GATE_RESULT_FILES=gate.log, gate.exit
+GATE_EXIT=0
+GATE_RESPONSE=[gpt-6.1-sol] ALLOW: No merge-blocking defect found in the supplied diff.
+POST_GATE_SOURCE_MATCH_EXIT=0
+COMMIT_SOURCE_MATCH_EXIT=0; alle drei Commitblobs stimmen mit den gebauten Quelldatei-SHA256 überein
+MERGEPROTOKOLL[MS-1]: 2 Git-Schritte einzeln | Anläufe: 1 | Gate: gpt-6.1-sol ALLOW, Exit 0; kein Merge
+TESTNACHWEIS[TW-1]: 181 passed, 0 ignored | Baseline: 26 rot
+FINAL_FAILED=25; Kernel 18, Serve 7; keine neue Fehlermenge gegenüber Vorher-Lauf; Gesamt-Suites nicht grün
+WIRKUNGSPRUEFUNG[WP-1]: 0 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 2/2 geprüft
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: Featurecommit und Rückgabe

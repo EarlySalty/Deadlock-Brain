@@ -1,0 +1,15 @@
+{
+  "command": [
+    "git",
+    "-C",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007",
+    "show-ref",
+    "refs/remotes/origin/main",
+    "refs/remotes/origin/feat/brain-build-publish-ohne-matchgrenze",
+    "refs/remotes/origin/feat/brain-i-integration-blocked-20261007",
+    "refs/remotes/origin/feat/brain-k-live-20261007"
+  ],
+  "exit": 0,
+  "stdout": "46fd86743589910d7b92a7223bdd6ab0dcf2b7c8 refs/remotes/origin/feat/brain-build-publish-ohne-matchgrenze\naf4736089cc5ce5d41ed442d445c49a30d5c6375 refs/remotes/origin/feat/brain-i-integration-blocked-20261007\n6fbc7bf629684ecd9904d5a564224109f334dfa9 refs/remotes/origin/feat/brain-k-live-20261007\nb7289d115c0b64016fcfe6cbfe3c797cf9fa76e2 refs/remotes/origin/main\n",
+  "stderr": ""
+}

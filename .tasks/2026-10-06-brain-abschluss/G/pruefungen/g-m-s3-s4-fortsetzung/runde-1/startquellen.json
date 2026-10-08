@@ -1,0 +1,20 @@
+{
+  "head": "e58a5c59d874848cf977bd0c3e7e77d7a4157d74",
+  "retained_original": {
+    "calculation.rs": "de2419f76368a233be9f848c3298f8560b42b1411b42d1a42c709b505231e15e",
+    "calculation_tests.rs": "bce7595afdab9ad3bb0e9ecf69d1335cd86431310aef243a8aa4143a4d2c49ca"
+  },
+  "after_clock_test_changes": {
+    "rust/crates/dbrain-reasoner/src/calculation.rs": "de2419f76368a233be9f848c3298f8560b42b1411b42d1a42c709b505231e15e",
+    "rust/crates/dbrain-reasoner/src/calculation_tests.rs": "fc2c34aedd34eeb3aecca07c740cad0613439cd6b342a56b903ea19776cf8d9d",
+    "rust/crates/dbrain-reasoner/src/combat.rs": "1e14ee3364095088f5046699a63f560014e7a74afab054f74a6e7035323fa99b",
+    "rust/crates/dbrain-reasoner/src/data.rs": "7b18c0c77db513df339066cf7565102985723a90c449147b33dbf4de032d97d7",
+    "rust/crates/dbrain-reasoner/src/lib.rs": "40f4ec9914032e1b18ae2166bbcc80c2157ec3ade373434eecc417817e6d1650",
+    "rust/crates/brain-contracts/src/lib.rs": "d825c717e86a8bcab5a2cb7f42ee7017997390b86f1772802be0214f6806b994",
+    "rust/crates/brain-contracts/src/provider_input.rs": "b8646b08e43984ba7e18bd0b95e50f6c81f547dfd8202e06289c89e4cb2c175c",
+    "rust/crates/brain-contracts/src/deadline.rs": "ab8fe5325337f6a5350ad03c492e333fa6780ff00c430f75d1402bbda8ad4d0a",
+    "rust/crates/dbrain-reasoner/testdata/calculation/recorded-assets.json": "167323f78bb6e9bb62f0e51ce076515180164cc3479e4a67fd7dc8607b17dad0",
+    "rust/crates/dbrain-reasoner/testdata/calculation/sheet-6759.json": "fd2984bb5b23ffaa59fa5a815ca7c2b67542221a57be677384cccbb0934ffbff",
+    "rust/crates/dbrain-reasoner/testdata/calculation/glass-cannon.json": "36656fbb25e87fa5eef4e612e61c007bf2d21b80933e52603fcedabbd394190b"
+  }
+}

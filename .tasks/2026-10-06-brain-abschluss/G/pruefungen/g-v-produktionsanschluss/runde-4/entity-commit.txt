@@ -1,0 +1,11 @@
+commit 397cfd4f6d6e943cf1981853326315551768597a
+Author:     EarlySalty <mail@earlysalty.com>
+AuthorDate: Thu Oct 8 05:23:06 2026 +0200
+Commit:     EarlySalty <mail@earlysalty.com>
+CommitDate: Thu Oct 8 05:23:06 2026 +0200
+
+    feat(brain): Spiegelentitäten an kanonische Quellenrechte binden
+    
+    Namenssuche und Originalfelder verwenden denselben tatsächlichen Spiegelpin. Jede Abhängigkeit wird anhand des gepinnten Releases und aktueller zweckgetrennter Rechte erneut geprüft. Rechen- und Buildwerkzeuge bleiben bis zu ihrem vollständigen Anschluss gesperrt.
+    
+    Co-authored-by: GPT 6.1 Sol <modell@local>

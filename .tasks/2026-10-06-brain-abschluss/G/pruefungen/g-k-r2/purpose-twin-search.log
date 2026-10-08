@@ -1,0 +1,17 @@
+rust/crates/brain-kernel/src/lib.rs:164:    fn validate_tools(
+rust/crates/brain-kernel/src/lib.rs:199:                ToolValidationPurpose::Publication,
+rust/crates/brain-kernel/src/lib.rs:293:            return execution::answer_tools(self, query, context, session, purpose);
+rust/crates/brain-kernel/src/lib.rs:323:            self.validate_tools(
+rust/crates/brain-kernel/src/lib.rs:331:            self.validate_tools(
+rust/crates/brain-kernel/src/lib.rs:995:                && purpose == ToolValidationPurpose::Publication
+rust/crates/brain-kernel/src/lib.rs:1790:                    .contains(&ToolValidationPurpose::Publication));
+rust/crates/brain-kernel/src/lib.rs:1798:                    .contains(&ToolValidationPurpose::Publication));
+rust/crates/brain-kernel/src/lib.rs:1837:                .contains(&ToolValidationPurpose::Publication));
+rust/crates/brain-kernel/src/lib.rs:1935:                .contains(&ToolValidationPurpose::Publication));
+rust/crates/brain-kernel/src/execution.rs:124:pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
+rust/crates/brain-kernel/src/execution.rs:153:            kernel.validate_tools(
+rust/crates/brain-kernel/src/execution.rs:235:                    kernel.validate_tools(
+rust/crates/brain-kernel/src/execution.rs:268:                        kernel.validate_tools(
+rust/crates/brain-kernel/src/execution.rs:303:                        kernel.validate_tools(
+
+EXIT=0

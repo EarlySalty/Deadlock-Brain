@@ -1,0 +1,44 @@
+START_HEAD=3242fb36ed847dc06ef71d92c71108614b5d493f
+FIX_HEAD=b352472fbe75429a221cefe5a59133f41bd35520
+BASELINE_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-contracts --package brain-kernel --locked --offline --jobs 3 --target-dir /tmp/brain-g-k-r3-20261007-target --no-fail-fast -- --include-ignored --test-threads=1
+BASELINE_EXIT=101
+BASELINE_CONTRACTS=73 passed, 0 failed, 0 ignored, 0 filtered
+BASELINE_KERNEL=61 passed, 18 failed, 0 ignored, 0 filtered
+FORMAT_COMMAND=/home/nathanael/.cargo/bin/rustfmt --edition 2021 --config skip_children=true /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/outcome.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/flight.rs
+FORMAT_EXIT=0
+FMT_COMMAND=/home/nathanael/.cargo/bin/rustfmt --check --edition 2021 --config skip_children=true /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/outcome.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/flight.rs
+FMT_EXIT=0
+CHECK_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo check --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-contracts --package brain-kernel --package brain-providers --package dbrain-sources --package brain-serve --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-k-r3-20261007-target
+CHECK_EXIT=0
+CHECK_FIRST_ATTEMPT_EXIT=101; brain-sources existiert nicht als Paketname; tatsächlicher Paketname dbrain-sources aus cargo metadata
+CLIPPY_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-contracts --package brain-kernel --package brain-providers --package dbrain-sources --package brain-serve --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-k-r3-20261007-target -- -D warnings
+CLIPPY_EXIT=0
+SUITES_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-contracts --package brain-kernel --locked --offline --jobs 3 --target-dir /tmp/brain-g-k-r3-20261007-target --no-fail-fast -- --include-ignored --test-threads=1
+SUITES_EXIT=101
+CONTRACTS=73 passed, 0 failed, 0 ignored, 0 filtered
+KERNEL=71 passed, 18 failed, 0 ignored, 0 filtered
+KERNEL_FAILURE_DELTA=added 0, removed 0
+CONSUMERS_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-providers --package dbrain-sources --package brain-serve --locked --offline --jobs 3 --target-dir /tmp/brain-g-k-r3-20261007-target --no-fail-fast -- --include-ignored --test-threads=1
+CONSUMERS_EXIT=101
+CONSUMERS=414 passed, 14 failed, 0 ignored, 0 filtered; keine Vorher-Baseline für diesen Verbraucherlauf behauptet
+PROVIDERS=44 passed, 0 failed, 0 ignored, 0 filtered
+BUILD_PROOF_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-kernel --locked --offline --jobs 3 --target-dir /tmp/brain-g-k-r3-20261007-target -- buildschutz_ --include-ignored --test-threads=1
+BUILD_PROOF_EXIT=0
+BUILD_PROOF=10 passed, 0 failed, 0 ignored, 79 filtered
+BUILD_PROOF_FIRST_ATTEMPT_EXIT=101; E0716 im eigenen neuen Test korrigiert; zweiter Lauf 8 passed; finaler Lauf 10 passed
+SOURCE_FILES=423
+SOURCE_MANIFEST_SHA256=103c6ab44bc012a99de79669355715e2c58a27eb450f636775d6f92c1194f56c
+SOURCE_MATCH_COMMAND=sha256sum --check --status /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-k-r3/sources.sha256
+SOURCE_MATCH_EXIT=0
+GIT_ADD_COMMAND=git -C /home/nathanael/.worktrees/brain-g-v2-20261007 add /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/outcome.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/flight.rs
+GIT_ADD_EXIT=0
+GIT_COMMIT_COMMAND=git -C /home/nathanael/.worktrees/brain-g-v2-20261007 commit -m "fix(brain): Buildantworten an geprüfte deterministische Ergebnisse binden" -m "Co-authored-by: GPT 6.1 Sol <modell@local>"
+GIT_COMMIT_EXIT=0
+GATE_COMMAND=python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base 3242fb36ed847dc06ef71d92c71108614b5d493f --head b352472fbe75429a221cefe5a59133f41bd35520
+GATE_PROCESS_WINDOW_MS=7200000
+GATE_RESULT_FILES=gate.log, gate.exit
+GATE_EXIT=0
+GATE_RESPONSE=[gpt-6.1-sol] ALLOW: No blocking defect established by the supplied code.
+GATE_NIT=Production integration is unverified; only test overrides of validate_build_plan are supplied; echter F/G-V-Adapter bleibt gesonderte Integration
+POST_GATE_SOURCE_MATCH_EXIT=0
+POST_GATE_COMMIT_SOURCE_MATCH_EXIT=0

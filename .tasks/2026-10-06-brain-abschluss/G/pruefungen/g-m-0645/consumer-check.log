@@ -1,0 +1,160 @@
+   Compiling serde_core v1.0.228
+    Checking typenum v1.20.1
+    Checking stable_deref_trait v1.2.1
+    Checking errno v0.3.14
+    Checking signal-hook-registry v1.4.8
+    Checking tokio v1.52.3
+    Checking yoke v0.8.3
+   Compiling rand v0.8.6
+    Checking zerovec v0.11.6
+    Checking generic-array v0.14.7
+   Compiling futures-macro v0.3.32
+    Checking crypto-common v0.1.7
+    Checking block-buffer v0.10.4
+    Checking tinystr v0.8.3
+    Checking icu_locale_core v2.2.0
+    Checking digest v0.10.7
+    Checking futures-util v0.3.32
+    Checking serde v1.0.228
+    Checking serde_json v1.0.150
+    Checking smallvec v1.15.2
+    Checking potential_utf v0.1.5
+    Checking zerotrie v0.2.4
+    Checking icu_collections v2.2.0
+    Checking icu_provider v2.2.0
+    Checking bitflags v2.13.0
+    Checking icu_properties v2.2.0
+    Checking icu_normalizer v2.2.0
+    Checking parking_lot_core v0.9.12
+    Checking parking_lot v0.12.5
+    Checking idna_adapter v1.2.2
+    Checking sha2 v0.10.9
+    Checking idna v1.1.0
+    Checking tokio-util v0.7.18
+    Checking byteorder v1.5.0
+    Checking url v2.5.8
+    Checking httpdate v1.0.3
+    Checking hyper v1.10.1
+    Checking mime v0.3.17
+    Checking tower v0.5.3
+   Compiling unicase v2.9.0
+   Compiling mime_guess v2.0.5
+    Checking hyper-util v0.1.20
+   Compiling iana-time-zone v0.1.65
+   Compiling chrono v0.4.45
+   Compiling futures-intrusive v0.5.0
+    Checking async-compression v0.4.42
+   Compiling either v1.16.0
+    Checking tokio-rustls v0.26.4
+    Checking serde_urlencoded v0.7.1
+   Compiling sqlx-core v0.8.6
+    Checking hyper-rustls v0.27.9
+    Checking tower-http v0.6.11
+    Checking brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+    Checking reqwest v0.12.28
+   Compiling sqlx-postgres v0.8.6
+    Checking hmac v0.12.1
+    Checking tokio-stream v0.1.18
+    Checking hkdf v0.12.4
+    Checking md-5 v0.10.6
+   Compiling sqlx-macros-core v0.8.6
+   Compiling nix v0.29.0
+    Checking uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+    Checking fireworks-model-selection v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/vendor/fireworks-model-selection)
+    Checking siphasher v1.0.3
+    Checking hybrid-array v0.4.13
+   Compiling phf_shared v0.11.3
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Checking cmov v0.5.4
+   Compiling phf_generator v0.11.3
+    Checking block-buffer v0.12.1
+    Checking ctutils v0.4.2
+    Checking crypto-common v0.2.2
+    Checking const-oid v0.10.2
+    Checking rand_core v0.10.1
+   Compiling getrandom v0.4.3
+    Checking digest v0.11.3
+   Compiling getrandom v0.3.4
+    Checking cpufeatures v0.3.0
+    Checking chacha20 v0.10.1
+    Checking new_debug_unreachable v1.0.6
+   Compiling siphasher v0.3.11
+    Checking rand v0.10.1
+   Compiling phf_shared v0.10.0
+    Checking sha2 v0.11.0
+    Checking md-5 v0.11.0
+    Checking hmac v0.13.0
+   Compiling phf_macros v0.11.3
+    Checking fallible-iterator v0.2.0
+    Checking utf-8 v0.7.6
+   Compiling sqlx-macros v0.8.6
+    Checking postgres-protocol v0.6.12
+    Checking phf v0.11.3
+   Compiling phf_generator v0.10.0
+   Compiling string_cache_codegen v0.5.4
+   Compiling phf_codegen v0.11.3
+    Checking phf_shared v0.13.1
+    Checking mac v0.1.1
+    Checking precomputed-hash v0.1.1
+   Compiling markup5ever v0.12.1
+    Checking futf v0.1.5
+    Checking phf v0.13.1
+   Compiling phf_codegen v0.10.0
+    Checking postgres-types v0.2.14
+    Checking whoami v2.1.2
+    Checking sqlx v0.8.6
+   Compiling async-trait v0.1.89
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+    Checking dtoa v1.0.11
+    Checking dtoa-short v0.3.5
+   Compiling selectors v0.25.0
+    Checking tokio-postgres v0.7.18
+    Checking tendril v0.4.3
+    Checking string_cache v0.8.9
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+   Compiling ahash v0.8.12
+   Compiling cssparser-macros v0.6.1
+   Compiling html5ever v0.27.0
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+    Checking postgres v0.19.14
+    Checking cssparser v0.31.2
+    Checking phf v0.10.1
+    Checking fxhash v0.2.1
+    Checking servo_arc v0.3.0
+   Compiling derive_more v0.99.20
+    Checking unicode-width v0.2.2
+   Compiling rustix v1.1.4
+    Checking getopts v0.2.24
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+    Checking ego-tree v0.6.3
+    Checking linux-raw-sys v0.12.1
+    Checking scraper v0.20.0
+    Checking fastrand v2.4.1
+    Checking tempfile v3.27.0
+    Checking rand_core v0.9.5
+    Checking rand_chacha v0.9.0
+    Checking rand v0.9.4
+    Checking sha1 v0.10.6
+    Checking data-encoding v2.11.1
+    Checking tungstenite v0.28.0
+    Checking brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-policy)
+    Checking axum-core v0.5.6
+    Checking serde_path_to_error v0.1.20
+    Checking matchit v0.8.4
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+    Checking brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+    Checking axum v0.8.9
+    Checking tokio-tungstenite v0.28.0
+    Checking dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-wiki)
+    Checking uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/vendor/uplink-infisical-transport)
+    Checking roxmltree v0.20.0
+    Checking dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+    Checking brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers)
+    Checking dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+    Checking brain-api v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-api)
+    Checking brain-client v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-client)
+    Checking brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-ingestion)
+    Checking wait-timeout v0.2.1
+    Checking brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 43s

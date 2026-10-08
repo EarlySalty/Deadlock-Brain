@@ -1,0 +1,36 @@
+Start-HEAD: 54f76ba0315df6299d8bdc5e5c7c9f380d54d22c
+Fix-HEAD: d12986c4eaaf6477a28b2fa672b43d1a5a8c561a
+Branch: feat/brain-v2-g-20261007
+Prüfbaum: /home/nathanael/.worktrees/brain-g-checkpoints-20261007
+Prüfbaum-HEAD: d12986c4eaaf6477a28b2fa672b43d1a5a8c561a
+Prüfbaumstatus: sauber, detached; Exit 0
+Primärindex: leer; vorhandene .M-Zustände der Akten und combat.rs/data.rs/lib.rs bleiben unstaged.
+Fixcommit: 1 Datei, combat.rs, 23 Einfügungen und 1 Löschung.
+S2-Gruppengrenze: bd83d7abdef812a30daa47aa5f6a78de4f42263a bis d12986c4eaaf6477a28b2fa672b43d1a5a8c561a.
+S2-Gruppendiff: combat.rs 879 Zeilen, planner.rs 31 Zeilen; 2 Dateien, 710 Einfügungen und 200 Löschungen. Exit 0.
+
+FORMAT
+/home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner -- --check
+Exit: 0
+Rohlog: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r2/format.log
+
+COMPILER
+flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo check --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target
+Exit: 0
+Rohlog: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r2/compiler.log
+
+CLIPPY
+flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- -D warnings
+Exit: 0
+Rohlog: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r2/clippy.log
+
+GATEBEFEHL
+python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base bd83d7abdef812a30daa47aa5f6a78de4f42263a --head d12986c4eaaf6477a28b2fa672b43d1a5a8c561a
+Exit: 1
+Urteil: [gpt-6.1-sol] BLOCK: Physical bonus procs ignore their configured probability.
+Abbruch nach Rückgabe dieses neuen BLOCK. Keine nächste Fixrunde ausgeführt. Nach BLOCK status und log -1 erneut gelesen, beide Exit 0; HEAD und WIP-Zustände unverändert.
+Rohlog: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r2/S2-r2-gate.log
+
+Tests: ausdrücklich nicht ausgeführt. Neue Regression wurde durch check/clippy all-targets kompiliert, nicht ausgeführt. Keine Wiederholung oder Umgehung zuvor abgewiesener Tests.
+Git-Schreibschritte: 4, einzeln mit literalen absoluten Pfaden; add combat.rs, apply --cached --reverse S2-HOLDBACK.patch, Featurecommit, checkout --detach im bestehenden Prüfbaum.
+Kein Push, Main, Release, Deploy, Neustart, Cleanup, Settle oder weiterer Worker.

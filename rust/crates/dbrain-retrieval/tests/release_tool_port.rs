@@ -20,11 +20,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[path = "../../brain-storage/tests/support/scratch_pg.rs"]
-mod scratch_pg;
-
 #[path = "../../brain-storage/tests/mirror_game_context.rs"]
 mod mirror_fixture;
+
+use mirror_fixture::scratch_pg;
 
 fn context() -> (Query, AuthorizedContext, Arc<Mutex<Instant>>) {
     let query: Query = serde_json::from_value(json!({
@@ -437,6 +436,20 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
     assert!(!definitions
         .iter()
         .any(|definition| definition.name == ToolName::BuildPlan));
+    let find_schema = definitions
+        .iter()
+        .find(|definition| definition.name == ToolName::EntityFind)
+        .unwrap();
+    assert_eq!(
+        find_schema.input_schema["properties"]["language"]["enum"],
+        json!(["german"])
+    );
+    let foreign_language = ToolCall {
+        id: "foreign-language".into(),
+        name: ToolName::EntityFind,
+        arguments: json!({"query":"Prüfdaten","kind":"hero","language":"english"}),
+    };
+    assert!(foreign_language.validate(&definitions).is_err());
     let mut saved = None;
     for (kind, id, name) in [
         ("hero", 7, "Prüfdaten"),
@@ -540,6 +553,66 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
         .unwrap();
     assert_eq!(absent.result.result["matches"], json!([]));
     assert_eq!(absent.dependencies[0].evidence.len(), 3);
+    let document_id = reader
+        .read_pinned(&context, &pin)
+        .unwrap()
+        .asset("items", Some("german"))
+        .unwrap()
+        .receipt
+        .endpoint
+        .source_document_id;
+    let metadata: serde_json::Value = runtime
+        .block_on(
+            sqlx::query_scalar("SELECT metadata FROM brain.source_documents WHERE id=$1")
+                .bind(document_id)
+                .fetch_one(&pool),
+        )
+        .unwrap();
+    let mut forged = metadata.clone();
+    forged["contract"]["data"]["payload"]["value"][0]["zero"] = json!(999);
+    runtime
+        .block_on(
+            sqlx::query("UPDATE brain.source_documents SET metadata=$1 WHERE id=$2")
+                .bind(forged)
+                .bind(document_id)
+                .execute(&pool),
+        )
+        .unwrap();
+    let forged_pin = reader.resolve(&query, &context).unwrap().unwrap();
+    assert_ne!(forged_pin, pin);
+    let find = ToolCall {
+        id: "forged-find".into(),
+        name: ToolName::EntityFind,
+        arguments: json!({"query":"Prüfitem","kind":"item","language":"german"}),
+    };
+    for tool_call in [&find, &profile] {
+        let forged_request = tool_call
+            .validate(
+                &port
+                    .definitions(&query, &context, Some(&forged_pin))
+                    .unwrap(),
+            )
+            .unwrap();
+        assert!(matches!(
+            port.execute(
+                &query,
+                &context,
+                Some(&forged_pin),
+                &tool_call.id,
+                &forged_request,
+            ),
+            Err(PortError::PermissionDenied(_))
+        ));
+    }
+    runtime
+        .block_on(
+            sqlx::query("UPDATE brain.source_documents SET metadata=$1 WHERE id=$2")
+                .bind(metadata)
+                .bind(document_id)
+                .execute(&pool),
+        )
+        .unwrap();
+    reader.validate(&query, &context, Some(&pin)).unwrap();
     let original = records
         .iter()
         .find(|record| record.logical_id.contains("items/german"))

@@ -1,0 +1,55 @@
+diff --git a/rust/crates/dbrain-reasoner/src/data.rs b/rust/crates/dbrain-reasoner/src/data.rs
+--- a/rust/crates/dbrain-reasoner/src/data.rs
++++ b/rust/crates/dbrain-reasoner/src/data.rs
+@@ -344,6 +344,51 @@ pub(crate) fn scaling_stats(value: Option<&Value>) -> Vec<ScalingStat> {
+         .unwrap_or_default()
+ }
+
++pub(crate) fn ability_scale_input(value: &str) -> crate::AbilityScaleInput {
++    match value {
++        "ETechPower" => crate::AbilityScaleInput::Spirit,
++        "ELightMeleeDamage" => crate::AbilityScaleInput::LightMeleeDamage,
++        "EBaseWeaponDamageIncrease" => crate::AbilityScaleInput::BaseWeaponDamageIncrease,
++        "ETechDuration" => crate::AbilityScaleInput::Duration,
++        "ETechCooldown" => crate::AbilityScaleInput::Cooldown,
++        other => crate::AbilityScaleInput::Unknown(other.into()),
++    }
++}
++
++pub(crate) fn ability_property_scale(property: &Value) -> Option<crate::AbilityPropertyScale> {
++    let function = property
++        .get("scale_function")
++        .filter(|value| !value.is_null())?;
++    let function = function.get("subclass").unwrap_or(function);
++    let name = string(function.get("class_name"));
++    let class = match name.as_str() {
++        "scale_function_tech_damage" => crate::AbilityScaleClass::TechDamage,
++        "scale_function_single_stat" => crate::AbilityScaleClass::SingleStat,
++        "scale_function_healing_spirit_scale" => crate::AbilityScaleClass::HealingSpirit,
++        "scale_function_ability_weapon_damage" => crate::AbilityScaleClass::AbilityWeaponDamage,
++        "scale_function_ability_charges" => crate::AbilityScaleClass::AbilityCharges,
++        "scale_function_ability_recharge_time" => crate::AbilityScaleClass::AbilityRechargeTime,
++        _ => crate::AbilityScaleClass::Unknown(name),
++    };
++    let input = function
++        .get("specific_stat_scale_type")
++        .and_then(Value::as_str)
++        .map(ability_scale_input)
++        .unwrap_or_else(|| match class {
++            crate::AbilityScaleClass::TechDamage | crate::AbilityScaleClass::HealingSpirit => {
++                crate::AbilityScaleInput::Spirit
++            }
++            crate::AbilityScaleClass::AbilityCharges => crate::AbilityScaleInput::Charges,
++            crate::AbilityScaleClass::AbilityRechargeTime => crate::AbilityScaleInput::Cooldown,
++            _ => crate::AbilityScaleInput::Unknown(String::new()),
++        });
++    Some(crate::AbilityPropertyScale {
++        class,
++        input,
++        coefficient: number(function.get("stat_scale")),
++    })
++}
++
+ fn ability_model(payload: &Value, slot: i64) -> Option<AbilityModel> {
+     let ability_id = ability_id(payload).unwrap_or_default();
+     let class_name = ability_class_name(payload);

@@ -1,0 +1,4 @@
+ALLOW: No blocking defect established by the supplied sources.
+
+1. rust/crates/dbrain-retrieval/src/lib.rs:195 | NIT — Payload integrity remains unproven for EntityFind and EntityProfile. Grants match receipt hashes, but results consume `asset.payload`. | The storage test resolves a new pin after a metadata-only payload edit. `read_pinned`’s implementation is omitted; a test executing both tools with that new pin against unchanged canonical originals would settle whether edited values escape.
+2. rust/crates/dbrain-retrieval/src/lib.rs:105 | NIT — Definitions advertise both languages, but execution rejects any language different from `pin.language`. | Schema-valid calls can fail with `Unavailable`; restrict the advertised enum to the pinned language.

@@ -1,0 +1,4 @@
+[gpt-6.1-sol] BLOCK: The new simulator ignores ability suppression and misapplies resistance to untyped damage.
+
+1. rust/crates/dbrain-reasoner/src/combat.rs:1360 | BLOCKING: Active casting ignores `scenario.use_abilities` | Both `simulate_calculation` and `simulate_calculation_with_deadline` pass the unchanged hero into this selector. Setting the flag to false still permits casts, ability damage, channels, and cast-triggered effects.
+2. rust/crates/dbrain-reasoner/src/combat.rs:945 | BLOCKING: Untyped damage receives spirit modifiers | The fallback selects `settings.spirit` or the active change’s `spirit` modifiers for every non-weapon damage type. Untyped procs therefore receive spirit resistance and amplification, contradicting the stated behavior for missing damage types and producing incorrect damage and kill times.

@@ -1,0 +1,182 @@
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.46
+   Compiling cfg-if v1.0.4
+   Compiling libc v0.2.186
+   Compiling memchr v2.8.2
+   Compiling itoa v1.0.18
+   Compiling stable_deref_trait v1.2.1
+   Compiling bytes v1.12.0
+   Compiling pin-project-lite v0.2.17
+   Compiling version_check v0.9.5
+   Compiling generic-array v0.14.7
+   Compiling serde_core v1.0.228
+   Compiling futures-core v0.3.32
+   Compiling syn v2.0.118
+   Compiling mio v1.2.1
+   Compiling socket2 v0.6.4
+   Compiling shlex v2.0.1
+   Compiling typenum v1.20.1
+   Compiling find-msvc-tools v0.1.9
+   Compiling cc v1.2.65
+   Compiling synstructure v0.13.2
+   Compiling zerovec-derive v0.11.3
+   Compiling displaydoc v0.2.6
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling zerofrom v0.1.8
+   Compiling tokio v1.52.3
+   Compiling yoke v0.8.3
+   Compiling zerovec v0.11.6
+   Compiling tinystr v0.8.3
+   Compiling serde v1.0.228
+   Compiling writeable v0.6.3
+   Compiling futures-sink v0.3.32
+   Compiling smallvec v1.15.2
+   Compiling litemap v0.8.2
+   Compiling zmij v1.0.21
+   Compiling icu_locale_core v2.2.0
+   Compiling potential_utf v0.1.5
+   Compiling zerotrie v0.2.4
+   Compiling ring v0.17.14
+   Compiling serde_derive v1.0.228
+   Compiling icu_normalizer_data v2.2.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_properties_data v2.2.0
+   Compiling serde_json v1.0.150
+   Compiling icu_collections v2.2.0
+   Compiling icu_provider v2.2.0
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling http v1.4.2
+   Compiling aho-corasick v1.1.4
+   Compiling zeroize v1.9.0
+   Compiling once_cell v1.21.4
+   Compiling regex-syntax v0.8.11
+   Compiling crc32fast v1.5.0
+   Compiling thiserror v1.0.69
+   Compiling percent-encoding v2.3.2
+   Compiling regex-automata v0.4.14
+   Compiling rustls-pki-types v1.14.1
+   Compiling http-body v1.0.1
+   Compiling digest v0.10.7
+   Compiling thiserror-impl v1.0.69
+   Compiling getrandom v0.2.17
+   Compiling simd-adler32 v0.3.9
+   Compiling adler2 v2.0.1
+   Compiling futures-io v0.3.32
+   Compiling httparse v1.10.1
+   Compiling futures-task v0.3.32
+   Compiling slab v0.4.12
+   Compiling untrusted v0.9.0
+   Compiling cpufeatures v0.2.17
+   Compiling sha2 v0.10.9
+   Compiling futures-util v0.3.32
+   Compiling miniz_oxide v0.8.9
+   Compiling icu_properties v2.2.0
+   Compiling icu_normalizer v2.2.0
+   Compiling regex v1.12.4
+   Compiling tower-service v0.3.3
+   Compiling try-lock v0.2.5
+   Compiling rustls v0.23.41
+   Compiling flate2 v1.1.9
+   Compiling want v0.3.1
+   Compiling idna_adapter v1.2.2
+   Compiling rustls-webpki v0.103.13
+   Compiling form_urlencoded v1.2.2
+   Compiling tracing-core v0.1.36
+   Compiling futures-channel v0.3.32
+   Compiling subtle v2.6.1
+   Compiling atomic-waker v1.1.2
+   Compiling compression-core v0.4.32
+   Compiling hyper v1.10.1
+   Compiling compression-codecs v0.4.38
+   Compiling tracing v0.1.44
+   Compiling idna v1.1.0
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+   Compiling sync_wrapper v1.0.2
+   Compiling ipnet v2.12.0
+   Compiling base64 v0.22.1
+   Compiling tower-layer v0.3.3
+   Compiling hyper-util v0.1.20
+   Compiling tower v0.5.3
+   Compiling tokio-rustls v0.26.4
+   Compiling url v2.5.8
+   Compiling async-compression v0.4.42
+   Compiling http-body-util v0.1.3
+   Compiling webpki-roots v1.0.8
+   Compiling tokio-util v0.7.18
+   Compiling bitflags v2.13.0
+   Compiling ryu v1.0.23
+   Compiling serde_urlencoded v0.7.1
+   Compiling tower-http v0.6.11
+   Compiling hyper-rustls v0.27.9
+   Compiling log v0.4.33
+   Compiling httpdate v1.0.3
+   Compiling reqwest v0.12.28
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 36.47s
+     Running unittests src/lib.rs (/tmp/brain-g-p-r1-target/debug/deps/brain_contracts-84c05f401aded846)
+
+running 37 tests
+test deadline::tests::clones_keep_expiry_and_observe_cancellation ... ok
+test deadline::tests::zero_or_overflowing_lifetimes_fail_closed ... ok
+test embedding::tests::equal_dimension_different_model_is_incompatible ... ok
+test embedding::tests::rejects_missing_nonfinite_zero_and_unnormalized_vectors ... ok
+test feeds::tests::build_status_binds_request_identity_and_hash ... ok
+test feeds::tests::feed_rejects_hash_mismatch_duplicates_unknown_fields_and_versions ... ok
+test lexical::tests::cross_source_join_requires_matching_id_and_canonical_name ... ok
+test maintenance::tests::terminal_states_do_not_restart_and_review_is_ordered ... ok
+test provider_input::tests::checked_arithmetic_and_legacy_grounding_share_the_same_counter ... ok
+test provider_input::tests::counts_both_wire_formats_and_every_repeated_turn ... ok
+test provider_input::tests::counts_decoded_text_not_http_escaping_or_model_name ... ok
+test provider_input::tests::embedding_array_counts_each_input_and_rejects_non_text ... ok
+test provider_input::tests::rohe_werkzeughistorie_prueft_schema_ids_und_vollstaendige_ergebnisse ... ok
+test provider_input::tests::strukturierte_ausgabe_und_werkzeugwahl_bleiben_nicht_ungezaehlt ... ok
+test provider_input::tests::unique_json_keeps_serde_recursion_number_and_complete_input_limits ... FAILED
+test provider_input::tests::unique_json_preserves_numbers_arrays_null_and_independent_objects ... FAILED
+test provider_input::tests::unique_json_rejects_duplicate_decoded_keys_at_every_depth ... ok
+test provider_input::tests::unknown_blocks_fields_and_bad_result_bindings_fail_closed ... ok
+test provider_input::tests::wire_input_rejects_duplicate_keys_in_encoded_argument_history ... ok
+test provider_input::tests::zaehlt_aufruf_ids_argumente_beleg_ids_und_assistententext ... ok
+test read_manifest::tests::manifest_checks_all_pins_even_when_access_is_denied ... ok
+test read_manifest::tests::manifest_rejects_missing_duplicate_old_and_unpinned_heads ... ok
+test read_manifest::tests::versioned_provider_origin_requires_a_current_grant ... ok
+test tests::anfragebezogene_quellen_duerfen_nicht_persistiert_werden ... ok
+test tests::contract_roundtrip_keeps_release_and_scopes ... ok
+test tests::evidence_rejects_non_finite_score ... ok
+test tests::query_rejects_empty_identity_fields ... ok
+test tests::textport_default_bleibt_kompatibel_und_verweigert_werkzeuganfragen ... ok
+test tools::tests::ergebniszuordnung_und_wiederholte_ids ... ok
+test tools::tests::geschlossene_namen_und_bloecke ... ok
+test tools::tests::regeln_verwerfen_nichtendliche_spielzeit_und_szenariowerte ... ok
+test tools::tests::schemapruefung_und_serverbindungen ... ok
+test tools::tests::sieben_typisierte_unteranfragen_aus_validierten_aufrufen ... ok
+test tools::tests::typisierte_argumente_verwerfen_unbekannte_felder_und_ungueltige_szenarien ... ok
+test tools::tests::unimplementierte_abhaengigkeitspruefung_schliesst_sicher ... ok
+test tools::tests::werkzeugausfuehrung_bindet_ergebnis_und_alle_belege_an_die_unteranfrage ... ok
+test tools::tests::werkzeugturn_ist_keine_finale_antwort ... ok
+
+failures:
+
+---- provider_input::tests::unique_json_keeps_serde_recursion_number_and_complete_input_limits stdout ----
+
+thread 'provider_input::tests::unique_json_keeps_serde_recursion_number_and_complete_input_limits' (2350915) panicked at crates/brain-contracts/src/provider_input.rs:540:64:
+called `Result::unwrap_err()` on an `Ok` value: Number(1e+400)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- provider_input::tests::unique_json_preserves_numbers_arrays_null_and_independent_objects stdout ----
+
+thread 'provider_input::tests::unique_json_preserves_numbers_arrays_null_and_independent_objects' (2350916) panicked at crates/brain-contracts/src/provider_input.rs:523:13:
+assertion `left == right` failed
+  left: Array [Null, Bool(true), Bool(false), String("äöüß"), Array [], Object {}, Number(-9223372036854775808), Number(18446744073709551615), Object {"$serde_json::private::Number": String("1.25")}, Object {"$serde_json::private::Number": String("-0.0")}, Object {"$serde_json::private::Number": String("1e+30")}]
+ right: Array [Null, Bool(true), Bool(false), String("äöüß"), Array [], Object {}, Number(-9223372036854775808), Number(18446744073709551615), Number(1.25), Number(-0.0), Number(1e+30)]
+
+
+failures:
+    provider_input::tests::unique_json_keeps_serde_recursion_number_and_complete_input_limits
+    provider_input::tests::unique_json_preserves_numbers_arrays_null_and_independent_objects
+
+test result: FAILED. 35 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p brain-contracts --lib`

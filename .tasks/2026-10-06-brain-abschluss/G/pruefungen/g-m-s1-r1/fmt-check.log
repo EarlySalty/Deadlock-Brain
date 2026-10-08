@@ -1,0 +1,12 @@
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs:2502:
+                 let mut payload = raw.clone();
+                 payload["disabled"] = serde_json::json!(disabled);
+                 payload["IsDisabled"] = serde_json::json!(alias);
+-                assert_eq!(item_model_from_payload(&payload).unwrap().disabled, disabled);
++                assert_eq!(
++                    item_model_from_payload(&payload).unwrap().disabled,
++                    disabled
++                );
+             }
+         }
+     }

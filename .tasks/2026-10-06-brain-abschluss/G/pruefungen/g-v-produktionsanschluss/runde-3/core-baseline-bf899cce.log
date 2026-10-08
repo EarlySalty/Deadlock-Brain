@@ -1,0 +1,19 @@
+cargo-slot: Slot 1, optimiert=0
+   Compiling uplink-infisical-transport v0.1.0 (/tmp/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+   Compiling fireworks-model-selection v0.1.0 (/tmp/brain-g-v-baseline-bf899cce-20261008/rust/vendor/fireworks-model-selection)
+   Compiling dbrain-reasoner v0.1.0 (/tmp/brain-g-v-baseline-bf899cce-20261008/rust/crates/dbrain-reasoner)
+   Compiling deadlock-brain-core v0.1.0 (/tmp/brain-g-v-baseline-bf899cce-20261008/rust/crates/deadlock-brain-core)
+   Compiling dbrain-normalize v0.1.0 (/tmp/brain-g-v-baseline-bf899cce-20261008/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/tmp/brain-g-v-baseline-bf899cce-20261008/rust/crates/dbrain-population)
+warning: ignoring -C extra-filename flag due to -o flag
+
+error: couldn't read `crates/dbrain-population/src/../../../../scripts/migrations/2026-09-16-population.sql`: No such file or directory (os error 2)
+ --> crates/dbrain-population/src/db.rs:7:25
+  |
+7 | const MIGRATION: &str = include_str!("../../../../scripts/migrations/2026-09-16-population.sql");
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `dbrain-population` (lib) generated 1 warning
+error: could not compile `dbrain-population` (lib) due to 1 previous error; 1 warning emitted
+warning: build failed, waiting for other jobs to finish...
+cargo-slot: EXIT=101

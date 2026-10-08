@@ -1,0 +1,13 @@
+{
+  "command": [
+    "git",
+    "-C",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007",
+    "diff",
+    "--name-only",
+    "--diff-filter=U"
+  ],
+  "exit": 0,
+  "stdout": "rust/crates/brain-contracts/src/provider_input.rs\nrust/crates/brain-contracts/src/tools.rs\nrust/crates/brain-providers/src/hardening.rs\nrust/crates/brain-providers/src/lib.rs\nrust/crates/brain-providers/tests/faults.rs\nrust/crates/dbrain-sources/src/external/strict_json.rs\n",
+  "stderr": ""
+}

@@ -1,0 +1,19 @@
+Source-SHA vor Fix: 45f51d6f875a930b9fa61fe2bce7f0dab85e7d80
+/home/nathanael/.cargo/bin/rustfmt --edition 2021 --config skip_children=true /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/src/transport.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/tests/faults.rs
+/home/nathanael/.cargo/bin/rustfmt --check --edition 2021 --config skip_children=true /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/src/transport.rs /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/tests/faults.rs
+flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo check --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-providers --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-p-r2-target
+flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-providers --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-p-r2-target -- -D warnings
+flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-providers --locked --offline --jobs 3 --target-dir /tmp/brain-g-p-r2-target -- --include-ignored --test-threads=1
+FMT_EXIT=0
+CHECK_EXIT=0
+CLIPPY_EXIT=0
+TEST_EXIT=0
+Provider-Suite: 11 Unit-Tests + 33 Fault-Tests + 0 Doc-Tests, 44 passed, 0 failed, 0 ignored, 0 filtered out.
+Kein separater Baselinelauf; keine vorbestehenden Fehler behauptet.
+git -C /home/nathanael/.worktrees/brain-g-v2-20261007 add rust/crates/brain-providers/src/transport.rs rust/crates/brain-providers/tests/faults.rs
+git -C /home/nathanael/.worktrees/brain-g-v2-20261007 commit -m "fix(brain): Transiente HTTP-Fehler trotz defekter Diagnosekörper wiederholen" -m "Co-authored-by: GPT 6.1 Sol <modell@local>"
+Commit und geprüfter Source-SHA: 1b5ea4527576c1b8b622e86e81067b396889f2b0
+python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base 45f51d6f --head HEAD
+GATE_EXIT=0
+[gpt-6.1-sol] ALLOW: No blocking defects found in the supplied diff and revision snapshots.
+SOURCE_MATCH_EXIT=0

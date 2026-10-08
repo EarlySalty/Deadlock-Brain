@@ -1,0 +1,7 @@
+diff --git a/rust/crates/dbrain-reasoner/src/lib.rs b/rust/crates/dbrain-reasoner/src/lib.rs
+index 9ed9a578..ff7dc857 100644
+--- a/rust/crates/dbrain-reasoner/src/lib.rs
++++ b/rust/crates/dbrain-reasoner/src/lib.rs
+@@ -35,0 +45,2 @@ mod types;
++#[cfg(test)]
++mod calculation_tests;

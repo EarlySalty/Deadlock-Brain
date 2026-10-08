@@ -53,6 +53,8 @@ Format und Verbrauchercompiler Exit 0. Striktes Reasoner-Clippy mit --no-deps Ex
 
 Drei Produktionsfixtures ausdrücklich ausgeschlossen: loads_warden_and_reference_items_from_real_snapshot, fix_e_live_warden_evidence, scores_warden_reference_items_from_real_snapshot. Test-Postgres lief nur am isolierten Unix-Sockel und ist beendet. Keine Produktions-DB benutzt.
 
+Bereichsführung führte anschließend striktes Reasoner-Clippy einschließlich Abhängigkeiten auf dem gemeinsamen Stand tatsächlich aus: Task `bp3qpdo56`, Exit 0, Log `/tmp/brain-g-reasoner-clippy-integrated-20261007.log`. Befehl: `flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- -D warnings`. Frühere Abhängigkeitslintgrenze damit ersetzt, keine Unterdrückung. Reasonerquellen und alle drei Originalfixtures anschließend als `G/pruefungen/g-m-0645/bereichs-quellen.sha256` gebunden. Diese spätere Fingerprintdatei ist kein rückwirkend vor dem Worker-Testlauf erzeugtes Manifest.
+
 ## Grenze
 
 Offen: Heavy-Melee-Boonregel, Heilskalierung, EBaseWeaponDamageIncrease-Einheit, Proc-Radius, vollständige Rotation und globale Bounty-/Comeback-/Urn-/Midbossdaten. Kein Gate, Commit, Main, Deploy oder Liveabschluss durch Worker. G-V muss die echten Spiegel-/Rechteverträge anbinden; F konsumiert denselben Kern.

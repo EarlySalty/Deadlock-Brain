@@ -1,0 +1,62 @@
+    Checking errno v0.3.14
+    Checking mime v0.3.17
+   Compiling unicase v2.9.0
+    Checking signal-hook-registry v1.4.8
+    Checking tokio v1.52.3
+   Compiling mime_guess v2.0.5
+   Compiling nix v0.29.0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Checking brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-policy)
+    Checking brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+    Checking tokio-util v0.7.18
+    Checking hyper v1.10.1
+    Checking tower v0.5.3
+    Checking tokio-rustls v0.26.4
+    Checking async-compression v0.4.42
+    Checking tokio-stream v0.1.18
+    Checking tower-http v0.6.11
+    Checking sqlx-core v0.8.6
+    Checking hyper-util v0.1.20
+    Checking tokio-postgres v0.7.18
+    Checking sqlx-postgres v0.8.6
+    Checking postgres v0.19.14
+    Checking tokio-tungstenite v0.28.0
+    Checking axum-core v0.5.6
+    Checking hyper-rustls v0.27.9
+    Checking serde_path_to_error v0.1.20
+    Checking reqwest v0.12.28
+    Checking matchit v0.8.4
+    Checking axum v0.8.9
+    Checking uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+    Checking sqlx v0.8.6
+    Checking uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/vendor/uplink-infisical-transport)
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+    Checking brain-api v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-api)
+    Checking brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-ingestion)
+    Checking dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+    Checking brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers)
+    Checking brain-client v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-client)
+    Checking dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-wiki)
+    Checking wait-timeout v0.2.1
+warning: ignoring -C extra-filename flag due to -o flag
+
+error[E0425]: cannot find function `apply_scenario_bonuses` in module `crate::combat`
+   --> crates/dbrain-reasoner/src/calculation.rs:672:20
+    |
+672 |     crate::combat::apply_scenario_bonuses(&mut stats, scenario);
+    |                    ^^^^^^^^^^^^^^^^^^^^^^ not found in `crate::combat`
+
+error[E0425]: cannot find function `simulate_calculation_with_deadline` in module `crate::combat`
+    --> crates/dbrain-reasoner/src/calculation.rs:1282:50
+     |
+1282 |                 Some(deadline) => crate::combat::simulate_calculation_with_deadline(
+     |                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in `crate::combat`
+
+For more information about this error, try `rustc --explain E0425`.
+warning: `dbrain-reasoner` (lib) generated 1 warning
+error: could not compile `dbrain-reasoner` (lib) due to 2 previous errors; 1 warning emitted
+warning: build failed, waiting for other jobs to finish...

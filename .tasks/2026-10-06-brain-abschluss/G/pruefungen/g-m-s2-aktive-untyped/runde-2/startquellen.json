@@ -1,0 +1,10 @@
+{
+  "head": "b6c1153363f817ff1056a5fd28de13eec00cc58d",
+  "sha256": {
+    "rust/crates/dbrain-reasoner/src/combat.rs": "7b5d106b909e574f5a5e5e4f19eae10776c1aa23d3f5f38cd9f6f6abce618ac5",
+    "rust/crates/dbrain-reasoner/src/data.rs": "7b18c0c77db513df339066cf7565102985723a90c449147b33dbf4de032d97d7",
+    "rust/crates/dbrain-reasoner/src/lib.rs": "40f4ec9914032e1b18ae2166bbcc80c2157ec3ade373434eecc417817e6d1650",
+    "rust/crates/dbrain-reasoner/src/calculation.rs": "de2419f76368a233be9f848c3298f8560b42b1411b42d1a42c709b505231e15e",
+    "rust/crates/dbrain-reasoner/src/calculation_tests.rs": "bce7595afdab9ad3bb0e9ecf69d1335cd86431310aef243a8aa4143a4d2c49ca"
+  }
+}

@@ -1,0 +1,4 @@
+ALLOW: No merge-blocking defect found.
+
+1. rust/crates/dbrain-reasoner/src/combat.rs:2259 | NIT: `time_resolution_seconds` reports zero for bare weapon simulations, although pressure scenarios still switch targets on 0.2-second boundaries | A kill at 0.15s schedules replacement at 1.15s but spawns it at 1.2s; the reported precision is misleading.
+2. rust/crates/dbrain-reasoner/src/combat.rs:0 (simulate) | NIT: Both shot-triggered and cast-triggered proc cooldown guards accept positive infinity | A bonus proc fires once despite the new diagnostic treating nonfinite cooldowns as unsupported. Require finite cooldowns consistently.

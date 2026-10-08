@@ -1,0 +1,17 @@
+COMMAND /home/nathanael/.local/bin/cargo-slot test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-storage --test mirror_game_context --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- --include-ignored --test-threads=1
+cargo-slot: Slot 2, optimiert=0
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.45s
+     Running tests/mirror_game_context.rs (/tmp/brain-g-m-0645-target/debug/deps/mirror_game_context-cf35e05cb130d0cb)
+
+running 4 tests
+test actual_receipt_reader_pins_one_run_and_rejects_drift ... ok
+test cancellation_releases_a_real_pending_database_read ... ok
+test current_thread_runtime_is_rejected_without_creating_another_runtime ... ok
+test original_controlled_lifetime_is_required_before_any_read ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.20s
+
+cargo-slot: EXIT=0
+
+EXIT=0 SIGNAL=null

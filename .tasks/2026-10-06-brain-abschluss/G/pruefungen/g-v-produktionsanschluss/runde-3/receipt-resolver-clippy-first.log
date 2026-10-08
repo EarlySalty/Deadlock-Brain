@@ -1,0 +1,32 @@
+cargo-slot: Slot 1, optimiert=0
+    Checking brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+    Checking tokio-util v0.7.18
+    Checking sqlx-core v0.8.6
+    Checking tokio-postgres v0.7.18
+    Checking postgres v0.19.14
+    Checking sqlx-postgres v0.8.6
+    Checking hyper v1.10.1
+    Checking hyper-util v0.1.20
+    Checking tower v0.5.3
+    Checking hyper-rustls v0.27.9
+    Checking sqlx v0.8.6
+    Checking tower-http v0.6.11
+    Checking nix v0.29.0
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Checking tokio-tungstenite v0.28.0
+    Checking reqwest v0.12.28
+    Checking brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-policy)
+    Checking brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+    Checking uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+    Checking brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-ingestion)
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+    Checking dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-wiki)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+    Checking dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+    Checking brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-feeds)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 30.08s
+cargo-slot: EXIT=0

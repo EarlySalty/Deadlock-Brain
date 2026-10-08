@@ -1,0 +1,22 @@
+error[E0308]: mismatched types
+   --> /tmp/brain-g-p-json-probe.rs:37:104
+    |
+ 37 | ...ma:serde_json::json!({"type":"object","properties":{"query":{"type":"string"},"language":{"type":"string","enum":["german"]}},"required":["query","language"],"additionalProperties":false})}];
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `serde_json::value::Value`, found `Value`
+    |
+note: there are multiple different versions of crate `serde_json` in the dependency graph
+   --> /home/nathanael/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.150/src/value/mod.rs:116:1
+    |
+116 | pub enum Value {
+    | -------------- this is the found type
+    |
+   ::: /home/nathanael/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.150/src/value/mod.rs:116:1
+    |
+116 | pub enum Value {
+    | ^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+    = note: this error originates in the macro `$crate::json_internal` which comes from the expansion of the macro `serde_json::json` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: aborting due to 1 previous error
+
+For more information about this error, try `rustc --explain E0308`.

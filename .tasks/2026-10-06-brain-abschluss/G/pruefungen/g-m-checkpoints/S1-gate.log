@@ -1,0 +1,4 @@
+[gpt-6.1-sol] BLOCK: The new item converter can silently clear a disabled flag.
+
+1. rust/crates/dbrain-reasoner/src/data.rs:569 | BLOCKING: `disabled: null` prevents fallback to `IsDisabled: true`; conversion then defaults to `false`. | `item_model_from_payload` incorrectly marks that item enabled. Apply `as_bool` before choosing the fallback, as the existing loader does.
+2. rust/crates/dbrain-reasoner/src/data.rs:1387 | NIT: The loader now requires a valid ID inside `merged_payload`, whereas the previous constructor used the catalogue’s `item_id`. | Payload assembly is omitted from the supplied context. Check that it always supplies the matching ID; otherwise this refactor introduces load failures.

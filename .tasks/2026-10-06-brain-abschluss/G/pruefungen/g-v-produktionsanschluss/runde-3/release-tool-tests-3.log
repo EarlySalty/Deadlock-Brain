@@ -1,0 +1,24 @@
+cargo-slot: Slot 1, optimiert=0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+error[E0599]: no method named `pool` found for struct `PgStore` in the current scope
+   --> crates/dbrain-retrieval/tests/release_tool_port.rs:221:11
+    |
+221 |     store.pool().close().await;
+    |           ^^^^ private field, not a method
+
+error[E0599]: no method named `pool` found for struct `PgStore` in the current scope
+   --> crates/dbrain-retrieval/tests/release_tool_port.rs:240:11
+    |
+240 |     store.pool().close().await;
+    |           ^^^^ private field, not a method
+
+error[E0599]: no method named `pool` found for struct `PgStore` in the current scope
+   --> crates/dbrain-retrieval/tests/release_tool_port.rs:302:11
+    |
+302 |     store.pool().close().await;
+    |           ^^^^ private field, not a method
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `dbrain-retrieval` (test "release_tool_port") due to 3 previous errors
+cargo-slot: EXIT=101

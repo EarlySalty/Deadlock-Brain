@@ -1,0 +1,18 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+warning: ignoring -C extra-filename flag due to -o flag
+
+error[E0425]: cannot find function `apply_scenario_bonuses` in module `crate::combat`
+   --> crates/dbrain-reasoner/src/calculation.rs:672:20
+    |
+672 |     crate::combat::apply_scenario_bonuses(&mut stats, scenario);
+    |                    ^^^^^^^^^^^^^^^^^^^^^^ not found in `crate::combat`
+
+error[E0425]: cannot find function `simulate_calculation_with_deadline` in module `crate::combat`
+    --> crates/dbrain-reasoner/src/calculation.rs:1282:50
+     |
+1282 |                 Some(deadline) => crate::combat::simulate_calculation_with_deadline(
+     |                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in `crate::combat`
+
+For more information about this error, try `rustc --explain E0425`.
+warning: `dbrain-reasoner` (lib) generated 1 warning
+error: could not compile `dbrain-reasoner` (lib) due to 2 previous errors; 1 warning emitted

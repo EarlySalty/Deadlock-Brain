@@ -1,0 +1,12 @@
+{
+  "command": [
+    "git",
+    "-C",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007",
+    "ls-files",
+    "--unmerged"
+  ],
+  "exit": 0,
+  "stdout": "100644 b4c4e9e54640cfa7dea0ac0013425e6967ddfecf 1\trust/crates/brain-contracts/src/provider_input.rs\n100644 e132decab9d97d46356d51173a5fccfb5f858e2f 2\trust/crates/brain-contracts/src/provider_input.rs\n100644 354b5088600a9521f8302ae7f2ca396e08b80ecf 3\trust/crates/brain-contracts/src/provider_input.rs\n100644 d098320bb3fe26ad4b866eec4dbda6de1244dde5 2\trust/crates/brain-contracts/src/tools.rs\n100644 046fb1f73bb6a65133399afd2a39b84eda2a9d3e 3\trust/crates/brain-contracts/src/tools.rs\n100644 89639e86b6a50fd8ccc82dbbb99b2301d7413538 1\trust/crates/brain-providers/src/hardening.rs\n100644 47558f667fb29dbb2368e9035e16ab23ae336e65 2\trust/crates/brain-providers/src/hardening.rs\n100644 f42c1c0374c38a23fdd7a0df9b4a5949b5f8af79 3\trust/crates/brain-providers/src/hardening.rs\n100644 bd7e49ec2b253475dd3464543c96a01b0b87de6a 1\trust/crates/brain-providers/src/lib.rs\n100644 1fac97fa5bb95fdf3f516600585b26c0e4afe4d2 2\trust/crates/brain-providers/src/lib.rs\n100644 cef4a8585812fd969a7106f832a059ae47cedb6f 3\trust/crates/brain-providers/src/lib.rs\n100644 df37a31066bec355ab4db5be65d01da4267e641a 1\trust/crates/brain-providers/tests/faults.rs\n100644 f31a52f2360e4bf5ecd1dfaa0e1f48ac5683b494 2\trust/crates/brain-providers/tests/faults.rs\n100644 d6cfccc9a3594071577ef67f72ec181feb24fc60 3\trust/crates/brain-providers/tests/faults.rs\n100644 38317b47bbedcc7ff5e886040161b45d3f605f8a 1\trust/crates/dbrain-sources/src/external/strict_json.rs\n100644 48129f57210dd44a38debce6382d7063dad35d2f 2\trust/crates/dbrain-sources/src/external/strict_json.rs\n100644 138d7c8465714cf8054dc177f67fdb8ad9353949 3\trust/crates/dbrain-sources/src/external/strict_json.rs\n",
+  "stderr": ""
+}

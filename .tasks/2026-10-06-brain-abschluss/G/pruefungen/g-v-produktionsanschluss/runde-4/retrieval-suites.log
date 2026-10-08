@@ -1,0 +1,313 @@
+cargo-slot: Slot 2, optimiert=0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 42.01s
+     Running unittests src/lib.rs (/home/nathanael/.cache/rust-build/90/6309d7610f1d36/debug/deps/dbrain_retrieval-999437f4f46822ab)
+
+running 74 tests
+test chunk_index::tests::chunk_ranges_are_deterministic_utf8_and_cover_every_byte ... ok
+test chunk_index::tests::long_atomic_tokens_are_not_truncated_or_split_into_fake_numbers ... ok
+test chunk_index::tests::projected_budget_accepts_exact_total_and_counts_utf8_bytes ... ok
+test chunk_index::tests::projected_budget_stops_before_requesting_later_documents ... ok
+test chunk_index::tests::release_preflight_uses_exact_pins_and_the_same_index_counts ... ok
+test contract_port::tests::internal_record_without_scope_is_fail_closed ... ok
+test contract_port::tests::patch_filter_and_stable_sort_are_deterministic ... ok
+test contract_port::tests::rare_terms_work_without_dense_index ... ok
+test contract_port::tests::restrictive_scope_is_filtered_before_ranking ... ok
+test entity_profile_port::tests::historical_question_preserves_unknown_year ... ok
+test entity_profile_port::tests::normal_hero_item_and_patch_texts_use_reader_and_revalidate_changes ... ok
+test entity_profile_port::tests::ungueltige_und_mehrdeutige_muster_ergeben_keinen_patchtermin ... ok
+test game_wiki::hero_dossier::tests::ambiguous_cards_and_unavailable_wiki_are_explicit ... ok
+test game_wiki::hero_dossier::tests::dossier_binds_stable_skills_and_separates_old_facts ... ok
+test game_wiki::hero_dossier::tests::every_hero_in_the_versioned_corpus_gets_an_explicit_coverage_card ... ok
+test game_wiki::hero_dossier::tests::exported_card_is_loaded_by_exact_identity_only ... ok
+test game_wiki::hero_dossier::tests::historical_pages_and_cross_hero_ability_names_are_not_build_evidence ... ok
+test game_wiki::hero_dossier::tests::note_budget_is_unicode_safe_and_reports_omissions ... ok
+test game_wiki::hero_dossier::tests::wiki_text_cannot_inject_corpus_boundaries ... ok
+test game_wiki::localization::tests::descriptions_require_matching_revision_and_existing_key ... ok
+test game_wiki::localization::tests::mechanics_use_only_exact_normalized_stat_key ... ok
+test game_wiki::tests::answer_hero_bundle_uses_bound_keys_and_preserves_all_four_cards ... ok
+test game_wiki::tests::answer_search_does_not_treat_partial_item_name_as_hero_archetype_evidence ... ok
+test game_wiki::tests::bound_key_supports_shared_cards_but_ambiguous_keys_fail_closed ... ok
+test game_wiki::tests::hero_archetype_answer_uses_roster_evidence_instead_of_item_names ... ok
+test game_wiki::tests::hero_names_require_complete_tokens_and_comparisons_are_not_collapsed ... ok
+test game_wiki::tests::incidental_hero_does_not_replace_item_or_patch_search ... ok
+test game_wiki::tests::live_wiki_hero_archetype_roster_is_compact_and_item_free ... ok
+test game_wiki::tests::live_wiki_hero_bundle_and_nonhero_search ... ok
+test game_wiki::tests::missing_bound_card_is_explicit_without_foreign_filler ... ok
+test game_wiki::tests::nested_name_only_suppresses_the_enclosed_occurrence ... ok
+test game_wiki::tests::replace_pages_atomically_restores_old_pages_when_new_pages_missing ... ok
+test game_wiki::tests::search_game_wiki_extracts_complete_matching_shard_entry ... ok
+test game_wiki::tests::search_game_wiki_returns_full_matching_page ... ok
+test game_wiki::wiki_manifest_tests::successful_manifest_excludes_partial_deleted_and_renamed_pages ... FAILED
+test html_projection::tests::block_and_diagram_boundaries_preserve_separate_words_and_inline_fragments ... ok
+test html_projection::tests::html_preserves_semantics_without_active_content_or_requests ... ok
+test release_port::cache_scope_tests::consecutive_discord_request_scopes_reuse_the_corpus_index ... ok
+test tests::analysis_list_returns_array ... ok
+test tests::analyze_query_resolves_known_hero ... ok
+test tests::ask_claim_partitioning_keeps_rejected_out_of_verified ... ok
+test tests::ask_claim_partitioning_respects_include_unverified ... ok
+test tests::ask_context_changelog_meta_question_includes_patch_overview_in_rendered_prompt ... ok
+test tests::ask_context_keeps_unrelated_question_out_of_domain ... ok
+test tests::ask_context_returns_structured_bundle ... ok
+test tests::ask_prompt_includes_game_knowledge_ground_truth ... ok
+test tests::ask_prompt_preserves_timeline_details_and_hides_debug_claim_fields ... ok
+test tests::build_intent_prefers_owned_build_claim_over_general_mention ... ok
+test tests::build_review_context_returns_summary ... ok
+test tests::context_loads_patch_events_for_known_hero ... ok
+test tests::current_patch_overrides_ignore_older_changes ... ok
+test tests::final_verified_json_is_sorted_by_relevance_before_cutoff ... ok
+test tests::hero_archetype_concept_routes_only_temporal_questions_to_power_curve ... ok
+test tests::hero_group_questions_get_semantic_archetype_intent ... ok
+test tests::hero_meta_build_request_prefers_build_intent_over_meta_question ... ok
+test tests::hero_power_curve_labels_require_sample_and_material_delta ... ok
+test tests::intent_claim_type_bonus_requires_distinctive_keyword_hit ... ok
+test tests::keyword_phrase_keeps_echo_shard_from_echo_noise ... ok
+test tests::keyword_starts_word_filters_mid_word_matches ... ok
+test tests::load_known_item_names_matches_catalog ... ok
+test tests::on_intent_flagged_claims_keep_slots_over_tangential_verified_claims ... ok
+test tests::patch_overview_aggregates_meta_signals ... ok
+test tests::patch_overview_routing_accepts_patch_related_meta_question_from_classifier ... ok
+test tests::patch_overview_routing_requires_broad_patch_question ... ok
+test tests::quality_reports_required_tables_present ... ok
+test tests::reasoner_explanation_keeps_item_order_and_evidence_without_inventing_style ... ok
+test tests::relevance_floor_drops_non_positive_and_low_tail_claims ... ok
+test tests::relevance_floor_uses_score_without_intent_claim_type_bonus ... ok
+test tests::relevance_score_ranks_more_keyword_hits_before_confidence ... ok
+test tests::save_review_roundtrip_inserts_and_cleans_up ... ok
+test tests::status_reports_core_counts ... ok
+test tests::tempo_needs_independent_mechanics_support_instead_of_short_game_winrate_alone ... ok
+test tests::thin_verified_bucket_gets_on_topic_unverified_fallback ... ok
+test tests::timeline_patch_events_keep_best_match_entity_type ... ok
+
+failures:
+
+---- game_wiki::wiki_manifest_tests::successful_manifest_excludes_partial_deleted_and_renamed_pages stdout ----
+
+thread 'game_wiki::wiki_manifest_tests::successful_manifest_excludes_partial_deleted_and_renamed_pages' (1487018) panicked at crates/dbrain-retrieval/src/wiki_manifest_tests.rs:7:49:
+WIKI_SCRATCH_DSN fehlt: NotPresent
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    game_wiki::wiki_manifest_tests::successful_manifest_excludes_partial_deleted_and_renamed_pages
+
+test result: FAILED. 73 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.31s
+
+error: test failed, to rerun pass `-p dbrain-retrieval --lib`
+     Running tests/chunked_retrieval.rs (/home/nathanael/.cache/rust-build/90/6309d7610f1d36/debug/deps/chunked_retrieval-961d8c8a80c5fc1f)
+
+running 18 tests
+test aliases_german_english_umlauts_and_metadata_filters ... FAILED
+test exact_numeric_literals_bypass_dense_and_cannot_be_replaced_by_similar_numbers ... FAILED
+test fact_alias_ambiguity_is_checked_across_the_entire_release ... FAILED
+test forged_chunk_range_source_provenance_content_and_acl_are_rejected ... FAILED
+test four_thousand_documents_concurrent_queries_build_once_and_read_only_candidate_heads ... FAILED
+test html_evidence_binds_semantic_ranges_to_unchanged_reviewed_artifact ... ok
+test hundreds_of_alias_owners_fail_closed_without_exceeding_head_batch_limit ... FAILED
+test ineligible_alias_owners_do_not_hide_authorized_fact ... FAILED
+test large_hero_default_budget_multiple_chunks_and_exact_provenance ... FAILED
+test live_revoke_delete_and_historical_acl_never_widen ... FAILED
+test normal_server_lanes_question_packs_matching_public_documentation ... ok
+test oversized_indivisible_evidence_is_an_explicit_budget_error_not_truncation ... FAILED
+test public_maintenance_citations_hide_private_origin_metadata ... ok
+test repeated_owner_across_ambiguous_names_is_deduplicated_before_head_read ... FAILED
+test stat_identifiers_and_typed_facts_are_not_semantically_reranked ... FAILED
+test two_unambiguous_entities_in_one_question_are_not_alias_ambiguous ... FAILED
+test versions_mehrdeutige_daten_und_allgemeine_patchfragen_bleiben_suchbar ... FAILED
+test weighted_fusion_is_bit_stable_under_list_permutation_and_never_merges_acls ... FAILED
+
+failures:
+
+---- aliases_german_english_umlauts_and_metadata_filters stdout ----
+
+thread 'aliases_german_english_umlauts_and_metadata_filters' (1487223) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:269:57:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- exact_numeric_literals_bypass_dense_and_cannot_be_replaced_by_similar_numbers stdout ----
+
+thread 'exact_numeric_literals_bypass_dense_and_cannot_be_replaced_by_similar_numbers' (1487231) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:665:68:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+---- fact_alias_ambiguity_is_checked_across_the_entire_release stdout ----
+
+thread 'fact_alias_ambiguity_is_checked_across_the_entire_release' (1487232) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:307:54:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+---- forged_chunk_range_source_provenance_content_and_acl_are_rejected stdout ----
+
+thread 'forged_chunk_range_source_provenance_content_and_acl_are_rejected' (1487239) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:485:43:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+---- four_thousand_documents_concurrent_queries_build_once_and_read_only_candidate_heads stdout ----
+
+thread '<unnamed>' (1487320) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:551:59:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+thread '<unnamed>' (1487318) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:551:59:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+thread '<unnamed>' (1487319) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:551:59:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+thread '<unnamed>' (1487317) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:551:59:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+thread '<unnamed>' (1487316) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:551:59:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+thread '<unnamed>' (1487315) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:551:59:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+thread '<unnamed>' (1487314) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:551:59:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+thread '<unnamed>' (1487313) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:551:59:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+thread 'four_thousand_documents_concurrent_queries_build_once_and_read_only_candidate_heads' (1487245) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:561:23:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+
+---- hundreds_of_alias_owners_fail_closed_without_exceeding_head_batch_limit stdout ----
+
+thread 'hundreds_of_alias_owners_fail_closed_without_exceeding_head_batch_limit' (1487900) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:413:54:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+---- ineligible_alias_owners_do_not_hide_authorized_fact stdout ----
+
+thread 'ineligible_alias_owners_do_not_hide_authorized_fact' (1487916) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:342:61:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+---- large_hero_default_budget_multiple_chunks_and_exact_provenance stdout ----
+
+thread 'large_hero_default_budget_multiple_chunks_and_exact_provenance' (1487918) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:197:43:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+---- live_revoke_delete_and_historical_acl_never_widen stdout ----
+
+thread 'live_revoke_delete_and_historical_acl_never_widen' (1487921) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:425:40:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+---- oversized_indivisible_evidence_is_an_explicit_budget_error_not_truncation stdout ----
+
+thread 'oversized_indivisible_evidence_is_an_explicit_budget_error_not_truncation' (1487951) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:685:5:
+assertion failed: matches!(retriever.retrieve(&query("Abrams"), &context()),
+    Err(PortError::BudgetExceeded))
+
+---- repeated_owner_across_ambiguous_names_is_deduplicated_before_head_read stdout ----
+
+thread 'repeated_owner_across_ambiguous_names_is_deduplicated_before_head_read' (1487954) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:394:54:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+---- stat_identifiers_and_typed_facts_are_not_semantically_reranked stdout ----
+
+thread 'stat_identifiers_and_typed_facts_are_not_semantically_reranked' (1487956) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:578:10:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+---- two_unambiguous_entities_in_one_question_are_not_alias_ambiguous stdout ----
+
+thread 'two_unambiguous_entities_in_one_question_are_not_alias_ambiguous' (1487957) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:367:57:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+---- versions_mehrdeutige_daten_und_allgemeine_patchfragen_bleiben_suchbar stdout ----
+
+thread 'versions_mehrdeutige_daten_und_allgemeine_patchfragen_bleiben_suchbar' (1487958) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:91:66:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+---- weighted_fusion_is_bit_stable_under_list_permutation_and_never_merges_acls stdout ----
+
+thread 'weighted_fusion_is_bit_stable_under_list_permutation_and_never_merges_acls' (1487962) panicked at crates/dbrain-retrieval/tests/chunked_retrieval.rs:601:65:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("Ungültiges Release-Lesemanifest")
+
+
+failures:
+    aliases_german_english_umlauts_and_metadata_filters
+    exact_numeric_literals_bypass_dense_and_cannot_be_replaced_by_similar_numbers
+    fact_alias_ambiguity_is_checked_across_the_entire_release
+    forged_chunk_range_source_provenance_content_and_acl_are_rejected
+    four_thousand_documents_concurrent_queries_build_once_and_read_only_candidate_heads
+    hundreds_of_alias_owners_fail_closed_without_exceeding_head_batch_limit
+    ineligible_alias_owners_do_not_hide_authorized_fact
+    large_hero_default_budget_multiple_chunks_and_exact_provenance
+    live_revoke_delete_and_historical_acl_never_widen
+    oversized_indivisible_evidence_is_an_explicit_budget_error_not_truncation
+    repeated_owner_across_ambiguous_names_is_deduplicated_before_head_read
+    stat_identifiers_and_typed_facts_are_not_semantically_reranked
+    two_unambiguous_entities_in_one_question_are_not_alias_ambiguous
+    versions_mehrdeutige_daten_und_allgemeine_patchfragen_bleiben_suchbar
+    weighted_fusion_is_bit_stable_under_list_permutation_and_never_merges_acls
+
+test result: FAILED. 3 passed; 15 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
+
+error: test failed, to rerun pass `-p dbrain-retrieval --test chunked_retrieval`
+     Running tests/core_retrieval.rs (/home/nathanael/.cache/rust-build/90/6309d7610f1d36/debug/deps/core_retrieval-c87ce141111ed656)
+
+running 5 tests
+test dense_accounts_usage_and_rejects_model_mismatch ... ok
+test fusion_is_stable_deduplicated_and_rejects_conflicts ... ok
+test release_pinning_acl_tombstone_and_forged_evidence ... ok
+test typed_domain_objects_cannot_bypass_source_acl_via_generic_retrieval ... ok
+test wrong_release_patch_mode_and_egress_are_closed ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/knowledge_projection.rs (/home/nathanael/.cache/rust-build/90/6309d7610f1d36/debug/deps/knowledge_projection-6c1bd357bca1a45b)
+
+running 9 tests
+test fact_changes_bind_new_chunk_ids_without_changing_raw_hash ... ok
+test facts_only_terms_values_and_hypotheses_use_the_canonical_release_path ... ok
+test inconsistent_document_or_missing_origin_fails_closed ... ok
+test large_utf8_source_keeps_tail_and_facts_retrievable ... ok
+test legacy_without_document_metadata_is_unchanged ... ok
+test license_and_current_acl_still_gate_facts ... ok
+test normal_texts_read_live_entity_facts_counts_and_patch_history ... ok
+test normal_texts_read_stored_compact_documents_with_fresh_original_proofs ... ok
+test projection_is_deterministic_and_keeps_exact_source_and_fact_fields ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.49s
+
+     Running tests/patch_validity.rs (/home/nathanael/.cache/rust-build/90/6309d7610f1d36/debug/deps/patch_validity-ad27b65e85ed0cbf)
+
+running 13 tests
+test canonical_old_patch_cannot_be_relabelled_by_new_release ... ok
+test current_head_legacy_conflict_is_not_hidden_by_canonical_origin ... ok
+test dense_selection_rejects_old_patch_before_embedding ... ok
+test fresh_head_validity_revokes_retrieval_and_existing_evidence ... ok
+test known_legacy_and_canonical_contradictions_fail_closed ... ok
+test legacy_only_patch_is_respected_without_inventing_unknown ... ok
+test matching_known_patch_remains_usable ... ok
+test new_head_cannot_rewrite_historical_pin_validity ... ok
+test static_lexical_adapter_uses_the_same_patch_contract ... ok
+test typed_and_generic_paths_agree_on_source_validity ... ok
+test typed_and_generic_paths_both_recheck_changed_head_validity ... ok
+test unknown_patch_is_retrievable_but_never_invented_from_release ... ok
+test unpinned_query_preserves_source_patch_not_release_patch ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/release_tool_port.rs (/home/nathanael/.cache/rust-build/90/6309d7610f1d36/debug/deps/release_tool_port-486213774a870dbd)
+
+running 9 tests
+test actual_port_preserves_request_receipt_and_current_purpose_permissions ... ok
+test internal_read_is_not_a_model_grant_or_an_empty_tool_success ... ok
+test mirror_fixture::actual_receipt_reader_pins_one_run_and_rejects_drift ... ok
+test mirror_fixture::cancellation_finishes_the_caller_while_a_real_database_read_is_locked ... ok
+test mirror_fixture::current_thread_runtime_is_rejected_without_creating_another_runtime ... ok
+test mirror_fixture::original_controlled_lifetime_is_required_before_any_read ... ok
+test mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants ... ok
+test original_lifetime_request_binding_and_f_boundary_remain_fail_closed ... ok
+test public_mirror_originals_without_canonical_registration_are_not_tool_grants ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.62s
+
+   Doc-tests dbrain_retrieval
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 2 targets failed:
+    `-p dbrain-retrieval --lib`
+    `-p dbrain-retrieval --test chunked_retrieval`
+cargo-slot: EXIT=101

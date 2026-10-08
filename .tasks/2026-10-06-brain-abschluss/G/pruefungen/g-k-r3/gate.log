@@ -1,0 +1,3 @@
+[gpt-6.1-sol] ALLOW: No blocking defect established by the supplied code.
+
+1. rust/crates/brain-contracts/src/tools.rs:918 | NIT: Production integration is unverified; only test overrides of `validate_build_plan` are supplied. | Confirm the production BuildPlan adapter overrides this hook. Its default rejects every successful BuildPlan execution with `Unavailable` before the next provider turn.

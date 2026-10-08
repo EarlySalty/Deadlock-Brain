@@ -1,0 +1,7 @@
+prüfung	exit	befehl
+compiler	0	/home/nathanael/.local/bin/cargo-slot check --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target
+formatierung	0	/home/nathanael/.cargo/bin/rustfmt --edition 2021 --config skip_children=true /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs
+stack-tests	0	/home/nathanael/.local/bin/cargo-slot test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner --lib --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target combat::tests::stack -- --include-ignored --test-threads=1 --nocapture
+explicit-stack-tests	0	/home/nathanael/.local/bin/cargo-slot test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner --lib --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target combat::tests::explicit_stack_shred_is_applied_once_with_target_resistance -- --include-ignored --test-threads=1 --nocapture
+clippy	0	/home/nathanael/.local/bin/cargo-slot clippy --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- -D warnings
+formatcheck	0	/home/nathanael/.local/bin/cargo-slot fmt --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner -- --check

@@ -1,0 +1,9 @@
+{
+  "source": "/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s2-zeitbasis-2135/runde-1/baselinevergleich.json",
+  "baseline_head": "8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206",
+  "current_head": "b6c1153363f817ff1056a5fd28de13eec00cc58d",
+  "baseline_failures": 12,
+  "current_failures": 12,
+  "failed_cases_identical": true,
+  "note": "Die vorherige JSON-Auswertung enthält doppelte Namen aus zwei Baselineläufen. Verglichen werden die zwölf eindeutigen Fallnamen und die Ergebniszahlen; Rohdatei bleibt unverändert."
+}

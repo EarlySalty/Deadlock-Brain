@@ -133,7 +133,10 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
         let mut originals = BTreeMap::new();
         for kind in kinds {
             let asset = bundle.asset(kind, Some(language))?;
-            for receipt in [&asset.receipt.manifest, &asset.receipt.endpoint] {
+            for (receipt, expected_payload) in [
+                (&asset.receipt.manifest, None),
+                (&asset.receipt.endpoint, Some(&asset.payload)),
+            ] {
                 let granted = match purpose {
                     ToolValidationPurpose::Provider | ToolValidationPurpose::Cache => {
                         receipt.provenance.provider_egress_authorized
@@ -179,6 +182,21 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
                     ));
                 }
                 let record = matching[0];
+                let original: JsonValue = serde_json::from_str(&record.content).map_err(|_| {
+                    brain_contracts::PortError::PermissionDenied(
+                        "Kanonische Originaldaten fehlen".into(),
+                    )
+                })?;
+                if format!("{:x}", Sha256::digest(record.content.as_bytes())) != receipt.raw_sha256
+                    || !expected_payload.map_or_else(
+                        || original["client_version"].as_i64() == Some(pin.client_version),
+                        |payload| original == *payload,
+                    )
+                {
+                    return Err(brain_contracts::PortError::PermissionDenied(
+                        "Spiegeldaten widersprechen dem kanonischen Original".into(),
+                    ));
+                }
                 if record.visibility != brain_contracts::SourceVisibility::Public {
                     return Err(brain_contracts::PortError::PermissionDenied(
                         "Spiegeloriginal hat eine eingeschränkte aktuelle Sichtbarkeit".into(),
@@ -392,7 +410,7 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
                     input_schema: json!({"type":"object","additionalProperties":false,"required":["query","language"],
                         "properties":{"query":{"type":"string","minLength":1,"maxLength":8192},
                             "kind":{"type":"string","enum":["hero","item","ability"]},
-                            "language":{"type":"string","enum":["german","english"]}}}),
+                            "language":{"type":"string","enum":[pin.language]}}}),
                 },
                 ToolDefinition {
                     name: ToolName::EntityProfile,

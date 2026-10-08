@@ -1,0 +1,15 @@
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 23s
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/dbrain_reasoner-d93473150944ba66)
+
+running 3 tests
+test data::tests::item_converter_disabled_defaults_without_valid_boolean ... ok
+test data::tests::item_converter_disabled_falls_back_after_missing_or_non_boolean_value ... ok
+test data::tests::item_converter_disabled_keeps_explicit_boolean_precedence ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 328 filtered out; finished in 0.02s
+

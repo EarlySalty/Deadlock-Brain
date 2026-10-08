@@ -1,0 +1,33 @@
+Gruppe	Aktion	Exit	Bezug
+Start	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --short	0	Akten- und Reasoner-WIP erhalten; Index leer
+Start	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -1 --format='%H %s'	0	e75477280004d86d65d0291ab123616a5e576196
+Suche	graphify query "item_model_from_payload disabled IsDisabled load_items_from_pool" --graph /home/nathanael/.graphify/global-graph.json	0	Kein passender Reasonertreffer; keine Neuextraktion
+Suche	graphify query "load_items_from_pool" --graph /home/nathanael/.graphify/global-graph.json --budget 1300	0	No matching nodes found
+Werkzeug	ctx_execute_file auf vorhandenes g-m-checkpoints/befehle.tsv	abgewiesen	context-mode löst Projektgrenze auf /home/nathanael/repos/Deadlock-Brain auf, nicht auf den Sessionworktree; keine Konfiguration geändert
+Prüfbaum	git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 status --short	0	Sauber; keine Dateien geändert, keine Tests ausgeführt
+Prüfbaum	git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 rev-parse HEAD	0	e75477280004d86d65d0291ab123616a5e576196
+NIT	RG-Nachlesen des committed ID-Pfads	0	S1-id-source.log; payload.id, Kataloglookup, Clone, ausschließlich item_card und item_slot_type ergänzt; ID unverändert
+Zwilling	RG-Nachlesen disabled-Fallback	0	S1-disabled-twin.log; Konverter fehlerhaft, Loader prüft as_bool vor Alias bereits korrekt
+Start	sha256sum --check /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-0645/bereichs-quellen.sha256	0	12/12 ursprüngliche Fingerprints gleich
+Fixture	Einmalige Node-Auswertung des vorhandenen combat-snapshot-20260913.json	0	Glass Cannon; ID 365620721; item_slot_type weapon; disabled und IsDisabled fehlen
+Fix	Edit ausschließlich rust/crates/dbrain-reasoner/src/data.rs	0	Boolprüfung vor Alias; drei enge Tests mit unverändert geladener Originalfixture und 27 Statusfällen; keine Loader-/SQL-Änderung
+Format	/home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner -- --check	1	fmt-check.log; nur eigener assert_eq-Umbruch
+Format	Edit des eigenen assert_eq-Umbruchs	0	Keine fremden Formatänderungen
+Format	/home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner -- --check	0	fmt-final.log
+Tests	flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner --lib --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target item_converter_disabled_ -- --include-ignored --test-threads=1	abgewiesen	Acht gleichartige Ablehnungen: flock mit Text test als nicht eindeutig git-freier Befehl erkannt; kein Testlauf; pwd und separater cd bestätigten den Primärworktree
+Tests	/home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner --lib --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target item_converter_disabled_ -- --include-ignored --test-threads=1	0	Direkt erkennbarer Cargoaufruf mit gleicher primärer Quelle; item-converter-tests.log; 3 passed, 0 failed, 0 ignored, 328 filtered out; keine Altfehlerbaseline behauptet
+Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 add /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs	0	Nur eigene Datei
+Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 apply --cached --reverse --unidiff-zero --include=rust/crates/dbrain-reasoner/src/data.rs /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/S1-HOLDBACK.patch	0	Unveränderter Originalholdback; Arbeitsquellen nicht zurückgesetzt
+Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --stat	0	Nur data.rs; 59 Einfügungen, 1 Löschung
+Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --check	0	Keine Patchfehler
+Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached -- rust/crates/dbrain-reasoner/src/data.rs	0	fix-staged.patch; genau Konverterfallback und drei Tests
+Quellen	sha256sum --check /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-0645/bereichs-quellen.sha256	1	original-fingerprints.log; elf Dateien unverändert, ausschließlich data.rs absichtlich geändert; ursprüngliches Manifest unverändert
+Quellen	sha256sum /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs	0	data-fix.sha256; 549de7d8d858144b110bd7a2be6eac2822fb8df02512db7de8ef62d9509907da
+Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --stat -- rust/crates/dbrain-reasoner/src/data.rs	0	45 ungestagte Zeilen; beide S3-Helfer weiter zurückgehalten
+Origin	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 ls-remote --exit-code --heads origin refs/heads/feat/brain-v2-g-20261007	0	2b67796fb80ae3440a0c9e76671dfc8169032844
+Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --name-status	0	Nur M rust/crates/dbrain-reasoner/src/data.rs
+HEAD	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 rev-parse HEAD	0	e75477280004d86d65d0291ab123616a5e576196
+Commit/Push	Nicht ausgeführt	kein Versuch	Die Erlaubnis steht ausschließlich im ausdrücklich nicht nutzerautoritativen Workflowtext. Höherrangige Vorgabe erlaubt Commit oder Push nur bei Nutzerauftrag.
+Compiler/Clippy	Nicht ausgeführt	kein Versuch	Briefing erlaubt diese nur am committed Fixstand im vorhandenen Prüfbaum; kein Fixcommit vorhanden
+Gate	Nicht ausgeführt	kein Versuch	Vorgeschriebener vollständiger S1-Review 2b67796fb80ae3440a0c9e76671dfc8169032844..Fix-SHA ohne Fixcommit nicht möglich; kein S1-ALLOW behauptet
+Main/Runtime/Cleanup/Settle/Delegation	Nicht ausgeführt	kein Versuch	Außerhalb des Auftrags

@@ -1,0 +1,3 @@
+ALLOW: No merge-blocking defect found in the supplied diff.
+
+1. rust/crates/dbrain-reasoner/src/calculation_tests.rs:102 | NIT: The three-hero API comparison never asserts the probe’s hero count. | An empty `heroes` array passes without comparing any values; assert the expected three IDs before iterating.

@@ -1,0 +1,1060 @@
+diff --git a/rust/crates/brain-contracts/src/tools.rs b/rust/crates/brain-contracts/src/tools.rs
+index afa11a85..d098320b 100644
+--- a/rust/crates/brain-contracts/src/tools.rs
++++ b/rust/crates/brain-contracts/src/tools.rs
+@@ -906,6 +906,20 @@ pub trait ToolExecutionPort: Send + Sync {
+             .map_err(PortFailure::from)
+     }
+ 
++    fn validate_build_plan(
++        &self,
++        _query: &Query,
++        _context: &AuthorizedContext,
++        _game_context: &PinnedGameContext,
++        _request: &BuildPlanRequest,
++        _execution: &ToolExecution,
++        _purpose: crate::store::AnswerPurpose,
++    ) -> Result<(), PortError> {
++        Err(PortError::Unavailable(
++            "Deterministische Buildprüfung fehlt".into(),
++        ))
++    }
++
+     fn validate_dependencies(
+         &self,
+         _query: &Query,
+diff --git a/rust/crates/brain-kernel/src/execution.rs b/rust/crates/brain-kernel/src/execution.rs
+index 8388ed8b..4377be1f 100644
+--- a/rust/crates/brain-kernel/src/execution.rs
++++ b/rust/crates/brain-kernel/src/execution.rs
+@@ -121,6 +121,21 @@ pub(super) fn validate_tool_evidence(
+     Ok(())
+ }
+ 
++pub(super) fn has_build_citation<'a>(
++    executions: &[brain_contracts::ToolExecution],
++    mut cited_ids: impl Iterator<Item = &'a str>,
++) -> bool {
++    cited_ids.any(|id| {
++        executions.iter().any(|execution| {
++            execution
++                .result
++                .evidence_ids
++                .iter()
++                .any(|evidence_id| evidence_id == id)
++        })
++    })
++}
++
+ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
+     kernel: &Kernel<R, P>,
+     query: &Query,
+@@ -136,6 +151,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
+     };
+     let mut accounting = UsageAccounting::default();
+     let mut dependencies = Vec::<ToolEvidenceDependency>::new();
++    let mut build_executions = Vec::<brain_contracts::ToolExecution>::new();
+     let mut conversation = ToolConversation::default();
+     let mut evidence = Vec::<Evidence>::new();
+     let mut seen_calls = BTreeSet::new();
+@@ -158,6 +174,14 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
+                 ToolValidationPurpose::Provider,
+                 purpose,
+             )?;
++            kernel.validate_build_executions(
++                query,
++                &next,
++                session,
++                &dependencies,
++                &build_executions,
++                purpose,
++            )?;
+             let input = grounded_turn_input_ceiling(
+                 query,
+                 &[],
+@@ -240,6 +264,25 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
+                         ToolValidationPurpose::Provider,
+                         purpose,
+                     )?;
++                    kernel.validate_build_executions(
++                        query,
++                        &next,
++                        session,
++                        &dependencies,
++                        &build_executions,
++                        purpose,
++                    )?;
++                    if query.profile == brain_contracts::AnswerProfile::Build
++                        && !insufficient
++                        && !has_build_citation(
++                            &build_executions,
++                            answer.cited_evidence_ids.iter().map(String::as_str),
++                        )
++                    {
++                        return Err(PortError::Unavailable(
++                            "Geprüftes Build-Ergebnis fehlt".into(),
++                        ));
++                    }
+                     remaining(context, &accounting.charged(), elapsed())
+                         .ok_or(PortError::BudgetExceeded)?;
+                     return Ok(answer);
+@@ -297,6 +340,11 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
+                         remaining(context, &accounting.charged(), elapsed())
+                             .ok_or(PortError::BudgetExceeded)?;
+                         execution.validate_for(call, &request, session.game_context.as_ref())?;
++                        if request.name() == brain_contracts::ToolName::BuildPlan
++                            && !execution.result.is_error
++                        {
++                            build_executions.push(execution.clone());
++                        }
+                         dependencies.extend(execution.dependencies);
+                         let next = remaining(context, &accounting.charged(), elapsed())
+                             .ok_or(PortError::BudgetExceeded)?;
+@@ -365,6 +413,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
+                 accounting: accounting.clone(),
+                 dependencies: std::sync::Arc::from([]),
+                 tool_dependencies: dependencies.into(),
++                build_executions: build_executions.into(),
+             }
+         }
+         Err(error) => response(
+@@ -736,5 +785,6 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
+         accounting,
+         dependencies: evidence.into(),
+         tool_dependencies: std::sync::Arc::from([]),
++        build_executions: std::sync::Arc::from([]),
+     }
+ }
+diff --git a/rust/crates/brain-kernel/src/flight.rs b/rust/crates/brain-kernel/src/flight.rs
+index 52d41c67..b198bf91 100644
+--- a/rust/crates/brain-kernel/src/flight.rs
++++ b/rust/crates/brain-kernel/src/flight.rs
+@@ -471,6 +471,7 @@ mod retained_pack_tests {
+                         .into(),
+                         accounting: UsageAccounting::default(),
+                         tool_dependencies: Arc::from([]),
++                        build_executions: Arc::from([]),
+                     }
+                 })
+                 .unwrap()
+diff --git a/rust/crates/brain-kernel/src/lib.rs b/rust/crates/brain-kernel/src/lib.rs
+index 034496d4..79b9b7d8 100644
+--- a/rust/crates/brain-kernel/src/lib.rs
++++ b/rust/crates/brain-kernel/src/lib.rs
+@@ -202,6 +202,64 @@ impl<R, P> Kernel<R, P> {
+         context.check_deadline()
+     }
+ 
++    fn validate_build_executions(
++        &self,
++        query: &Query,
++        context: &AuthorizedContext,
++        session: &ToolSession,
++        dependencies: &[ToolEvidenceDependency],
++        executions: &[brain_contracts::ToolExecution],
++        purpose: AnswerPurpose,
++    ) -> Result<(), PortError> {
++        for execution in executions {
++            context.check_deadline()?;
++            let pin = session.game_context.as_ref().ok_or_else(|| {
++                PortError::InvalidResponse("Spielbindung der Buildprüfung fehlt".into())
++            })?;
++            let dependency = execution
++                .dependencies
++                .first()
++                .ok_or_else(|| PortError::InvalidResponse("Build-Unteranfrage fehlt".into()))?;
++            let brain_contracts::ToolSubrequest::BuildPlan(request) =
++                dependency.request.subrequest()
++            else {
++                return Err(PortError::InvalidResponse(
++                    "Build-Unteranfrage fehlt".into(),
++                ));
++            };
++            if execution.result.is_error
++                || execution.result.name != brain_contracts::ToolName::BuildPlan
++                || execution.result.evidence_ids.is_empty()
++                || !execution
++                    .dependencies
++                    .iter()
++                    .all(|dependency| dependencies.contains(dependency))
++            {
++                return Err(PortError::InvalidResponse(
++                    "Build-Ergebnis ist nicht an die Antwortbelege gebunden".into(),
++                ));
++            }
++            execution.validate_for(
++                &brain_contracts::ToolCall {
++                    id: execution.result.call_id.clone(),
++                    name: dependency.request.name(),
++                    arguments: dependency.request.arguments().clone(),
++                },
++                &dependency.request,
++                Some(pin),
++            )?;
++            let binding = self
++                .tools
++                .as_ref()
++                .ok_or_else(|| PortError::Unavailable("Werkzeuganschluss fehlt".into()))?;
++            binding
++                .port
++                .validate_build_plan(query, context, pin, request, execution, purpose)?;
++            context.check_deadline()?;
++        }
++        Ok(())
++    }
++
+     pub fn with_clock(
+         mut self,
+         clock: impl Fn() -> std::time::Instant + Send + Sync + 'static,
+@@ -336,7 +394,30 @@ impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
+                 ToolValidationPurpose::Provider,
+                 purpose,
+             )?;
+-        } else if !answer.tool_dependencies.is_empty() {
++            self.validate_build_executions(
++                query,
++                context,
++                session,
++                &answer.tool_dependencies,
++                &answer.build_executions,
++                purpose,
++            )?;
++            if answer.answer.status == AnswerStatus::Answered
++                && query.profile == brain_contracts::AnswerProfile::Build
++                && !execution::has_build_citation(
++                    &answer.build_executions,
++                    answer
++                        .answer
++                        .citations
++                        .iter()
++                        .map(|item| item.evidence_id.as_str()),
++                )
++            {
++                return Err(PortError::Unavailable(
++                    "Geprüftes Build-Ergebnis fehlt".into(),
++                ));
++            }
++        } else if !answer.tool_dependencies.is_empty() || !answer.build_executions.is_empty() {
+             return Err(PortError::Unavailable(
+                 "Gebundener Werkzeugkontext fehlt".into(),
+             ));
+@@ -785,6 +866,16 @@ mod tests {
+         assert_eq!(calls.load(Ordering::SeqCst), 1);
+     }
+ 
++    #[derive(Clone)]
++    struct BuildCheck {
++        query: Query,
++        context: AuthorizedContext,
++        pin: PinnedGameContext,
++        request: brain_contracts::tools::BuildPlanRequest,
++        execution: brain_contracts::ToolExecution,
++        purpose: AnswerPurpose,
++    }
++
+     #[derive(Default)]
+     struct ToolState {
+         version: i64,
+@@ -810,6 +901,15 @@ mod tests {
+         contexts: Vec<AuthorizedContext>,
+         observed: Vec<brain_contracts::ToolConversation>,
+         mutate_final: Option<fn(&mut ToolState)>,
++        approve_build: bool,
++        executed_builds: Vec<brain_contracts::ToolExecution>,
++        build_query: Option<Query>,
++        build_checks: Vec<BuildCheck>,
++        build_failure: Option<PortError>,
++        build_failure_on: usize,
++        cancel_build_validation_on: usize,
++        build_is_error: bool,
++        tool_reservation: Usage,
+     }
+ 
+     #[derive(Clone)]
+@@ -870,7 +970,11 @@ mod tests {
+                 .execute(query, context, pin, call_id, request)
+                 .map_err(PortFailure::from)?;
+             Ok(Accounted {
+-                accounting: UsageAccounting::observed(value.usage.clone()),
++                accounting: UsageAccounting {
++                    observed: value.usage.clone(),
++                    reserved: self.state.lock().unwrap().tool_reservation.clone(),
++                    unaccounted: false,
++                },
+                 value,
+             })
+         }
+@@ -885,7 +989,7 @@ mod tests {
+         }
+         fn execute(
+             &self,
+-            _query: &Query,
++            query: &Query,
+             context: &AuthorizedContext,
+             pin: Option<&PinnedGameContext>,
+             call_id: &str,
+@@ -913,7 +1017,7 @@ mod tests {
+                 uncited.visibility = SourceVisibility::Internal;
+                 uncited.allowed_scopes.insert("docs.internal".into());
+             }
+-            Ok(brain_contracts::ToolExecution {
++            let execution = brain_contracts::ToolExecution {
+                 result: brain_contracts::ToolResult {
+                     call_id: if state.mismatch_result {
+                         "other".into()
+@@ -923,7 +1027,8 @@ mod tests {
+                     name: request.name(),
+                     result: serde_json::json!({"status":"fixture"}),
+                     evidence_ids: vec![format!("{call_id}-cited")],
+-                    is_error: false,
++                    is_error: state.build_is_error
++                        && request.name() == brain_contracts::ToolName::BuildPlan,
+                 },
+                 dependencies: vec![ToolEvidenceDependency {
+                     request: request.clone(),
+@@ -943,7 +1048,51 @@ mod tests {
+                     ],
+                 }],
+                 usage: state.tool_usage.clone(),
+-            })
++            };
++            if request.name() == brain_contracts::ToolName::BuildPlan {
++                state.executed_builds.push(execution.clone());
++                state.build_query = Some(query.clone());
++            }
++            Ok(execution)
++        }
++        fn validate_build_plan(
++            &self,
++            query: &Query,
++            context: &AuthorizedContext,
++            pin: &PinnedGameContext,
++            request: &brain_contracts::tools::BuildPlanRequest,
++            execution: &brain_contracts::ToolExecution,
++            purpose: AnswerPurpose,
++        ) -> Result<(), PortError> {
++            context.check_deadline()?;
++            let mut state = self.state.lock().unwrap();
++            state.build_checks.push(BuildCheck {
++                query: query.clone(),
++                context: context.clone(),
++                pin: pin.clone(),
++                request: request.clone(),
++                execution: execution.clone(),
++                purpose,
++            });
++            if state.cancel_build_validation_on == state.build_checks.len() {
++                context.request_deadline.as_ref().unwrap().cancel();
++            }
++            if state.build_failure_on == state.build_checks.len() {
++                return Err(state.build_failure.clone().unwrap());
++            }
++            let mut expected_query = state.build_query.clone().unwrap();
++            expected_query.request_id = query.request_id.clone();
++            if !state.approve_build
++                || serde_json::to_value(&expected_query).unwrap()
++                    != serde_json::to_value(query).unwrap()
++                || !state.executed_builds.contains(execution)
++                || execution.dependencies[0].request.subrequest()
++                    != &brain_contracts::ToolSubrequest::BuildPlan(request.clone())
++                || execution.dependencies[0].game_context.as_ref() != Some(pin)
++            {
++                return Err(PortError::InvalidResponse("Buildprüfung verweigert".into()));
++            }
++            Ok(())
+         }
+         fn validate_dependencies(
+             &self,
+@@ -1113,6 +1262,14 @@ mod tests {
+             serde_json::json!({"query":"Warden","language":"german"}),
+         )
+     }
++    fn build_call(id: &str) -> brain_contracts::ToolCall {
++        tool_call(
++            id,
++            brain_contracts::ToolName::BuildPlan,
++            serde_json::json!({"hero_id":1,"playstyle":"weapon","budget":10000}),
++        )
++    }
++
+     fn tool_turn(calls: Vec<brain_contracts::ToolCall>) -> brain_contracts::ProviderTurn {
+         brain_contracts::ProviderTurn::ToolCalls {
+             blocks: calls
+@@ -1183,6 +1340,596 @@ mod tests {
+         (kernel, state)
+     }
+ 
++    #[test]
++    fn buildschutz_verweigert_gewoehnliche_belege_trotz_builddefinition() {
++        for ordinary in [
++            find_call("ordinary"),
++            tool_call(
++                "ordinary",
++                brain_contracts::ToolName::EntityProfile,
++                serde_json::json!({"entity":{"kind":"hero","id":1},"fields":["weapon_dps"]}),
++            ),
++            tool_call(
++                "ordinary",
++                brain_contracts::ToolName::ServerKnowledge,
++                serde_json::json!({"question":"Items für Warden?"}),
++            ),
++        ] {
++            let (kernel, state) = tool_kernel(
++                &[ordinary.clone(), build_call("unused")],
++                vec![tool_turn(vec![ordinary]), final_turn(&["ordinary-cited"])],
++            );
++            let answer =
++                kernel.answer_accounted(&query(AnswerProfile::Build), &context(&[], &["public"]));
++            assert_eq!(answer.value.status, AnswerStatus::Unavailable);
++            assert!(answer.value.citations.is_empty());
++            assert_eq!(answer.accounting.observed.network_rounds, 2);
++            assert!(answer.accounting.reserved.input_tokens > 0);
++            let state = state.lock().unwrap();
++            assert_eq!(state.calls, 2);
++            assert!(state.build_checks.is_empty());
++        }
++    }
++
++    #[test]
++    fn buildschutz_alter_port_ohne_pruefanschluss_schliesst_sicher() {
++        struct LegacyTools(TestTools);
++        impl ToolExecutionPort for LegacyTools {
++            fn definitions(
++                &self,
++                query: &Query,
++                context: &AuthorizedContext,
++                pin: Option<&PinnedGameContext>,
++            ) -> Result<Vec<ToolDefinition>, PortError> {
++                self.0.definitions(query, context, pin)
++            }
++            fn execute(
++                &self,
++                query: &Query,
++                context: &AuthorizedContext,
++                pin: Option<&PinnedGameContext>,
++                call_id: &str,
++                request: &brain_contracts::ToolRequest,
++            ) -> Result<brain_contracts::ToolExecution, PortError> {
++                self.0.execute(query, context, pin, call_id, request)
++            }
++            fn validate_dependencies(
++                &self,
++                query: &Query,
++                context: &AuthorizedContext,
++                pin: Option<&PinnedGameContext>,
++                dependencies: &[ToolEvidenceDependency],
++                purpose: ToolValidationPurpose,
++            ) -> Result<(), PortError> {
++                self.0
++                    .validate_dependencies(query, context, pin, dependencies, purpose)
++            }
++        }
++        let call = build_call("build");
++        let (mut kernel, state) = tool_kernel(
++            std::slice::from_ref(&call),
++            vec![tool_turn(vec![call.clone()]), final_turn(&["build-cited"])],
++        );
++        state.lock().unwrap().approve_build = true;
++        kernel.tools.as_mut().unwrap().port = Arc::new(LegacyTools(TestTools {
++            state: state.clone(),
++            definitions: vec![ToolDefinition {
++                name: call.name,
++                description: "Fixturewerkzeug".into(),
++                input_schema: closed_schema(&call.arguments),
++            }],
++        }));
++        let answer =
++            kernel.answer_accounted(&query(AnswerProfile::Build), &context(&[], &["public"]));
++        assert_eq!(answer.value.status, AnswerStatus::Unavailable);
++        assert!(answer.value.citations.is_empty());
++        assert_eq!(answer.accounting.observed.network_rounds, 1);
++        let state = state.lock().unwrap();
++        assert_eq!(state.executed_builds.len(), 1);
++        assert!(state.build_checks.is_empty());
++        assert_eq!(state.calls, 1);
++    }
++
++    #[test]
++    fn buildschutz_akzeptiert_nur_geprueftes_tatsaechliches_ergebnis_mit_zweck_und_deadline() {
++        for purpose in [
++            AnswerPurpose::InternalRead,
++            AnswerPurpose::ExternalPublication,
++        ] {
++            let call = build_call("build");
++            let (kernel, state) = tool_kernel(
++                std::slice::from_ref(&call),
++                vec![tool_turn(vec![call.clone()]), final_turn(&["build-cited"])],
++            );
++            {
++                let mut state = state.lock().unwrap();
++                state.approve_build = true;
++                state.internal_input = true;
++                state.deny_publication = purpose == AnswerPurpose::InternalRead;
++            }
++            let request = query(AnswerProfile::Build);
++            let outcome = kernel.answer_with_purpose(
++                &request,
++                &context(&["docs.internal"], &["public", "internal"]),
++                purpose,
++            );
++            assert_eq!(outcome.answer.status, AnswerStatus::Answered);
++            assert_eq!(outcome.build_executions.len(), 1);
++            assert_eq!(
++                outcome.build_executions[0].dependencies[0].evidence.len(),
++                2
++            );
++            let reused = outcome.clone();
++            assert!(Arc::ptr_eq(
++                &outcome.build_executions,
++                &reused.build_executions
++            ));
++            assert!(outcome.retained_bytes() > std::mem::size_of_val(&outcome));
++            assert!(serde_json::to_value(&outcome.answer)
++                .unwrap()
++                .get("build_executions")
++                .is_none());
++            let state = state.lock().unwrap();
++            assert_eq!(state.build_checks.len(), 2);
++            for check in &state.build_checks {
++                assert_eq!(check.query.request_id, request.request_id);
++                assert_eq!(check.query.profile, AnswerProfile::Build);
++                assert_eq!(check.context.principal, state.contexts[0].principal);
++                assert_eq!(
++                    check.context.request_deadline,
++                    state.contexts[0].request_deadline
++                );
++                assert_eq!(check.pin.client_version, state.version);
++                assert_eq!(check.request.hero_id, 1);
++                assert_eq!(check.request.budget, Some(10000));
++                assert_eq!(check.execution, state.executed_builds[0]);
++                assert_eq!(check.purpose, purpose);
++                assert!(
++                    check.context.budget.max_output_tokens
++                        < state.contexts[0].budget.max_output_tokens
++                );
++            }
++        }
++    }
++
++    #[test]
++    fn buildschutz_fehlerergebnis_und_unzitierter_build_sind_keine_buildantwort() {
++        for is_error in [false, true] {
++            let build = build_call("build");
++            let ordinary = find_call("ordinary");
++            let (kernel, state) = tool_kernel(
++                &[build.clone(), ordinary.clone()],
++                vec![
++                    tool_turn(vec![build, ordinary]),
++                    final_turn(if is_error {
++                        &["build-cited"]
++                    } else {
++                        &["ordinary-cited"]
++                    }),
++                ],
++            );
++            {
++                let mut state = state.lock().unwrap();
++                state.approve_build = true;
++                state.build_is_error = is_error;
++            }
++            let outcome =
++                kernel.answer_accounted(&query(AnswerProfile::Build), &context(&[], &["public"]));
++            assert_eq!(outcome.value.status, AnswerStatus::Unavailable);
++            assert!(outcome.value.citations.is_empty());
++            assert_eq!(outcome.accounting.observed.network_rounds, 2);
++            if is_error {
++                assert!(state.lock().unwrap().build_checks.is_empty());
++            }
++        }
++    }
++
++    #[test]
++    fn buildschutz_wiederverwendung_prueft_ergebnis_anfrage_pin_und_quellen_erneut() {
++        let call = build_call("build");
++        let (kernel, state) = tool_kernel(
++            std::slice::from_ref(&call),
++            vec![tool_turn(vec![call.clone()]), final_turn(&["build-cited"])],
++        );
++        state.lock().unwrap().approve_build = true;
++        let request = query(AnswerProfile::Build);
++        let initial_context = context(&[], &["public"]);
++        let context = initial_context.with_request_deadline();
++        let session = kernel.prepare_tools(&request, &context).unwrap().unwrap();
++        let answer = kernel.answer_prepared(
++            &request,
++            &context,
++            AnswerPurpose::InternalRead,
++            Some(&session),
++        );
++        assert_eq!(answer.answer.status, AnswerStatus::Answered);
++        assert!(kernel
++            .validate_reuse(
++                &request,
++                &context,
++                &answer,
++                AnswerPurpose::InternalRead,
++                Some(&session)
++            )
++            .is_ok());
++        let mut changed = answer.clone();
++        Arc::make_mut(&mut changed.build_executions)[0]
++            .result
++            .result = serde_json::json!({"changed":true});
++        assert!(kernel
++            .validate_reuse(
++                &request,
++                &context,
++                &changed,
++                AnswerPurpose::InternalRead,
++                Some(&session)
++            )
++            .is_err());
++        let mut other_call = call;
++        other_call.arguments["hero_id"] = serde_json::json!(2);
++        let other_request = other_call.validate(&session.definitions).unwrap();
++        let mut changed = answer.clone();
++        Arc::make_mut(&mut changed.build_executions)[0].dependencies[0].request =
++            other_request.clone();
++        Arc::make_mut(&mut changed.tool_dependencies)[0].request = other_request;
++        assert!(kernel
++            .validate_reuse(
++                &request,
++                &context,
++                &changed,
++                AnswerPurpose::InternalRead,
++                Some(&session)
++            )
++            .is_err());
++        let mut other_query = request.clone();
++        other_query.text.push_str(" anderer Held");
++        assert!(kernel
++            .validate_reuse(
++                &other_query,
++                &context,
++                &answer,
++                AnswerPurpose::InternalRead,
++                Some(&session)
++            )
++            .is_err());
++        let mut changed = answer.clone();
++        Arc::make_mut(&mut changed.build_executions)[0].dependencies[0]
++            .game_context
++            .as_mut()
++            .unwrap()
++            .client_version += 1;
++        assert!(kernel
++            .validate_reuse(
++                &request,
++                &context,
++                &changed,
++                AnswerPurpose::InternalRead,
++                Some(&session)
++            )
++            .is_err());
++        let mut changed = answer.clone();
++        Arc::make_mut(&mut changed.build_executions)[0].dependencies[0].evidence[0].revision += 1;
++        assert!(kernel
++            .validate_reuse(
++                &request,
++                &context,
++                &changed,
++                AnswerPurpose::InternalRead,
++                Some(&session)
++            )
++            .is_err());
++        state.lock().unwrap().approve_build = false;
++        assert!(kernel
++            .validate_reuse(
++                &request,
++                &context,
++                &answer,
++                AnswerPurpose::InternalRead,
++                Some(&session)
++            )
++            .is_err());
++        assert_eq!(state.lock().unwrap().calls, 2);
++    }
++
++    #[test]
++    fn buildschutz_cache_prueft_tatsaechlichen_plan_neu_ohne_doppelte_abrechnung() {
++        let call = build_call("build");
++        let (kernel, state) = tool_kernel(
++            std::slice::from_ref(&call),
++            vec![tool_turn(vec![call.clone()]), final_turn(&["build-cited"])],
++        );
++        state.lock().unwrap().approve_build = true;
++        let cache = CachedKernel::new(kernel, 8, std::time::Duration::from_secs(30));
++        let request = query(AnswerProfile::Build);
++        let context = context(&[], &["public"]);
++        let fresh = cache.answer_accounted(&request, &context);
++        assert_eq!(fresh.value.status, AnswerStatus::Answered);
++        assert_eq!(fresh.accounting.observed.network_rounds, 2);
++        let mut follower = request;
++        follower.request_id = "cache-build".into();
++        let reused = cache.answer_accounted(&follower, &context);
++        assert_eq!(reused.value.status, AnswerStatus::Answered);
++        assert_eq!(reused.value.request_id, follower.request_id);
++        assert_eq!(reused.accounting, UsageAccounting::default());
++        assert_eq!(
++            state
++                .lock()
++                .unwrap()
++                .build_checks
++                .last()
++                .unwrap()
++                .query
++                .request_id,
++            follower.request_id
++        );
++        state.lock().unwrap().executed_builds[0].result.result =
++            serde_json::json!({"changed":true});
++        let revoked = cache.answer_accounted(&follower, &context);
++        assert_eq!(revoked.value.status, AnswerStatus::Unavailable);
++        assert!(revoked.value.citations.is_empty());
++        assert_eq!(revoked.accounting, UsageAccounting::default());
++        assert_eq!(state.lock().unwrap().calls, 2);
++    }
++
++    #[test]
++    fn buildschutz_flight_folger_prueft_den_plan_neu_statt_leaderfreigabe_zu_uebernehmen() {
++        for refuse in [false, true] {
++            let call = build_call("build");
++            let (kernel, state) = tool_kernel(
++                std::slice::from_ref(&call),
++                vec![tool_turn(vec![call.clone()]), final_turn(&["build-cited"])],
++            );
++            let request = query(AnswerProfile::Build);
++            let context = context(&[], &["public"]);
++            let session = kernel
++                .prepare_tools(&request, &context.with_request_deadline())
++                .unwrap()
++                .unwrap();
++            let key = crate::flight::request_key(
++                &request,
++                &context,
++                AnswerPurpose::InternalRead,
++                Some(&session),
++            )
++            .unwrap();
++            let barrier = Arc::new(std::sync::Barrier::new(2));
++            {
++                let mut state = state.lock().unwrap();
++                state.approve_build = true;
++                state.block_final = Some(barrier.clone());
++                if refuse {
++                    state.build_failure_on = 3;
++                    state.build_failure =
++                        Some(PortError::PermissionDenied("Prüfung zurückgenommen".into()));
++                }
++            }
++            let cache = Arc::new(CachedKernel::new(
++                kernel,
++                8,
++                std::time::Duration::from_secs(30),
++            ));
++            let leader_cache = cache.clone();
++            let leader_request = request.clone();
++            let leader_context = context.clone();
++            let leader = std::thread::spawn(move || {
++                leader_cache.answer_accounted(&leader_request, &leader_context)
++            });
++            barrier.wait();
++            let follower_cache = cache.clone();
++            let mut follower_request = request;
++            follower_request.request_id = "flight-build".into();
++            let follower = std::thread::spawn(move || {
++                follower_cache.answer_accounted(&follower_request, &context)
++            });
++            cache.flights.wait_for_waiter(&key);
++            barrier.wait();
++            let leader = leader.join().unwrap();
++            assert_eq!(leader.value.status, AnswerStatus::Answered);
++            assert_eq!(leader.accounting.observed.network_rounds, 2);
++            let follower = follower.join().unwrap();
++            assert_eq!(
++                follower.value.status,
++                if refuse {
++                    AnswerStatus::UnauthorizedEvidence
++                } else {
++                    AnswerStatus::Answered
++                }
++            );
++            assert_eq!(follower.accounting, UsageAccounting::default());
++            assert_eq!(follower.value.request_id, "flight-build");
++            if refuse {
++                assert!(follower.value.citations.is_empty());
++            }
++            let state = state.lock().unwrap();
++            assert_eq!(state.calls, 2);
++            assert_eq!(state.executed_builds.len(), 1);
++            assert_eq!(state.build_checks.len(), 3);
++        }
++    }
++
++    #[test]
++    fn buildschutz_frist_rechte_und_portfehler_behalten_kumulierte_reservierte_usage() {
++        for (failure, cancel, final_failure, expected) in [
++            (
++                Some(PortError::PermissionDenied("Prüfung verweigert".into())),
++                false,
++                false,
++                AnswerStatus::UnauthorizedEvidence,
++            ),
++            (
++                Some(PortError::Unavailable("Prüfer fehlt".into())),
++                false,
++                false,
++                AnswerStatus::Unavailable,
++            ),
++            (
++                Some(PortError::InvalidResponse("Ergebnis ungültig".into())),
++                false,
++                true,
++                AnswerStatus::Unavailable,
++            ),
++            (None, true, false, AnswerStatus::BudgetExceeded),
++        ] {
++            let call = build_call("build");
++            let (kernel, state) = tool_kernel(
++                std::slice::from_ref(&call),
++                vec![tool_turn(vec![call.clone()]), final_turn(&["build-cited"])],
++            );
++            {
++                let mut state = state.lock().unwrap();
++                state.approve_build = true;
++                state.tool_usage = Usage {
++                    input_tokens: 5,
++                    output_tokens: 3,
++                    network_rounds: 1,
++                    cost_micros: 3,
++                    ..Usage::default()
++                };
++                state.tool_reservation = Usage {
++                    output_tokens: 7,
++                    cost_micros: 11,
++                    ..Usage::default()
++                };
++                state.build_failure = failure;
++                state.build_failure_on = if state.build_failure.is_some() {
++                    if final_failure {
++                        2
++                    } else {
++                        1
++                    }
++                } else {
++                    0
++                };
++                state.cancel_build_validation_on = usize::from(cancel);
++            }
++            let outcome =
++                kernel.answer_accounted(&query(AnswerProfile::Build), &context(&[], &["public"]));
++            assert_eq!(outcome.value.status, expected);
++            assert!(outcome.value.citations.is_empty());
++            assert_eq!(outcome.value.usage, outcome.accounting.observed);
++            assert_eq!(
++                outcome.accounting.observed.input_tokens,
++                if final_failure { 45 } else { 15 }
++            );
++            assert_eq!(
++                outcome.accounting.observed.output_tokens,
++                if final_failure { 63 } else { 23 }
++            );
++            assert_eq!(
++                outcome.accounting.observed.network_rounds,
++                if final_failure { 3 } else { 2 }
++            );
++            assert_eq!(
++                outcome.accounting.observed.cost_micros,
++                if final_failure { 8 } else { 5 }
++            );
++            assert_eq!(outcome.accounting.reserved.output_tokens, 7);
++            assert_eq!(outcome.accounting.reserved.cost_micros, 11);
++            assert!(outcome.accounting.reserved.input_tokens > 0);
++            assert!(!outcome.accounting.unaccounted);
++            assert_eq!(
++                state.lock().unwrap().calls,
++                if final_failure { 2 } else { 1 }
++            );
++        }
++    }
++
++    #[test]
++    fn buildschutz_prueft_unzitierte_quellen_pin_und_zweck_nach_finalturn() {
++        for (mutate, expected) in [
++            (
++                (|state: &mut ToolState| state.invalid_source = true) as fn(&mut ToolState),
++                AnswerStatus::UnauthorizedEvidence,
++            ),
++            (
++                (|state: &mut ToolState| state.deny_provider = true) as fn(&mut ToolState),
++                AnswerStatus::UnauthorizedEvidence,
++            ),
++            (
++                (|state: &mut ToolState| state.deny_publication = true) as fn(&mut ToolState),
++                AnswerStatus::UnauthorizedEvidence,
++            ),
++            (
++                (|state: &mut ToolState| state.version += 1) as fn(&mut ToolState),
++                AnswerStatus::Unavailable,
++            ),
++        ] {
++            let call = build_call("build");
++            let (kernel, state) = tool_kernel(
++                std::slice::from_ref(&call),
++                vec![tool_turn(vec![call.clone()]), final_turn(&["build-cited"])],
++            );
++            {
++                let mut state = state.lock().unwrap();
++                state.approve_build = true;
++                state.mutate_final = Some(mutate);
++            }
++            let outcome = kernel.answer_for_publication_accounted(
++                &query(AnswerProfile::Build),
++                &context(&[], &["public"]),
++            );
++            assert_eq!(outcome.value.status, expected);
++            assert!(outcome.value.citations.is_empty());
++            assert_eq!(outcome.accounting.observed.network_rounds, 2);
++            assert!(outcome.accounting.reserved.input_tokens > 0);
++            assert_eq!(state.lock().unwrap().calls, 2);
++        }
++    }
++
++    #[test]
++    fn buildschutz_deterministischer_domainweg_umgeht_nicht_den_vertrag_und_bleibt_nutzbar() {
++        use brain_contracts::domain::{
++            DomainAnswer, DomainRequest, DomainRoute, DomainVerdict, LocatedRevision, Validity,
++            DOMAIN_ANSWER_VERSION,
++        };
++        let call = build_call("build");
++        let (mut kernel, state) = tool_kernel(&[call], Vec::new());
++        let mut request = query(AnswerProfile::Build);
++        request.patch = Some("p1".into());
++        request.mode = Some("ranked".into());
++        request.domain = Some(DomainRequest::Build {
++            hero: "hero:fixture".into(),
++            locale: "en".into(),
++            catalog_id: "fixture".into(),
++            items: vec!["101".into()],
++        });
++        let mut source = evidence("domain", EvidenceKind::Fact, SourceVisibility::Public, &[]);
++        source.content = serde_json::to_string(&DomainAnswer {
++            contract_version: DOMAIN_ANSWER_VERSION.into(),
++            route: DomainRoute::Build,
++            verdict: DomainVerdict::Proven,
++            text: "geprüfter Build".into(),
++            knowledge_release: "k1".into(),
++            validity: Validity {
++                patch: "p1".into(),
++                mode: "ranked".into(),
++            },
++            inputs: vec![LocatedRevision {
++                source: brain_contracts::DocumentRevision {
++                    source_id: "fixture".into(),
++                    logical_id: "domain".into(),
++                    revision: 1,
++                    content_hash: "fixture-hash".into(),
++                },
++                locator: "document".into(),
++                parser_revision: "fixture".into(),
++            }],
++            input_fact_ids: BTreeSet::new(),
++            rule_evaluation: None,
++            build_evaluation: None,
++        })
++        .unwrap();
++        kernel.retrieval = FixedRetrieval(vec![source]);
++        let outcome = kernel.answer_accounted(&request, &context(&[], &["public"]));
++        assert_eq!(outcome.value.status, AnswerStatus::Answered);
++        assert_eq!(outcome.value.citations.len(), 1);
++        assert_eq!(outcome.accounting.observed.network_rounds, 0);
++        let state = state.lock().unwrap();
++        assert_eq!(state.calls, 0);
++        assert_eq!(state.resolves, 0);
++        assert!(state.build_checks.is_empty());
++    }
++
+     #[test]
+     fn werkzeugloop_beschafft_belege_ohne_initiales_textprofil_und_traegt_alle_unteranfragen() {
+         let first = find_call("first");
+diff --git a/rust/crates/brain-kernel/src/outcome.rs b/rust/crates/brain-kernel/src/outcome.rs
+index a6e08317..a35705b2 100644
+--- a/rust/crates/brain-kernel/src/outcome.rs
++++ b/rust/crates/brain-kernel/src/outcome.rs
+@@ -7,6 +7,7 @@ pub(super) struct KernelAnswer {
+     pub accounting: UsageAccounting,
+     pub dependencies: Arc<[Evidence]>,
+     pub tool_dependencies: Arc<[ToolEvidenceDependency]>,
++    pub build_executions: Arc<[brain_contracts::ToolExecution]>,
+ }
+ impl From<AnswerResponse> for KernelAnswer {
+     fn from(answer: AnswerResponse) -> Self {
+@@ -14,6 +15,7 @@ impl From<AnswerResponse> for KernelAnswer {
+             accounting: UsageAccounting::observed(answer.usage.clone()),
+             dependencies: answer.citations.clone().into(),
+             tool_dependencies: Arc::from([]),
++            build_executions: Arc::from([]),
+             answer,
+         }
+     }
+@@ -67,6 +69,52 @@ impl KernelAnswer {
+                 bytes = bytes.saturating_add(evidence_bytes(evidence));
+             }
+         }
++        for execution in self.build_executions.iter() {
++            bytes = bytes.saturating_add(std::mem::size_of::<brain_contracts::ToolExecution>());
++            bytes = bytes.saturating_add(json_bytes(&execution.result.result));
++            bytes = bytes.saturating_add(
++                execution
++                    .result
++                    .evidence_ids
++                    .capacity()
++                    .saturating_mul(std::mem::size_of::<String>()),
++            );
++            bytes = bytes.saturating_add(execution.result.call_id.capacity());
++            bytes = bytes.saturating_add(
++                execution
++                    .dependencies
++                    .capacity()
++                    .saturating_mul(std::mem::size_of::<ToolEvidenceDependency>()),
++            );
++            for value in [&execution.usage.provider, &execution.usage.model]
++                .into_iter()
++                .flatten()
++            {
++                bytes = bytes.saturating_add(value.capacity());
++            }
++            for id in &execution.result.evidence_ids {
++                bytes = bytes.saturating_add(id.capacity());
++            }
++            for dependency in &execution.dependencies {
++                bytes = bytes.saturating_add(json_bytes(dependency.request.arguments()));
++                let typed_bytes = serde_json::to_value(dependency.request.subrequest())
++                    .map(|value| json_bytes(&value))
++                    .unwrap_or(usize::MAX);
++                bytes = bytes.saturating_add(typed_bytes);
++                if let Some(pin) = &dependency.game_context {
++                    bytes = bytes.saturating_add(pin.mechanic_revision.capacity());
++                }
++                bytes = bytes.saturating_add(
++                    dependency
++                        .evidence
++                        .capacity()
++                        .saturating_mul(std::mem::size_of::<Evidence>()),
++                );
++                for evidence in &dependency.evidence {
++                    bytes = bytes.saturating_add(evidence_bytes(evidence));
++                }
++            }
++        }
+         for value in [
+             &self.answer.usage.provider,
+             &self.answer.usage.model,
+@@ -177,6 +225,7 @@ mod tests {
+             accounting: UsageAccounting::default(),
+             dependencies: vec![dependency].into(),
+             tool_dependencies: Arc::from([]),
++            build_executions: Arc::from([]),
+         };
+         assert!(outcome.retained_bytes() >= bytes);
+         let reused = outcome.clone();

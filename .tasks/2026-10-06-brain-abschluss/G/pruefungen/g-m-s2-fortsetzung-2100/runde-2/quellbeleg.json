@@ -1,0 +1,46 @@
+{
+  "runde": 2,
+  "worktree": "/home/nathanael/.worktrees/brain-g-v2-20261007",
+  "head": "8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206",
+  "git_lesepruefungen": [
+    "git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --short",
+    "git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -1 --format='%H %s'",
+    "git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -6 --format='%H %s'",
+    "git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --quiet"
+  ],
+  "index_exit": 0,
+  "erhaltene_fixcommits": [
+    "8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206",
+    "aefe916a3197911e8ef5b22c602d766a8303e36e",
+    "89fa8a1919afa3a01e5f4b03ecdf0427a645d84f",
+    "9f965c88952177195a9ebba07b1de38357e2e585",
+    "d12986c4eaaf6477a28b2fa672b43d1a5a8c561a"
+  ],
+  "sha256_startquellen": {
+    "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs": "d8a34a344238977c7eab261c14cdc66a880345c41b87a8695ca79c2052652c18",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs": "7b18c0c77db513df339066cf7565102985723a90c449147b33dbf4de032d97d7",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/lib.rs": "40f4ec9914032e1b18ae2166bbcc80c2157ec3ade373434eecc417817e6d1650",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation.rs": "de2419f76368a233be9f848c3298f8560b42b1411b42d1a42c709b505231e15e",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation_tests.rs": "bce7595afdab9ad3bb0e9ecf69d1335cd86431310aef243a8aa4143a4d2c49ca",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/deadline.rs": "1c56ba8005599b15115004348de7ac50ce1eb27b86a00033516583d84db71584"
+  },
+  "direkt_gelesene_api": {
+    "deadline_datei": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/deadline.rs",
+    "zeilen_12_19": "State und RequestDeadline-Inhalt sind privat; expires_at ist std::time::Instant.",
+    "zeilen_27_32": "after(duration) ruft std::time::Instant::now() auf.",
+    "zeilen_40_49": "remaining() ruft std::time::Instant::now() auf; check() ruft remaining() auf.",
+    "oeffentliche_deadline_methoden": ["after", "expires_at", "cancel", "remaining", "check", "wait"],
+    "simulation_datei": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs",
+    "simulation_zeilen_825_843": "simulate_calculation_with_deadline verlangt den konkreten RequestDeadline-Vertrag und ruft vor und nach der Simulation deadline.check() auf.",
+    "regression_zeile_3527": "RequestDeadline::after(std::time::Duration::from_secs(60))",
+    "regression_zeilen_3531_3534_3588_3591": "Beide numerischen Deadlinepfade verwenden diesen konkreten Vertrag."
+  },
+  "produktdateien_geschrieben": [],
+  "tests_ausgefuehrt": false,
+  "compiler_ausgefuehrt": false,
+  "clippy_ausgefuehrt": false,
+  "formatpruefung_ausgefuehrt": false,
+  "neuer_commit": false,
+  "gate_ausgefuehrt": false,
+  "push": false
+}

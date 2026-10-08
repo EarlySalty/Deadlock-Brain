@@ -1,0 +1,65 @@
+## feat/brain-v2-g-20261007...origin/feat/brain-v2-g-20261007 [ahead 1]
+ M .tasks/2026-10-06-brain-abschluss/AN_HAUPT-G.md
+ M .tasks/2026-10-06-brain-abschluss/G/G-M-0645-NACHWEISE.md
+ M .tasks/2026-10-06-brain-abschluss/G/PLAN.md
+ M .tasks/2026-10-06-brain-abschluss/G/REGISTER.md
+ M rust/crates/dbrain-reasoner/src/lib.rs
+?? .tasks/2026-10-06-brain-abschluss/G/ANFORDERUNG-G-V.md
+?? .tasks/2026-10-06-brain-abschluss/G/ANTWORTPORT-VERTRAG.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-K-R2.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-K-R3.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-K-R4.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-M-CHECKPOINTS-R2.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-M-CHECKPOINTS.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-M-S1-R1.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-M-S1-R2.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-M-S2-AKTIVE-UNTYPED.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-M-S2-CARGO-SLOT.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-M-S2-FORTSETZUNG-2100.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-M-S2-RESTKERN.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-M-S2-ZEITBASIS-2135.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-M-S3-S4-FORTSETZUNG.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-P-R2.md
+?? .tasks/2026-10-06-brain-abschluss/G/BRIEFING-G-VERBRAUCHER-FIXTURE.md
+?? .tasks/2026-10-06-brain-abschluss/G/CHECKPOINTS.md
+?? .tasks/2026-10-06-brain-abschluss/G/G-K-R2-NACHWEISE.md
+?? .tasks/2026-10-06-brain-abschluss/G/G-K-R3-NACHWEISE.md
+?? .tasks/2026-10-06-brain-abschluss/G/G-K-R4-NACHWEISE.md
+?? .tasks/2026-10-06-brain-abschluss/G/G-M-S1-R1-NACHWEISE.md
+?? .tasks/2026-10-06-brain-abschluss/G/G-M-S1-R2-NACHWEISE.md
+?? .tasks/2026-10-06-brain-abschluss/G/G-M-S2-BLOCK-NACHWEISE.md
+?? .tasks/2026-10-06-brain-abschluss/G/G-M-S2-CARGO-SLOT-SPERRE.md
+?? .tasks/2026-10-06-brain-abschluss/G/G-M-S2-PRUEFSPERRE-NACHWEISE.md
+?? .tasks/2026-10-06-brain-abschluss/G/G-P-R2-NACHWEISE.md
+?? .tasks/2026-10-06-brain-abschluss/G/G-V-FORTSETZUNG-BESTAND.md
+?? .tasks/2026-10-06-brain-abschluss/G/G-VERBRAUCHER-FIXTURE-NACHWEISE.md
+?? .tasks/2026-10-06-brain-abschluss/G/RECHENKERN-VERTRAG.md
+?? .tasks/2026-10-06-brain-abschluss/G/REVIEW.md
+?? .tasks/2026-10-06-brain-abschluss/G/S1-HOLDBACK.patch
+?? .tasks/2026-10-06-brain-abschluss/G/S2-HOLDBACK.patch
+?? .tasks/2026-10-06-brain-abschluss/G/S3-HOLDBACK.patch
+?? .tasks/2026-10-06-brain-abschluss/G/SCHUTZPRUEFUNG-FEATURE.md
+?? .tasks/2026-10-06-brain-abschluss/G/VERBRAUCHER-R3.md
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-k-r1/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-k-r2/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-k-r3/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-k-r4/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-k/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-0645/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s1-r1/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s1-r2/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s2-aktive-untyped/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s2-cargo-slot/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s2-fortsetzung-2100/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s2-restkern/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s2-zeitbasis-2135/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s3-s4-fortsetzung/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-p-r1/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-p-r2/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-p/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g-verbraucher-fixture/
+?? .tasks/2026-10-06-brain-abschluss/G/pruefungen/g0-0645/
+?? rust/crates/dbrain-reasoner/src/calculation_tests.rs

@@ -1,0 +1,34 @@
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+    Checking brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+    Checking fireworks-model-selection v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/vendor/fireworks-model-selection)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+error: the `Err`-variant returned from this function is very large
+   --> crates/brain-contracts/src/tools.rs:897:10
+    |
+897 |     ) -> Result<Accounted<ToolExecution>, PortFailure> {
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the `Err`-variant is at least 200 bytes
+    |
+    = help: try reducing the size of `PortFailure`, for example by boxing large elements or replacing it with `Box<PortFailure>`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#result_large_err
+    = note: `-D clippy::result-large-err` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::result_large_err)]`
+
+error: the `Err`-variant returned from this function is very large
+   --> crates/brain-contracts/src/lib.rs:589:10
+    |
+589 |     ) -> std::result::Result<Accounted<ProviderAnswer>, PortFailure> {
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the `Err`-variant is at least 200 bytes
+    |
+    = help: try reducing the size of `PortFailure`, for example by boxing large elements or replacing it with `Box<PortFailure>`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#result_large_err
+
+error: the `Err`-variant returned from this function is very large
+   --> crates/brain-contracts/src/lib.rs:602:10
+    |
+602 |     ) -> std::result::Result<Accounted<tools::ProviderTurn>, PortFailure> {
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the `Err`-variant is at least 200 bytes
+    |
+    = help: try reducing the size of `PortFailure`, for example by boxing large elements or replacing it with `Box<PortFailure>`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#result_large_err
+
+error: could not compile `brain-contracts` (lib) due to 3 previous errors

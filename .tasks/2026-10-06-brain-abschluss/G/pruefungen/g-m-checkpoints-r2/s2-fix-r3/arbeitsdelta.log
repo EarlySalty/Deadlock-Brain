@@ -1,0 +1,123 @@
+diff --git a/rust/crates/dbrain-reasoner/src/combat.rs b/rust/crates/dbrain-reasoner/src/combat.rs
+index e397ff7a..dd679cb5 100644
+--- a/rust/crates/dbrain-reasoner/src/combat.rs
++++ b/rust/crates/dbrain-reasoner/src/combat.rs
+@@ -497,6 +497,33 @@ pub fn evaluate_inventory_refs_fast_with_bindings(
+ ) -> InventoryEvaluation {
+     evaluate_core(hero, items, cfg, false, Some(bindings))
+ }
++pub(crate) fn evaluate_inventory_with_deadline(
++    hero: &HeroModel,
++    items: &[ItemModel],
++    cfg: &ReasonerConfig,
++    bindings: &BTreeMap<i64, i64>,
++    deadline: &brain_contracts::RequestDeadline,
++) -> crate::Result<InventoryEvaluation> {
++    let check = || {
++        deadline.check().map_err(|_| {
++            crate::ReasonerError::Data(
++                "Kampfabdeckung ist abgebrochen oder ihre Frist abgelaufen".into(),
++            )
++        })
++    };
++    check()?;
++    let result = evaluate_core_with_deadline(
++        hero,
++        &items.iter().collect::<Vec<_>>(),
++        cfg,
++        true,
++        Some(bindings),
++        Some(deadline),
++    );
++    check()?;
++    Ok(result)
++}
++
+ fn evaluate_core(
+     hero: &HeroModel,
+     items: &[&ItemModel],
+@@ -569,10 +596,12 @@ fn evaluate_core_with_deadline(
+                 unknown.insert(format!("{}: {name} nicht quantifiziert", item.name));
+             }
+         }
+-        if item
+-            .properties
+-            .keys()
+-            .any(|name| matches!(name.as_str(), "ProcBonusMagicDamage"))
++        if item.properties.keys().any(|name| {
++            matches!(
++                name.as_str(),
++                "ProcBonusMagicDamage" | "ProcBonusPhysicalDamage"
++            )
++        })
+             && (item.properties.get("ProcChance") != Some(&100.0)
+                 || item
+                     .proc_cooldown
+@@ -1125,8 +1154,10 @@ fn simulate(
+                 .iter()
+                 .filter(|(key, _)| proc_damage_property(key))
+                 .filter(|(key, _)| {
+-                    !matches!(key.as_str(), "ProcBonusMagicDamage")
+-                        || item.properties.get("ProcChance") == Some(&100.0)
++                    !matches!(
++                        key.as_str(),
++                        "ProcBonusMagicDamage" | "ProcBonusPhysicalDamage"
++                    ) || item.properties.get("ProcChance") == Some(&100.0)
+                 })
+                 .map(|(key, value)| {
+                     (
+@@ -3617,6 +3648,54 @@ pub(crate) mod tests {
+         assert_eq!(full.score, evaluate_inventory_fast(&hero, &[], &cfg).score);
+     }
+     #[test]
++    fn bonus_procs_require_certain_chance_for_shots_and_casts() {
++        let cfg = ReasonerConfig {
++            combat_window_seconds: 2.0,
++            ..ReasonerConfig::default()
++        };
++        for (property, damage_type) in [
++            ("ProcBonusMagicDamage", DamageType::Spirit),
++            ("ProcBonusPhysicalDamage", DamageType::Weapon),
++        ] {
++            for condition in [ConditionKind::ShotBound, ConditionKind::None] {
++                let mut hero = hero();
++                if matches!(condition, ConditionKind::None) {
++                    hero.weapon.bullet_damage = 0.0;
++                    hero.abilities = vec![ability(1, 10.0, 1000.0)];
++                }
++                for chance in [None, Some(0.0), Some(50.0), Some(100.0)] {
++                    let mut proc = item(1, property, 100.0);
++                    proc.condition = condition.clone();
++                    proc.proc_cooldown = Some(1.0);
++                    proc.property_damage_types
++                        .insert(property.into(), damage_type.clone());
++                    if let Some(chance) = chance {
++                        proc.properties.insert("ProcChance".into(), chance);
++                    }
++                    let full = evaluate_inventory(&hero, std::slice::from_ref(&proc), &cfg);
++                    let certain = chance == Some(100.0);
++                    assert!(full.scenarios.iter().all(|scenario| {
++                        if certain {
++                            scenario.proc_damage > 0.0
++                        } else {
++                            scenario.proc_damage == 0.0
++                        }
++                    }));
++                    assert_eq!(
++                        full.unknown_effects
++                            .iter()
++                            .any(|text| text.contains("deterministischer Bonus-Proc")),
++                        !certain
++                    );
++                    assert_eq!(
++                        full.score,
++                        evaluate_inventory_fast(&hero, &[proc], &cfg).score
++                    );
++                }
++            }
++        }
++    }
++    #[test]
+     fn typed_proc_events_respect_damage_type_and_trigger_spirit_threshold() {
+         let mut hero = hero();
+         hero.weapon.clip_size = 10000.0;

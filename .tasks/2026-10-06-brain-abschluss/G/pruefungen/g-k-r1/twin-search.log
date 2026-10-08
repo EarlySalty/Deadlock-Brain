@@ -1,0 +1,53 @@
+rust/crates/brain-kernel/src/execution.rs:129:) -> KernelAnswer {
+rust/crates/brain-kernel/src/execution.rs:277:                        } = match binding.port.execute_accounted(
+rust/crates/brain-kernel/src/execution.rs:351:            KernelAnswer {
+rust/crates/brain-kernel/src/execution.rs:385:) -> KernelAnswer {
+rust/crates/brain-kernel/src/execution.rs:662:    } = match provider.answer_accounted(query, &provider_context, &evidence) {
+rust/crates/brain-kernel/src/execution.rs:722:    KernelAnswer {
+rust/crates/brain-kernel/src/cache.rs:33:    ) -> KernelAnswer {
+rust/crates/brain-providers/src/lib.rs:120:    fn answer_accounted(
+rust/crates/brain-providers/src/lib.rs:126:        self.0.answer_accounted(query, context, evidence)
+rust/crates/brain-providers/src/lib.rs:150:    fn answer_turn(
+rust/crates/brain-providers/src/lib.rs:159:            .answer_turn(query, context, evidence, tools, conversation)
+rust/crates/brain-providers/src/lib.rs:290:    fn answer_accounted(
+rust/crates/brain-providers/src/lib.rs:315:        self.answer_turn(query, context, evidence, &[], &ToolConversation::default())?
+rust/crates/brain-providers/src/lib.rs:319:    fn answer_turn(
+rust/crates/brain-kernel/src/lib.rs:20:    fn answer_accounted(
+rust/crates/brain-kernel/src/lib.rs:212:    fn answer_accounted(
+rust/crates/brain-kernel/src/lib.rs:245:    ) -> KernelAnswer {
+rust/crates/brain-kernel/src/lib.rs:288:    ) -> KernelAnswer {
+rust/crates/brain-kernel/src/lib.rs:844:        fn execute_accounted(
+rust/crates/brain-kernel/src/lib.rs:861:                .execute(query, context, pin, call_id, request)
+rust/crates/brain-kernel/src/lib.rs:877:        fn execute(
+rust/crates/brain-kernel/src/lib.rs:999:                .answer_turn(query, context, evidence, definitions, conversation)
+rust/crates/brain-kernel/src/lib.rs:1015:        fn answer_turn(
+rust/crates/brain-kernel/src/lib.rs:1770:            kernel.answer_accounted(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+rust/crates/brain-kernel/src/lib.rs:1819:            kernel.answer_accounted(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+rust/crates/brain-kernel/src/lib.rs:1853:            kernel.answer_accounted(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+rust/crates/brain-kernel/src/lib.rs:1874:            kernel.answer_accounted(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+rust/crates/brain-kernel/src/lib.rs:1889:        let result = kernel.answer_accounted(&query(AnswerProfile::Explain), &context);
+rust/crates/brain-kernel/src/lib.rs:1921:        let failed = cache.answer_accounted(&request, &context);
+rust/crates/brain-kernel/src/lib.rs:1924:        let success = cache.answer_accounted(&request, &context);
+rust/crates/brain-kernel/src/lib.rs:1927:        let reused = cache.answer_accounted(&request, &context);
+rust/crates/brain-kernel/src/lib.rs:1945:            fn answer_accounted(
+rust/crates/brain-kernel/src/lib.rs:1973:            kernel.answer_accounted(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+rust/crates/brain-kernel/src/lib.rs:1999:            cache.answer_accounted(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+rust/crates/brain-kernel/src/flight.rs:196:    fn answer_accounted(
+rust/crates/brain-kernel/src/flight.rs:227:    ) -> KernelAnswer {
+rust/crates/brain-kernel/src/flight.rs:447:                    KernelAnswer {
+rust/crates/brain-kernel/src/outcome.rs:5:pub(super) struct KernelAnswer {
+rust/crates/brain-kernel/src/outcome.rs:11:impl From<AnswerResponse> for KernelAnswer {
+rust/crates/brain-kernel/src/outcome.rs:21:impl KernelAnswer {
+rust/crates/brain-kernel/src/outcome.rs:167:        let outcome = KernelAnswer {
+rust/crates/brain-contracts/src/tools.rs:884:    fn execute(
+rust/crates/brain-contracts/src/tools.rs:893:    fn execute_accounted(
+rust/crates/brain-contracts/src/tools.rs:901:        self.execute(query, context, game_context, call_id, request)
+rust/crates/brain-contracts/src/tools.rs:1805:            fn execute(
+rust/crates/brain-contracts/src/lib.rs:593:    fn answer_accounted(
+rust/crates/brain-contracts/src/lib.rs:615:        self.answer_turn(query, context, evidence, tools, conversation)
+rust/crates/brain-contracts/src/lib.rs:630:    fn answer_turn(
+rust/crates/brain-contracts/src/lib.rs:780:            .answer_turn(&query, &context, &[], &[], &conversation)
+rust/crates/brain-contracts/src/lib.rs:790:            .answer_turn(&query, &context, &[], &tools, &conversation)
+rust/crates/brain-contracts/src/lib.rs:800:            .answer_turn(&query, &context, &[], &[], &history)
+rust/crates/brain-contracts/src/lib.rs:807:            .answer_turn(&domain_query, &context, &[], &[], &conversation)
+rust/crates/brain-contracts/src/lib.rs:812:            .answer_turn(&invalid_query, &context, &[], &[], &conversation)

@@ -1,0 +1,11 @@
+{
+  "head": "e58a5c59d874848cf977bd0c3e7e77d7a4157d74",
+  "preserved": {
+    "rust/crates/dbrain-reasoner/src/data.rs": true,
+    "rust/crates/dbrain-reasoner/src/lib.rs": true,
+    "rust/crates/dbrain-reasoner/src/calculation.rs": true,
+    "rust/crates/dbrain-reasoner/src/calculation_tests.rs": true
+  },
+  "s3_holdback_preserved": true,
+  "clean_index": true
+}

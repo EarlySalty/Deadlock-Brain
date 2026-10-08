@@ -1,0 +1,39 @@
+cargo-slot: Slot 1, optimiert=0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.29s
+     Running tests/release_tool_port.rs (/tmp/brain-g-m-0645-target/debug/deps/release_tool_port-486213774a870dbd)
+
+running 3 tests
+test actual_port_preserves_request_receipt_and_current_purpose_permissions ... FAILED
+test internal_read_is_not_a_model_grant_or_an_empty_tool_success ... FAILED
+test original_lifetime_request_binding_and_f_boundary_remain_fail_closed ... FAILED
+
+failures:
+
+---- actual_port_preserves_request_receipt_and_current_purpose_permissions stdout ----
+
+thread 'actual_port_preserves_request_receipt_and_current_purpose_permissions' (3870256) panicked at crates/brain-storage/src/local_pg_reader/connection.rs:133:14:
+Cannot start a runtime from within a runtime. This happens because a function (like `block_on`) attempted to block the current thread while the thread is being used to drive asynchronous tasks.
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- internal_read_is_not_a_model_grant_or_an_empty_tool_success stdout ----
+
+thread 'internal_read_is_not_a_model_grant_or_an_empty_tool_success' (3870420) panicked at crates/brain-storage/src/local_pg_reader/connection.rs:133:14:
+Cannot start a runtime from within a runtime. This happens because a function (like `block_on`) attempted to block the current thread while the thread is being used to drive asynchronous tasks.
+
+---- original_lifetime_request_binding_and_f_boundary_remain_fail_closed stdout ----
+
+thread 'original_lifetime_request_binding_and_f_boundary_remain_fail_closed' (3870509) panicked at crates/brain-storage/src/local_pg_reader/connection.rs:133:14:
+Cannot start a runtime from within a runtime. This happens because a function (like `block_on`) attempted to block the current thread while the thread is being used to drive asynchronous tasks.
+
+
+failures:
+    actual_port_preserves_request_receipt_and_current_purpose_permissions
+    internal_read_is_not_a_model_grant_or_an_empty_tool_success
+    original_lifetime_request_binding_and_f_boundary_remain_fail_closed
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.44s
+
+error: test failed, to rerun pass `-p dbrain-retrieval --test release_tool_port`
+cargo-slot: EXIT=101

@@ -1,0 +1,140 @@
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:324:#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:325:#[serde(deny_unknown_fields)]
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:326:pub struct BuildPlanRequest {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:327:    pub hero_id: u64,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:328:    pub playstyle: ToolPlaystyle,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:329:    pub budget: Option<u64>,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:330:    #[serde(default)]
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:331:    pub imbues: Vec<ToolImbue>,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:332:}
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:790:
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:791:#[derive(Debug, Clone, PartialEq, Serialize)]
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:792:pub struct ToolEvidenceDependency {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:793:    pub request: ToolRequest,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:794:    pub game_context: Option<PinnedGameContext>,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:795:    pub evidence: Vec<Evidence>,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:796:}
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:797:
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:798:#[derive(Debug, Clone, PartialEq, Serialize)]
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:799:pub struct ToolExecution {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:800:    pub result: ToolResult,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:801:    pub dependencies: Vec<ToolEvidenceDependency>,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:802:    pub usage: Usage,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:803:}
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:804:
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:805:impl ToolExecution {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:806:    pub fn validate_for(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:807:        &self,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:808:        call: &ToolCall,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:809:        request: &ToolRequest,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:810:        game_context: Option<&PinnedGameContext>,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:811:    ) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:812:        let expected_game = if request.name() == ToolName::ServerKnowledge {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:813:            None
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:814:        } else {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:815:            let game = game_context.ok_or_else(|| invalid("Gebundene Spielversion fehlt"))?;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:816:            game.validate()?;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:817:            if let ToolSubrequest::EntityFind(find) = request.subrequest() {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:818:                if find.language != game.language {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:819:                    return Err(invalid("Werkzeugsprache weicht von der Anfragebindung ab"));
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:820:                }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:821:            }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:822:            Some(game)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:823:        };
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:824:        if self.result.call_id != call.id
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:825:            || self.result.name != call.name
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:826:            || request.name != call.name
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:827:            || request.arguments != call.arguments
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:828:        {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:829:            return Err(invalid("Werkzeugausführung gehört nicht zur Unteranfrage"));
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:830:        }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:831:        validate_id(&self.result.call_id)?;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:832:        validate_ids(&self.result.evidence_ids)?;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:833:        let mut ids = BTreeSet::new();
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:834:        for dependency in &self.dependencies {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:835:            if &dependency.request != request || dependency.game_context.as_ref() != expected_game {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:836:                return Err(invalid(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:837:                    "Belegabhängigkeit gehört nicht zur gebundenen Unteranfrage",
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:838:                ));
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:839:            }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:840:            for evidence in &dependency.evidence {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:841:                validate_id(&evidence.evidence_id)?;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:842:                validate_id(&evidence.source_id)?;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:843:                validate_id(&evidence.logical_id)?;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:844:                evidence
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:845:                    .validate()
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:846:                    .map_err(|_| invalid("Ungültige Werkzeugbelegabhängigkeit"))?;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:847:                if !ids.insert(evidence.evidence_id.as_str()) {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:848:                    return Err(invalid("Doppelte Werkzeugbelegabhängigkeit"));
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:849:                }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:850:            }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:851:        }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:852:        if self
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:853:            .result
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:854:            .evidence_ids
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:855:            .iter()
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:856:            .any(|id| !ids.contains(id.as_str()))
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:857:        {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:858:            return Err(invalid("Werkzeugbeleg hat keine Unteranfrageabhängigkeit"));
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:859:        }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:860:        if !self.result.is_error && ids.is_empty() {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:861:            return Err(invalid("Werkzeugausführung hat keine Belegabhängigkeit"));
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:862:        }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:863:        Ok(())
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:864:    }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:865:}
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:867:#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:868:pub enum ToolValidationPurpose {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:869:    Provider,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:870:    Publication,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:871:    Cache,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:872:}
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:873:
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:874:pub trait ToolExecutionPort: Send + Sync {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:875:    fn definitions(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:876:        &self,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:877:        _query: &Query,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:878:        _context: &AuthorizedContext,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:879:        _game_context: Option<&PinnedGameContext>,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:880:    ) -> Result<Vec<ToolDefinition>, PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:881:        Err(PortError::Unavailable("Werkzeugdefinitionen fehlen".into()))
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:882:    }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:883:
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:884:    fn execute(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:885:        &self,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:886:        query: &Query,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:887:        context: &AuthorizedContext,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:888:        game_context: Option<&PinnedGameContext>,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:889:        call_id: &str,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:890:        request: &ToolRequest,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:891:    ) -> Result<ToolExecution, PortError>;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:892:
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:893:    fn execute_accounted(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:894:        &self,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:895:        query: &Query,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:896:        context: &AuthorizedContext,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:897:        game_context: Option<&PinnedGameContext>,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:898:        call_id: &str,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:899:        request: &ToolRequest,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:900:    ) -> Result<Accounted<ToolExecution>, PortFailure> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:901:        self.execute(query, context, game_context, call_id, request)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:902:            .map(|value| Accounted {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:903:                accounting: UsageAccounting::observed(value.usage.clone()),
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:904:                value,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:905:            })
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:906:            .map_err(PortFailure::from)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:907:    }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:908:
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:909:    fn validate_dependencies(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:910:        &self,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:911:        _query: &Query,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:912:        _context: &AuthorizedContext,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:913:        _game_context: Option<&PinnedGameContext>,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:914:        _dependencies: &[ToolEvidenceDependency],
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:915:        _purpose: ToolValidationPurpose,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:916:    ) -> Result<(), PortError> {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:917:        Err(PortError::Unavailable(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:918:            "Kanonische Werkzeugbelegprüfung fehlt".into(),
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:919:        ))
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:920:    }
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:921:}

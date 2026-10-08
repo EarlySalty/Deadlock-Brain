@@ -1,0 +1,12 @@
+Prüfung	Exit	Beleg
+Format Arbeitsbaum	0	/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r3/format-arbeitsbaum.log
+Format Commitstand	0	/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r3/format-committed.log
+Compiler all-targets locked offline jobs 3	0	/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r3/compiler.log
+Clippy all-targets samt Abhängigkeiten D warnings	0	/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r3/clippy.log
+S2-Gate bd83d7abdef812a30daa47aa5f6a78de4f42263a bis 9f965c88952177195a9ebba07b1de38357e2e585	1	/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r3/S2-r3-gate.log
+Elf fremde Manifestdateien	0	/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r3/quellen-erhalt.log
+S3-Wrappervergleich mit Holdback	0	/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r3/s3-wrappervergleich.log
+Start- und Endstatusvergleich	0	/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r3/status-ende.txt
+Rohbelegprüfung auf Secret-Muster, keine Treffer	1	/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r3/logsicherheit.txt
+Tests	NICHT AUSGEFÜHRT	Expliziter Auftrag
+Git-Schritte einzeln	20	2 schreibende Indexschritte, 1 Commit, 1 Prüfbaum-Checkout, 16 lesende Git-Schritte

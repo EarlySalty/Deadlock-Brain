@@ -1,0 +1,25 @@
+567-            .unwrap_or(false),
+568:        disabled: payload
+569-            .get("disabled")
+570-            .or_else(|| payload.get("IsDisabled"))
+571-            .and_then(Value::as_bool)
+572-            .unwrap_or(false),
+573-        damage_axis: DamageType::None,
+574-        defense_kind: Vec::new(),
+575-        passive_properties: passive_property_values(payload.get("properties")),
+576-        conditional_properties: payload
+577-            .get("properties")
+578-            .and_then(Value::as_object)
+--
+1415-            .unwrap_or(true);
+1416:        model.disabled = payload
+1417-            .get("disabled")
+1418-            .and_then(Value::as_bool)
+1419-            .or_else(|| payload.get("IsDisabled").and_then(Value::as_bool))
+1420-            .or_else(|| {
+1421-                item_card
+1422-                    .and_then(|card| card.get("IsDisabled"))
+1423-                    .and_then(Value::as_bool)
+1424-            })
+1425-            .unwrap_or(false);
+1426-        model.condition = classify_condition(&merged_payload, model.is_active);

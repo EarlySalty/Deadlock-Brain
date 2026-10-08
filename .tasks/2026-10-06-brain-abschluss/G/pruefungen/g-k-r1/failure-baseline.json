@@ -1,0 +1,52 @@
+{
+  "reference": "/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-k/test-complete-r2.log",
+  "reference_failed": [
+    "asset_hero_entity_and_field_records_share_identity",
+    "assets_feed_field_answers_through_release_kernel",
+    "cache_hit_revalidates_uncited_input_acl_and_tombstone",
+    "cache_hit_timeout_fails_closed_without_provider_retry_and_does_not_cache_failure",
+    "cache_separates_principal_release_and_rechecks_current_acl",
+    "concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner",
+    "fact_reuse_rechecks_newly_visible_conflict_and_alias_collision",
+    "flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success",
+    "forged_provider_citation_is_rejected_and_failure_not_cached",
+    "fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads",
+    "irrelevant_excerpts_produce_insufficient_evidence_with_charged_usage",
+    "patch_agnostic_fact_does_not_establish_release_patch_or_mode",
+    "permission_budget_and_invalid_reader_responses_are_distinct",
+    "retrieval_and_provider_share_a_budget",
+    "revocation_during_provider_call_prevents_publication",
+    "six_hundred_parallel_requests_with_reader_faults_never_report_false_permission_denials",
+    "technical_reader_failures_are_unavailable_at_every_handoff_not_unauthorized",
+    "uncited_provider_input_revoked_during_call_must_not_publish_or_cache"
+  ],
+  "current_failed": [
+    "asset_hero_entity_and_field_records_share_identity",
+    "assets_feed_field_answers_through_release_kernel",
+    "cache_hit_revalidates_uncited_input_acl_and_tombstone",
+    "cache_hit_timeout_fails_closed_without_provider_retry_and_does_not_cache_failure",
+    "cache_separates_principal_release_and_rechecks_current_acl",
+    "concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner",
+    "fact_reuse_rechecks_newly_visible_conflict_and_alias_collision",
+    "flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success",
+    "forged_provider_citation_is_rejected_and_failure_not_cached",
+    "fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads",
+    "irrelevant_excerpts_produce_insufficient_evidence_with_charged_usage",
+    "patch_agnostic_fact_does_not_establish_release_patch_or_mode",
+    "permission_budget_and_invalid_reader_responses_are_distinct",
+    "retrieval_and_provider_share_a_budget",
+    "revocation_during_provider_call_prevents_publication",
+    "six_hundred_parallel_requests_with_reader_faults_never_report_false_permission_denials",
+    "technical_reader_failures_are_unavailable_at_every_handoff_not_unauthorized",
+    "uncited_provider_input_revoked_during_call_must_not_publish_or_cache"
+  ],
+  "added": [],
+  "removed": [],
+  "current_totals": [
+    170,
+    18,
+    0,
+    0,
+    0
+  ]
+}

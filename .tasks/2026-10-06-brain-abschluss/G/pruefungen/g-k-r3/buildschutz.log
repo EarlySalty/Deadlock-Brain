@@ -1,0 +1,32 @@
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+   Compiling brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-policy)
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-wiki)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-ingestion)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-feeds)
+error[E0716]: temporary value dropped while borrowed
+    --> crates/brain-kernel/src/lib.rs:1536:23
+     |
+1536 |         let context = context(&[], &["public"]).with_request_deadline();
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^                        - temporary value is freed at the end of this statement
+     |                       |
+     |                       creates a temporary value which is freed while still in use
+1537 |         let session = kernel.prepare_tools(&request, &context).unwrap().unwrap();
+     |                                                      -------- borrow later used here
+     |
+help: consider using a `let` binding to create a longer lived value
+     |
+1536 ~         let binding = context(&[], &["public"]);
+1537 ~         let context = binding.with_request_deadline();
+     |
+
+For more information about this error, try `rustc --explain E0716`.
+error: could not compile `brain-kernel` (lib test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

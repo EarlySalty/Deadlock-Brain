@@ -1,0 +1,38 @@
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:120:        port: impl ToolExecutionPort + 'static,
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:257:                .validate_build_plan(query, context, pin, request, execution, purpose)?;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:363:    fn validate_reuse(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:406:                && query.profile == brain_contracts::AnswerProfile::Build
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:407:                && !execution::has_build_citation(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:688:        let mut domain = query(AnswerProfile::Build);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:789:        let answer = kernel.answer(&query(AnswerProfile::Build), &context(&[], &["public"]));
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:798:        let mut first = query(AnswerProfile::Build);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:952:    impl ToolExecutionPort for TestTools {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1058:        fn validate_build_plan(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1332:        let kernel = Kernel::new(FixedRetrieval(Vec::new()), provider).with_tools(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1363:                kernel.answer_accounted(&query(AnswerProfile::Build), &context(&[], &["public"]));
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1377:        impl ToolExecutionPort for LegacyTools {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1423:            kernel.answer_accounted(&query(AnswerProfile::Build), &context(&[], &["public"]));
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1450:            let request = query(AnswerProfile::Build);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1476:                assert_eq!(check.query.profile, AnswerProfile::Build);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1517:                kernel.answer_accounted(&query(AnswerProfile::Build), &context(&[], &["public"]));
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1535:        let request = query(AnswerProfile::Build);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1547:            .validate_reuse(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1560:            .validate_reuse(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1576:            .validate_reuse(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1587:            .validate_reuse(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1602:            .validate_reuse(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1613:            .validate_reuse(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1623:            .validate_reuse(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1643:        let request = query(AnswerProfile::Build);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1682:            let request = query(AnswerProfile::Build);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1806:                kernel.answer_accounted(&query(AnswerProfile::Build), &context(&[], &["public"]));
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1868:                &query(AnswerProfile::Build),
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs:1887:        let mut request = query(AnswerProfile::Build);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:124:pub(super) fn has_build_citation<'a>(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:275:                    if query.profile == brain_contracts::AnswerProfile::Build
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:277:                        && !has_build_citation(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs:637:    if matches!(query.profile, brain_contracts::AnswerProfile::Build) {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/cache.rs:76:                .validate_reuse(query, context, &answer, purpose, session);
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/flight.rs:314:                    if let Err(error) = self.inner.validate_reuse(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:909:    fn validate_build_plan(
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs:1818:        impl ToolExecutionPort for NoValidation {

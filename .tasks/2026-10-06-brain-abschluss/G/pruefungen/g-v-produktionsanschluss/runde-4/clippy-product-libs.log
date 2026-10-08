@@ -1,0 +1,40 @@
+cargo-slot: Slot 3, optimiert=0
+    Checking tokio v1.52.3
+    Checking bitflags v2.13.0
+    Checking nix v0.29.0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Checking selectors v0.25.0
+    Checking tokio-util v0.7.18
+    Checking hyper v1.10.1
+    Checking tokio-stream v0.1.18
+    Checking sqlx-core v0.8.6
+    Checking hyper-util v0.1.20
+    Checking tokio-rustls v0.26.4
+    Checking tower v0.5.3
+    Checking async-compression v0.4.42
+    Checking hyper-rustls v0.27.9
+    Checking tower-http v0.6.11
+    Checking sqlx-postgres v0.8.6
+    Checking tokio-postgres v0.7.18
+    Checking postgres v0.19.14
+    Checking reqwest v0.12.28
+    Checking sqlx v0.8.6
+    Checking brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+    Checking uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+    Checking scraper v0.20.0
+    Checking dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+    Checking deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+    Checking dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+    Checking dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+error: unused variable: `expected_payload`
+   --> crates/dbrain-retrieval/src/lib.rs:136:27
+    |
+136 |             for (receipt, expected_payload) in [
+    |                           ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_expected_payload`
+    |
+    = note: `-D unused-variables` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(unused_variables)]`
+
+error: could not compile `dbrain-retrieval` (lib) due to 1 previous error
+cargo-slot: EXIT=101

@@ -1,0 +1,44 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-feeds)
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 34.74s
+     Running unittests src/lib.rs (/tmp/brain-g-k-20261007-target/debug/deps/brain_kernel-9a921c78eb39511d)
+
+running 32 tests
+test fact_relevance::tests::ambiguous_alias_does_not_select_highest_bm25_score ... ok
+test fact_relevance::tests::entity_field_alias_and_numeric_anchors ... ok
+test fact_relevance::tests::metadata_aliases_use_release_tokenizer_and_real_delimiters ... ok
+test fact_relevance::tests::patch_mode_and_provenance_are_required_when_requested ... ok
+test fact_relevance::tests::same_entity_field_with_two_sources_is_not_selected_by_score ... ok
+test fact_relevance::tests::specific_field_outranks_generic_field_for_one_entity ... ok
+test flight::retained_pack_tests::oversized_uncited_pack_is_not_retained_for_single_flight_followers ... ok
+test flight::tests::concurrent_failures_are_shared_but_not_retained ... ok
+test outcome::tests::uncited_dependency_pack_is_shared_accounted_and_absent_from_wire_response ... ok
+test tests::actor_scopes_provider_mechanik_und_szenario_trennen_wiederverwendung ... ok
+test tests::boonkurven_analytics_und_regeln_erhalten_die_tatsaechliche_erweiterte_unteranfrage ... ok
+test tests::build_never_falls_back_to_generative_prose ... ok
+test tests::cache_hit_prueft_unzitierte_quellen_und_grants_und_loest_pin_requestgebunden ... ok
+test tests::explain_path_calls_provider_for_public_evidence ... ok
+test tests::fact_path_does_not_call_provider ... ok
+test tests::fehlende_belege_und_unvollstaendige_abschlussgruende_sind_keine_antwort ... ok
+test tests::internal_evidence_requires_internal_egress ... ok
+test tests::prose_shaped_like_a_domain_certificate_is_not_a_deterministic_capability ... ok
+test tests::provider_egress_und_publikationsfreigabe_gelten_auch_fuer_unzitierte_toolinputs ... ok
+test tests::single_flight_follower_prueft_vollstaendige_typisierte_toolabhaengigkeiten ... ok
+test tests::successful_fact_domain_and_provider_paths_reject_late_validation ... ok
+test tests::tool_abbruch_behält_die_urspruengliche_deadline_und_verhindert_folgerunden ... ok
+test tests::typed_domain_intent_separates_cache_and_single_flight_keys ... ok
+test tests::unauthorized_evidence_never_reaches_provider ... ok
+test tests::unbekannte_felder_actor_und_version_werden_vor_ausfuehrung_verweigert ... ok
+test tests::unzitierter_privater_input_und_falsche_ergebniszuordnung_stoppen_die_folgerunde ... ok
+test tests::versionswechsel_bildet_vor_cache_und_flight_einen_neuen_schluessel ... ok
+test tests::vollstaendige_belege_und_pin_werden_nach_finalturn_erneut_geprueft ... ok
+test tests::werkzeugloop_beschafft_belege_ohne_initiales_textprofil_und_traegt_alle_unteranfragen ... ok
+test tests::wiederholte_call_ids_werden_vor_zweiter_ausfuehrung_abgewiesen ... ok
+test tests::wiederholte_modellhistorie_ist_vor_dem_zweiten_versand_vollstaendig_reserviert ... ok
+test tests::zweite_runde_retries_und_externe_toolnutzung_teilen_dasselbe_budget ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.59s
+

@@ -1,0 +1,550 @@
+--- /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-p-r1/rust__crates__brain-contracts__src__provider_input.rs.before	2026-10-07 08:12:04.008904169 +0200
++++ /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs	2026-10-07 08:21:47.443940304 +0200
+@@ -5,9 +5,68 @@
+     ToolName,
+ };
+ use crate::{Evidence, PortError, Query};
++use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+ use serde::Serialize;
+ use serde_json::{json, Value};
+ 
++struct Unique(Value);
++impl<'de> Deserialize<'de> for Unique {
++    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
++        struct UniqueVisitor;
++        impl<'de> Visitor<'de> for UniqueVisitor {
++            type Value = Unique;
++            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
++                f.write_str("JSON with unique object keys")
++            }
++            fn visit_bool<E: serde::de::Error>(self, value: bool) -> Result<Unique, E> {
++                Ok(Unique(Value::Bool(value)))
++            }
++            fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<Unique, E> {
++                Ok(Unique(value.into()))
++            }
++            fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<Unique, E> {
++                Ok(Unique(value.into()))
++            }
++            fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<Unique, E> {
++                serde_json::Number::from_f64(value)
++                    .map(|v| Unique(Value::Number(v)))
++                    .ok_or_else(|| E::custom("non-finite JSON number"))
++            }
++            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Unique, E> {
++                Ok(Unique(Value::String(value.to_owned())))
++            }
++            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Unique, E> {
++                Ok(Unique(Value::String(value)))
++            }
++            fn visit_unit<E: serde::de::Error>(self) -> Result<Unique, E> {
++                Ok(Unique(Value::Null))
++            }
++            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Unique, A::Error> {
++                let mut values = Vec::new();
++                while let Some(Unique(value)) = seq.next_element()? {
++                    values.push(value);
++                }
++                Ok(Unique(Value::Array(values)))
++            }
++            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Unique, A::Error> {
++                let mut values = serde_json::Map::new();
++                while let Some((key, Unique(value))) = map.next_entry::<String, Unique>()? {
++                    if values.insert(key, value).is_some() {
++                        return Err(serde::de::Error::custom("duplicate JSON object key"));
++                    }
++                }
++                Ok(Unique(Value::Object(values)))
++            }
++        }
++        d.deserialize_any(UniqueVisitor)
++    }
++}
++
++pub fn parse_unique_json(raw: &[u8]) -> Result<Value, serde_json::Error> {
++    drop(serde_json::from_slice::<Unique>(raw)?.0);
++    serde_json::from_slice(raw)
++}
++
+ const FRAMING: u64 = 64;
+ const PER_MESSAGE: u64 = 16;
+ 
+@@ -273,8 +332,10 @@
+                 let call = ToolCall {
+                     id: string(&call["id"])?.into(),
+                     name: parse_name(&call["function"]["name"])?,
+-                    arguments: serde_json::from_str(string(&call["function"]["arguments"])?)
+-                        .map_err(|_| envelope_error())?,
++                    arguments: parse_unique_json(
++                        string(&call["function"]["arguments"])?.as_bytes(),
++                    )
++                    .map_err(|_| envelope_error())?,
+                 };
+                 calls.register(call)?;
+             }
+@@ -434,6 +495,96 @@
+     use crate::tools::ToolResult;
+ 
+     #[test]
++    fn unique_json_rejects_duplicate_decoded_keys_at_every_depth() {
++        for raw in [
++            r#"{"query":"A","query":"B","language":"german"}"#,
++            concat!(
++                r#"{"query":"A","qu"#,
++                "\\u0065",
++                r#"ry":"B","language":"german"}"#
++            ),
++            r#"{"nested":{"value":null,"value":1}}"#,
++            r#"[{"nested":[{"value":1,"value":2}]}]"#,
++            concat!(r#"{"ä":1,""#, "\\u00e4", r#"":2}"#),
++        ] {
++            let error = parse_unique_json(raw.as_bytes()).unwrap_err();
++            assert!(error.is_data());
++        }
++    }
++
++    #[test]
++    fn unique_json_preserves_numbers_arrays_null_and_independent_objects() {
++        for raw in [
++            r#"{"left":{"value":null},"right":{"value":1},"rows":[{"value":2},{"value":3}]}"#,
++            r#"[null,true,false,"äöüß",[],{},-9223372036854775808,18446744073709551615,1.25,-0.0,1e30]"#,
++            "null",
++            "12",
++            "1e400",
++            "184467440737095516160",
++            "\"text\"",
++        ] {
++            assert_eq!(
++                parse_unique_json(raw.as_bytes()).map_err(|error| (
++                    error.classify(),
++                    error.line(),
++                    error.column()
++                )),
++                serde_json::from_str::<Value>(raw).map_err(|error| (
++                    error.classify(),
++                    error.line(),
++                    error.column()
++                ))
++            );
++        }
++    }
++
++    #[test]
++    fn unique_json_keeps_serde_recursion_number_and_complete_input_limits() {
++        let mut invalid = vec![
++            "NaN".to_owned(),
++            "{} {}".to_owned(),
++            "{\"a\":1,}".to_owned(),
++        ];
++        invalid.push(format!("{}null{}", "[".repeat(128), "]".repeat(128)));
++        for raw in invalid {
++            let expected = serde_json::from_str::<Value>(&raw).unwrap_err();
++            let actual = parse_unique_json(raw.as_bytes()).unwrap_err();
++            assert_eq!(actual.classify(), expected.classify());
++            assert_eq!(actual.line(), expected.line());
++            assert_eq!(actual.column(), expected.column());
++        }
++        let accepted = format!("{}null{}", "[".repeat(127), "]".repeat(127));
++        assert_eq!(
++            parse_unique_json(accepted.as_bytes()).unwrap(),
++            serde_json::from_str::<Value>(&accepted).unwrap()
++        );
++    }
++
++    #[test]
++    fn wire_input_rejects_duplicate_keys_in_encoded_argument_history() {
++        let (query, definitions, conversation) = fixture();
++        let mut payload = grounded_turn_payload(
++            &query,
++            &[],
++            &definitions,
++            &conversation,
++            ToolWireFormat::OpenAiCompatible,
++        )
++        .unwrap();
++        for raw in [
++            r#"{"query":"A","query":"B","language":"german"}"#,
++            concat!(
++                r#"{"query":"A","qu"#,
++                "\\u0065",
++                r#"ry":"B","language":"german"}"#
++            ),
++        ] {
++            payload["messages"][2]["tool_calls"][0]["function"]["arguments"] = json!(raw);
++            assert!(transport_input_ceiling(&payload, true).is_err());
++        }
++    }
++
++    #[test]
+     fn counts_decoded_text_not_http_escaping_or_model_name() {
+         let text = "Zeile\n\"quoted\"\\ UTF-8 äöü";
+         let mut payload = json!({"messages":[{"role":"user","content":text}],"model":"fixture","max_tokens":2000});
+--- /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-p-r1/rust__crates__dbrain-sources__src__external__strict_json.rs.before	2026-10-07 08:12:04.010904169 +0200
++++ /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources/src/external/strict_json.rs	2026-10-07 08:12:48.888906948 +0200
+@@ -1,61 +1,5 @@
+-//! JSON objects with duplicate keys are ambiguous source evidence, not a
+-//! last-key-wins success. serde_json retains its normal recursion/number limits.
+-use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+ use serde_json::Value;
+ 
+-struct Unique(Value);
+-impl<'de> Deserialize<'de> for Unique {
+-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+-        struct UniqueVisitor;
+-        impl<'de> Visitor<'de> for UniqueVisitor {
+-            type Value = Unique;
+-            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+-                f.write_str("JSON with unique object keys")
+-            }
+-            fn visit_bool<E: serde::de::Error>(self, value: bool) -> Result<Unique, E> {
+-                Ok(Unique(Value::Bool(value)))
+-            }
+-            fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<Unique, E> {
+-                Ok(Unique(value.into()))
+-            }
+-            fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<Unique, E> {
+-                Ok(Unique(value.into()))
+-            }
+-            fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<Unique, E> {
+-                serde_json::Number::from_f64(value)
+-                    .map(|v| Unique(Value::Number(v)))
+-                    .ok_or_else(|| E::custom("non-finite JSON number"))
+-            }
+-            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Unique, E> {
+-                Ok(Unique(Value::String(value.to_owned())))
+-            }
+-            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Unique, E> {
+-                Ok(Unique(Value::String(value)))
+-            }
+-            fn visit_unit<E: serde::de::Error>(self) -> Result<Unique, E> {
+-                Ok(Unique(Value::Null))
+-            }
+-            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Unique, A::Error> {
+-                let mut values = Vec::new();
+-                while let Some(Unique(value)) = seq.next_element()? {
+-                    values.push(value);
+-                }
+-                Ok(Unique(Value::Array(values)))
+-            }
+-            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Unique, A::Error> {
+-                let mut values = serde_json::Map::new();
+-                while let Some((key, Unique(value))) = map.next_entry::<String, Unique>()? {
+-                    if values.insert(key, value).is_some() {
+-                        return Err(serde::de::Error::custom("duplicate JSON object key"));
+-                    }
+-                }
+-                Ok(Unique(Value::Object(values)))
+-            }
+-        }
+-        d.deserialize_any(UniqueVisitor)
+-    }
+-}
+-
+ pub(super) fn parse(raw: &[u8]) -> Result<Value, serde_json::Error> {
+-    serde_json::from_slice::<Unique>(raw).map(|value| value.0)
++    brain_contracts::provider_input::parse_unique_json(raw)
+ }
+--- /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-p-r1/rust__crates__brain-providers__src__transport.rs.before	2026-10-07 08:12:23.516905377 +0200
++++ /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/src/transport.rs	2026-10-07 08:46:23.523031724 +0200
+@@ -3,8 +3,9 @@
+     ProviderAnswer, ProviderError, Result, StatusCode, Usage,
+ };
+ use brain_contracts::{
+-    AuthorizedContext, Evidence, ModelBlock, ProviderFinishReason, ProviderTurn, ToolCall,
+-    ToolConversation, ToolDefinition, ToolMessage, ToolName,
++    provider_input::parse_unique_json, AuthorizedContext, Evidence, ModelBlock,
++    ProviderFinishReason, ProviderTurn, ToolCall, ToolConversation, ToolDefinition, ToolMessage,
++    ToolName,
+ };
+ use serde::Deserialize;
+ use serde_json::Value;
+@@ -404,7 +405,9 @@
+         #[serde(default)]
+         cache_read_input_tokens: u64,
+     }
+-    let response: Response = serde_json::from_slice(bytes).map_err(|_| invalid_schema())?;
++    let response: Response =
++        serde_json::from_value(parse_unique_json(bytes).map_err(|_| invalid_schema())?)
++            .map_err(|_| invalid_schema())?;
+     let mut blocks = Vec::new();
+     for block in response.content {
+         match block {
+@@ -483,7 +486,9 @@
+         prompt_tokens: u64,
+         completion_tokens: u64,
+     }
+-    let response: Response = serde_json::from_slice(bytes).map_err(|_| invalid_schema())?;
++    let response: Response =
++        serde_json::from_value(parse_unique_json(bytes).map_err(|_| invalid_schema())?)
++            .map_err(|_| invalid_schema())?;
+     if response.choices.len() != 1 {
+         return Err(ProviderError::InvalidResponse(
+             "model or choice count mismatch".into(),
+@@ -518,7 +523,7 @@
+             return Err(invalid_schema());
+         }
+         let arguments =
+-            serde_json::from_str(&call.function.arguments).map_err(|_| invalid_schema())?;
++            parse_unique_json(call.function.arguments.as_bytes()).map_err(|_| invalid_schema())?;
+         blocks.push(ModelBlock::ToolUse {
+             call: ToolCall {
+                 id: call.id,
+@@ -555,11 +560,19 @@
+         ));
+     }
+     let (text, cited_evidence_ids) = if evidence.is_empty() && !require_grounded {
++        if parse_unique_json(text.as_bytes()).is_err_and(|error| error.is_data()) {
++            return Err(ProviderError::InvalidResponse(
++                "grounded answer envelope missing".into(),
++            ));
++        }
+         (text, Vec::new())
+     } else {
+-        let grounded: Grounded = serde_json::from_str(&text).map_err(|_| {
+-            ProviderError::InvalidResponse("grounded answer envelope missing".into())
+-        })?;
++        let envelope_error =
++            || ProviderError::InvalidResponse("grounded answer envelope missing".into());
++        let grounded: Grounded = serde_json::from_value(
++            parse_unique_json(text.as_bytes()).map_err(|_| envelope_error())?,
++        )
++        .map_err(|_| envelope_error())?;
+         let unique: std::collections::BTreeSet<_> = grounded.cited_evidence_ids.iter().collect();
+         let insufficient = grounded.text.is_empty() && unique.is_empty();
+         if (!insufficient && (grounded.text.trim().is_empty() || unique.is_empty()))
+--- /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-p-r1/rust__crates__brain-providers__tests__faults.rs.before	2026-10-07 08:12:23.517905377 +0200
++++ /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/tests/faults.rs	2026-10-07 08:47:28.845035769 +0200
+@@ -260,6 +260,233 @@
+     remaining
+ }
+ 
++fn raw_tool_response(native: bool, arguments: &str) -> String {
++    if native {
++        format!(
++            r#"{{"model":"gpt-6-luna","stop_reason":"tool_use","content":[{{"type":"tool_use","id":"call-1","name":"entity_find","input":{arguments}}}],"usage":{{"input_tokens":10,"output_tokens":3}}}}"#
++        )
++    } else {
++        let arguments = serde_json::json!(arguments);
++        format!(
++            r#"{{"model":"fixture-model","choices":[{{"finish_reason":"tool_calls","message":{{"content":null,"tool_calls":[{{"id":"call-1","type":"function","function":{{"name":"entity_find","arguments":{arguments}}}}}]}}}}],"usage":{{"prompt_tokens":10,"completion_tokens":3}}}}"#
++        )
++    }
++}
++
++#[test]
++fn duplicate_raw_arguments_fail_closed_in_both_wire_forms_without_retry() {
++    let cases = [
++        r#"{"query":"A","query":"B","language":"german"}"#,
++        concat!(
++            r#"{"query":"A","qu"#,
++            "\\u0065",
++            r#"ry":"B","language":"german"}"#
++        ),
++        r#"{"query":"A","language":"english","language":"german"}"#,
++        r#"{"query":"A","language":"german","extra":{"value":1,"value":2}}"#,
++        r#"{"query":"A","language":"german","extra":[{"value":null,"value":1}]}"#,
++        concat!(
++            r#"{"query":"A","language":"german","extra":{"ä":1,""#,
++            "\\u00e4",
++            r#"":2}}"#
++        ),
++    ];
++    for native in [false, true] {
++        for (case, arguments) in cases.iter().enumerate() {
++            let body = raw_tool_response(native, arguments);
++            let (result, calls) = fixture(
++                vec![(Duration::ZERO, json_response("200 OK", &body))],
++                |config| {
++                    let context = turn_context();
++                    let deadline = context.request_deadline.as_ref().unwrap().expires_at();
++                    let result = turn_provider(native, config).answer_turn(
++                        &query(),
++                        &context,
++                        &[],
++                        &definitions(),
++                        &ToolConversation::default(),
++                    );
++                    assert_eq!(
++                        context.request_deadline.as_ref().unwrap().expires_at(),
++                        deadline
++                    );
++                    result
++                },
++            );
++            assert_eq!(
++                result,
++                Err(PortError::InvalidResponse("invalid chat schema".into())),
++                "native={native}, case={case}"
++            );
++            assert_eq!(calls, 1);
++        }
++    }
++}
++
++#[test]
++fn duplicate_wire_response_keys_including_unknown_nested_objects_are_rejected() {
++    for native in [false, true] {
++        let good = raw_tool_response(native, r#"{"query":"A","language":"german"}"#);
++        let variants = [
++            format!(r#"{{"diagnostic":1,"diagnostic":2,{}"#, &good[1..]),
++            format!(
++                concat!(r#"{{"diagnostic":1,"diag"#, "\\u006e", r#"ostic":2,{}"#),
++                &good[1..]
++            ),
++            format!(r#"{{"diagnostic":{{"value":1,"value":2}},{}"#, &good[1..]),
++            format!(r#"{{"diagnostic":[{{"value":1,"value":2}}],{}"#, &good[1..]),
++            good.replace(r#""model":""#, r#""model":"ignored","model":""#),
++            if native {
++                good.replace(
++                    r#""input_tokens":10"#,
++                    r#""input_tokens":9,"input_tokens":10"#,
++                )
++            } else {
++                good.replace(
++                    r#""prompt_tokens":10"#,
++                    r#""prompt_tokens":9,"prompt_tokens":10"#,
++                )
++            },
++        ];
++        for (case, body) in variants.iter().enumerate() {
++            let (result, calls) = fixture(
++                vec![(Duration::ZERO, json_response("200 OK", body))],
++                |config| {
++                    turn_provider(native, config).answer_turn(
++                        &query(),
++                        &turn_context(),
++                        &[],
++                        &definitions(),
++                        &ToolConversation::default(),
++                    )
++                },
++            );
++            assert_eq!(
++                result,
++                Err(PortError::InvalidResponse("invalid chat schema".into())),
++                "native={native}, case={case}"
++            );
++            assert_eq!(calls, 1);
++        }
++        let body = format!(
++            r#"{{"diagnostic":[{{"value":null}},{{"value":1}}],{}"#,
++            &good[1..]
++        );
++        let (result, calls) = fixture(
++            vec![(Duration::ZERO, json_response("200 OK", &body))],
++            |config| {
++                turn_provider(native, config).answer_turn(
++                    &query(),
++                    &turn_context(),
++                    &[],
++                    &definitions(),
++                    &ToolConversation::default(),
++                )
++            },
++        );
++        assert!(matches!(result, Ok(ProviderTurn::ToolCalls { .. })));
++        assert_eq!(calls, 1);
++    }
++}
++
++#[test]
++fn final_answer_json_rejects_duplicate_decoded_keys_in_both_wire_forms() {
++    let cases = [
++        r#"{"text":"A","text":"B","cited_evidence_ids":["e1"]}"#,
++        r#"{"text":"B","cited_evidence_ids":["foreign"],"cited_evidence_ids":["e1"]}"#,
++        concat!(
++            r#"{"text":"A","te"#,
++            "\\u0078",
++            r#"t":"B","cited_evidence_ids":["e1"]}"#
++        ),
++        concat!(
++            r#"{"text":"B","cited_evidence_ids":["foreign"],"cited_evidence_i"#,
++            "\\u0064",
++            r#"s":["e1"]}"#
++        ),
++    ];
++    for native in [false, true] {
++        for tool_turn in [false, true] {
++            for (case, envelope) in cases.iter().enumerate() {
++                let body = wire_response(
++                    native,
++                    &[ModelBlock::Text {
++                        text: (*envelope).into(),
++                    }],
++                    if native { "end_turn" } else { "stop" },
++                    11,
++                    4,
++                );
++                let (result, calls) = fixture(
++                    vec![(Duration::ZERO, json_response("200 OK", &body.to_string()))],
++                    |config| {
++                        let provider = turn_provider(native, config);
++                        if tool_turn {
++                            provider.answer_turn(
++                                &query(),
++                                &turn_context(),
++                                &[evidence()],
++                                &definitions(),
++                                &ToolConversation::default(),
++                            )
++                        } else {
++                            provider
++                                .answer(&query(), &context(), &[evidence()])
++                                .map(ProviderTurn::from)
++                        }
++                    },
++                );
++                assert_eq!(
++                    result,
++                    Err(PortError::InvalidResponse(
++                        "grounded answer envelope missing".into()
++                    )),
++                    "native={native}, tool_turn={tool_turn}, case={case}"
++                );
++                assert_eq!(calls, 1);
++            }
++        }
++    }
++}
++
++#[test]
++fn legacy_final_text_keeps_plain_answers_but_rejects_duplicate_json_without_evidence() {
++    for native in [false, true] {
++        for (text, valid) in [
++            (r#"{"text":"A","text":"B","cited_evidence_ids":[]}"#, false),
++            (
++                concat!(
++                    r#"{"text":"A","te"#,
++                    "\\u0078",
++                    r#"t":"B","cited_evidence_ids":[]}"#
++                ),
++                false,
++            ),
++            (r#"{"nested":[{"value":1,"value":2}]}"#, false),
++            (r#"{"left":{"value":null},"right":{"value":1}}"#, true),
++            ("[null,1.25,-0.0,1e30]", true),
++            ("plain text", true),
++        ] {
++            let body = wire_response(
++                native,
++                &[ModelBlock::Text { text: text.into() }],
++                if native { "end_turn" } else { "stop" },
++                11,
++                4,
++            );
++            let (result, calls) = fixture(
++                vec![(Duration::ZERO, json_response("200 OK", &body.to_string()))],
++                |config| turn_provider(native, config).answer(&query(), &context(), &[]),
++            );
++            assert_eq!(result.is_ok(), valid);
++            if !valid {
++                assert!(matches!(result, Err(PortError::InvalidResponse(_))));
++            }
++            assert_eq!(calls, 1);
++        }
++    }
++}
++
+ #[test]
+ fn both_wire_forms_preserve_tools_nullable_content_and_two_turn_binding() {
+     for native in [false, true] {

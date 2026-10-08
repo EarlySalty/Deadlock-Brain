@@ -1,0 +1,21 @@
+cargo-slot: Slot 2, optimiert=0
+    Blocking waiting for file lock on build directory
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 31s
+     Running tests/release_tool_port.rs (/home/nathanael/.cache/rust-build/90/6309d7610f1d36/debug/deps/release_tool_port-486213774a870dbd)
+
+running 9 tests
+test actual_port_preserves_request_receipt_and_current_purpose_permissions ... ok
+test internal_read_is_not_a_model_grant_or_an_empty_tool_success ... ok
+test mirror_fixture::actual_receipt_reader_pins_one_run_and_rejects_drift ... ok
+test mirror_fixture::cancellation_finishes_the_caller_while_a_real_database_read_is_locked ... ok
+test mirror_fixture::current_thread_runtime_is_rejected_without_creating_another_runtime ... ok
+test mirror_fixture::original_controlled_lifetime_is_required_before_any_read ... ok
+test mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants ... ok
+test original_lifetime_request_binding_and_f_boundary_remain_fail_closed ... ok
+test public_mirror_originals_without_canonical_registration_are_not_tool_grants ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.46s
+
+cargo-slot: EXIT=0

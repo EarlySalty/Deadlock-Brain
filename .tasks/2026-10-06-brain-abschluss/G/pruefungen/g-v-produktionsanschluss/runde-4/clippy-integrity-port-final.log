@@ -1,0 +1,23 @@
+cargo-slot: Slot 3, optimiert=0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Checking dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+error: file is loaded as a module multiple times: `crates/dbrain-retrieval/tests/../../brain-storage/tests/support/scratch_pg.rs`
+  --> crates/dbrain-retrieval/tests/release_tool_port.rs:23:1
+   |
+23 | / #[path = "../../brain-storage/tests/support/scratch_pg.rs"]
+24 | | mod scratch_pg;
+   | |_______________^ first loaded here
+   |
+  ::: crates/dbrain-retrieval/tests/../../brain-storage/tests/mirror_game_context.rs:24:1
+   |
+24 | / #[path = "support/scratch_pg.rs"]
+25 | | pub(crate) mod scratch_pg;
+   | |__________________________^ loaded again here
+   |
+   = help: replace all but one `mod` item with `use` items
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#duplicate_mod
+   = note: `-D clippy::duplicate-mod` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::duplicate_mod)]`
+
+error: could not compile `dbrain-retrieval` (test "release_tool_port") due to 1 previous error
+cargo-slot: EXIT=101

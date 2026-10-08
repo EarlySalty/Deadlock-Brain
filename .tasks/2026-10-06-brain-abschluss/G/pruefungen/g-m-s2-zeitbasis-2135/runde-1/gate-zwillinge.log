@@ -1,0 +1,8 @@
+941:                match kind {
+945:                    _ => change.map_or(&settings.spirit, |change| &change.spirit),
+954:        let channel = match kind {
+1150:                            .unwrap_or(crate::DamageType::None),
+1360:        if time >= channel_until && target_available {
+1694:                    .unwrap_or(&crate::DamageType::None);
+1814:                .unwrap_or(&crate::DamageType::None);
+3393:            use_abilities: true,

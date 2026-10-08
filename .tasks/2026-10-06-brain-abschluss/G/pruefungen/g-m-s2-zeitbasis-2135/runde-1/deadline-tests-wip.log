@@ -1,0 +1,29 @@
+cargo-slot: Slot 1, optimiert=0
+   Compiling syn v2.0.118
+   Compiling memchr v2.8.2
+   Compiling serde_core v1.0.228
+   Compiling aho-corasick v1.1.4
+   Compiling serde v1.0.228
+   Compiling digest v0.10.7
+   Compiling thiserror-impl v1.0.69
+   Compiling regex-automata v0.4.14
+   Compiling serde_derive v1.0.228
+   Compiling sha2 v0.10.9
+   Compiling thiserror v1.0.69
+   Compiling regex v1.12.4
+   Compiling serde_json v1.0.150
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.15s
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_contracts-39ce448ade42a53d)
+
+running 6 tests
+test deadline::tests::clones_keep_expiry_and_observe_cancellation ... ok
+test deadline::tests::controlled_clock_preserves_original_expiry_across_clones ... ok
+test deadline::tests::separately_constructed_deadlines_do_not_share_identity_or_cancellation ... ok
+test deadline::tests::wait_uses_the_injected_clock_for_success_and_expiry ... ok
+test deadline::tests::zero_and_overflowing_waits_observe_cancellation_and_bounds ... ok
+test deadline::tests::zero_or_overflowing_lifetimes_fail_closed ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.00s
+
+cargo-slot: EXIT=0

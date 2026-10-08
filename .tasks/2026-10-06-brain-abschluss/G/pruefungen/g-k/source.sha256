@@ -1,0 +1,8 @@
+816ac0f5d640758f1ad4ad27f3cd0b9beea959b90b1176efecc4565b73a9fe35  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/lib.rs
+2cbc0300f19493e997ddd36889bf4e579c66c5ec54556b7de01f33f6a5a96fd7  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/execution.rs
+4ee4cc78f5c6272141358bef8c1112caf82427a0641b8f9ce0354b15ba9e41bf  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/flight.rs
+80c05a58e0e739248e6f22d0cc5c72d22a475fb1b4eac290eee0515bab134392  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/cache.rs
+4a5b06ba02a78b300a90bd9d3c18e137d2583103f5a3a2cc45b9b9ee379d61f8  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel/src/outcome.rs
+399a28408dcaf48c23ac49497651972f1bf6afd3ee40fad3a6967009fb7a9580  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs
+527c6b2f52275d0a717b2cd7c2646ff4f3c26d481865025c1dd42e54176e883d  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs
+6d8463e65b41c97243a3c0fe86f294f37601e98edc27b1c36147efde24fcdc26  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs

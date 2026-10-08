@@ -1,0 +1,25 @@
+{
+  "status": "Schutzblocker vor Logauswertung; kein Fixabschluss",
+  "command": "/home/nathanael/.local/bin/cargo-slot test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner --lib --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target combat::tests -- --include-ignored --test-threads=1 --nocapture",
+  "exit": 101,
+  "passed": null,
+  "failed": null,
+  "ignored": null,
+  "filtered": null,
+  "log": "/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s2-cargo-slot/test-vor-fix.log",
+  "deny": "File access blocked: resolves outside the project root (/home/nathanael/repos/Deadlock-Brain). context-mode confines ctx_execute_file to the workspace so it cannot be used to bypass the host's sandbox/permission controls (issue #852).",
+  "product_changes": "Drei unmittelbare Regressionen und zwei Testhelfer in combat.rs ergänzt; bisher keine Produktlogik geändert. Alle Ergänzungen uncommitted und ungeprüft.",
+  "new_tests": [
+    "combat::tests::stack_bonus_shred_matches_default_fast_and_binding_paths",
+    "combat::tests::explicit_stack_shred_is_applied_once_with_target_resistance",
+    "combat::tests::duplicate_items_have_one_stat_shop_and_effect_population_in_public_simulations"
+  ],
+  "initial_sources_verified": "12/12 gegen vorhandenes Bereichsmanifest, vor eigenen Änderungen",
+  "compiler": "Kein erfolgreicher eigener Compilerbeleg",
+  "clippy": "Nicht ausgeführt",
+  "format": "Nicht ausgeführt",
+  "group_gate": "Nicht ausgeführt",
+  "commit": "Kein eigener Commit",
+  "push": "Nicht ausgeführt",
+  "limits": "Kein Main, Release, Deploy, Runtime, Cleanup, Settle oder Änderung von Schutzregeln. Verweigerter Logzugriff nicht über einen anderen Weg wiederholt."
+}

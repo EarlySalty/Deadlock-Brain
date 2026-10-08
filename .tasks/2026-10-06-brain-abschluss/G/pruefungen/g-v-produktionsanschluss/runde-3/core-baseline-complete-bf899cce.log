@@ -1,0 +1,510 @@
+cargo-slot: Slot 1, optimiert=0
+   Compiling dbrain-reasoner v0.1.0 (/tmp/brain-g-v-baseline-bf899cce-20261008/rust/crates/dbrain-reasoner)
+   Compiling dbrain-population v0.1.0 (/tmp/brain-g-v-baseline-bf899cce-20261008/rust/crates/dbrain-population)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/tmp/brain-g-v-baseline-bf899cce-20261008/rust/crates/dbrain-wiki)
+   Compiling dbrain-retrieval v0.1.0 (/tmp/brain-g-v-baseline-bf899cce-20261008/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/tmp/brain-g-v-baseline-bf899cce-20261008/rust/crates/dbrain-sources)
+   Compiling brain-feeds v0.1.0 (/tmp/brain-g-v-baseline-bf899cce-20261008/rust/crates/brain-feeds)
+   Compiling brain-kernel v0.1.0 (/tmp/brain-g-v-baseline-bf899cce-20261008/rust/crates/brain-kernel)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 21s
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_contracts-f8d504b444fcd25d)
+
+running 43 tests
+test deadline::tests::clones_keep_expiry_and_observe_cancellation ... ok
+test deadline::tests::controlled_clock_preserves_original_expiry_across_clones ... ok
+test deadline::tests::separately_constructed_deadlines_do_not_share_identity_or_cancellation ... ok
+test deadline::tests::wait_uses_the_injected_clock_for_success_and_expiry ... ok
+test deadline::tests::zero_and_overflowing_waits_observe_cancellation_and_bounds ... ok
+test deadline::tests::zero_or_overflowing_lifetimes_fail_closed ... ok
+test embedding::tests::equal_dimension_different_model_is_incompatible ... ok
+test embedding::tests::rejects_missing_nonfinite_zero_and_unnormalized_vectors ... ok
+test feeds::tests::build_status_binds_request_identity_and_hash ... ok
+test feeds::tests::feed_rejects_hash_mismatch_duplicates_unknown_fields_and_versions ... ok
+test lexical::tests::cross_source_join_requires_matching_id_and_canonical_name ... ok
+test maintenance::tests::terminal_states_do_not_restart_and_review_is_ordered ... ok
+test provider_input::tests::checked_arithmetic_and_legacy_grounding_share_the_same_counter ... ok
+test provider_input::tests::counts_both_wire_formats_and_every_repeated_turn ... ok
+test provider_input::tests::counts_decoded_text_not_http_escaping_or_model_name ... ok
+test provider_input::tests::embedding_array_counts_each_input_and_rejects_non_text ... ok
+test provider_input::tests::rohe_werkzeughistorie_prueft_schema_ids_und_vollstaendige_ergebnisse ... ok
+test provider_input::tests::strukturierte_ausgabe_und_werkzeugwahl_bleiben_nicht_ungezaehlt ... ok
+test provider_input::tests::unique_json_keeps_serde_recursion_number_and_complete_input_limits ... ok
+test provider_input::tests::unique_json_preserves_numbers_arrays_null_and_independent_objects ... ok
+test provider_input::tests::unique_json_rejects_duplicate_decoded_keys_at_every_depth ... ok
+test provider_input::tests::unknown_blocks_fields_and_bad_result_bindings_fail_closed ... ok
+test provider_input::tests::wire_input_rejects_duplicate_keys_in_encoded_argument_history ... ok
+test provider_input::tests::zaehlt_aufruf_ids_argumente_beleg_ids_und_assistententext ... ok
+test read_manifest::tests::manifest_checks_all_pins_even_when_access_is_denied ... ok
+test read_manifest::tests::manifest_rejects_missing_duplicate_old_and_unpinned_heads ... ok
+test read_manifest::tests::versioned_provider_origin_requires_a_current_grant ... ok
+test tests::anfragebezogene_quellen_duerfen_nicht_persistiert_werden ... ok
+test tests::contract_roundtrip_keeps_release_and_scopes ... ok
+test tests::evidence_rejects_non_finite_score ... ok
+test tests::fehlerabrechnung_trennt_beobachtung_reservierung_und_fehlende_abrechnung ... ok
+test tests::fehlerabrechnung_ueberlauf_erhaelt_zaehler_und_schliesst_sicher ... ok
+test tests::query_rejects_empty_identity_fields ... ok
+test tests::textport_default_bleibt_kompatibel_und_verweigert_werkzeuganfragen ... ok
+test tools::tests::ergebniszuordnung_und_wiederholte_ids ... ok
+test tools::tests::geschlossene_namen_und_bloecke ... ok
+test tools::tests::regeln_verwerfen_nichtendliche_spielzeit_und_szenariowerte ... ok
+test tools::tests::schemapruefung_und_serverbindungen ... ok
+test tools::tests::sieben_typisierte_unteranfragen_aus_validierten_aufrufen ... ok
+test tools::tests::typisierte_argumente_verwerfen_unbekannte_felder_und_ungueltige_szenarien ... ok
+test tools::tests::unimplementierte_abhaengigkeitspruefung_schliesst_sicher ... ok
+test tools::tests::werkzeugausfuehrung_bindet_ergebnis_und_alle_belege_an_die_unteranfrage ... ok
+test tools::tests::werkzeugturn_ist_keine_finale_antwort ... ok
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+     Running tests/bot_tasks_contract.rs (/tmp/brain-g-m-0645-target/debug/deps/bot_tasks_contract-f7a63e10c2c8bd8f)
+
+running 20 tests
+test capability_availability_requires_discord_and_approved_guide ... ok
+test capability_status_responses_reject_available_outside_discord_guide ... ok
+test empty_and_oversized_public_questions_are_rejected ... ok
+test guide_input_never_accepts_history_profiles_or_provider_overrides ... ok
+test loopback_proxy_requires_remote_egress_permission ... ok
+test mismatched_principal_registration_scope_and_capability_are_denied ... ok
+test nested_audience_and_result_reject_unknown_fields ... ok
+test platforms_and_stable_audiences_must_match ... ok
+test public_guide_wire_roundtrip_preserves_discriminants ... ok
+test public_label_never_proves_provenance_even_for_local_processing ... ok
+test request_and_delivery_rights_are_bound_and_rechecked ... ok
+test reserved_capabilities_have_status_but_no_success_schema ... ok
+test result_envelope_and_nested_answer_are_strictly_bound ... ok
+test result_kind_cannot_impersonate_success_or_another_capability ... ok
+test status_request_is_not_a_model_task ... ok
+test trusted_binding_produces_existing_query_without_control_protocol ... ok
+test unapproved_implementation_is_explicitly_unavailable ... ok
+test unknown_missing_and_reduced_title_tasks_are_rejected ... ok
+test versions_and_request_ids_fail_closed ... ok
+test wire_never_accepts_authority_or_provider_overrides ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/ir_contracts.rs (/tmp/brain-g-m-0645-target/debug/deps/ir_contracts-4c4819d55068b998)
+
+running 23 tests
+test envelope_versions_missing_null_future_and_extra_fields_fail_closed ... ok
+test explicit_legacy_tick_migration_never_invents_a_time ... ok
+test external_null_missing_zero_unknown_fields_and_pointers_are_distinct ... ok
+test external_origins_share_the_common_artifact_contract_without_revision_conflation ... ok
+test external_quarantine_survives_serialization_and_blocks_field_access ... ok
+test invalid_original_wiki_revision_and_http_hash_are_rejected ... ok
+test known_raw_null_is_not_lost_to_option_deserialization ... ok
+test legacy_invalid_ticks_or_injected_v2_fields_are_rejected ... ok
+test missing_condition_is_not_an_unconditional_fact ... ok
+test origin_version_and_policy_roundtrip ... ok
+test parser_and_source_revision_are_separate_from_schema_and_game_patch ... ok
+test replay_detached_provenance_preserves_private_scope_raw_locator_and_unknown_timestamp ... ok
+test replay_entity_mapping_is_explicit_not_network_index_as_hero_id ... ok
+test replay_time_requires_explicit_unknown_not_missing_or_null_default ... ok
+test replay_unknown_entity_time_and_fields_roundtrip ... ok
+test replay_versions_reject_legacy_and_future_without_explicit_migration ... ok
+test stable_public_contract_is_not_replaced_by_ir_version ... ok
+test storage_bridge_rejects_acl_expansion_revision_hash_and_identity_drift ... ok
+test store_roundtrip_preserves_exact_origin_acl_and_unknowns ... ok
+test unknown_is_not_zero_and_null_is_not_an_observation ... ok
+test unsupported_origin_versions_fail_closed_at_batch_and_egress_boundaries ... ok
+test wiki_conditions_variants_aliases_units_dependencies_and_locators_roundtrip ... ok
+test wiki_null_never_deserializes_as_quantity_zero ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/tool_extensions.rs (/tmp/brain-g-m-0645-target/debug/deps/tool_extensions-9d91b1ea39b70750)
+
+running 11 tests
+test abhaengigkeiten_binden_jedes_neue_argument_ergebnis_und_serverpin ... ok
+test achter_werkzeugname_und_sechs_geschlossene_regelthemen ... ok
+test alte_profil_und_vergleichsargumente_behalten_optionale_defaults ... ok
+test analytics_grenzen_stimmen_mit_dem_originalen_api_pin_ueberein ... ok
+test beide_wireformen_erhalten_neue_argumente_und_zaehlen_jede_runde_vollstaendig ... ok
+test boonbereich_hat_nur_strukturgrenzen_keine_erfundene_spieldomaene ... ok
+test neue_argumente_bleiben_typisiert_einschliesslich_null_und_negativwerten ... ok
+test rang_und_zeitfehler_werden_in_profil_und_vergleich_abgewiesen ... ok
+test regeln_verwerfen_freie_felder_themen_und_ungueltige_szenarien ... ok
+test rohe_wireformen_verwerfen_gefaelschte_ids_namen_und_argumente ... ok
+test serverbindungen_und_ausfuehrbare_argumente_bleiben_gesperrt ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_kernel-e0bfd62171e1ca74)
+
+running 58 tests
+test fact_relevance::tests::ambiguous_alias_does_not_select_highest_bm25_score ... ok
+test fact_relevance::tests::entity_field_alias_and_numeric_anchors ... ok
+test fact_relevance::tests::metadata_aliases_use_release_tokenizer_and_real_delimiters ... ok
+test fact_relevance::tests::patch_mode_and_provenance_are_required_when_requested ... ok
+test fact_relevance::tests::same_entity_field_with_two_sources_is_not_selected_by_score ... ok
+test fact_relevance::tests::specific_field_outranks_generic_field_for_one_entity ... ok
+test flight::c3_shared_validation::shared_answer_follower_revalidates_and_distinguishes_reader_failure_from_denial ... ok
+test flight::retained_pack_tests::oversized_uncited_pack_is_not_retained_for_single_flight_followers ... ok
+test flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success ... ok
+test flight::review_publication::publication_and_internal_requests_do_not_share_flights_or_cache_entries ... ok
+test flight::review_publication::publication_follower_rechecks_uncited_head_after_successful_leader ... ok
+test flight::tests::concurrent_failures_are_shared_but_not_retained ... ok
+test outcome::tests::uncited_dependency_pack_is_shared_accounted_and_absent_from_wire_response ... ok
+test tests::actor_scopes_provider_mechanik_und_szenario_trennen_wiederverwendung ... ok
+test tests::boonkurven_analytics_und_regeln_erhalten_die_tatsaechliche_erweiterte_unteranfrage ... ok
+test tests::build_never_falls_back_to_generative_prose ... ok
+test tests::buildschutz_akzeptiert_nur_geprueftes_tatsaechliches_ergebnis_mit_zweck_und_deadline ... ok
+test tests::buildschutz_alter_port_ohne_pruefanschluss_schliesst_sicher ... ok
+test tests::buildschutz_cache_prueft_tatsaechlichen_plan_neu_ohne_doppelte_abrechnung ... ok
+test tests::buildschutz_deterministischer_domainweg_umgeht_nicht_den_vertrag_und_bleibt_nutzbar ... ok
+test tests::buildschutz_fehlerergebnis_und_unzitierter_build_sind_keine_buildantwort ... ok
+test tests::buildschutz_flight_folger_prueft_den_plan_neu_statt_leaderfreigabe_zu_uebernehmen ... ok
+test tests::buildschutz_frist_rechte_und_portfehler_behalten_kumulierte_reservierte_usage ... ok
+test tests::buildschutz_prueft_unzitierte_quellen_pin_und_zweck_nach_finalturn ... ok
+test tests::buildschutz_verweigert_gewoehnliche_belege_trotz_builddefinition ... ok
+test tests::buildschutz_wiederverwendung_prueft_ergebnis_anfrage_pin_und_quellen_erneut ... ok
+test tests::cache_hit_prueft_unzitierte_quellen_und_grants_und_loest_pin_requestgebunden ... ok
+test tests::explain_path_calls_provider_for_public_evidence ... ok
+test tests::fact_path_does_not_call_provider ... ok
+test tests::fehlende_belege_und_unvollstaendige_abschlussgruende_sind_keine_antwort ... ok
+test tests::fehlerabrechnung_budgetfehler_nach_zweiter_antwort_verliert_keine_usage ... ok
+test tests::fehlerabrechnung_fehlende_toolabrechnung_reserviert_rest_ohne_nullmessung ... ok
+test tests::fehlerabrechnung_fehler_werden_nicht_gecached_und_hits_nicht_doppelt_abgerechnet ... ok
+test tests::fehlerabrechnung_flight_leader_behaelt_usage_bei_abgebrochener_deadline ... ok
+test tests::fehlerabrechnung_lokale_verweigerung_hat_keinen_erfundenen_verbrauch ... ok
+test tests::fehlerabrechnung_provider_kumuliert_vorherigen_turn_tool_und_retries ... ok
+test tests::fehlerabrechnung_spaeterer_toolcall_behaelt_alle_bisherigen_erfolge ... ok
+test tests::fehlerabrechnung_textport_behaelt_providerverbrauch_bei_fehler ... ok
+test tests::internal_evidence_requires_internal_egress ... ok
+test tests::internal_read_cache_trennt_publikation_und_prueft_weitergabe_erneut ... ok
+test tests::internal_read_flight_folger_bewahrt_zweck_und_prueft_unzitierte_weitergabe ... ok
+test tests::internal_read_prueft_scope_und_weitergabe_auch_vor_finaler_ausgabe ... ok
+test tests::internal_read_traegt_den_zweck_frisch_ohne_publikationsrecht ... ok
+test tests::prose_shaped_like_a_domain_certificate_is_not_a_deterministic_capability ... ok
+test tests::provider_egress_und_publikationsfreigabe_gelten_auch_fuer_unzitierte_toolinputs ... ok
+test tests::single_flight_follower_prueft_vollstaendige_typisierte_toolabhaengigkeiten ... ok
+test tests::successful_fact_domain_and_provider_paths_reject_late_validation ... ok
+test tests::tool_abbruch_behält_die_urspruengliche_deadline_und_verhindert_folgerunden ... ok
+test tests::typed_domain_intent_separates_cache_and_single_flight_keys ... ok
+test tests::unauthorized_evidence_never_reaches_provider ... ok
+test tests::unbekannte_felder_actor_und_version_werden_vor_ausfuehrung_verweigert ... ok
+test tests::unzitierter_privater_input_und_falsche_ergebniszuordnung_stoppen_die_folgerunde ... ok
+test tests::versionswechsel_bildet_vor_cache_und_flight_einen_neuen_schluessel ... ok
+test tests::vollstaendige_belege_und_pin_werden_nach_finalturn_erneut_geprueft ... ok
+test tests::werkzeugloop_beschafft_belege_ohne_initiales_textprofil_und_traegt_alle_unteranfragen ... ok
+test tests::wiederholte_call_ids_werden_vor_zweiter_ausfuehrung_abgewiesen ... ok
+test tests::wiederholte_modellhistorie_ist_vor_dem_zweiten_versand_vollstaendig_reserviert ... ok
+test tests::zweite_runde_retries_und_externe_toolnutzung_teilen_dasselbe_budget ... ok
+
+test result: ok. 58 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+     Running tests/core_kernel.rs (/tmp/brain-g-m-0645-target/debug/deps/core_kernel-320440abb2ba13fa)
+
+running 8 tests
+test asset_hero_entity_and_field_records_share_identity ... ok
+test assets_feed_field_answers_through_release_kernel ... ok
+test cache_separates_principal_release_and_rechecks_current_acl ... ok
+test forged_provider_citation_is_rejected_and_failure_not_cached ... ok
+test irrelevant_excerpts_produce_insufficient_evidence_with_charged_usage ... ok
+test patch_agnostic_fact_does_not_establish_release_patch_or_mode ... ok
+test retrieval_and_provider_share_a_budget ... ok
+test revocation_during_provider_call_prevents_publication ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.96s
+
+     Running tests/evidence_errors.rs (/tmp/brain-g-m-0645-target/debug/deps/evidence_errors-287e2af375de254f)
+
+running 6 tests
+test cache_hit_timeout_fails_closed_without_provider_retry_and_does_not_cache_failure ... ok
+test permission_budget_and_invalid_reader_responses_are_distinct ... ok
+test real_postgres_connection_failure_is_unavailable_not_permission_denied ... ok
+test six_hundred_parallel_requests_with_reader_faults_never_report_false_permission_denials ... ok
+test technical_reader_failures_are_unavailable_at_every_handoff_not_unauthorized ... ok
+test unavailable_roundtrips_through_the_public_response_contract ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/patch_validity.rs (/tmp/brain-g-m-0645-target/debug/deps/patch_validity-fe1a0f1cf6fb4de1)
+
+running 6 tests
+test cached_provider_answer_is_not_reused_after_head_patch_change ... ok
+test canonical_known_patch_with_legacy_null_still_answers_directly ... ok
+test direct_fact_never_answers_old_or_unknown_as_requested_patch ... ok
+test head_patch_change_during_provider_call_blocks_handoff ... ok
+test unknown_fact_remains_answerable_without_game_patch_claim ... ok
+test unknown_patch_fact_cannot_hide_a_conflict_with_known_fact ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/pr61_dependencies.rs (/tmp/brain-g-m-0645-target/debug/deps/pr61_dependencies-a2d5c34b8e6e38fe)
+
+running 5 tests
+test cached_answer_must_track_uncited_inputs ... ok
+test concurrent_fact_reuse_reselects_instead_of_sharing_a_stale_selection ... ok
+test facts_reselect_newly_visible_conflicts_and_aliases_without_model_calls ... ok
+test revoked_uncited_inputs_do_not_create_successful_cache_entries ... ok
+test uncited_input_revoked_during_provider_call_must_block_publication ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/review_dependencies.rs (/tmp/brain-g-m-0645-target/debug/deps/review_dependencies-6ec97b43f73369c0)
+
+running 6 tests
+test cache_hit_revalidates_uncited_input_acl_and_tombstone ... ok
+test concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner ... ok
+test fact_reuse_rechecks_newly_visible_conflict_and_alias_collision ... ok
+test fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads ... FAILED
+test hybrid_fact_limit_cannot_hide_a_pinned_conflicting_value ... ok
+test uncited_provider_input_revoked_during_call_must_not_publish_or_cache ... ok
+
+failures:
+
+---- fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads stdout ----
+
+thread 'fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads' (4156965) panicked at crates/brain-kernel/tests/review_dependencies.rs:350:5:
+assertion `left == right` failed: do not reload or rebuild the immutable release per fact request
+  left: 257
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.17s
+
+error: test failed, to rerun pass `-p brain-kernel --test review_dependencies`
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_providers-d04e82344971ed4e)
+
+running 11 tests
+test circuit::tests::circuit_opens_allows_one_probe_and_recovers ... ok
+test circuit::tests::failed_probe_restarts_cooldown ... ok
+test hardening::tests::cost_overflow_fails_closed ... ok
+test hardening::tests::endpoint_and_price_are_explicit ... ok
+test tests::debug_redacts_token ... ok
+test tests::invalid_json_is_rejected_without_fallback ... ok
+test tests::request_budget_limits_retries_and_output_tokens ... ok
+test tests::retries_rate_limit_and_parses_typed_response ... ok
+test tests::subscription_uses_native_messages_without_credentials_or_tools ... ok
+test tests::zero_round_budget_blocks_before_network ... ok
+test transport::precondition_tests::specific_rejections_take_precedence_over_model_mentions ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/faults.rs (/tmp/brain-g-m-0645-target/debug/deps/faults-e669b857e69d0a47)
+
+running 33 tests
+test authentication_redirect_and_missing_usage_do_not_retry ... ok
+test both_wire_forms_preserve_tools_nullable_content_and_two_turn_binding ... ok
+test bounded_chunked_response_and_timeout_are_errors ... ok
+test cancellation_during_first_provider_attempt_prevents_a_retry ... ok
+test cancelled_provider_and_embedding_calls_never_open_a_connection ... ok
+test cost_input_and_egress_fail_before_any_socket ... ok
+test cumulative_budgets_block_repeated_history_before_second_socket ... ok
+test duplicate_call_ids_from_earlier_turns_are_rejected ... ok
+test duplicate_raw_arguments_fail_closed_in_both_wire_forms_without_retry ... ok
+test duplicate_wire_response_keys_including_unknown_nested_objects_are_rejected ... ok
+test embeddings_restore_indices_and_reject_duplicates_or_dimension_errors ... ok
+test extended_contract_names_boon_ranges_and_analytics_use_the_same_transport ... ok
+test fehlerabrechnung_beide_wireformen_erhalten_usage_nach_parser_und_validierungsfehlern ... ok
+test fehlerabrechnung_budgetueberschreitung_behaelt_gemessene_usage ... ok
+test fehlerabrechnung_erfolg_traegt_messung_und_retriereservierung_getrennt ... ok
+test fehlerabrechnung_fehlende_oder_ambige_usage_bleibt_reserviert_statt_gemessen ... ok
+test fehlerabrechnung_http_retry_usage_ist_beobachtet_und_nicht_zweimal_reserviert ... ok
+test fehlerabrechnung_lokale_validierung_hat_belegte_null_ohne_socket ... ok
+test fehlerabrechnung_retry_und_spaeterer_parserfehler_kumulieren_reservierung_und_messung ... ok
+test final_answer_json_rejects_duplicate_decoded_keys_in_both_wire_forms ... ok
+test final_tool_answers_keep_json_citation_and_no_answer_contract ... ok
+test full_native_options_and_cached_input_are_charged ... ok
+test grounded_no_answer_signal_is_exact_and_preserves_usage ... ok
+test known_finish_reasons_must_match_complete_turns ... ok
+test legacy_final_text_keeps_plain_answers_but_rejects_duplicate_json_without_evidence ... ok
+test malformed_tool_names_ids_arguments_and_blocks_are_not_repaired ... ok
+test retries_charge_full_wire_input_output_and_configured_cost ... ok
+test server_error_retries_but_retry_after_beyond_deadline_does_not ... ok
+test tool_history_binding_and_egress_fail_before_network ... ok
+test transiente_http_fehlerkoerper_erhalten_fruehere_gemessene_usage ... ok
+test transiente_http_fehlerkoerper_erhalten_status_retry_und_reservierung ... ok
+test transiente_http_fehlerkoerper_respektieren_retry_und_budgetgrenzen ... ok
+test transiente_http_fehlerkoerper_timeout_respektiert_die_urspruengliche_frist ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.39s
+
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_storage-c6551c46da918f4a)
+
+running 43 tests
+test asset_mirror::tests::globals_are_versioned_and_modifiers_have_no_language ... ok
+test asset_mirror::tests::mirror_read_preserves_values_and_checks_binding ... ok
+test asset_mirror::tests::mirror_read_rejects_empty_or_wrong_containers_for_every_required_endpoint ... ok
+test domain_reader::tests::forged_hash_and_ambiguous_facts_fail_closed ... ok
+test domain_reader::tests::future_contract_and_malformed_domain_payload_are_rejected ... ok
+test domain_reader::tests::legacy_v1_numeric_facts_remain_readable_without_value_or_identity_changes ... ok
+test domain_reader::tests::typed_facts_rules_are_pinned_and_source_acl_is_rechecked ... ok
+test domain_reader::tests::unverified_wrong_mode_and_wrong_patch_are_not_promoted ... ok
+test domain_reader::tests::wiki_dependency_pins_reject_unknown_versions_forgery_and_duplicates ... ok
+test entity_profile::derivation::game_file_facts::json_text::tests::duplicate_keys_abort_whole_document ... ok
+test entity_profile::derivation::game_file_facts::json_text::tests::numeric_lexemes_are_never_rounded ... ok
+test entity_profile::derivation::game_file_facts::kv3::tests::malformed_and_unsupported_syntax_is_rejected_whole ... ok
+test entity_profile::derivation::game_file_facts::kv3::tests::source2_arrays_flags_and_duplicate_properties_are_preserved ... ok
+test entity_profile::derivation::game_file_facts::kv::tests::duplicate_nested_keys_have_distinct_paths_and_parent_conditions ... ok
+test entity_profile::derivation::game_file_facts::kv::tests::escape_bytes_are_preserved_without_selecting_runtime_escape_policy ... ok
+test entity_profile::derivation::game_file_facts::kv::tests::external_references_and_malformed_content_require_text_preservation ... ok
+test entity_profile::tests::patch_story_retains_structured_values_and_restricts_original_line ... ok
+test local_pg_reader::review_deadline::cancelling_a_queued_pool_request_does_not_wait_for_pool_timeout ... ok
+test local_pg_reader::review_deadline::pool_wait_is_paid_from_the_original_request_deadline ... ok
+test local_pg_reader::review_startup::cancelled_query_closes_the_transport_and_returns_capacity ... ok
+test local_pg_reader::review_startup::cancelled_startup_closes_the_transport_and_returns_capacity ... ok
+test local_pg_reader::review_startup::stalled_postgres_authentication_releases_reserved_capacity ... ok
+test local_pg_reader::review_startup::stalled_query_obeys_the_request_deadline ... ok
+test local_pg_reader::review_startup::stalled_session_initialization_obeys_the_request_deadline ... ok
+test local_pg_reader::wait_queue::tests::new_checkouts_cannot_overtake_queued_waiters ... ok
+test local_pg_reader::wait_queue::tests::removing_an_absent_waiter_never_removes_another_request ... ok
+test local_pg_reader::wait_queue::tests::timed_out_waiters_do_not_block_the_remaining_queue ... ok
+test pg_maintenance::tests::postgres_queue_races_expiry_and_checkpoint_restart ... FAILED
+test pg_maintenance::tests::review_requires_separate_runs_and_exact_source ... ok
+test schema::tests::embedded_migrations_have_exactly_one_outer_transaction ... ok
+test source_versions::tests::api_git_and_unknown_versions_cannot_claim_original_wiki_order ... ok
+test source_versions::tests::changed_content_and_rights_remain_conflicts ... ok
+test source_versions::tests::changed_fact_or_unit_is_a_semantic_conflict ... ok
+test source_versions::tests::numeric_wiki_aliases_match_without_changing_original_revisions ... ok
+test source_versions::tests::numeric_wiki_cannot_use_local_order_or_mismatched_original_revision ... ok
+test source_versions::tests::observation_and_local_revision_do_not_change_semantics ... ok
+test source_versions::tests::original_wiki_api_order_requires_matching_url_identity_and_contract ... ok
+test source_versions::tests::original_wiki_order_accepts_page_and_url_origins ... ok
+test source_versions::tests::postgres_original_wiki_history_does_not_reset_heads_or_release_pins ... FAILED
+test source_versions::tests::url_wiki_repeat_ignores_observation_but_detects_content_conflict ... ok
+test tests::duplicate_revision_is_idempotent_but_conflict_is_rejected ... ok
+test tests::release_pins_each_logical_revision ... ok
+test tests::stale_update_cannot_resurrect_tombstone ... ok
+
+failures:
+
+---- pg_maintenance::tests::postgres_queue_races_expiry_and_checkpoint_restart stdout ----
+
+thread 'pg_maintenance::tests::postgres_queue_races_expiry_and_checkpoint_restart' (4157994) panicked at crates/brain-storage/src/pg_maintenance.rs:925:14:
+called `Result::unwrap()` on an `Err` value: Io(Os { code: 2, kind: NotFound, message: "No such file or directory" })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- source_versions::tests::postgres_original_wiki_history_does_not_reset_heads_or_release_pins stdout ----
+
+thread 'source_versions::tests::postgres_original_wiki_history_does_not_reset_heads_or_release_pins' (4158050) panicked at crates/brain-storage/src/source_versions.rs:787:56:
+explicit scratch socket required: NotPresent
+
+
+failures:
+    pg_maintenance::tests::postgres_queue_races_expiry_and_checkpoint_restart
+    source_versions::tests::postgres_original_wiki_history_does_not_reset_heads_or_release_pins
+
+test result: FAILED. 41 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.81s
+
+error: test failed, to rerun pass `-p brain-storage --lib`
+     Running unittests src/bin/brain-migrate.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_migrate-1d2c77303d77da84)
+
+running 1 test
+test tests::config_is_explicit_local_and_rejects_secrets ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/compare_artifact.rs (/tmp/brain-g-m-0645-target/debug/deps/compare_artifact-3998b1d14851700d)
+
+running 4 tests
+test artifact_keeps_release_fingerprint_without_unrelated_private_document_ids ... ok
+test complete_body_and_every_rendered_byte_change_the_id ... ok
+test isolated_postgres_pending_receipt_read_and_revocation ... ok
+test private_scope_never_turns_a_private_source_into_a_public_artifact ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.49s
+
+     Running tests/core_store.rs (/tmp/brain-g-m-0645-target/debug/deps/core_store-818a9efbc378dacf)
+
+running 4 tests
+test expired_memory_worker_cannot_commit ... ok
+test memory_atomicity_fences_release_and_restart_contract ... ok
+test postgres_atomicity_fences_release_and_restart_contract ... FAILED
+test wire_revisions_cannot_overflow_postgres_bigint ... ok
+
+failures:
+
+---- postgres_atomicity_fences_release_and_restart_contract stdout ----
+
+thread 'postgres_atomicity_fences_release_and_restart_contract' (4158475) panicked at crates/brain-storage/tests/core_store.rs:162:52:
+explicit scratch socket required: NotPresent
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    postgres_atomicity_fences_release_and_restart_contract
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p brain-storage --test core_store`
+     Running tests/ir_contracts.rs (/tmp/brain-g-m-0645-target/debug/deps/ir_contracts-16a7975dd695b4fd)
+
+running 3 tests
+test actual_store_retains_common_origin_and_denies_unapproved_provider_egress ... ok
+test legacy_head_cannot_supply_missing_rights_for_versioned_origin ... ok
+test old_release_cannot_restore_revoked_egress_or_scopes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/knowledge_release.rs (/tmp/brain-g-m-0645-target/debug/deps/knowledge_release-fa663a739e2d2dc9)
+
+running 2 tests
+test imported_heads_preserve_base_and_block_preparation_commit_races ... ok
+test spielprofilmigration_ist_explizit_wiederholbar_und_erhaelt_tabellenrechte ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.49s
+
+     Running tests/local_reader_config.rs (/tmp/brain-g-m-0645-target/debug/deps/local_reader_config-c2e271c5bdbbfa1d)
+
+running 2 tests
+test explicit_reader_options_retain_socket_boundary_and_redact_passwords ... ok
+test invalid_reader_timeouts_fail_before_connecting ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/storage_upgrade.rs (/tmp/brain-g-m-0645-target/debug/deps/storage_upgrade-053009f552567a8d)
+
+running 2 tests
+test historical_fixture_checksums_and_hashes_are_pinned ... ok
+test v1_upgrade_restore_and_least_privilege ... FAILED
+
+failures:
+
+---- v1_upgrade_restore_and_least_privilege stdout ----
+
+thread 'v1_upgrade_restore_and_least_privilege' (4159852) panicked at crates/brain-storage/tests/storage_upgrade.rs:254:47:
+explicit scratch runner required
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    v1_upgrade_restore_and_least_privilege
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p brain-storage --test storage_upgrade`
+   Doc-tests brain_contracts
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests brain_kernel
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests brain_providers
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+   Doc-tests brain_storage
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 4 targets failed:
+    `-p brain-kernel --test review_dependencies`
+    `-p brain-storage --lib`
+    `-p brain-storage --test core_store`
+    `-p brain-storage --test storage_upgrade`
+cargo-slot: EXIT=101

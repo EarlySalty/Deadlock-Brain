@@ -1,0 +1,5 @@
+[gpt-6.1-sol] BLOCK: Completed reloads can lose ammo, and pressure runs can report truncated durations.
+
+1. rust/crates/dbrain-reasoner/src/combat.rs:1238 | BLOCKING: Both refill paths use stale ammo: active-item refill here and ability-bound refill at line 1600. | Reload completion is deferred until the gun loop at line 1877. A partial refill after `reload_until` adds to the empty magazine and clears `reload_pending`, discarding the completed reload. A 50% refill consequently leaves half a magazine instead of a full one.
+
+2. rust/crates/dbrain-reasoner/src/combat.rs:2193 | BLOCKING: A final-timestep kill truncates a pressure scenario’s elapsed time. | `frame_end` uses the kill timestamp even under pressure, while incoming damage covers the full timestep. A kill at 0.8 seconds in the final tick of a 1-second window reports 0.8 seconds instead of 1.0, inflating DPS.

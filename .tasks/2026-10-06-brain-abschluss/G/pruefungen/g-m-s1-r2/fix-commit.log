@@ -1,0 +1,14 @@
+commit bd83d7abdef812a30daa47aa5f6a78de4f42263a
+Author:     EarlySalty <mail@earlysalty.com>
+AuthorDate: Wed Oct 7 14:37:04 2026 +0200
+Commit:     EarlySalty <mail@earlysalty.com>
+CommitDate: Wed Oct 7 14:37:04 2026 +0200
+
+    fix(brain): Abgeleitete Waffenrate auf Endlichkeit prüfen
+    
+    Ungültige Pelletzahlen liefern keine erfundene Schussrate. Zyklus- und Burstquotienten behalten endliche gültige Werte und verwerfen numerische Überläufe.
+    
+    Co-authored-by: GPT 6.1 Sol <modell@local>
+
+ rust/crates/dbrain-reasoner/src/data.rs | 170 +++++++++++++++++++++++++++++++-
+ 1 file changed, 165 insertions(+), 5 deletions(-)

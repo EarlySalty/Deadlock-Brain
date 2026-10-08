@@ -1,0 +1,16 @@
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/mechanics.rs:38:    if hero.weapon.shots_per_second <= 0.0 || hero.weapon.clip_size <= 0.0 {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/mechanics.rs:290:    if window <= 0.0 || weapon.shots_per_second <= 0.0 || weapon.clip_size <= 0.0 {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/mechanics.rs:387:            let period = cycle + count as f64 * intra;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/mechanics.rs:421:    if !weapon.clip_size.is_finite() || weapon.clip_size < 1.0 || weapon.shots_per_second <= 0.0 {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/mechanics.rs:445:    (cycle.is_finite() && cycle > 0.0).then_some(cycle)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/mechanics.rs:876:        if hero.weapon.shots_per_second <= 0.0 {
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs:890:    let shots_per_second = get(&["shots_per_second"])
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs:899:                    if cycle >= 0.0 && intra >= 0.0 && cycle + count as f64 * intra > 0.0 =>
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs:901:                    Some(count as f64 / (cycle + count as f64 * intra))
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs:903:                (_, Some(cycle), _) if cycle > 0.0 => Some(1.0 / cycle),
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs:906:            rate.filter(|rate| rate.is_finite() && *rate > 0.0)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs:913:                .map(|rate| rate / pellets)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs:914:                .filter(|rate| rate.is_finite() && *rate >= 0.0)
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation.rs:1323:        let rate_known =
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation.rs:1324:            weapon.profile.shots_per_second.is_finite() && weapon.profile.shots_per_second > 0.0;
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation.rs:1346:        let rate_known = rate_known

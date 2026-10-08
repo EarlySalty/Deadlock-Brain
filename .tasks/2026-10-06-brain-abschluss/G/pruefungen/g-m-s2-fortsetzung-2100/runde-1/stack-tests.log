@@ -1,0 +1,32 @@
+cargo-slot: Slot 3, optimiert=0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.18s
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/dbrain_reasoner-d93473150944ba66)
+
+running 2 tests
+test combat::tests::stack_bonus_receives_weapon_amplification_in_both_evaluation_paths ... ok
+test combat::tests::stack_bonus_shred_matches_default_fast_and_binding_paths ... stack recorded=false path=0 shred=0 shots=3 damage=60 expected=60
+stack recorded=false path=1 shred=0 shots=3 damage=60 expected=60
+stack recorded=false path=2 shred=0 shots=3 damage=60 expected=60
+stack recorded=false path=3 shred=0 shots=3 damage=60 expected=60
+stack recorded=false path=4 shred=0 shots=3 damage=60 expected=60
+stack recorded=false path=0 shred=20 shots=3 damage=72 expected=72
+stack recorded=false path=1 shred=20 shots=3 damage=72 expected=72
+stack recorded=false path=2 shred=20 shots=3 damage=72 expected=72
+stack recorded=false path=3 shred=20 shots=3 damage=72 expected=72
+stack recorded=false path=4 shred=20 shots=3 damage=72 expected=72
+stack recorded=true path=0 shred=0 shots=3 damage=30.6 expected=30.6
+stack recorded=true path=1 shred=0 shots=3 damage=30.6 expected=30.6
+stack recorded=true path=2 shred=0 shots=3 damage=30.6 expected=30.6
+stack recorded=true path=3 shred=0 shots=3 damage=30.6 expected=30.6
+stack recorded=true path=4 shred=0 shots=3 damage=30.6 expected=30.6
+stack recorded=true path=0 shred=20 shots=3 damage=36.72 expected=36.72
+stack recorded=true path=1 shred=20 shots=3 damage=36.72 expected=36.72
+stack recorded=true path=2 shred=20 shots=3 damage=36.72 expected=36.72
+stack recorded=true path=3 shred=20 shots=3 damage=36.72 expected=36.72
+stack recorded=true path=4 shred=20 shots=3 damage=36.72 expected=36.72
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 341 filtered out; finished in 0.04s
+
+cargo-slot: EXIT=0

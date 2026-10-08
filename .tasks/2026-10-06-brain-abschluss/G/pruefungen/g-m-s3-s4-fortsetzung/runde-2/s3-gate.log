@@ -1,0 +1,5 @@
+ALLOW: No confirmed merge-blocking defect in the supplied diff.
+
+1. rust/crates/dbrain-reasoner/src/calculation.rs:272 | NIT: `"%"` returns `"percent"` before the healing branch can return `"percent_max_health"` | Percentage healing receives inconsistent unit metadata.
+2. rust/crates/dbrain-reasoner/src/calculation.rs:0 (project_property_value) | NIT: Spirit coefficients are validated here, but numerical evaluation delegates to omitted helpers | Inspect progression’s scale-upgrade handling and `combat::ability_value` to confirm `EAddToScale` and `EMultiplyScale` affect values exactly once.
+3. rust/crates/dbrain-reasoner/src/calculation.rs:408 | NIT: The second State-key guard is unreachable | Every listed key already returns State at lines 378–389.

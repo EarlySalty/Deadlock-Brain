@@ -1,0 +1,66 @@
+Fix-SHA: aefe916a3197911e8ef5b22c602d766a8303e36e
+Ausgangs-SHA: 89fa8a1919afa3a01e5f4b03ecdf0427a645d84f
+Gate-Basis S1: bd83d7abdef812a30daa47aa5f6a78de4f42263a
+Branch: feat/brain-v2-g-20261007
+Produktdatei: /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs
+Prüfbaum: /home/nathanael/.worktrees/brain-g-checkpoints-20261007
+Prüfbaum vor und nach Compilerprüfungen sauber, HEAD jeweils aefe916a3197911e8ef5b22c602d766a8303e36e.
+Index nach Commit leer. Commit enthält 55 hinzugefügte und 6 entfernte Zeilen in combat.rs. Kein S3-Wrapper im Commit.
+Beide Nachfüllpfade erhalten reload_pending, reload_until und next_shot_at, wenn nach der Auffüllung weniger als eine Patrone vorhanden ist.
+Unmittelbare Regression ergänzt: aktive und fähigkeitsgebundene Auslösung, beide Nachfüllproperties, 25/50/100 Prozent, Übereinstimmung zwischen ausführlichem und schnellem Auswertungspfad.
+Tests ausdrücklich nicht ausgeführt. Testtargets wurden ausschließlich mit cargo check und clippy kompiliert.
+
+Echte Prozess-Exits:
+rustfmt --edition 2021 --check combat.rs: 0
+cargo fmt --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner -- --check: 0
+flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo check --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target: 0
+flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- -D warnings: 0
+python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base bd83d7abdef812a30daa47aa5f6a78de4f42263a --head aefe916a3197911e8ef5b22c602d766a8303e36e: 1
+sha256sum --check geschuetzte-quellen.txt vor und nach Fix: 0, 0 (jeweils elf Dateien)
+S3-WIP-Diff vorher/nachher, ausschließlich Git-Blob-Metadatenzeile ignoriert: 0
+Secret-Mustersuche mit rg --quiet --pcre2: 1 bedeutet keine Treffer; Prüfkommando Exit 0.
+
+Originalmanifest: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s1-r2/bereichs-quellen-fix.sha256
+Eigene Prüfliste übernimmt daraus die elf Einträge außer combat.rs.
+Quellen/Fixtures sowie fremde Akten und S3/S4-WIP erhalten. Keine Änderungen außerhalb combat.rs und des eigenen Belegverzeichnisses.
+Kontaktzeit-, ProcChance- und Stack-Verstärkungsfixes unverändert erhalten.
+Kein Push, Merge, Release, Deploy, Neustart, Cleanup, Settle oder Folgefix.
+
+Git-Schritte einzeln, direkte eigene Aufrufe (alle Exit 0):
+1. status --short im Arbeitsbaum
+2. log -1 --format im Arbeitsbaum
+3. status --porcelain=v1 im Prüfbaum
+4. rev-parse HEAD im Prüfbaum
+5. diff -- combat.rs im Arbeitsbaum, WIP-Vorherbeleg
+6. add -- combat.rs
+7. apply --cached --reverse --unidiff-zero S2-HOLDBACK.patch
+8. diff --cached --stat
+9. diff --cached -- combat.rs, exakter Indexbeleg
+10. diff --cached --check
+11. commit -F commitnachricht.txt
+12. rev-parse HEAD im Arbeitsbaum
+13. checkout --detach aefe916a3197911e8ef5b22c602d766a8303e36e im Prüfbaum
+14. status --porcelain=v1 im Prüfbaum
+15. rev-parse HEAD im Prüfbaum
+16. status --short im Arbeitsbaum nach Gate
+17. log -1 --format im Arbeitsbaum nach Gate
+18. diff -- combat.rs im Arbeitsbaum, WIP-Nachherbeleg
+19. diff --cached --exit-code im Arbeitsbaum
+20. status --porcelain=v1 im Prüfbaum
+21. rev-parse HEAD im Prüfbaum
+
+Rohbelege liegen ausschließlich unter:
+/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r5/
+Format: fmt.log und rustfmt-vorher.log
+Compiler: check.log
+Clippy: clippy.log
+Gatewortlaut: gate.log
+Index: index.log
+Quellenerhalt: quellen-vorher.log, quellen-nachher.log und geschuetzte-quellen.txt
+S3-Erhalt: combat-wip-vorher.log, combat-wip-nachher.log und s3-wip-vergleich.log
+Zwillingssuche: zwillingssuche.log
+Arbeitsstand nach Gate: status-nach-gate.log
+
+MERGEPROTOKOLL[MS-1]: 21 Git-Schritte einzeln | Anläufe: 1 | Gate: [gpt-6.1-sol] BLOCK, Exit 1; kein Merge beauftragt
+WIRKUNGSPRUEFUNG[WP-1]: 2 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 0/0 geprüft
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: Commitnachricht

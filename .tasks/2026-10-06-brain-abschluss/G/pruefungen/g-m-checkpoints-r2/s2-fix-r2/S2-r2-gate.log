@@ -1,0 +1,5 @@
+[gpt-6.1-sol] BLOCK: Physical bonus procs ignore their configured probability.
+
+1. rust/crates/dbrain-reasoner/src/combat.rs:1128 | BLOCKING: `ProcBonusPhysicalDamage` bypasses the 100% chance guard; the matching diagnostic at `combat.rs:575` also handles only `ProcBonusMagicDamage`. | Both shot-bound and cast-triggered paths award physical proc damage even with `ProcChance = 0`, inflating combat damage and planner scores. Apply the guard and diagnostic to both bonus-proc properties.
+HOOK-TWIN: rust/crates/dbrain-reasoner/src/combat.rs:201 | same token `ProcBonusMagicDamage` as rust/crates/dbrain-reasoner/src/combat.rs:1128
+HOOK-TWIN: rust/crates/dbrain-reasoner/src/combat.rs:575 | same token `ProcBonusMagicDamage` as rust/crates/dbrain-reasoner/src/combat.rs:1128

@@ -1,0 +1,8 @@
+1101:    let mut reload_pending = false;
+1265:                    ammo = (ammo + last_clip * reload / 100.0).min(last_clip);
+1266:                    if ammo >= 1.0 {
+1268:                        reload_pending = false;
+1627:                        ammo = (ammo + clip * reload / 100.0).min(clip);
+1628:                        if ammo >= 1.0 {
+1630:                            reload_pending = false;
+1906:                reload_pending = false;

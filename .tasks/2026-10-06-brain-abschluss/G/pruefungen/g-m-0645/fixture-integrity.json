@@ -1,0 +1,186 @@
+{
+  "checks": [
+    {
+      "kind": "hero",
+      "id": 7,
+      "pointer": "/5",
+      "identical": true
+    },
+    {
+      "kind": "hero",
+      "id": 13,
+      "pointer": "/10",
+      "identical": true
+    },
+    {
+      "kind": "hero",
+      "id": 25,
+      "pointer": "/19",
+      "identical": true
+    },
+    {
+      "kind": "hero",
+      "id": 27,
+      "pointer": "/20",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 2679155647,
+      "pointer": "/137",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 3104292528,
+      "pointer": "/138",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 2948410412,
+      "pointer": "/139",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 2414191464,
+      "pointer": "/140",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 1080948381,
+      "pointer": "/141",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 731943444,
+      "pointer": "/142",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 816395058,
+      "pointer": "/238",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 3433765565,
+      "pointer": "/239",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 1656913918,
+      "pointer": "/240",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 2751689917,
+      "pointer": "/241",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 2656490109,
+      "pointer": "/242",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 2702908623,
+      "pointer": "/243",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 1427059555,
+      "pointer": "/244",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 1192327851,
+      "pointer": "/245",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 2981692841,
+      "pointer": "/246",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 4147641675,
+      "pointer": "/247",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 1842576017,
+      "pointer": "/248",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 1999680326,
+      "pointer": "/249",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 440716503,
+      "pointer": "/260",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 2725537392,
+      "pointer": "/261",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 3334760137,
+      "pointer": "/262",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 3255651252,
+      "pointer": "/263",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 2566573207,
+      "pointer": "/264",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 2366960452,
+      "pointer": "/265",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 3319782965,
+      "pointer": "/266",
+      "identical": true
+    },
+    {
+      "kind": "item",
+      "id": 395867183,
+      "pointer": "/460",
+      "identical": true
+    }
+  ],
+  "total": 30,
+  "all_identical": true
+}

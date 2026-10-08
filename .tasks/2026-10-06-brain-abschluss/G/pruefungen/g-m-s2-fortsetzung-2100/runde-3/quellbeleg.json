@@ -1,0 +1,64 @@
+{
+  "runde": 3,
+  "status": "BLOCK",
+  "worktree": "/home/nathanael/.worktrees/brain-g-v2-20261007",
+  "branch": "feat/brain-v2-g-20261007",
+  "head": "8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206",
+  "befund": "ABWEICHUNG: Die verlangte kontrollierte Zeitbasis ist innerhalb des ausschließlichen Schreibbereichs combat.rs nicht umsetzbar. Der Auftrag wurde gegenüber Runde 2 nicht erweitert.",
+  "git_leseprüfungen": [
+    {"befehl": "git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --porcelain=v1", "exit": 0},
+    {"befehl": "git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -6 --format='%H %s'", "exit": 0},
+    {"befehl": "git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --stat", "exit": 0, "ausgabe": "leer"},
+    {"befehl": "git -C /home/nathanael/.worktrees/brain-g-v2-20261007 rev-parse --abbrev-ref HEAD", "exit": 0, "ausgabe": "feat/brain-v2-g-20261007"},
+    {"befehl": "git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --porcelain=v1", "exit": 0, "einträge": 59, "gestagte_einträge": 0},
+    {"befehl": "git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -1 --format='%H %s'", "exit": 0, "head": "8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206"}
+  ],
+  "erhaltene_fixcommits": [
+    "8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206",
+    "aefe916a3197911e8ef5b22c602d766a8303e36e",
+    "89fa8a1919afa3a01e5f4b03ecdf0427a645d84f",
+    "9f965c88952177195a9ebba07b1de38357e2e585",
+    "d12986c4eaaf6477a28b2fa672b43d1a5a8c561a"
+  ],
+  "sha256_startquellen": {
+    "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs": "d8a34a344238977c7eab261c14cdc66a880345c41b87a8695ca79c2052652c18",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs": "7b18c0c77db513df339066cf7565102985723a90c449147b33dbf4de032d97d7",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/lib.rs": "40f4ec9914032e1b18ae2166bbcc80c2157ec3ade373434eecc417817e6d1650",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation.rs": "de2419f76368a233be9f848c3298f8560b42b1411b42d1a42c709b505231e15e",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation_tests.rs": "bce7595afdab9ad3bb0e9ecf69d1335cd86431310aef243a8aa4143a4d2c49ca",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/deadline.rs": "1c56ba8005599b15115004348de7ac50ce1eb27b86a00033516583d84db71584"
+  },
+  "vergleich_mit_runde_2": "Alle sechs Quellhashes tatsächlich verglichen und identisch. Keine Produktdatei in Runde 3 geschrieben.",
+  "direkt_geprüfter_deadlinevertrag": {
+    "datei": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/deadline.rs",
+    "zeilen_12_19": "State und der Inhalt von RequestDeadline sind privat. expires_at verwendet std::time::Instant.",
+    "zeilen_27_32": "after(duration) verwendet std::time::Instant::now().",
+    "zeilen_40_49": "remaining() verwendet std::time::Instant::now(); check() ruft remaining() auf.",
+    "öffentliche_methoden": ["after", "expires_at", "cancel", "remaining", "check", "wait"],
+    "kontrollierbare_zeitquelle": false
+  },
+  "direkt_geprüfter_combatstand": {
+    "datei": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs",
+    "zeilen_825_843": "simulate_calculation_with_deadline verlangt den konkreten brain_contracts::RequestDeadline-Vertrag und prüft ihn vor und nach der Simulation. Eine ausschließlich lokale Testuhr kontrolliert diese Prüfungen nicht.",
+    "zeile_3527": "Die erhaltene Duplikatregression verwendet RequestDeadline::after(std::time::Duration::from_secs(60)).",
+    "zeilen_537_545_858": "ID-Normalisierung samt Verwendung im gemeinsamen Simulationsübergang bereits als erhaltenes WIP vorhanden.",
+    "zeilen_1935_1940": "Der gemeinsame Schadensreceiver erhält stats.bullet_shred bereits im erhaltenen WIP.",
+    "zeile_3481": "Der erhaltene Test benutzt scenario.target.bullet.resist. Der historische Feldfehler resistances liegt hier nicht mehr vor.",
+    "beweisgrenze": "Keine dieser vorhandenen Änderungen als in Runde 3 gebaut, numerisch verifiziert oder durch einen neuen Gate erlaubt ausgewiesen. Keine Ersatzprobe, keine Uhrmanipulation und keine Änderung des öffentlichen Vertrags vorgenommen."
+  },
+  "benötigte_auftragskorrektur": "Die kontrollierbare Zeitbasis in brain-contracts ausdrücklich in den Schreibbereich aufnehmen oder die Forderung nach einer kontrollierten Deadlineprobe ändern. Erst danach numerische Prüfung, committed Prüfung und vollständiger S2-Gate gegen S1.",
+  "produktdateien_geschrieben": [],
+  "tests_ausgeführt": false,
+  "testzahlen": {"passed": null, "failed": null, "ignored": null, "filtered": null},
+  "compiler_ausgeführt": false,
+  "clippy_ausgeführt": false,
+  "formatprüfung_ausgeführt": false,
+  "neuer_commit": false,
+  "gate_ausgeführt": false,
+  "gate": "Nicht ausgeführt. Kein neuer Fixcommit und kein neues S2-Urteil.",
+  "pushed": false,
+  "gemergt": false,
+  "runtime_geändert": false,
+  "testnachweis": "TESTNACHWEIS[TW-1]: 0 passed, 0 ignored | Baseline: nicht erhoben; kein Testlauf.",
+  "mergeprotokoll": "MERGEPROTOKOLL[MS-1]: 6 Git-Schritte einzeln | Anläufe: 0 | Gate: nicht ausgeführt"
+}

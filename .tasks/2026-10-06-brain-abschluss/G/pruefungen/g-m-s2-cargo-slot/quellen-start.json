@@ -1,0 +1,74 @@
+[
+  {
+    "path": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation.rs",
+    "expected": "de2419f76368a233be9f848c3298f8560b42b1411b42d1a42c709b505231e15e",
+    "actual": "de2419f76368a233be9f848c3298f8560b42b1411b42d1a42c709b505231e15e",
+    "unchanged": true
+  },
+  {
+    "path": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation_tests.rs",
+    "expected": "bce7595afdab9ad3bb0e9ecf69d1335cd86431310aef243a8aa4143a4d2c49ca",
+    "actual": "bce7595afdab9ad3bb0e9ecf69d1335cd86431310aef243a8aa4143a4d2c49ca",
+    "unchanged": true
+  },
+  {
+    "path": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs",
+    "expected": "70d7a7905b961d335298a99ef2b455ed029911370bd653270a67b735caf63c79",
+    "actual": "70d7a7905b961d335298a99ef2b455ed029911370bd653270a67b735caf63c79",
+    "unchanged": true
+  },
+  {
+    "path": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs",
+    "expected": "7b18c0c77db513df339066cf7565102985723a90c449147b33dbf4de032d97d7",
+    "actual": "7b18c0c77db513df339066cf7565102985723a90c449147b33dbf4de032d97d7",
+    "unchanged": true
+  },
+  {
+    "path": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/lib.rs",
+    "expected": "40f4ec9914032e1b18ae2166bbcc80c2157ec3ade373434eecc417817e6d1650",
+    "actual": "40f4ec9914032e1b18ae2166bbcc80c2157ec3ade373434eecc417817e6d1650",
+    "unchanged": true
+  },
+  {
+    "path": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/mechanics.rs",
+    "expected": "5a24bf2b82325e2d7423753859031f647444d1a0532dfff80ac7129615f3be3f",
+    "actual": "5a24bf2b82325e2d7423753859031f647444d1a0532dfff80ac7129615f3be3f",
+    "unchanged": true
+  },
+  {
+    "path": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/planner.rs",
+    "expected": "4db24115f314d180f0571bbab2139a7d440cc7a426f628000701c8034138b22d",
+    "actual": "4db24115f314d180f0571bbab2139a7d440cc7a426f628000701c8034138b22d",
+    "unchanged": true
+  },
+  {
+    "path": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/progression.rs",
+    "expected": "e758c1d1789f809f113144cfe5df5927f514ce3bf79f7ed97392ebb8fe5eed24",
+    "actual": "e758c1d1789f809f113144cfe5df5927f514ce3bf79f7ed97392ebb8fe5eed24",
+    "unchanged": true
+  },
+  {
+    "path": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/types.rs",
+    "expected": "e48f3317be84eb52ca476168896c393cfb7de7dbf306434c473032608d2bb8fe",
+    "actual": "e48f3317be84eb52ca476168896c393cfb7de7dbf306434c473032608d2bb8fe",
+    "unchanged": true
+  },
+  {
+    "path": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/testdata/calculation/glass-cannon.json",
+    "expected": "36656fbb25e87fa5eef4e612e61c007bf2d21b80933e52603fcedabbd394190b",
+    "actual": "36656fbb25e87fa5eef4e612e61c007bf2d21b80933e52603fcedabbd394190b",
+    "unchanged": true
+  },
+  {
+    "path": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/testdata/calculation/recorded-assets.json",
+    "expected": "167323f78bb6e9bb62f0e51ce076515180164cc3479e4a67fd7dc8607b17dad0",
+    "actual": "167323f78bb6e9bb62f0e51ce076515180164cc3479e4a67fd7dc8607b17dad0",
+    "unchanged": true
+  },
+  {
+    "path": "/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/testdata/calculation/sheet-6759.json",
+    "expected": "fd2984bb5b23ffaa59fa5a815ca7c2b67542221a57be677384cccbb0934ffbff",
+    "actual": "fd2984bb5b23ffaa59fa5a815ca7c2b67542221a57be677384cccbb0934ffbff",
+    "unchanged": true
+  }
+]

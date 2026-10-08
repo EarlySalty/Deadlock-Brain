@@ -1,0 +1,57 @@
+Gruppe	Aktion	Exit	Bezug
+Start	git rev-parse HEAD	0	dbce14aedadd94881a3cb21151d9840994094cd9
+Start	git branch --show-current	0	feat/brain-v2-g-20261007
+Start	git diff --cached --name-status	0	leer
+Start	sha256sum --check bereichs-quellen.sha256	0	12/12 OK
+Werkzeug	graphify query im Worktree	1	lokaler Graph fehlt
+Werkzeug	graphify query --graph /home/nathanael/.graphify/global-graph.json	0	globaler Graph benutzt
+Werkzeug	ctx_execute_file G/REVIEW.md	abgewiesen	Projektgrenze; nicht über anderen Werkzeugweg wiederholt
+Werkzeug	python3 /home/nathanael/Documents/claude-config/hooks/gate_hook.py --help	2	Pfad fehlt
+Werkzeug	python3 /home/nathanael/.claude/hooks/gate_hook.py --help	2	Pfad fehlt
+Werkzeug	python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --help	1	kein Help-Modus; stdin-JSON fehlt
+F1	git add recorded-assets.json	0	SHA256 167323f78bb6e9bb62f0e51ce076515180164cc3479e4a67fd7dc8607b17dad0
+F1	git diff --cached --name-status/stat/check	0	nur recorded-assets.json
+F1	git commit	0	bd1284acd34f9eafaf4a376a9d10b1c30c9494f0
+F1	git checkout --detach im vorhandenen Prüfbaum	0	bd1284acd34f9eafaf4a376a9d10b1c30c9494f0
+F1	git status --porcelain im Prüfbaum	0	leer
+F1	cargo check --all-targets --locked --offline --jobs 3	0	F1-check.log; committed Prüfquelle
+F1	cargo clippy --all-targets --locked --offline --jobs 3 -- -D warnings	0	F1-clippy.log; einschließlich Abhängigkeiten
+F1	gate_hook.py --review reguläre Kette	0	F1-gate.log; dbce14aedadd94881a3cb21151d9840994094cd9..bd1284acd34f9eafaf4a376a9d10b1c30c9494f0
+F1	git push origin HEAD:refs/heads/feat/brain-v2-g-20261007	0	bd1284acd34f9eafaf4a376a9d10b1c30c9494f0
+F1	git ls-remote --exit-code --heads origin refs/heads/feat/brain-v2-g-20261007	0	bd1284acd34f9eafaf4a376a9d10b1c30c9494f0
+F2	git add sheet-6759.json glass-cannon.json	0	Originalbytes; beide Indexhashes bestätigt
+F2	git diff --cached --name-status/check	0	nur zwei F2-Fixtures
+F2	git commit	0	2b67796fb80ae3440a0c9e76671dfc8169032844
+F2	git checkout --detach im vorhandenen Prüfbaum	0	2b67796fb80ae3440a0c9e76671dfc8169032844
+F2	git status --porcelain im Prüfbaum	0	leer
+F2	cargo check --all-targets --locked --offline --jobs 3	0	F2-check.log; committed Prüfquelle
+F2	cargo clippy --all-targets --locked --offline --jobs 3 -- -D warnings	0	F2-clippy.log; einschließlich Abhängigkeiten
+F2	gate_hook.py --review reguläre Kette	0	F2-gate.log; bd1284acd34f9eafaf4a376a9d10b1c30c9494f0..2b67796fb80ae3440a0c9e76671dfc8169032844
+F2	git push origin HEAD:refs/heads/feat/brain-v2-g-20261007	0	2b67796fb80ae3440a0c9e76671dfc8169032844
+F2	git ls-remote --exit-code --heads origin refs/heads/feat/brain-v2-g-20261007	0	2b67796fb80ae3440a0c9e76671dfc8169032844
+S1	git add types.rs mechanics.rs progression.rs data.rs lib.rs	0	eigenes Eigentum
+S1	git apply --cached --reverse --unidiff-zero S1-HOLDBACK.patch	0	Arbeitsquellen unverändert
+S1	Staginggrenze und Indexhashes prüfen	0	fünf Dateien; lib.rs nur pub use data; Datahelfer zurückgehalten
+S1	git diff --cached --check	0	keine Patchfehler
+S1	sha256sum --check bereichs-quellen.sha256	0	12/12 OK nach Holdback
+S1	git commit	0	e75477280004d86d65d0291ab123616a5e576196
+S1	git checkout --detach im vorhandenen Prüfbaum	0	e75477280004d86d65d0291ab123616a5e576196
+S1	git status --porcelain im Prüfbaum	0	leer
+S1	cargo check --all-targets --locked --offline --jobs 3	0	S1-check.log; committed Prüfquelle
+S1	cargo clippy --all-targets --locked --offline --jobs 3 -- -D warnings	0	S1-clippy.log; einschließlich Abhängigkeiten
+S1	git diff --exit-code HEAD -- rust im Prüfbaum	0	keine Differenz zwischen committed Quelle und geprüftem Baum
+S1	git rev-parse HEAD im Prüfbaum	0	e75477280004d86d65d0291ab123616a5e576196
+Arbeitsquellen	cargo fmt --package dbrain-reasoner -- --check	0	unveränderte Gesamtarbeitsquellen; kein S1-Zwischenbeweis
+S1	gate_hook.py --review reguläre Kette	1	S1-gate.log; 2b67796fb80ae3440a0c9e76671dfc8169032844..e75477280004d86d65d0291ab123616a5e576196; [gpt-6.1-sol] BLOCK
+S1	git status --short nach BLOCK	0	Restquellen und Akten-WIP nicht gestaged
+S1	git log -1 --format=fuller nach BLOCK	0	HEAD e75477280004d86d65d0291ab123616a5e576196; korrekter Modelltrailer
+S1	RG-Nachlesen des Gatefunds	0	Arbeitsquelle data.rs:613-617; bestehender Loader data.rs:1461-1470
+Abschluss	sha256sum --check bereichs-quellen.sha256	0	12/12 OK; keine Produktbytes verändert
+Abschluss	git diff --cached --name-status	0	leer
+Abschluss	git ls-remote --exit-code --heads origin refs/heads/feat/brain-v2-g-20261007	0	2b67796fb80ae3440a0c9e76671dfc8169032844; S1 nicht gepusht
+Abschluss	Geheimnismusterscan der zehn eigenen Prüflogs	0	0 Verdachtsdateien; Logs nicht gestaged
+S2/S3/S4	Commit/Compiler/Clippy/Gate/Push	nicht ausgeführt	Stopp nach S1-BLOCK; kein Fix und keine Delegation in dieser Session
+Tests	cargo test	nicht ausgeführt	keine Tests im Hilfsbaum oder über einen Ersatzweg
+Befehlsform	Compiler	belegt	flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo check --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target
+Befehlsform	Clippy	belegt	flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- -D warnings
+Befehlsform	Gate	belegt	python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base <konkrete Vorgänger-SHA> --head <konkrete Gruppen-SHA>

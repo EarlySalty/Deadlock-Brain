@@ -1,0 +1,112 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 38.38s
+     Running unittests src/lib.rs (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/target/g-m/debug/deps/dbrain_reasoner-d4d6a66a5ed7a34e)
+
+running 41 tests
+test combat::tests::above_and_below_health_conditions_have_opposite_windows ... ok
+test combat::tests::active_reload_and_fire_rate_share_activation_not_two_cooldowns ... ok
+test combat::tests::anti_weapon_debuff_has_no_value_without_weapon_pressure ... ok
+test combat::tests::aura_range_changes_only_its_own_two_effects ... ok
+test combat::tests::bullet_buildup_drives_afterburn_instead_of_a_free_cast ... ok
+test combat::tests::channel_consumes_shared_time_and_damage_is_window_bounded ... ok
+test combat::tests::charged_item_bonus_charges_do_not_affect_ordinary_abilities ... ok
+test combat::tests::charged_item_cooldowns_and_spacing_reach_cast_events ... ok
+test combat::tests::charged_item_spirit_is_not_global_spirit ... ok
+test combat::tests::class_only_ability_still_fights_and_unknown_height_is_visible ... ok
+test combat::tests::damage_and_fire_rate_are_joint_not_additive ... ok
+test combat::tests::dead_target_has_no_dot_or_lifesteal_and_new_targets_reset_health_threshold ... ok
+test combat::tests::earlier_self_defeat_does_not_reward_identical_capped_damage ... ok
+test combat::tests::fast_and_explained_evaluations_have_identical_numbers ... ok
+test combat::tests::faster_kills_earn_damage_credit_but_not_survival_credit ... ok
+test combat::tests::finite_charges_use_recharge_cooldown_not_charge_spacing ... ok
+test combat::tests::health_downside_faces_the_same_incoming_damage_and_typed_backup ... ok
+test combat::tests::hook_hit_amp_and_uppercut_reset_drive_real_casts ... ok
+test combat::tests::low_health_buff_uses_property_threshold_without_description ... ok
+test combat::tests::magazine_and_reload_share_the_same_imbue_item_cooldown ... ok
+test combat::tests::magazine_imbue_survives_target_switch_but_not_reload ... FAILED
+test combat::tests::malice_hits_amplify_following_damage_with_fast_path_parity ... ok
+test combat::tests::max_health_loss_applies_to_bonus_health_and_healing_cap ... ok
+test combat::tests::own_pulse_aura_continues_without_damage_during_target_switch_pause ... ok
+test combat::tests::periodic_damage_keeps_full_duration_rate_at_window_end ... ok
+test combat::tests::proc_cooldown_caps_fast_weapon_and_unknowns_remain_visible ... ok
+test combat::tests::quicksilver_reload_has_one_cast_bound_activation_and_fixed_binding ... ok
+test combat::tests::self_damage_cannot_fund_free_casts_and_rotation_stops_on_death ... ok
+test combat::tests::shop_uses_cumulative_threshold_not_sum_of_item_tiers ... ok
+test combat::tests::slow_can_prevent_escape_and_control_improves_contact ... ok
+test combat::tests::spirit_changes_whole_weapon_rate_and_magazine_value ... FAILED
+test combat::tests::spirit_does_not_change_weapon_rate_for_a_null_converter ... ok
+test combat::tests::spirit_weapon_axes_match_materialized_weapon_in_combat ... ok
+test combat::tests::sustain_refresh_is_derived_without_item_or_hero_identity ... ok
+test combat::tests::sustain_refresh_trace_scoring_and_fast_path_agree ... ok
+test combat::tests::sustain_refresh_uses_damage_timing_and_respects_proc_exclusion ... ok
+test combat::tests::sustain_score_does_not_double_count_the_flat_regen_property ... ok
+test combat::tests::target_death_ends_duel_and_does_not_reset_own_cooldown ... ok
+test combat::tests::typed_proc_events_respect_damage_type_and_trigger_spirit_threshold ... ok
+test combat::tests::typed_shields_do_not_cover_the_other_damage_channel ... ok
+test combat::tests::weapon_damage_does_not_receive_spirit_shred_or_spirit_lifesteal ... ok
+
+failures:
+
+---- combat::tests::magazine_imbue_survives_target_switch_but_not_reload stdout ----
+
+thread 'combat::tests::magazine_imbue_survives_target_switch_but_not_reload' (1450433) panicked at crates/dbrain-reasoner/src/combat.rs:3039:9:
+assertion failed: reload.scenarios[1].reloads > 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- combat::tests::spirit_changes_whole_weapon_rate_and_magazine_value stdout ----
+
+thread 'combat::tests::spirit_changes_whole_weapon_rate_and_magazine_value' (1450445) panicked at crates/dbrain-reasoner/src/combat.rs:3663:9:
+assertion failed: with_spirit.weapon_damage > plain.weapon_damage
+
+
+failures:
+    combat::tests::magazine_imbue_survives_target_switch_but_not_reload
+    combat::tests::spirit_changes_whole_weapon_rate_and_magazine_value
+
+test result: FAILED. 39 passed; 2 failed; 0 ignored; 0 measured; 265 filtered out; finished in 0.25s
+
+error: test failed, to rerun pass `-p dbrain-reasoner --lib`
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.25s
+     Running unittests src/lib.rs (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/target/g-m/debug/deps/dbrain_reasoner-d4d6a66a5ed7a34e)
+
+running 1 test
+test planner::tests::later_unlock_keeps_the_binding_chosen_at_purchase ... FAILED
+
+failures:
+
+---- planner::tests::later_unlock_keeps_the_binding_chosen_at_purchase stdout ----
+
+thread 'planner::tests::later_unlock_keeps_the_binding_chosen_at_purchase' (1453138) panicked at crates/dbrain-reasoner/src/planner.rs:1051:9:
+assertion `left == right` failed
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    planner::tests::later_unlock_keeps_the_binding_chosen_at_purchase
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 305 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p dbrain-reasoner --lib`
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 27.63s
+     Running unittests src/lib.rs (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/target/g-m/debug/deps/dbrain_reasoner-d4d6a66a5ed7a34e)
+
+running 12 tests
+test calculation_tests::boon_and_total_spirit_bookends_keep_wardens_unrounded_base ... ok
+test calculation_tests::burst_weapon_uses_real_intra_and_inter_burst_gaps ... ok
+test calculation_tests::censored_ttk_never_gets_finite_rank ... ok
+test calculation_tests::conversion_keeps_zero_negative_properties_and_exact_original_pointers ... ok
+test calculation_tests::discrete_weapon_kills_include_last_shot_and_reload_convention ... ok
+test calculation_tests::missing_fields_stay_unknown_without_zero_or_blocking_independent_base_metrics ... ok
+test calculation_tests::pellet_damage_and_single_reload_apply_once ... ok
+test calculation_tests::ranks_cover_active_population_and_share_ties ... ok
+test calculation_tests::recorded_three_heroes_match_versioned_probe_values_without_relabelling_raw_provenance ... ok
+test calculation_tests::resist_shred_amp_damage_stages_preserve_negative_effective_resist ... ok
+test calculation_tests::target_resist_changes_shields_regen_and_explicit_headshots_reach_same_simulator ... ok
+test calculation_tests::wrong_progression_version_and_nonfinite_inputs_are_rejected ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 294 filtered out; finished in 0.67s
+

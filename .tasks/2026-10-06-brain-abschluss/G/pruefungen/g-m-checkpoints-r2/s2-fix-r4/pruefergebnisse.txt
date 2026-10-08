@@ -1,0 +1,72 @@
+S2 Fix Runde 4, abschließende Prüfbelege
+Fix-SHA: 89fa8a1919afa3a01e5f4b03ecdf0427a645d84f
+Ausgangs-SHA: 9f965c88952177195a9ebba07b1de38357e2e585
+Gate-Basis S1: bd83d7abdef812a30daa47aa5f6a78de4f42263a
+Feature: feat/brain-v2-g-20261007
+Produktdatei: /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs
+Commit: fix(brain): Waffenverstärkung auf Stackbonus anwenden
+Trailer: Co-authored-by: GPT 6.1 Sol <modell@local>
+Commitumfang: eine Datei, 32 hinzugefügte und sechs entfernte Zeilen. Ein produktiver Ausdruck korrigiert, direkte Regression ergänzt, fünf vorhandene Kommentarzeilen entfernt.
+
+Prüfungen und echte Rückgabecodes
+1. /home/nathanael/.cargo/bin/rustfmt --edition 2021 --check /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs
+Exit 0, keine Formatmutation.
+Log: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r4/rustfmt-arbeitsbaum.log
+2. /home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner -- --check
+Exit 0, committed Formatcheck, keine Formatmutation.
+Log: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r4/S2-r4-format.log
+3. flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo check --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target
+Exit 0, dev-Profil beendet nach 21,47 s. Keine Tests ausgeführt.
+Log: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r4/S2-r4-check.log
+4. flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- -D warnings
+Exit 0, dev-Profil beendet nach 13,23 s. Einschließlich Abhängigkeiten, kein --no-deps und keine neue Warnungsunterdrückung. Keine Tests ausgeführt.
+Log: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r4/S2-r4-clippy.log
+5. python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base bd83d7abdef812a30daa47aa5f6a78de4f42263a --head 89fa8a1919afa3a01e5f4b03ecdf0427a645d84f
+Exit 1. Ein Anlauf. Modell und Urteilskette nicht geändert.
+Gate-Antwort: [gpt-6.1-sol] BLOCK: Partial ammo refills can strand the weapon.
+Neuer BLOCK am committed combat.rs:1240 und :1600: Beide Nachfüllpfade löschen reload_pending auch bei ammo < 1. Ein leeres Zwei-Schuss-Magazin mit 25 Prozent Nachfüllung hält danach 0,5 Schuss. Die Schussschleife bricht bei :1878 ab und das abgebrochene Nachladen füllt nicht mehr auf. Bis zum nächsten Nachfüllen wird nicht geschossen. Der Gate verlangt, Nachladen bei unzureichender Munition zu erhalten oder neu zu beginnen.
+NIT bei :1861 zur Reihenfolge zeitlich genauer Schüsse und ausstehender Treffer bleibt außerhalb des Bauauftrags.
+Nach weiterem BLOCK keine eigene Folgerunde und keine Delegation gestartet.
+Log: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r4/S2-r4-gate.log
+
+Quellenbindung und Schutz
+Der bestehende Prüfbaum /home/nathanael/.worktrees/brain-g-checkpoints-20261007 wurde ausschließlich auf 89fa8a1919afa3a01e5f4b03ecdf0427a645d84f gesetzt. git log bestätigt diesen SHA nach Compiler und Clippy, git status --porcelain=v1 --untracked-files=all bleibt leer.
+Indexprüfung vor Commit: genau rust/crates/dbrain-reasoner/src/combat.rs gestagt; git diff --cached --check Exit 0. Der S3-Wrapper evaluate_inventory_with_deadline war nicht im Index.
+SHA256 von Indexdatei und committed Prüfbaumdatei identisch: ab3955a4e611b6d9b6061783b0f7fee0aa1655c0fee8a7805befdd701c70b6be
+Arbeitsbaumdatei nach Fix: 4e2c022645435bbdb87ef59327859dd2ab73a056f10ea48ab5133a84ede873f1
+S3-Wrapper vor und nach Fix bytegleich: 57c44e5b51d63df92450c8ba6a74ba4f8660a21e12d791764ee19d237f85c3de
+Elf andere Manifestdateien vor und nach Fix bytegleich; beide Prüfungen Exit 0.
+Manifest: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s1-r2/bereichs-quellen-fix.sha256
+Vorige Kontakt- und ProcChancefixes im Index erhalten.
+Nach Commit ist der Index leer. combat.rs enthält weiterhin den vorher vorhandenen uncommitteten S3-Wrapper; der Restdiff umfasst nur einen Hunk beim Wrapper und enthält keinen uncommitteten Anteil des eigenen Fixes.
+Restdiff: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r4/S2-r4-arbeitsbaum-rest.log
+Fremde Akten, data.rs und lib.rs nicht geändert oder gestagt. Belege nicht gestagt.
+Alle sechs eigenen Rohlogs auf Private-Key-, Anbieter-Schlüssel-, Bearer- und Secret-Zuweisungsmuster geprüft: null Treffer. Prüfung Exit 0.
+ABWEICHUNG: Der Zugriff auf S2-r3-gate.log scheiterte im Kontextwerkzeug an dessen falschem Projektroot. Kein anderer Werkzeugweg für diesen abgewiesenen Zugriff. Der vollständig übergebene BLOCK wurde unmittelbar an combat.rs bestätigt und eng behoben.
+Tests ausdrücklich nicht ausgeführt. Die ergänzte Regression wurde durch --all-targets kompiliert, nicht ausgeführt.
+Kein Push, Main, Release, Deploy, Runtime, Cleanup oder Settle.
+
+Git-Schritte, alle einzeln mit literalen absoluten Worktreepfaden, alle Exit 0
+01. Primärworktree git status --short --untracked-files=no
+02. Primärworktree git log -1 --format='%H %s'
+03. Primärworktree git diff --cached --stat
+04. Prüfbaum git status --porcelain=v1 --untracked-files=all
+05. Prüfbaum git log -1 --format='%H %s'
+06. Primärworktree git add auf combat.rs
+07. Primärworktree git apply --cached --reverse --unidiff-zero auf S2-HOLDBACK.patch
+08. Primärworktree git diff --cached auf combat.rs
+09. Primärworktree git diff --cached --check
+10. Primärworktree git diff --cached --name-status
+11. Primärworktree git show :rust/crates/dbrain-reasoner/src/combat.rs mit Indexprüfung
+12. Primärworktree git commit
+13. Primärworktree git rev-parse HEAD
+14. Prüfbaum git checkout --detach 89fa8a1919afa3a01e5f4b03ecdf0427a645d84f
+15. Primärworktree git status --short --untracked-files=no nach Gate-Exit 1
+16. Primärworktree git log -1 --format='%H%n%s%n%b' nach Gate-Exit 1
+17. Primärworktree git diff --cached --stat
+18. Prüfbaum git status --porcelain=v1 --untracked-files=all
+19. Prüfbaum git log -1 --format='%H %s'
+20. Primärworktree git diff auf combat.rs zum Rohbeleg
+MERGEPROTOKOLL[MS-1]: 20 Git-Schritte einzeln | Anläufe: 1 | Gate: gpt-6.1-sol BLOCK, Partial ammo refills can strand the weapon; kein Merge
+WIRKUNGSPRUEFUNG[WP-1]: 1 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 0/0 geprüft
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: Commit

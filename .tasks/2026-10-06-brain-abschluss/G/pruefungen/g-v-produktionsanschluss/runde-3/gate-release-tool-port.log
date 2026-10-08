@@ -1,0 +1,3 @@
+ALLOW: No blocking defect established by the supplied changes.
+
+1. rust/crates/dbrain-retrieval/tests/release_tool_port.rs:228 | NIT: Provider permission revocation is tested only alongside tombstoning, for both Provider and Cache. | A validator that ignores current provider permissions but rejects tombstones still passes. Test a live `provider=false` revision before deletion.

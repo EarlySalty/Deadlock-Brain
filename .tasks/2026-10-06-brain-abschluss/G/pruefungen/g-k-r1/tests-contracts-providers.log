@@ -1,0 +1,214 @@
+   Compiling libc v0.2.186
+   Compiling syn v2.0.118
+   Compiling stable_deref_trait v1.2.1
+   Compiling serde_core v1.0.228
+   Compiling typenum v1.20.1
+   Compiling generic-array v0.14.7
+   Compiling socket2 v0.6.4
+   Compiling mio v1.2.1
+   Compiling tokio v1.52.3
+   Compiling synstructure v0.13.2
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling zerofrom v0.1.8
+   Compiling zerovec-derive v0.11.3
+   Compiling yoke v0.8.3
+   Compiling displaydoc v0.2.6
+   Compiling smallvec v1.15.2
+   Compiling serde v1.0.228
+   Compiling zerotrie v0.2.4
+   Compiling zerovec v0.11.6
+   Compiling serde_derive v1.0.228
+   Compiling tinystr v0.8.3
+   Compiling potential_utf v0.1.5
+   Compiling icu_locale_core v2.2.0
+   Compiling icu_collections v2.2.0
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling serde_json v1.0.150
+   Compiling icu_provider v2.2.0
+   Compiling thiserror-impl v1.0.69
+   Compiling getrandom v0.2.17
+   Compiling futures-io v0.3.32
+   Compiling sha2 v0.10.9
+   Compiling thiserror v1.0.69
+   Compiling ring v0.17.14
+   Compiling icu_normalizer v2.2.0
+   Compiling futures-util v0.3.32
+   Compiling icu_properties v2.2.0
+   Compiling rustls-webpki v0.103.13
+   Compiling idna_adapter v1.2.2
+   Compiling rustls v0.23.41
+   Compiling idna v1.1.0
+   Compiling hyper v1.10.1
+   Compiling tracing v0.1.44
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.20
+   Compiling async-compression v0.4.42
+   Compiling tokio-rustls v0.26.4
+   Compiling url v2.5.8
+   Compiling tokio-util v0.7.18
+   Compiling bitflags v2.13.0
+   Compiling serde_urlencoded v0.7.1
+   Compiling tower-http v0.6.11
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 52.14s
+     Running unittests src/lib.rs (/tmp/brain-g-k-20261007-target/debug/deps/brain_contracts-84c05f401aded846)
+
+running 39 tests
+test deadline::tests::clones_keep_expiry_and_observe_cancellation ... ok
+test deadline::tests::zero_or_overflowing_lifetimes_fail_closed ... ok
+test embedding::tests::equal_dimension_different_model_is_incompatible ... ok
+test embedding::tests::rejects_missing_nonfinite_zero_and_unnormalized_vectors ... ok
+test feeds::tests::build_status_binds_request_identity_and_hash ... ok
+test feeds::tests::feed_rejects_hash_mismatch_duplicates_unknown_fields_and_versions ... ok
+test lexical::tests::cross_source_join_requires_matching_id_and_canonical_name ... ok
+test maintenance::tests::terminal_states_do_not_restart_and_review_is_ordered ... ok
+test provider_input::tests::checked_arithmetic_and_legacy_grounding_share_the_same_counter ... ok
+test provider_input::tests::counts_both_wire_formats_and_every_repeated_turn ... ok
+test provider_input::tests::counts_decoded_text_not_http_escaping_or_model_name ... ok
+test provider_input::tests::embedding_array_counts_each_input_and_rejects_non_text ... ok
+test provider_input::tests::rohe_werkzeughistorie_prueft_schema_ids_und_vollstaendige_ergebnisse ... ok
+test provider_input::tests::strukturierte_ausgabe_und_werkzeugwahl_bleiben_nicht_ungezaehlt ... ok
+test provider_input::tests::unique_json_keeps_serde_recursion_number_and_complete_input_limits ... ok
+test provider_input::tests::unique_json_preserves_numbers_arrays_null_and_independent_objects ... ok
+test provider_input::tests::unique_json_rejects_duplicate_decoded_keys_at_every_depth ... ok
+test provider_input::tests::unknown_blocks_fields_and_bad_result_bindings_fail_closed ... ok
+test provider_input::tests::wire_input_rejects_duplicate_keys_in_encoded_argument_history ... ok
+test provider_input::tests::zaehlt_aufruf_ids_argumente_beleg_ids_und_assistententext ... ok
+test read_manifest::tests::manifest_checks_all_pins_even_when_access_is_denied ... ok
+test read_manifest::tests::manifest_rejects_missing_duplicate_old_and_unpinned_heads ... ok
+test read_manifest::tests::versioned_provider_origin_requires_a_current_grant ... ok
+test tests::anfragebezogene_quellen_duerfen_nicht_persistiert_werden ... ok
+test tests::contract_roundtrip_keeps_release_and_scopes ... ok
+test tests::evidence_rejects_non_finite_score ... ok
+test tests::fehlerabrechnung_trennt_beobachtung_reservierung_und_fehlende_abrechnung ... ok
+test tests::fehlerabrechnung_ueberlauf_erhaelt_zaehler_und_schliesst_sicher ... ok
+test tests::query_rejects_empty_identity_fields ... ok
+test tests::textport_default_bleibt_kompatibel_und_verweigert_werkzeuganfragen ... ok
+test tools::tests::ergebniszuordnung_und_wiederholte_ids ... ok
+test tools::tests::geschlossene_namen_und_bloecke ... ok
+test tools::tests::regeln_verwerfen_nichtendliche_spielzeit_und_szenariowerte ... ok
+test tools::tests::schemapruefung_und_serverbindungen ... ok
+test tools::tests::sieben_typisierte_unteranfragen_aus_validierten_aufrufen ... ok
+test tools::tests::typisierte_argumente_verwerfen_unbekannte_felder_und_ungueltige_szenarien ... ok
+test tools::tests::unimplementierte_abhaengigkeitspruefung_schliesst_sicher ... ok
+test tools::tests::werkzeugausfuehrung_bindet_ergebnis_und_alle_belege_an_die_unteranfrage ... ok
+test tools::tests::werkzeugturn_ist_keine_finale_antwort ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/ir_contracts.rs (/tmp/brain-g-k-20261007-target/debug/deps/ir_contracts-c8f747d42764656d)
+
+running 23 tests
+test envelope_versions_missing_null_future_and_extra_fields_fail_closed ... ok
+test explicit_legacy_tick_migration_never_invents_a_time ... ok
+test external_null_missing_zero_unknown_fields_and_pointers_are_distinct ... ok
+test external_origins_share_the_common_artifact_contract_without_revision_conflation ... ok
+test external_quarantine_survives_serialization_and_blocks_field_access ... ok
+test invalid_original_wiki_revision_and_http_hash_are_rejected ... ok
+test known_raw_null_is_not_lost_to_option_deserialization ... ok
+test legacy_invalid_ticks_or_injected_v2_fields_are_rejected ... ok
+test missing_condition_is_not_an_unconditional_fact ... ok
+test origin_version_and_policy_roundtrip ... ok
+test parser_and_source_revision_are_separate_from_schema_and_game_patch ... ok
+test replay_detached_provenance_preserves_private_scope_raw_locator_and_unknown_timestamp ... ok
+test replay_entity_mapping_is_explicit_not_network_index_as_hero_id ... ok
+test replay_time_requires_explicit_unknown_not_missing_or_null_default ... ok
+test replay_unknown_entity_time_and_fields_roundtrip ... ok
+test replay_versions_reject_legacy_and_future_without_explicit_migration ... ok
+test stable_public_contract_is_not_replaced_by_ir_version ... ok
+test storage_bridge_rejects_acl_expansion_revision_hash_and_identity_drift ... ok
+test store_roundtrip_preserves_exact_origin_acl_and_unknowns ... ok
+test unknown_is_not_zero_and_null_is_not_an_observation ... ok
+test unsupported_origin_versions_fail_closed_at_batch_and_egress_boundaries ... ok
+test wiki_conditions_variants_aliases_units_dependencies_and_locators_roundtrip ... ok
+test wiki_null_never_deserializes_as_quantity_zero ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/tool_extensions.rs (/tmp/brain-g-k-20261007-target/debug/deps/tool_extensions-24ef60adcb16307a)
+
+running 11 tests
+test abhaengigkeiten_binden_jedes_neue_argument_ergebnis_und_serverpin ... ok
+test achter_werkzeugname_und_sechs_geschlossene_regelthemen ... ok
+test alte_profil_und_vergleichsargumente_behalten_optionale_defaults ... ok
+test analytics_grenzen_stimmen_mit_dem_originalen_api_pin_ueberein ... ok
+test beide_wireformen_erhalten_neue_argumente_und_zaehlen_jede_runde_vollstaendig ... ok
+test boonbereich_hat_nur_strukturgrenzen_keine_erfundene_spieldomaene ... ok
+test neue_argumente_bleiben_typisiert_einschliesslich_null_und_negativwerten ... ok
+test rang_und_zeitfehler_werden_in_profil_und_vergleich_abgewiesen ... ok
+test regeln_verwerfen_freie_felder_themen_und_ungueltige_szenarien ... ok
+test rohe_wireformen_verwerfen_gefaelschte_ids_namen_und_argumente ... ok
+test serverbindungen_und_ausfuehrbare_argumente_bleiben_gesperrt ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running unittests src/lib.rs (/tmp/brain-g-k-20261007-target/debug/deps/brain_providers-52636595de550223)
+
+running 11 tests
+test circuit::tests::circuit_opens_allows_one_probe_and_recovers ... ok
+test circuit::tests::failed_probe_restarts_cooldown ... ok
+test hardening::tests::cost_overflow_fails_closed ... ok
+test hardening::tests::endpoint_and_price_are_explicit ... ok
+test tests::debug_redacts_token ... ok
+test tests::invalid_json_is_rejected_without_fallback ... ok
+test tests::request_budget_limits_retries_and_output_tokens ... ok
+test tests::retries_rate_limit_and_parses_typed_response ... ok
+test tests::subscription_uses_native_messages_without_credentials_or_tools ... ok
+test tests::zero_round_budget_blocks_before_network ... ok
+test transport::precondition_tests::specific_rejections_take_precedence_over_model_mentions ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/faults.rs (/tmp/brain-g-k-20261007-target/debug/deps/faults-b83ce668b0b5bed5)
+
+running 29 tests
+test authentication_redirect_and_missing_usage_do_not_retry ... ok
+test both_wire_forms_preserve_tools_nullable_content_and_two_turn_binding ... ok
+test bounded_chunked_response_and_timeout_are_errors ... ok
+test cancellation_during_first_provider_attempt_prevents_a_retry ... ok
+test cancelled_provider_and_embedding_calls_never_open_a_connection ... ok
+test cost_input_and_egress_fail_before_any_socket ... ok
+test cumulative_budgets_block_repeated_history_before_second_socket ... ok
+test duplicate_call_ids_from_earlier_turns_are_rejected ... ok
+test duplicate_raw_arguments_fail_closed_in_both_wire_forms_without_retry ... ok
+test duplicate_wire_response_keys_including_unknown_nested_objects_are_rejected ... ok
+test embeddings_restore_indices_and_reject_duplicates_or_dimension_errors ... ok
+test extended_contract_names_boon_ranges_and_analytics_use_the_same_transport ... ok
+test fehlerabrechnung_beide_wireformen_erhalten_usage_nach_parser_und_validierungsfehlern ... ok
+test fehlerabrechnung_budgetueberschreitung_behaelt_gemessene_usage ... ok
+test fehlerabrechnung_erfolg_traegt_messung_und_retriereservierung_getrennt ... ok
+test fehlerabrechnung_fehlende_oder_ambige_usage_bleibt_reserviert_statt_gemessen ... ok
+test fehlerabrechnung_http_retry_usage_ist_beobachtet_und_nicht_zweimal_reserviert ... ok
+test fehlerabrechnung_lokale_validierung_hat_belegte_null_ohne_socket ... ok
+test fehlerabrechnung_retry_und_spaeterer_parserfehler_kumulieren_reservierung_und_messung ... ok
+test final_answer_json_rejects_duplicate_decoded_keys_in_both_wire_forms ... ok
+test final_tool_answers_keep_json_citation_and_no_answer_contract ... ok
+test full_native_options_and_cached_input_are_charged ... ok
+test grounded_no_answer_signal_is_exact_and_preserves_usage ... ok
+test known_finish_reasons_must_match_complete_turns ... ok
+test legacy_final_text_keeps_plain_answers_but_rejects_duplicate_json_without_evidence ... ok
+test malformed_tool_names_ids_arguments_and_blocks_are_not_repaired ... ok
+test retries_charge_full_wire_input_output_and_configured_cost ... ok
+test server_error_retries_but_retry_after_beyond_deadline_does_not ... ok
+test tool_history_binding_and_egress_fail_before_network ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.69s
+
+   Doc-tests brain_contracts
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests brain_providers
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

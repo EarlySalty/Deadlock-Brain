@@ -1,0 +1,213 @@
+waiting for server to start...... done
+server started
+cargo-slot: Slot 3, optimiert=0
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.46
+   Compiling unicode-ident v1.0.24
+   Compiling syn v2.0.118
+   Compiling libc v0.2.186
+   Compiling cfg-if v1.0.4
+   Compiling serde v1.0.228
+   Compiling serde_derive v1.0.228
+   Compiling synstructure v0.13.2
+   Compiling version_check v0.9.5
+   Compiling generic-array v0.14.7
+   Compiling zerofrom-derive v0.1.7
+   Compiling zerofrom v0.1.8
+   Compiling yoke-derive v0.8.2
+   Compiling stable_deref_trait v1.2.1
+   Compiling yoke v0.8.3
+   Compiling typenum v1.20.1
+   Compiling zerovec-derive v0.11.3
+   Compiling zerovec v0.11.6
+   Compiling displaydoc v0.2.6
+   Compiling serde_core v1.0.228
+   Compiling memchr v2.8.2
+   Compiling subtle v2.6.1
+   Compiling tinystr v0.8.3
+   Compiling pin-project-lite v0.2.17
+   Compiling litemap v0.8.2
+   Compiling futures-core v0.3.32
+   Compiling writeable v0.6.3
+   Compiling icu_locale_core v2.2.0
+   Compiling zerotrie v0.2.4
+   Compiling potential_utf v0.1.5
+   Compiling icu_normalizer_data v2.2.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_collections v2.2.0
+   Compiling icu_provider v2.2.0
+   Compiling icu_properties_data v2.2.0
+   Compiling parking_lot_core v0.9.12
+   Compiling bytes v1.12.0
+   Compiling zmij v1.0.21
+   Compiling mio v1.2.1
+   Compiling socket2 v0.6.4
+   Compiling find-msvc-tools v0.1.9
+   Compiling scopeguard v1.2.0
+   Compiling shlex v2.0.1
+   Compiling cc v1.2.65
+   Compiling lock_api v0.4.14
+   Compiling icu_properties v2.2.0
+   Compiling getrandom v0.2.17
+   Compiling itoa v1.0.18
+   Compiling ring v0.17.14
+   Compiling smallvec v1.15.2
+   Compiling tinyvec_macros v0.1.1
+   Compiling crossbeam-utils v0.8.21
+   Compiling zeroize v1.9.0
+   Compiling percent-encoding v2.3.2
+   Compiling rustls-pki-types v1.14.1
+   Compiling tinyvec v1.11.0
+   Compiling slab v0.4.12
+   Compiling futures-io v0.3.32
+   Compiling futures-task v0.3.32
+   Compiling unicode-normalization v0.1.25
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling hybrid-array v0.4.13
+   Compiling untrusted v0.9.0
+   Compiling cpufeatures v0.2.17
+   Compiling unicode-properties v0.1.4
+   Compiling once_cell v1.21.4
+   Compiling equivalent v1.0.2
+   Compiling unicode-bidi v0.3.18
+   Compiling log v0.4.33
+   Compiling zerocopy v0.8.52
+   Compiling stringprep v0.1.5
+   Compiling digest v0.10.7
+   Compiling form_urlencoded v1.2.2
+   Compiling thiserror v2.0.18
+   Compiling autocfg v1.5.1
+   Compiling foldhash v0.1.5
+   Compiling rustls v0.23.41
+   Compiling allocator-api2 v0.2.21
+   Compiling serde_json v1.0.150
+   Compiling cmov v0.5.4
+   Compiling ctutils v0.4.2
+   Compiling hashbrown v0.15.5
+   Compiling num-traits v0.2.19
+   Compiling rustls-webpki v0.103.13
+   Compiling tracing-core v0.1.36
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling concurrent-queue v2.5.0
+   Compiling webpki-roots v1.0.8
+   Compiling icu_normalizer v2.2.0
+   Compiling thiserror-impl v2.0.18
+   Compiling tracing-attributes v0.1.31
+   Compiling tokio-macros v2.7.0
+   Compiling crc-catalog v2.5.0
+   Compiling const-oid v0.10.2
+   Compiling parking v2.2.1
+   Compiling hashbrown v0.17.1
+   Compiling futures-sink v0.3.32
+   Compiling indexmap v2.14.0
+   Compiling event-listener v5.4.1
+   Compiling digest v0.11.3
+   Compiling crc v3.4.0
+   Compiling tokio v1.52.3
+   Compiling tracing v0.1.44
+   Compiling idna_adapter v1.2.2
+   Compiling webpki-roots v0.26.11
+   Compiling ppv-lite86 v0.2.21
+   Compiling hashlink v0.10.0
+   Compiling crossbeam-queue v0.3.12
+   Compiling rand_core v0.6.4
+   Compiling cpufeatures v0.3.0
+   Compiling getrandom v0.4.3
+   Compiling rand_core v0.10.1
+   Compiling base64 v0.22.1
+   Compiling rand_chacha v0.3.1
+   Compiling parking_lot v0.12.5
+   Compiling idna v1.1.0
+   Compiling byteorder v1.5.0
+   Compiling tokio-stream v0.1.18
+   Compiling url v2.5.8
+   Compiling atoi v2.0.0
+   Compiling futures-intrusive v0.5.0
+   Compiling rand v0.8.6
+   Compiling chacha20 v0.10.1
+   Compiling futures-util v0.3.32
+   Compiling hmac v0.12.1
+   Compiling sha2 v0.10.9
+   Compiling either v1.16.0
+   Compiling dotenvy v0.15.7
+   Compiling whoami v1.6.1
+   Compiling bitflags v2.13.0
+   Compiling home v0.5.12
+   Compiling hex v0.4.3
+   Compiling sqlx-core v0.8.6
+   Compiling hkdf v0.12.4
+   Compiling rand v0.10.1
+   Compiling futures-channel v0.3.32
+   Compiling sha2 v0.11.0
+   Compiling hmac v0.13.0
+   Compiling md-5 v0.11.0
+   Compiling md-5 v0.10.6
+   Compiling siphasher v1.0.3
+   Compiling fallible-iterator v0.2.0
+   Compiling postgres-protocol v0.6.12
+   Compiling sqlx-postgres v0.8.6
+   Compiling phf_shared v0.13.1
+   Compiling aho-corasick v1.1.4
+   Compiling heck v0.5.0
+   Compiling thiserror v1.0.69
+   Compiling regex-syntax v0.8.11
+   Compiling regex-automata v0.4.14
+   Compiling sqlx-macros-core v0.8.6
+   Compiling phf v0.13.1
+   Compiling postgres-types v0.2.14
+   Compiling tokio-util v0.7.18
+   Compiling whoami v2.1.2
+   Compiling async-trait v0.1.89
+   Compiling thiserror-impl v1.0.69
+   Compiling anyhow v1.0.102
+   Compiling tokio-postgres v0.7.18
+   Compiling sqlx-macros v0.8.6
+   Compiling regex v1.12.4
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+   Compiling sqlx v0.8.6
+   Compiling postgres v0.19.14
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5m 27s
+     Running tests/storage_upgrade.rs (/tmp/brain-g-m-0645-target/debug/deps/storage_upgrade-4ddb121dde9eafaa)
+
+running 1 test
+
+thread 'v1_upgrade_restore_and_least_privilege' (21303) panicked at crates/brain-storage/tests/storage_upgrade.rs:313:9:
+assertion `left == right` failed: v1 table changed: source_record_heads
+  left: [Object {"content_hash": String("d10933fea7f5543649f8bd7c4d14f1cdd11d0e1e834e3e7c9142b14a4c11b90b"), "logical_id": String("notes/deny"), "read_header_json": Object {"content_hash": String("d10933fea7f5543649f8bd7c4d14f1cdd11d0e1e834e3e7c9142b14a4c11b90b"), "head": Object {"allowed_scopes": Array [], "logical_id": String("notes/deny"), "metadata": Object {"patch": String("2026-09-24")}, "revision": Number(1), "source_id": String("private"), "tombstone": Bool(false), "visibility": String("private")}}, "record_json": Object {"allowed_scopes": Array [], "content": String("Ohne explizite Freigabe nicht lesbar.\n"), "content_hash": String("d10933fea7f5543649f8bd7c4d14f1cdd11d0e1e834e3e7c9142b14a4c11b90b"), "logical_id": String("notes/deny"), "metadata": Object {"language": String("de"), "locator": String("private://fixture/notes/deny#revision-1"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("text")}, "revision": Number(1), "source_id": String("private"), "tombstone": Bool(false), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("private")}, "revision": Number(1), "source_id": String("private"), "tombstone": Bool(false), "updated_at": String("2026-09-24T12:00:00+00:00")}, Object {"content_hash": String("4f6122ee0362ce98b9484618298249c2b98ff4a739a78a74261a7144019d9100"), "logical_id": String("notes/review"), "read_header_json": Object {"content_hash": String("4f6122ee0362ce98b9484618298249c2b98ff4a739a78a74261a7144019d9100"), "head": Object {"allowed_scopes": Array [String("docs.read"), String("ops.read")], "logical_id": String("notes/review"), "metadata": Object {"patch": String("2026-09-24")}, "revision": Number(1), "source_id": String("private"), "tombstone": Bool(false), "visibility": String("private")}}, "record_json": Object {"allowed_scopes": Array [String("docs.read"), String("ops.read")], "content": String("{\"subject_id\":\"hero/abrams\",\"key\":\"damage\",\"value\":50,\"unit\":\"damage\",\"unknown\":null}\n"), "content_hash": String("4f6122ee0362ce98b9484618298249c2b98ff4a739a78a74261a7144019d9100"), "logical_id": String("notes/review"), "metadata": Object {"language": String("de"), "locator": String("private://fixture/notes/review#revision-1"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("text")}, "revision": Number(1), "source_id": String("private"), "tombstone": Bool(false), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("private")}, "revision": Number(1), "source_id": String("private"), "tombstone": Bool(false), "updated_at": String("2026-09-24T12:00:00+00:00")}, Object {"content_hash": String("b35e6942aa9e9f313244d4ad7e7bc194bfc2e9ffc51b7343291259851340c6f1"), "logical_id": String("ops/runbook"), "read_header_json": Object {"content_hash": String("b35e6942aa9e9f313244d4ad7e7bc194bfc2e9ffc51b7343291259851340c6f1"), "head": Object {"allowed_scopes": Array [String("docs.read"), String("ops.read")], "logical_id": String("ops/runbook"), "metadata": Object {"patch": String("2026-09-24")}, "revision": Number(2), "source_id": String("docs"), "tombstone": Bool(false), "visibility": String("private")}}, "record_json": Object {"allowed_scopes": Array [String("docs.read"), String("ops.read")], "content": String("Privater Ablauf: Zwei Berechtigungen sind erforderlich.\n"), "content_hash": String("b35e6942aa9e9f313244d4ad7e7bc194bfc2e9ffc51b7343291259851340c6f1"), "logical_id": String("ops/runbook"), "metadata": Object {"language": String("de"), "locator": String("docs://fixture/ops/runbook#revision-2"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("text")}, "revision": Number(2), "source_id": String("docs"), "tombstone": Bool(false), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("private")}, "revision": Number(2), "source_id": String("docs"), "tombstone": Bool(false), "updated_at": String("2026-09-24T12:00:00+00:00")}, Object {"content_hash": String("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"), "logical_id": String("hero/ivy"), "read_header_json": Object {"content_hash": String("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"), "head": Object {"allowed_scopes": Array [], "logical_id": String("hero/ivy"), "metadata": Object {"patch": String("2026-09-24")}, "revision": Number(2), "source_id": String("wiki"), "tombstone": Bool(true), "visibility": String("public")}}, "record_json": Object {"allowed_scopes": Array [], "content": String(""), "content_hash": String("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"), "logical_id": String("hero/ivy"), "metadata": Object {"language": String("de"), "locator": String("wiki://fixture/hero/ivy#revision-2"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("text")}, "revision": Number(2), "source_id": String("wiki"), "tombstone": Bool(true), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("public")}, "revision": Number(2), "source_id": String("wiki"), "tombstone": Bool(true), "updated_at": String("2026-09-24T12:00:00+00:00")}, Object {"content_hash": String("bf70996661ea07075c259f1a53057940994210390f9c3ad7a22b7c05c84adbf9"), "logical_id": String("public/incident"), "read_header_json": Object {"content_hash": String("bf70996661ea07075c259f1a53057940994210390f9c3ad7a22b7c05c84adbf9"), "head": Object {"allowed_scopes": Array [String("mod.read")], "logical_id": String("public/incident"), "metadata": Object {"patch": String("2026-09-24")}, "revision": Number(3), "source_id": String("docs"), "tombstone": Bool(false), "visibility": String("private")}}, "record_json": Object {"allowed_scopes": Array [String("mod.read")], "content": String("Zugriff widerrufen; Moderation vorbehalten.\n"), "content_hash": String("bf70996661ea07075c259f1a53057940994210390f9c3ad7a22b7c05c84adbf9"), "logical_id": String("public/incident"), "metadata": Object {"language": String("de"), "locator": String("docs://fixture/public/incident#revision-3"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("text")}, "revision": Number(3), "source_id": String("docs"), "tombstone": Bool(false), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("private")}, "revision": Number(3), "source_id": String("docs"), "tombstone": Bool(false), "updated_at": String("2026-09-24T12:00:00+00:00")}, Object {"content_hash": String("83224669ac6534b0efc158666644a08b2032be5e402d24a279907cb51505ce96"), "logical_id": String("hero/echo"), "read_header_json": Object {"content_hash": String("83224669ac6534b0efc158666644a08b2032be5e402d24a279907cb51505ce96"), "head": Object {"allowed_scopes": Array [], "logical_id": String("hero/echo"), "metadata": Object {"egress": String("none"), "patch": String("2026-09-24")}, "revision": Number(3), "source_id": String("wiki"), "tombstone": Bool(false), "visibility": String("public")}}, "record_json": Object {"allowed_scopes": Array [], "content": String("Nur lokal verwendbare Notiz.\n"), "content_hash": String("83224669ac6534b0efc158666644a08b2032be5e402d24a279907cb51505ce96"), "logical_id": String("hero/echo"), "metadata": Object {"egress": String("none"), "language": String("de"), "locator": String("wiki://fixture/hero/echo#revision-3"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("text")}, "revision": Number(3), "source_id": String("wiki"), "tombstone": Bool(false), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("public")}, "revision": Number(3), "source_id": String("wiki"), "tombstone": Bool(false), "updated_at": String("2026-09-24T12:00:00+00:00")}, Object {"content_hash": String("58a722d678c4c54f01ea2af045a1e4bca3cebee432882e86634d062bc745003a"), "logical_id": String("hero/abrams"), "read_header_json": Object {"content_hash": String("58a722d678c4c54f01ea2af045a1e4bca3cebee432882e86634d062bc745003a"), "head": Object {"allowed_scopes": Array [], "logical_id": String("hero/abrams"), "metadata": Object {"patch": String("2026-09-24")}, "revision": Number(4), "source_id": String("wiki"), "tombstone": Bool(false), "visibility": String("public")}}, "record_json": Object {"allowed_scopes": Array [], "content": String("Abrams: Schaden 55.\nVariante: Standardmodus.\n"), "content_hash": String("58a722d678c4c54f01ea2af045a1e4bca3cebee432882e86634d062bc745003a"), "logical_id": String("hero/abrams"), "metadata": Object {"language": String("de"), "locator": String("wiki://fixture/hero/abrams#revision-4"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("damage")}, "revision": Number(4), "source_id": String("wiki"), "tombstone": Bool(false), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("public")}, "revision": Number(4), "source_id": String("wiki"), "tombstone": Bool(false), "updated_at": String("2026-09-24T12:00:00+00:00")}]
+ right: [Object {"content_hash": String("d10933fea7f5543649f8bd7c4d14f1cdd11d0e1e834e3e7c9142b14a4c11b90b"), "logical_id": String("notes/deny"), "record_json": Object {"allowed_scopes": Array [], "content": String("Ohne explizite Freigabe nicht lesbar.\n"), "content_hash": String("d10933fea7f5543649f8bd7c4d14f1cdd11d0e1e834e3e7c9142b14a4c11b90b"), "logical_id": String("notes/deny"), "metadata": Object {"language": String("de"), "locator": String("private://fixture/notes/deny#revision-1"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("text")}, "revision": Number(1), "source_id": String("private"), "tombstone": Bool(false), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("private")}, "revision": Number(1), "source_id": String("private"), "tombstone": Bool(false), "updated_at": String("2026-09-24T12:00:00+00:00")}, Object {"content_hash": String("4f6122ee0362ce98b9484618298249c2b98ff4a739a78a74261a7144019d9100"), "logical_id": String("notes/review"), "record_json": Object {"allowed_scopes": Array [String("docs.read"), String("ops.read")], "content": String("{\"subject_id\":\"hero/abrams\",\"key\":\"damage\",\"value\":50,\"unit\":\"damage\",\"unknown\":null}\n"), "content_hash": String("4f6122ee0362ce98b9484618298249c2b98ff4a739a78a74261a7144019d9100"), "logical_id": String("notes/review"), "metadata": Object {"language": String("de"), "locator": String("private://fixture/notes/review#revision-1"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("text")}, "revision": Number(1), "source_id": String("private"), "tombstone": Bool(false), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("private")}, "revision": Number(1), "source_id": String("private"), "tombstone": Bool(false), "updated_at": String("2026-09-24T12:00:00+00:00")}, Object {"content_hash": String("b35e6942aa9e9f313244d4ad7e7bc194bfc2e9ffc51b7343291259851340c6f1"), "logical_id": String("ops/runbook"), "record_json": Object {"allowed_scopes": Array [String("docs.read"), String("ops.read")], "content": String("Privater Ablauf: Zwei Berechtigungen sind erforderlich.\n"), "content_hash": String("b35e6942aa9e9f313244d4ad7e7bc194bfc2e9ffc51b7343291259851340c6f1"), "logical_id": String("ops/runbook"), "metadata": Object {"language": String("de"), "locator": String("docs://fixture/ops/runbook#revision-2"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("text")}, "revision": Number(2), "source_id": String("docs"), "tombstone": Bool(false), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("private")}, "revision": Number(2), "source_id": String("docs"), "tombstone": Bool(false), "updated_at": String("2026-09-24T12:00:00+00:00")}, Object {"content_hash": String("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"), "logical_id": String("hero/ivy"), "record_json": Object {"allowed_scopes": Array [], "content": String(""), "content_hash": String("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"), "logical_id": String("hero/ivy"), "metadata": Object {"language": String("de"), "locator": String("wiki://fixture/hero/ivy#revision-2"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("text")}, "revision": Number(2), "source_id": String("wiki"), "tombstone": Bool(true), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("public")}, "revision": Number(2), "source_id": String("wiki"), "tombstone": Bool(true), "updated_at": String("2026-09-24T12:00:00+00:00")}, Object {"content_hash": String("bf70996661ea07075c259f1a53057940994210390f9c3ad7a22b7c05c84adbf9"), "logical_id": String("public/incident"), "record_json": Object {"allowed_scopes": Array [String("mod.read")], "content": String("Zugriff widerrufen; Moderation vorbehalten.\n"), "content_hash": String("bf70996661ea07075c259f1a53057940994210390f9c3ad7a22b7c05c84adbf9"), "logical_id": String("public/incident"), "metadata": Object {"language": String("de"), "locator": String("docs://fixture/public/incident#revision-3"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("text")}, "revision": Number(3), "source_id": String("docs"), "tombstone": Bool(false), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("private")}, "revision": Number(3), "source_id": String("docs"), "tombstone": Bool(false), "updated_at": String("2026-09-24T12:00:00+00:00")}, Object {"content_hash": String("83224669ac6534b0efc158666644a08b2032be5e402d24a279907cb51505ce96"), "logical_id": String("hero/echo"), "record_json": Object {"allowed_scopes": Array [], "content": String("Nur lokal verwendbare Notiz.\n"), "content_hash": String("83224669ac6534b0efc158666644a08b2032be5e402d24a279907cb51505ce96"), "logical_id": String("hero/echo"), "metadata": Object {"egress": String("none"), "language": String("de"), "locator": String("wiki://fixture/hero/echo#revision-3"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("text")}, "revision": Number(3), "source_id": String("wiki"), "tombstone": Bool(false), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("public")}, "revision": Number(3), "source_id": String("wiki"), "tombstone": Bool(false), "updated_at": String("2026-09-24T12:00:00+00:00")}, Object {"content_hash": String("58a722d678c4c54f01ea2af045a1e4bca3cebee432882e86634d062bc745003a"), "logical_id": String("hero/abrams"), "record_json": Object {"allowed_scopes": Array [], "content": String("Abrams: Schaden 55.\nVariante: Standardmodus.\n"), "content_hash": String("58a722d678c4c54f01ea2af045a1e4bca3cebee432882e86634d062bc745003a"), "logical_id": String("hero/abrams"), "metadata": Object {"language": String("de"), "locator": String("wiki://fixture/hero/abrams#revision-4"), "mode": String("standard"), "origin": String("synthetic historical-wire fixture; no production export"), "parser_revision": String("legacy-parser-20260924.1"), "patch": String("2026-09-24"), "source_revision": String("9b31d609ae4528c77196ed20f7828a150b2c06fd"), "unit": String("damage")}, "revision": Number(4), "source_id": String("wiki"), "tombstone": Bool(false), "valid_from": String("2026-09-24"), "valid_to": Null, "visibility": String("public")}, "revision": Number(4), "source_id": String("wiki"), "tombstone": Bool(false), "updated_at": String("2026-09-24T12:00:00+00:00")}]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test v1_upgrade_restore_and_least_privilege ... FAILED
+
+failures:
+
+failures:
+    v1_upgrade_restore_and_least_privilege
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 3.77s
+
+error: test failed, to rerun pass `-p brain-storage --test storage_upgrade`
+cargo-slot: EXIT=101
+waiting for server to shut down..... done
+server stopped
+2026-10-08 02:54:15.643 CEST [4169422] LOG:  starting PostgreSQL 16.14 (Ubuntu 16.14-1.pgdg24.04+1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit
+2026-10-08 02:54:15.816 CEST [4169422] LOG:  listening on Unix socket "/tmp/brain-c11.nNEhSyk8Ep/socket/.s.PGSQL.55441"
+2026-10-08 02:54:16.473 CEST [4169575] LOG:  database system was shut down at 2026-10-08 02:54:12 CEST
+2026-10-08 02:54:17.232 CEST [4169422] LOG:  database system is ready to accept connections
+2026-10-08 02:59:16.588 CEST [4169568] LOG:  checkpoint starting: time
+2026-10-08 02:59:23.430 CEST [4169568] LOG:  checkpoint complete: wrote 44 buffers (2.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=5.666 s, sync=0.829 s, total=6.842 s; sync files=11, longest=0.244 s, average=0.076 s; distance=261 kB, estimate=261 kB; lsn=0/15307F0, redo lsn=0/15307B8
+2026-10-08 03:00:47.963 CEST [21422] ERROR:  relation "brain.core_schema_version" does not exist at character 44
+2026-10-08 03:00:47.963 CEST [21422] STATEMENT:  SELECT schema_version, store_contract FROM brain.core_schema_version
+2026-10-08 03:00:47.999 CEST [21491] ERROR:  relation "brain.core_schema_version" does not exist at character 44
+2026-10-08 03:00:47.999 CEST [21491] STATEMENT:  SELECT schema_version, store_contract FROM brain.core_schema_version
+2026-10-08 03:00:48.005 CEST [21491] LOG:  could not send data to client: Broken pipe
+2026-10-08 03:00:48.005 CEST [21491] FATAL:  connection to client lost
+2026-10-08 03:00:49.261 CEST [4169422] LOG:  received fast shutdown request
+2026-10-08 03:00:49.354 CEST [4169422] LOG:  aborting any active transactions
+2026-10-08 03:00:49.356 CEST [4169422] LOG:  background worker "logical replication launcher" (PID 4169713) exited with exit code 1
+2026-10-08 03:00:49.363 CEST [4169568] LOG:  shutting down
+2026-10-08 03:00:49.418 CEST [4169568] LOG:  checkpoint starting: shutdown immediate
+2026-10-08 03:00:50.663 CEST [4169568] LOG:  checkpoint complete: wrote 953 buffers (46.5%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.416 s, sync=0.261 s, total=1.300 s; sync files=338, longest=0.080 s, average=0.001 s; distance=4508 kB, estimate=4508 kB; lsn=0/1997B88, redo lsn=0/1997B88
+2026-10-08 03:00:50.695 CEST [4169422] LOG:  database system is shut down

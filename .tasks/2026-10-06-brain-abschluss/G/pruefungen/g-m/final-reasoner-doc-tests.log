@@ -1,0 +1,8 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.14s
+   Doc-tests dbrain_reasoner
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

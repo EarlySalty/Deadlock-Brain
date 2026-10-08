@@ -1,0 +1,13 @@
+{
+  "command": [
+    "git",
+    "-C",
+    "/home/nathanael/.worktrees/brain-g-v2-20261007",
+    "rev-parse",
+    "HEAD",
+    "MERGE_HEAD"
+  ],
+  "exit": 0,
+  "stdout": "253d383eab7a2f018ee1c834370140bf4a55e844\nb7289d115c0b64016fcfe6cbfe3c797cf9fa76e2\n",
+  "stderr": ""
+}

@@ -1,0 +1,11 @@
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation.rs: OK
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation_tests.rs: OK
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs: OK
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/lib.rs: OK
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/mechanics.rs: OK
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/planner.rs: OK
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/progression.rs: OK
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/types.rs: OK
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/testdata/calculation/glass-cannon.json: OK
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/testdata/calculation/recorded-assets.json: OK
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/testdata/calculation/sheet-6759.json: OK

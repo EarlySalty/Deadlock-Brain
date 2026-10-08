@@ -1,0 +1,14 @@
+cargo-slot: Slot 1, optimiert=0
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.65s
+     Running tests/core_store.rs (/tmp/brain-g-m-0645-target/debug/deps/core_store-698e243be5573b1f)
+
+running 4 tests
+test expired_memory_worker_cannot_commit ... ok
+test memory_atomicity_fences_release_and_restart_contract ... ok
+test postgres_atomicity_fences_release_and_restart_contract ... ok
+test wire_revisions_cannot_overflow_postgres_bigint ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.13s
+
+cargo-slot: EXIT=0

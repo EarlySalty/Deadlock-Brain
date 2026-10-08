@@ -1,0 +1,8 @@
+8b4bd16184618660418060416e8163bfbb8a05aa77dcdb378cb5f72ef602a42f  /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/cargo-check.log
+d927cbe4aee2fc51423bf75430bf4919bf0b0ef4ce14ae9c714c54971e1656e5  /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/cargo-clippy.log
+418a5c17f33c70e99b0cc0a07fce69191489cfedc94164bfa903785777c5bd4b  /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/cargo-fmt.log
+f0c79aa0b6a781d985d2ab52ebeecf65095bed305ba37410e3b6fda3a0706d85  /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/gate.log
+8003c5d94209f21695e423ae459555986cc88449323d34deab7bf950af3ee1de  /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/geschuetzte-quellen.txt
+3cae2faa8ee06617c61adcba0c2616bc2259163c0085bc6a1d6a6fcbe1bd5131  /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/git-schritte.txt
+c92eabc4ec99467e998f7e4ae1675878cd761d77686fdda5775256d5f5e23db6  /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/pruefbefehle.txt
+b97fc16b8ad1c489819635f46f8a465ee7f0362683220762cc1745b790c2c949  /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/quellenbindung.txt

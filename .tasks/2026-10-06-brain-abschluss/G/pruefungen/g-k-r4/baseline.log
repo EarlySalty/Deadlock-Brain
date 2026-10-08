@@ -1,0 +1,845 @@
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.46
+   Compiling unicode-ident v1.0.24
+   Compiling cfg-if v1.0.4
+   Compiling libc v0.2.186
+   Compiling serde v1.0.228
+   Compiling serde_core v1.0.228
+   Compiling itoa v1.0.18
+   Compiling version_check v0.9.5
+   Compiling syn v2.0.118
+   Compiling memchr v2.8.2
+   Compiling bytes v1.12.0
+   Compiling pin-project-lite v0.2.17
+   Compiling futures-core v0.3.32
+   Compiling serde_derive v1.0.228
+   Compiling synstructure v0.13.2
+   Compiling zerofrom-derive v0.1.7
+   Compiling zerofrom v0.1.8
+   Compiling yoke-derive v0.8.2
+   Compiling zerovec-derive v0.11.3
+   Compiling displaydoc v0.2.6
+   Compiling subtle v2.6.1
+   Compiling generic-array v0.14.7
+   Compiling typenum v1.20.1
+   Compiling zerocopy v0.8.52
+   Compiling writeable v0.6.3
+   Compiling litemap v0.8.2
+   Compiling utf8_iter v1.0.4
+   Compiling smallvec v1.15.2
+   Compiling zmij v1.0.21
+   Compiling stable_deref_trait v1.2.1
+   Compiling log v0.4.33
+   Compiling errno v0.3.14
+   Compiling percent-encoding v2.3.2
+   Compiling shlex v2.0.1
+   Compiling once_cell v1.21.4
+   Compiling find-msvc-tools v0.1.9
+   Compiling signal-hook-registry v1.4.8
+   Compiling cc v1.2.65
+   Compiling getrandom v0.2.17
+   Compiling tokio-macros v2.7.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling socket2 v0.6.4
+   Compiling mio v1.2.1
+   Compiling icu_normalizer_data v2.2.0
+   Compiling slab v0.4.12
+   Compiling icu_properties_data v2.2.0
+   Compiling futures-io v0.3.32
+   Compiling futures-task v0.3.32
+   Compiling ring v0.17.14
+   Compiling tokio v1.52.3
+   Compiling yoke v0.8.3
+   Compiling futures-sink v0.3.32
+   Compiling zeroize v1.9.0
+   Compiling rustls-pki-types v1.14.1
+   Compiling untrusted v0.9.0
+   Compiling zerovec v0.11.6
+   Compiling serde_json v1.0.150
+   Compiling rand_core v0.6.4
+   Compiling futures-macro v0.3.32
+   Compiling rand_chacha v0.3.1
+   Compiling tracing-core v0.1.36
+   Compiling tracing-attributes v0.1.31
+   Compiling futures-util v0.3.32
+   Compiling rustls v0.23.41
+   Compiling cpufeatures v0.2.17
+   Compiling tracing v0.1.44
+   Compiling rand v0.8.6
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling tinystr v0.8.3
+   Compiling parking_lot_core v0.9.12
+   Compiling base64 v0.22.1
+   Compiling icu_locale_core v2.2.0
+   Compiling digest v0.10.7
+   Compiling potential_utf v0.1.5
+   Compiling zerotrie v0.2.4
+   Compiling icu_collections v2.2.0
+   Compiling webpki-roots v1.0.8
+   Compiling icu_provider v2.2.0
+   Compiling futures-channel v0.3.32
+   Compiling http v1.4.2
+   Compiling scopeguard v1.2.0
+   Compiling lock_api v0.4.14
+   Compiling bitflags v2.13.0
+   Compiling icu_properties v2.2.0
+   Compiling icu_normalizer v2.2.0
+   Compiling httparse v1.10.1
+   Compiling idna_adapter v1.2.2
+   Compiling rustls-webpki v0.103.13
+   Compiling http-body v1.0.1
+   Compiling form_urlencoded v1.2.2
+   Compiling idna v1.1.0
+   Compiling tower-service v0.3.3
+   Compiling autocfg v1.5.1
+   Compiling num-traits v0.2.19
+   Compiling url v2.5.8
+   Compiling try-lock v0.2.5
+   Compiling thiserror v1.0.69
+   Compiling crc32fast v1.5.0
+   Compiling want v0.3.1
+   Compiling sha2 v0.10.9
+   Compiling tokio-util v0.7.18
+   Compiling sync_wrapper v1.0.2
+   Compiling thiserror-impl v1.0.69
+   Compiling httpdate v1.0.3
+   Compiling tower-layer v0.3.3
+   Compiling adler2 v2.0.1
+   Compiling siphasher v1.0.3
+   Compiling crossbeam-utils v0.8.21
+   Compiling simd-adler32 v0.3.9
+   Compiling tinyvec_macros v0.1.1
+   Compiling atomic-waker v1.1.2
+   Compiling tinyvec v1.11.0
+   Compiling hyper v1.10.1
+   Compiling miniz_oxide v0.8.9
+   Compiling http-body-util v0.1.3
+   Compiling mime v0.3.17
+   Compiling ipnet v2.12.0
+   Compiling thiserror v2.0.18
+   Compiling parking_lot v0.12.5
+   Compiling hyper-util v0.1.20
+   Compiling flate2 v1.1.9
+   Compiling unicode-normalization v0.1.25
+   Compiling tower v0.5.3
+   Compiling thiserror-impl v2.0.18
+   Compiling aho-corasick v1.1.4
+   Compiling compression-core v0.4.32
+   Compiling regex-syntax v0.8.11
+   Compiling unicode-properties v0.1.4
+   Compiling unicode-bidi v0.3.18
+   Compiling unicase v2.9.0
+   Compiling equivalent v1.0.2
+   Compiling iana-time-zone v0.1.65
+   Compiling mime_guess v2.0.5
+   Compiling stringprep v0.1.5
+   Compiling regex-automata v0.4.14
+   Compiling compression-codecs v0.4.38
+   Compiling allocator-api2 v0.2.21
+   Compiling foldhash v0.1.5
+   Compiling byteorder v1.5.0
+   Compiling hashbrown v0.15.5
+   Compiling regex v1.12.4
+   Compiling async-compression v0.4.42
+   Compiling concurrent-queue v2.5.0
+   Compiling tokio-rustls v0.26.4
+   Compiling ryu v1.0.23
+   Compiling parking v2.2.1
+   Compiling hashbrown v0.17.1
+   Compiling hex v0.4.3
+   Compiling crc-catalog v2.5.0
+   Compiling indexmap v2.14.0
+   Compiling crc v3.4.0
+   Compiling event-listener v5.4.1
+   Compiling serde_urlencoded v0.7.1
+   Compiling hyper-rustls v0.27.9
+   Compiling tower-http v0.6.11
+   Compiling hashlink v0.10.0
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+   Compiling crossbeam-queue v0.3.12
+   Compiling webpki-roots v0.26.11
+   Compiling reqwest v0.12.28
+   Compiling futures-intrusive v0.5.0
+   Compiling tokio-stream v0.1.18
+   Compiling hmac v0.12.1
+   Compiling chrono v0.4.45
+   Compiling atoi v2.0.0
+   Compiling phf_shared v0.11.3
+   Compiling either v1.16.0
+   Compiling home v0.5.12
+   Compiling heck v0.5.0
+   Compiling whoami v1.6.1
+   Compiling dotenvy v0.15.7
+   Compiling hkdf v0.12.4
+   Compiling sqlx-core v0.8.6
+   Compiling md-5 v0.10.6
+   Compiling hybrid-array v0.4.13
+   Compiling phf_generator v0.11.3
+   Compiling sqlx-postgres v0.8.6
+   Compiling cmov v0.5.4
+   Compiling ctutils v0.4.2
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling const-oid v0.10.2
+   Compiling rand_core v0.10.1
+   Compiling getrandom v0.4.3
+   Compiling digest v0.11.3
+   Compiling cpufeatures v0.3.0
+   Compiling siphasher v0.3.11
+   Compiling anyhow v1.0.102
+   Compiling getrandom v0.3.4
+   Compiling cfg_aliases v0.2.1
+   Compiling nix v0.29.0
+   Compiling chacha20 v0.10.1
+   Compiling new_debug_unreachable v1.0.6
+   Compiling rand v0.10.1
+   Compiling phf_shared v0.10.0
+   Compiling sha2 v0.11.0
+   Compiling hmac v0.13.0
+   Compiling md-5 v0.11.0
+   Compiling phf_macros v0.11.3
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+   Compiling filedescriptor v0.8.3
+   Compiling utf-8 v0.7.6
+   Compiling fallible-iterator v0.2.0
+   Compiling utf8parse v0.2.2
+   Compiling sqlx-macros-core v0.8.6
+   Compiling anstyle-parse v1.0.0
+   Compiling postgres-protocol v0.6.12
+   Compiling phf v0.11.3
+   Compiling phf_generator v0.10.0
+   Compiling phf_codegen v0.11.3
+   Compiling string_cache_codegen v0.5.4
+   Compiling fireworks-model-selection v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/vendor/fireworks-model-selection)
+   Compiling phf_shared v0.13.1
+   Compiling mac v0.1.1
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling precomputed-hash v0.1.1
+   Compiling colorchoice v1.0.5
+   Compiling anstyle v1.0.14
+   Compiling anstyle-query v1.1.5
+   Compiling sqlx-macros v0.8.6
+   Compiling anstream v1.0.0
+   Compiling futf v0.1.5
+   Compiling phf v0.13.1
+   Compiling markup5ever v0.12.1
+   Compiling phf_codegen v0.10.0
+   Compiling postgres-types v0.2.14
+   Compiling async-trait v0.1.89
+   Compiling whoami v2.1.2
+   Compiling strsim v0.11.1
+   Compiling clap_lex v1.1.0
+   Compiling dtoa v1.0.11
+   Compiling clap_builder v4.6.0
+   Compiling dtoa-short v0.3.5
+   Compiling tokio-postgres v0.7.18
+   Compiling selectors v0.25.0
+   Compiling tendril v0.4.3
+   Compiling string_cache v0.8.9
+   Compiling sqlx v0.8.6
+   Compiling rand_core v0.9.5
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+   Compiling clap_derive v4.6.1
+   Compiling cssparser-macros v0.6.1
+   Compiling html5ever v0.27.0
+   Compiling ahash v0.8.12
+   Compiling cssparser v0.31.2
+   Compiling postgres v0.19.14
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+   Compiling clap v4.6.1
+   Compiling phf v0.10.1
+   Compiling rand_chacha v0.9.0
+   Compiling fxhash v0.2.1
+   Compiling servo_arc v0.3.0
+   Compiling derive_more v0.99.20
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling unicode-width v0.2.2
+   Compiling rustix v1.1.4
+   Compiling getopts v0.2.24
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+   Compiling rand v0.9.4
+   Compiling sha1 v0.10.6
+   Compiling data-encoding v2.11.1
+   Compiling ego-tree v0.6.3
+   Compiling linux-raw-sys v0.12.1
+   Compiling scraper v0.20.0
+   Compiling tungstenite v0.28.0
+   Compiling fastrand v2.4.1
+   Compiling tempfile v3.27.0
+   Compiling tokio-tungstenite v0.28.0
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-wiki)
+   Compiling brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-policy)
+   Compiling roxmltree v0.20.0
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-ingestion)
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers)
+   Compiling axum-core v0.5.6
+   Compiling serde_path_to_error v0.1.20
+   Compiling matchit v0.8.4
+   Compiling uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/vendor/uplink-infisical-transport)
+   Compiling axum v0.8.9
+   Compiling dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+   Compiling brain-client v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-client)
+   Compiling wait-timeout v0.2.1
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-api)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-feeds)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 30s
+     Running unittests src/lib.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/brain_kernel-d43560c4c76e1e50)
+
+running 58 tests
+test fact_relevance::tests::ambiguous_alias_does_not_select_highest_bm25_score ... ok
+test fact_relevance::tests::entity_field_alias_and_numeric_anchors ... ok
+test fact_relevance::tests::metadata_aliases_use_release_tokenizer_and_real_delimiters ... ok
+test fact_relevance::tests::patch_mode_and_provenance_are_required_when_requested ... ok
+test fact_relevance::tests::same_entity_field_with_two_sources_is_not_selected_by_score ... ok
+test fact_relevance::tests::specific_field_outranks_generic_field_for_one_entity ... ok
+test flight::c3_shared_validation::shared_answer_follower_revalidates_and_distinguishes_reader_failure_from_denial ... ok
+test flight::retained_pack_tests::oversized_uncited_pack_is_not_retained_for_single_flight_followers ... ok
+test flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success ... FAILED
+test flight::review_publication::publication_and_internal_requests_do_not_share_flights_or_cache_entries ... ok
+test flight::review_publication::publication_follower_rechecks_uncited_head_after_successful_leader ... ok
+test flight::tests::concurrent_failures_are_shared_but_not_retained ... ok
+test outcome::tests::uncited_dependency_pack_is_shared_accounted_and_absent_from_wire_response ... ok
+test tests::actor_scopes_provider_mechanik_und_szenario_trennen_wiederverwendung ... ok
+test tests::boonkurven_analytics_und_regeln_erhalten_die_tatsaechliche_erweiterte_unteranfrage ... ok
+test tests::build_never_falls_back_to_generative_prose ... ok
+test tests::buildschutz_akzeptiert_nur_geprueftes_tatsaechliches_ergebnis_mit_zweck_und_deadline ... ok
+test tests::buildschutz_alter_port_ohne_pruefanschluss_schliesst_sicher ... ok
+test tests::buildschutz_cache_prueft_tatsaechlichen_plan_neu_ohne_doppelte_abrechnung ... ok
+test tests::buildschutz_deterministischer_domainweg_umgeht_nicht_den_vertrag_und_bleibt_nutzbar ... ok
+test tests::buildschutz_fehlerergebnis_und_unzitierter_build_sind_keine_buildantwort ... ok
+test tests::buildschutz_flight_folger_prueft_den_plan_neu_statt_leaderfreigabe_zu_uebernehmen ... ok
+test tests::buildschutz_frist_rechte_und_portfehler_behalten_kumulierte_reservierte_usage ... ok
+test tests::buildschutz_prueft_unzitierte_quellen_pin_und_zweck_nach_finalturn ... ok
+test tests::buildschutz_verweigert_gewoehnliche_belege_trotz_builddefinition ... ok
+test tests::buildschutz_wiederverwendung_prueft_ergebnis_anfrage_pin_und_quellen_erneut ... ok
+test tests::cache_hit_prueft_unzitierte_quellen_und_grants_und_loest_pin_requestgebunden ... ok
+test tests::explain_path_calls_provider_for_public_evidence ... ok
+test tests::fact_path_does_not_call_provider ... ok
+test tests::fehlende_belege_und_unvollstaendige_abschlussgruende_sind_keine_antwort ... ok
+test tests::fehlerabrechnung_budgetfehler_nach_zweiter_antwort_verliert_keine_usage ... ok
+test tests::fehlerabrechnung_fehlende_toolabrechnung_reserviert_rest_ohne_nullmessung ... ok
+test tests::fehlerabrechnung_fehler_werden_nicht_gecached_und_hits_nicht_doppelt_abgerechnet ... ok
+test tests::fehlerabrechnung_flight_leader_behaelt_usage_bei_abgebrochener_deadline ... ok
+test tests::fehlerabrechnung_lokale_verweigerung_hat_keinen_erfundenen_verbrauch ... ok
+test tests::fehlerabrechnung_provider_kumuliert_vorherigen_turn_tool_und_retries ... ok
+test tests::fehlerabrechnung_spaeterer_toolcall_behaelt_alle_bisherigen_erfolge ... ok
+test tests::fehlerabrechnung_textport_behaelt_providerverbrauch_bei_fehler ... ok
+test tests::internal_evidence_requires_internal_egress ... ok
+test tests::internal_read_cache_trennt_publikation_und_prueft_weitergabe_erneut ... ok
+test tests::internal_read_flight_folger_bewahrt_zweck_und_prueft_unzitierte_weitergabe ... ok
+test tests::internal_read_prueft_scope_und_weitergabe_auch_vor_finaler_ausgabe ... ok
+test tests::internal_read_traegt_den_zweck_frisch_ohne_publikationsrecht ... ok
+test tests::prose_shaped_like_a_domain_certificate_is_not_a_deterministic_capability ... ok
+test tests::provider_egress_und_publikationsfreigabe_gelten_auch_fuer_unzitierte_toolinputs ... ok
+test tests::single_flight_follower_prueft_vollstaendige_typisierte_toolabhaengigkeiten ... ok
+test tests::successful_fact_domain_and_provider_paths_reject_late_validation ... ok
+test tests::tool_abbruch_behält_die_urspruengliche_deadline_und_verhindert_folgerunden ... ok
+test tests::typed_domain_intent_separates_cache_and_single_flight_keys ... ok
+test tests::unauthorized_evidence_never_reaches_provider ... ok
+test tests::unbekannte_felder_actor_und_version_werden_vor_ausfuehrung_verweigert ... ok
+test tests::unzitierter_privater_input_und_falsche_ergebniszuordnung_stoppen_die_folgerunde ... ok
+test tests::versionswechsel_bildet_vor_cache_und_flight_einen_neuen_schluessel ... ok
+test tests::vollstaendige_belege_und_pin_werden_nach_finalturn_erneut_geprueft ... ok
+test tests::werkzeugloop_beschafft_belege_ohne_initiales_textprofil_und_traegt_alle_unteranfragen ... ok
+test tests::wiederholte_call_ids_werden_vor_zweiter_ausfuehrung_abgewiesen ... ok
+test tests::wiederholte_modellhistorie_ist_vor_dem_zweiten_versand_vollstaendig_reserviert ... ok
+test tests::zweite_runde_retries_und_externe_toolnutzung_teilen_dasselbe_budget ... ok
+
+failures:
+
+---- flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success stdout ----
+
+thread 'flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success' (3955182) panicked at crates/brain-kernel/src/flight/review_dependencies.rs:154:55:
+called `Result::unwrap()` on an `Err` value: Timeout
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success
+
+test result: FAILED. 57 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.37s
+
+error: test failed, to rerun pass `-p brain-kernel --lib`
+     Running tests/core_kernel.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/core_kernel-810ca94a9789d767)
+
+running 8 tests
+test asset_hero_entity_and_field_records_share_identity ... FAILED
+test assets_feed_field_answers_through_release_kernel ... FAILED
+test cache_separates_principal_release_and_rechecks_current_acl ... FAILED
+test forged_provider_citation_is_rejected_and_failure_not_cached ... FAILED
+test irrelevant_excerpts_produce_insufficient_evidence_with_charged_usage ... FAILED
+test patch_agnostic_fact_does_not_establish_release_patch_or_mode ... FAILED
+test retrieval_and_provider_share_a_budget ... FAILED
+test revocation_during_provider_call_prevents_publication ... FAILED
+
+failures:
+
+---- asset_hero_entity_and_field_records_share_identity stdout ----
+
+thread 'asset_hero_entity_and_field_records_share_identity' (3955569) panicked at crates/brain-kernel/tests/core_kernel.rs:185:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- assets_feed_field_answers_through_release_kernel stdout ----
+
+thread 'assets_feed_field_answers_through_release_kernel' (3955570) panicked at crates/brain-kernel/tests/core_kernel.rs:304:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+
+---- cache_separates_principal_release_and_rechecks_current_acl stdout ----
+
+thread 'cache_separates_principal_release_and_rechecks_current_acl' (3955575) panicked at crates/brain-kernel/tests/core_kernel.rs:368:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+
+---- forged_provider_citation_is_rejected_and_failure_not_cached stdout ----
+
+thread 'forged_provider_citation_is_rejected_and_failure_not_cached' (3955576) panicked at crates/brain-kernel/tests/core_kernel.rs:427:9:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: ProviderError
+
+---- irrelevant_excerpts_produce_insufficient_evidence_with_charged_usage stdout ----
+
+thread 'irrelevant_excerpts_produce_insufficient_evidence_with_charged_usage' (3955577) panicked at crates/brain-kernel/tests/core_kernel.rs:460:5:
+assertion `left == right` failed
+  left: "Evidenz konnte nicht geladen werden."
+ right: "Dazu hab ich gerade nichts Genaues, frag am besten direkt im Discord nach."
+
+---- patch_agnostic_fact_does_not_establish_release_patch_or_mode stdout ----
+
+thread 'patch_agnostic_fact_does_not_establish_release_patch_or_mode' (3955578) panicked at crates/brain-kernel/tests/core_kernel.rs:92:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+
+---- retrieval_and_provider_share_a_budget stdout ----
+
+thread 'retrieval_and_provider_share_a_budget' (3955579) panicked at crates/brain-kernel/tests/core_kernel.rs:509:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+
+---- revocation_during_provider_call_prevents_publication stdout ----
+
+thread 'revocation_during_provider_call_prevents_publication' (3955580) panicked at crates/brain-kernel/tests/core_kernel.rs:406:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: UnauthorizedEvidence
+
+
+failures:
+    asset_hero_entity_and_field_records_share_identity
+    assets_feed_field_answers_through_release_kernel
+    cache_separates_principal_release_and_rechecks_current_acl
+    forged_provider_citation_is_rejected_and_failure_not_cached
+    irrelevant_excerpts_produce_insufficient_evidence_with_charged_usage
+    patch_agnostic_fact_does_not_establish_release_patch_or_mode
+    retrieval_and_provider_share_a_budget
+    revocation_during_provider_call_prevents_publication
+
+test result: FAILED. 0 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+error: test failed, to rerun pass `-p brain-kernel --test core_kernel`
+     Running tests/evidence_errors.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/evidence_errors-59fa8fbf6488438b)
+
+running 6 tests
+test cache_hit_timeout_fails_closed_without_provider_retry_and_does_not_cache_failure ... FAILED
+test permission_budget_and_invalid_reader_responses_are_distinct ... FAILED
+test real_postgres_connection_failure_is_unavailable_not_permission_denied ... ok
+test six_hundred_parallel_requests_with_reader_faults_never_report_false_permission_denials ... FAILED
+test technical_reader_failures_are_unavailable_at_every_handoff_not_unauthorized ... FAILED
+test unavailable_roundtrips_through_the_public_response_contract ... ok
+
+failures:
+
+---- cache_hit_timeout_fails_closed_without_provider_retry_and_does_not_cache_failure stdout ----
+
+thread 'cache_hit_timeout_fails_closed_without_provider_retry_and_does_not_cache_failure' (3955582) panicked at crates/brain-kernel/tests/evidence_errors.rs:183:5:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- permission_budget_and_invalid_reader_responses_are_distinct stdout ----
+
+thread 'permission_budget_and_invalid_reader_responses_are_distinct' (3955583) panicked at crates/brain-kernel/tests/evidence_errors.rs:162:13:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: UnauthorizedEvidence
+
+---- six_hundred_parallel_requests_with_reader_faults_never_report_false_permission_denials stdout ----
+
+thread '<unnamed>' (3955586) panicked at crates/brain-kernel/tests/evidence_errors.rs:228:29:
+unexpected status for technical reader fault: InsufficientEvidence
+
+thread '<unnamed>' (3955593) panicked at crates/brain-kernel/tests/evidence_errors.rs:228:29:
+unexpected status for technical reader fault: InsufficientEvidence
+
+thread 'six_hundred_parallel_requests_with_reader_faults_never_report_false_permission_denials' (3955585) panicked at crates/brain-kernel/tests/evidence_errors.rs:238:27:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+
+---- technical_reader_failures_are_unavailable_at_every_handoff_not_unauthorized stdout ----
+
+thread 'technical_reader_failures_are_unavailable_at_every_handoff_not_unauthorized' (3955594) panicked at crates/brain-kernel/tests/evidence_errors.rs:126:13:
+assertion `left == right` failed: reader timeout, read 1
+  left: InsufficientEvidence
+ right: Unavailable
+
+
+failures:
+    cache_hit_timeout_fails_closed_without_provider_retry_and_does_not_cache_failure
+    permission_budget_and_invalid_reader_responses_are_distinct
+    six_hundred_parallel_requests_with_reader_faults_never_report_false_permission_denials
+    technical_reader_failures_are_unavailable_at_every_handoff_not_unauthorized
+
+test result: FAILED. 2 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p brain-kernel --test evidence_errors`
+     Running tests/patch_validity.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/patch_validity-c7f2ef1a98b942bf)
+
+running 6 tests
+test cached_provider_answer_is_not_reused_after_head_patch_change ... ok
+test canonical_known_patch_with_legacy_null_still_answers_directly ... ok
+test direct_fact_never_answers_old_or_unknown_as_requested_patch ... ok
+test head_patch_change_during_provider_call_blocks_handoff ... ok
+test unknown_fact_remains_answerable_without_game_patch_claim ... ok
+test unknown_patch_fact_cannot_hide_a_conflict_with_known_fact ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/pr61_dependencies.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/pr61_dependencies-94bb1af2c38a9b8f)
+
+running 5 tests
+test cached_answer_must_track_uncited_inputs ... ok
+test concurrent_fact_reuse_reselects_instead_of_sharing_a_stale_selection ... ok
+test facts_reselect_newly_visible_conflicts_and_aliases_without_model_calls ... ok
+test revoked_uncited_inputs_do_not_create_successful_cache_entries ... ok
+test uncited_input_revoked_during_provider_call_must_block_publication ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/review_dependencies.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/review_dependencies-dd8518c56eda7c3d)
+
+running 6 tests
+test cache_hit_revalidates_uncited_input_acl_and_tombstone ... FAILED
+test concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner ... FAILED
+test fact_reuse_rechecks_newly_visible_conflict_and_alias_collision ... FAILED
+test fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads ... FAILED
+test hybrid_fact_limit_cannot_hide_a_pinned_conflicting_value ... ok
+test uncited_provider_input_revoked_during_call_must_not_publish_or_cache ... FAILED
+
+failures:
+
+---- cache_hit_revalidates_uncited_input_acl_and_tombstone stdout ----
+
+thread 'cache_hit_revalidates_uncited_input_acl_and_tombstone' (3955635) panicked at crates/brain-kernel/tests/review_dependencies.rs:170:9:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner stdout ----
+
+thread 'concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner' (3955636) panicked at crates/brain-kernel/tests/review_dependencies.rs:443:55:
+called `Result::unwrap()` on an `Err` value: Timeout
+
+---- fact_reuse_rechecks_newly_visible_conflict_and_alias_collision stdout ----
+
+thread 'fact_reuse_rechecks_newly_visible_conflict_and_alias_collision' (3955785) panicked at crates/brain-kernel/tests/review_dependencies.rs:237:9:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+
+---- fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads stdout ----
+
+thread 'fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads' (3955786) panicked at crates/brain-kernel/tests/review_dependencies.rs:349:9:
+assertion `left == right` failed
+  left: InsufficientEvidence
+ right: Answered
+
+---- uncited_provider_input_revoked_during_call_must_not_publish_or_cache stdout ----
+
+thread 'uncited_provider_input_revoked_during_call_must_not_publish_or_cache' (3955792) panicked at crates/brain-kernel/tests/review_dependencies.rs:136:9:
+assertion `left == right` failed: tombstone=false
+  left: InsufficientEvidence
+ right: UnauthorizedEvidence
+
+
+failures:
+    cache_hit_revalidates_uncited_input_acl_and_tombstone
+    concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner
+    fact_reuse_rechecks_newly_visible_conflict_and_alias_collision
+    fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads
+    uncited_provider_input_revoked_during_call_must_not_publish_or_cache
+
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
+
+error: test failed, to rerun pass `-p brain-kernel --test review_dependencies`
+     Running unittests src/lib.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/brain_providers-77d57315454c2ebb)
+
+running 11 tests
+test circuit::tests::circuit_opens_allows_one_probe_and_recovers ... ok
+test circuit::tests::failed_probe_restarts_cooldown ... ok
+test hardening::tests::cost_overflow_fails_closed ... ok
+test hardening::tests::endpoint_and_price_are_explicit ... ok
+test tests::debug_redacts_token ... ok
+test tests::invalid_json_is_rejected_without_fallback ... ok
+test tests::request_budget_limits_retries_and_output_tokens ... ok
+test tests::retries_rate_limit_and_parses_typed_response ... ok
+test tests::subscription_uses_native_messages_without_credentials_or_tools ... ok
+test tests::zero_round_budget_blocks_before_network ... ok
+test transport::precondition_tests::specific_rejections_take_precedence_over_model_mentions ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/faults.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/faults-f9e1f3df25d77d19)
+
+running 33 tests
+test authentication_redirect_and_missing_usage_do_not_retry ... ok
+test both_wire_forms_preserve_tools_nullable_content_and_two_turn_binding ... ok
+test bounded_chunked_response_and_timeout_are_errors ... ok
+test cancellation_during_first_provider_attempt_prevents_a_retry ... ok
+test cancelled_provider_and_embedding_calls_never_open_a_connection ... ok
+test cost_input_and_egress_fail_before_any_socket ... ok
+test cumulative_budgets_block_repeated_history_before_second_socket ... ok
+test duplicate_call_ids_from_earlier_turns_are_rejected ... ok
+test duplicate_raw_arguments_fail_closed_in_both_wire_forms_without_retry ... ok
+test duplicate_wire_response_keys_including_unknown_nested_objects_are_rejected ... ok
+test embeddings_restore_indices_and_reject_duplicates_or_dimension_errors ... ok
+test extended_contract_names_boon_ranges_and_analytics_use_the_same_transport ... ok
+test fehlerabrechnung_beide_wireformen_erhalten_usage_nach_parser_und_validierungsfehlern ... ok
+test fehlerabrechnung_budgetueberschreitung_behaelt_gemessene_usage ... ok
+test fehlerabrechnung_erfolg_traegt_messung_und_retriereservierung_getrennt ... ok
+test fehlerabrechnung_fehlende_oder_ambige_usage_bleibt_reserviert_statt_gemessen ... ok
+test fehlerabrechnung_http_retry_usage_ist_beobachtet_und_nicht_zweimal_reserviert ... ok
+test fehlerabrechnung_lokale_validierung_hat_belegte_null_ohne_socket ... ok
+test fehlerabrechnung_retry_und_spaeterer_parserfehler_kumulieren_reservierung_und_messung ... ok
+test final_answer_json_rejects_duplicate_decoded_keys_in_both_wire_forms ... ok
+test final_tool_answers_keep_json_citation_and_no_answer_contract ... ok
+test full_native_options_and_cached_input_are_charged ... ok
+test grounded_no_answer_signal_is_exact_and_preserves_usage ... ok
+test known_finish_reasons_must_match_complete_turns ... ok
+test legacy_final_text_keeps_plain_answers_but_rejects_duplicate_json_without_evidence ... ok
+test malformed_tool_names_ids_arguments_and_blocks_are_not_repaired ... ok
+test retries_charge_full_wire_input_output_and_configured_cost ... ok
+test server_error_retries_but_retry_after_beyond_deadline_does_not ... ok
+test tool_history_binding_and_egress_fail_before_network ... ok
+test transiente_http_fehlerkoerper_erhalten_fruehere_gemessene_usage ... ok
+test transiente_http_fehlerkoerper_erhalten_status_retry_und_reservierung ... ok
+test transiente_http_fehlerkoerper_respektieren_retry_und_budgetgrenzen ... ok
+test transiente_http_fehlerkoerper_timeout_respektiert_die_urspruengliche_frist ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.11s
+
+     Running unittests src/lib.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/brain_serve-31b4697a9574d24f)
+
+running 48 tests
+test analytics::tests::cancelled_analytics_request_cannot_start_an_http_retry ... ok
+test analytics::tests::delayed_fifth_lookup_keeps_original_deadline_after_slot_release ... ok
+test analytics::tests::fifth_lookup_expires_on_one_deadline_while_four_slots_are_occupied ... ok
+test analytics::tests::fixture_rejects_truncated_or_unbounded_request_headers ... ok
+test analytics::tests::fixture_waits_for_complete_fragmented_request_headers ... ok
+test analytics::tests::incongruent_population_cannot_become_a_match_prior ... ok
+test analytics::tests::ordinary_brain_answer_uses_meta_and_match_population_without_patch_claim ... ok
+test analytics::tests::runtime_rejects_missing_grant_wrong_patch_and_unapproved_window ... ok
+test analytics::tests::second_snapshot_exhaustion_rejects_direct_kernel_service_and_http_answers ... ok
+test analytics::tests::snapshot_exhaustion_never_starts_meta_or_population_http ... ok
+test config::entity_profile_tests::model_context_preserves_grants_and_requires_explicit_normal_consumer ... ok
+test config::entity_profile_tests::optional_maintenance_path_preserves_defaults_and_requires_absolute_paths ... ok
+test config::tests::analytics_window_and_schema_are_explicit_when_runtime_is_configured ... ok
+test config::tests::c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft ... ok
+test config::tests::c9_releasebindung_ist_explizit_und_widersprueche_scheitern ... ok
+test config::tests::credentials_require_explicit_valid_scopes_and_unambiguous_secret_references ... ok
+test config::tests::every_required_section_and_field_is_fail_closed ... ok
+test config::tests::example_parses_without_secret_values_and_preserves_pilot_defaults ... ok
+test config::tests::maintenance_docs_require_exact_public_scope_and_matching_standard_pin ... ok
+test config::tests::missing_malformed_and_oversized_config_are_sanitized ... ok
+test config::tests::numeric_limits_and_pins_are_not_silently_clamped_or_defaulted ... ok
+test config::tests::operator_docs_release_requires_both_explicit_pins_to_match ... ok
+test config::tests::provider_endpoint_is_explicit_https_or_loopback_and_priced ... ok
+test config::tests::second_brain_credential_ist_in_der_oeffentlichen_registry_unbekannt ... ok
+test config::tests::unknown_and_inline_secret_fields_are_rejected_without_echoing_values ... ok
+test discord_live::tests::alte_ungueltige_und_zukuenftige_beobachtungen_werden_verworfen ... ok
+test discord_live::tests::grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget ... FAILED
+test discord_live::tests::historische_live_fragen_erreichen_den_bestehenden_nichts_fall ... ok
+test discord_live::tests::kurze_cachezeit_beginnt_beim_beobachten_und_laeuft_lokal_ab ... ok
+test discord_live::tests::netzwerkbudget_erfasst_den_abruf_und_validierung_bleibt_lokal ... ok
+test discord_live::tests::oeffentliche_live_fakten_ueber_bestehenden_resolver ... FAILED
+test discord_live::tests::packing_reserviert_kosten_nach_bisherigem_verbrauch ... ok
+test discord_live::tests::parallele_anfragen_behalten_getrennte_gueltige_beobachtungen ... ok
+test discord_live::tests::private_felder_und_falsche_zulassung_werden_verworfen ... ok
+test discord_live::tests::reine_live_packs_werden_lokal_und_leere_packs_ablehnend_geprueft ... ok
+test discord_live::tests::statische_sperre_und_providerfreigabe_bleiben_verbindlich ... ok
+test health::binding_tests::maintenance_binding_checks_public_scope_and_current_head_publication ... ok
+test health::binding_tests::maintenance_binding_keeps_internal_documents_outside_the_public_view ... ok
+test health::binding_tests::public_profiles_cannot_replace_a_denied_scoped_document ... ok
+test operator_socket::tests::private_rechte_und_tatsaechliche_peer_uid_werden_geprueft ... ok
+test secrets::tests::absent_empty_and_invalid_bearer_secrets_fail_closed ... ok
+test secrets::tests::duplicate_credentials_are_not_ambiguous_and_debug_is_redacted ... ok
+test secrets::tests::password_is_required_only_for_explicit_password_authentication ... ok
+test secrets::tests::subscription_does_not_load_a_provider_secret ... ok
+test secrets::tests::vorhandene_interne_referenz_wird_validiert_und_nicht_ausgegeben ... ok
+test service::entity_profile_tests::configured_reader_requires_existing_operator_config_without_new_pool ... ok
+test service::entity_profile_tests::effective_uid_matches_kernel_peer_credentials ... ok
+test service::entity_profile_tests::model_consumer_binding_is_exact_and_does_not_grant_operator_egress ... ok
+
+failures:
+
+---- discord_live::tests::grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget stdout ----
+Brain-Antwortprovider: Fehlerklasse chat_schema
+
+thread 'discord_live::tests::grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget' (3957146) panicked at crates/brain-serve/src/discord_live.rs:833:18:
+called `Result::unwrap()` on an `Err` value: InvalidResponse("invalid chat schema")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- discord_live::tests::oeffentliche_live_fakten_ueber_bestehenden_resolver stdout ----
+
+thread 'discord_live::tests::oeffentliche_live_fakten_ueber_bestehenden_resolver' (3957234) panicked at crates/brain-serve/src/discord_live.rs:916:10:
+Bestehender Infisicalresolver muss verfügbar sein.: SecretSource
+
+
+failures:
+    discord_live::tests::grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget
+    discord_live::tests::oeffentliche_live_fakten_ueber_bestehenden_resolver
+
+test result: FAILED. 46 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+
+error: test failed, to rerun pass `-p brain-serve --lib`
+     Running unittests src/main.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/brain_serve-6cb6284f61161347)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_pilot.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/local_pilot-30933d018cb346e7)
+
+running 7 tests
+test pilot_acceptance_rejects_returned_private_or_unknown_citations ... ok
+test pilot_baseline_mismatch_fails_and_parked_sources_survive_unwind ... ok
+test pilot_phase_after_restart ... FAILED
+test pilot_phase_empty_rebuild ... FAILED
+test pilot_phase_ingest ... FAILED
+test pilot_phase_reader_failures ... FAILED
+test pilot_rejection_requires_the_expected_authorization_status ... ok
+
+failures:
+
+---- pilot_phase_after_restart stdout ----
+
+thread 'pilot_phase_after_restart' (3957310) panicked at crates/brain-serve/tests/local_pilot.rs:55:58:
+pilot database required: NotPresent
+
+---- pilot_phase_empty_rebuild stdout ----
+
+thread 'pilot_phase_empty_rebuild' (3957316) panicked at crates/brain-serve/tests/local_pilot.rs:55:58:
+pilot database required: NotPresent
+
+---- pilot_phase_ingest stdout ----
+
+thread 'pilot_phase_ingest' (3957319) panicked at crates/brain-serve/tests/local_pilot.rs:55:58:
+pilot database required: NotPresent
+
+---- pilot_phase_reader_failures stdout ----
+
+thread 'pilot_phase_reader_failures' (3957325) panicked at crates/brain-serve/tests/local_pilot.rs:55:58:
+pilot database required: NotPresent
+
+
+failures:
+    pilot_phase_after_restart
+    pilot_phase_empty_rebuild
+    pilot_phase_ingest
+    pilot_phase_reader_failures
+
+test result: FAILED. 3 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p brain-serve --test local_pilot`
+     Running tests/process.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/process-8c519ba7bca79952)
+
+running 11 tests
+test ambient_config_is_not_a_startup_source ... ok
+test each_required_secret_is_checked_before_database_or_bind ... ok
+test help_does_not_require_configuration_or_credentials ... ok
+test incomplete_configuration_and_inline_secrets_never_reach_startup ... ok
+test missing_config_and_bad_arguments_exit_without_echoing_input ... ok
+test private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password ... FAILED
+test private_snapshot_without_eof_cannot_hold_main_past_startup_deadline ... ok
+test secret_delay_and_database_startup_share_one_absolute_budget ... ok
+test sigterm_during_database_startup_exits_cleanly_without_binding ... ok
+test unavailable_database_is_bounded_and_ignores_legacy_and_ambient_dsns ... ok
+test unavailable_explicit_infisical_source_is_redacted_and_never_reaches_startup ... ok
+
+failures:
+
+---- private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password stdout ----
+
+thread 'private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password' (3957385) panicked at crates/brain-serve/tests/process.rs:223:61:
+scratch socket required: NotPresent
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password
+
+test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.23s
+
+error: test failed, to rerun pass `-p brain-serve --test process`
+     Running tests/process_e2e.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/process_e2e-91b53e8c61df0e1f)
+
+running 1 test
+test binary_loopback_health_readiness_shutdown_and_no_fallback ... FAILED
+
+failures:
+
+---- binary_loopback_health_readiness_shutdown_and_no_fallback stdout ----
+
+thread 'binary_loopback_health_readiness_shutdown_and_no_fallback' (3957959) panicked at crates/brain-serve/tests/process_e2e.rs:234:61:
+scratch socket required: NotPresent
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    binary_loopback_health_readiness_shutdown_and_no_fallback
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p brain-serve --test process_e2e`
+   Doc-tests brain_kernel
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests brain_providers
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests brain_serve
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 8 targets failed:
+    `-p brain-kernel --lib`
+    `-p brain-kernel --test core_kernel`
+    `-p brain-kernel --test evidence_errors`
+    `-p brain-kernel --test review_dependencies`
+    `-p brain-serve --lib`
+    `-p brain-serve --test local_pilot`
+    `-p brain-serve --test process`
+    `-p brain-serve --test process_e2e`

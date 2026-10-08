@@ -1,0 +1,4 @@
+[gpt-6.1-sol] BLOCK: Stack bonus damage bypasses weapon amplification.
+
+1. rust/crates/dbrain-reasoner/src/combat.rs:1892 | BLOCKING: `bullet` includes `stats.weapon_amp`, but `stack_bonus` is added afterward and `receive_damage` receives zero amplification. | Target weapon amplification therefore excludes this portion of weapon damage, undercounting damage and delaying kills in both simulation modes.
+2. rust/crates/dbrain-reasoner/src/combat.rs:1719 | NIT: Damage ordering needs missing context: pending hits through the frame end run before earlier weapon shots. | Supply the complete pending-hit `damage_event` call to determine whether later hits incorrectly suppress earlier shots.

@@ -1,0 +1,5 @@
+Originaler Visitor identisch=true
+Visitor SHA256=77b8aa8e2ab29973f63fbeeb59956e8622a3f7bf3b1a209b29e23dd1c783f58a
+Source-Signatur=pub(super) fn parse(raw: &[u8]) -> Result<Value, serde_json::Error>
+Gemeinsamer Einstieg=brain_contracts::provider_input::parse_unique_json
+Materialisierung durch serde_json nach unveränderter Duplikatprüfung hält die tatsächlich aktive arbitrary_precision-Zahlendarstellung ein. Keine zweite eigene Parserimplementierung.

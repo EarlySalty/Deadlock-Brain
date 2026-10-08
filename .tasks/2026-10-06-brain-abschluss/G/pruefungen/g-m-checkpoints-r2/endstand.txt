@@ -1,0 +1,53 @@
+Paketende wegen fortbestehendem S2-BLOCK nach fünf frischen Fixrunden
+Worktree: /home/nathanael/.worktrees/brain-g-v2-20261007
+Feature: feat/brain-v2-g-20261007
+Start/S1: bd83d7abdef812a30daa47aa5f6a78de4f42263a
+Finaler lokaler HEAD: 8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206
+Finaler Prüfbaum: /home/nathanael/.worktrees/brain-g-checkpoints-20261007
+Prüfbaum-HEAD: 8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206; rev-parse Exit 0
+Prüfbaumstatus: sauber; status --porcelain=v1 --untracked-files=all Exit 0, keine Ausgabe
+Primärindex: leer; diff --cached --stat Exit 0, keine Ausgabe
+Origin-Beweis: git -C /home/nathanael/.worktrees/brain-g-v2-20261007 ls-remote --exit-code --heads origin refs/heads/feat/brain-v2-g-20261007
+Origin-Ausgabe: bd83d7abdef812a30daa47aa5f6a78de4f42263a refs/heads/feat/brain-v2-g-20261007
+Origin-Exit: 0; keine S2-Commits gepusht
+
+Lokale S2-Kette, tatsächliche Eltern und vollständige Gruppengates gegen S1
+54f76ba0315df6299d8bdc5e5c7c9f380d54d22c parent bd83d7abdef812a30daa47aa5f6a78de4f42263a: gelieferte Kampfsimulation/Testfixture; Compiler/Clippy/Format 0; S2 Gate R1 BLOCK/1
+ d12986c4eaaf6477a28b2fa672b43d1a5a8c561a parent 54f76ba0315df6299d8bdc5e5c7c9f380d54d22c: frischer Kontaktzeitfix; Compiler/Clippy/Format 0; S2 Gate R2 BLOCK/1
+9f965c88952177195a9ebba07b1de38357e2e585 parent d12986c4eaaf6477a28b2fa672b43d1a5a8c561a: frischer ProcChancefix; Compiler/Clippy/Format 0; S2 Gate R3 BLOCK/1
+89fa8a1919afa3a01e5f4b03ecdf0427a645d84f parent 9f965c88952177195a9ebba07b1de38357e2e585: frischer Stack-Verstärkungsfix; Compiler/Clippy/Format 0; S2 Gate R4 BLOCK/1
+aefe916a3197911e8ef5b22c602d766a8303e36e parent 89fa8a1919afa3a01e5f4b03ecdf0427a645d84f: frischer Teilnachfüllungsfix; Compiler/Clippy/Format 0; S2 Gate R5 BLOCK/1
+8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206 parent aefe916a3197911e8ef5b22c602d766a8303e36e: frischer Fix für abgeschlossenes Nachladen und Druckdauer; Compiler/Clippy/Format 0; S2 Gate R6 BLOCK/1
+
+Finale Prüfbelege, durch Elternworker vollständig konsumiert
+Format: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/cargo-fmt.log; Exit 0
+Compiler: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/cargo-check.log; Exit 0; dev-Profil 11,05 s
+Clippy: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/cargo-clippy.log; Exit 0; dev-Profil 7,94 s; all-targets samt Abhängigkeiten, -D warnings
+Befehle: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/pruefbefehle.txt
+Gate: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/s2-fix-r6/gate.log; Exit 1
+Finaler Gatewortlaut: [gpt-6.1-sol] BLOCK: stack damage skips shred, and duplicate items replay effects.
+Offen: combat.rs:1901 Stackbonus umgeht Rüstungsverringerung im gemeinsamen Simulationspfad; combat.rs:828 simulate_calculation und simulate_calculation_with_deadline reichen doppelte Item-IDs an Effektpfade weiter, anders als evaluate_core. Kein weiteres ALLOW und keine nächste Fixrunde behauptet.
+NIT: combat.rs:2247 Zeitauflösung in waffenbasierten Druckszenarien bei gerasterten Zielwechseln; nicht zu BLOCK umgedeutet.
+
+Quellenbindung
+Startmanifest: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s1-r2/bereichs-quellen-fix.sha256; vor Start 12/12 bestätigt
+Endmanifest: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-checkpoints-r2/bereichs-quellen-ende.sha256; sha256sum -c Exit 0, 12/12 OK
+11/12 Startquellen bytegleich einschließlich drei Originalfixtures und vorhandener Konverterfixes. Ausnahme ist ausschließlich combat.rs durch beauftragte bestätigte BLOCK-Fixes.
+combat.rs Arbeitsquelle SHA256: 70d7a7905b961d335298a99ef2b455ed029911370bd653270a67b735caf63c79
+combat.rs committed Prüfquelle SHA256: 250ec249def95c8e977f1526f5da0606f93a96a7b4b07048c7cd2c3d08943ad7
+S3-Wrapper im Arbeitsbaum unverändert, nicht committed; verbleibende data.rs-/lib.rs-/calculation.rs-/calculation_tests.rs-Quellen erhalten.
+
+Offene Paketgrenzen
+S2 regulär weiterhin BLOCK, deshalb nicht nach origin gesichert.
+S3/S4 nicht begonnen, kein S3-Übergabevertrag und keine Rechte-/Receiptbehauptung.
+Tests ausdrücklich nicht ausgeführt, keine neue Testzahl und kein grüner Testbeweis. Frühere Messungen bleiben historisch. Keine abgewiesene Testform wiederholt oder ersetzt, keine Hilfsbaumtests und keine Produktions-DB.
+Kein Main, Release, Deploy, Neustart, Runtime, Cleanup oder Settle. Keine zentralen Statusdateien/TODO bearbeitet, keine fremden Produktbereiche betreten.
+Einmaliger Context-Mode-Dateizugriff auf R4-Gate-Log abgewiesen, nicht wiederholt oder durch anderen Dateizugriff ersetzt. Der Beleg war bereits vorher erfolgreich eingelesen/indexiert und wurde aus diesem vorhandenen Index konsumiert. Keine Berechtigungs-/Konfigänderung.
+Rohbelege nicht gestaged; eigene Fixer dokumentieren Secret-Musterprüfung ohne Treffer.
+
+Git-Protokollzählung
+Eigene direkte Git-Aufrufe per Bash: 25
+Weitere eigene lesende Git-Einzelprozesse zur Quell-/Index-/Prüfbaumbindung: 23
+Frische Fixer: R2 24, R3 20, R4 20, R5 21, R6 25; zusammen 110
+MERGEPROTOKOLL[MS-1]: 158 Git-Schritte einzeln | Anläufe: 6 | Gate: gpt-6.1-sol BLOCK; kein Main-Merge
+TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: Commits und native Rückgabe

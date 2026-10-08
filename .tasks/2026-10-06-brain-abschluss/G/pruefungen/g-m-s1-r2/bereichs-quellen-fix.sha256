@@ -1,0 +1,12 @@
+de2419f76368a233be9f848c3298f8560b42b1411b42d1a42c709b505231e15e  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation.rs
+bce7595afdab9ad3bb0e9ecf69d1335cd86431310aef243a8aa4143a4d2c49ca  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation_tests.rs
+fd074522bb69e3cff6b32ffa75c5e98511ff3d922cac71e5c95bc05c15904122  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs
+7b18c0c77db513df339066cf7565102985723a90c449147b33dbf4de032d97d7  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs
+40f4ec9914032e1b18ae2166bbcc80c2157ec3ade373434eecc417817e6d1650  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/lib.rs
+5a24bf2b82325e2d7423753859031f647444d1a0532dfff80ac7129615f3be3f  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/mechanics.rs
+4db24115f314d180f0571bbab2139a7d440cc7a426f628000701c8034138b22d  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/planner.rs
+e758c1d1789f809f113144cfe5df5927f514ce3bf79f7ed97392ebb8fe5eed24  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/progression.rs
+e48f3317be84eb52ca476168896c393cfb7de7dbf306434c473032608d2bb8fe  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/types.rs
+36656fbb25e87fa5eef4e612e61c007bf2d21b80933e52603fcedabbd394190b  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/testdata/calculation/glass-cannon.json
+167323f78bb6e9bb62f0e51ce076515180164cc3479e4a67fd7dc8607b17dad0  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/testdata/calculation/recorded-assets.json
+fd2984bb5b23ffaa59fa5a815ca7c2b67542221a57be677384cccbb0934ffbff  /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/testdata/calculation/sheet-6759.json

@@ -1,0 +1,9 @@
+Befehl: python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base bd83d7abdef812a30daa47aa5f6a78de4f42263a --head 54f76ba0315df6299d8bdc5e5c7c9f380d54d22c
+Exit: 1
+[gpt-6.1-sol] BLOCK: Exact kill times produce incorrect contact durations.
+
+1. rust/crates/dbrain-reasoner/src/combat.rs:2188 | BLOCKING: `contact_seconds` adds the full frame after `frame_end` truncates elapsed time to the kill timestamp. A weapon-only kill on the initial shot returns zero elapsed seconds but 0.2 contact seconds; line 2230 also advertises zero timing resolution. | The calculation returns contradictory timing data. Accumulate contact through `frame_end`.
+
+2. rust/crates/dbrain-reasoner/src/combat.rs:1238 | NIT: Both ammo-refill paths reset `next_shot_at` to the current time; twin at line 1598. | This could bypass the firing interval. The omitted activation guards are needed to establish whether refills can occur between scheduled shots.
+
+3. rust/crates/dbrain-reasoner/src/combat.rs:1717 | NIT: Pending hits admit future timestamps through frame end before the discrete shot loop; delayed-item hits have the same cutoff at line 1780. | Inspect the omitted dispatch bodies to establish whether later damage can suppress an earlier shot.

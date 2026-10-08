@@ -1,0 +1,8 @@
+[gpt-6.1-sol] BLOCK: stack damage skips shred, and duplicate items replay effects.
+
+1. rust/crates/dbrain-reasoner/src/combat.rs:1901 | BLOCKING: Stack bonus damage loses bullet shred in every default planner scenario, including full, fast, and binding-aware evaluations. | `bullet` includes shred, but `stack_bonus` does not, and this path passes zero shred to the receiver. A 10-point stack bonus remains 10 with 20% shred instead of becoming 12, distorting build scores.
+
+2. rust/crates/dbrain-reasoner/src/combat.rs:828 | BLOCKING: Both `simulate_calculation` and `simulate_calculation_with_deadline` forward duplicate item IDs without the deduplication used by `evaluate_core`. | Stats and shop bonuses count each ID once, but magazine procs (1949), shot procs (1975), cast procs (2117), and active/bound ammo refills (1243, 1605) execute per occurrence. The same item can therefore proc or refill multiple times.
+
+3. rust/crates/dbrain-reasoner/src/combat.rs:2247 | NIT: Weapon-only pressure simulations report zero time resolution despite quantized target switches. | A kill at 0.15 schedules the next target for 1.15, but the 0.2-second loop introduces it at 1.2. Report that resolution or process the switch at its scheduled time.
+EXIT=1

@@ -1,0 +1,11 @@
+commit b6c1153363f817ff1056a5fd28de13eec00cc58d
+Author:     EarlySalty <mail@earlysalty.com>
+AuthorDate: Wed Oct 7 21:47:35 2026 +0200
+Commit:     EarlySalty <mail@earlysalty.com>
+CommitDate: Wed Oct 7 21:47:35 2026 +0200
+
+    fix(brain): Stack-Rüstungsverringerung und Itemnormalisierung vervollständigen
+    
+    Zeitquelle für RequestDeadline kompatibel injizierbar machen und beide öffentlichen Simulationsgrenzen mit kontrollierter Frist prüfen.
+    
+    Co-authored-by: GPT 6.1 Sol <modell@local>

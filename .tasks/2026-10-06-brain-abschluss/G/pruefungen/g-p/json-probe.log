@@ -1,0 +1,2 @@
+native=false: duplicate query accepted, retained="B"
+native=true: duplicate query accepted, retained="B"

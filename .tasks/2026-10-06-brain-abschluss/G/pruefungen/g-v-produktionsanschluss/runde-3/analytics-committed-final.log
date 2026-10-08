@@ -1,0 +1,152 @@
+cargo-slot: Slot 3, optimiert=0
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-api)
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers)
+   Compiling brain-client v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-client)
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-builds)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-ingestion)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/deadlock-brain-core)
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-population)
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-wiki)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 40s
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_serve-78e6c0c1e95e6d15)
+
+running 11 tests
+test analytics::tests::cancelled_analytics_request_cannot_start_an_http_retry ... ok
+test analytics::tests::delayed_fifth_lookup_keeps_original_deadline_after_slot_release ... ok
+test analytics::tests::fifth_lookup_expires_on_one_deadline_while_four_slots_are_occupied ... ok
+test analytics::tests::fixture_rejects_truncated_or_unbounded_request_headers ... ok
+test analytics::tests::fixture_waits_for_complete_fragmented_request_headers ... ok
+test analytics::tests::incongruent_population_cannot_become_a_match_prior ... ok
+test analytics::tests::ordinary_brain_answer_uses_meta_and_match_population_without_patch_claim ... ok
+test analytics::tests::runtime_rejects_missing_grant_wrong_patch_and_unapproved_window ... ok
+test analytics::tests::second_snapshot_exhaustion_rejects_direct_kernel_service_and_http_answers ... ok
+test analytics::tests::snapshot_exhaustion_never_starts_meta_or_population_http ... ok
+test config::tests::analytics_window_and_schema_are_explicit_when_runtime_is_configured ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 43 filtered out; finished in 6.92s
+
+     Running unittests src/main.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_serve-64ab938b566a5440)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_pilot.rs (/tmp/brain-g-m-0645-target/debug/deps/local_pilot-f6bf24b64291882e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+     Running tests/process.rs (/tmp/brain-g-m-0645-target/debug/deps/process-59feb655d63812f6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.15s
+
+     Running tests/process_e2e.rs (/tmp/brain-g-m-0645-target/debug/deps/process_e2e-da39c5f3ee5036da)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/tool_evidence_loop.rs (/tmp/brain-g-m-0645-target/debug/deps/tool_evidence_loop-b781b81e7350b3b4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/dbrain_sources-8bbf68b87510328a)
+
+running 10 tests
+test analytics_runtime::tests::bounded_lookup_uses_only_requested_origin_and_returns_validated_observation ... ok
+test analytics_runtime::tests::comparison_applies_rank_and_time_once_to_a_shared_http_population ... ok
+test analytics_runtime::tests::comparison_rejects_rank_locator_drift_and_invalid_population ... ok
+test analytics_runtime::tests::expired_deadline_never_starts_http ... ok
+test analytics_runtime::tests::meta_lookup_filters_hero_and_carries_window_and_schema_provenance ... ok
+test analytics_runtime::tests::population_uses_item_filtered_hero_matches_not_purchase_counts ... ok
+test analytics_runtime::tests::request_and_origin_policy_fail_closed ... ok
+test analytics_runtime::tests::response_origin_bytes_raw_rows_and_requested_window_are_bounded ... ok
+test analytics_runtime::tests::runtime_module_has_no_database_or_central_dsn_dependency ... ok
+test analytics_runtime::tests::schema_drift_is_quarantined ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 218 filtered out; finished in 5.21s
+
+     Running unittests src/bin/brain-browser-consent.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_browser_consent-f915a1ab77caf460)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/brain-knowledge-import.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_knowledge_import-60d57788c5be44ab)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running unittests src/bin/brain-wiki-pilot.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_wiki_pilot-c5140705009ad6a1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/entity_binding.rs (/tmp/brain-g-m-0645-target/debug/deps/entity_binding-14045e6c083399e7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running tests/entity_profiles.rs (/tmp/brain-g-m-0645-target/debug/deps/entity_profiles-638a5b4b3ba71cbd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+     Running tests/entity_semantic.rs (/tmp/brain-g-m-0645-target/debug/deps/entity_semantic-7c10dbb6143bcb57)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+     Running tests/external_sources.rs (/tmp/brain-g-m-0645-target/debug/deps/external_sources-7b221615775b1954)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+     Running tests/knowledge_contract.rs (/tmp/brain-g-m-0645-target/debug/deps/knowledge_contract-20d5fd73f0744272)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s
+
+     Running tests/shared_contracts.rs (/tmp/brain-g-m-0645-target/debug/deps/shared_contracts-040e4c97fa12d0cb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.10s
+
+     Running tests/source_pins.rs (/tmp/brain-g-m-0645-target/debug/deps/source_pins-58152d7ea888de69)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.09s
+
+     Running tests/wiki_knowledge_contract.rs (/tmp/brain-g-m-0645-target/debug/deps/wiki_knowledge_contract-16b29d304eb87241)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/wiki_runtime.rs (/tmp/brain-g-m-0645-target/debug/deps/wiki_runtime-4ce98ab03564735d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+cargo-slot: EXIT=0

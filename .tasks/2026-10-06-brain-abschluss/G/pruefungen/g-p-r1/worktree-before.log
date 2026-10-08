@@ -1,0 +1,11 @@
+HEAD=1f5ed30f578bbac4167ed40ab50e488f3615340c
+Branch=feat/brain-v2-g-20261007
+Git-Befehle=0
+HEAD-Diff ohne Git nicht zugänglich, Baumobjekt gepackt. WIP gegen verifizierte G-P-Fingerprints geprüft.
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/src/lib.rs: identisch zur G-P-Prüfung
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/src/transport.rs: identisch zur G-P-Prüfung
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/src/hardening.rs: identisch zur G-P-Prüfung
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-providers/tests/faults.rs: identisch zur G-P-Prüfung
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/lib.rs: identisch zur G-P-Prüfung
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/provider_input.rs: identisch zur G-P-Prüfung
+/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts/src/tools.rs: identisch zur G-P-Prüfung

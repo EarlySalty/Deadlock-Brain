@@ -1,0 +1,67 @@
+cargo-slot: Slot 2, optimiert=0
+    Blocking waiting for file lock on build directory
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 42.06s
+     Running unittests src/lib.rs (/tmp/brain-g-m-0645-target/debug/deps/brain_storage-c5275113b521d9aa)
+
+running 43 tests
+test asset_mirror::tests::globals_are_versioned_and_modifiers_have_no_language ... ok
+test asset_mirror::tests::mirror_read_preserves_values_and_checks_binding ... ok
+test asset_mirror::tests::mirror_read_rejects_empty_or_wrong_containers_for_every_required_endpoint ... ok
+test domain_reader::tests::forged_hash_and_ambiguous_facts_fail_closed ... ok
+test domain_reader::tests::future_contract_and_malformed_domain_payload_are_rejected ... ok
+test domain_reader::tests::legacy_v1_numeric_facts_remain_readable_without_value_or_identity_changes ... ok
+test domain_reader::tests::typed_facts_rules_are_pinned_and_source_acl_is_rechecked ... ok
+test domain_reader::tests::unverified_wrong_mode_and_wrong_patch_are_not_promoted ... ok
+test domain_reader::tests::wiki_dependency_pins_reject_unknown_versions_forgery_and_duplicates ... ok
+test entity_profile::derivation::game_file_facts::json_text::tests::duplicate_keys_abort_whole_document ... ok
+test entity_profile::derivation::game_file_facts::json_text::tests::numeric_lexemes_are_never_rounded ... ok
+test entity_profile::derivation::game_file_facts::kv3::tests::malformed_and_unsupported_syntax_is_rejected_whole ... ok
+test entity_profile::derivation::game_file_facts::kv3::tests::source2_arrays_flags_and_duplicate_properties_are_preserved ... ok
+test entity_profile::derivation::game_file_facts::kv::tests::duplicate_nested_keys_have_distinct_paths_and_parent_conditions ... ok
+test entity_profile::derivation::game_file_facts::kv::tests::escape_bytes_are_preserved_without_selecting_runtime_escape_policy ... ok
+test entity_profile::derivation::game_file_facts::kv::tests::external_references_and_malformed_content_require_text_preservation ... ok
+test entity_profile::tests::patch_story_retains_structured_values_and_restricts_original_line ... ok
+test local_pg_reader::review_deadline::cancelling_a_queued_pool_request_does_not_wait_for_pool_timeout ... ok
+test local_pg_reader::review_deadline::pool_wait_is_paid_from_the_original_request_deadline ... ok
+test local_pg_reader::review_startup::cancelled_query_closes_the_transport_and_returns_capacity ... ok
+test local_pg_reader::review_startup::cancelled_startup_closes_the_transport_and_returns_capacity ... ok
+test local_pg_reader::review_startup::stalled_postgres_authentication_releases_reserved_capacity ... ok
+test local_pg_reader::review_startup::stalled_query_obeys_the_request_deadline ... ok
+test local_pg_reader::review_startup::stalled_session_initialization_obeys_the_request_deadline ... ok
+test local_pg_reader::wait_queue::tests::new_checkouts_cannot_overtake_queued_waiters ... ok
+test local_pg_reader::wait_queue::tests::removing_an_absent_waiter_never_removes_another_request ... ok
+test local_pg_reader::wait_queue::tests::timed_out_waiters_do_not_block_the_remaining_queue ... ok
+test pg_maintenance::tests::postgres_queue_races_expiry_and_checkpoint_restart ... FAILED
+test pg_maintenance::tests::review_requires_separate_runs_and_exact_source ... ok
+test schema::tests::embedded_migrations_have_exactly_one_outer_transaction ... ok
+test source_versions::tests::api_git_and_unknown_versions_cannot_claim_original_wiki_order ... ok
+test source_versions::tests::changed_content_and_rights_remain_conflicts ... ok
+test source_versions::tests::changed_fact_or_unit_is_a_semantic_conflict ... ok
+test source_versions::tests::numeric_wiki_aliases_match_without_changing_original_revisions ... ok
+test source_versions::tests::numeric_wiki_cannot_use_local_order_or_mismatched_original_revision ... ok
+test source_versions::tests::observation_and_local_revision_do_not_change_semantics ... ok
+test source_versions::tests::original_wiki_api_order_requires_matching_url_identity_and_contract ... ok
+test source_versions::tests::original_wiki_order_accepts_page_and_url_origins ... ok
+test source_versions::tests::postgres_original_wiki_history_does_not_reset_heads_or_release_pins ... ok
+test source_versions::tests::url_wiki_repeat_ignores_observation_but_detects_content_conflict ... ok
+test tests::duplicate_revision_is_idempotent_but_conflict_is_rejected ... ok
+test tests::release_pins_each_logical_revision ... ok
+test tests::stale_update_cannot_resurrect_tombstone ... ok
+
+failures:
+
+---- pg_maintenance::tests::postgres_queue_races_expiry_and_checkpoint_restart stdout ----
+
+thread 'pg_maintenance::tests::postgres_queue_races_expiry_and_checkpoint_restart' (4158314) panicked at crates/brain-storage/src/pg_maintenance.rs:925:14:
+called `Result::unwrap()` on an `Err` value: Io(Os { code: 2, kind: NotFound, message: "No such file or directory" })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    pg_maintenance::tests::postgres_queue_races_expiry_and_checkpoint_restart
+
+test result: FAILED. 42 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.22s
+
+error: test failed, to rerun pass `-p brain-storage --lib`
+cargo-slot: EXIT=101

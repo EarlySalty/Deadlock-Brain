@@ -1,0 +1,26 @@
+24 explizite Git-Schritte, davon 20 lesend und 4 schreibend. Jeder Schreibschritt lief einzeln in einem eigenen Bash-Aufruf mit literalem absolutem Pfad. Keine Git-Schritte nach main oder origin.
+01 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --short
+02 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --stat
+03 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -1 --format=%H\ %s
+04 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 worktree list --porcelain
+05 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 rev-parse HEAD
+06 git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 status --porcelain
+07 git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 rev-parse HEAD
+08 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --name-only
+09 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 rev-parse HEAD
+10 git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 status --porcelain
+11 git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 rev-parse HEAD
+12 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff -- rust/crates/dbrain-reasoner/src/combat.rs
+13 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 add /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/combat.rs
+14 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 apply --cached --reverse --unidiff-zero /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/S2-HOLDBACK.patch
+15 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --
+16 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff -- rust/crates/dbrain-reasoner/src/combat.rs
+17 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 commit -m "fix(brain): Kontaktdauer an exakter Killzeit begrenzen" -m "Co-authored-by: GPT 6.1 Sol <modell@local>"
+18 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 show --format=fuller --stat HEAD
+19 git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 checkout --detach d12986c4eaaf6477a28b2fa672b43d1a5a8c561a
+20 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --porcelain=v2 --branch --untracked-files=no
+21 git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 status --porcelain=v2 --branch
+22 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --stat bd83d7abdef812a30daa47aa5f6a78de4f42263a d12986c4eaaf6477a28b2fa672b43d1a5a8c561a --
+23 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 status --porcelain=v2 --branch --untracked-files=no
+24 git -C /home/nathanael/.worktrees/brain-g-v2-20261007 log -1 --format=%H%n%P%n%B
+Alle 24 expliziten Git-Schritte: Exit 0. Interne Git-Leseaufrufe des regulären Gate werden nicht mitgezählt.

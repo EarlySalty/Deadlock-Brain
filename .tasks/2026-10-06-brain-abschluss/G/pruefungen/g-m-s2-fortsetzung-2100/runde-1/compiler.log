@@ -1,0 +1,4 @@
+cargo-slot: Slot 3, optimiert=0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.30s
+cargo-slot: EXIT=0

@@ -1,0 +1,146 @@
+[
+  {
+    "path": "rust/crates/brain-contracts/src/deadline.rs",
+    "sha256": "1c56ba8005599b15115004348de7ac50ce1eb27b86a00033516583d84db71584"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/ability_interactions.rs",
+    "sha256": "b3cd757f641fc4e5418b55c6951dc3394904a9796bfb036fe35b3caa77779b62"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/ai_roles.rs",
+    "sha256": "733082c9f47dc46d2ec3543bc12ede51940dcc43443570f1159dfb62430b5acf"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/backtest.rs",
+    "sha256": "33db2ae801b90d69ffcf3d08193487a9f2eafbffa1bcad7f89034dc63c5e9861"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/calculation.rs",
+    "sha256": "de2419f76368a233be9f848c3298f8560b42b1411b42d1a42c709b505231e15e"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/calculation_tests.rs",
+    "sha256": "bce7595afdab9ad3bb0e9ecf69d1335cd86431310aef243a8aa4143a4d2c49ca"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/combat.rs",
+    "sha256": "d8a34a344238977c7eab261c14cdc66a880345c41b87a8695ca79c2052652c18"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/composer.rs",
+    "sha256": "366be4e0b8e0a0ff7df3642d38158239c28324b4d0626f7a7b67fb9a8c69f6ad"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/core_rules.rs",
+    "sha256": "d6d461973146e27a23df9ecaadfb977fb378b040a93437d457bb07a84ebd9c6b"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/damage_conditions.rs",
+    "sha256": "ad27822c128bf2ed56b45c98bcc64cba1897e69b056d25bb8e5317920f2d512d"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/data.rs",
+    "sha256": "7b18c0c77db513df339066cf7565102985723a90c449147b33dbf4de032d97d7"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/defense.rs",
+    "sha256": "324aaee0be9d7fa1fffdc2198631207e7f5cf5c50c2a1b9c14f9013c35086c12"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/domain_builds.rs",
+    "sha256": "f236a6789eb2b9c1943be047781b5693d3faa408ca22eeb1bfa33d6869fb15c4"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/fix_tests.rs",
+    "sha256": "a6dd7c413aa0cb2ea815aa71c228486fe1cbd8a12a5758f9f5531fce30629b78"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/hero.rs",
+    "sha256": "23b9919cb4807cb44fe249604102ceda6600fda4cae41fafc57d571f65a4b424"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/inventory.rs",
+    "sha256": "64b4b9bcf031b2c8efccb3d5dca581a6afe622426aebe23d02e658b81be802d2"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/item.rs",
+    "sha256": "20b44dc6dc9cb4637fd4aa11af3c1249d0be60c83710196fb801efb77f92bcd3"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/item_interactions.rs",
+    "sha256": "aceee4827bef03588c1eae5be667326ffdd4da6f85c0f1a2fbaf18b9d14da7ee"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/lab.rs",
+    "sha256": "c7017d6573740763d4e1c83ca8bbd2acf94f2e20adba2bf60c931c67102e8744"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/lib.rs",
+    "sha256": "40f4ec9914032e1b18ae2166bbcc80c2157ec3ade373434eecc417817e6d1650"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/mechanics.rs",
+    "sha256": "5a24bf2b82325e2d7423753859031f647444d1a0532dfff80ac7129615f3be3f"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/meta.rs",
+    "sha256": "3e5c4c87cd5d3749bc61ee54f8c121f2b2296a7a563e5e6ff0b60f9089f45303"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/patch.rs",
+    "sha256": "8fa88158a11c458688b5895eca732c210f6bd3f3832ce721f92c810c9d05a18e"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/patch_current_tests.rs",
+    "sha256": "c85be2977dfc55f74a8d47beb6b8d61aecfcc4931fb2e08f245d53745b57cfae"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/patch_tests.rs",
+    "sha256": "9c7aedc78a6f77af6ce0b6eed42145b9636f764bb7ed56718097009e19390579"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/planner.rs",
+    "sha256": "4db24115f314d180f0571bbab2139a7d440cc7a426f628000701c8034138b22d"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/playstyle.rs",
+    "sha256": "169272e4948904130cb88827f2d7b6a1a0e8b312e597e461e8e7df5847e70dd4"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/population_prior.rs",
+    "sha256": "19183cd1b2e090e91f57224574dd362b27ba75eaa4c0941f979ab78a4d1f56ca"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/progression.rs",
+    "sha256": "e758c1d1789f809f113144cfe5df5927f514ce3bf79f7ed97392ebb8fe5eed24"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/publish.rs",
+    "sha256": "4885adda5b96a5d7ce35ce24511aba6841240e113d2eb6d87e65d3e856b8f7b7"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/src/types.rs",
+    "sha256": "e48f3317be84eb52ca476168896c393cfb7de7dbf306434c473032608d2bb8fe"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/testdata/calculation/glass-cannon.json",
+    "sha256": "36656fbb25e87fa5eef4e612e61c007bf2d21b80933e52603fcedabbd394190b"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/testdata/calculation/recorded-assets.json",
+    "sha256": "167323f78bb6e9bb62f0e51ce076515180164cc3479e4a67fd7dc8607b17dad0"
+  },
+  {
+    "path": "rust/crates/dbrain-reasoner/testdata/calculation/sheet-6759.json",
+    "sha256": "fd2984bb5b23ffaa59fa5a815ca7c2b67542221a57be677384cccbb0934ffbff"
+  },
+  {
+    "path": "rust/Cargo.toml",
+    "sha256": "665ac0228753e6419b4b7c656316440f673ec02de73815c8b70603dbcc60491a"
+  },
+  {
+    "path": "rust/Cargo.lock",
+    "sha256": "fa981f6e961bcba75a2cfb179051d11cd603a9ce2786e274985f4a68bee0ca39"
+  }
+]

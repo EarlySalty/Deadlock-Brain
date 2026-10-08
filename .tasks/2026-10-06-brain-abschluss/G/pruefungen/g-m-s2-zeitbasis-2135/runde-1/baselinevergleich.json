@@ -1,0 +1,67 @@
+{
+  "baseline_head": "8feb8b6ec0bf3dac7a8e180bfacc59ed001d3206",
+  "current_head": "b6c1153363f817ff1056a5fd28de13eec00cc58d",
+  "same_prerequisites": true,
+  "missing": [
+    "REASONER_SCRATCH_DSN",
+    "DEADLOCK_CENTRAL_DSN"
+  ],
+  "baseline": {
+    "results": [
+      "running 39 tests",
+      "test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+      "running 23 tests",
+      "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+      "running 11 tests",
+      "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s",
+      "running 306 tests",
+      "test result: FAILED. 294 passed; 12 failed; 0 ignored; 0 measured; 0 filtered out; finished in 133.87s",
+      "test result: FAILED. 294 passed; 12 failed; 0 ignored; 0 measured; 0 filtered out; finished in 139.41s"
+    ],
+    "failed": [
+      "data::tests::author_builds_use_real_timestamps_and_expose_schema_errors",
+      "data::tests::global_patch_provenance_survives_entity_filter_without_mechanic_reclassification",
+      "data::tests::hero_stats_resolve_external_id_to_profile_entity",
+      "data::tests::missing_ability_snapshot_is_an_error_instead_of_shifting_slots",
+      "data::tests::patch_events_resolve_allowed_aliases_for_external_hero_id",
+      "data::tests::snapshot_prefers_canonical_exact_match_before_newer_fuzzy_match",
+      "fix_tests::fix2_backtest_no_persist_on_read_only_connection",
+      "fix_tests::fix2_build_no_persist_on_read_only_connection",
+      "fix_tests::fix2_patch_impact_no_persist_on_read_only_connection",
+      "fix_tests::fix2_patch_impact_no_persist_on_read_only_connection",
+      "fix_tests::fix_e_live_warden_evidence",
+      "fix_tests::fix_e_live_warden_evidence",
+      "fix_tests::fix_e_loader_keeps_exact_field_dates_and_current_hero_scaling",
+      "fix_tests::fix_e_loader_keeps_exact_field_dates_and_current_hero_scaling",
+      "item::tests::scores_warden_reference_items_from_real_snapshot",
+      "item::tests::scores_warden_reference_items_from_real_snapshot"
+    ]
+  },
+  "current": {
+    "results": [
+      "running 43 tests",
+      "test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+      "running 23 tests",
+      "test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+      "running 11 tests",
+      "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s",
+      "running 312 tests",
+      "test result: FAILED. 300 passed; 12 failed; 0 ignored; 0 measured; 0 filtered out; finished in 76.98s"
+    ],
+    "failed": [
+      "data::tests::author_builds_use_real_timestamps_and_expose_schema_errors",
+      "data::tests::global_patch_provenance_survives_entity_filter_without_mechanic_reclassification",
+      "data::tests::hero_stats_resolve_external_id_to_profile_entity",
+      "data::tests::missing_ability_snapshot_is_an_error_instead_of_shifting_slots",
+      "data::tests::patch_events_resolve_allowed_aliases_for_external_hero_id",
+      "data::tests::snapshot_prefers_canonical_exact_match_before_newer_fuzzy_match",
+      "fix_tests::fix2_backtest_no_persist_on_read_only_connection",
+      "fix_tests::fix2_build_no_persist_on_read_only_connection",
+      "fix_tests::fix2_patch_impact_no_persist_on_read_only_connection",
+      "fix_tests::fix_e_live_warden_evidence",
+      "fix_tests::fix_e_loader_keeps_exact_field_dates_and_current_hero_scaling",
+      "item::tests::scores_warden_reference_items_from_real_snapshot"
+    ]
+  },
+  "identical_failed_cases": false
+}

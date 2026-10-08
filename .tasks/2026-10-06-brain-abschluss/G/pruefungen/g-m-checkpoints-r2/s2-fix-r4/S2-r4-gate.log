@@ -1,0 +1,5 @@
+[gpt-6.1-sol] BLOCK: Partial ammo refills can strand the weapon.
+
+1. rust/crates/dbrain-reasoner/src/combat.rs:1240 | BLOCKING — Both refill paths, here and at line 1600, cancel `reload_pending` even when the refill leaves `ammo < 1`. | An empty two-round magazine receiving a 25% refill holds 0.5 rounds. The shot loop simply breaks at line 1878, and the cancelled reload never replenishes it. Firing stalls until another refill. Both sites must preserve or restart reloading when insufficient ammo remains.
+
+2. rust/crates/dbrain-reasoner/src/combat.rs:1861 | NIT — Exact shot timestamps follow queued-hit processing through the frame’s end (`pending_hits`:1719; `delayed_item_hits`:1782). | This ordering suggests future hits could suppress earlier shots or distort target regeneration. The handler arguments and bodies are omitted; inspect those sections to establish chronological correctness.

@@ -1,0 +1,77 @@
+cargo-slot: Slot 1, optimiert=0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+error[E0599]: no associated function or constant named `after_with_clock` found for struct `RequestDeadline` in the current scope
+    --> crates/dbrain-reasoner/src/combat.rs:3453:58
+     |
+3453 |         let deadline = brain_contracts::RequestDeadline::after_with_clock(
+     |                                                          ^^^^^^^^^^^^^^^^ associated function or constant not found in `RequestDeadline`
+     |
+note: if you're trying to build a new `RequestDeadline`, consider using `RequestDeadline::after` which returns `RequestDeadline`
+    --> crates/brain-contracts/src/deadline.rs:27:4
+
+error[E0599]: no associated function or constant named `after_with_clock` found for struct `RequestDeadline` in the current scope
+    --> crates/dbrain-reasoner/src/combat.rs:3535:58
+     |
+3535 |         let deadline = brain_contracts::RequestDeadline::after_with_clock(
+     |                                                          ^^^^^^^^^^^^^^^^ associated function or constant not found in `RequestDeadline`
+     |
+note: if you're trying to build a new `RequestDeadline`, consider using `RequestDeadline::after` which returns `RequestDeadline`
+    --> crates/brain-contracts/src/deadline.rs:27:4
+
+error[E0599]: no associated function or constant named `after_with_clock` found for struct `RequestDeadline` in the current scope
+    --> crates/dbrain-reasoner/src/combat.rs:3678:58
+     |
+3678 |         let deadline = brain_contracts::RequestDeadline::after_with_clock(
+     |                                                          ^^^^^^^^^^^^^^^^ associated function or constant not found in `RequestDeadline`
+     |
+note: if you're trying to build a new `RequestDeadline`, consider using `RequestDeadline::after` which returns `RequestDeadline`
+    --> crates/brain-contracts/src/deadline.rs:27:4
+
+error[E0599]: no associated function or constant named `after_with_clock` found for struct `RequestDeadline` in the current scope
+    --> crates/dbrain-reasoner/src/combat.rs:3822:58
+     |
+3822 |         let deadline = brain_contracts::RequestDeadline::after_with_clock(
+     |                                                          ^^^^^^^^^^^^^^^^ associated function or constant not found in `RequestDeadline`
+     |
+note: if you're trying to build a new `RequestDeadline`, consider using `RequestDeadline::after` which returns `RequestDeadline`
+    --> crates/brain-contracts/src/deadline.rs:27:4
+
+error[E0599]: no associated function or constant named `after_with_clock` found for struct `RequestDeadline` in the current scope
+    --> crates/dbrain-reasoner/src/combat.rs:3933:58
+     |
+3933 |         let deadline = brain_contracts::RequestDeadline::after_with_clock(
+     |                                                          ^^^^^^^^^^^^^^^^ associated function or constant not found in `RequestDeadline`
+     |
+note: if you're trying to build a new `RequestDeadline`, consider using `RequestDeadline::after` which returns `RequestDeadline`
+    --> crates/brain-contracts/src/deadline.rs:27:4
+
+error[E0599]: no associated function or constant named `after_with_clock` found for struct `RequestDeadline` in the current scope
+    --> crates/dbrain-reasoner/src/combat.rs:3981:58
+     |
+3981 |         let deadline = brain_contracts::RequestDeadline::after_with_clock(
+     |                                                          ^^^^^^^^^^^^^^^^ associated function or constant not found in `RequestDeadline`
+     |
+note: if you're trying to build a new `RequestDeadline`, consider using `RequestDeadline::after` which returns `RequestDeadline`
+    --> crates/brain-contracts/src/deadline.rs:27:4
+
+error[E0599]: no associated function or constant named `after_with_clock` found for struct `RequestDeadline` in the current scope
+    --> crates/dbrain-reasoner/src/combat.rs:3997:47
+     |
+3997 |             brain_contracts::RequestDeadline::after_with_clock(Duration::from_secs(1), move || {
+     |                                               ^^^^^^^^^^^^^^^^ associated function or constant not found in `RequestDeadline`
+     |
+note: if you're trying to build a new `RequestDeadline`, consider using `RequestDeadline::after` which returns `RequestDeadline`
+    --> crates/brain-contracts/src/deadline.rs:27:4
+
+error[E0599]: no associated function or constant named `after_with_clock` found for struct `RequestDeadline` in the current scope
+    --> crates/dbrain-reasoner/src/combat.rs:4035:62
+     |
+4035 |             let deadline = brain_contracts::RequestDeadline::after_with_clock(
+     |                                                              ^^^^^^^^^^^^^^^^ associated function or constant not found in `RequestDeadline`
+     |
+note: if you're trying to build a new `RequestDeadline`, consider using `RequestDeadline::after` which returns `RequestDeadline`
+    --> crates/brain-contracts/src/deadline.rs:27:4
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `dbrain-reasoner` (lib test) due to 8 previous errors
+cargo-slot: EXIT=101

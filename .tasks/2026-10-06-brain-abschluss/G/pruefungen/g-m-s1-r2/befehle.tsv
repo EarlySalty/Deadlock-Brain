@@ -1,0 +1,23 @@
+Gruppe	Befehl	Exit	Bezug
+Start	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 rev-parse HEAD	0	4df1eb5aeeeb36b8fa4f68a320167be11bce68e6
+Quellen	sha256sum -c /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s1-r1/bereichs-quellen-fix.sha256	0	12/12 Ausgangsquellen identisch
+Format	/home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner	abgewiesen	Mutierendes cargo fmt verboten; regelkonform durch rustfmt auf eigener Datei ersetzt
+Format	/home/nathanael/.cargo/bin/rustfmt --edition 2021 /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/data.rs	0	Nur eigene Datei formatiert
+Tests	flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner --lib --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target weapon_profile_ -- --include-ignored --test-threads=1	abgewiesen	Worktree-Isolation lehnt flock mit test als nicht eindeutig git-frei ab; kein Prozess, keine Testzahlen, keine Wiederholung, kein direkter Ersatzweg
+Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 add -- rust/crates/dbrain-reasoner/src/data.rs	0	Nur eigene Datei
+Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 apply --cached --reverse /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s1-r2/data-s3-holdback.patch	0	S3-Datenhelfer unverändert unstaged
+Index	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --cached --check	0	Nur Waffenrate und unmittelbare Datentests im Index
+Format	/home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package dbrain-reasoner -- --check	0	fmt-check.log
+Commit	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 commit	0	bd83d7abdef812a30daa47aa5f6a78de4f42263a; nur data.rs; vorgeschriebener einzelner Trailer
+Prüfbaum	git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 status --short	0	Sauber vor Wechsel
+Prüfbaum	git -C /home/nathanael/.worktrees/brain-g-checkpoints-20261007 checkout --detach bd83d7abdef812a30daa47aa5f6a78de4f42263a	0	Eigener vorhandener Prüfbaum auf committed Fixstand; keine Tests
+Compiler	flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo check --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target	0	fix-check.log; 7,12 s
+Clippy	flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- -D warnings	0	fix-clippy.log; 8,85 s; ohne --no-deps
+Quellen	sha256sum -c /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s1-r2/bereichs-quellen-fix.sha256	0	12/12 aktuelle Quellen gebunden; 11/12 bytegleich zur Ausgangsbindung
+Grenze	Compilerquellen und Indexvergleich	0	Prüfbaum sauber auf Fix-SHA; Primärindex leer; S3 unverändert unstaged; kein Mechanics-Delta
+Gate	python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/brain-g-v2-20261007 --base 2b67796fb80ae3440a0c9e76671dfc8169032844 --head bd83d7abdef812a30daa47aa5f6a78de4f42263a	0	[gpt-6.1-sol] ALLOW: No merge-blocking defect found in the supplied changes.; vollständiges S1 gegen F2; S1-gesamt-gate.log
+Gate-NIT	mechanics.rs:388 und 435	kein BLOCK	Negative Burstzyklen werden von weapon_shot_interval und weapon_cycle_seconds akzeptiert; count=3, cycle=-0.15, intra=0.1, rate=3 ergibt negatives Intervall; außerhalb des Parserfixes, nicht erweitert
+Origin vorher	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 ls-remote --exit-code --heads origin refs/heads/feat/brain-v2-g-20261007	0	2b67796fb80ae3440a0c9e76671dfc8169032844; origin-vorher.log
+Push	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 push origin HEAD:refs/heads/feat/brain-v2-g-20261007	0	Feature nach tatsächlichem ALLOW gesichert; feature-push.log; kein Main
+Origin nachher	git -C /home/nathanael/.worktrees/brain-g-v2-20261007 ls-remote --exit-code --heads origin refs/heads/feat/brain-v2-g-20261007	0	bd83d7abdef812a30daa47aa5f6a78de4f42263a; origin-nachher.log; Abgleich mit Primär- und Prüfbaum-HEAD wahr
+Main/Runtime/Cleanup/Settle/S2/S3/S4	Nicht ausgeführt	kein Versuch	Außerhalb des Auftrags

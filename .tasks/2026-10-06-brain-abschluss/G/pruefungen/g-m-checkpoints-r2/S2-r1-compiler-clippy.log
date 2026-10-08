@@ -1,0 +1,20 @@
+Gruppe: S2 Runde 1
+Base: bd83d7abdef812a30daa47aa5f6a78de4f42263a
+HEAD: 54f76ba0315df6299d8bdc5e5c7c9f380d54d22c
+Indexgrenze: combat.rs ohne evaluate_inventory_with_deadline; planner.rs vollständig; zwei eigene Dateien
+Staged SHA256 combat: 5c6dd21da2afc95174cac6f4fecffb6c18beee3a6939f9541db524eab7fecd9c
+Staged SHA256 planner: 4db24115f314d180f0571bbab2139a7d440cc7a426f628000701c8034138b22d
+Commit: 687 insertions(+), 199 deletions(-)
+Prüfbaum: /home/nathanael/.worktrees/brain-g-checkpoints-20261007; checkout --detach 54f76ba0315df6299d8bdc5e5c7c9f380d54d22c; Exit 0
+Compiler: flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo check --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target
+Compiler Exit: 0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/crates/dbrain-reasoner)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.91s
+Clippy: flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- -D warnings
+Clippy Exit: 0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/crates/dbrain-reasoner)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 26.71s
+Format: /home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/.worktrees/brain-g-checkpoints-20261007/rust/Cargo.toml --package dbrain-reasoner -- --check; Exit 0; keine Ausgabe
+Tests: nicht ausgeführt
+Gate: S2-r1-gate.log; Exit 1; BLOCK
+Origin: S2 nicht gepusht

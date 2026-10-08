@@ -1,0 +1,14 @@
+822:    simulate_calculation_inner(hero, items, scenario, timing, innate, None)
+841:    let result = simulate_calculation_inner(hero, items, scenario, timing, innate, Some(deadline));
+846:fn simulate_calculation_inner(
+888:impl DamageReceiver for f64 {
+946:impl DamageReceiver for SimulationTarget {
+973:                        change.map_or(&settings.spirit, |change| &change.spirit)
+1394:            && scenario.is_none_or(|scenario| scenario.use_abilities)
+1396:            let mut best = None;
+2506:    target_remaining: &mut impl DamageReceiver,
+3428:            use_abilities: true,
+3492:                scenario.use_abilities = enabled;
+3538:            scenario.use_abilities = false;
+3570:            scenario.use_abilities = true;
+3691:        scenario.use_abilities = false;

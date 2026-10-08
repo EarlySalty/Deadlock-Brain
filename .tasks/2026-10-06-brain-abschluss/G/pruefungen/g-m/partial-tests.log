@@ -1,0 +1,20 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 25.09s
+     Running unittests src/lib.rs (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/target/g-m/debug/deps/dbrain_reasoner-d4d6a66a5ed7a34e)
+
+running 12 tests
+test calculation_tests::boon_and_total_spirit_bookends_keep_wardens_unrounded_base ... ok
+test calculation_tests::burst_weapon_uses_real_intra_and_inter_burst_gaps ... ok
+test calculation_tests::censored_ttk_never_gets_finite_rank ... ok
+test calculation_tests::conversion_keeps_zero_negative_properties_and_exact_original_pointers ... ok
+test calculation_tests::discrete_weapon_kills_include_last_shot_and_reload_convention ... ok
+test calculation_tests::missing_fields_stay_unknown_without_zero_or_blocking_independent_base_metrics ... ok
+test calculation_tests::pellet_damage_and_single_reload_apply_once ... ok
+test calculation_tests::ranks_cover_active_population_and_share_ties ... ok
+test calculation_tests::recorded_three_heroes_match_versioned_probe_values_without_relabelling_raw_provenance ... ok
+test calculation_tests::resist_shred_amp_damage_stages_preserve_negative_effective_resist ... ok
+test calculation_tests::target_resist_changes_shields_regen_and_explicit_headshots_reach_same_simulator ... ok
+test calculation_tests::wrong_progression_version_and_nonfinite_inputs_are_rejected ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 294 filtered out; finished in 0.55s
+

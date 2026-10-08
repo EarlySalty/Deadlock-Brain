@@ -1,0 +1,32 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-feeds)
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 05s
+     Running unittests src/lib.rs (/tmp/brain-g-k-r4-20261007-target/debug/deps/brain_kernel-d43560c4c76e1e50)
+
+running 58 tests
+test fact_relevance::tests::ambiguous_alias_does_not_select_highest_bm25_score ... ok
+test fact_relevance::tests::entity_field_alias_and_numeric_anchors ... ok
+test fact_relevance::tests::metadata_aliases_use_release_tokenizer_and_real_delimiters ... ok
+test fact_relevance::tests::patch_mode_and_provenance_are_required_when_requested ... ok
+test fact_relevance::tests::same_entity_field_with_two_sources_is_not_selected_by_score ... ok
+test fact_relevance::tests::specific_field_outranks_generic_field_for_one_entity ... ok
+test flight::c3_shared_validation::shared_answer_follower_revalidates_and_distinguishes_reader_failure_from_denial ... ok
+test flight::retained_pack_tests::oversized_uncited_pack_is_not_retained_for_single_flight_followers ... ok
+test flight::review_dependencies::shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_success ... FAILED
+test flight::review_publication::publication_and_internal_requests_do_not_share_flights_or_cache_entries ... ok
+test flight::review_publication::publication_follower_rechecks_uncited_head_after_successful_leader ... ok
+test flight::tests::concurrent_failures_are_shared_but_not_retained ... ok
+test outcome::tests::uncited_dependency_pack_is_shared_accounted_and_absent_from_wire_response ... ok
+test tests::actor_scopes_provider_mechanik_und_szenario_trennen_wiederverwendung ... ok
+test tests::boonkurven_analytics_und_regeln_erhalten_die_tatsaechliche_erweiterte_unteranfrage ... FAILED
+test tests::build_never_falls_back_to_generative_prose ... ok
+test tests::buildschutz_akzeptiert_nur_geprueftes_tatsaechliches_ergebnis_mit_zweck_und_deadline ... FAILED
+test tests::buildschutz_alter_port_ohne_pruefanschluss_schliesst_sicher ... ok
+test tests::buildschutz_cache_prueft_tatsaechlichen_plan_neu_ohne_doppelte_abrechnung ... FAILED
+test tests::buildschutz_deterministischer_domainweg_umgeht_nicht_den_vertrag_und_bleibt_nutzbar ... ok
+test tests::buildschutz_fehlerergebnis_und_unzitierter_build_sind_keine_buildantwort ... FAILED
+test tests::buildschutz_flight_folger_prueft_den_plan_neu_statt_leaderfreigabe_zu_uebernehmen ... 

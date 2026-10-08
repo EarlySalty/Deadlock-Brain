@@ -1,0 +1,33 @@
+START_HEAD=b352472fbe75429a221cefe5a59133f41bd35520
+END_HEAD=b352472fbe75429a221cefe5a59133f41bd35520
+CARGO_VERSION=cargo 1.99.0 (5f94df478 2026-08-27)
+ENV_OVERRIDES=keine
+FMT_COMMAND=/home/nathanael/.cargo/bin/rustfmt --check --edition 2021 --config skip_children=true /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve/src/discord_live.rs
+FMT_EXIT=0
+CHECK_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo check --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-serve --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-verbraucher-fixture-20261007-target
+CHECK_EXIT=0
+CLIPPY_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo clippy --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-serve --all-targets --locked --offline --jobs 3 --target-dir /tmp/brain-g-verbraucher-fixture-20261007-target -- -D warnings
+CLIPPY_EXIT=0
+TEST_COMMAND=flock /tmp/deadlock-cargo-release.lock /home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-serve --lib --locked --offline --jobs 3 --target-dir /tmp/brain-g-verbraucher-fixture-20261007-target discord_live::tests::grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget -- --exact --include-ignored --test-threads=1
+TEST_EXIT=0
+TEST_COUNTS=1 passed; 0 failed; 0 ignored; 0 measured; 47 filtered out
+TEST_DURATION=0.09s
+TEST_BUILD_DURATION=6m 15s
+TEST_EFFECT=850 und 3000 Panelbytes, jeweils zwei tatsächliche HTTP-Loopbackanfragen, bestehende Budget-/Pack-/Dokument-/Freigabeassertionen unverändert
+BASELINE_REFERENCE=/home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/VERBRAUCHER-R3.md
+BASELINE_SCOPE=Vorfix laut vorhandener Ursachenprüfung ein roter Zielcase, ursprüngliche Baseline derselbe Zielcase bestanden; kein eigener zusätzlicher Rotlauf
+FIXTURE_BEFORE_SHA256=641007767c3d827ec2740959ec7e3a08a20145de0e05056b6c398016c622f470
+FIXTURE_AFTER_SHA256=2ca4430652e9e3b15aeac89a0fa13f6bd8b2bd96b6587ff6b8b67c85fff7b9f0
+SOURCE_MANIFEST_FILES=420
+SOURCE_MANIFEST_SCOPE=rust/crates: Rustquellen und Cargo.toml; rust/Cargo.toml, rust/Cargo.lock, rust/rust-toolchain.toml
+SOURCE_MANIFEST_TIMING=während kalter Abhängigkeitskompilierung des Checklaufs, vor zielgerichtetem Testlauf; nach allen Prüfungen unverändert
+SOURCE_MANIFEST_SHA256=02dce94187968daab5161e1da9e03da480eb2d62d86dfe2d9eb2ec5acb7bd9e4
+SOURCE_MATCH_COMMAND=sha256sum --check --status /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-verbraucher-fixture/sources.sha256
+SOURCE_MATCH_EXIT=0
+DIFF_SHA256=2cbd695d954af1e6d675f5eafa1438e17c4d54699f8f96fdc3e498a3bd511d1b
+DIFF_MATCH_COMMAND=cmp /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-verbraucher-fixture/fix.patch /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-verbraucher-fixture/fix-after.patch
+DIFF_MATCH_EXIT=0
+DIFF_CHECK_COMMAND=git -C /home/nathanael/.worktrees/brain-g-v2-20261007 diff --check -- rust/crates/brain-serve/src/discord_live.rs
+DIFF_CHECK_EXIT=0
+OWNERSHIP=einzige Quelländerung: finish_reason stop im bestehenden JSON-Antwortfixture an discord_live.rs:785; zusätzliche Dateien ausschließlich eigene Rohbelege
+LIMITS=nur bestehender kontrollierter Loopbacktest, keine vollständige Serve-Abnahme; keine privaten oder Community-Livefälle, kein Infisicalabruf, keine externen Modelle, kein Git-Schreibschritt, kein Reviewer/Gate, kein Deploy oder Neustart

@@ -1,0 +1,20 @@
+199:fn proc_damage_property(name: &str) -> bool {
+201:        || matches!(name, "ProcBonusMagicDamage" | "ProcBonusPhysicalDamage")
+210:            || proc_damage_property(name)
+570:            if proc_damage_property(name) && !item.property_damage_types.contains_key(name) {
+583:                && !(name == "ProcChance" && *v == 100.0)
+584:                && !proc_damage_property(name)
+602:                "ProcBonusMagicDamage" | "ProcBonusPhysicalDamage"
+605:            && (item.properties.get("ProcChance") != Some(&100.0)
+610:            unknown.insert(format!("{}: deterministischer Bonus-Proc benötigt belegte 100 Prozent ProcChance und eine positive ProcCooldown", item.name));
+1150:    let item_proc_damage: Vec<Vec<(f64, f64, crate::DamageType)>> = items
+1155:                .filter(|(key, _)| proc_damage_property(key))
+1159:                        "ProcBonusMagicDamage" | "ProcBonusPhysicalDamage"
+1160:                    ) || item.properties.get("ProcChance") == Some(&100.0)
+1994:                    for (damage, scale, kind) in &item_proc_damage[idx] {
+2125:            if time < proc_ready[idx] || item_proc_damage[idx].is_empty() {
+2136:                for (damage, scale, damage_type) in &item_proc_damage[idx] {
+2219:            out.contact_seconds += (frame_end - time).clamp(0.0, duration);
+3657:            ("ProcBonusMagicDamage", DamageType::Spirit),
+3658:            ("ProcBonusPhysicalDamage", DamageType::Weapon),
+3673:                        proc.properties.insert("ProcChance".into(), chance);

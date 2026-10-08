@@ -1,0 +1,29 @@
+1363-            .map_err(ReasonerError::Db)?;
+1364-        let payload = parse_json(text, "Item-Snapshot")?;
+1365:        let item_id = integer(payload.get("id"));
+1366-        if item_id == 0
+1367-            || !seen.insert(item_id)
+1368-            || payload.get("type").and_then(Value::as_str) == Some("ability")
+1369-        {
+1370-            continue;
+1371-        }
+1372-        let Some((catalog_name, catalog_slot, catalog_tier, defense_kind, catalog_axis)) =
+1373-            catalog.get(&item_id)
+1374-        else {
+1375-            continue;
+1376-        };
+1377-        let class_name = string(payload.get("class_name"));
+1378-        let item_card = cards.get(&class_name.to_ascii_lowercase());
+1379-        let mut merged_payload = payload.clone();
+1380-        if let Some(object) = merged_payload.as_object_mut() {
+1381-            if let Some(card) = item_card {
+1382-                object.insert("item_card".to_string(), card.clone());
+1383-            }
+1384-        }
+1385-        let mut converter_payload = merged_payload.clone();
+1386-        converter_payload["item_slot_type"] = serde_json::json!(catalog_slot);
+1387-        let mut model = item_model_from_payload(&converter_payload)?;
+1388-        model.name = if catalog_name.is_empty() {
+1389-            string(payload.get("name"))
+1390-        } else {
+1391-            catalog_name.clone()

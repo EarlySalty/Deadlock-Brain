@@ -1,0 +1,20 @@
+S2 Fix Runde 4, 2026-10-07
+Primärworktree: /home/nathanael/.worktrees/brain-g-v2-20261007
+Prüfbaum: /home/nathanael/.worktrees/brain-g-checkpoints-20261007
+Ausgangs-HEAD: 9f965c88952177195a9ebba07b1de38357e2e585
+Index vor Änderung: leer, Exit 0.
+Graphify zuerst: graphify query "dbrain-reasoner combat simulate_inventory stack_bonus weapon_amp receive_damage" --graph /home/nathanael/.graphify/global-graph.json --budget 2000
+Fund übergeben: Stack bonus damage bypasses weapon amplification.
+Fund im Arbeitsbaum bestätigt: bullet enthält den Faktor 1.0 + stats.weapon_amp; stack_bonus wird danach unskaliert addiert und receive_damage erhält amp 0.0.
+Gemeinsamer Pfad: simulate, aufgerufen aus evaluate_core_with_deadline und simulate_calculation_inner.
+Zwillingssuche: rg in combat.rs nach DamageBonusFixedPerStack, stack_bonus, weapon_amp. Eine Stackbonus-Summierung und ein gemeinsamer Waffentrefferpfad. damage_event leitet Waffenverstärkung bereits weiter.
+Fix: Stackbonus vor Trefferanteil mit demselben Waffenverstärkungsfaktor skalieren. Vorhandene bullet-Verstärkung unverändert, keine doppelte Verstärkung.
+Direkte Regression ergänzt: genauer Waffenschaden bei 0, 20 und 100 Prozent Verstärkung für ausführlichen und schnellen Inventarpfad. Regression wird nicht ausgeführt.
+Vorhandene fünf Kommentarzeilen gemäß Arbeitsregel entfernt. Keine neuen Kommentare oder Warnungsunterdrückungen.
+Manifest: /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s1-r2/bereichs-quellen-fix.sha256
+Manifest-SHA256: d71dde37f66278d2c2c384f0220c378f4b400ad2f41d72eaecb7d8505bb474e7
+Manifestprüfung vor Änderung: elf andere Dateien stimmen überein, combat.rs ist die erlaubte Ausnahme, Exit 0.
+combat.rs Ausgangs-SHA256: b11bf3786a1c206efeaa148092da7d85a20894ac9b854c14734d24c99e044255
+S3-Wrapper evaluate_inventory_with_deadline Ausgangs-SHA256: 57c44e5b51d63df92450c8ba6a74ba4f8660a21e12d791764ee19d237f85c3de
+Werkzeuggrenze: ctx_execute_file konnte S2-r3-gate.log nicht lesen, weil dessen Worktree außerhalb seines konfigurierten Projektroots /home/nathanael/repos/Deadlock-Brain liegt. Kein Wechsel zu einem anderen Werkzeug für diesen abgewiesenen Logzugriff. Der im Auftrag vollständig benannte Fund wurde am erlaubten Editierziel bestätigt.
+Tests werden ausdrücklich nicht ausgeführt. Kein Push, Main, Release, Deploy, Runtime, Cleanup oder Settle.

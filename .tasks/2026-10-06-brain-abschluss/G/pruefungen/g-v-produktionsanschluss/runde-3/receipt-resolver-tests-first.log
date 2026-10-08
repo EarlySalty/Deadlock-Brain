@@ -1,0 +1,81 @@
+COMMAND /home/nathanael/.local/bin/cargo-slot test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml --package brain-storage --test mirror_game_context --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target -- --include-ignored --test-threads=1
+cargo-slot: Slot 2, optimiert=0
+   Compiling getrandom v0.2.17
+   Compiling smallvec v1.15.2
+   Compiling ring v0.17.14
+   Compiling form_urlencoded v1.2.2
+   Compiling icu_normalizer v2.2.0
+   Compiling tokio v1.52.3
+   Compiling rustls-webpki v0.103.13
+   Compiling rustls v0.23.41
+   Compiling parking_lot_core v0.9.12
+   Compiling idna_adapter v1.2.2
+   Compiling rand_core v0.6.4
+   Compiling parking_lot v0.12.5
+   Compiling rand_chacha v0.3.1
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling tokio-stream v0.1.18
+   Compiling futures-intrusive v0.5.0
+   Compiling rand v0.8.6
+   Compiling getrandom v0.4.3
+   Compiling rand v0.10.1
+   Compiling postgres-protocol v0.6.12
+   Compiling sqlx-core v0.8.6
+   Compiling postgres-types v0.2.14
+   Compiling tokio-util v0.7.18
+   Compiling whoami v2.1.2
+   Compiling tokio-postgres v0.7.18
+   Compiling sqlx-postgres v0.8.6
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-contracts)
+   Compiling sqlx-macros-core v0.8.6
+   Compiling postgres v0.19.14
+   Compiling sqlx-macros v0.8.6
+   Compiling sqlx v0.8.6
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-storage)
+error[E0277]: expected an `Fn()` closure, found `Arc<{closure@crates/brain-storage/tests/mirror_game_context.rs:32:18: 32:25}>`
+  --> crates/brain-storage/tests/mirror_game_context.rs:32:9
+   |
+30 |     let deadline = RequestDeadline::after_with_clock(
+   |                    --------------------------------- required by a bound introduced by this call
+31 |         Duration::from_secs(3600),
+32 |         Arc::new(move || *now.lock().unwrap()),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected an `Fn()` closure, found `Arc<{closure@crates/brain-storage/tests/mirror_game_context.rs:32:18: 32:25}>`
+   |
+   = help: the trait `Fn()` is not implemented for `Arc<{closure@crates/brain-storage/tests/mirror_game_context.rs:32:18: 32:25}>`
+   = note: wrap the `Arc<{closure@crates/brain-storage/tests/mirror_game_context.rs:32:18: 32:25}>` in a closure with no arguments: `|| { /* code */ }`
+note: required by a bound in `RequestDeadline::after_with_clock`
+  --> crates/brain-contracts/src/deadline.rs:40:21
+   |
+38 |     pub fn after_with_clock(
+   |            ---------------- required by a bound in this associated function
+39 |         duration: Duration,
+40 |         clock: impl Fn() -> Instant + Send + Sync + 'static,
+   |                     ^^^^^^^^^^^^^^^ required by this bound in `RequestDeadline::after_with_clock`
+
+error[E0277]: expected an `Fn()` closure, found `Arc<{closure@crates/brain-storage/tests/mirror_game_context.rs:291:18: 291:25}>`
+   --> crates/brain-storage/tests/mirror_game_context.rs:291:9
+    |
+289 |     expired.request_deadline = Some(RequestDeadline::after_with_clock(
+    |                                     --------------------------------- required by a bound introduced by this call
+290 |         Duration::from_secs(1),
+291 |         Arc::new(move || *now.lock().unwrap()),
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected an `Fn()` closure, found `Arc<{closure@crates/brain-storage/tests/mirror_game_context.rs:291:18: 291:25}>`
+    |
+    = help: the trait `Fn()` is not implemented for `Arc<{closure@crates/brain-storage/tests/mirror_game_context.rs:291:18: 291:25}>`
+    = note: wrap the `Arc<{closure@crates/brain-storage/tests/mirror_game_context.rs:291:18: 291:25}>` in a closure with no arguments: `|| { /* code */ }`
+note: required by a bound in `RequestDeadline::after_with_clock`
+   --> crates/brain-contracts/src/deadline.rs:40:21
+    |
+ 38 |     pub fn after_with_clock(
+    |            ---------------- required by a bound in this associated function
+ 39 |         duration: Duration,
+ 40 |         clock: impl Fn() -> Instant + Send + Sync + 'static,
+    |                     ^^^^^^^^^^^^^^^ required by this bound in `RequestDeadline::after_with_clock`
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `brain-storage` (test "mirror_game_context") due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+cargo-slot: EXIT=101
+
+EXIT=101 SIGNAL=null

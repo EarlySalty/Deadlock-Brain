@@ -1,0 +1,55 @@
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation.rs:672:
+                     .and_then(|properties| properties.get(key));
+                 let unit = property_unit(raw, key);
+                 let unhandled_scaling = raw
+-                    .and_then(|property| property.pointer("/scale_function/specific_stat_scale_type"))
++                    .and_then(|property| {
++                        property.pointer("/scale_function/specific_stat_scale_type")
++                    })
+                     .and_then(serde_json::Value::as_str)
+-                    .filter(|stat| !matches!(*stat, "ETechPower" | "ETechDuration" | "ETechCooldown"));
++                    .filter(|stat| {
++                        !matches!(*stat, "ETechPower" | "ETechDuration" | "ETechCooldown")
++                    });
+                 let measured = if let Some(stat) = unhandled_scaling {
+                     if scenario.use_abilities {
+                         combat_uncertain = true;
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation.rs:681:
+-                        unknowns.push(format!("Fähigkeit {}: Skalierung von {key} über {stat} nicht quantifiziert", ability.ability_id));
++                        unknowns.push(format!(
++                            "Fähigkeit {}: Skalierung von {key} über {stat} nicht quantifiziert",
++                            ability.ability_id
++                        ));
+                     }
+-                    unknown(unit, &format!("Property-Skalierung über {stat} ist nicht belegt"), &["/properties/scale_function/specific_stat_scale_type"], &ability_sources)
++                    unknown(
++                        unit,
++                        &format!("Property-Skalierung über {stat} ist nicht belegt"),
++                        &["/properties/scale_function/specific_stat_scale_type"],
++                        &ability_sources,
++                    )
+                 } else if needs_spirit && spirit.is_none() {
+                     unknown(
+                         unit,
+Diff in /home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner/src/calculation.rs:1066:
+     validate_calculation_scenario(scenario)?;
+     validate_sources(models)?;
+     if models.heroes.values().any(|hero| {
+-        ["player_selectable", "disabled", "in_development"].iter()
+-            .any(|field| hero.raw.get(*field).and_then(serde_json::Value::as_bool).is_none())
++        ["player_selectable", "disabled", "in_development"]
++            .iter()
++            .any(|field| {
++                hero.raw
++                    .get(*field)
++                    .and_then(serde_json::Value::as_bool)
++                    .is_none()
++            })
+     }) {
+-        return Err(error("Rangpopulation benötigt belegte Aktivitätsmerkmale für jeden Eingabehelden"));
++        return Err(error(
++            "Rangpopulation benötigt belegte Aktivitätsmerkmale für jeden Eingabehelden",
++        ));
+     }
+     let mut values = Vec::new();
+     let mut missing = BTreeMap::new();

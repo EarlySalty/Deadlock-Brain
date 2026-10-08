@@ -1,0 +1,107 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-feeds)
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 56s
+     Running unittests src/lib.rs (/tmp/brain-g-k-20261007-target/debug/deps/brain_contracts-f8d504b444fcd25d)
+
+running 2 tests
+test tests::fehlerabrechnung_trennt_beobachtung_reservierung_und_fehlende_abrechnung ... ok
+test tests::fehlerabrechnung_ueberlauf_erhaelt_zaehler_und_schliesst_sicher ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.01s
+
+     Running tests/ir_contracts.rs (/tmp/brain-g-k-20261007-target/debug/deps/ir_contracts-4c4819d55068b998)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.00s
+
+     Running tests/tool_extensions.rs (/tmp/brain-g-k-20261007-target/debug/deps/tool_extensions-9d91b1ea39b70750)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/tmp/brain-g-k-20261007-target/debug/deps/brain_kernel-9a921c78eb39511d)
+
+running 8 tests
+test tests::fehlerabrechnung_budgetfehler_nach_zweiter_antwort_verliert_keine_usage ... ok
+test tests::fehlerabrechnung_fehlende_toolabrechnung_reserviert_rest_ohne_nullmessung ... ok
+test tests::fehlerabrechnung_fehler_werden_nicht_gecached_und_hits_nicht_doppelt_abgerechnet ... ok
+test tests::fehlerabrechnung_flight_leader_behaelt_usage_bei_abgebrochener_deadline ... ok
+test tests::fehlerabrechnung_lokale_verweigerung_hat_keinen_erfundenen_verbrauch ... ok
+test tests::fehlerabrechnung_provider_kumuliert_vorherigen_turn_tool_und_retries ... ok
+test tests::fehlerabrechnung_spaeterer_toolcall_behaelt_alle_bisherigen_erfolge ... ok
+test tests::fehlerabrechnung_textport_behaelt_providerverbrauch_bei_fehler ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.06s
+
+     Running tests/core_kernel.rs (/tmp/brain-g-k-20261007-target/debug/deps/core_kernel-f20b7619fa965abe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running tests/evidence_errors.rs (/tmp/brain-g-k-20261007-target/debug/deps/evidence_errors-57b4a11db99a1c72)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/patch_validity.rs (/tmp/brain-g-k-20261007-target/debug/deps/patch_validity-257615001661bea8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/pr61_dependencies.rs (/tmp/brain-g-k-20261007-target/debug/deps/pr61_dependencies-bdb42558c4c4ed56)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/review_dependencies.rs (/tmp/brain-g-k-20261007-target/debug/deps/review_dependencies-230b7dab56ae2959)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/tmp/brain-g-k-20261007-target/debug/deps/brain_providers-d04e82344971ed4e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+     Running tests/faults.rs (/tmp/brain-g-k-20261007-target/debug/deps/faults-e669b857e69d0a47)
+
+running 7 tests
+test fehlerabrechnung_beide_wireformen_erhalten_usage_nach_parser_und_validierungsfehlern ... ok
+test fehlerabrechnung_budgetueberschreitung_behaelt_gemessene_usage ... ok
+test fehlerabrechnung_erfolg_traegt_messung_und_retriereservierung_getrennt ... ok
+test fehlerabrechnung_fehlende_oder_ambige_usage_bleibt_reserviert_statt_gemessen ... ok
+test fehlerabrechnung_http_retry_usage_ist_beobachtet_und_nicht_zweimal_reserviert ... ok
+test fehlerabrechnung_lokale_validierung_hat_belegte_null_ohne_socket ... ok
+test fehlerabrechnung_retry_und_spaeterer_parserfehler_kumulieren_reservierung_und_messung ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.22s
+
+   Doc-tests brain_contracts
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests brain_kernel
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests brain_providers
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

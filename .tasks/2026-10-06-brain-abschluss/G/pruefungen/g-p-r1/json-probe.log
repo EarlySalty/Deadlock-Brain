@@ -1,0 +1,4 @@
+Brain-Antwortprovider: Fehlerklasse chat_schema
+native=false: Err(InvalidResponse("invalid chat schema"))
+Brain-Antwortprovider: Fehlerklasse chat_schema
+native=true: Err(InvalidResponse("invalid chat schema"))

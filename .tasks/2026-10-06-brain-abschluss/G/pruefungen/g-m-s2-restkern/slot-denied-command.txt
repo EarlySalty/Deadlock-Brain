@@ -1,0 +1,14 @@
+slot=""
+while [ -z "$slot" ]; do
+  for i in 1 2 3; do
+    exec 8>/home/nathanael/Documents/.tasks/2026-10-02-offene-branches/locks/build-slot-$i.lock
+    if flock -n 8; then slot=$i; break; fi
+    exec 8>&-
+  done
+  [ -n "$slot" ] || sleep 10
+done
+/home/nathanael/.cargo/bin/cargo test --manifest-path /home/nathanael/.worktrees/brain-g-v2-20261007/rust/Cargo.toml -p dbrain-reasoner --lib --locked --offline --jobs 3 --target-dir /tmp/brain-g-m-0645-target combat::tests -- --include-ignored --nocapture > /home/nathanael/.worktrees/brain-g-v2-20261007/.tasks/2026-10-06-brain-abschluss/G/pruefungen/g-m-s2-restkern/baseline-combat.log 2>&1
+result=$?
+exec 8>&-
+printf 'EXIT=%s\n' "$result"
+exit "$result"

@@ -1,0 +1,145 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-kernel)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-retrieval)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-api)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-sources)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/brain-serve)
+error[E0432]: unresolved import `brain_contracts::ToolLanguage`
+  --> crates/brain-serve/tests/tool_evidence_loop.rs:21:5
+   |
+21 |     ToolLanguage, ToolMessage, ToolName, ToolRequest, ToolResult, ToolValidationPurpose, Usage,
+   |     ^^^^^^^^^^^^ no `ToolLanguage` in the root
+
+error[E0507]: cannot move out of `input.context.request_deadline` which is behind a shared reference
+   --> crates/brain-serve/tests/tool_evidence_loop.rs:536:17
+    |
+536 |                 input.context.request_deadline.unwrap().expires_at(),
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ -------- `input.context.request_deadline` moved due to this method call
+    |                 |
+    |                 move occurs because `input.context.request_deadline` has type `Option<RequestDeadline>`, which does not implement the `Copy` trait
+    |
+help: consider calling `.as_ref()` to borrow the value's contents
+    |
+536 |                 input.context.request_deadline.as_ref().unwrap().expires_at(),
+    |                                               +++++++++
+help: consider calling `.as_mut()` to mutably borrow the value's contents
+    |
+536 |                 input.context.request_deadline.as_mut().unwrap().expires_at(),
+    |                                               +++++++++
+help: consider cloning the value if the performance cost is acceptable
+    |
+536 |                 input.context.request_deadline.clone().unwrap().expires_at(),
+    |                                               ++++++++
+
+error[E0507]: cannot move out of index of `Vec<TurnInput>`
+   --> crates/brain-serve/tests/tool_evidence_loop.rs:537:17
+    |
+537 |                 inputs[0].context.request_deadline.unwrap().expires_at()
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ -------- value moved due to this method call
+    |                 |
+    |                 move occurs because value has type `Option<RequestDeadline>`, which does not implement the `Copy` trait
+    |
+help: consider calling `.as_ref()` to borrow the value's contents
+    |
+537 |                 inputs[0].context.request_deadline.as_ref().unwrap().expires_at()
+    |                                                   +++++++++
+help: consider calling `.as_mut()` to mutably borrow the value's contents
+    |
+537 |                 inputs[0].context.request_deadline.as_mut().unwrap().expires_at()
+    |                                                   +++++++++
+help: you can `clone` the value and consume it, but this might not be your desired behavior
+    |
+537 |                 <Option<RequestDeadline> as Clone>::clone(&inputs[0].context.request_deadline).unwrap().expires_at()
+    |                 +++++++++++++++++++++++++++++++++++++++++++                                  +
+
+error[E0507]: cannot move out of `execution.request_deadline` which is behind a shared reference
+    --> crates/brain-serve/tests/tool_evidence_loop.rs:554:17
+     |
+ 554 |                 execution.request_deadline.unwrap().expires_at(),
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^ -------- `execution.request_deadline` moved due to this method call
+     |                 |
+     |                 move occurs because `execution.request_deadline` has type `Option<RequestDeadline>`, which does not implement the `Copy` trait
+     |
+note: `std::option::Option::<T>::unwrap` takes ownership of the receiver `self`, which moves `execution.request_deadline`
+    --> /home/nathanael/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/option.rs:1011:25
+     |
+1011 |     pub const fn unwrap(self) -> T {
+     |                         ^^^^
+help: consider calling `.as_ref()` to borrow the value's contents
+     |
+ 554 |                 execution.request_deadline.as_ref().unwrap().expires_at(),
+     |                                           +++++++++
+help: consider calling `.as_mut()` to mutably borrow the value's contents
+     |
+ 554 |                 execution.request_deadline.as_mut().unwrap().expires_at(),
+     |                                           +++++++++
+help: consider cloning the value if the performance cost is acceptable
+     |
+ 554 |                 execution.request_deadline.clone().unwrap().expires_at(),
+     |                                           ++++++++
+
+error[E0507]: cannot move out of index of `Vec<TurnInput>`
+   --> crates/brain-serve/tests/tool_evidence_loop.rs:555:17
+    |
+555 |                 inputs[0].context.request_deadline.unwrap().expires_at()
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ -------- value moved due to this method call
+    |                 |
+    |                 move occurs because value has type `Option<RequestDeadline>`, which does not implement the `Copy` trait
+    |
+help: consider calling `.as_ref()` to borrow the value's contents
+    |
+555 |                 inputs[0].context.request_deadline.as_ref().unwrap().expires_at()
+    |                                                   +++++++++
+help: consider calling `.as_mut()` to mutably borrow the value's contents
+    |
+555 |                 inputs[0].context.request_deadline.as_mut().unwrap().expires_at()
+    |                                                   +++++++++
+help: you can `clone` the value and consume it, but this might not be your desired behavior
+    |
+555 |                 <Option<RequestDeadline> as Clone>::clone(&inputs[0].context.request_deadline).unwrap().expires_at()
+    |                 +++++++++++++++++++++++++++++++++++++++++++                                  +
+
+warning: variable does not need to be mutable
+   --> crates/brain-serve/tests/tool_evidence_loop.rs:669:17
+    |
+669 |             let mut next = context().with_request_deadline();
+    |                 ----^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+error[E0716]: temporary value dropped while borrowed
+   --> crates/brain-serve/tests/tool_evidence_loop.rs:669:28
+    |
+669 |             let mut next = context().with_request_deadline();
+    |                            ^^^^^^^^^                        - temporary value is freed at the end of this statement
+    |                            |
+    |                            creates a temporary value which is freed while still in use
+670 |             let first = provider
+671 |                 .answer_turn_accounted(&query(), &next, &[], &[definition()], &conversation(0))
+    |                                                  ----- borrow later used here
+    |
+    = note: consider using a `let` binding to create a longer lived value
+
+error[E0596]: cannot borrow data in dereference of `Cow<'_, AuthorizedContext>` as mutable
+   --> crates/brain-serve/tests/tool_evidence_loop.rs:675:17
+    |
+675 |                 next.principal.scopes.clear();
+    |                 ^^^^^^^^^^^^^^^^^^^^^ cannot borrow as mutable
+    |
+    = help: trait `DerefMut` is required to modify through a dereference, but it is not implemented for `Cow<'_, AuthorizedContext>`
+
+error[E0596]: cannot borrow data in dereference of `Cow<'_, AuthorizedContext>` as mutable
+   --> crates/brain-serve/tests/tool_evidence_loop.rs:677:17
+    |
+677 |                 next.principal.provider_egress.remove("internal");
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ cannot borrow as mutable
+    |
+    = help: trait `DerefMut` is required to modify through a dereference, but it is not implemented for `Cow<'_, AuthorizedContext>`
+
+Some errors have detailed explanations: E0432, E0507, E0596, E0716.
+For more information about an error, try `rustc --explain E0432`.
+warning: `brain-serve` (test "tool_evidence_loop") generated 1 warning
+error: could not compile `brain-serve` (test "tool_evidence_loop") due to 8 previous errors; 1 warning emitted
+warning: build failed, waiting for other jobs to finish...

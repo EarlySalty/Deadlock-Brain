@@ -1,0 +1,354 @@
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/crates/dbrain-reasoner)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 05s
+     Running unittests src/lib.rs (/home/nathanael/.worktrees/brain-g-v2-20261007/rust/target/g-m/debug/deps/dbrain_reasoner-d4d6a66a5ed7a34e)
+
+running 307 tests
+test ability_interactions::tests::coverage_requires_complete_rank_effect_and_rejects_unimplemented_keys ... ok
+test ability_interactions::tests::real_hook_rank_one_is_weapon_only_and_expires ... ok
+test ability_interactions::tests::real_malice_caps_and_expires_without_shard_multiplication ... ok
+test ability_interactions::tests::real_uppercut_and_beam_upgrades_only_apply_at_rank_three ... ok
+test ai_roles::tests::parses_all_role_fixtures ... ok
+test ai_roles::tests::parses_fenced_hero_fixture ... ok
+test ai_roles::tests::rejects_unknown_critic_verdict ... ok
+test ai_roles::tests::request_disables_reasoning_without_hard_coding_a_model ... ok
+test ai_roles::tests::run_critic_validates_verdict_over_http ... ok
+test backtest::tests::detects_shared_patch_direction ... ok
+test backtest::tests::measures_warden_seed_core_and_order ... ok
+test backtest::tests::population_backtest_reports_staple_gate_order_and_overlap ... ok
+test backtest::tests::reference_metrics_use_unique_reference_core_and_survive_serialization ... ok
+test backtest::tests::report_labels_missing_measurements_and_preserves_measured_values ... ok
+test backtest::tests::unmeasurable_orders_are_null_and_excluded_from_aggregate ... ok
+test calculation_tests::api_ids_and_ability_source_versions_are_not_silently_coerced ... ok
+test calculation_tests::boon_and_total_spirit_bookends_keep_wardens_unrounded_base ... ok
+test calculation_tests::burst_weapon_uses_real_intra_and_inter_burst_gaps ... ok
+test calculation_tests::censored_ttk_never_gets_finite_rank ... ok
+test calculation_tests::conversion_keeps_zero_negative_properties_and_exact_original_pointers ... ok
+test calculation_tests::discrete_weapon_kills_include_last_shot_and_reload_convention ... ok
+test calculation_tests::missing_fields_stay_unknown_without_zero_or_blocking_independent_base_metrics ... ok
+test calculation_tests::pellet_damage_and_single_reload_apply_once ... ok
+test calculation_tests::quantized_weapon_bonus_does_not_fabricate_a_planner_gain ... ok
+test calculation_tests::ranks_cover_active_population_and_share_ties ... ok
+test calculation_tests::real_skill_upgrades_charged_spirit_and_zero_scaling_use_shared_projection ... ok
+test calculation_tests::recorded_item_purchase_and_missing_shop_curve_do_not_share_false_zeroes ... ok
+test calculation_tests::recorded_three_heroes_match_versioned_probe_values_without_relabelling_raw_provenance ... ok
+test calculation_tests::resist_shred_amp_damage_stages_preserve_negative_effective_resist ... ok
+test calculation_tests::target_resist_changes_shields_regen_and_explicit_headshots_reach_same_simulator ... ok
+test calculation_tests::wrong_progression_version_and_nonfinite_inputs_are_rejected ... ok
+test combat::tests::above_and_below_health_conditions_have_opposite_windows ... ok
+test combat::tests::active_reload_and_fire_rate_share_activation_not_two_cooldowns ... ok
+test combat::tests::anti_weapon_debuff_has_no_value_without_weapon_pressure ... ok
+test combat::tests::aura_range_changes_only_its_own_two_effects ... ok
+test combat::tests::bullet_buildup_drives_afterburn_instead_of_a_free_cast ... ok
+test combat::tests::channel_consumes_shared_time_and_damage_is_window_bounded ... ok
+test combat::tests::charged_item_bonus_charges_do_not_affect_ordinary_abilities ... ok
+test combat::tests::charged_item_cooldowns_and_spacing_reach_cast_events ... ok
+test combat::tests::charged_item_spirit_is_not_global_spirit ... ok
+test combat::tests::class_only_ability_still_fights_and_unknown_height_is_visible ... ok
+test combat::tests::damage_and_fire_rate_are_joint_not_additive ... ok
+test combat::tests::dead_target_has_no_dot_or_lifesteal_and_new_targets_reset_health_threshold ... ok
+test combat::tests::earlier_self_defeat_does_not_reward_identical_capped_damage ... ok
+test combat::tests::fast_and_explained_evaluations_have_identical_numbers ... ok
+test combat::tests::faster_kills_earn_damage_credit_but_not_survival_credit ... ok
+test combat::tests::finite_charges_use_recharge_cooldown_not_charge_spacing ... ok
+test combat::tests::health_downside_faces_the_same_incoming_damage_and_typed_backup ... ok
+test combat::tests::hook_hit_amp_and_uppercut_reset_drive_real_casts ... ok
+test combat::tests::low_health_buff_uses_property_threshold_without_description ... ok
+test combat::tests::magazine_and_reload_share_the_same_imbue_item_cooldown ... ok
+test combat::tests::magazine_imbue_survives_target_switch_but_not_reload ... ok
+test combat::tests::malice_hits_amplify_following_damage_with_fast_path_parity ... ok
+test combat::tests::max_health_loss_applies_to_bonus_health_and_healing_cap ... ok
+test combat::tests::own_pulse_aura_continues_without_damage_during_target_switch_pause ... ok
+test combat::tests::periodic_damage_keeps_full_duration_rate_at_window_end ... ok
+test combat::tests::proc_cooldown_caps_fast_weapon_and_unknowns_remain_visible ... ok
+test combat::tests::quicksilver_reload_has_one_cast_bound_activation_and_fixed_binding ... ok
+test combat::tests::self_damage_cannot_fund_free_casts_and_rotation_stops_on_death ... ok
+test combat::tests::shop_uses_cumulative_threshold_not_sum_of_item_tiers ... ok
+test combat::tests::slow_can_prevent_escape_and_control_improves_contact ... ok
+test combat::tests::spirit_changes_whole_weapon_rate_and_magazine_value ... ok
+test combat::tests::spirit_does_not_change_weapon_rate_for_a_null_converter ... ok
+test combat::tests::spirit_weapon_axes_match_materialized_weapon_in_combat ... ok
+test combat::tests::sustain_refresh_is_derived_without_item_or_hero_identity ... ok
+test combat::tests::sustain_refresh_trace_scoring_and_fast_path_agree ... ok
+test combat::tests::sustain_refresh_uses_damage_timing_and_respects_proc_exclusion ... ok
+test combat::tests::sustain_score_does_not_double_count_the_flat_regen_property ... ok
+test combat::tests::target_death_ends_duel_and_does_not_reset_own_cooldown ... ok
+test combat::tests::typed_proc_events_respect_damage_type_and_trigger_spirit_threshold ... ok
+test combat::tests::typed_shields_do_not_cover_the_other_damage_channel ... ok
+test combat::tests::weapon_damage_does_not_receive_spirit_shred_or_spirit_lifesteal ... ok
+test composer::tests::ability_sources_and_sell_priorities_survive_publish_roundtrip ... ok
+test composer::tests::actual_sales_release_slots_and_sold_pairs_do_not_rank_or_explain ... ok
+test composer::tests::author_identity_overrides_context_classification_only_for_the_same_hero ... ok
+test composer::tests::context_dependent_bullet_defense_does_not_fill_a_core_band ... ok
+test composer::tests::does_not_invent_sales_for_lane_items_when_inventory_has_room ... ok
+test composer::tests::enforces_twelve_universal_slots_even_when_layout_requests_more ... ok
+test composer::tests::fills_each_cost_band_with_the_band_specific_score ... ok
+test composer::tests::fix_e_composer_does_not_apply_deltas_to_scores_again ... ok
+test composer::tests::fix_e_nonpositive_scores_never_enter_core_or_keep_high_confidence ... ok
+test composer::tests::fix_e_optional_keeps_only_twelve_highest_scores ... ok
+test composer::tests::free_text_issue_does_not_block_a_mentioned_item_only_exact_names_do ... ok
+test composer::tests::historical_flex_does_not_limit_universal_slots ... ok
+test composer::tests::imbue_uses_mechanics_gain_and_why_does_not_leak_score_fields ... ok
+test composer::tests::invalid_skill_source_falls_back_consistently_in_plan_build_and_payload ... ok
+test composer::tests::keeps_core_first_and_emits_reference_situation_order ... ok
+test composer::tests::keeps_reference_situation_blocks_without_copying_the_seed_core ... ok
+test composer::tests::matching_class_only_ability_never_becomes_imbue_zero ... ok
+test composer::tests::missing_upgrade_component_fails_before_any_persistence ... ok
+test composer::tests::no_valid_skill_source_is_not_replaced_by_an_invented_order ... ok
+test composer::tests::population_core_is_not_padded_to_eighteen_layout_entries ... ok
+test composer::tests::population_staple_stays_situational_without_same_hero_core_evidence ... ok
+test composer::tests::preserves_funded_acquisition_order_instead_of_resorting_by_item_phase ... ok
+test composer::tests::selected_pair_changes_the_next_purchase_and_explains_observation ... ok
+test composer::tests::tied_orders_from_the_same_author_are_input_order_independent ... ok
+test composer::tests::unconditional_passive_spirit_is_explained_without_an_invented_trigger ... ok
+test composer::tests::unquantified_core_mechanics_cap_build_confidence ... ok
+test composer::tests::upgrade_before_unlock_uses_a_valid_global_skill_fallback ... ok
+test composer::tests::valid_skill_prefix_is_preserved_when_a_repeated_unlock_starts_a_bad_tail ... ok
+test core_rules::tests::deterministic_units_and_provenance ... ok
+test core_rules::tests::wrong_patch_unverified_missing_and_conflicting_facts_fail ... ok
+test core_rules::tests::zero_unit_mismatch_nonfinite_and_depth_fail ... ok
+test damage_conditions::tests::refresh_integration_is_event_order_invariant ... ok
+test damage_conditions::tests::refresh_parser_requires_complete_mechanism_not_only_regen_numbers ... ok
+test damage_conditions::tests::refresh_stack_counts_are_time_and_target_bound ... ok
+test damage_conditions::tests::refresh_state_survives_steps_and_does_not_heal_before_hit ... ok
+test data::tests::ability_damage_and_tick_fields_preserve_units ... ok
+test data::tests::ability_identity_accepts_snapshot_aliases_and_class_name_without_id ... ok
+test data::tests::active_condition_uses_duration_over_cooldown ... ok
+test data::tests::actual_affliction_disables_item_procs_and_life_drain_does_not_loop ... ok
+test data::tests::actual_damage_aliases_keep_nonzero_ground_damage_and_periodic_units ... ok
+test data::tests::actual_duration_and_spirit_barrier_affect_whole_combat ... ok
+test data::tests::actual_frenzy_tooltip_and_glass_cannon_negative_property_are_retained ... ok
+test data::tests::actual_frenzy_uses_life_after_self_cost_and_healing ... ok
+test data::tests::actual_geist_self_damage_preserves_different_percent_bases ... ok
+test data::tests::actual_interaction_damage_and_beam_healing_reach_combat ... ok
+test data::tests::actual_quicksilver_snapshot_reloads_on_bound_cast_and_scales_damage ... ok
+test data::tests::actual_ultimate_item_waits_for_damage_then_its_delay ... ok
+test data::tests::author_builds_use_real_timestamps_and_expose_schema_errors ... ok
+test data::tests::frozen_aliases_choose_newest_snapshot_before_matching ... ok
+test data::tests::global_patch_provenance_survives_entity_filter_without_mechanic_reclassification ... ok
+test data::tests::hero_damage_uses_damage_and_falls_with_longer_cooldown ... ok
+test data::tests::hero_loader_rejects_invalid_spirit_scaling_before_normalization ... ok
+test data::tests::hero_model_prefers_numeric_ability_id_for_imbue_fallbacks ... ok
+test data::tests::hero_stats_resolve_external_id_to_profile_entity ... ok
+test data::tests::invalid_numbers_allow_snapshot_fallbacks ... ok
+test data::tests::missing_ability_snapshot_is_an_error_instead_of_shifting_slots ... ok
+test data::tests::null_or_false_imbue_marker_is_not_imbueable ... ok
+test data::tests::numeric_properties_keep_zero_and_skip_invalid_values ... ok
+test data::tests::parses_purchase_bonuses_with_string_values ... ok
+test data::tests::patch_events_resolve_allowed_aliases_for_external_hero_id ... ok
+test data::tests::scaling_preserves_unknown_and_zero_values ... ok
+test data::tests::snapshot_prefers_canonical_exact_match_before_newer_fuzzy_match ... ok
+test data::tests::weapon_profile_derives_shots_per_second_from_cycle_time ... ok
+test defense::ledger_tests::finite_shield_is_consumed_once_not_refilled_per_tick ... ok
+test defense::ledger_tests::integrating_constant_damage_in_steps_preserves_total_resources ... ok
+test defense::ledger_tests::typed_and_shared_shields_deplete_before_health_without_cross_channel_credit ... ok
+test defense::tests::capacity_has_a_continuous_channel_exhaustion_boundary ... ok
+test defense::tests::resistances_apply_to_their_channel_and_exchange_symmetrically ... ok
+test defense::tests::unspent_channel_shield_cannot_pay_for_health_loss ... ok
+test defense::tests::wrong_channel_is_worth_nothing_against_pure_damage ... ok
+test families::tests::disjoint_two_families_are_not_averaged ... ok
+test families::tests::globally_rare_item_can_be_a_family_staple_and_global_staple_can_be_absent ... ok
+test families::tests::missing_skills_and_imbues_are_unknown_not_zero_quality_observations ... ok
+test families::tests::nearly_identical_item_sets_share_a_family ... ok
+test families::tests::one_dominant_family_is_not_artificially_split ... ok
+test families::tests::one_prolific_player_is_not_independent_population_support ... ok
+test families::tests::regression_tests::all_matches_of_one_player_stay_on_the_same_side ... ok
+test families::tests::regression_tests::author_count_cannot_rescue_a_thin_player_cluster ... ok
+test families::tests::regression_tests::author_fallback_keys_preserve_different_bindings_and_skill_orders ... ok
+test families::tests::regression_tests::complete_current_family_passes_the_pure_publish_validator ... ok
+test families::tests::regression_tests::conditioning_cannot_reintroduce_duplicate_matches_into_win_statistics ... ok
+test families::tests::regression_tests::conflicting_duplicate_imports_have_order_independent_holdout_priors ... ok
+test families::tests::regression_tests::conflicting_duplicate_imports_have_order_independent_patch_evidence ... ok
+test families::tests::regression_tests::current_patch_counts_do_not_rescue_empty_core_or_low_confidence ... ok
+test families::tests::regression_tests::current_patch_counts_do_not_rescue_missing_skillorder_or_patch_identity ... ok
+test families::tests::regression_tests::distinct_families_with_the_same_six_common_roots_have_unique_ids ... ok
+test families::tests::regression_tests::duplicate_current_rows_cannot_evict_the_historical_cohort ... ok
+test families::tests::regression_tests::enough_current_matches_exclude_older_competing_family ... ok
+test families::tests::regression_tests::held_out_family_is_not_created_by_validation_data ... ok
+test families::tests::regression_tests::held_out_population_excludes_authors_and_deduplicates_purchases ... ok
+test families::tests::regression_tests::historical_matches_are_not_current_patch_evidence ... ok
+test families::tests::regression_tests::legacy_single_build_publish_cannot_silently_drop_variants ... ok
+test families::tests::regression_tests::local_family_policy_cannot_reduce_the_publication_sample_floor ... ok
+test families::tests::regression_tests::missing_family_blocks_legacy_publish_before_any_database_connection ... ok
+test families::tests::regression_tests::missing_post_patch_evidence_blocks_before_any_database_connection ... ok
+test families::tests::regression_tests::one_account_cannot_cross_holdout_partitions_by_changing_source_role ... ok
+test families::tests::regression_tests::repeated_matches_cannot_inflate_holdout_prevalence ... ok
+test families::tests::regression_tests::unknown_global_prevalence_and_sale_frequency_are_not_zero ... ok
+test families::tests::regression_tests::unrelated_patch_timestamp_cannot_relabel_the_cohort ... ok
+test families::tests::reliable_imbue_disagreement_separates_otherwise_identical_items ... ok
+test families::tests::renaming_and_input_permutations_cannot_change_numeric_discovery ... ok
+test families::tests::repeated_rows_do_not_inflate_sample_size ... ok
+test families::tests::skill_focus_preserves_family_specific_observed_orders ... ok
+test families::tests::thin_cluster_is_visible_but_not_publishable ... ok
+test families::tests::three_mechanically_distinct_families_remain_distinct ... ok
+test families::tests::upgrade_components_normalize_without_duplicate_identity_weight ... ok
+test fix_tests::fix2_backtest_no_persist_on_read_only_connection ... FAILED
+test fix_tests::fix2_build_no_persist_on_read_only_connection ... FAILED
+test fix_tests::fix2_patch_impact_no_persist_on_read_only_connection ... ok
+test fix_tests::fix_build_write_failure_rolls_back_and_reaches_caller ... ok
+test fix_tests::fix_e_loader_keeps_exact_field_dates_and_current_hero_scaling ... ok
+test fix_tests::fix_facade_build_persists_scores_and_keeps_patch_history ... FAILED
+test fix_tests::fix_facade_patch_impact_and_backtest_persist_idempotently ... FAILED
+test fix_tests::fix_fallback_skill_order_keeps_unlocks_and_upgrade_costs ... ok
+test fix_tests::fix_fallback_skill_order_preserves_explicit_steps ... ok
+test fix_tests::fix_fallback_skill_order_rejects_invalid_or_excess_steps ... ok
+test fix_tests::fix_migration_retains_all_scores_and_idempotent_backtests ... ok
+test fix_tests::fix_patch_tag_fallback_matches_sync_without_valid_patch ... ok
+test hero::tests::additive_scaling_uses_property_base_and_bonus ... ok
+test hero::tests::enriches_loaded_model_without_rebuilding_payload_fields ... ok
+test hero::tests::enrichment_accepts_ability_id_alias_and_class_name_fallback ... ok
+test hero::tests::enrichment_matches_identity_in_unsorted_abilities ... ok
+test hero::tests::enrichment_rejects_unknown_identity ... ok
+test hero::tests::missing_weapon_cannot_be_replaced_by_untyped_stat_values ... ok
+test hero::tests::ordinary_weapon_debuff_is_not_a_scaling_step ... ok
+test hero::tests::scale_function_is_only_used_when_present ... ok
+test inventory::tests::sale_and_purchase_are_atomic_and_missing_slot_is_rejected ... ok
+test inventory::tests::upgrade_consumes_component_and_charges_only_difference ... ok
+test item::tests::build_item_model_validates_loaded_model_without_parsing_payload_again ... ok
+test item::tests::fix_e_fire_rate_percentage_fallback_and_passive_spirit ... ok
+test item::tests::fix_e_snapshot_spirit_fire_rate_reaches_weapon_score_once ... ok
+test item::tests::passive_spirit_aliases_are_unconditional_and_not_counted_twice ... ok
+test item::tests::r1_item_marginal_anchors_base_spirit_exactly_once ... ok
+test item::tests::r2_nonfinite_conversion_is_visible_as_unknown_and_lowers_confidence ... ok
+test item::tests::score_separates_active_passive_and_meta ... ok
+test item::tests::total_ranks_slots_independently_of_soul_efficiency ... ok
+test item_interactions::tests::actual_aura_only_doubles_two_debuffs_for_one_nearby_hero ... ok
+test item_interactions::tests::actual_magnum_percentage_is_not_flat_damage_and_requires_buff ... ok
+test lab::tests::cannot_smuggle_publish_persistence_patch_or_ai ... ok
+test lab::tests::invalid_hero_is_rejected ... ok
+test lab::tests::invalid_numeric_inputs_are_not_silently_clamped ... ok
+test lab::tests::lab_is_current_and_never_enables_ai ... ok
+test lab::tests::valid_boundary_scenarios_are_preserved ... ok
+test mechanics::tests::ability_casts_include_initial_charges_without_exceeding_channel_budget ... ok
+test mechanics::tests::ability_tick_rate_reaches_item_proc_scoring ... ok
+test mechanics::tests::base_damage_dps_is_independent_of_previous_damage_plan ... ok
+test mechanics::tests::buy_phase_follows_soul_thresholds ... ok
+test mechanics::tests::condition_factor_applies_ramp_and_active_uptime ... ok
+test mechanics::tests::damage_plan_detects_weapon_core ... ok
+test mechanics::tests::damage_plan_reflects_spirit_only_for_a_converter ... ok
+test mechanics::tests::imbue_gain_changes_target_when_channel_budget_is_exhausted ... ok
+test mechanics::tests::imbue_target_chooses_highest_ability_dps ... ok
+test mechanics::tests::innate_weapon_bonus_is_preserved_while_conditional_bonus_uses_real_threshold ... ok
+test mechanics::tests::instant_reload_counts_saved_reload_time_instead_of_full_weapon_dps ... ok
+test mechanics::tests::magazine_uses_exact_reload_cycle_and_ignores_stale_cached_dps ... ok
+test mechanics::tests::max_health_steal_counts_target_loss_and_own_gain ... ok
+test mechanics::tests::melee_bound_effect_is_zero_without_melee_rotation ... ok
+test mechanics::tests::model_conditions_cover_shot_melee_action_and_state ... ok
+test mechanics::tests::negative_weapon_axes_are_preserved_and_end_stats_bounded ... ok
+test mechanics::tests::opponent_debuffs_and_self_cost_have_opposite_signs ... ok
+test mechanics::tests::overlapping_passive_properties_are_counted_once ... ok
+test mechanics::tests::passive_and_active_values_follow_seven_seconds_per_thirty ... ok
+test mechanics::tests::passive_melee_shred_requires_melee_but_health_remains_passive ... ok
+test mechanics::tests::per_slot_value_adds_combat_and_purchase_effect ... ok
+test mechanics::tests::per_soul_value_uses_item_cost ... ok
+test mechanics::tests::proc_stacks_respect_both_rates ... ok
+test mechanics::tests::property_values_distinguish_flat_shields_percent_damage_and_metadata ... ok
+test mechanics::tests::purchase_bonus_uses_slot_and_tier ... ok
+test mechanics::tests::purchase_bonuses_share_damage_or_health_per_second_units ... ok
+test mechanics::tests::purchase_phase_follows_cost_band_even_for_defensive_or_scaling_items ... ok
+test mechanics::tests::raw_weapon_conversion_axes_reach_projection_and_damage_plan ... ok
+test mechanics::tests::short_weapon_window_does_not_invent_a_whole_magazine ... ok
+test mechanics::tests::shot_proc_value_changes_with_proc_cooldown ... ok
+test mechanics::tests::spirit_purchase_values_duration_scaled_damage_per_activation ... ok
+test mechanics::tests::spirit_rate_provenance_reports_visible_status ... ok
+test mechanics::tests::spirit_weapon_rate_drops_non_finite_as_unknown ... ok
+test mechanics::tests::spirit_weapon_rate_fire_rate_is_only_a_percentage_fallback ... ok
+test mechanics::tests::spirit_weapon_rate_is_name_independent ... ok
+test mechanics::tests::spirit_weapon_rate_is_zero_without_a_conversion_stat ... ok
+test mechanics::tests::spirit_weapon_rate_keeps_finite_negative_signed_as_downside ... ok
+test mechanics::tests::spirit_weapon_rate_uses_rounds_directly_and_never_adds_fire_rate ... ok
+test mechanics::tests::threshold_burn_is_bounded_by_its_period_and_not_guaranteed_below_trigger ... ok
+test mechanics::tests::thresholds_nonhero_and_unmeasured_heals_are_not_guaranteed_combat_value ... ok
+test mechanics::tests::tick_proc_uses_item_tick_rate_and_limits_stacks ... ok
+test mechanics::tests::weapon_dps_uses_magazine_and_reload ... ok
+test meta::tests::apportionment_handles_zero_medians_and_totals_below_band_sum ... ok
+test meta::tests::apportions_warden_band_medians_to_rounded_total ... ok
+test meta::tests::caps_grouped_prevalence_before_sample_damping ... ok
+test meta::tests::counts_author_and_claim_hits_once_per_build_or_claim ... ok
+test meta::tests::dampens_meta_support_below_both_sample_thresholds ... ok
+test meta::tests::derives_core_layout_from_named_categories_and_falls_back_to_largest ... ok
+test meta::tests::fallback_flex_uses_corrected_total_capacity ... ok
+test meta::tests::pair_support_rejects_old_small_or_invalid_samples_and_deduplicates_direction ... ok
+test meta::tests::purchase_curve_and_reference_share_phases_without_alternatives_or_abilities ... ok
+test meta::tests::reports_interquartiles_and_flex_budget_from_target_bands ... ok
+test meta::tests::snapshot_capacity_overrides_target_and_requires_unambiguous_tiers ... ok
+test patch::current_patch_tests::current_item_patch_updates_proc_stats_and_property_scaling ... ok
+test patch::current_patch_tests::current_warden_patch_updates_level_scaling_and_ability_upgrades ... ok
+test patch::tests::applies_weapon_delta_without_estimating_a_value ... ok
+test patch::tests::fix_e_cumulative_factor_is_bounded ... ok
+test patch::tests::fix_e_duplicate_source_versions_use_raw_numbers_and_earliest_time ... ok
+test patch::tests::fix_e_missing_snapshot_never_changes_current_model ... ok
+test patch::tests::fix_e_numeric_direction_ratio_and_duplicate_labels ... ok
+test patch::tests::fix_e_rejects_ambiguous_tier_lines_and_unbounded_factors ... ok
+test patch::tests::fix_e_rejects_score_below_zero_even_with_plausible_field_ratio ... ok
+test patch::tests::fix_e_snapshot_boundary_and_percent_factor ... ok
+test patch::tests::fix_e_uses_item_field_origin_and_never_changes_foreign_damage_fields ... ok
+test patch::tests::parses_real_warden_style_patch_lines ... ok
+test patch::tests::weapon_buffs_recompute_warden_damage_plan ... ok
+test planner::tests::affordable_sale_is_evaluated_with_free_slots_and_can_be_rejected ... ok
+test planner::tests::frozen_acquisition_states_allow_funding_sales_before_slots_are_full ... ok
+test planner::tests::later_unlock_keeps_the_binding_chosen_at_purchase ... FAILED
+test planner::tests::priority_staple_with_negative_context_margin_is_not_forced ... ok
+test planner::tests::replacement_counts_the_lost_item_and_never_exceeds_slot_capacity ... ok
+test planner::tests::selection_uses_inventory_effect_instead_of_legacy_item_scores ... ok
+test planner::tests::staple_priority_cannot_force_a_sale_when_waiting_preserves_a_multiplier ... ok
+test playstyle::tests::conditioning_preserves_evidence_without_promoting_population_staples ... ok
+test playstyle::tests::direct_rounds_per_second_scaling_allows_spirit_on_weapon_builds ... ok
+test playstyle::tests::excluded_upgrade_components_remain_in_the_inventory_catalog ... ok
+test playstyle::tests::finite_direct_rate_overrides_positive_alias_for_weapon_style ... ok
+test playstyle::tests::fire_rate_fallback_uses_the_effective_base_rate_and_recovers_nonfinite_direct_values ... ok
+test playstyle::tests::offensive_axes_follow_the_requested_style_and_weapon_scaling ... ok
+test playstyle::tests::only_finite_positive_effective_weapon_coefficients_admit_spirit_items ... ok
+test playstyle::tests::requested_style_is_explicit_and_unknown_styles_fail_closed ... ok
+test playstyle::tests::unknown_scaling_keys_do_not_admit_spirit_items_to_weapon_style ... ok
+test population_prior::tests::staples_and_positions_are_reported ... ok
+test population_prior::tests::support_scales_with_prevalence_and_positive_mechanics_only ... ok
+test population_prior::tests::thin_coverage_note_fires_only_below_half_of_the_staples ... ok
+test progression::tests::actual_reward_thresholds_gate_unlocks_and_upgrades_without_spending_gold ... ok
+test progression::tests::repeated_or_foreign_source_tail_is_excluded_from_the_shared_published_order ... ok
+test progression::tests::scaling_upgrades_change_scaling_and_unknown_types_stay_visible ... ok
+test publish::tests::publish_roundtrip_keeps_annotations_imbue_sell_and_layout ... ok
+test types::tests::old_configs_keep_the_explicit_half_weapon_default ... ok
+test types::tests::shared_types_round_trip_without_losing_enum_fields ... ok
+test types::tests::situation_kind_serializes_as_tagged_value ... ok
+
+failures:
+
+---- fix_tests::fix2_backtest_no_persist_on_read_only_connection stdout ----
+
+thread 'fix_tests::fix2_backtest_no_persist_on_read_only_connection' (2053295) panicked at crates/dbrain-reasoner/src/fix_tests.rs:301:78:
+called `Result::unwrap()` on an `Err` value: Db(Database(PgDatabaseError { severity: Error, code: "42703", message: "column \"hero_build_id\" does not exist", detail: None, hint: None, position: Some(Original(372)), where: None, schema: None, table: None, column: None, data_type: None, constraint: None, file: Some("parse_relation.c"), line: Some(3722), routine: Some("errorMissingColumn") }))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- fix_tests::fix2_build_no_persist_on_read_only_connection stdout ----
+
+thread 'fix_tests::fix2_build_no_persist_on_read_only_connection' (2053641) panicked at crates/dbrain-reasoner/src/fix_tests.rs:296:76:
+called `Result::unwrap()` on an `Err` value: Db(Database(PgDatabaseError { severity: Error, code: "42703", message: "column \"hero_build_id\" does not exist", detail: None, hint: None, position: Some(Original(372)), where: None, schema: None, table: None, column: None, data_type: None, constraint: None, file: Some("parse_relation.c"), line: Some(3722), routine: Some("errorMissingColumn") }))
+
+---- fix_tests::fix_facade_build_persists_scores_and_keeps_patch_history stdout ----
+
+thread 'fix_tests::fix_facade_build_persists_scores_and_keeps_patch_history' (2054033) panicked at crates/dbrain-reasoner/src/fix_tests.rs:488:52:
+called `Result::unwrap()` on an `Err` value: Db(Database(PgDatabaseError { severity: Error, code: "42703", message: "column \"hero_build_id\" does not exist", detail: None, hint: None, position: Some(Original(372)), where: None, schema: None, table: None, column: None, data_type: None, constraint: None, file: Some("parse_relation.c"), line: Some(3722), routine: Some("errorMissingColumn") }))
+
+---- fix_tests::fix_facade_patch_impact_and_backtest_persist_idempotently stdout ----
+
+thread 'fix_tests::fix_facade_patch_impact_and_backtest_persist_idempotently' (2054062) panicked at crates/dbrain-reasoner/src/fix_tests.rs:605:62:
+called `Result::unwrap()` on an `Err` value: Db(Database(PgDatabaseError { severity: Error, code: "42703", message: "column \"hero_build_id\" does not exist", detail: None, hint: None, position: Some(Original(372)), where: None, schema: None, table: None, column: None, data_type: None, constraint: None, file: Some("parse_relation.c"), line: Some(3722), routine: Some("errorMissingColumn") }))
+
+---- planner::tests::later_unlock_keeps_the_binding_chosen_at_purchase stdout ----
+
+thread 'planner::tests::later_unlock_keeps_the_binding_chosen_at_purchase' (2054328) panicked at crates/dbrain-reasoner/src/planner.rs:1051:9:
+assertion `left == right` failed
+  left: 1
+ right: 2
+
+
+failures:
+    fix_tests::fix2_backtest_no_persist_on_read_only_connection
+    fix_tests::fix2_build_no_persist_on_read_only_connection
+    fix_tests::fix_facade_build_persists_scores_and_keeps_patch_history
+    fix_tests::fix_facade_patch_impact_and_backtest_persist_idempotently
+    planner::tests::later_unlock_keeps_the_binding_chosen_at_purchase
+
+test result: FAILED. 302 passed; 5 failed; 0 ignored; 0 measured; 3 filtered out; finished in 131.95s
+
+error: test failed, to rerun pass `-p dbrain-reasoner --lib`

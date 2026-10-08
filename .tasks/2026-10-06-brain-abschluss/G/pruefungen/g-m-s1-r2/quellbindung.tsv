@@ -1,0 +1,10 @@
+Beleg	SHA256	Status
+R1-Tests	2cb773e7224fe98bbcc490b43b3a3a5317ece814222111da5d1a892c5e313bf2	Vorheriger und neuer Commit bytegleich
+Loader/SQL	1aeaea5049a1603f06623602333a00a3c6b10f15f521e348a5489dcb26d45573	Vorheriger und neuer Commit bytegleich
+S3-Datenhelfer	ac44344122c36194dc961f2d8e1572dd58a4f0e53db694bfe79e948417ae98dc	2196 Bytes; unverändert unstaged; nicht im Fixcommit
+Data committed	e5212c5e71571455b3708ade7ed704a8ebf43c45bea72f1c1ab406fba8e8f50f	bd83d7abdef812a30daa47aa5f6a78de4f42263a
+Bereichsquellen	11/12 unverändert	Nur data.rs hat das beauftragte Delta
+Unknown	mechanics.rs weapon_cycle_seconds	Rate <= 0 ergibt None bei beiden Reloadkonventionen; kein zusätzlicher Guard nötig
+Unknown	calculation.rs rate_known	Vorhandener S3-Pfad fordert endliche positive Basisrate; unverändert, nicht Teil des S1-Commits
+Originaldaten	calculation/recorded-assets.json	Unversionierte Originalreferenz; Testquelle client_version=1 ist ausdrücklich ein Parserfall, keine Produktionsversionsbindung
+Tests	flock-Slot abgewiesen	Kein Testlauf; keine Wiederholung; kein direkter Cargo-Testaufruf und keine Tests im Hilfsbaum
