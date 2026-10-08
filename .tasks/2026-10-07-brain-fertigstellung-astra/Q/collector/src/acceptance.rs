@@ -136,18 +136,28 @@ fn candidates(root: &Path) -> Result<(Value, Vec<Value>, usize)> {
     ))
 }
 
-fn inventory(
-    root: &Path,
-    uid: u32,
-) -> Result<(std::collections::BTreeMap<String, String>, usize, usize)> {
+#[derive(PartialEq, Eq)]
+struct Inventory {
+    files: std::collections::BTreeMap<String, String>,
+    directories: BTreeSet<String>,
+    bindings: usize,
+}
+
+fn inventory(root: &Path, uid: u32) -> Result<Inventory> {
     restricted(root, true, uid)?;
     let mut files = std::collections::BTreeMap::new();
     let mut directories = vec![root.to_path_buf()];
-    let mut directory_count = 0;
+    let mut relative_directories = BTreeSet::new();
     let mut bindings = 0;
     while let Some(directory) = directories.pop() {
         restricted(&directory, true, uid)?;
-        directory_count += 1;
+        let relative = directory
+            .strip_prefix(root)
+            .map_err(|_| "private_inventory_failed")?
+            .to_str()
+            .ok_or("private_inventory_failed")?
+            .to_owned();
+        relative_directories.insert(relative);
         for entry in fs::read_dir(&directory).map_err(|_| "private_inventory_failed")? {
             let path = entry.map_err(|_| "private_inventory_failed")?.path();
             let metadata = fs::symlink_metadata(&path).map_err(|_| "private_inventory_failed")?;
@@ -179,7 +189,11 @@ fn inventory(
             }
         }
     }
-    Ok((files, directory_count, bindings))
+    Ok(Inventory {
+        files,
+        directories: relative_directories,
+        bindings,
+    })
 }
 
 pub(super) fn compare(left: &Path, right: &Path) -> Result<()> {
@@ -189,11 +203,11 @@ pub(super) fn compare(left: &Path, right: &Path) -> Result<()> {
     if a != b {
         return Err("private_copies_differ");
     }
-    let bytes = serde_json::to_vec(&a.0).map_err(|_| "private_inventory_encode_failed")?;
+    let bytes = serde_json::to_vec(&a.files).map_err(|_| "private_inventory_encode_failed")?;
     println!(
         "{}",
         json!({"probe_kind":"private_copy_integrity",
-        "files_per_copy":a.0.len(),"directories_per_copy":a.1,"digest_bindings_per_copy":a.2,
+        "files_per_copy":a.files.len(),"directories_per_copy":a.directories.len(),"digest_bindings_per_copy":a.bindings,
         "paths_and_bytes_identical":true,"owner_and_permissions_verified":true,
         "inventory_algorithm":"sha256_of_sorted_json_relative_path_to_sha256_map",
         "inventory_sha256":format!("{:x}",Sha256::digest(bytes)),"model_requests":0})
@@ -372,6 +386,76 @@ mod tests {
             digest
         }
 
+        fn directory(&self, relative: &str) {
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(self.0.join(relative))
+                .unwrap();
+        }
+
+        fn check_review(&self, review: &Value) -> Result<()> {
+            let path = self.0.join("review-v1.json");
+            write_new(&path, &serde_json::to_vec(review).unwrap()).unwrap();
+            check(&path)
+        }
+
+        fn synthetic_review_not_real_gold(&self) -> Value {
+            let kinds = [
+                "game_original_source",
+                "patch_original_source",
+                "server_or_own_status",
+                "coaching_or_community_help",
+                "self_description_without_internals",
+                "honest_unknown_or_nonsense",
+            ];
+            let mut hashes = serde_json::Map::new();
+            let mut cases = Vec::new();
+            for source in ["botlogs", "dm", "twitch"] {
+                let rows: Vec<Value> = (0..10)
+                    .map(|row| {
+                        json!({"original":format!("Synthetic fixture only, not real gold: {source} {row}?")})
+                    })
+                    .collect();
+                let digest = self.snapshot(source, &json!({"original_rows":rows}));
+                hashes.insert(source.to_owned(), json!(digest));
+                for row in 0..10 {
+                    cases.push(json!({
+                        "case_id":format!("{source}-{row:04}"),"source":source,
+                        "source_row":row,"source_sha256":digest,
+                        "expected_response_kind":kinds[cases.len() % kinds.len()]
+                    }));
+                }
+            }
+            self.snapshot(
+                "partial-plan-v1",
+                &json!({
+                    "schema":"brain.q.partial-plan.v1", "version":"synthetic_not_real_gold",
+                    "source_hashes":hashes,"cases":cases
+                }),
+            );
+            let (binding, mut cases, duplicates) = candidates(&self.0).unwrap();
+            assert_eq!(duplicates, 0);
+            for case in &mut cases {
+                case["accepted_gold"] = json!(true);
+                case["authenticity"] = json!("locally_verified_real_question");
+                case["privacy"] = json!("locally_verified_minimal_no_foreign_person_data");
+                case["provider_question"] = case["original"].clone();
+                case["expected_response_kind"] = case["provisional_response_kind"].clone();
+                case["original_facts"] = json!(["Synthetic fixture fact, not real gold"]);
+                case["original_fact_evidence"] = json!(["a".repeat(64)]);
+                case["review_evidence_sha256"] = json!("b".repeat(64));
+                case["transport"] = json!(match case["source"].as_str().unwrap() {
+                    "botlogs" => "discord_mention",
+                    "dm" => "discord_dm",
+                    "twitch" => "twitch_chat",
+                    _ => unreachable!(),
+                });
+            }
+            json!({"schema":"brain.q.local-review.v1", "binding":binding,
+                "source_root":self.0,"cases":cases,"model_runs":0})
+        }
+
         fn plan(&self) {
             let digest = self.snapshot(
                 "botlogs",
@@ -458,6 +542,142 @@ mod tests {
         assert!(compare(&a.0, &b.0).is_ok());
         fs::write(b.0.join("public-items.json"), b"[1]").unwrap();
         assert_eq!(compare(&a.0, &b.0), Err("private_binding_failed"));
+    }
+
+    #[test]
+    fn backup_comparison_rejects_different_empty_directory_paths() {
+        let a = Fixture::new();
+        let b = Fixture::new();
+        a.directory("a/empty");
+        b.directory("b/empty");
+        assert_eq!(compare(&a.0, &b.0), Err("private_copies_differ"));
+    }
+
+    #[test]
+    fn backup_comparison_accepts_identical_empty_directory_trees() {
+        let a = Fixture::new();
+        let b = Fixture::new();
+        assert_eq!(compare(&a.0, &b.0), Ok(()));
+        for fixture in [&a, &b] {
+            fixture.directory("a/empty");
+            fixture.directory("b");
+        }
+        assert_eq!(compare(&a.0, &b.0), Ok(()));
+    }
+
+    #[test]
+    fn local_review_accepts_30_synthetic_cases_not_real_gold() {
+        let source = Fixture::new();
+        let destination = Fixture::new();
+        let review = source.synthetic_review_not_real_gold();
+        assert_eq!(review["cases"].as_array().unwrap().len(), 30);
+        assert_eq!(
+            review["binding"]["source_hashes"]
+                .as_object()
+                .unwrap()
+                .len(),
+            3
+        );
+        let kinds: BTreeSet<_> = review["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| case["expected_response_kind"].as_str().unwrap())
+            .collect();
+        assert_eq!(kinds.len(), 6);
+        assert_eq!(destination.check_review(&review), Ok(()));
+    }
+
+    #[test]
+    fn synthetic_local_review_rejects_incomplete_accepted_cases() {
+        let source = Fixture::new();
+        let review = source.synthetic_review_not_real_gold();
+        for (field, value) in [
+            ("authenticity", json!("pending")),
+            ("privacy", json!("pending")),
+            ("review_evidence_sha256", json!("0")),
+            ("provider_question", json!("   ")),
+            ("provider_question", json!("<@123> Synthetic fixture?")),
+            ("provider_question", json!("<#123> Synthetic fixture?")),
+            (
+                "provider_question",
+                json!("Synthetic fixture 12345678901234567?"),
+            ),
+            ("expected_response_kind", json!("invalid")),
+            ("original_facts", json!([])),
+            ("original_fact_evidence", json!([])),
+            ("original_fact_evidence", json!(["0"])),
+            ("transport", json!("pending")),
+        ] {
+            let destination = Fixture::new();
+            let mut changed = review.clone();
+            changed["cases"][0][field] = value;
+            assert_eq!(
+                destination.check_review(&changed),
+                Err("review_accepted_case_incomplete"),
+                "{field}"
+            );
+        }
+    }
+
+    #[test]
+    fn synthetic_local_review_rejects_binding_original_and_duplicate_mutations() {
+        let source = Fixture::new();
+        let review = source.synthetic_review_not_real_gold();
+        let mut changed = review.clone();
+        changed["binding"]["source_version"] = json!("changed");
+        assert_eq!(
+            Fixture::new().check_review(&changed),
+            Err("review_source_binding_changed")
+        );
+        for (field, value) in [
+            ("source", json!("dm")),
+            ("source_row", json!(1)),
+            ("source_sha256", json!("c".repeat(64))),
+            ("original", json!("Changed synthetic fixture question?")),
+        ] {
+            let mut changed = review.clone();
+            changed["cases"][0][field] = value;
+            assert_eq!(
+                Fixture::new().check_review(&changed),
+                Err("review_original_changed"),
+                "{field}"
+            );
+        }
+        let mut changed = review.clone();
+        changed["cases"][0]["case_id"] = json!("unknown-synthetic-case");
+        assert_eq!(
+            Fixture::new().check_review(&changed),
+            Err("review_case_not_in_source")
+        );
+        let mut changed = review.clone();
+        changed["cases"][1] = changed["cases"][0].clone();
+        assert_eq!(
+            Fixture::new().check_review(&changed),
+            Err("review_accepted_duplicate")
+        );
+    }
+
+    #[test]
+    fn synthetic_local_review_rejects_insufficient_case_and_kind_coverage() {
+        let source = Fixture::new();
+        let review = source.synthetic_review_not_real_gold();
+        let mut changed = review.clone();
+        changed["cases"][0]["accepted_gold"] = json!(false);
+        assert_eq!(
+            Fixture::new().check_review(&changed),
+            Err("review_gold_coverage_incomplete")
+        );
+        let mut changed = review.clone();
+        for case in changed["cases"].as_array_mut().unwrap() {
+            if case["expected_response_kind"] == "honest_unknown_or_nonsense" {
+                case["expected_response_kind"] = json!("game_original_source");
+            }
+        }
+        assert_eq!(
+            Fixture::new().check_review(&changed),
+            Err("review_gold_coverage_incomplete")
+        );
     }
 
     #[test]
