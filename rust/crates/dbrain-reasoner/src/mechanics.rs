@@ -298,6 +298,153 @@ pub fn weapon_dps(weapon: &WeaponProfile, window: f64) -> f64 {
     weapon.bullet_damage * weapon.clip_size / cycle_with_reload
 }
 
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct DamageFactors {
+    pub raw_damage: f64,
+    pub amplification_factor: f64,
+    pub effective_resist: f64,
+    pub reduction_factor: f64,
+    pub effective_damage: f64,
+}
+
+pub fn damage_factors(
+    raw_damage: f64,
+    modifiers: &crate::DamageModifiers,
+) -> crate::Result<DamageFactors> {
+    let finite = std::iter::once(raw_damage)
+        .chain(std::iter::once(modifiers.resist))
+        .chain(modifiers.independent_resists.iter().copied())
+        .chain(modifiers.point_shreds.iter().copied())
+        .chain(modifiers.relative_reductions.iter().copied())
+        .chain(modifiers.amplifications.iter().copied())
+        .chain(modifiers.damage_reductions.iter().copied())
+        .all(f64::is_finite);
+    if !finite
+        || raw_damage < 0.0
+        || modifiers.resist > 1.0
+        || modifiers.independent_resists.iter().any(|v| *v > 1.0)
+        || modifiers.relative_reductions.iter().any(|v| *v > 1.0)
+        || modifiers.damage_reductions.iter().any(|v| *v > 1.0)
+        || modifiers.amplifications.iter().any(|v| *v < -1.0)
+    {
+        return Err(crate::ReasonerError::Data(
+            "Ungültige Schadensfaktoren".into(),
+        ));
+    }
+    let stacked_resist = 1.0
+        - modifiers
+            .independent_resists
+            .iter()
+            .fold(1.0 - modifiers.resist, |factor, value| {
+                factor * (1.0 - value)
+            });
+    let effective_resist = (stacked_resist - modifiers.point_shreds.iter().sum::<f64>())
+        * modifiers
+            .relative_reductions
+            .iter()
+            .map(|v| 1.0 - v)
+            .product::<f64>();
+    let amplification_factor = modifiers
+        .amplifications
+        .iter()
+        .map(|v| 1.0 + v)
+        .product::<f64>();
+    let reduction_factor = modifiers
+        .damage_reductions
+        .iter()
+        .map(|v| 1.0 - v)
+        .product::<f64>();
+    let effective_damage =
+        raw_damage * amplification_factor * (1.0 - effective_resist) * reduction_factor;
+    if !effective_damage.is_finite() || effective_damage < 0.0 {
+        return Err(crate::ReasonerError::Data(
+            "Schadensrechnung ergibt keinen endlichen nichtnegativen Wert".into(),
+        ));
+    }
+    Ok(DamageFactors {
+        raw_damage,
+        amplification_factor,
+        effective_resist,
+        reduction_factor,
+        effective_damage,
+    })
+}
+
+pub fn weapon_shot_interval(
+    shot_index: usize,
+    rate: f64,
+    timing: Option<&crate::WeaponTiming>,
+) -> f64 {
+    if rate <= 0.0 {
+        return f64::INFINITY;
+    }
+    if let Some(timing) = timing {
+        if let (Some(count), Some(cycle), Some(intra)) = (
+            timing.burst_shot_count,
+            timing.cycle_time,
+            timing.intra_burst_cycle_time,
+        ) {
+            let period = cycle + count as f64 * intra;
+            if count > 1 && period > 0.0 && intra > 0.0 {
+                let scale = count as f64 / period / rate;
+                return if shot_index.is_multiple_of(count) {
+                    cycle + intra
+                } else {
+                    intra
+                } * scale;
+            }
+        }
+    }
+    1.0 / rate
+}
+
+pub fn weapon_reload_seconds(
+    clip: f64,
+    weapon: &WeaponProfile,
+    timing: Option<&crate::WeaponTiming>,
+    speed_percent: f64,
+) -> f64 {
+    let raw = timing
+        .filter(|timing| timing.reload_single_bullets == Some(true))
+        .and_then(|timing| {
+            Some(timing.reload_single_bullets_initial_delay? + clip * timing.raw_reload_duration?)
+        })
+        .unwrap_or(weapon.reload_duration);
+    raw / (1.0 + speed_percent / 100.0)
+}
+
+pub fn weapon_cycle_seconds(
+    weapon: &WeaponProfile,
+    timing: Option<&crate::WeaponTiming>,
+    convention: crate::ReloadConvention,
+) -> Option<f64> {
+    if !weapon.clip_size.is_finite() || weapon.clip_size < 1.0 || weapon.shots_per_second <= 0.0 {
+        return None;
+    }
+    let shots = weapon.clip_size.floor();
+    let intervals = match convention {
+        crate::ReloadConvention::AfterLastShot => shots - 1.0,
+        crate::ReloadConvention::AfterFireInterval => shots,
+    };
+    let firing = if let Some(timing) =
+        timing.filter(|timing| timing.burst_shot_count.is_some_and(|n| n > 1))
+    {
+        let count = timing.burst_shot_count? as f64;
+        let intra = timing.intra_burst_cycle_time?;
+        let period = timing.cycle_time? + count * intra;
+        if period <= 0.0 || intra <= 0.0 {
+            return None;
+        }
+        ((intervals / count).floor() * period + (intervals % count) * intra) * count
+            / period
+            / weapon.shots_per_second
+    } else {
+        intervals / weapon.shots_per_second
+    };
+    let cycle = firing + weapon_reload_seconds(weapon.clip_size, weapon, timing, 0.0);
+    (cycle.is_finite() && cycle > 0.0).then_some(cycle)
+}
+
 pub fn ability_casts(ability: &AbilityModel, cfg: &ReasonerConfig) -> f64 {
     crate::data::ability_cast_count(ability, cfg)
 }

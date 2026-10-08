@@ -359,8 +359,6 @@ pub struct BuildObject {
     pub ability_order: Vec<AbilityStep>,
     pub confidence: Confidence,
     pub rationale: String,
-    /// The root remains the dominant plan for existing consumers; additional
-    /// independently planned families are carried as non-recursive children.
     #[serde(default)]
     pub family: Option<crate::families::BuildFamily>,
     #[serde(default)]
@@ -581,6 +579,457 @@ mod tests {
         let value = serde_json::to_value(SituationKind::CanBuyN(1)).unwrap();
         assert_eq!(value, json!({"CanBuyN": 1}));
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityKind {
+    Hero,
+    Item,
+    Ability,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EntityRef {
+    pub kind: EntityKind,
+    pub api_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelSource {
+    pub client_version: i64,
+    pub document_id: String,
+    pub original_url: String,
+    pub kind: String,
+    pub language: String,
+    pub json_pointer: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum MeasuredValue {
+    Known {
+        value: f64,
+        unit: String,
+        sources: Vec<ModelSource>,
+        rule: Option<String>,
+    },
+    Unknown {
+        unit: String,
+        reason: String,
+        missing_fields: Vec<String>,
+        sources: Vec<ModelSource>,
+    },
+    NotApplicable {
+        unit: String,
+        reason: String,
+    },
+}
+
+impl MeasuredValue {
+    pub fn value(&self) -> Option<f64> {
+        match self {
+            Self::Known { value, .. } if value.is_finite() => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn unit(&self) -> &str {
+        match self {
+            Self::Known { unit, .. }
+            | Self::Unknown { unit, .. }
+            | Self::NotApplicable { unit, .. } => unit,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct WeaponTiming {
+    pub pellets: Option<f64>,
+    pub burst_shot_count: Option<usize>,
+    pub cycle_time: Option<f64>,
+    pub intra_burst_cycle_time: Option<f64>,
+    pub reload_single_bullets: Option<bool>,
+    pub reload_single_bullets_initial_delay: Option<f64>,
+    pub reload_single_bullets_allow_cancel: Option<bool>,
+    pub recycle_time: Option<f64>,
+    pub raw_reload_duration: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SourcedWeaponModel {
+    pub item_id: i64,
+    pub source: ModelSource,
+    pub profile: WeaponProfile,
+    pub timing: WeaponTiming,
+    pub raw: serde_json::Value,
+    pub raw_metrics: BTreeMap<String, MeasuredValue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SourcedHeroModel {
+    pub model: HeroModel,
+    pub source: ModelSource,
+    pub raw: serde_json::Value,
+    pub starting_stats: BTreeMap<String, f64>,
+    pub primary_weapon: Option<i64>,
+    pub secondary_weapon: Option<i64>,
+    #[serde(default)]
+    pub melee_ability: Option<AbilityModel>,
+    pub ability_sources: BTreeMap<i64, ModelSource>,
+    pub unknowns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CalculationModels {
+    pub client_version: i64,
+    pub heroes: BTreeMap<i64, SourcedHeroModel>,
+    pub weapons: BTreeMap<i64, SourcedWeaponModel>,
+    pub items: Vec<ItemModel>,
+    pub item_sources: BTreeMap<i64, ModelSource>,
+    pub item_payloads: BTreeMap<i64, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ProgressionInput {
+    Souls(i64),
+    Boons(usize),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum SpiritInput {
+    Derived,
+    Total(f64),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReloadConvention {
+    AfterLastShot,
+    AfterFireInterval,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DamageModifiers {
+    pub resist: f64,
+    pub independent_resists: Vec<f64>,
+    pub point_shreds: Vec<f64>,
+    pub relative_reductions: Vec<f64>,
+    pub amplifications: Vec<f64>,
+    pub damage_reductions: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TargetChange {
+    pub at_seconds: f64,
+    pub bullet: DamageModifiers,
+    pub spirit: DamageModifiers,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CalculationTarget {
+    pub health: f64,
+    pub regeneration: f64,
+    pub shields: [f64; 3],
+    pub is_hero: bool,
+    pub bullet: DamageModifiers,
+    pub spirit: DamageModifiers,
+    pub changes: Vec<TargetChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CalculationScenario {
+    pub progression: ProgressionInput,
+    pub expected_level: Option<i64>,
+    pub expected_unspent_ap: Option<i64>,
+    pub spirit: SpiritInput,
+    #[serde(default)]
+    pub weapon_bonus_percent: Option<f64>,
+    #[serde(default)]
+    pub fire_rate_bonus_percent: Option<f64>,
+    pub item_ids: Vec<i64>,
+    pub purchases: Vec<crate::inventory::PurchaseTransition>,
+    pub inventory_rules: Option<crate::inventory::InventoryRules>,
+    pub max_active_items: Option<usize>,
+    pub ability_order: Vec<AbilityStep>,
+    pub imbues: BTreeMap<i64, i64>,
+    pub secondary_fire: bool,
+    pub use_abilities: bool,
+    pub target: CalculationTarget,
+    pub hit_fraction: f64,
+    pub headshot_fraction: f64,
+    pub headshot_bonus: Option<f64>,
+    pub distance_source_units: Option<f64>,
+    pub window_seconds: f64,
+    pub reload_convention: ReloadConvention,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalculationResult {
+    pub client_version: i64,
+    pub hero_id: i64,
+    pub scenario: CalculationScenario,
+    pub metrics: BTreeMap<String, MeasuredValue>,
+    pub api_weapon_metrics: BTreeMap<String, MeasuredValue>,
+    pub ability_properties: BTreeMap<i64, BTreeMap<String, MeasuredValue>>,
+    pub ability_views: BTreeMap<i64, AbilityPropertyView>,
+    pub progression: crate::progression::ProgressionEvidence,
+    pub shop_bonuses: BTreeMap<String, MeasuredValue>,
+    pub combat: Option<crate::combat::CombatScenarioEvaluation>,
+    pub assumptions: Vec<String>,
+    pub unknowns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MetricDirection {
+    HigherIsBetter,
+    LowerIsBetter,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MetricRank {
+    pub hero_id: i64,
+    pub value: f64,
+    pub rank: usize,
+    pub percentile: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PopulationRanking {
+    pub client_version: i64,
+    pub metric: String,
+    pub unit: String,
+    pub direction: MetricDirection,
+    pub scenario: CalculationScenario,
+    pub population_total: usize,
+    pub population_valid: usize,
+    pub missing: BTreeMap<i64, String>,
+    pub ranks: Vec<MetricRank>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AbilityScaleInput {
+    Spirit,
+    LightMeleeDamage,
+    BaseWeaponDamageIncrease,
+    Duration,
+    Cooldown,
+    Charges,
+    Unknown(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AbilityScaleClass {
+    TechDamage,
+    SingleStat,
+    HealingSpirit,
+    AbilityWeaponDamage,
+    AbilityCharges,
+    AbilityRechargeTime,
+    Unknown(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AbilityPropertyScale {
+    pub class: AbilityScaleClass,
+    pub input: AbilityScaleInput,
+    pub coefficient: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AbilityPropertyKind {
+    Damage,
+    Healing,
+    Time,
+    State,
+    Other,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ProjectedAbilityProperty {
+    pub kind: AbilityPropertyKind,
+    pub base: MeasuredValue,
+    pub value: MeasuredValue,
+    pub scale: Option<AbilityPropertyScale>,
+    pub raw: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AbilityBlockKind {
+    Melee,
+    Damage,
+    State,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AbilityPropertyView {
+    pub entity: EntityRef,
+    pub reference: String,
+    pub kind: AbilityBlockKind,
+    pub source: ModelSource,
+    pub applied_rank: usize,
+    pub properties: BTreeMap<String, ProjectedAbilityProperty>,
+    pub upgrades: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum GrowthMetric {
+    WeaponDps,
+    DamagePerMagazine,
+    Health,
+}
+
+impl GrowthMetric {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::WeaponDps => "weapon_dps",
+            Self::DamagePerMagazine => "damage_per_magazine",
+            Self::Health => "health",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BoonRange {
+    pub min_boons: usize,
+    pub max_boons: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GrowthPoint {
+    pub boons: usize,
+    pub metrics: BTreeMap<GrowthMetric, MeasuredValue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GrowthChange {
+    pub from_boons: usize,
+    pub to_boons: usize,
+    pub absolute: BTreeMap<GrowthMetric, MeasuredValue>,
+    pub relative: BTreeMap<GrowthMetric, MeasuredValue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HeroGrowth {
+    pub client_version: i64,
+    pub hero_id: i64,
+    pub scenario: CalculationScenario,
+    pub range: BoonRange,
+    pub base: GrowthPoint,
+    pub points: Vec<GrowthPoint>,
+    pub per_boon: Vec<GrowthChange>,
+    pub early_to_late: GrowthChange,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CurveLeader {
+    Left,
+    Right,
+    Tie,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CurveComparisonPoint {
+    pub boons: usize,
+    pub difference: MeasuredValue,
+    pub leader: CurveLeader,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Overtake {
+    pub last_strict_boons: usize,
+    pub first_strict_boons: usize,
+    pub from: CurveLeader,
+    pub to: CurveLeader,
+    pub tied_boons: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CurveComparisonStatus {
+    NoOvertake,
+    AllTied,
+    Overtakes,
+    Incomplete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HeroCurveComparison {
+    pub client_version: i64,
+    pub left: HeroGrowth,
+    pub right: HeroGrowth,
+    pub metric: GrowthMetric,
+    pub points: Vec<CurveComparisonPoint>,
+    pub overtakes: Vec<Overtake>,
+    pub tied_boons: Vec<usize>,
+    pub status: CurveComparisonStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PerShotContribution {
+    AbilityProperty {
+        ability_id: i64,
+        property: String,
+        occurrences_per_shot: f64,
+    },
+    SimulatedProc,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ContributionComparison {
+    HoldFixed,
+    Reevaluate,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SheetComparisonInput {
+    pub scenario: CalculationScenario,
+    pub contributions: Option<Vec<PerShotContribution>>,
+    pub sheet_shred: Option<f64>,
+    pub mode: ContributionComparison,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum SheetVariant {
+    Full,
+    WithoutWeaponBonus,
+    WithoutFireRateBonus,
+    Baseline,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SheetComparisonVariant {
+    pub scenario: CalculationScenario,
+    pub damage_per_shot: MeasuredValue,
+    pub shots_per_second: MeasuredValue,
+    pub additional_damage_per_shot: MeasuredValue,
+    pub sheet_dps: MeasuredValue,
+    pub simulated_proc_damage: Option<MeasuredValue>,
+    pub simulated_damage_per_second: Option<MeasuredValue>,
+    pub combat: Option<crate::combat::CombatScenarioEvaluation>,
+    pub unknowns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SheetComparisonResult {
+    pub client_version: i64,
+    pub hero_id: i64,
+    pub input: SheetComparisonInput,
+    pub variants: BTreeMap<SheetVariant, SheetComparisonVariant>,
+    pub assumptions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
