@@ -76,6 +76,8 @@ TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 1 
 
 Der Textnachweis betrifft den Lesertext dieses Berichts. Das Absolutwort bezieht sich auf die vollständig protokollierten eigenen Cargo-Aufrufe über cargo-slot; technische Pfade und IDs sind keine Umlaut-Ersatzschreibung.
 
-Sourcegate für Collectorfix `b215876e`: gpt-6.1-sol ALLOW, regulär erneut bestätigt; siehe `REVIEW.md`. Der bestätigte Verzeichnisvergleichsfehler aus Runde 1 wurde im frischen nativen Fixer behoben. Merge und Push werden nach Ausführung im Sicherungsnachweis ergänzt. Keine Produktdeploys oder Dienstneustarts durch Q. Kein Cleanup und kein Self-Settle bei offenem Gesamtauftrag.
+Sourcegate für Collectorfix `b215876e`: gpt-6.1-sol ALLOW, regulär erneut bestätigt; siehe `REVIEW.md`. Der bestätigte Verzeichnisvergleichsfehler aus Runde 1 wurde im frischen nativen Fixer behoben. Der sichere Collector-/Consumer-Belegteil ist mit `2e0de01f0da4bbb7f6630832b52b0694ea566c6f` auf main gesichert. Das Gesamtgate antwortete `[gpt-6.1-sol] ALLOW: No blocking defect established in the supplied diff.`, Exit 0. `HEAD:main` lief mit Exit 0; `ls-remote` bestätigte denselben vollständigen SHA unabhängig. Die Felder `merged` und `pushed` in STATUS gelten ausschließlich für diesen Teilstand, nicht für die Gesamtfreigabe. Keine Produktdeploys oder Dienstneustarts durch Q. Kein Cleanup und kein Self-Settle bei offenem Gesamtauftrag.
 
-MERGEPROTOKOLL[MS-1]: 8 Git-Schritte einzeln | Anläufe: 0 | Gate: historischer erster Fast-forward; Sourcefix danach gpt-6.1-sol ALLOW, eigener Main-Push noch nicht ausgeführt
+Die folgende Zählung betrifft die abgeschlossene Integration von `2e0de01f`: Status, explizites Add, Stagingliste, Commit, Fetch, Mainlog, Vorfahrenprüfung (Exit 0), Push und Remoteprüfung. Frühere Git-Schritte und spätere Nachträge sind nicht darin enthalten.
+
+MERGEPROTOKOLL[MS-1]: 9 Git-Schritte einzeln | Anläufe: 1 | Gate: gpt-6.1-sol ALLOW, HEAD:main Exit 0, Remote-SHA bestätigt

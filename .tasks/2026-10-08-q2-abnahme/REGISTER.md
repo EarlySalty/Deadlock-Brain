@@ -13,6 +13,7 @@
 | Altthread Q | gestoppt, nicht wiederaufgenommen |
 | Eigener Kontrollcheckout | `/home/nathanael/.worktrees/bots-q2-consumerproof-20261008`, detached `8e1b8f03`, keine Quelländerung; bestehender Wirefall 1 passed |
 | Sourcegate | Collectorfix `b215876e`, gpt-6.1-sol ALLOW, regulär erneut bestätigt; 17 Collector-Tests bestanden |
+| Gesicherter Teilstand | `2e0de01f0da4bbb7f6630832b52b0694ea566c6f` regulär auf main gepusht, Remote-SHA unabhängig bestätigt; Gesamtgate gpt-6.1-sol ALLOW, keine Produktaktivierung |
 | Status | aktive Runner-/Quellvorbereitung gemäß neuer K-Übergabe; keine Provider- oder Liveabnahme gestartet |
 
 Keine Koordination mit fremden Sessions. Produktcheckouts, zentrale Akten und Produktdateien unverändert. Cleanup und Self-Settle erst nach tatsächlichem Gesamtabschluss.
