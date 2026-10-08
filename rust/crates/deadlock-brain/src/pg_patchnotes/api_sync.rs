@@ -472,8 +472,26 @@ fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
         )
     };
     let cosmetic_position = words.iter().position(|word| cosmetic_word(word));
+    let describes_effect = cosmetic_position.is_some_and(|cosmetic| {
+        words[cosmetic + 1..].iter().any(|word| {
+            [
+                "appl",
+                "deal",
+                "caus",
+                "prevent",
+                "cancel",
+                "block",
+                "grant",
+                "trigger",
+                "interrupt",
+                "affect",
+            ]
+            .iter()
+            .any(|prefix| word.starts_with(prefix))
+        })
+    });
     let mechanical_effect = words.iter().enumerate().any(|(position, word)| {
-        cosmetic_position.is_none_or(|cosmetic| position < cosmetic)
+        cosmetic_position.is_none_or(|cosmetic| position < cosmetic || describes_effect)
             && !words.get(position + 1).is_some_and(|next| {
                 cosmetic_word(next)
                     || matches!(
@@ -1503,6 +1521,10 @@ mod tests {
             "- Holliday: Fixed damage being applied twice during the attack animation",
             "- Holliday: Fixed damage being applied twice at the end of the attack animation",
             "- Holliday: Fixed damage being applied twice right as the attack animation ends",
+            "- Holliday: Attack animation no longer applies damage twice",
+            "- Holliday: Attack animation no longer deals damage twice",
+            "- Holliday: Attack animation no longer causes damage twice",
+            "- Holliday: Attack animation no longer interrupts reload",
             "- Holliday: Fixed health not increasing with the icon on screen",
             "- Holliday: Fixed damage being applied twice after the attack animation",
             "- Holliday: Fixed healing not working when the sound plays",
