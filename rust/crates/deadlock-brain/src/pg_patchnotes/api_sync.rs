@@ -61,11 +61,6 @@ pub fn sync_patchnotes(
             skipped.push(json!({"url":post.link,"reason":"announcement_without_patch_changes"}));
             continue;
         }
-        let options = ImportPatchnoteOptions {
-            patch_id: row.id,
-            dsn_env: dsn_env.into(),
-            dry_run,
-        };
         let mut prepared = prepare_api_patch(&row, &resolved, &index)?;
         if prepared.events.is_empty() {
             skipped.push(json!({"url":post.link,"reason":"original_without_parseable_patch_events","not_imported_as_patch":true}));
@@ -83,6 +78,11 @@ pub fn sync_patchnotes(
                 prepared = prepare_api_patch(&canonical_row, &resolved, &index)?;
             }
         }
+        let options = ImportPatchnoteOptions {
+            patch_id: prepared.row_id,
+            dsn_env: dsn_env.into(),
+            dry_run,
+        };
         imported.push(import_prepared_patch(&mut client, &options, prepared)?);
     }
     Ok(
@@ -453,7 +453,8 @@ fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
         | "match" | "matches" | "crash" | "crashes" => true,
         "charge" | "charges" | "jump" | "jumps" | "dash" | "dashes" | "knockback" | "knockdown"
         | "stun" | "stuns" | "root" | "roots" | "silence" | "cast" | "casting" | "projectile"
-        | "projectiles" | "bounce" | "bounces" | "stack" | "stacks" => bound_entity,
+        | "projectiles" | "bounce" | "bounces" | "stack" | "stacks" | "slow" | "slows"
+        | "invulnerability" | "invulnerable" | "immunity" | "immune" => bound_entity,
         _ => false,
     });
     let entity_transition = bound_entity
@@ -621,6 +622,20 @@ mod tests {
                 Some("2"),
             ),
             (
+                "- Holliday: slow increased from 20% to 30%",
+                "Holliday",
+                "buff",
+                Some("20%"),
+                Some("30%"),
+            ),
+            (
+                "- Holliday: invulnerability increased from 3 to 4",
+                "Holliday",
+                "buff",
+                Some("3"),
+                Some("4"),
+            ),
+            (
                 "- Holliday: added a double jump",
                 "Holliday",
                 "added",
@@ -713,6 +728,12 @@ mod tests {
             "bounces",
             "stack",
             "stacks",
+            "slow",
+            "slows",
+            "invulnerability",
+            "invulnerable",
+            "immunity",
+            "immune",
         ]
         .map(|word| format!("Added {word}"))
         .to_vec();
@@ -720,6 +741,8 @@ mod tests {
             "Increased from 1 to 2".into(),
             "Reduced from 2 to 1".into(),
             "Decreased from 2% to 1%".into(),
+            "Slow increased from 20% to 30%".into(),
+            "Invulnerability increased from 3 to 4".into(),
         ]);
         for (heading, entity, section) in [
             ("Holliday", "Holliday", "Holliday"),
