@@ -42,6 +42,14 @@ pub(super) fn authorize(
             "invalid provider context or query egress".into(),
         ));
     }
+    if brain_contracts::invite::requested(query)
+        || evidence
+            .iter()
+            .any(|item| item.source_id == brain_contracts::invite::SOURCE)
+    {
+        brain_contracts::invite::validate_projection(query, context, evidence, true)
+            .map_err(super::provider_contract_error)?;
+    }
     if evidence.len() > 100 {
         return Err(ProviderError::InvalidResponse(
             "too many evidence items".into(),
@@ -86,6 +94,13 @@ pub(super) fn authorize_turn(
     conversation: &brain_contracts::ToolConversation,
 ) -> Result<()> {
     authorize(query, context, evidence)?;
+    if brain_contracts::invite::requested(query)
+        && (!tools.is_empty() || !conversation.messages.is_empty())
+    {
+        return Err(ProviderError::InvalidResponse(
+            "invite tool conversation denied".into(),
+        ));
+    }
     conversation
         .validate(tools)
         .map_err(super::provider_contract_error)?;
@@ -177,6 +192,51 @@ mod tests {
         ))
         .is_ok());
     }
+    #[test]
+    fn statusbelege_duerfen_weder_gemischt_noch_fuer_allgemeine_fragen_ausgehen() {
+        use brain_contracts::{invite, Budget, DiscordRequestContext, Principal};
+        use std::collections::BTreeSet;
+        let mut query: Query = serde_json::from_value(serde_json::json!({
+            "request_id":"fixture-request", "conversation_id":"fixture-conversation",
+            "text":invite::QUESTION, "requested_scopes":["bot.public"],
+        }))
+        .unwrap();
+        let context = AuthorizedContext {
+            discord: Some(DiscordRequestContext {
+                user_id: Some(42),
+                request_id: query.request_id.clone(),
+                scope: "discord.request:fixture".into(),
+                allow_discord_reads: false,
+            }),
+            principal: Principal {
+                actor_id: "fixture".into(),
+                channel: "discord".into(),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:fixture".into()]),
+                provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
+            },
+            conversation_id: query.conversation_id.clone(),
+            knowledge_release: "fixture".into(),
+            deadline_ms: 1000,
+            budget: Budget::default(),
+            request_deadline: None,
+        };
+        let item = invite::status_evidence(
+            &invite::SelfInviteStatus {
+                status: invite::InviteStatus::Unknown,
+                at: None,
+            },
+            "discord.request:fixture".into(),
+        )
+        .unwrap();
+        assert!(authorize(&query, &context, std::slice::from_ref(&item)).is_ok());
+        assert!(authorize(&query, &context, &[item.clone(), item.clone()]).is_err());
+        let mut forged = item.clone();
+        forged.content = "{\"status\":\"sent\",\"at\":null,\"user_id\":99}".into();
+        assert!(authorize(&query, &context, &[forged]).is_err());
+        query.text = "Wie funktioniert der Invite-Bot?".into();
+        assert!(authorize(&query, &context, &[item]).is_err());
+    }
+
     #[test]
     fn cost_overflow_fails_closed() {
         assert!(cost(

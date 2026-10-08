@@ -233,6 +233,7 @@ where
                 allow_discord_reads,
             });
         }
+        let query = brain_contracts::invite::project_query(&query);
         let mut answer = self.kernel.answer_for_publication(&query, &context);
         if deadline.check().is_err() {
             return deadline_response();
@@ -439,6 +440,65 @@ mod tests {
             .contains("private")
             && context.discord.as_ref().unwrap().request_id == query.request_id));
         task.abort();
+    }
+
+    #[test]
+    fn eigene_statusfrage_wird_erst_nach_consumerbindung_projektiert() {
+        struct RecordingKernel(Arc<std::sync::Mutex<Vec<(Query, AuthorizedContext)>>>);
+        impl AnswerKernelPort for RecordingKernel {
+            fn answer_for_publication(
+                &self,
+                query: &Query,
+                context: &AuthorizedContext,
+            ) -> AnswerResponse {
+                self.answer(query, context)
+            }
+            fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push((query.clone(), context.clone()));
+                FixedKernel {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                }
+                .answer(query, context)
+            }
+        }
+        let recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let service = ApiService::new(
+            PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
+                "fixture",
+                "discord-bot",
+                "discord",
+                scopes(&["bot.public"]),
+                scopes(&["public"]),
+            )])),
+            RecordingKernel(recorded.clone()),
+            "release",
+            2000,
+            Budget::default(),
+        )
+        .with_discord_consumers(BTreeSet::from([("discord-bot".into(), "discord".into())]));
+        let mut raw = query(&["bot.public"]);
+        raw.text = "Bin ich eingeladen? Chatkontext: privater Zusatz 76561197960265839".into();
+        raw.patch = Some("private Zusatzkennung".into());
+        raw.profile = AnswerProfile::Build;
+        let response = service.handle_answer_with_discord(
+            Some("Bearer fixture"),
+            &serde_json::to_vec(&raw).unwrap(),
+            brain_contracts::RequestDeadline::after(std::time::Duration::from_secs(2)),
+            Some(42),
+            false,
+        );
+        assert_eq!(response.status, 200);
+        let recorded = recorded.lock().unwrap();
+        let (clean, context) = &recorded[0];
+        assert_eq!(clean, &brain_contracts::invite::project_query(&raw));
+        let discord = context.discord.as_ref().unwrap();
+        assert_eq!(discord.user_id, Some(42));
+        assert!(!discord.allow_discord_reads);
+        assert_eq!(discord.request_id, clean.request_id);
+        assert!(context.principal.scopes.contains(&discord.scope));
     }
 
     #[derive(Clone)]

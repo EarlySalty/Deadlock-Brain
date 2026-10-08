@@ -111,35 +111,51 @@ fn display_context(value: &mut Value) {
 }
 
 pub fn grounded_messages(query: &Query, evidence: &[Evidence]) -> Vec<ChatMessage> {
-    let evidence: Vec<_> = evidence
-        .iter()
-        .map(|item| {
-            let live = item.source_id == "discord.public-live.v1"
-                && item.visibility == crate::SourceVisibility::RequestScoped;
-            let citation = if live {
-                DISCORD_LIVE_CITATION
-            } else {
-                item.citation.as_str()
-            };
-            let content = if live {
-                discord_display_text(&item.content)
-            } else {
-                item.content.clone()
-            };
-            json!({
-                "id": item.evidence_id,
-                "citation": citation,
-                "content": content,
+    let projected = crate::invite::project_query(query);
+    let evidence: Vec<_> = if crate::invite::requested(query) {
+        crate::invite::projection(query, evidence)
+            .map(|status| {
+                vec![json!({
+                    "id": crate::invite::EVIDENCE_ID,
+                    "citation": crate::invite::CITATION,
+                    "content": serde_json::to_string(&status).expect("Status ist serialisierbar"),
+                })]
             })
-        })
-        .collect();
-    let text = if matches!(query.answer_context, Some(crate::AnswerContext::Discord(_))) {
-        discord_display_text(&query.text)
+            .unwrap_or_default()
     } else {
-        query.text.clone()
+        evidence
+            .iter()
+            .map(|item| {
+                let live = item.source_id == "discord.public-live.v1"
+                    && item.visibility == crate::SourceVisibility::RequestScoped;
+                let citation = if live {
+                    DISCORD_LIVE_CITATION
+                } else {
+                    item.citation.as_str()
+                };
+                let content = if live {
+                    discord_display_text(&item.content)
+                } else {
+                    item.content.clone()
+                };
+                json!({
+                    "id": item.evidence_id,
+                    "citation": citation,
+                    "content": content,
+                })
+            })
+            .collect()
+    };
+    let text = if matches!(
+        projected.answer_context,
+        Some(crate::AnswerContext::Discord(_))
+    ) {
+        discord_display_text(&projected.text)
+    } else {
+        projected.text.clone()
     };
     let mut data = json!({"query": text, "evidence": evidence});
-    if let Some(context) = &query.answer_context {
+    if let Some(context) = &projected.answer_context {
         let mut value = json!(context);
         display_context(&mut value);
         data["answer_context"] = value;
