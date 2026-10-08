@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::tools::{
     invalid, validate_id, ModelBlock, ToolCall, ToolConversation, ToolDefinition, ToolMessage,
-    ToolName,
+    ToolName, ToolResult,
 };
 use crate::{Evidence, PortError, Query};
 use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
@@ -110,6 +110,39 @@ fn display_context(value: &mut Value) {
     }
 }
 
+fn is_discord_live(item: &Evidence) -> bool {
+    item.source_id == "discord.public-live.v1"
+        && item.visibility == crate::SourceVisibility::RequestScoped
+}
+
+fn evidence_display_content(item: &Evidence) -> String {
+    if is_discord_live(item) {
+        discord_display_text(&item.content)
+    } else {
+        item.content.clone()
+    }
+}
+
+fn tool_display_result(result: &ToolResult, evidence: &[Evidence]) -> Value {
+    let mut value = result.result.clone();
+    if result.name == ToolName::ServerKnowledge {
+        if let Some(matches) = value.get_mut("matches").and_then(Value::as_array_mut) {
+            for found in matches {
+                let item = found
+                    .get("evidence_id")
+                    .and_then(Value::as_str)
+                    .and_then(|id| evidence.iter().find(|item| item.evidence_id == id));
+                if let Some(item) = item.filter(|item| is_discord_live(item)) {
+                    if let Some(content) = found.get_mut("content") {
+                        *content = json!(evidence_display_content(item));
+                    }
+                }
+            }
+        }
+    }
+    value
+}
+
 pub fn grounded_messages(query: &Query, evidence: &[Evidence]) -> Vec<ChatMessage> {
     let projected = crate::invite::project_query(query);
     let evidence: Vec<_> = if crate::invite::requested(query) {
@@ -126,18 +159,12 @@ pub fn grounded_messages(query: &Query, evidence: &[Evidence]) -> Vec<ChatMessag
         evidence
             .iter()
             .map(|item| {
-                let live = item.source_id == "discord.public-live.v1"
-                    && item.visibility == crate::SourceVisibility::RequestScoped;
-                let citation = if live {
+                let citation = if is_discord_live(item) {
                     DISCORD_LIVE_CITATION
                 } else {
                     item.citation.as_str()
                 };
-                let content = if live {
-                    discord_display_text(&item.content)
-                } else {
-                    item.content.clone()
-                };
+                let content = evidence_display_content(item);
                 json!({
                     "id": item.evidence_id,
                     "citation": citation,
@@ -233,11 +260,11 @@ pub fn grounded_turn_payload(
             }
             ToolMessage::ToolResults { results } => {
                 if native {
-                    let content: Vec<_> = results.iter().map(|result| json!({"type":"tool_result", "tool_use_id":result.call_id, "content":json!({"result":result.result,"evidence_ids":result.evidence_ids}).to_string(), "is_error":result.is_error})).collect();
+                    let content: Vec<_> = results.iter().map(|result| json!({"type":"tool_result", "tool_use_id":result.call_id, "content":json!({"result":tool_display_result(result, evidence),"evidence_ids":result.evidence_ids}).to_string(), "is_error":result.is_error})).collect();
                     messages.push(json!({"role":"user", "content":content}));
                 } else {
                     for result in results {
-                        messages.push(json!({"role":"tool", "tool_call_id":result.call_id, "name":result.name, "content":json!({"result":result.result,"evidence_ids":result.evidence_ids,"is_error":result.is_error}).to_string()}));
+                        messages.push(json!({"role":"tool", "tool_call_id":result.call_id, "name":result.name, "content":json!({"result":tool_display_result(result, evidence),"evidence_ids":result.evidence_ids,"is_error":result.is_error}).to_string()}));
                     }
                 }
             }
@@ -693,6 +720,131 @@ mod tests {
             serde_json::from_str(&grounded_messages(&query(), &[ordinary.clone()])[1].content)
                 .unwrap();
         assert_eq!(data["evidence"][0]["citation"], ordinary.citation);
+    }
+
+    #[test]
+    fn knowledge_tool_history_projects_live_content_in_both_transports() {
+        let live = Evidence {
+            evidence_id: "discord-live-opaquehash".into(),
+            source_id: "discord.public-live.v1".into(),
+            logical_id: "discord-guild:1494373349944459355".into(),
+            revision: 1,
+            kind: crate::EvidenceKind::Prose,
+            content:
+                "Hilfe in <#1494373349944459355>, <@42>, <@&7>, 1494373349944459355. 1250 Seelen."
+                    .into(),
+            citation: "https://discord.com/channels/1494373349944459355".into(),
+            visibility: crate::SourceVisibility::RequestScoped,
+            allowed_scopes: BTreeSet::new(),
+            score: 1.0,
+            provenance: None,
+            patch: None,
+        };
+        let ordinary = Evidence {
+            evidence_id: "item-public".into(),
+            source_id: "docs.public".into(),
+            citation: "https://example.invalid/items/998877665544332211".into(),
+            logical_id: "item-public".into(),
+            content: "Item 998877665544332211 kostet 1250 Seelen.".into(),
+            visibility: crate::SourceVisibility::Public,
+            ..live.clone()
+        };
+        let evidence = vec![live, ordinary];
+        let definition = ToolDefinition {
+            name: ToolName::ServerKnowledge,
+            description: "Wissen lesen".into(),
+            input_schema: json!({"type":"object","properties":{"question":{"type":"string"}},"required":["question"],"additionalProperties":false}),
+        };
+        let result = ToolResult {
+            call_id: "knowledge-call".into(),
+            name: ToolName::ServerKnowledge,
+            result: json!({
+                "matches": evidence.iter().map(|item| json!({"evidence_id":item.evidence_id,"content":item.content})).collect::<Vec<_>>(),
+                "item_id": 998877665544332211_u64,
+                "price": 1250
+            }),
+            evidence_ids: evidence
+                .iter()
+                .map(|item| item.evidence_id.clone())
+                .collect(),
+            is_error: false,
+        };
+        let conversation = ToolConversation {
+            messages: vec![
+                ToolMessage::Assistant {
+                    blocks: vec![ModelBlock::ToolUse {
+                        call: ToolCall {
+                            id: result.call_id.clone(),
+                            name: result.name,
+                            arguments: json!({"question":"Wo gibt es Hilfe?"}),
+                        },
+                    }],
+                },
+                ToolMessage::ToolResults {
+                    results: vec![result.clone()],
+                },
+            ],
+        };
+        let original_evidence = evidence.clone();
+        let original_conversation = conversation.clone();
+        for format in [ToolWireFormat::Native, ToolWireFormat::OpenAiCompatible] {
+            let payload = grounded_turn_payload(
+                &query(),
+                &evidence,
+                std::slice::from_ref(&definition),
+                &conversation,
+                format,
+            )
+            .unwrap();
+            let serialized = payload.to_string();
+            for raw in ["1494373349944459355", "<#", "<@"] {
+                assert!(!serialized.contains(raw));
+            }
+            let last = payload["messages"].as_array().unwrap().last().unwrap();
+            let raw = if format == ToolWireFormat::Native {
+                last["content"][0]["content"].as_str().unwrap()
+            } else {
+                last["content"].as_str().unwrap()
+            };
+            let wire: Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(
+                wire["result"]["matches"][0]["content"],
+                evidence_display_content(&evidence[0])
+            );
+            assert_eq!(wire["result"]["matches"][1]["content"], evidence[1].content);
+            assert_eq!(wire["result"]["item_id"], result.result["item_id"]);
+            assert_eq!(wire["result"]["price"], 1250);
+            assert_eq!(wire["evidence_ids"], json!(result.evidence_ids));
+            assert_eq!(
+                grounded_turn_input_ceiling(
+                    &query(),
+                    &evidence,
+                    std::slice::from_ref(&definition),
+                    &conversation,
+                    format
+                )
+                .unwrap(),
+                transport_input_ceiling(&payload, true).unwrap()
+            );
+        }
+        assert_eq!(evidence, original_evidence);
+        assert_eq!(conversation, original_conversation);
+        let unrelated = ToolResult {
+            name: ToolName::EntityProfile,
+            ..result
+        };
+        assert_eq!(tool_display_result(&unrelated, &evidence), unrelated.result);
+        for (source, visibility) in [
+            ("docs.public", crate::SourceVisibility::RequestScoped),
+            ("discord.public-live.v1", crate::SourceVisibility::Public),
+        ] {
+            let item = Evidence {
+                source_id: source.into(),
+                visibility,
+                ..evidence[0].clone()
+            };
+            assert_eq!(evidence_display_content(&item), item.content);
+        }
     }
 
     #[test]
