@@ -333,10 +333,7 @@ fn gameplay_event_content(content: &str, index: &EntityIndex) -> Option<String> 
         let body = bullet_body(line);
         let body = normalize_patch_line(body.as_deref().unwrap_or(line));
         let body = bullet_body(&body).unwrap_or(body);
-        if !matches!(
-            dbrain_normalize::classify_change_type(&body).as_str(),
-            "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
-        ) {
+        if !has_change_action(&body) {
             if let Some(heading) = section_heading(line) {
                 section_entity = index.exact(&heading).map(|_| heading.clone()).or_else(|| {
                     section_subject(Some(&heading))
@@ -347,6 +344,11 @@ fn gameplay_event_content(content: &str, index: &EntityIndex) -> Option<String> 
                 continue;
             }
         }
+        let subject_end = body.find(':').map_or(0, |position| position + 1);
+        let change_start = body
+            .find(" - ")
+            .filter(|position| !has_change_action(&body[..*position]))
+            .map_or(subject_end, |position| position + 3);
         let lower = body.to_ascii_lowercase();
         let mut separators = [";", "!", "?", ". ", " and ", " but ", " while "]
             .into_iter()
@@ -354,6 +356,11 @@ fn gameplay_event_content(content: &str, index: &EntityIndex) -> Option<String> 
                 lower
                     .match_indices(delimiter)
                     .map(move |(start, _)| (start, delimiter))
+            })
+            .filter(|(start, delimiter)| {
+                *start >= change_start
+                    && (!matches!(*delimiter, " and " | " but " | " while ")
+                        || has_change_action(&body[start + delimiter.len()..]))
             })
             .collect::<Vec<_>>();
         separators.sort_unstable_by_key(|(start, _)| *start);
@@ -518,13 +525,26 @@ fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
     let unrelated_subject = words
         .iter()
         .any(|word| matches!(word.as_str(), "visitor" | "visitors"));
-    !cosmetic
-        && !unrelated_subject
-        && gameplay
-        && matches!(
-            dbrain_normalize::classify_change_type(&change_subject).as_str(),
-            "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
-        )
+    !cosmetic && !unrelated_subject && gameplay && has_change_action(&change_subject)
+}
+
+fn has_change_action(text: &str) -> bool {
+    if matches!(
+        dbrain_normalize::classify_change_type(text).as_str(),
+        "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
+    ) {
+        return true;
+    }
+    let lower = text.to_ascii_lowercase();
+    let change = lower
+        .rsplit_once(" - ")
+        .map_or(lower.as_str(), |(_, change)| change)
+        .trim();
+    change.starts_with("now ")
+        || change.split_once(" to ").is_some_and(|(old, new)| {
+            old.chars().any(|character| character.is_ascii_digit())
+                && new.chars().any(|character| character.is_ascii_digit())
+        })
 }
 
 fn resolve_api_source(
@@ -751,6 +771,106 @@ mod tests {
                 assert_eq!(event.metadata["patch_external_id"], "patch_17");
                 assert_eq!(event.metadata["url"], post.link);
                 assert_eq!(event.metadata["source_kind"], source);
+            }
+        }
+    }
+
+    #[test]
+    fn latest_public_patch_keeps_every_gameplay_line_and_its_entity() {
+        let lines = [
+            "- Fixed bugs that were causing troopers to walk too slowly in lane",
+            "- Rat King: Scrap Grenade - Fixed some bugs with bouncing targeting",
+            "- Rat King: Scrap Grenade - Damage increased from 65 to 70",
+            "- Rat King: Scrap Grenade - T2 Damage increased from 65 to 70",
+            "- Rat King: Rat Swarm - Base Cooldown reduced from 28s to 24s",
+            "- Rat King: Rule, Ratannia! - Cooldown increased from 130 to 160",
+            "- Rat King: Rule, Ratannia! - Damage Reduction reduced from 20% to 15%",
+            "- Rat King: Rule, Ratannia! - Radius reduced from 24m to 20m",
+            "- Rat King: Rule, Ratannia! - Charge Duration reduced from 12s to 10s",
+            "- Rat King: Rule, Ratannia! - Bonus Move speed no longer scales with Spirit",
+            "- Rat King: Rule, Ratannia! - Now falls faster while charging",
+            "- Rat King: Rule, Ratannia! - T1 +1m/s Move Speed to +2m/s Move Speed",
+            "- Rat King: Rule, Ratannia! - T1 No longer gives -20s cooldown (Total cooldown from 110s to 160s)",
+            "- Rat King: Rule, Ratannia! - T2 No longer grants +8s Charge Duration (Total charge duration from 20s to 10s)",
+            "- Rat King: Rule, Ratannia! - T2 Flag Duration reduced from +8s to +5s",
+            "- Rat King: Rule, Ratannia! - T3 Damage Reduction reduced from 15% to 10% (Total Damage Reduction from 35% to 25%)",
+            "- Sinclair: Base HP Regen reduced from 2 to 1",
+            "- Sinclair: Gun - Falloff range reduced from 25-61 to 20-60",
+            "- Sinclair: Gun - Reduced bullet base damage from 17.76 to 16.5",
+            "- Sinclair: Vexing Bolt - Now does half damage to objectives",
+            "- Sinclair: Spectral Assistant - Gun falloff range reduced from 25-61 to 20-60",
+            "- Sinclair: Rabbit Hex - Radius reduced from 6.5m to 6m",
+            "- Sinclair: Rabbit Hex - T3 reduced from +3m Radius to +2m",
+            "- Sinclair: Audience Participation - Copy duration reduced from 12s to 9s",
+            "- Sinclair: Audience Participation - Copied cooldown increased from 40% to 60%",
+        ];
+        let original = lines
+            .iter()
+            .map(|line| format!("<p class=\"bb_paragraph\">{line}</p>"))
+            .collect::<String>();
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Rat King", "Rat King");
+        index.insert("hero", "Sinclair", "Sinclair");
+        let index = index.finish();
+        for source in ["steam", "forum"] {
+            let mut post = post();
+            post.source = source.into();
+            post.content = "Preview only".into();
+            if source == "forum" {
+                post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+            }
+            let html = if source == "forum" {
+                forum_html(&post, &original)
+            } else {
+                steam_html(&post, &original)
+            };
+            let resolved = resolve_api_source(&post, &index, |_| Ok(html.clone()))
+                .unwrap()
+                .unwrap();
+            let row = post_row(&post, Some(17)).unwrap();
+            let baseline = prepare_patch(&row, &resolved, &index).unwrap();
+            let prepared = prepare_api_patch(&row, &resolved, &index).unwrap();
+            assert_eq!(
+                prepared.events.len(),
+                lines.len(),
+                "{source}: missing {:?}",
+                lines
+                    .iter()
+                    .filter(|line| !prepared
+                        .events
+                        .iter()
+                        .any(|event| { event.normalized_line == line.trim_start_matches("- ") }))
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(prepared.raw_payload_text, baseline.raw_payload_text);
+            assert_eq!(
+                prepared.snapshot_payload_hash,
+                baseline.snapshot_payload_hash
+            );
+            for (line, event) in lines.iter().zip(&prepared.events) {
+                assert_eq!(
+                    event.normalized_line,
+                    line.trim_start_matches("- "),
+                    "{source}/{line}"
+                );
+                let entity = if line.starts_with("- Rat King:") {
+                    Some("Rat King")
+                } else if line.starts_with("- Sinclair:") {
+                    Some("Sinclair")
+                } else {
+                    None
+                };
+                assert_eq!(event.entity_name.as_deref(), entity, "{source}/{line}");
+            }
+            let flat = PatchSourceResolution {
+                raw_content: format!("{} {}", lines[10], lines[19]),
+                ..resolved.clone()
+            };
+            let prepared = prepare_api_patch(&row, &flat, &index).unwrap();
+            assert_eq!(prepared.events.len(), 2, "{source}/flat");
+            for (line, event) in [lines[10], lines[19]].iter().zip(&prepared.events) {
+                assert_eq!(event.normalized_line, line.trim_start_matches("- "));
+                assert_eq!(event.subject.as_deref(), event.entity_name.as_deref());
             }
         }
     }

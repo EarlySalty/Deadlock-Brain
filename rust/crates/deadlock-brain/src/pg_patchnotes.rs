@@ -980,6 +980,30 @@ fn decode_basic_entities(value: &str) -> String {
 }
 
 fn separate_inline_dash_bullets(value: &str) -> String {
+    if value.lines().any(|line| {
+        !line.trim().starts_with('[')
+            && line.trim().trim_start_matches("- ").contains(" - ")
+            && split_subject(line.trim().trim_start_matches("- "))
+                .0
+                .is_some()
+    }) {
+        return value
+            .lines()
+            .map(|line| {
+                if !line.trim().starts_with('[')
+                    && line.trim().trim_start_matches("- ").contains(" - ")
+                    && split_subject(line.trim().trim_start_matches("- "))
+                        .0
+                        .is_some()
+                {
+                    expand_inline_bullets(line).join("\n")
+                } else {
+                    separate_inline_dash_bullets(line)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
     let chars = value.chars().collect::<Vec<_>>();
     let mut output = String::with_capacity(value.len());
     let mut index = 0;
@@ -1940,6 +1964,28 @@ fn expand_inline_bullets(raw_line: &str) -> Vec<String> {
     } else {
         stripped
     };
+
+    if split_subject(normalized).0.is_some() {
+        let mut grouped = Vec::<String>::new();
+        for part in normalized
+            .split(" - ")
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+        {
+            if split_subject(part).0.is_none() {
+                if let Some(current) = grouped.last_mut() {
+                    current.push_str(" - ");
+                    current.push_str(part);
+                    continue;
+                }
+            }
+            grouped.push(part.to_string());
+        }
+        return grouped
+            .into_iter()
+            .map(|part| format!("- {part}"))
+            .collect();
+    }
 
     if normalized.contains(" - ") {
         let pieces = normalized.split(" - ").collect::<Vec<_>>();
