@@ -1,6 +1,16 @@
 \set ON_ERROR_STOP on
 BEGIN;
-CREATE ROLE brain_site LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT 4;
+DO $role$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='brain_site') THEN
+        CREATE ROLE brain_site LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT 4;
+    ELSIF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='brain_site'
+        AND (NOT rolcanlogin OR rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls OR rolinherit))
+        OR EXISTS(SELECT 1 FROM pg_auth_members WHERE member=(SELECT oid FROM pg_roles WHERE rolname='brain_site')) THEN
+        RAISE EXCEPTION 'brain_site ist keine isolierte Login-Rolle';
+    END IF;
+END
+$role$;
 GRANT CONNECT ON DATABASE brain TO brain_site;
 GRANT USAGE ON SCHEMA brain TO brain_site;
 DO $grants$
