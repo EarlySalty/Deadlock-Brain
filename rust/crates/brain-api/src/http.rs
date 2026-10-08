@@ -102,6 +102,26 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
         Ok(allowed) => allowed,
         Err(error) => return respond(error),
     };
+    let task = match headers.get_all("x-discord-answer-task").iter().count() {
+        0 => None,
+        1 => match headers
+            .get("x-discord-answer-task")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| {
+                serde_json::from_str::<brain_contracts::discord_task::DiscordAnswerTask>(value).ok()
+            }) {
+            Some(task) if task.valid() && !retrieval => Some(task),
+            _ => return respond(json_error(400, "invalid_request", "Ungültige Bot-Aufgabe")),
+        },
+        _ => return respond(json_error(400, "invalid_request", "Ungültige Bot-Aufgabe")),
+    };
+    if task.is_some() && headers.get_all("x-discord-user-id").iter().count() != 1 {
+        return respond(json_error(
+            400,
+            "invalid_request",
+            "Ungültige Bot-Identität",
+        ));
+    }
     if !state.service.authenticate_header(authorization.as_deref()) {
         return respond(json_error(
             401,
@@ -138,12 +158,13 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
                     .service
                     .handle_retrieve_until(authorization.as_deref(), &body, deadline)
             } else {
-                state.service.handle_answer_with_discord(
+                state.service.handle_answer_with_task(
                     authorization.as_deref(),
                     &body,
                     deadline,
                     discord_user,
                     allow_discord_reads,
+                    task,
                 )
             }
         });

@@ -121,7 +121,7 @@ impl<R, P> Kernel<R, P> {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<Option<ToolSession>, PortError> {
-        if query.domain.is_some() {
+        if query.domain.is_some() || brain_contracts::discord_task::is_task_query(query) {
             return Ok(None);
         }
         let Some(binding) = &self.tools else {
