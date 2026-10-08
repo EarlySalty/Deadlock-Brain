@@ -39,6 +39,7 @@ async fn actual_http_validation_deviations_are_durable_private_and_do_not_trip_t
     store.migrate_core().await.unwrap();
     store.migrate_response_audit().await.unwrap();
     store.migrate_response_audit().await.unwrap();
+    sqlx::raw_sql("ALTER TABLE brain.response_deviations_v1 ADD CONSTRAINT fail_second_audit_fixture CHECK (request_id <> 'audit-atomic-failure' OR check_json->>'check' <> 'grounded_envelope')").execute(&owner).await.unwrap();
     sqlx::raw_sql("GRANT USAGE ON SCHEMA brain TO brain_service,brain_readonly,brain_ingest")
         .execute(&owner)
         .await
@@ -65,6 +66,10 @@ async fn actual_http_validation_deviations_are_durable_private_and_do_not_trip_t
         (
             "finish_reason",
             json!({"quality_filters":false,"finish_reason":"length","text":json!({"text":"truncated fixture", "cited_evidence_ids":["evidence-a"]}).to_string()}),
+        ),
+        (
+            "grounded_envelope",
+            json!({"quality_filters":false,"audit_failure":true,"finish_reason":"length","text":"truncated ungrounded fixture"}),
         ),
     ];
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -146,7 +151,11 @@ async fn actual_http_validation_deviations_are_durable_private_and_do_not_trip_t
         }];
         for (index, (_, case)) in worker_cases.iter().enumerate() {
             let query = Query {
-                request_id: format!("audit-fixture-{index}"),
+                request_id: if case["audit_failure"] == true {
+                    "audit-atomic-failure".into()
+                } else {
+                    format!("audit-fixture-{index}")
+                },
                 conversation_id: "fixture-conversation".into(),
                 text: "fixture question".into(),
                 answer_context: None,
@@ -170,7 +179,16 @@ async fn actual_http_validation_deviations_are_durable_private_and_do_not_trip_t
                 budget: Budget::default(),
                 request_deadline: None,
             };
-            if case["quality_filters"] == false {
+            if case["audit_failure"] == true {
+                let failure = relaxed
+                    .answer_accounted(&query, &context, &evidence)
+                    .unwrap_err();
+                assert!(matches!(
+                    failure.error,
+                    brain_contracts::PortError::Unavailable(_)
+                ));
+                assert_eq!(failure.accounting.unwrap().observed.network_rounds, 1);
+            } else if case["quality_filters"] == false {
                 let answer = relaxed
                     .answer_accounted(&query, &context, &evidence)
                     .unwrap();
@@ -217,8 +235,15 @@ async fn actual_http_validation_deviations_are_durable_private_and_do_not_trip_t
     .unwrap();
     server.join().unwrap();
     let rows: Vec<AuditRow> = sqlx::query_as("SELECT request_id,model,convert_from(raw_output,'UTF8'),check_json,source_ids,evidence_ids,disposition,identifiers_redacted FROM brain.response_deviations_v1 ORDER BY audit_id").fetch_all(&owner).await.unwrap();
-    assert_eq!(rows.len(), cases.len() + 1);
-    for (index, ((class, case), row)) in cases.iter().zip(&rows).enumerate() {
+    let partial: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM brain.response_deviations_v1 WHERE request_id='audit-atomic-failure'",
+    )
+    .fetch_one(&owner)
+    .await
+    .unwrap();
+    assert_eq!(partial, 0);
+    assert_eq!(rows.len(), cases.len());
+    for (index, ((class, case), row)) in cases.iter().take(cases.len() - 1).zip(&rows).enumerate() {
         assert_eq!(row.0, format!("audit-fixture-{index}"));
         assert_eq!(row.1, "fixture-model");
         assert_eq!(row.3["check"], *class);

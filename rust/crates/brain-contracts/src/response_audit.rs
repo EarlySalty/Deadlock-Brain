@@ -32,6 +32,16 @@ pub struct ResponseDeviation {
 
 pub trait ResponseAuditPort: Send + Sync {
     fn append(&self, deviation: &ResponseDeviation) -> Result<(), PortError>;
+
+    fn append_all(&self, deviations: &[ResponseDeviation]) -> Result<(), PortError> {
+        match deviations {
+            [] => Ok(()),
+            [deviation] => self.append(deviation),
+            _ => Err(PortError::Unavailable(
+                "atomic response audit unavailable".into(),
+            )),
+        }
+    }
 }
 
 fn encoded_digit(text: &str) -> Option<(u8, usize)> {

@@ -24,19 +24,29 @@ impl LocalPgReader {
 
 impl ResponseAuditPort for LocalPgReader {
     fn append(&self, record: &ResponseDeviation) -> Result<(), PortError> {
-        record.validate()?;
-        let check = serde_json::to_value(&record.check)
-            .map_err(|_| super::invalid("invalid response audit check"))?;
-        let sources = serde_json::to_value(&record.source_ids)
-            .map_err(|_| super::invalid("invalid response audit sources"))?;
-        let evidence = serde_json::to_value(&record.evidence_ids)
-            .map_err(|_| super::invalid("invalid response audit evidence"))?;
-        let disposition = match record.disposition {
-            ResponseDisposition::Rejected => "rejected",
-            ResponseDisposition::UncheckedReturned => "unchecked_returned",
-        };
+        self.append_all(std::slice::from_ref(record))
+    }
+
+    fn append_all(&self, records: &[ResponseDeviation]) -> Result<(), PortError> {
+        records.iter().try_for_each(ResponseDeviation::validate)?;
+        if records.is_empty() {
+            return Ok(());
+        }
         let mut client = self.pool.acquire()?;
-        client.query_one("INSERT INTO brain.response_deviations_v1(request_id, model, check_json, raw_output, source_ids, evidence_ids, disposition, identifiers_redacted,raw_output_complete) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING audit_id", &[&record.request_id, &record.model, &check, &record.raw_output, &sources, &evidence, &disposition, &record.identifiers_redacted, &record.raw_output_complete])?;
-        Ok(())
+        let mut transaction = client.transaction(false, false)?;
+        for record in records {
+            let check = serde_json::to_value(&record.check)
+                .map_err(|_| super::invalid("invalid response audit check"))?;
+            let sources = serde_json::to_value(&record.source_ids)
+                .map_err(|_| super::invalid("invalid response audit sources"))?;
+            let evidence = serde_json::to_value(&record.evidence_ids)
+                .map_err(|_| super::invalid("invalid response audit evidence"))?;
+            let disposition = match record.disposition {
+                ResponseDisposition::Rejected => "rejected",
+                ResponseDisposition::UncheckedReturned => "unchecked_returned",
+            };
+            transaction.query_one("INSERT INTO brain.response_deviations_v1(request_id, model, check_json, raw_output, source_ids, evidence_ids, disposition, identifiers_redacted,raw_output_complete) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING audit_id", &[&record.request_id, &record.model, &check, &record.raw_output, &sources, &evidence, &disposition, &record.identifiers_redacted, &record.raw_output_complete])?;
+        }
+        transaction.commit()
     }
 }

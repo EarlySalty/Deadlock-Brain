@@ -246,19 +246,16 @@ impl OpenAiCompatibleProvider {
         } else {
             brain_contracts::response_audit::ResponseDisposition::Rejected
         };
-        for check in deviations {
-            self.record_response_deviation(
-                request.query,
-                context,
-                evidence,
-                super::OutputDeviation {
-                    check,
-                    raw_output: &bytes,
-                    complete: true,
-                    disposition,
-                },
-            )?;
-        }
+        let outputs: Vec<_> = deviations
+            .into_iter()
+            .map(|check| super::OutputDeviation {
+                check,
+                raw_output: &bytes,
+                complete: true,
+                disposition,
+            })
+            .collect();
+        self.record_response_deviations(request.query, context, evidence, &outputs)?;
         result
     }
     pub(super) fn transport_json(

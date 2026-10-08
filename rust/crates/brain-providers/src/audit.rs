@@ -29,47 +29,70 @@ impl OpenAiCompatibleProvider {
         evidence: &[Evidence],
         output: OutputDeviation<'_>,
     ) -> Result<()> {
+        self.record_response_deviations(query, context, evidence, &[output])
+    }
+
+    pub(super) fn record_response_deviations(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        outputs: &[OutputDeviation<'_>],
+    ) -> Result<()> {
+        if outputs.is_empty() {
+            return Ok(());
+        }
         let person_id = context.discord.as_ref().and_then(|discord| discord.user_id);
         let project = |value: &str| diagnostic_text(value, person_id);
-        let raw = diagnostic_bytes(output.raw_output, person_id);
-        let identifiers_redacted = raw != output.raw_output;
-        let record = ResponseDeviation {
-            request_id: project(&query.request_id),
-            model: project(&self.config.model),
-            check: ResponseCheck {
-                check: project(&output.check.check),
-                field: project(&output.check.field),
-                expected: project(&output.check.expected),
-            },
-            raw_output: raw,
-            raw_output_complete: output.complete,
-            source_ids: evidence
-                .iter()
-                .map(|item| project(&item.source_id))
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect(),
-            evidence_ids: evidence
-                .iter()
-                .map(|item| project(&item.evidence_id))
-                .collect(),
-            disposition: output.disposition,
-            identifiers_redacted,
-        };
-        let stored = record.validate().and_then(|()| {
-            self.audit
-                .as_ref()
-                .map_or(Ok(()), |audit| audit.append(&record))
-        });
-        eprintln!(
-            "{}",
-            serde_json::json!({
-                "event":"response_deviation", "request_id":record.request_id,
-                "check":record.check.check, "field":record.check.field,
-                "disposition":record.disposition,
-                "audit_status": if stored.is_err() { "failed" } else if self.audit.is_some() { "stored" } else { "disabled" }
+        let records: Vec<_> = outputs
+            .iter()
+            .map(|output| {
+                let raw = diagnostic_bytes(output.raw_output, person_id);
+                let identifiers_redacted = raw != output.raw_output;
+                ResponseDeviation {
+                    request_id: project(&query.request_id),
+                    model: project(&self.config.model),
+                    check: ResponseCheck {
+                        check: project(&output.check.check),
+                        field: project(&output.check.field),
+                        expected: project(&output.check.expected),
+                    },
+                    raw_output: raw,
+                    raw_output_complete: output.complete,
+                    source_ids: evidence
+                        .iter()
+                        .map(|item| project(&item.source_id))
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .into_iter()
+                        .collect(),
+                    evidence_ids: evidence
+                        .iter()
+                        .map(|item| project(&item.evidence_id))
+                        .collect(),
+                    disposition: output.disposition,
+                    identifiers_redacted,
+                }
             })
-        );
+            .collect();
+        let stored = records
+            .iter()
+            .try_for_each(ResponseDeviation::validate)
+            .and_then(|()| {
+                self.audit
+                    .as_ref()
+                    .map_or(Ok(()), |audit| audit.append_all(&records))
+            });
+        for record in &records {
+            eprintln!(
+                "{}",
+                serde_json::json!({
+                    "event":"response_deviation", "request_id":record.request_id,
+                    "check":record.check.check, "field":record.check.field,
+                    "disposition": if stored.is_err() { ResponseDisposition::Rejected } else { record.disposition },
+                    "audit_status": if stored.is_err() { "failed" } else if self.audit.is_some() { "stored" } else { "disabled" }
+                })
+            );
+        }
         stored.map_err(|_| ProviderError::AuditUnavailable)
     }
 }
