@@ -440,41 +440,87 @@ fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
                 | "visuals"
                 | "animation"
                 | "animations"
+                | "banner"
+                | "banners"
+                | "poster"
+                | "posters"
         )
     });
-    let gameplay = words.iter().any(|word| match word.as_str() {
-        "hero" | "heroes" | "ability" | "abilities" | "item" | "items" | "weapon" | "weapons"
-        | "attack" | "attacks" | "damage" | "dps" | "cooldown" | "recharge" | "delay" | "cost"
-        | "falloff" | "health" | "regen" | "barrier" | "shield" | "armor" | "heal" | "healing"
-        | "scaling" | "bounty" | "ammo" | "reload" | "range" | "radius" | "duration" | "speed"
-        | "sprint" | "movement" | "resistance" | "resist" | "lifesteal" | "stamina" | "souls"
-        | "lane" | "lanes" | "trooper" | "troopers" | "creep" | "creeps" | "guardian"
-        | "guardians" | "walker" | "walkers" | "patron" | "patrons" | "urn" | "matchmaking"
-        | "match" | "matches" | "crash" | "crashes" => true,
-        "charge" | "charges" | "jump" | "jumps" | "dash" | "dashes" | "knockback" | "knockdown"
-        | "stun" | "stuns" | "root" | "roots" | "silence" | "cast" | "casting" | "projectile"
-        | "projectiles" | "bounce" | "bounces" | "stack" | "stacks" | "slow" | "slows"
-        | "invulnerability" | "invulnerable" | "immunity" | "immune" => bound_entity,
-        _ => false,
-    });
-    let entity_transition = bound_entity
-        && change_subject
-            .split_once(" from ")
-            .is_some_and(|(action, values)| {
-                matches!(action.trim(), "increased" | "reduced" | "decreased")
-                    && values.split_once(" to ").is_some_and(|(old, new)| {
-                        [old, new].iter().all(|value| {
-                            value
-                                .trim()
-                                .trim_end_matches('.')
-                                .trim_end_matches('%')
-                                .parse::<f64>()
-                                .is_ok_and(f64::is_finite)
-                        })
-                    })
-            });
+    let gameplay = bound_entity
+        || words.iter().any(|word| {
+            matches!(
+                word.as_str(),
+                "hero"
+                    | "heroes"
+                    | "ability"
+                    | "abilities"
+                    | "item"
+                    | "items"
+                    | "weapon"
+                    | "weapons"
+                    | "attack"
+                    | "attacks"
+                    | "damage"
+                    | "dps"
+                    | "cooldown"
+                    | "recharge"
+                    | "delay"
+                    | "cost"
+                    | "falloff"
+                    | "health"
+                    | "regen"
+                    | "barrier"
+                    | "shield"
+                    | "armor"
+                    | "heal"
+                    | "healing"
+                    | "scaling"
+                    | "bounty"
+                    | "ammo"
+                    | "reload"
+                    | "range"
+                    | "radius"
+                    | "duration"
+                    | "speed"
+                    | "sprint"
+                    | "movement"
+                    | "resistance"
+                    | "resist"
+                    | "lifesteal"
+                    | "stamina"
+                    | "souls"
+                    | "lane"
+                    | "lanes"
+                    | "trooper"
+                    | "troopers"
+                    | "creep"
+                    | "creeps"
+                    | "guardian"
+                    | "guardians"
+                    | "walker"
+                    | "walkers"
+                    | "patron"
+                    | "patrons"
+                    | "urn"
+                    | "matchmaking"
+                    | "match"
+                    | "matches"
+                    | "crash"
+                    | "crashes"
+                    | "bullet"
+                    | "bullets"
+                    | "velocity"
+                    | "spread"
+                    | "recoil"
+                    | "fire"
+            )
+        });
+    let unrelated_subject = words
+        .iter()
+        .any(|word| matches!(word.as_str(), "visitor" | "visitors"));
     !cosmetic
-        && (gameplay || entity_transition)
+        && !unrelated_subject
+        && gameplay
         && matches!(
             dbrain_normalize::classify_change_type(&change_subject).as_str(),
             "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
@@ -593,6 +639,9 @@ mod tests {
             "<p>Scrap Grenade damage increased from 65 to 70.</p>",
             "<p>Enchanter's Barrier shield increased from 300 to 350.</p>",
             "<p>The shotgun DPS increased from 50 to 60.</p>",
+            "<p>Bullet velocity increased from 1000 to 1200.</p>",
+            "<p>Bullet spread reduced from 4 to 3.</p>",
+            "<p>Fire rate increased from 5 to 6.</p>",
             "<p>Today we introduce six new heroes, with another hero unlocking every two days.</p>",
             "<p>Fixed a crash when entering a match.</p>",
             "<p>- Rat King: Scrap Grenade cooldown reduced from 20 to 18</p>",
@@ -620,6 +669,13 @@ mod tests {
                 "buff",
                 Some("1"),
                 Some("2"),
+            ),
+            (
+                "- Holliday: hitbox increased from 1m to 2m",
+                "Holliday",
+                "buff",
+                Some("1m"),
+                Some("2m"),
             ),
             (
                 "- Holliday: slow increased from 20% to 30%",
@@ -743,6 +799,12 @@ mod tests {
             "Decreased from 2% to 1%".into(),
             "Slow increased from 20% to 30%".into(),
             "Invulnerability increased from 3 to 4".into(),
+            "Bullet velocity increased from 1000 to 1200".into(),
+            "Bullet spread reduced from 4 to 3".into(),
+            "Fire rate increased from 5 to 6".into(),
+            "Hitbox increased from 1m to 2m".into(),
+            "Hitbox redesigned".into(),
+            "Dispersion improved".into(),
         ]);
         for (heading, entity, section) in [
             ("Holliday", "Holliday", "Holliday"),
