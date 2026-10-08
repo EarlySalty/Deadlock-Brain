@@ -277,14 +277,45 @@ impl DiscordLive {
         context: &AuthorizedContext,
         channel_id: Option<u64>,
     ) -> Result<(Instant, Evidence), PortError> {
+        let request = context.discord.as_ref().ok_or_else(denied)?;
+        if !request.allow_discord_reads {
+            return Err(denied());
+        }
+        let text = self.call(
+            context,
+            "public_server_facts",
+            channel_id
+                .map(|id| json!({"channel_id":id}))
+                .unwrap_or_else(|| json!({})),
+        )?;
+        let (expires, mut item) = evidence(serde_json::from_str(&text).map_err(|_| denied())?)?;
+        item.allowed_scopes = BTreeSet::from([request.scope.clone()]);
+        Ok((expires, item))
+    }
+
+    fn read_invite(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> Result<(Instant, Evidence), PortError> {
+        let request = brain_contracts::invite::authorize(query, context, true)?;
+        let text = self.call(context, "self_invite_status", json!({}))?;
+        let status = serde_json::from_str(&text).map_err(|_| denied())?;
+        let item = brain_contracts::invite::status_evidence(&status, request.scope.clone())?;
+        Ok((Instant::now() + context.remaining_time()?, item))
+    }
+
+    fn call(
+        &self,
+        context: &AuthorizedContext,
+        name: &str,
+        arguments: Value,
+    ) -> Result<String, PortError> {
         context.check_deadline()?;
         if context.budget.max_network_rounds == 0 {
             return Err(PortError::BudgetExceeded);
         }
         let request = context.discord.as_ref().ok_or_else(denied)?;
-        if !request.allow_discord_reads {
-            return Err(denied());
-        }
         let mut builder = self
             .http
             .post(&self.endpoint)
@@ -295,7 +326,7 @@ impl DiscordLive {
         }
         let mut response = builder
             .timeout(context.remaining_time()?.min(Duration::from_secs(15)))
-            .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"public_server_facts","arguments":channel_id.map(|channel_id| json!({"channel_id":channel_id})).unwrap_or_else(|| json!({}))}}))
+            .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":arguments}}))
             .send().map_err(|_| unavailable())?.error_for_status().map_err(|_| unavailable())?;
         let mut bytes = Vec::new();
         response
@@ -316,16 +347,10 @@ impl DiscordLive {
         {
             return Err(unavailable());
         }
-        let (expires, mut item) = evidence(
-            serde_json::from_str(
-                result["content"][0]["text"]
-                    .as_str()
-                    .ok_or_else(unavailable)?,
-            )
-            .map_err(|_| denied())?,
-        )?;
-        item.allowed_scopes = BTreeSet::from([request.scope.clone()]);
-        Ok((expires, item))
+        result["content"][0]["text"]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(unavailable)
     }
 }
 
@@ -444,16 +469,53 @@ impl<R> DiscordRetriever<R> {
         remaining.budget.max_input_tokens = ceiling as u32;
         Ok(remaining)
     }
-    fn validate_live(
+    fn retrieve_invite(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> Result<(Vec<Evidence>, Usage), PortError> {
+        brain_contracts::invite::authorize(query, context, true)?;
+        let live = self.live.as_ref().ok_or_else(unavailable)?;
+        let (expires, item) = live.read_invite(query, context)?;
+        let items = vec![item];
+        let usage = Usage {
+            network_rounds: 1,
+            ..Usage::default()
+        };
+        let packing = self.packing_context(context, &usage)?;
+        if brain_contracts::provider_input::grounded_input_ceiling(query, &items)
+            > packing.budget.max_input_tokens as u64
+        {
+            return Err(PortError::BudgetExceeded);
+        }
+        let key = observation_key(query, context)?;
+        let mut observations = self.observations.lock().map_err(|_| unavailable())?;
+        let now = Instant::now();
+        if now >= expires {
+            return Err(denied());
+        }
+        observations.retain(|_, (expires, _)| now < *expires);
+        observations.insert(key, (expires, items.clone()));
+        Ok((items, usage))
+    }
+
+    fn validate_invite(
         &self,
         query: &Query,
         context: &AuthorizedContext,
         items: &[Evidence],
         provider: bool,
     ) -> Result<(), PortError> {
-        if !allowed(query, context, provider) || !relevant(query) {
-            return Err(denied());
-        }
+        brain_contracts::invite::validate_projection(query, context, items, provider)?;
+        self.validate_observation(query, context, items)
+    }
+
+    fn validate_observation(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        items: &[Evidence],
+    ) -> Result<(), PortError> {
         context.check_deadline()?;
         let key = observation_key(query, context)?;
         let observations = self.observations.lock().map_err(|_| unavailable())?;
@@ -465,6 +527,19 @@ impl<R> DiscordRetriever<R> {
             }
             _ => Err(denied()),
         }
+    }
+
+    fn validate_live(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        items: &[Evidence],
+        provider: bool,
+    ) -> Result<(), PortError> {
+        if !allowed(query, context, provider) || !relevant(query) {
+            return Err(denied());
+        }
+        self.validate_observation(query, context, items)
     }
 }
 impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
@@ -481,6 +556,9 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<(Vec<Evidence>, Usage), PortError> {
+        if brain_contracts::invite::requested(query) {
+            return self.retrieve_invite(query, context);
+        }
         let (mut items, mut usage) = self.inner.retrieve_with_usage(query, context)?;
         if relevant(query) && allowed(query, context, false) {
             if let Some(live) = &self.live {
@@ -566,6 +644,13 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
         evidence: &[Evidence],
         provider: bool,
     ) -> Result<(), PortError> {
+        if brain_contracts::invite::requested(query)
+            || evidence
+                .iter()
+                .any(|item| item.source_id == brain_contracts::invite::SOURCE)
+        {
+            return self.validate_invite(query, context, evidence, provider);
+        }
         if evidence.is_empty() {
             return Err(denied());
         }
@@ -588,6 +673,13 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
         context: &AuthorizedContext,
         evidence: &[Evidence],
     ) -> Result<(), PortError> {
+        if brain_contracts::invite::requested(query)
+            || evidence
+                .iter()
+                .any(|item| item.source_id == brain_contracts::invite::SOURCE)
+        {
+            return self.validate_invite(query, context, evidence, false);
+        }
         if evidence.is_empty() {
             return Err(denied());
         }
@@ -608,6 +700,314 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn statusbeobachtungen_bleiben_request_person_scope_und_readpolicy_getrennt() {
+        let query: Query = serde_json::from_value(json!({"request_id":"fixture-request","conversation_id":"fixture-conversation","text":brain_contracts::invite::QUESTION,"requested_scopes":["bot.public"]})).unwrap();
+        let mut context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: Some(42),
+                request_id: query.request_id.clone(),
+                scope: "discord.request:fixture".into(),
+                allow_discord_reads: false,
+            }),
+            principal: brain_contracts::Principal {
+                actor_id: "fixture".into(),
+                channel: "discord".into(),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:fixture".into()]),
+                provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
+            },
+            conversation_id: query.conversation_id.clone(),
+            knowledge_release: "fixture".into(),
+            deadline_ms: 1000,
+            budget: brain_contracts::Budget::default(),
+            request_deadline: None,
+        };
+        let item = brain_contracts::invite::status_evidence(
+            &brain_contracts::invite::SelfInviteStatus {
+                status: brain_contracts::invite::InviteStatus::Pending,
+                at: None,
+            },
+            "discord.request:fixture".into(),
+        )
+        .unwrap();
+        let items = vec![item];
+        let adapter = DiscordRetriever::new(Stored, None);
+        let key = observation_key(&query, &context).unwrap();
+        adapter.observations.lock().unwrap().insert(
+            key.clone(),
+            (
+                Instant::now() + context.remaining_time().unwrap(),
+                items.clone(),
+            ),
+        );
+        context.budget.max_network_rounds = 0;
+        for provider in [false, true] {
+            adapter
+                .validate_evidence(&query, &context, &items, provider)
+                .unwrap();
+        }
+        adapter
+            .validate_publication(&query, &context, &items)
+            .unwrap();
+        for field in 0..4 {
+            let mut other = context.clone();
+            match field {
+                0 => other.discord.as_mut().unwrap().user_id = Some(43),
+                1 => other.discord.as_mut().unwrap().allow_discord_reads = true,
+                2 => other.discord.as_mut().unwrap().request_id = "other".into(),
+                _ => {
+                    other.discord.as_mut().unwrap().scope = "discord.request:other".into();
+                    other
+                        .principal
+                        .scopes
+                        .insert("discord.request:other".into());
+                }
+            }
+            for provider in [false, true] {
+                assert!(adapter
+                    .validate_evidence(&query, &other, &items, provider)
+                    .is_err());
+            }
+            assert!(adapter
+                .validate_publication(&query, &other, &items)
+                .is_err());
+        }
+        let mut forged = items.clone();
+        forged[0].content = "{\"status\":\"sent\",\"at\":null}".into();
+        assert!(adapter
+            .validate_evidence(&query, &context, &forged, true)
+            .is_err());
+        assert!(adapter
+            .validate_publication(&query, &context, &forged)
+            .is_err());
+        adapter
+            .observations
+            .lock()
+            .unwrap()
+            .get_mut(&key)
+            .unwrap()
+            .0 = Instant::now();
+        assert!(adapter
+            .validate_publication(&query, &context, &items)
+            .is_err());
+    }
+
+    #[test]
+    fn eigener_status_nutzt_private_leserechte_ohne_nachrichten_und_beide_transporte() {
+        use brain_contracts::{AnswerStatus, Principal};
+        use brain_kernel::{AnswerKernelPort, Kernel};
+        use brain_providers::{OpenAiCompatibleProvider, ProviderConfig};
+        use std::{
+            io::{BufRead, BufReader, Write},
+            net::TcpListener,
+        };
+
+        fn request(stream: &mut std::net::TcpStream) -> (String, Value) {
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut headers = String::new();
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse::<usize>().unwrap();
+                }
+                headers.push_str(&line);
+            }
+            let mut bytes = vec![0; length];
+            reader.read_exact(&mut bytes).unwrap();
+            (headers, serde_json::from_slice(&bytes).unwrap())
+        }
+        fn reply(stream: &mut std::net::TcpStream, body: Value) {
+            let body = body.to_string();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        }
+        struct NoStoredReads;
+        impl RetrievalPort for NoStoredReads {
+            fn retrieve(
+                &self,
+                _: &Query,
+                _: &AuthorizedContext,
+            ) -> Result<Vec<Evidence>, PortError> {
+                panic!("Eigener Status darf keine weiteren Quellen lesen");
+            }
+        }
+        for native in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let endpoint = format!("http://{}", listener.local_addr().unwrap());
+            let mut live = DiscordLive::new("fixture-mcp".into()).unwrap();
+            live.endpoint = format!("{endpoint}/mcp");
+            let mut config = if native {
+                ProviderConfig::codex_subscription(format!("{endpoint}/v1"))
+            } else {
+                ProviderConfig::new("fixture-model-key", endpoint, "fixture-model")
+            };
+            config.retry_attempts = 1;
+            let model = config.model.clone();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let (headers, rpc) = request(&mut stream);
+                assert!(headers.to_lowercase().contains("x-discord-user-id: 42"));
+                assert!(headers
+                    .to_lowercase()
+                    .contains("x-discord-request-id: fixture-request"));
+                assert_eq!(
+                    rpc["params"],
+                    json!({"name":"self_invite_status","arguments":{}})
+                );
+                reply(
+                    &mut stream,
+                    json!({"jsonrpc":"2.0","id":1,"result":{"isError":false,"content":[{"type":"text","text":"{\"status\":\"sent\",\"at\":\"2026-10-02T12:00:00Z\"}"}]}}),
+                );
+                drop(stream);
+                let (mut stream, _) = listener.accept().unwrap();
+                let (headers, payload) = request(&mut stream);
+                assert!(headers.starts_with(if native {
+                    "POST /v1/messages "
+                } else {
+                    "POST /chat/completions "
+                }));
+                let raw = payload.to_string();
+                for private in [
+                    "private Zusatzkennung",
+                    "76561197960265839",
+                    "discord.request:",
+                    "fixture-mcp",
+                ] {
+                    assert!(!raw.contains(private));
+                }
+                let messages = payload["messages"].as_array().unwrap();
+                let data: Value =
+                    serde_json::from_str(messages.last().unwrap()["content"].as_str().unwrap())
+                        .unwrap();
+                assert_eq!(data["query"], brain_contracts::invite::QUESTION);
+                assert_eq!(data["evidence"].as_array().unwrap().len(), 1);
+                let status: brain_contracts::invite::SelfInviteStatus =
+                    serde_json::from_str(data["evidence"][0]["content"].as_str().unwrap()).unwrap();
+                assert_eq!(status.status, brain_contracts::invite::InviteStatus::Sent);
+                let answer = json!({"text":"Deine Einladung ist verschickt.","cited_evidence_ids":[brain_contracts::invite::EVIDENCE_ID]}).to_string();
+                reply(
+                    &mut stream,
+                    if native {
+                        json!({"model":model,"stop_reason":"end_turn","content":[{"type":"text","text":answer}],"usage":{"input_tokens":100,"output_tokens":10}})
+                    } else {
+                        json!({"model":model,"choices":[{"finish_reason":"stop","message":{"content":answer}}],"usage":{"prompt_tokens":100,"completion_tokens":10}})
+                    },
+                );
+            });
+            let context = AuthorizedContext {
+                discord: Some(brain_contracts::DiscordRequestContext {
+                    user_id: Some(42),
+                    request_id: "fixture-request".into(),
+                    scope: "discord.request:fixture-owner".into(),
+                    allow_discord_reads: false,
+                }),
+                principal: Principal {
+                    actor_id: "fixture".into(),
+                    channel: "discord".into(),
+                    scopes: BTreeSet::from([
+                        "bot.public".into(),
+                        "discord.request:fixture-owner".into(),
+                    ]),
+                    provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
+                },
+                conversation_id: "fixture-conversation".into(),
+                knowledge_release: "fixture".into(),
+                deadline_ms: 10000,
+                budget: brain_contracts::Budget::default(),
+                request_deadline: None,
+            };
+            let query: Query = serde_json::from_value(json!({"request_id":"fixture-request","conversation_id":"fixture-conversation","text":"Bin ich eingeladen? Chatkontext: private Zusatzkennung 76561197960265839","requested_scopes":["bot.public"]})).unwrap();
+            let adapter = DiscordRetriever::new(NoStoredReads, Some(Arc::new(live)));
+            let unobserved = brain_contracts::invite::status_evidence(
+                &brain_contracts::invite::SelfInviteStatus {
+                    status: brain_contracts::invite::InviteStatus::Sent,
+                    at: None,
+                },
+                "discord.request:fixture-owner".into(),
+            )
+            .unwrap();
+            assert!(adapter
+                .validate_evidence(&query, &context, &[unobserved], true)
+                .is_err());
+            let result = Kernel::new(adapter, OpenAiCompatibleProvider::new(config).unwrap())
+                .answer_for_publication(&query, &context);
+            assert_eq!(result.status, AnswerStatus::Answered);
+            assert_eq!(result.citations.len(), 1);
+            assert_eq!(result.usage.network_rounds, 2);
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore = "Prüft den laufenden Statusweg nur mit einer synthetischen, unbekannten Person."]
+    fn live_statuswerkzeug_ist_gelistet_und_lehnt_unbekannte_person_ab() {
+        let config = crate::Config::load(std::path::Path::new(
+            "/home/nathanael/.config/deadlock-brain/brain-serve.json",
+        ))
+        .expect("Bestehende Brainkonfiguration muss gültig sein.");
+        let secrets = crate::Secrets::load_until(
+            &config,
+            std::path::Path::new("/etc/deadlock-brain/infisical.json"),
+            Instant::now() + Duration::from_secs(30),
+        )
+        .expect("Bestehender Infisicalresolver muss verfügbar sein.");
+        let live = DiscordLive::new(
+            secrets
+                .discord_live_token
+                .expect("Bestehende interne Zugangsreferenz muss verfügbar sein."),
+        )
+        .unwrap();
+        let response = live
+            .http
+            .post(&live.endpoint)
+            .bearer_auth(&live.token)
+            .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}))
+            .send()
+            .expect("MCP muss erreichbar sein.");
+        assert_eq!(response.status().as_u16(), 200);
+        assert_eq!(response.headers()["content-type"], "application/json");
+        let rpc: Value = response.json().expect("MCP muss JSON liefern.");
+        let tool = rpc["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == "self_invite_status")
+            .expect("Eigener Status muss im laufenden MCP angeboten werden.");
+        assert_eq!(
+            tool["inputSchema"],
+            json!({"type":"object","properties":{},"additionalProperties":false})
+        );
+        let response = live
+            .http
+            .post(&live.endpoint)
+            .bearer_auth(&live.token)
+            .header("x-discord-request-id", "synthetic-v-live-check")
+            .header("x-discord-user-id", "42")
+            .json(&json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"self_invite_status","arguments":{}}}))
+            .send()
+            .expect("MCP muss erreichbar sein.");
+        assert_eq!(response.status().as_u16(), 403);
+        assert_eq!(response.headers()["content-type"], "application/json");
+        assert_eq!(
+            response.json::<Value>().unwrap(),
+            json!({"error":"forbidden"})
+        );
+        println!("Live-MCP: self_invite_status gelistet; synthetische Person sicher abgelehnt.");
+    }
 
     #[test]
     fn private_read_gate_verhindert_io_und_erhaelt_gespeichertes_wissen() {
@@ -719,7 +1119,7 @@ mod tests {
         for text in [
             "Was macht Abrams?",
             "Wo stehen die Discord-Serverregeln?",
-            "Wie ist mein eigener Invite-Status?",
+            "Wie funktioniert der Invite-Bot?",
             "Welche Lanes gibt es?",
         ] {
             let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":text,"requested_scopes":["bot.public"]})).unwrap();

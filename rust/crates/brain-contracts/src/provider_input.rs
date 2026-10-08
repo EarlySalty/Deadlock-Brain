@@ -77,16 +77,29 @@ pub struct ChatMessage {
 }
 
 pub fn grounded_messages(query: &Query, evidence: &[Evidence]) -> Vec<ChatMessage> {
-    let evidence: Vec<_> = evidence
-        .iter()
-        .map(|item| {
-            json!({
-                "id": item.evidence_id,
-                "citation": item.citation,
-                "content": item.content,
+    let projected = crate::invite::project_query(query);
+    let evidence: Vec<_> = if crate::invite::requested(query) {
+        crate::invite::projection(query, evidence)
+            .map(|status| {
+                vec![json!({
+                    "id": crate::invite::EVIDENCE_ID,
+                    "citation": crate::invite::CITATION,
+                    "content": serde_json::to_string(&status).expect("Status ist serialisierbar"),
+                })]
             })
-        })
-        .collect();
+            .unwrap_or_default()
+    } else {
+        evidence
+            .iter()
+            .map(|item| {
+                json!({
+                    "id": item.evidence_id,
+                    "citation": item.citation,
+                    "content": item.content,
+                })
+            })
+            .collect()
+    };
     vec![
         ChatMessage {
             role: "system",
@@ -94,7 +107,7 @@ pub fn grounded_messages(query: &Query, evidence: &[Evidence]) -> Vec<ChatMessag
         },
         ChatMessage {
             role: "user",
-            content: json!({"query": query.text, "evidence": evidence}).to_string(),
+            content: json!({"query": projected.text, "evidence": evidence}).to_string(),
         },
     ]
 }
