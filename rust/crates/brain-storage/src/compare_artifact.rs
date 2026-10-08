@@ -64,6 +64,21 @@ pub struct ComparePublication {
     pub svg_path: String,
 }
 
+impl ComparePublication {
+    pub fn public_link(&self) -> Result<String, PortError> {
+        if !valid_compare_id(&self.artifact_id)
+            || self.html_path != format!("/site/compare/{}", self.artifact_id)
+            || self.svg_path != format!("/site/compare/{}/chart.svg", self.artifact_id)
+        {
+            return Err(invalid());
+        }
+        Ok(format!(
+            "https://deutsche-deadlock-community.de/brain{}",
+            self.html_path
+        ))
+    }
+}
+
 pub trait CompareCalculationVerifier: Send + Sync {
     fn verify(&self, body: &CompareArtifactBody) -> Result<(), PortError>;
 }
@@ -314,8 +329,8 @@ impl PgStore {
         tx.commit().await.map_err(unavailable)?;
         Ok(ComparePublication {
             artifact_id: artifact.id().into(),
-            html_path: format!("/compare/{}", artifact.id()),
-            svg_path: format!("/compare/{}/chart.svg", artifact.id()),
+            html_path: format!("/site/compare/{}", artifact.id()),
+            svg_path: format!("/site/compare/{}/chart.svg", artifact.id()),
         })
     }
 

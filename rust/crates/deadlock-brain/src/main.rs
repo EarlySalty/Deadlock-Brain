@@ -26,6 +26,8 @@ mod pg_entities;
 mod pg_insights;
 mod pg_patchnotes;
 mod pg_steam_news;
+#[path = "bin/site/mod.rs"]
+mod site;
 mod steam_web_api;
 mod wiki_refresh;
 
@@ -38,6 +40,10 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    #[command(about = "Zeigt öffentliche Spielvergleiche und Steckbriefe auf der Brain-Site.")]
+    Site(site::Args),
+    #[command(about = "Richtet den begrenzten öffentlichen Steckbriefzugriff ein.")]
+    SiteMigrate(site::MigrationArgs),
     #[command(
         about = "Stellt eine Frage ausschließlich über den typisierten brain-serve/BrainClient-Pfad."
     )]
@@ -1586,6 +1592,8 @@ fn assets_storage_path(path: &std::path::Path) -> Result<PathBuf> {
 async fn run(cli: Cli) -> Result<()> {
     let Cli { command } = cli;
     let command = match command {
+        Commands::Site(args) => return site::serve(args).await,
+        Commands::SiteMigrate(args) => return site::migrate(args).await,
         Commands::Pull {
             source: PullCommands::Forum(args),
         } => return run_forum_pull(args).await,
@@ -1676,6 +1684,9 @@ async fn run(cli: Cli) -> Result<()> {
     let pool = pg_pool_for_command(&command).await?;
 
     match command {
+        Commands::Site(_) | Commands::SiteMigrate(_) => {
+            unreachable!("site is handled before local DB initialization")
+        }
         Commands::Answer(_) => unreachable!("answer is handled before local DB initialization"),
         Commands::Status => print_status(&pool, &settings).await,
         Commands::Context(args) => {
