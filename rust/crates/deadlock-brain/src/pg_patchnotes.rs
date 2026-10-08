@@ -1447,7 +1447,6 @@ fn insert_patch_events(
         let updated = tx.execute(
             r#"
             WITH candidate AS (
-                -- The shared insert parameters include an otherwise unused hash.
                 SELECT pe.id, $20::text AS incoming_event_hash
                 FROM brain.patch_events pe
                 WHERE lower(regexp_replace(TRIM(BOTH FROM coalesce(pe.patch_title, '')), '\s+', ' ', 'g')) = $21
