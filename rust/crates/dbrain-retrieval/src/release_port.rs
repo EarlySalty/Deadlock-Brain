@@ -506,6 +506,77 @@ fn check_release(
     Ok(())
 }
 
+fn effective_head(
+    record: &SourceRecordV2,
+    head: Option<&DocumentHead>,
+    query: &Query,
+    context: &AuthorizedContext,
+    provider: bool,
+) -> Result<Option<DocumentHead>, PortError> {
+    let Some(head) = head else {
+        return Ok(None);
+    };
+    if head.revision < record.revision {
+        return Err(invalid("head predates pinned revision"));
+    }
+    if record.tombstone
+        || !record_allowed(record, &context.principal, provider)
+        || !head.allowed(&context.principal, provider)
+        || (provider
+            && record
+                .metadata
+                .contains_key(brain_contracts::source::ORIGIN_METADATA_KEY)
+            && !head
+                .metadata
+                .contains_key(brain_contracts::source::ORIGIN_METADATA_KEY))
+        || brain_contracts::source::patch_validity_for(&head.metadata, query.patch.as_deref())
+            .is_err()
+    {
+        return Ok(None);
+    }
+    let mut effective = head.clone();
+    effective
+        .allowed_scopes
+        .extend(record.allowed_scopes.iter().cloned());
+    effective.visibility = match (record.visibility, head.visibility) {
+        (SourceVisibility::Private, _) | (_, SourceVisibility::Private) => {
+            SourceVisibility::Private
+        }
+        (SourceVisibility::Internal, _) | (_, SourceVisibility::Internal) => {
+            SourceVisibility::Internal
+        }
+        _ => SourceVisibility::Public,
+    };
+    Ok(Some(effective))
+}
+pub fn pack(
+    query: &Query,
+    context: &AuthorizedContext,
+    hits: Vec<Evidence>,
+) -> Result<Vec<Evidence>, PortError> {
+    if matches!(query.profile, brain_contracts::AnswerProfile::Fact) {
+        return Ok(hits);
+    }
+    let had_hits = !hits.is_empty();
+    let mut selected = Vec::new();
+    for hit in hits {
+        selected.push(hit);
+        if grounded_input_ceiling(query, &selected) > context.budget.max_input_tokens as u64 {
+            selected.pop();
+        }
+    }
+    if had_hits && selected.is_empty() {
+        return Err(PortError::BudgetExceeded);
+    }
+    Ok(selected)
+}
+pub(crate) fn invalid(message: &str) -> PortError {
+    PortError::InvalidResponse(message.into())
+}
+fn denied(message: &str) -> PortError {
+    PortError::PermissionDenied(message.into())
+}
+
 #[cfg(test)]
 mod cache_scope_tests {
     use super::*;
@@ -593,75 +664,4 @@ mod cache_scope_tests {
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(documents.load(Ordering::SeqCst), 1);
     }
-}
-
-fn effective_head(
-    record: &SourceRecordV2,
-    head: Option<&DocumentHead>,
-    query: &Query,
-    context: &AuthorizedContext,
-    provider: bool,
-) -> Result<Option<DocumentHead>, PortError> {
-    let Some(head) = head else {
-        return Ok(None);
-    };
-    if head.revision < record.revision {
-        return Err(invalid("head predates pinned revision"));
-    }
-    if record.tombstone
-        || !record_allowed(record, &context.principal, provider)
-        || !head.allowed(&context.principal, provider)
-        || (provider
-            && record
-                .metadata
-                .contains_key(brain_contracts::source::ORIGIN_METADATA_KEY)
-            && !head
-                .metadata
-                .contains_key(brain_contracts::source::ORIGIN_METADATA_KEY))
-        || brain_contracts::source::patch_validity_for(&head.metadata, query.patch.as_deref())
-            .is_err()
-    {
-        return Ok(None);
-    }
-    let mut effective = head.clone();
-    effective
-        .allowed_scopes
-        .extend(record.allowed_scopes.iter().cloned());
-    effective.visibility = match (record.visibility, head.visibility) {
-        (SourceVisibility::Private, _) | (_, SourceVisibility::Private) => {
-            SourceVisibility::Private
-        }
-        (SourceVisibility::Internal, _) | (_, SourceVisibility::Internal) => {
-            SourceVisibility::Internal
-        }
-        _ => SourceVisibility::Public,
-    };
-    Ok(Some(effective))
-}
-pub fn pack(
-    query: &Query,
-    context: &AuthorizedContext,
-    hits: Vec<Evidence>,
-) -> Result<Vec<Evidence>, PortError> {
-    if matches!(query.profile, brain_contracts::AnswerProfile::Fact) {
-        return Ok(hits);
-    }
-    let had_hits = !hits.is_empty();
-    let mut selected = Vec::new();
-    for hit in hits {
-        selected.push(hit);
-        if grounded_input_ceiling(query, &selected) > context.budget.max_input_tokens as u64 {
-            selected.pop();
-        }
-    }
-    if had_hits && selected.is_empty() {
-        return Err(PortError::BudgetExceeded);
-    }
-    Ok(selected)
-}
-pub(crate) fn invalid(message: &str) -> PortError {
-    PortError::InvalidResponse(message.into())
-}
-fn denied(message: &str) -> PortError {
-    PortError::PermissionDenied(message.into())
 }

@@ -271,6 +271,7 @@ async fn run(args: &[String]) -> Result<()> {
             return Err("live_binding_changed_during_run");
         }
         let query = Query {
+            answer_context: None,
             domain: None,
             request_id: format!("gold-{run_id}-{}", case.case),
             conversation_id: format!("gold-{run_id}-{}", case.case),

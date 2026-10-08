@@ -59,20 +59,7 @@ pub trait AnswerKernelPort: Send + Sync {
     }
 }
 
-pub trait GameContextResolver: Send + Sync {
-    fn resolve(
-        &self,
-        query: &Query,
-        context: &AuthorizedContext,
-    ) -> Result<Option<PinnedGameContext>, PortError>;
-
-    fn validate(
-        &self,
-        query: &Query,
-        context: &AuthorizedContext,
-        game_context: Option<&PinnedGameContext>,
-    ) -> Result<(), PortError>;
-}
+pub use brain_contracts::tools::GameContextResolver;
 
 #[derive(Clone)]
 struct ToolBinding {
