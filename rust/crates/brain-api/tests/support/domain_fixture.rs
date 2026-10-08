@@ -293,6 +293,7 @@ pub fn build(hero: &str, locale: &str, items: &[&str]) -> DomainRequest {
 }
 pub fn query(request: &DomainRequest, patch: &str) -> Query {
     Query {
+        answer_context: None,
         domain: Some(request.clone()),
         request_id: "c6-request".into(),
         conversation_id: "c6-conversation".into(),

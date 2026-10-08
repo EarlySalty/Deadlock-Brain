@@ -73,6 +73,7 @@ fn record(id: &str, revision: u64, publication: bool) -> SourceRecordV2 {
 }
 fn query(profile: AnswerProfile) -> Query {
     Query {
+        answer_context: None,
         request_id: "publication-request".into(),
         conversation_id: "publication-conversation".into(),
         text: "Abrams health".into(),

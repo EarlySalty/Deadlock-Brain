@@ -86,6 +86,7 @@ async fn published(r: SourceRecordV2) -> MemoryRepository {
 }
 fn query() -> Query {
     Query {
+        answer_context: None,
         request_id: "q1".into(),
         conversation_id: "c1".into(),
         text: "Abrams health".into(),

@@ -1479,6 +1479,7 @@ async fn run_brain_answer(args: &BrainAnswerArgs) -> Result<()> {
         .clone()
         .unwrap_or_else(|| default_id.clone());
     let query = brain_client::Query {
+        answer_context: None,
         request_id,
         conversation_id,
         text: args.question.clone(),

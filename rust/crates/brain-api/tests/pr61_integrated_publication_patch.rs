@@ -72,6 +72,7 @@ fn fact(source: &str, health: u32, publication: bool, patch: Option<&str>) -> So
 }
 fn query(id: &str) -> Query {
     Query {
+        answer_context: None,
         request_id: id.into(),
         conversation_id: "integration-conversation".into(),
         text: "Abrams health".into(),

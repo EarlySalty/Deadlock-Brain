@@ -759,6 +759,7 @@ async fn legacy_core_html_release_projects_without_mutating_historical_provenanc
     store.publish(&release).await.unwrap();
     let retriever = dbrain_retrieval::ReleaseRetriever::new(store.clone(), 3);
     let query = Query {
+        answer_context: None,
         request_id: "legacy-q".into(),
         conversation_id: "legacy-c".into(),
         text: "Helfer".into(),

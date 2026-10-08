@@ -1196,6 +1196,7 @@ fn pilot_files(env: &Env) -> BTreeMap<String, String> {
 
 fn query(id: &str, text: &str, scopes: &[&str], patch: Option<&str>, mode: Option<&str>) -> Query {
     Query {
+        answer_context: None,
         domain: None,
         request_id: id.into(),
         conversation_id: format!("pilot-conversation-{id}"),

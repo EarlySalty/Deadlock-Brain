@@ -478,6 +478,7 @@ mod tests {
             ),
         ] {
             let query = Query {
+                answer_context: None,
                 domain: None,
                 request_id: "projection-test".into(),
                 conversation_id: context.conversation_id.clone(),

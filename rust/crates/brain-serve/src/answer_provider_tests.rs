@@ -75,6 +75,7 @@ impl Branch {
 
 fn query() -> Query {
     Query {
+        answer_context: None,
         request_id: "synthetic-request".into(),
         conversation_id: "synthetic-conversation".into(),
         text: "Öffentliche Strukturprobe".into(),

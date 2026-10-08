@@ -73,6 +73,7 @@ async fn answer(
 
 fn query(id: &str) -> Query {
     Query {
+        answer_context: None,
         request_id: id.into(),
         conversation_id: format!("conversation-{id}"),
         text: "Abrams".into(),
