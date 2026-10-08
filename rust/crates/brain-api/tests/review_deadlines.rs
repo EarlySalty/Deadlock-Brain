@@ -218,6 +218,7 @@ impl Drop for Server {
 }
 fn body(conversation: &str) -> String {
     serde_json::to_string(&Query {
+        answer_context: None,
         request_id: "deadline-test".into(),
         conversation_id: conversation.into(),
         text: "Abrams".into(),

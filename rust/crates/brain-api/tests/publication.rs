@@ -359,6 +359,7 @@ async fn domain_metadata_dependency_cycles_missing_sources_and_limits_fail_close
 }
 fn query(profile: AnswerProfile) -> Query {
     Query {
+        answer_context: None,
         request_id: "publication-request".into(),
         conversation_id: "c1".into(),
         text: if profile == AnswerProfile::Fact {

@@ -186,6 +186,7 @@ pub(super) fn request_key(
             )
         }),
         &query.text,
+        &query.answer_context,
         &query.domain,
         &query.profile,
         &query.patch,
@@ -203,7 +204,7 @@ pub(super) fn request_key(
 #[cfg(test)]
 #[test]
 fn private_read_gate_trennt_flightbindung_bei_gleicher_frage() {
-    let query: Query = serde_json::from_value(serde_json::json!({
+    let mut query: Query = serde_json::from_value(serde_json::json!({
             "request_id":"r", "conversation_id":"c", "text":"Neutrale Frage", "requested_scopes":["bot.public"]
         })).unwrap();
     let mut context = AuthorizedContext {
@@ -237,6 +238,26 @@ fn private_read_gate_trennt_flightbindung_bei_gleicher_frage() {
     context.discord.as_mut().unwrap().user_id = Some(43);
     assert_ne!(
         private,
+        cache_key_for_purpose(&query, &context, purpose).unwrap()
+    );
+    context.discord = None;
+    let without_location = cache_key_for_purpose(&query, &context, purpose).unwrap();
+    query.answer_context = Some(brain_contracts::AnswerContext::Discord(
+        brain_contracts::DiscordAnswerContext {
+            channel_name: Some("Hilfe".into()),
+            ..Default::default()
+        },
+    ));
+    let help_location = cache_key_for_purpose(&query, &context, purpose).unwrap();
+    assert_ne!(without_location, help_location);
+    query.answer_context = Some(brain_contracts::AnswerContext::Discord(
+        brain_contracts::DiscordAnswerContext {
+            channel_name: Some("Coaching".into()),
+            ..Default::default()
+        },
+    ));
+    assert_ne!(
+        help_location,
         cache_key_for_purpose(&query, &context, purpose).unwrap()
     );
 }

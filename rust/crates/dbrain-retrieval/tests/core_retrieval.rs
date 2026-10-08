@@ -21,6 +21,7 @@ fn record(id: &str, revision: u64) -> SourceRecordV2 {
 }
 fn query() -> Query {
     Query {
+        answer_context: None,
         domain: None,
         request_id: "q1".into(),
         conversation_id: "c1".into(),

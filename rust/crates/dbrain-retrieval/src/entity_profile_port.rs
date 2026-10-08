@@ -156,6 +156,7 @@ mod tests {
 
     fn fixture(text: &str) -> (Query, AuthorizedContext, Reader) {
         let query = Query {
+            answer_context: None,
             request_id: "r1".into(),
             conversation_id: "c1".into(),
             text: text.into(),

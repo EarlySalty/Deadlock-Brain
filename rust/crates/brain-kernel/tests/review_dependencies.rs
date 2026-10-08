@@ -31,6 +31,7 @@ fn record(id: &str, revision: u64) -> SourceRecordV2 {
 }
 fn query(profile: AnswerProfile, text: &str) -> Query {
     Query {
+        answer_context: None,
         request_id: "review-request".into(),
         conversation_id: "review-conversation".into(),
         text: text.into(),

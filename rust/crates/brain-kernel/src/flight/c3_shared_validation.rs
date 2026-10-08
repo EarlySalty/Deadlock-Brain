@@ -83,6 +83,7 @@ fn shared_answer_follower_revalidates_and_distinguishes_reader_failure_from_deni
             provenance: None,
         };
         let query = Query {
+            answer_context: None,
             request_id: "leader".into(),
             conversation_id: "c1".into(),
             text: "Abrams".into(),
