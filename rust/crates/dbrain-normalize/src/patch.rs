@@ -255,8 +255,10 @@ fn parse_patchnote_snapshot(
                     current_group_type = Some(entity_type.clone());
                     current_group_confidence = confidence;
                     body = clean_subject(Some(&body));
-                } else if entity_type != "general" {
-                    current_group = entity_name.clone();
+                } else if current_group.as_deref() != entity_name.as_deref() {
+                    current_group = None;
+                    current_group_type = None;
+                    current_group_confidence = 0.0;
                 }
                 (entity_type, entity_name, confidence, Some(subject_text))
             } else if let Some(group) = current_group.clone() {
@@ -373,7 +375,10 @@ fn expand_inline_bullets(raw_line: &str) -> Vec<String> {
             .filter(|part| !part.is_empty())
         {
             if split_subject(part).0.is_none() {
-                if let Some(current) = grouped.last_mut() {
+                if let Some(current) = grouped
+                    .last_mut()
+                    .filter(|current| !has_change_action(current))
+                {
                     current.push_str(" - ");
                     current.push_str(part);
                     continue;
@@ -835,6 +840,26 @@ fn push_inferred_entities(
     }
 }
 
+pub fn has_change_action(text: &str) -> bool {
+    if matches!(
+        classify_change_type(text).as_str(),
+        "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
+    ) {
+        return true;
+    }
+    let lower = text.to_ascii_lowercase();
+    let (_, remainder) = split_subject(&lower);
+    let change = remainder
+        .rsplit_once(" - ")
+        .map_or(remainder.as_str(), |(_, change)| change)
+        .trim();
+    change.starts_with("now ")
+        || change.split_once(" to ").is_some_and(|(old, new)| {
+            old.chars().any(|character| character.is_ascii_digit())
+                && new.chars().any(|character| character.is_ascii_digit())
+        })
+}
+
 pub fn classify_change_type(text: &str) -> String {
     let lower = text.to_lowercase();
     if lower.contains("renamed") || lower.contains("retitled") {
@@ -1138,6 +1163,29 @@ mod tests {
             let (subject, remainder) = split_subject(line.trim_start_matches("- "));
             assert_eq!(event.entity_name, subject);
             assert_eq!(event.normalized_line, remainder);
+        }
+    }
+
+    #[test]
+    fn independent_changes_after_concrete_hero_changes_remain_separate() {
+        let general = "- Fixed bugs that were causing troopers to walk too slowly in lane";
+        for first in [
+            "- Sinclair: Base HP Regen reduced from 2 to 1",
+            "- Sinclair: Vexing Bolt - Now does half damage to objectives",
+            "- Sinclair: Now does half damage to objectives",
+            "- Sinclair: T1 +1m/s Move Speed to +2m/s Move Speed",
+        ] {
+            let flat = format!("{first} {general}");
+            assert_eq!(expand_inline_bullets(&flat), [first, general]);
+            let payload = json!({"raw_content": flat});
+            let (events, skipped) =
+                parse_patchnote_snapshot(17, 17, "patch_17", &payload, &hero_index("Sinclair"))
+                    .unwrap();
+            assert_eq!(skipped, 0);
+            assert_eq!(events.len(), 2);
+            assert_eq!(events[0].entity_name.as_deref(), Some("Sinclair"));
+            assert_eq!(events[1].entity_name, None);
+            assert_eq!(events[1].normalized_line, general.trim_start_matches("- "));
         }
     }
 

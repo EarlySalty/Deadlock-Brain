@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use dbrain_normalize::has_change_action;
 use deadlock_brain_core::http::{HttpClient, HttpGetOptions};
 use postgres::types::ToSql;
 use postgres::{Client, NoTls, Transaction};
@@ -1973,7 +1974,10 @@ fn expand_inline_bullets(raw_line: &str) -> Vec<String> {
             .filter(|part| !part.is_empty())
         {
             if split_subject(part).0.is_none() {
-                if let Some(current) = grouped.last_mut() {
+                if let Some(current) = grouped
+                    .last_mut()
+                    .filter(|current| !has_change_action(current))
+                {
                     current.push_str(" - ");
                     current.push_str(part);
                     continue;
