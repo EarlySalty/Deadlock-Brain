@@ -23,6 +23,9 @@ use std::{
 #[path = "../../brain-storage/tests/support/scratch_pg.rs"]
 mod scratch_pg;
 
+#[path = "../../brain-storage/tests/mirror_game_context.rs"]
+mod mirror_fixture;
+
 fn context() -> (Query, AuthorizedContext, Arc<Mutex<Instant>>) {
     let query: Query = serde_json::from_value(json!({
         "request_id":"fixture-request", "conversation_id":"fixture-conversation",
@@ -44,8 +47,6 @@ fn context() -> (Query, AuthorizedContext, Arc<Mutex<Instant>>) {
     (query, context, clock)
 }
 
-// Öffentliche Formdaten. Store, Read-Manifest, Originalbindung und aktuelle
-// Rechteprüfung laufen wirklich über den eigenen isolierten Postgres.
 fn record(revision: u64, provider: bool, publication: bool, tombstone: bool) -> SourceRecordV2 {
     let content = "Der Fixture-Server bietet öffentliche Sprechstunden am Freitag.";
     let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
@@ -355,5 +356,304 @@ fn original_lifetime_request_binding_and_f_boundary_remain_fail_closed() {
         .unwrap_err(),
         PortError::BudgetExceeded
     );
+    runtime.block_on(pool.close());
+}
+
+async fn mirror_records(store: &PgStore, pool: &sqlx::PgPool) -> Vec<SourceRecordV2> {
+    let rows: Vec<(serde_json::Value, Vec<u8>)> =
+        sqlx::query_as("SELECT metadata,fixture_raw FROM brain.source_documents ORDER BY id")
+            .fetch_all(pool)
+            .await
+            .unwrap();
+    let mut records = Vec::new();
+    let mut pins = BTreeMap::<String, BTreeMap<String, u64>>::new();
+    for (metadata, bytes) in rows {
+        let ir: brain_contracts::source::Versioned<brain_contracts::external::ExternalSourceIr> =
+            serde_json::from_value(metadata["contract"].clone()).unwrap();
+        let origin = ir.data.origin_artifact();
+        let mut record = SourceRecordV2 {
+            source_id: origin.identity.source_id.clone(),
+            logical_id: origin.identity.logical_id.clone(),
+            revision: 1,
+            content_hash: format!("{:x}", Sha256::digest(&bytes)),
+            content: String::from_utf8(bytes).unwrap(),
+            visibility: ir.data.visibility,
+            allowed_scopes: ir.data.allowed_scopes,
+            tombstone: false,
+            valid_from: None,
+            valid_to: None,
+            metadata: BTreeMap::new(),
+        };
+        origin.bind_record(&mut record).unwrap();
+        store.apply(&record).await.unwrap();
+        pins.entry(record.source_id.clone())
+            .or_default()
+            .insert(record.logical_id.clone(), record.revision);
+        records.push(record);
+    }
+    store
+        .publish_release(&CorpusRelease {
+            release_id: "fixture-release".into(),
+            knowledge_version: "fixture-v1".into(),
+            patch: "fixture-patch".into(),
+            created_at_epoch: 1,
+            source_revisions: pins,
+        })
+        .await
+        .unwrap();
+    records
+}
+
+#[test]
+fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants() {
+    use brain_contracts::tools::GameContextResolver;
+    use brain_storage::entity_profile::MirroredGameContextReader;
+    let pg = mirror_fixture::scratch_pg::ScratchPg::start();
+    let runtime = test_runtime();
+    let pool = runtime.block_on(mirror_fixture::pool(&pg));
+    runtime.block_on(mirror_fixture::seed_with_grants(&pool, "first", true));
+    let store = PgStore::new(pool.clone());
+    runtime.block_on(store.migrate_core()).unwrap();
+    let records = runtime.block_on(mirror_records(&store, &pool));
+    let canonical = LocalPgReader::new(
+        pg.directory.join("socket"),
+        55439,
+        "brain_core_test",
+        "postgres",
+    )
+    .unwrap();
+    let reader = MirroredGameContextReader::new(
+        pool.clone(),
+        runtime.handle().clone(),
+        ToolLanguage::German,
+    )
+    .unwrap();
+    let port = ReleaseToolExecutionPort::new(ReleaseRetriever::new(canonical, 6))
+        .with_mirrored_entities(reader.clone());
+    let (query, context, clock) = context();
+    let pin = reader.resolve(&query, &context).unwrap().unwrap();
+    let definitions = port.definitions(&query, &context, Some(&pin)).unwrap();
+    assert_eq!(definitions.len(), 3);
+    assert!(!definitions
+        .iter()
+        .any(|definition| definition.name == ToolName::BuildPlan));
+    let mut saved = None;
+    for (kind, id, name) in [
+        ("hero", 7, "Prüfdaten"),
+        ("item", 8, "Prüfitem"),
+        ("ability", 9, "Prüffähigkeit"),
+    ] {
+        let call = ToolCall {
+            id: "find".into(),
+            name: ToolName::EntityFind,
+            arguments: json!({"query":name,"kind":kind,"language":"german"}),
+        };
+        let request = call.validate(&definitions).unwrap();
+        let execution = port
+            .execute(&query, &context, Some(&pin), &call.id, &request)
+            .unwrap();
+        assert_eq!(
+            execution.result.result["matches"],
+            json!([{"kind":kind,"id":id,"name":name}])
+        );
+        assert_eq!(execution.dependencies[0].evidence.len(), 2);
+        for purpose in [
+            ToolValidationPurpose::Provider,
+            ToolValidationPurpose::Cache,
+            ToolValidationPurpose::Publication,
+        ] {
+            port.validate_dependencies(
+                &query,
+                &context,
+                Some(&pin),
+                &execution.dependencies,
+                purpose,
+            )
+            .unwrap();
+        }
+        saved = Some(execution);
+    }
+    let profile = ToolCall {
+        id: "profile".into(),
+        name: ToolName::EntityProfile,
+        arguments: json!({"entity":{"kind":"item","id":8},"fields":["zero","missing","observation"]}),
+    };
+    let request = profile.validate(&definitions).unwrap();
+    let execution = port
+        .execute(&query, &context, Some(&pin), &profile.id, &request)
+        .unwrap();
+    assert_eq!(
+        execution.result.result["fields"]["zero"],
+        json!({"state":"known","value":0})
+    );
+    assert_eq!(
+        execution.result.result["fields"]["missing"]["state"],
+        "unknown"
+    );
+    assert_eq!(
+        execution.result.result["fields"]["observation"]["value"],
+        "first"
+    );
+    let mut altered = execution.dependencies.clone();
+    altered[0].evidence[0].content = "Erfundene Spielwerte".into();
+    assert!(port
+        .validate_dependencies(
+            &query,
+            &context,
+            Some(&pin),
+            &altered,
+            ToolValidationPurpose::Provider
+        )
+        .is_err());
+    altered = execution.dependencies.clone();
+    altered[0].evidence.pop();
+    assert!(port
+        .validate_dependencies(
+            &query,
+            &context,
+            Some(&pin),
+            &altered,
+            ToolValidationPurpose::Cache
+        )
+        .is_err());
+    let mut foreign = pin.clone();
+    foreign.language = ToolLanguage::English;
+    assert!(port
+        .execute(&query, &context, Some(&foreign), &profile.id, &request)
+        .is_err());
+    let mut forbidden = profile.clone();
+    forbidden.arguments["scenario"] = json!({"progression":{"kind":"boons","value":0}});
+    assert!(forbidden.validate(&definitions).is_err());
+    let missing = ToolCall {
+        id: "missing".into(),
+        name: ToolName::EntityFind,
+        arguments: json!({"query":"Nichtvorhanden","language":"german"}),
+    };
+    let absent = port
+        .execute(
+            &query,
+            &context,
+            Some(&pin),
+            &missing.id,
+            &missing.validate(&definitions).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(absent.result.result["matches"], json!([]));
+    assert_eq!(absent.dependencies[0].evidence.len(), 3);
+    let original = records
+        .iter()
+        .find(|record| record.logical_id.contains("items/german"))
+        .unwrap();
+    let mut denied = original.clone();
+    denied.revision = 2;
+    let mut origin = brain_contracts::source::origin_from_record(&denied).unwrap();
+    origin.policy.publication_allowed = false;
+    origin.bind_record(&mut denied).unwrap();
+    runtime.block_on(store.apply(&denied)).unwrap();
+    let saved = saved.unwrap();
+    port.validate_dependencies(
+        &query,
+        &context,
+        Some(&pin),
+        &saved.dependencies,
+        ToolValidationPurpose::Provider,
+    )
+    .unwrap();
+    assert!(port
+        .validate_dependencies(
+            &query,
+            &context,
+            Some(&pin),
+            &saved.dependencies,
+            ToolValidationPurpose::Publication
+        )
+        .is_err());
+    denied.revision = 3;
+    origin.policy.provider_egress_allowed = false;
+    origin.bind_record(&mut denied).unwrap();
+    runtime.block_on(store.apply(&denied)).unwrap();
+    for purpose in [
+        ToolValidationPurpose::Provider,
+        ToolValidationPurpose::Cache,
+    ] {
+        assert!(port
+            .validate_dependencies(&query, &context, Some(&pin), &saved.dependencies, purpose)
+            .is_err());
+    }
+    assert!(port
+        .execute(&query, &context, Some(&pin), &profile.id, &request)
+        .is_err());
+    *clock.lock().unwrap() += Duration::from_secs(3601);
+    assert_eq!(
+        port.validate_dependencies(
+            &query,
+            &context,
+            Some(&pin),
+            &saved.dependencies,
+            ToolValidationPurpose::Cache
+        )
+        .unwrap_err(),
+        PortError::BudgetExceeded
+    );
+    runtime.block_on(pool.close());
+}
+
+#[test]
+fn public_mirror_originals_without_canonical_registration_are_not_tool_grants() {
+    use brain_contracts::tools::GameContextResolver;
+    use brain_storage::entity_profile::MirroredGameContextReader;
+    let pg = mirror_fixture::scratch_pg::ScratchPg::start();
+    let runtime = test_runtime();
+    let pool = runtime.block_on(mirror_fixture::pool(&pg));
+    runtime.block_on(mirror_fixture::seed_with_grants(
+        &pool,
+        "unregistered",
+        true,
+    ));
+    let store = PgStore::new(pool.clone());
+    runtime.block_on(store.migrate_core()).unwrap();
+    let original = record(1, true, true, false);
+    runtime.block_on(store.apply(&original)).unwrap();
+    runtime
+        .block_on(store.publish_release(&CorpusRelease {
+            release_id: "fixture-release".into(),
+            knowledge_version: "fixture-v1".into(),
+            patch: "fixture-patch".into(),
+            created_at_epoch: 1,
+            source_revisions: BTreeMap::from([(
+                original.source_id.clone(),
+                BTreeMap::from([(original.logical_id.clone(), 1)]),
+            )]),
+        }))
+        .unwrap();
+    let canonical = LocalPgReader::new(
+        pg.directory.join("socket"),
+        55439,
+        "brain_core_test",
+        "postgres",
+    )
+    .unwrap();
+    let reader = MirroredGameContextReader::new(
+        pool.clone(),
+        runtime.handle().clone(),
+        ToolLanguage::German,
+    )
+    .unwrap();
+    let port = ReleaseToolExecutionPort::new(ReleaseRetriever::new(canonical, 6))
+        .with_mirrored_entities(reader.clone());
+    let (query, context, _) = context();
+    let pin = reader.resolve(&query, &context).unwrap().unwrap();
+    let call = ToolCall {
+        id: "find".into(),
+        name: ToolName::EntityFind,
+        arguments: json!({"query":"Prüfdaten","kind":"hero","language":"german"}),
+    };
+    let request = call
+        .validate(&port.definitions(&query, &context, Some(&pin)).unwrap())
+        .unwrap();
+    assert!(matches!(
+        port.execute(&query, &context, Some(&pin), &call.id, &request),
+        Err(PortError::PermissionDenied(_))
+    ));
     runtime.block_on(pool.close());
 }

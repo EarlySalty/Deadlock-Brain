@@ -22,7 +22,7 @@ use std::{
 };
 
 #[path = "support/scratch_pg.rs"]
-mod scratch_pg;
+pub(crate) mod scratch_pg;
 
 fn authorized_context() -> (AuthorizedContext, Arc<Mutex<Instant>>) {
     let clock = Arc::new(Mutex::new(Instant::now()));
@@ -42,7 +42,7 @@ fn query() -> Query {
     serde_json::from_value(json!({"request_id":"fixture", "conversation_id":"fixture", "text":"Öffentliche Spielwerte"})).unwrap()
 }
 
-async fn pool(pg: &scratch_pg::ScratchPg) -> PgPool {
+pub(crate) async fn pool(pg: &scratch_pg::ScratchPg) -> PgPool {
     let pool = PgPoolOptions::new()
         .max_connections(3)
         .connect_with(
@@ -72,9 +72,13 @@ async fn pool(pg: &scratch_pg::ScratchPg) -> PgPool {
     pool
 }
 
-// Öffentliche Testformen, keine Produktionsoriginale. Der Receiptleser und Postgres
-// laufen wirklich; diese Probe ersetzt keinen Importer- oder Produktionsnachweis.
-async fn document(pool: &PgPool, payload: Value, url: String, adapter: Value) -> (i64, String) {
+async fn document(
+    pool: &PgPool,
+    payload: Value,
+    url: String,
+    adapter: Value,
+    granted: bool,
+) -> (i64, String) {
     let raw = serde_json::to_vec(&payload).unwrap();
     let hash = format!("{:x}", Sha256::digest(&raw));
     let provenance = Provenance {
@@ -92,8 +96,8 @@ async fn document(pool: &PgPool, payload: Value, url: String, adapter: Value) ->
         observed_at: 100,
         origin_artifacts: BTreeSet::new(),
         derivation_family: None,
-        publication_authorized: false,
-        provider_egress_authorized: false,
+        publication_authorized: granted,
+        provider_egress_authorized: granted,
     };
     let validation = Validation::Validated {
         extra_fields: Vec::new(),
@@ -118,11 +122,16 @@ async fn document(pool: &PgPool, payload: Value, url: String, adapter: Value) ->
 }
 
 async fn seed(pool: &PgPool, marker: &str) -> i64 {
+    seed_with_grants(pool, marker, false).await
+}
+
+pub(crate) async fn seed_with_grants(pool: &PgPool, marker: &str, granted: bool) -> i64 {
     let (manifest, manifest_hash) = document(
         pool,
         json!({"client_version":6759}),
         "https://example.org/fixture/manifest".into(),
         json!({"role":"client_manifest","client_version":6759}),
+        granted,
     )
     .await;
     let mut endpoints = serde_json::Map::new();
@@ -132,6 +141,9 @@ async fn seed(pool: &PgPool, marker: &str) -> i64 {
             let key = mirrored_asset_key(kind, language).unwrap();
             let payload = if *kind == "generic_data" {
                 json!({"observation":marker,"zero":0})
+            } else if *kind == "items" && granted {
+                json!([{"id":8,"name":"Prüfitem","type":"upgrade","observation":marker,"zero":0},
+                    {"id":9,"name":"Prüffähigkeit","type":"ability","observation":marker}])
             } else {
                 json!([{"id":7,"name":"Prüfdaten","observation":marker}])
             };
@@ -141,6 +153,7 @@ async fn seed(pool: &PgPool, marker: &str) -> i64 {
                 payload,
                 url,
                 json!({"kind":kind,"language":language,"client_version":6759}),
+                granted,
             )
             .await;
             endpoints.insert(key, json!({"source_document_id":id,"raw_sha256":hash}));
@@ -230,8 +243,6 @@ async fn actual_receipt_reader_pins_one_run_and_rejects_drift() {
         second_run
     );
 
-    // Eine Payloadänderung wird auch bei unverändertem Originalhash nicht als
-    // dieselbe Bindung akzeptiert. Die Importerprüfung ist ein eigener Beweis.
     sqlx::query("UPDATE brain.source_documents SET metadata=jsonb_set(metadata,'{contract,data,payload,value,0,observation}','\"changed\"') WHERE id=(SELECT (summary->'endpoints'->'items/english'->>'source_document_id')::bigint FROM brain.source_runs WHERE id=$1)")
         .bind(second_run).execute(&pool).await.unwrap();
     assert!(reader.read_pinned(&context, &second_pin).is_err());
@@ -281,7 +292,6 @@ async fn original_controlled_lifetime_is_required_before_any_read() {
         PortError::BudgetExceeded
     );
     let (expired, _) = authorized_context();
-    // Diese Frist bekommt dieselbe kontrollierte Uhr, keine echte Wartezeit.
     let now = clock.clone();
     let mut expired = expired;
     expired.request_deadline = Some(RequestDeadline::after_with_clock(
