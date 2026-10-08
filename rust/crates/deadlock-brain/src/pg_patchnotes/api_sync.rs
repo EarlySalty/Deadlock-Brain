@@ -417,6 +417,133 @@ fn gameplay_event_content(content: &str, index: &EntityIndex) -> Option<String> 
     has_events.then(|| projected.join("\n"))
 }
 
+fn cosmetic_word(word: &str) -> bool {
+    matches!(
+        word,
+        "cosmetic"
+            | "cosmetics"
+            | "emote"
+            | "emotes"
+            | "skin"
+            | "skins"
+            | "artwork"
+            | "portrait"
+            | "portraits"
+            | "icon"
+            | "icons"
+            | "sound"
+            | "sounds"
+            | "music"
+            | "visual"
+            | "visuals"
+            | "animation"
+            | "animations"
+            | "banner"
+            | "banners"
+            | "poster"
+            | "posters"
+    )
+}
+
+fn mechanical_word(word: &str) -> bool {
+    matches!(
+        word,
+        "attack"
+            | "attacks"
+            | "damage"
+            | "dps"
+            | "cooldown"
+            | "recharge"
+            | "delay"
+            | "cost"
+            | "falloff"
+            | "health"
+            | "regen"
+            | "barrier"
+            | "shield"
+            | "armor"
+            | "heal"
+            | "healing"
+            | "scaling"
+            | "bounty"
+            | "ammo"
+            | "reload"
+            | "range"
+            | "radius"
+            | "duration"
+            | "speed"
+            | "sprint"
+            | "movement"
+            | "resistance"
+            | "resist"
+            | "lifesteal"
+            | "stamina"
+            | "souls"
+            | "lane"
+            | "lanes"
+            | "trooper"
+            | "troopers"
+            | "creep"
+            | "creeps"
+            | "guardian"
+            | "guardians"
+            | "walker"
+            | "walkers"
+            | "patron"
+            | "patrons"
+            | "urn"
+            | "matchmaking"
+            | "match"
+            | "matches"
+            | "crash"
+            | "crashes"
+            | "bullet"
+            | "bullets"
+            | "velocity"
+            | "spread"
+            | "recoil"
+            | "fire"
+    )
+}
+
+fn has_mechanical_effect(words: &[String], cosmetic_position: Option<usize>) -> bool {
+    let describes_effect = cosmetic_position.is_some_and(|cosmetic| {
+        words[cosmetic + 1..].iter().any(|word| {
+            [
+                "appl",
+                "deal",
+                "caus",
+                "prevent",
+                "cancel",
+                "block",
+                "grant",
+                "trigger",
+                "interrupt",
+                "affect",
+            ]
+            .iter()
+            .any(|prefix| word.starts_with(prefix))
+        })
+    });
+    words.iter().enumerate().any(|(position, word)| {
+        cosmetic_position.is_none_or(|cosmetic| position < cosmetic || describes_effect)
+            && !words.get(position + 1).is_some_and(|next| {
+                cosmetic_word(next)
+                    || matches!(
+                        next.as_str(),
+                        "number"
+                            | "numbers"
+                            | "bar"
+                            | "bars"
+                            | "display"
+                            | "indicator"
+                            | "indicators"
+                    )
+            })
+            && mechanical_word(word)
+    })
+}
+
 fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
     let (subject, remainder) = split_subject(clause);
     let change_subject = remainder.as_deref().unwrap_or(clause).to_ascii_lowercase();
@@ -444,126 +571,8 @@ fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
         .filter(|word| !word.is_empty())
         .map(str::to_ascii_lowercase)
         .collect();
-    let cosmetic_word = |word: &str| {
-        matches!(
-            word,
-            "cosmetic"
-                | "cosmetics"
-                | "emote"
-                | "emotes"
-                | "skin"
-                | "skins"
-                | "artwork"
-                | "portrait"
-                | "portraits"
-                | "icon"
-                | "icons"
-                | "sound"
-                | "sounds"
-                | "music"
-                | "visual"
-                | "visuals"
-                | "animation"
-                | "animations"
-                | "banner"
-                | "banners"
-                | "poster"
-                | "posters"
-        )
-    };
     let cosmetic_position = words.iter().position(|word| cosmetic_word(word));
-    let describes_effect = cosmetic_position.is_some_and(|cosmetic| {
-        words[cosmetic + 1..].iter().any(|word| {
-            [
-                "appl",
-                "deal",
-                "caus",
-                "prevent",
-                "cancel",
-                "block",
-                "grant",
-                "trigger",
-                "interrupt",
-                "affect",
-            ]
-            .iter()
-            .any(|prefix| word.starts_with(prefix))
-        })
-    });
-    let mechanical_effect = words.iter().enumerate().any(|(position, word)| {
-        cosmetic_position.is_none_or(|cosmetic| position < cosmetic || describes_effect)
-            && !words.get(position + 1).is_some_and(|next| {
-                cosmetic_word(next)
-                    || matches!(
-                        next.as_str(),
-                        "number"
-                            | "numbers"
-                            | "bar"
-                            | "bars"
-                            | "display"
-                            | "indicator"
-                            | "indicators"
-                    )
-            })
-            && matches!(
-                word.as_str(),
-                "attack"
-                    | "attacks"
-                    | "damage"
-                    | "dps"
-                    | "cooldown"
-                    | "recharge"
-                    | "delay"
-                    | "cost"
-                    | "falloff"
-                    | "health"
-                    | "regen"
-                    | "barrier"
-                    | "shield"
-                    | "armor"
-                    | "heal"
-                    | "healing"
-                    | "scaling"
-                    | "bounty"
-                    | "ammo"
-                    | "reload"
-                    | "range"
-                    | "radius"
-                    | "duration"
-                    | "speed"
-                    | "sprint"
-                    | "movement"
-                    | "resistance"
-                    | "resist"
-                    | "lifesteal"
-                    | "stamina"
-                    | "souls"
-                    | "lane"
-                    | "lanes"
-                    | "trooper"
-                    | "troopers"
-                    | "creep"
-                    | "creeps"
-                    | "guardian"
-                    | "guardians"
-                    | "walker"
-                    | "walkers"
-                    | "patron"
-                    | "patrons"
-                    | "urn"
-                    | "matchmaking"
-                    | "match"
-                    | "matches"
-                    | "crash"
-                    | "crashes"
-                    | "bullet"
-                    | "bullets"
-                    | "velocity"
-                    | "spread"
-                    | "recoil"
-                    | "fire"
-            )
-    });
+    let mechanical_effect = has_mechanical_effect(&words, cosmetic_position);
     let gameplay = bound_entity
         || mechanical_effect
         || words.iter().any(|word| {
