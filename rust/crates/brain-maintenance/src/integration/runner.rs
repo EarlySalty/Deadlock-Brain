@@ -757,7 +757,7 @@ impl Runner {
             !self.runtime.entity_profile_sources.is_empty(),
             "entity_profile_sources_missing"
         );
-        let (_, prepared) = refresh_entity_profile_documents(
+        let result = refresh_entity_profile_documents(
             &self.store,
             &self.pool,
             &config,
@@ -766,7 +766,14 @@ impl Runner {
             &serve.release.id,
             &self.runtime,
         )
-        .await?;
+        .await;
+        let (_, prepared) = match result {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("{}", super::entity_profiles::refresh_failure(&error));
+                return Err(error);
+            }
+        };
         drop(publication_lock);
         let Some(prepared) = prepared else {
             return Ok(json!({"status":"already_bound","release":{
