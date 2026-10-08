@@ -1,0 +1,26 @@
+cargo-slot: Slot 2, optimiert=0
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-k-live-20261007/rust/crates/brain-contracts)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.05s
+     Running unittests src/lib.rs (rust/target/debug/deps/brain_contracts-15bf90803646adf2)
+
+running 4 tests
+test provider_input::tests::counts_decoded_text_not_http_escaping_or_model_name ... ok
+test provider_input::tests::ortsdaten_bleiben_getrennt_und_zaehlen_im_vollstaendigen_providerbudget ... ok
+test provider_input::tests::gesamte_modellprojektion_laesst_discord_herkunft_und_rechte_intern ... ok
+test provider_input::tests::embedding_array_counts_each_input_and_rejects_non_text ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.01s
+
+     Running tests/bot_tasks_contract.rs (rust/target/debug/deps/bot_tasks_contract-262812064b9b0776)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.00s
+
+     Running tests/ir_contracts.rs (rust/target/debug/deps/ir_contracts-9a96cb3d4da4779e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.00s
+
+cargo-slot: EXIT=0

@@ -1,0 +1,296 @@
+cargo-slot: Slot 2, optimiert=0
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-api/src/http.rs:162:
+         0 => Ok(true),
+         1 if headers
+             .get("x-discord-read-access")
+-            .is_some_and(|value| value.as_bytes() == b"disabled") => Ok(false),
++            .is_some_and(|value| value.as_bytes() == b"disabled") =>
++        {
++            Ok(false)
++        }
+         _ => Err(json_error(
+             400,
+             "invalid_request",
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-api/src/http.rs:180:
+     fn private_read_gate_header_kann_nur_einschraenken() {
+         let mut headers = HeaderMap::new();
+         assert!(discord_read_access(&headers).unwrap());
+-        headers.insert("x-discord-read-access", HeaderValue::from_static("disabled"));
++        headers.insert(
++            "x-discord-read-access",
++            HeaderValue::from_static("disabled"),
++        );
+         assert!(!discord_read_access(&headers).unwrap());
+-        headers.append("x-discord-read-access", HeaderValue::from_static("disabled"));
++        headers.append(
++            "x-discord-read-access",
++            HeaderValue::from_static("disabled"),
++        );
+         assert_eq!(discord_read_access(&headers).unwrap_err().status, 400);
+         for value in ["enabled", "true", "", "Disabled"] {
+-            headers.insert("x-discord-read-access", HeaderValue::from_str(value).unwrap());
++            headers.insert(
++                "x-discord-read-access",
++                HeaderValue::from_str(value).unwrap(),
++            );
+             assert_eq!(discord_read_access(&headers).unwrap_err().status, 400);
+         }
+     }
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-api/src/lib.rs:423:
+             assert_eq!(discord.allow_discord_reads, index < 3);
+             assert!(context.principal.scopes.contains("bot.public"));
+             assert!(context.principal.scopes.contains(&discord.scope));
+-            assert!(context.principal.provider_egress.contains("discord_request"));
++            assert!(context
++                .principal
++                .provider_egress
++                .contains("discord_request"));
+         }
+         let scopes: BTreeSet<_> = contexts
+             .iter()
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-kernel/src/flight.rs:190:
+         })).unwrap();
+         let mut context = AuthorizedContext {
+             discord: Some(brain_contracts::DiscordRequestContext {
+-                user_id: Some(42), request_id: "r".into(), scope: "discord.request:fixture".into(), allow_discord_reads: true,
++                user_id: Some(42),
++                request_id: "r".into(),
++                scope: "discord.request:fixture".into(),
++                allow_discord_reads: true,
+             }),
+             principal: brain_contracts::Principal {
+-                actor_id: "bot".into(), channel: "fixture".into(),
+-                scopes: ["bot.public".into(), "discord.request:fixture".into()].into_iter().collect(),
+-                provider_egress: ["public".into(), "discord_request".into()].into_iter().collect(),
++                actor_id: "bot".into(),
++                channel: "fixture".into(),
++                scopes: ["bot.public".into(), "discord.request:fixture".into()]
++                    .into_iter()
++                    .collect(),
++                provider_egress: ["public".into(), "discord_request".into()]
++                    .into_iter()
++                    .collect(),
+             },
+-            conversation_id: "c".into(), knowledge_release: "fixture".into(), deadline_ms: 1000,
+-            budget: brain_contracts::Budget::default(), request_deadline: None,
++            conversation_id: "c".into(),
++            knowledge_release: "fixture".into(),
++            deadline_ms: 1000,
++            budget: brain_contracts::Budget::default(),
++            request_deadline: None,
+         };
+         let purpose = AnswerPurpose::ExternalPublication;
+         let public = cache_key_for_purpose(&query, &context, purpose).unwrap();
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-kernel/src/flight.rs:206:
+         let private = cache_key_for_purpose(&query, &context, purpose).unwrap();
+         assert_ne!(public, private);
+         context.discord.as_mut().unwrap().user_id = Some(43);
+-        assert_ne!(private, cache_key_for_purpose(&query, &context, purpose).unwrap());
++        assert_ne!(
++            private,
++            cache_key_for_purpose(&query, &context, purpose).unwrap()
++        );
+     }
+ }
+ 
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve/src/discord_live.rs:369:
+         &context.principal,
+         &context.conversation_id,
+         &context.knowledge_release,
+-        &context
+-            .discord
+-            .as_ref()
+-            .map(|request| {
+-                (
+-                    &request.user_id,
+-                    &request.request_id,
+-                    &request.scope,
+-                    request.allow_discord_reads,
+-                )
+-            }),
++        &context.discord.as_ref().map(|request| {
++            (
++                &request.user_id,
++                &request.request_id,
++                &request.scope,
++                request.allow_discord_reads,
++            )
++        }),
+     ))
+     .map_err(|_| denied())?;
+     Ok(format!("{:x}", Sha256::digest(bytes)))
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve/src/discord_live.rs:620:
+ 
+         struct SafeStore(Evidence);
+         impl RetrievalPort for SafeStore {
+-            fn retrieve(&self, _: &Query, context: &AuthorizedContext) -> Result<Vec<Evidence>, PortError> {
++            fn retrieve(
++                &self,
++                _: &Query,
++                context: &AuthorizedContext,
++            ) -> Result<Vec<Evidence>, PortError> {
+                 let request = context.discord.as_ref().unwrap();
+                 assert_eq!(request.user_id, Some(42));
+                 assert!(context.principal.scopes.contains(&request.scope));
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve/src/discord_live.rs:627:
+                 Ok(vec![self.0.clone()])
+             }
+-            fn validate_evidence(&self, _: &Query, _: &AuthorizedContext, items: &[Evidence], _: bool) -> Result<(), PortError> {
+-                if items == std::slice::from_ref(&self.0) { Ok(()) } else { Err(denied()) }
++            fn validate_evidence(
++                &self,
++                _: &Query,
++                _: &AuthorizedContext,
++                items: &[Evidence],
++                _: bool,
++            ) -> Result<(), PortError> {
++                if items == std::slice::from_ref(&self.0) {
++                    Ok(())
++                } else {
++                    Err(denied())
++                }
+             }
+-            fn validate_publication(&self, query: &Query, context: &AuthorizedContext, items: &[Evidence]) -> Result<(), PortError> {
++            fn validate_publication(
++                &self,
++                query: &Query,
++                context: &AuthorizedContext,
++                items: &[Evidence],
++            ) -> Result<(), PortError> {
+                 self.validate_evidence(query, context, items, false)
+             }
+         }
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve/src/discord_live.rs:636:
+         struct Answer;
+         impl AnswerProviderPort for Answer {
+-            fn answer(&self, query: &Query, _: &AuthorizedContext, items: &[Evidence]) -> Result<ProviderAnswer, PortError> {
++            fn answer(
++                &self,
++                query: &Query,
++                _: &AuthorizedContext,
++                items: &[Evidence],
++            ) -> Result<ProviderAnswer, PortError> {
+                 assert_eq!(items.len(), 1);
+                 assert_eq!(items[0].source_id, "docs.public");
+                 let payload = brain_contracts::provider_input::grounded_messages(query, items);
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve/src/discord_live.rs:674:
+             request_deadline: None,
+         };
+         for channel in [None, Some(2)] {
+-            assert!(matches!(live.read_channel(&context, channel), Err(PortError::PermissionDenied(_))));
++            assert!(matches!(
++                live.read_channel(&context, channel),
++                Err(PortError::PermissionDenied(_))
++            ));
+         }
+         let stored = Evidence {
+-            evidence_id: "stored".into(), source_id: "docs.public".into(), logical_id: "fixture".into(),
+-            revision: 1, kind: EvidenceKind::Prose, content: "Neutrales gespeichertes Wissen".into(),
+-            citation: "https://example.invalid/fixture".into(), visibility: SourceVisibility::Public,
+-            allowed_scopes: BTreeSet::new(), score: 1.0, provenance: None, patch: None,
++            evidence_id: "stored".into(),
++            source_id: "docs.public".into(),
++            logical_id: "fixture".into(),
++            revision: 1,
++            kind: EvidenceKind::Prose,
++            content: "Neutrales gespeichertes Wissen".into(),
++            citation: "https://example.invalid/fixture".into(),
++            visibility: SourceVisibility::Public,
++            allowed_scopes: BTreeSet::new(),
++            score: 1.0,
++            provenance: None,
++            patch: None,
+         };
+         let adapter = DiscordRetriever::new(SafeStore(stored.clone()), Some(live));
+         let kernel = Kernel::new(adapter, Answer);
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve/src/discord_live.rs:687:
+-        for text in ["Was macht Abrams?", "Wo stehen die Discord-Serverregeln?", "Wie ist mein eigener Invite-Status?", "Was steht in <#2>?"] {
++        for text in [
++            "Was macht Abrams?",
++            "Wo stehen die Discord-Serverregeln?",
++            "Wie ist mein eigener Invite-Status?",
++            "Was steht in <#2>?",
++        ] {
+             let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":text,"requested_scopes":["bot.public"]})).unwrap();
+             let result = kernel.answer_for_publication(&query, &context);
+             assert_eq!(result.status, AnswerStatus::Answered);
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve/src/discord_live.rs:691:
+             assert_eq!(result.citations, vec![stored.clone()]);
+             assert_eq!(result.usage.network_rounds, 0);
+         }
+-        assert_eq!(listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
++        assert_eq!(
++            listener.accept().unwrap_err().kind(),
++            std::io::ErrorKind::WouldBlock
++        );
+     }
+ 
+     #[test]
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve/src/discord_live.rs:699:
+         let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Discord-Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
+         let mut context = AuthorizedContext {
+             discord: Some(brain_contracts::DiscordRequestContext {
+-                user_id: Some(42), request_id: "r".into(), scope: "discord.request:fixture".into(), allow_discord_reads: true,
++                user_id: Some(42),
++                request_id: "r".into(),
++                scope: "discord.request:fixture".into(),
++                allow_discord_reads: true,
+             }),
+             principal: brain_contracts::Principal {
+-                actor_id: "bot".into(), channel: "fixture".into(),
++                actor_id: "bot".into(),
++                channel: "fixture".into(),
+                 scopes: BTreeSet::from(["bot.public".into(), "discord.request:fixture".into()]),
+                 provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
+             },
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve/src/discord_live.rs:709:
+-            conversation_id: "c".into(), knowledge_release: "fixture".into(), deadline_ms: 1000,
+-            budget: brain_contracts::Budget::default(), request_deadline: None,
++            conversation_id: "c".into(),
++            knowledge_release: "fixture".into(),
++            deadline_ms: 1000,
++            budget: brain_contracts::Budget::default(),
++            request_deadline: None,
+         };
+         let facts = json!({"schema":"discord.public-facts.v2","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"requester","channels":[],"voice_counts":[],"bot_infos":[]});
+         let (expires, item) = evidence(serde_json::from_value(facts).unwrap()).unwrap();
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve/src/discord_live.rs:714:
+         let items = vec![item];
+         let adapter = DiscordRetriever::new(Stored, None);
+         let public_key = observation_key(&query, &context).unwrap();
+-        adapter.observations.lock().unwrap().insert(public_key.clone(), (expires, items.clone()));
+-        adapter.validate_evidence(&query, &context, &items, true).unwrap();
++        adapter
++            .observations
++            .lock()
++            .unwrap()
++            .insert(public_key.clone(), (expires, items.clone()));
++        adapter
++            .validate_evidence(&query, &context, &items, true)
++            .unwrap();
+         context.discord.as_mut().unwrap().allow_discord_reads = false;
+         let private_key = observation_key(&query, &context).unwrap();
+         assert_ne!(public_key, private_key);
+Diff in /home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve/src/discord_live.rs:722:
+-        adapter.observations.lock().unwrap().insert(private_key, (expires, items.clone()));
++        adapter
++            .observations
++            .lock()
++            .unwrap()
++            .insert(private_key, (expires, items.clone()));
+         for provider in [false, true] {
+-            assert!(matches!(adapter.validate_evidence(&query, &context, &items, provider), Err(PortError::PermissionDenied(_))));
++            assert!(matches!(
++                adapter.validate_evidence(&query, &context, &items, provider),
++                Err(PortError::PermissionDenied(_))
++            ));
+         }
+-        assert!(matches!(adapter.validate_publication(&query, &context, &items), Err(PortError::PermissionDenied(_))));
++        assert!(matches!(
++            adapter.validate_publication(&query, &context, &items),
++            Err(PortError::PermissionDenied(_))
++        ));
+     }
+ 
+     #[test]
+cargo-slot: EXIT=1

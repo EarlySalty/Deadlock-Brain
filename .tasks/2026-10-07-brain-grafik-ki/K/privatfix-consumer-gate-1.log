@@ -1,0 +1,3 @@
+[gpt-6.1-sol] ALLOW: No blocking defect established in the supplied diff.
+
+1. rust/crates/dl-brain/src/brain_api.rs:107 | NIT: SDK/backend enforcement is outside the supplied context; the new HTTP fixture only checks header transport. | Inspect the pinned SDK and server path to confirm `disabled` prevents Discord reads through tools and evidence too. The removed guards now rely on that guarantee.

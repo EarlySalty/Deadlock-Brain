@@ -1,0 +1,233 @@
+cargo-slot: Slot 1, optimiert=0
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling libc v0.2.186
+   Compiling serde_core v1.0.228
+   Compiling serde v1.0.228
+   Compiling syn v2.0.117
+   Compiling cfg-if v1.0.4
+   Compiling pin-project-lite v0.2.17
+   Compiling stable_deref_trait v1.2.1
+   Compiling futures-core v0.3.32
+   Compiling memchr v2.8.1
+   Compiling serde_derive v1.0.228
+   Compiling synstructure v0.13.2
+   Compiling zerofrom-derive v0.1.7
+   Compiling zerofrom v0.1.8
+   Compiling yoke-derive v0.8.2
+   Compiling yoke v0.8.3
+   Compiling zerovec-derive v0.11.3
+   Compiling displaydoc v0.2.6
+   Compiling bytes v1.11.1
+   Compiling mio v1.2.1
+   Compiling zerovec v0.11.6
+   Compiling socket2 v0.6.4
+   Compiling writeable v0.6.3
+   Compiling litemap v0.8.2
+   Compiling zerotrie v0.2.4
+   Compiling tinystr v0.8.3
+   Compiling potential_utf v0.1.5
+   Compiling icu_locale_core v2.2.0
+   Compiling icu_normalizer_data v2.2.0
+   Compiling utf8_iter v1.0.4
+   Compiling itoa v1.0.18
+   Compiling icu_collections v2.2.0
+   Compiling icu_properties_data v2.2.0
+   Compiling once_cell v1.21.4
+   Compiling icu_provider v2.2.0
+   Compiling find-msvc-tools v0.1.9
+   Compiling version_check v0.9.5
+   Compiling shlex v2.0.1
+   Compiling subtle v2.6.1
+   Compiling generic-array v0.14.7
+   Compiling cc v1.2.63
+   Compiling smallvec v1.15.1
+   Compiling getrandom v0.2.17
+   Compiling percent-encoding v2.3.2
+   Compiling icu_properties v2.2.0
+   Compiling ring v0.17.14
+   Compiling errno v0.3.14
+   Compiling typenum v1.20.1
+   Compiling zeroize v1.8.2
+   Compiling rustls-pki-types v1.14.1
+   Compiling signal-hook-registry v1.4.8
+   Compiling tokio-macros v2.7.0
+   Compiling futures-io v0.3.32
+   Compiling futures-task v0.3.32
+   Compiling slab v0.4.12
+   Compiling tracing-attributes v0.1.31
+   Compiling untrusted v0.9.0
+   Compiling tokio v1.52.3
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling rustls v0.23.40
+   Compiling parking_lot_core v0.9.12
+   Compiling autocfg v1.5.1
+   Compiling zmij v1.0.21
+   Compiling futures-sink v0.3.32
+   Compiling num-traits v0.2.19
+   Compiling digest v0.10.7
+   Compiling rustls-webpki v0.103.13
+   Compiling serde_json v1.0.150
+   Compiling webpki-roots v1.0.7
+   Compiling crossbeam-utils v0.8.21
+   Compiling scopeguard v1.2.0
+   Compiling lock_api v0.4.14
+   Compiling tracing-core v0.1.36
+   Compiling log v0.4.32
+   Compiling futures-util v0.3.32
+   Compiling icu_normalizer v2.2.0
+   Compiling equivalent v1.0.2
+   Compiling zerocopy v0.8.52
+   Compiling iana-time-zone v0.1.65
+   Compiling cpufeatures v0.2.17
+   Compiling sha2 v0.10.9
+   Compiling idna_adapter v1.2.2
+   Compiling tracing v0.1.44
+   Compiling form_urlencoded v1.2.2
+   Compiling http v1.4.2
+   Compiling crc32fast v1.5.0
+   Compiling allocator-api2 v0.2.21
+   Compiling thiserror v2.0.18
+   Compiling foldhash v0.1.5
+   Compiling bitflags v2.13.0
+   Compiling hashbrown v0.15.5
+   Compiling http-body v1.0.1
+   Compiling idna v1.1.0
+   Compiling concurrent-queue v2.5.0
+   Compiling futures-channel v0.3.32
+   Compiling thiserror-impl v2.0.18
+   Compiling simd-adler32 v0.3.9
+   Compiling adler2 v2.0.1
+   Compiling base64 v0.22.1
+   Compiling tinyvec_macros v0.1.1
+   Compiling httparse v1.10.1
+   Compiling crc-catalog v2.5.0
+   Compiling hashbrown v0.17.1
+   Compiling parking v2.2.1
+   Compiling event-listener v5.4.1
+   Compiling indexmap v2.14.0
+   Compiling crc v3.4.0
+   Compiling tinyvec v1.11.0
+   Compiling miniz_oxide v0.8.9
+   Compiling ppv-lite86 v0.2.21
+   Compiling url v2.5.8
+   Compiling hashlink v0.10.0
+   Compiling crossbeam-queue v0.3.12
+   Compiling webpki-roots v0.26.11
+   Compiling rand_core v0.6.4
+   Compiling either v1.16.0
+   Compiling try-lock v0.2.5
+   Compiling tower-service v0.3.3
+   Compiling want v0.3.1
+   Compiling parking_lot v0.12.5
+   Compiling rand_chacha v0.3.1
+   Compiling flate2 v1.1.9
+   Compiling unicode-normalization v0.1.25
+   Compiling hmac v0.12.1
+   Compiling aho-corasick v1.1.4
+   Compiling unicase v2.9.0
+   Compiling compression-core v0.4.33
+   Compiling atomic-waker v1.1.2
+   Compiling unicode-bidi v0.3.18
+   Compiling regex-syntax v0.8.11
+   Compiling unicode-properties v0.1.4
+   Compiling hyper v1.10.1
+   Compiling stringprep v0.1.5
+   Compiling regex-automata v0.4.14
+   Compiling tokio-stream v0.1.18
+   Compiling compression-codecs v0.4.45
+   Compiling mime_guess v2.0.5
+   Compiling hkdf v0.12.4
+   Compiling futures-intrusive v0.5.0
+   Compiling rand v0.8.6
+   Compiling chrono v0.4.45
+   Compiling atoi v2.0.0
+   Compiling md-5 v0.10.6
+   Compiling sync_wrapper v1.0.2
+   Compiling dotenvy v0.15.7
+   Compiling whoami v1.6.1
+   Compiling tower-layer v0.3.3
+   Compiling ipnet v2.12.0
+   Compiling byteorder v1.5.0
+   Compiling home v0.5.12
+   Compiling hex v0.4.3
+   Compiling hyper-util v0.1.20
+   Compiling sqlx-core v0.8.6
+   Compiling tower v0.5.3
+   Compiling async-compression v0.4.50
+   Compiling http-body-util v0.1.3
+   Compiling tokio-rustls v0.26.4
+   Compiling tokio-util v0.7.18
+   Compiling mime v0.3.17
+   Compiling thiserror v1.0.69
+   Compiling ryu v1.0.23
+   Compiling serde_urlencoded v0.7.1
+   Compiling hyper-rustls v0.27.9
+   Compiling tower-http v0.6.11
+   Compiling sqlx-postgres v0.8.6
+   Compiling thiserror-impl v1.0.69
+   Compiling heck v0.5.0
+   Compiling siphasher v1.0.3
+   Compiling phf_shared v0.12.1
+   Compiling reqwest v0.12.28
+   Compiling regex v1.12.4
+   Compiling lazy_static v1.5.0
+   Compiling chrono-tz v0.10.4
+   Compiling sharded-slab v0.1.7
+   Compiling brain-contracts v0.1.0 (https://github.com/EarlySalty/Deadlock-Brain.git?rev=7da630186fe7d55a7eef4156192dcac78002b008#7da63018)
+   Compiling sqlx-macros-core v0.8.6
+   Compiling uplink-infisical-transport v0.1.1 (https://github.com/EarlySalty/Deadlock-Brain.git?rev=7da630186fe7d55a7eef4156192dcac78002b008#7da63018)
+   Compiling sqlx-macros v0.8.6
+   Compiling phf v0.12.1
+   Compiling matchers v0.2.0
+   Compiling tracing-log v0.2.0
+   Compiling thread_local v1.1.9
+   Compiling nu-ansi-term v0.50.3
+   Compiling tracing-subscriber v0.3.23
+   Compiling async-trait v0.1.89
+   Compiling brain-client v0.1.0 (https://github.com/EarlySalty/Deadlock-Brain.git?rev=7da630186fe7d55a7eef4156192dcac78002b008#7da63018)
+   Compiling sqlx v0.8.6
+   Compiling dl-brain v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-brain)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 58.42s
+     Running unittests src/lib.rs (/tmp/k-privatfix-bots-check-target-20261007/debug/deps/dl_brain-428c7478bca41bf2)
+
+running 21 tests
+test api_ingest::tests::normalizes_current_shop_items_and_hero_base_stats ... ok
+test brain_api::tests::abgelaufenes_gesamtbudget_sendet_bei_belegter_admission_keine_anfrage ... ok
+test api_ingest::tests::identical_second_run_plans_zero_updates ... ok
+test brain_api::tests::links_werden_auch_aus_markdown_und_autolinks_entfernt ... ok
+test tests::chunk_message_splittet_ueber_2000_an_wortgrenzen ... ok
+test api_ingest::tests::content_hash_ignores_version_and_commit_metadata ... ok
+test tests::discord_limit_laesst_fuenfzig_sofort_zu_und_meldet_die_einundfuenfzigste_einmal ... ok
+test tests::discord_limit_wechselt_am_berliner_kalendertag_auch_bei_zeitumstellungen ... ok
+test tests::discord_folgefragen_und_mehrfachfrage_zaehlen_je_einen_zentralen_aufruf ... ok
+test tests::gemeinsame_antwort_erhaelt_frage_und_beachtet_grenzen_und_cooldown ... ok
+test tests::parallele_discord_frage_wird_vor_der_ersten_antwort_begrenzt ... ok
+test tests::discord_verwendet_keinen_alten_antwortweg_als_ersatz ... ok
+test brain_api::tests::linkentfernung_prueft_rekonstruierte_urls_bis_zum_linkfreien_ergebnis ... ok
+test tests::backendfehler_verbraucht_keinen_cooldown ... ok
+test tests::discord_limit_ist_konfigurierbar_ohne_kanal_stunden_oder_globales_tageslimit ... ok
+test brain_api::tests::consumer_sendet_ereignisidentitaet_und_trennt_anfragekontexte ... ok
+test brain_api::tests::coachingziel_wird_nach_dem_linkfilter_auf_discord_projiziert ... ok
+test brain_api::tests::warnungen_nennen_nur_die_klasse_und_kuerzung_beachtet_utf16 ... ok
+test brain_api::tests::zentrale_ausfallzustaende_werden_nicht_als_antwort_ausgegeben ... ok
+test brain_api::tests::fixture_rekonstruierte_urls_kommen_nicht_in_der_antwort_an ... ok
+test brain_api::tests::fixture_antworten_bleiben_trotz_links_und_ueberlaenge_erhalten ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running unittests src/bin/deadlock-brain-api-ingest.rs (/tmp/k-privatfix-bots-check-target-20261007/debug/deps/deadlock_brain_api_ingest-d9f885e30951a746)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests dl_brain
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+cargo-slot: EXIT=0

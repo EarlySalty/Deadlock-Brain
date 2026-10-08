@@ -1,0 +1,432 @@
+               total        used        free      shared  buff/cache   available
+Mem:           49152       35735           0       15517       28933       13416
+Swap:              0           0           0
+
+Filesystem         Size  Used Avail Use% Mounted on
+/dev/ploop43048p1  1.7T  1.6T  9.3G 100% /
+
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.46
+   Compiling libc v0.2.186
+   Compiling cfg-if v1.0.4
+   Compiling serde v1.0.228
+   Compiling serde_core v1.0.228
+   Compiling typenum v1.20.1
+   Compiling version_check v0.9.5
+   Compiling itoa v1.0.18
+   Compiling syn v2.0.118
+   Compiling zerocopy v0.8.52
+   Compiling generic-array v0.14.7
+   Compiling bytes v1.12.0
+   Compiling memchr v2.8.2
+   Compiling pin-project-lite v0.2.17
+   Compiling zmij v1.0.21
+   Compiling futures-core v0.3.32
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v2.0.1
+   Compiling icu_properties_data v2.2.0
+   Compiling icu_normalizer_data v2.2.0
+   Compiling stable_deref_trait v1.2.1
+   Compiling errno v0.3.14
+   Compiling cc v1.2.65
+   Compiling getrandom v0.2.17
+   Compiling signal-hook-registry v1.4.8
+   Compiling serde_derive v1.0.228
+   Compiling synstructure v0.13.2
+   Compiling zerovec-derive v0.11.3
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling displaydoc v0.2.6
+   Compiling ring v0.17.14
+   Compiling tokio-macros v2.7.0
+   Compiling socket2 v0.6.4
+   Compiling mio v1.2.1
+   Compiling subtle v2.6.1
+   Compiling zerofrom v0.1.8
+   Compiling log v0.4.33
+   Compiling yoke v0.8.3
+   Compiling tokio v1.52.3
+   Compiling futures-sink v0.3.32
+   Compiling rand_core v0.10.1
+   Compiling getrandom v0.4.3
+   Compiling zerovec v0.11.6
+   Compiling smallvec v1.15.2
+   Compiling serde_json v1.0.150
+   Compiling once_cell v1.21.4
+   Compiling parking_lot_core v0.9.12
+   Compiling rand_core v0.6.4
+   Compiling futures-macro v0.3.32
+   Compiling tracing-attributes v0.1.31
+   Compiling hybrid-array v0.4.13
+   Compiling futures-task v0.3.32
+   Compiling futures-io v0.3.32
+   Compiling ppv-lite86 v0.2.21
+   Compiling slab v0.4.12
+   Compiling percent-encoding v2.3.2
+   Compiling rustls v0.23.41
+   Compiling rand_chacha v0.3.1
+   Compiling futures-util v0.3.32
+   Compiling rand v0.8.6
+   Compiling tinystr v0.8.3
+   Compiling writeable v0.6.3
+   Compiling litemap v0.8.2
+   Compiling zeroize v1.9.0
+   Compiling base64 v0.22.1
+   Compiling icu_locale_core v2.2.0
+   Compiling crypto-common v0.2.2
+   Compiling potential_utf v0.1.5
+   Compiling zerotrie v0.2.4
+   Compiling utf8_iter v1.0.4
+   Compiling rustls-pki-types v1.14.1
+   Compiling icu_provider v2.2.0
+   Compiling futures-channel v0.3.32
+   Compiling icu_collections v2.2.0
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling tracing-core v0.1.36
+   Compiling http v1.4.2
+   Compiling autocfg v1.5.1
+   Compiling untrusted v0.9.0
+   Compiling bitflags v2.13.0
+   Compiling thiserror v2.0.18
+   Compiling crossbeam-utils v0.8.21
+   Compiling num-traits v0.2.19
+   Compiling tracing v0.1.44
+   Compiling digest v0.10.7
+   Compiling icu_normalizer v2.2.0
+   Compiling icu_properties v2.2.0
+   Compiling cmov v0.5.4
+   Compiling idna_adapter v1.2.2
+   Compiling rustls-webpki v0.103.13
+   Compiling ctutils v0.4.2
+   Compiling form_urlencoded v1.2.2
+   Compiling block-buffer v0.12.1
+   Compiling thiserror-impl v2.0.18
+   Compiling httparse v1.10.1
+   Compiling idna v1.1.0
+   Compiling http-body v1.0.1
+   Compiling webpki-roots v1.0.8
+   Compiling scopeguard v1.2.0
+   Compiling cpufeatures v0.3.0
+   Compiling siphasher v1.0.3
+   Compiling lock_api v0.4.14
+   Compiling url v2.5.8
+   Compiling thiserror v1.0.69
+   Compiling tower-service v0.3.3
+   Compiling cpufeatures v0.2.17
+   Compiling parking_lot v0.12.5
+   Compiling tokio-util v0.7.18
+   Compiling thiserror-impl v1.0.69
+   Compiling try-lock v0.2.5
+   Compiling crc32fast v1.5.0
+   Compiling want v0.3.1
+   Compiling sync_wrapper v1.0.2
+   Compiling atomic-waker v1.1.2
+   Compiling httpdate v1.0.3
+   Compiling const-oid v0.10.2
+   Compiling adler2 v2.0.1
+   Compiling tower-layer v0.3.3
+   Compiling byteorder v1.5.0
+   Compiling simd-adler32 v0.3.9
+   Compiling tinyvec_macros v0.1.1
+   Compiling tinyvec v1.11.0
+   Compiling digest v0.11.3
+   Compiling miniz_oxide v0.8.9
+   Compiling hyper v1.10.1
+   Compiling http-body-util v0.1.3
+   Compiling ipnet v2.12.0
+   Compiling mime v0.3.17
+   Compiling hyper-util v0.1.20
+   Compiling flate2 v1.1.9
+   Compiling unicode-normalization v0.1.25
+   Compiling tower v0.5.3
+   Compiling sha2 v0.10.9
+   Compiling compression-core v0.4.32
+   Compiling unicode-bidi v0.3.18
+   Compiling unicode-properties v0.1.4
+   Compiling unicase v2.9.0
+   Compiling compression-codecs v0.4.38
+   Compiling mime_guess v2.0.5
+   Compiling stringprep v0.1.5
+   Compiling chacha20 v0.10.1
+   Compiling aho-corasick v1.1.4
+   Compiling hex v0.4.3
+   Compiling equivalent v1.0.2
+   Compiling regex-syntax v0.8.11
+   Compiling rand v0.10.1
+   Compiling async-compression v0.4.42
+   Compiling regex-automata v0.4.14
+   Compiling sha2 v0.11.0
+   Compiling tokio-rustls v0.26.4
+   Compiling allocator-api2 v0.2.21
+   Compiling foldhash v0.1.5
+   Compiling ryu v1.0.23
+   Compiling hashbrown v0.15.5
+   Compiling regex v1.12.4
+   Compiling serde_urlencoded v0.7.1
+   Compiling hyper-rustls v0.27.9
+   Compiling tower-http v0.6.11
+   Compiling concurrent-queue v2.5.0
+   Compiling md-5 v0.11.0
+   Compiling hmac v0.13.0
+   Compiling parking v2.2.1
+   Compiling crc-catalog v2.5.0
+   Compiling hashbrown v0.17.1
+   Compiling iana-time-zone v0.1.65
+   Compiling fallible-iterator v0.2.0
+   Compiling indexmap v2.14.0
+   Compiling postgres-protocol v0.6.12
+   Compiling chrono v0.4.45
+   Compiling crc v3.4.0
+   Compiling event-listener v5.4.1
+   Compiling tokio-stream v0.1.18
+   Compiling webpki-roots v0.26.11
+   Compiling futures-intrusive v0.5.0
+   Compiling reqwest v0.12.28
+   Compiling brain-contracts v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-contracts)
+   Compiling hashlink v0.10.0
+   Compiling crossbeam-queue v0.3.12
+   Compiling hmac v0.12.1
+   Compiling phf_shared v0.13.1
+   Compiling either v1.16.0
+   Compiling heck v0.5.0
+   Compiling anyhow v1.0.102
+   Compiling sqlx-core v0.8.6
+   Compiling phf v0.13.1
+   Compiling hkdf v0.12.4
+   Compiling postgres-types v0.2.14
+   Compiling atoi v2.0.0
+   Compiling md-5 v0.10.6
+   Compiling async-trait v0.1.89
+   Compiling whoami v2.1.2
+   Compiling whoami v1.6.1
+   Compiling home v0.5.12
+   Compiling dotenvy v0.15.7
+   Compiling tokio-postgres v0.7.18
+   Compiling sqlx-postgres v0.8.6
+   Compiling postgres v0.19.14
+   Compiling sqlx-macros-core v0.8.6
+   Compiling cfg_aliases v0.2.1
+   Compiling sqlx-macros v0.8.6
+   Compiling nix v0.29.0
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/vendor/uplink-infisical-transport)
+   Compiling filedescriptor v0.8.3
+   Compiling fireworks-model-selection v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/vendor/fireworks-model-selection)
+   Compiling phf_shared v0.11.3
+   Compiling phf_generator v0.11.3
+   Compiling getrandom v0.3.4
+   Compiling new_debug_unreachable v1.0.6
+   Compiling utf8parse v0.2.2
+   Compiling siphasher v0.3.11
+   Compiling anstyle-parse v1.0.0
+   Compiling phf_shared v0.10.0
+   Compiling phf_macros v0.11.3
+   Compiling anstyle v1.0.14
+   Compiling anstyle-query v1.1.5
+   Compiling utf-8 v0.7.6
+   Compiling colorchoice v1.0.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling phf v0.11.3
+   Compiling phf_generator v0.10.0
+   Compiling anstream v1.0.0
+   Compiling string_cache_codegen v0.5.4
+   Compiling phf_codegen v0.11.3
+   Compiling strsim v0.11.1
+   Compiling precomputed-hash v0.1.1
+   Compiling mac v0.1.1
+   Compiling clap_lex v1.1.0
+   Compiling futf v0.1.5
+   Compiling markup5ever v0.12.1
+   Compiling clap_builder v4.6.0
+   Compiling phf_codegen v0.10.0
+   Compiling clap_derive v4.6.1
+   Compiling sqlx v0.8.6
+   Compiling dtoa v1.0.11
+   Compiling brain-storage v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-storage)
+   Compiling dtoa-short v0.3.5
+   Compiling selectors v0.25.0
+   Compiling tendril v0.4.3
+   Compiling string_cache v0.8.9
+   Compiling rand_core v0.9.5
+   Compiling html5ever v0.27.0
+   Compiling cssparser-macros v0.6.1
+   Compiling clap v4.6.1
+   Compiling ahash v0.8.12
+   Compiling rustix v1.1.4
+   Compiling cssparser v0.31.2
+   Compiling rand_chacha v0.9.0
+   Compiling phf v0.10.1
+   Compiling fxhash v0.2.1
+   Compiling derive_more v0.99.20
+   Compiling servo_arc v0.3.0
+   Compiling unicode-width v0.2.2
+   Compiling linux-raw-sys v0.12.1
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-reasoner)
+   Compiling getopts v0.2.24
+   Compiling rand v0.9.4
+   Compiling sha1 v0.10.6
+   Compiling data-encoding v2.11.1
+   Compiling fastrand v2.4.1
+   Compiling dbrain-builds v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-builds)
+   Compiling ego-tree v0.6.3
+   Compiling tempfile v3.27.0
+   Compiling scraper v0.20.0
+   Compiling roxmltree v0.20.0
+   Compiling tungstenite v0.28.0
+   Compiling dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/Deadlock-Bots/rust/crates/dl-token-secrets)
+   Compiling brain-ingestion v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-ingestion)
+   Compiling tokio-tungstenite v0.28.0
+   Compiling brain-policy v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-policy)
+   Compiling deadlock-brain-core v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/deadlock-brain-core)
+   Compiling axum-core v0.5.6
+   Compiling serde_path_to_error v0.1.20
+   Compiling matchit v0.8.4
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-kernel)
+   Compiling uplink-infisical-transport v0.1.1 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/vendor/uplink-infisical-transport)
+   Compiling brain-providers v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-providers)
+   Compiling axum v0.8.9
+   Compiling inout v0.2.2
+   Compiling cpubits v0.1.1
+   Compiling cipher v0.5.2
+   Compiling dbrain-normalize v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-normalize)
+   Compiling dbrain-population v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-population)
+   Compiling brain-jev v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-jev)
+   Compiling universal-hash v0.6.1
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-api)
+   Compiling polyval v0.7.3
+   Compiling ghash v0.6.0
+   Compiling ctr v0.10.1
+   Compiling aes v0.9.3
+   Compiling dbrain-s12-wiki-probe v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-wiki)
+   Compiling aead v0.6.1
+   Compiling urlencoding v2.1.3
+   Compiling aes-gcm v0.11.1
+   Compiling dbrain-learn v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-learn)
+   Compiling dbrain-enrich v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-enrich)
+   Compiling brain-client v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-client)
+   Compiling tb-error v0.1.0 (/home/nathanael/.worktrees/Deadlock-Twitch-Bot/rust/crates/tb-error)
+   Compiling base64 v0.23.1
+   Compiling brain-legacy-import v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-legacy-import)
+   Compiling tb-crypto v0.1.0 (/home/nathanael/.worktrees/Deadlock-Twitch-Bot/rust/crates/tb-crypto)
+   Compiling dbrain-session-store v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-session-store)
+   Compiling wait-timeout v0.2.1
+   Compiling deadlock-brain-yt v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/deadlock-brain-yt)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-sources)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-feeds)
+   Compiling brain-maintenance v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-maintenance)
+   Compiling deadlock-brain v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/deadlock-brain)
+    Finished `release` profile [optimized] target(s) in 8m 24s
+Cargoartefakt brain-browser-consent: nlink=2, übernommene Bytes=4227696
+Cargoartefakt brain-candidate-activate: nlink=2, übernommene Bytes=15712224
+Cargoartefakt brain-knowledge-import: nlink=2, übernommene Bytes=14506992
+Cargoartefakt brain-legacy-import: nlink=2, übernommene Bytes=12078256
+Cargoartefakt brain-maintain: nlink=2, übernommene Bytes=24469728
+Cargoartefakt brain-match-ingest: nlink=2, übernommene Bytes=11788904
+Cargoartefakt brain-mcp: nlink=2, übernommene Bytes=6509064
+Cargoartefakt brain-migrate: nlink=2, übernommene Bytes=6110160
+Cargoartefakt brain-patchnotes-ingest: nlink=2, übernommene Bytes=11188240
+Cargoartefakt brain-serve: nlink=2, übernommene Bytes=20467712
+Cargoartefakt brain-wiki-pilot: nlink=2, übernommene Bytes=11398872
+Cargoartefakt dbrain-s12-wiki-probe: nlink=2, übernommene Bytes=2976920
+Cargoartefakt dbrain-session-store: nlink=2, übernommene Bytes=7090760
+Cargoartefakt deadlock-brain: nlink=2, übernommene Bytes=38086800
+Cargoartefakt deadlock-brain-secret-exec: nlink=2, übernommene Bytes=6525704
+Cargoartefakt deadlock-brain-site: nlink=2, übernommene Bytes=11370672
+Cargoartefakt deadlock-brain-yt: nlink=2, übernommene Bytes=14612352
+{
+  "format": 2,
+  "source": {
+    "sha": "400381e681a2e08283db46094d1bbbde037e2813",
+    "tree": "12815b65636ef3b2c39735ed01ea69f488d78f53",
+    "fingerprint": "3a5eacf4fce3e435052b85cacc272a2582120a83a54979d5ede677920921b0ec",
+    "path": "/home/nathanael/.worktrees/brain-k-private-read-20261008",
+    "worktree_dev": 2820716161,
+    "worktree_ino": 6619420,
+    "git_pointer_sha256": "9dccbe300b4a8a2e46517ad161d9ed019c31aaa83e374ce474b587e7399f4045"
+  },
+  "origin": "git@github.com:EarlySalty/Deadlock-Brain.git",
+  "cargo_version": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "rustc_version": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "build_args": [
+    "build",
+    "--locked",
+    "--release",
+    "--jobs",
+    "4",
+    "--workspace",
+    "--bins"
+  ],
+  "artifacts": [
+    {
+      "name": "brain-browser-consent",
+      "sha256": "22faaa6d42dc1d6e83c78facd118e834de38d8a488253db48b79229116254cef"
+    },
+    {
+      "name": "brain-candidate-activate",
+      "sha256": "479e6b1bdb101c70534f2b6bdb8e42b9fb3b57c92a0baf9f65074704574c77f8"
+    },
+    {
+      "name": "brain-knowledge-import",
+      "sha256": "8f24de4bcb3e2944d6831eefc4e9a2012b670ceca10b90a081e9c3e8169bd4a1"
+    },
+    {
+      "name": "brain-legacy-import",
+      "sha256": "f8e248a873c7bce6fa8ac8467eb8c452bb7debce349c72399071037cc9bc2856"
+    },
+    {
+      "name": "brain-maintain",
+      "sha256": "d5a3863fdfa25c8d4f702a8fc2d0b2903b07e2839ae066d7c5aafb074c4a82de"
+    },
+    {
+      "name": "brain-match-ingest",
+      "sha256": "dfef063d7ce35d264321d2df2ff3e3c9b1da39c724ebd9656a338589d946bfe2"
+    },
+    {
+      "name": "brain-mcp",
+      "sha256": "35c8935573e5faa65e5188af45d10d169ff900ba0156118d6b62f66aa4c5a45f"
+    },
+    {
+      "name": "brain-migrate",
+      "sha256": "c3d7c324a6844b901aecdefa2b1958e8a0c779d2e2db23dff7e4ef09a7670b7d"
+    },
+    {
+      "name": "brain-patchnotes-ingest",
+      "sha256": "438889a671a55b51ec53dc121b7dc9d9de8b836404163e8b1ba62137e37e5d29"
+    },
+    {
+      "name": "brain-serve",
+      "sha256": "f52c884c12c9f089563e04c91a578a2a1d4915880a2ac4cb1541b0a20b519c04"
+    },
+    {
+      "name": "brain-wiki-pilot",
+      "sha256": "adb83464d73c0f97e56322f9bdd42d5b93eb1fe8d5ebf5dcc580acc4beaf55ab"
+    },
+    {
+      "name": "dbrain-s12-wiki-probe",
+      "sha256": "34e10f07099dd7368f90e70fc9be6fa8ea10f836f9523d684a755516437ab18d"
+    },
+    {
+      "name": "dbrain-session-store",
+      "sha256": "19dea4f4135be40f46560a16face8cc5da9e86a25c99e3326dad9d35768bf8ee"
+    },
+    {
+      "name": "deadlock-brain",
+      "sha256": "7ec2c6f33478d2da2c36b2b1ea9b5599c18b4975e94ab6a8fd02389ad01c46e4"
+    },
+    {
+      "name": "deadlock-brain-secret-exec",
+      "sha256": "5e938d92ed79d407c9b5c952e9cca9e5fa443a4c5f264e4c8b000b3d41c812be"
+    },
+    {
+      "name": "deadlock-brain-site",
+      "sha256": "c3361071130614ea1be5513dadf6dd86ff9f621bfb602024921cc238ff206456"
+    },
+    {
+      "name": "deadlock-brain-yt",
+      "sha256": "23ed31c519208bc8c23e579c72e6324d131f906d36404bac68ac3cc0873949de"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+cargo-slot: Slot 1, optimiert=0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-reasoner)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-sources)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 27.68s
+     Running unittests src/lib.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/brain_serve-32e3b2ffb6110fc7)
+
+running 1 test
+test discord_live::tests::netzwerkbudget_erfasst_den_abruf_und_validierung_bleibt_lokal ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.01s
+
+cargo-slot: EXIT=0

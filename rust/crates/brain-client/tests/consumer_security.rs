@@ -1,10 +1,10 @@
-//! Offline contract regressions. All HTTP fixtures listen on loopback only.
 use brain_client::{AsyncBrainClient, ClientError};
 use brain_contracts::{AnswerProfile, Query};
 use std::{collections::BTreeSet, time::Duration};
 
 fn query() -> Query {
     Query {
+        answer_context: None,
         domain: None,
         request_id: "security-1".into(),
         conversation_id: "fixture-1".into(),

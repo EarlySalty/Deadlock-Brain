@@ -1,0 +1,14 @@
+session: ('ready', '')
+--- assistant @ 2026-10-08T01:14:43.737Z
+K ist angewiesen, den Privatfix jetzt vor weiterer Ortsarbeit regulär zu deployen. Vorhandene Builds werden weiterverwendet, WIP bleibt getrennt.
+
+Die Nutzerprobe wird erst nach bestätigtem Neustart und Live-Nachweis freigegeben.
+
+--- user @ 2026-10-08T03:00:23.365Z
+[Orchestrator] K: Consumerrelease 8e1b8f03 regulär fertig gebaut (17m11s, Exit 0), SHA256 df58014993ca1c2a9e9dc608f4b838cc119b979377a36d3b4bf9d71cc5541065, acht Artefakte geprüft und unter /opt/deadlock/bots/releases/8e1b8f03cf0d84f4754eedc8fe848ef0fceffce8 root:root installiert. Noch nicht aktiviert, da Brain weiterhin b7289d11 läuft. Tatsächlicher regulärer Braininstall b0777z164 scheiterte nach erfolgreichem 5m53s-Verifikationsbau mit No such file or directory und Herkunftsprüfung Exit Some(1), ohne benannten Dateipfad. Anschließender plan bestätigt inzwischen main 2e0de01f mit ausschließlich Q-Dateien statt 400381e6. Eigenen sauberen Releaseworktree regulär fast-forwarded; neues erforderliches Current-main-Bundle läuft über unveränderten Helfer bp9uxtskp. Kein Doppelbuild, keine Helfer-/Hookänderung, kein WIP verworfen. Präziser Beleg d9e216e2 auf origin/feat/brain-k-live-20261007, Fachakte /home/nathanael/.worktrees/brain-k-live-20261007/.tasks/2026-10-07-brain-grafik-ki/K/DEPLOY-WIEDERAUFNAHME-20261008.md. Arbeitsbaum brain-k-private-read-20261008, Branch fix/brain-private-read-access-20261008, HEAD 2e0de01f0da4bbb7f6630832b52b0694ea566c6f. Privatfixaktivierung bleibt erste Aufgabe; Nutzerprobe noch nicht bereit.
+
+--- assistant @ 2026-10-08T03:02:49.154Z
+Consumer installiert, noch nicht aktiv. Der neue Main-Stand erklärt den Neubau, aber nicht den bisherigen Installfehler.
+
+Ich halte den bestehenden Brain-Lauf nach. Nutzerprobe erst nach erfolgreicher Aktivierung beider Dienste.
+

@@ -1,8 +1,7 @@
 #![forbid(unsafe_code)]
-//! One typed Brain transport contract, with synchronous and native async clients.
-//! No configuration discovery, provider fallback, deployment or message sending.
 pub use brain_contracts::{
-    AnswerProfile, AnswerStatus, PublicAnswerResponse, PublicCitation, Query, PUBLIC_API_VERSION,
+    AnswerContext, AnswerInputKind, AnswerProfile, AnswerStatus, DiscordAnswerContext,
+    PublicAnswerResponse, PublicCitation, Query, TwitchAnswerContext, PUBLIC_API_VERSION,
 };
 use reqwest::{
     blocking::Client,
@@ -43,7 +42,6 @@ pub enum ClientError {
     #[error("Brain Antwort konnte nicht vollständig gelesen werden")]
     BodyRead(#[from] std::io::Error),
 }
-// reqwest's Debug may contain the endpoint. Public diagnostics remain redacted.
 impl std::fmt::Debug for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self, f)
@@ -120,6 +118,7 @@ mod tests {
     };
     fn query() -> Query {
         Query {
+            answer_context: None,
             domain: None,
             request_id: "request-1".into(),
             conversation_id: "conversation-1".into(),

@@ -390,6 +390,7 @@ mod tests {
 
     fn query() -> Query {
         Query {
+            answer_context: None,
             domain: None,
             request_id: "r1".into(),
             conversation_id: "c1".into(),

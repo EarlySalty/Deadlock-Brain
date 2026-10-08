@@ -1,0 +1,60 @@
+cargo-slot: Slot 3, optimiert=0
+    Checking dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-token-secrets)
+   Compiling dl-central-db v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-central-db)
+    Checking pnet_macros_support v0.34.0
+    Checking openmls_basic_credential v0.5.0
+    Checking dl-core v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-core)
+    Checking tungstenite v0.26.2
+    Checking patricia_tree v0.8.0
+    Checking crossbeam-channel v0.5.16
+    Checking nanorand v0.7.0
+    Checking num_cpus v1.17.0
+    Checking davey v0.1.4
+    Checking rusty_pool v0.7.0
+    Checking enum-map v2.7.3
+    Checking flume v0.11.1
+    Checking stream_lib v0.5.2
+    Checking tokio-tungstenite v0.26.2
+    Checking symphonia v0.5.5
+    Checking discortp v0.6.0
+    Checking uuid v1.24.0
+    Checking rubato v0.16.2
+    Checking opus2 v0.4.0
+    Checking serde-aux v4.7.0
+    Checking tracing-futures v0.2.5
+    Checking serenity-voice-model v0.3.0
+    Checking dashmap v6.2.1
+    Checking regex v1.12.4
+    Checking streamcatcher v1.0.1
+    Checking ringbuf v0.4.8
+    Checking nonmax v0.5.5
+    Checking nohash-hasher v0.2.0
+    Checking dl-broker v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-broker)
+    Checking dl-changelog v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-changelog)
+    Checking songbird v0.6.0
+    Checking fireworks-model-selection v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/vendor/fireworks-model-selection)
+    Checking brain-contracts v0.1.0 (https://github.com/EarlySalty/Deadlock-Brain.git?rev=baf981f9146e69c9a2d270c915f45a444a2ed490#baf981f9)
+    Checking uplink-infisical-transport v0.1.1 (https://github.com/EarlySalty/Deadlock-Brain.git?rev=baf981f9146e69c9a2d270c915f45a444a2ed490#baf981f9)
+    Checking dl-webcore v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-webcore)
+    Checking dl-stats v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-stats)
+    Checking hound v3.5.1
+    Checking dl-server-as-code v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-server-as-code)
+    Checking linux-raw-sys v0.12.1
+    Checking rustix v1.1.4
+    Checking fastrand v2.4.1
+    Checking brain-client v0.1.0 (https://github.com/EarlySalty/Deadlock-Brain.git?rev=baf981f9146e69c9a2d270c915f45a444a2ed490#baf981f9)
+    Checking tempfile v3.27.0
+    Checking dl-brain v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-brain)
+    Checking dl-discord v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-discord)
+    Checking dl-bridges v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-bridges)
+    Checking dl-ai v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-ai)
+    Checking dl-squads v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-squads)
+    Checking dl-activity v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-activity)
+    Checking dl-answer v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-answer)
+    Checking dl-moderation v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-moderation)
+    Checking dl-community v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-community)
+    Checking dl-voice v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-voice)
+    Checking dl-dashboard v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-dashboard)
+    Checking dl-bot v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/bin/dl-bot)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 26s
+cargo-slot: EXIT=0

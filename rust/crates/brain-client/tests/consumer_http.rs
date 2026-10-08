@@ -1,4 +1,3 @@
-//! Real loopback HTTP, authored fixtures only. No provider, bot or production DSN.
 use brain_client::{AsyncBrainClient, ClientError, MAX_RESPONSE_BYTES};
 use brain_contracts::{AnswerProfile, AnswerStatus, Query};
 use serde_json::{json, Value};
@@ -12,6 +11,7 @@ use std::{
 
 fn query() -> Query {
     Query {
+        answer_context: None,
         domain: None,
         request_id: "fixture-request".into(),
         conversation_id: "isolated-conversation".into(),
@@ -65,7 +65,6 @@ fn fixture(
         thread::sleep(delay);
         let reply =
             format!("HTTP/1.1 {status} Fixture\r\n{headers}Connection: close\r\n\r\n{body}");
-        // Oversize/timeout/cancellation tests intentionally close the socket early.
         let _ = stream.write_all(reply.as_bytes());
         String::from_utf8(request).unwrap()
     });
@@ -105,6 +104,38 @@ async fn preserves_typed_wire_auth_and_unicode_without_authority_fields() {
     assert_eq!(wire, serde_json::to_value(query()).unwrap());
     assert!(wire.get("principal").is_none());
     assert!(wire.get("provider").is_none());
+}
+
+#[tokio::test]
+async fn uebertraegt_ortsdaten_getrennt_von_frage_und_rechten() {
+    for context in [
+        brain_client::AnswerContext::Discord(brain_client::DiscordAnswerContext {
+            is_direct_message: Some(true),
+            is_thread: Some(false),
+            input_kind: Some(brain_client::AnswerInputKind::Message),
+            ..Default::default()
+        }),
+        brain_client::AnswerContext::Twitch(brain_client::TwitchAnswerContext {
+            channel_name: Some("Testkanal".into()),
+            is_partner: Some(true),
+            input_kind: Some(brain_client::AnswerInputKind::Mention),
+        }),
+    ] {
+        let body = answer().to_string();
+        let (endpoint, worker) = fixture(200, format!("Content-Type: application/json\r\nContent-Length: {}\r\n", body.len()), body, Duration::ZERO);
+        let client = AsyncBrainClient::new(&endpoint, "fixture-token", Duration::from_secs(3)).unwrap();
+        let mut query = query();
+        let original_text = query.text.clone();
+        query.answer_context = Some(context.clone());
+        let response = client.answer(&query).await.unwrap();
+        assert_eq!(response.request_id, query.request_id);
+        let request = worker.join().unwrap();
+        let wire: Value = serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(wire["text"], original_text);
+        assert_eq!(wire["answer_context"], json!(context));
+        assert_eq!(wire["requested_scopes"], json!(query.requested_scopes));
+        assert!(wire.get("principal").is_none());
+    }
 }
 
 #[tokio::test]

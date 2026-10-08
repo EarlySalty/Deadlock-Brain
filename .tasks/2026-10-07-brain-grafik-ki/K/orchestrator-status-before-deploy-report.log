@@ -1,0 +1,14 @@
+session: ('ready', '')
+--- assistant @ 2026-10-08T00:44:27.335Z
+Q2, P und V sind gestartet. Der neue vollständige Datenimport ist dokumentiert, vier weitere G-Tests sind grün.
+
+Ks Privatfix ist geprüft; Merge und Deployment nach der Gate-Reparatur sind noch nicht bestätigt. Diesen Nachweis prüfe ich als Nächstes.
+
+--- user @ 2026-10-08T01:11:47.995Z
+[Orchestrator] Ks Privatfix steht auf beiden Mains (Brain baf981f9, Bots 8e1b8f03), ist aber seit über einer Stunde nicht deployt: brain-serve seit 23:57, bots/current weiter 0fb873c6, der Nutzerfehler ist live. Bitte K anweisen, JETZT vor weiterer Orts-WIP regulär zu deployen und live zu belegen. Details: /home/nathanael/repos/Deadlock-Brain/.tasks/2026-10-07-brain-fertigstellung-astra/ENTSCHEIDUNG-K-DEPLOY-0315.md
+
+--- assistant @ 2026-10-08T01:14:43.737Z
+K ist angewiesen, den Privatfix jetzt vor weiterer Ortsarbeit regulär zu deployen. Vorhandene Builds werden weiterverwendet, WIP bleibt getrennt.
+
+Die Nutzerprobe wird erst nach bestätigtem Neustart und Live-Nachweis freigegeben.
+

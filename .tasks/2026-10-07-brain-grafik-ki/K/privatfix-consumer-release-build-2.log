@@ -1,0 +1,56 @@
+cargo-slot: Slot 1, optimiert=1
+   Compiling libopus_sys v0.3.3
+   Compiling serenity v0.12.5
+   Compiling serde_repr v0.1.21
+   Compiling pin-project v1.1.13
+   Compiling symphonia-metadata v0.5.5
+   Compiling openmls v0.8.1
+   Compiling serde-value v0.7.0
+   Compiling scrypt v0.11.0
+   Compiling openmls_rust_crypto v0.5.1
+   Compiling pnet_macros v0.34.0
+   Compiling realfft v3.5.0
+   Compiling dl-central-db v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-central-db)
+   Compiling getrandom v0.4.2
+   Compiling pnet_macros_support v0.34.0
+   Compiling openmls_basic_credential v0.5.0
+   Compiling tungstenite v0.26.2
+   Compiling spin v0.9.8
+   Compiling patricia_tree v0.8.0
+   Compiling crossbeam-channel v0.5.16
+   Compiling nanorand v0.7.0
+   Compiling num_cpus v1.17.0
+   Compiling enum-map-derive v0.17.0
+   Compiling num-derive v0.4.2
+   Compiling hex-literal v0.3.4
+   Compiling songbird v0.6.0
+   Compiling davey v0.1.4
+   Compiling enum-map v2.7.3
+   Compiling rusty_pool v0.7.0
+   Compiling flume v0.11.1
+   Compiling stream_lib v0.5.2
+   Compiling tokio-tungstenite v0.26.2
+   Compiling discortp v0.6.0
+   Compiling uuid v1.24.0
+   Compiling rubato v0.16.2
+   Compiling serde-aux v4.7.0
+   Compiling symphonia v0.5.5
+   Compiling tracing-futures v0.2.5
+   Compiling serenity-voice-model v0.3.0
+   Compiling opus2 v0.4.0
+   Compiling dashmap v6.2.1
+   Compiling derivative v2.2.0
+   Compiling streamcatcher v1.0.1
+   Compiling ringbuf v0.4.8
+   Compiling nohash-hasher v0.2.0
+   Compiling nonmax v0.5.5
+   Compiling dl-broker v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-broker)
+   Compiling dl-changelog v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-changelog)
+   Compiling regex v1.12.4
+   Compiling fireworks-model-selection v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/vendor/fireworks-model-selection)
+   Compiling dl-webcore v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-webcore)
+   Compiling dl-stats v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-stats)
+error: couldn't create a temp dir: No space left on device (os error 28) at path "/home/nathanael/.worktrees/bots-k-live-20261007/rust/target/release/deps/rmetajl0WMc"
+
+error: could not compile `dl-stats` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

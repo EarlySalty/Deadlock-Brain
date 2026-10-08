@@ -100,6 +100,7 @@ async fn shared_answer_revalidates_uncited_acl_and_tombstone_after_leader_succes
         let release = store.release_from_heads("r1", "v1", "p1").unwrap();
         store.publish(&release).await.unwrap();
         let q = Query {
+            answer_context: None,
             request_id: "leader".into(),
             conversation_id: "c1".into(),
             text: "Abrams".into(),

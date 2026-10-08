@@ -1,0 +1,171 @@
+cargo-slot: Slot 2, optimiert=0
+   Compiling dbrain-reasoner v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-reasoner)
+   Compiling brain-kernel v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-kernel)
+   Compiling brain-api v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-api)
+   Compiling dbrain-retrieval v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-retrieval)
+   Compiling dbrain-sources v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/dbrain-sources)
+   Compiling brain-feeds v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-feeds)
+   Compiling brain-serve v0.1.0 (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/crates/brain-serve)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 36s
+     Running unittests src/lib.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/brain_api-6e6cca657480aa65)
+
+running 2 tests
+test http::private_read_gate_header_kann_nur_einschraenken ... ok
+test tests::discord_identitaet_und_private_read_gate_bleiben_an_der_anfrage ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.03s
+
+     Running tests/c9_internal_http.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/c9_internal_http-5b7ab6c998726272)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/core_http.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/core_http-08205e47230d43dd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/domain_kernel.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/domain_kernel-16ac864f6886a20d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.00s
+
+     Running tests/pr61_integrated_publication_patch.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/pr61_integrated_publication_patch-afdd923646de2f9a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/pr61_review.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/pr61_review-3d5bee5149fa0a45)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/publication.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/publication-b36616cb00b74dc5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running tests/publication_independent.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/publication_independent-62b3722f5f6031f5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running tests/review_deadlines.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/review_deadlines-0a638a2a3b00a64b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/brain_client-e2305bf80a1962cf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/consumer_http.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/consumer_http-40e5e7445c1050a8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running tests/consumer_security.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/consumer_security-ef736022ba54f098)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/brain_contracts-43eef3e022f951d8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.00s
+
+     Running tests/bot_tasks_contract.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/bot_tasks_contract-dfe9164863e53869)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.00s
+
+     Running tests/ir_contracts.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/ir_contracts-9914d65ce2c97b21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/brain_kernel-c46bfd793503c275)
+
+running 1 test
+test flight::private_read_gate_trennt_flightbindung_bei_gleicher_frage ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.01s
+
+     Running tests/core_kernel.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/core_kernel-38317e858ca87011)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running tests/evidence_errors.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/evidence_errors-a6cc7214345a8df9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/patch_validity.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/patch_validity-2acf6500492f0523)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/pr61_dependencies.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/pr61_dependencies-59b783d85070e9f0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/review_dependencies.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/review_dependencies-b88be2057a6da5d3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/brain_serve-32e3b2ffb6110fc7)
+
+running 2 tests
+test discord_live::tests::private_read_gate_sperrt_live_evidence_auch_bei_vorhandener_beobachtung ... ok
+test discord_live::tests::private_read_gate_verhindert_io_und_erhaelt_gespeichertes_wissen ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 54 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/brain_serve-e37a843add9d02d5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/local_pilot.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/local_pilot-4cf87a68c581e7eb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+     Running tests/process.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/process-530591c0df8636a2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+     Running tests/process_e2e.rs (/home/nathanael/.worktrees/brain-k-private-read-20261008/rust/target/debug/deps/process_e2e-ccb9551803bd0809)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+cargo-slot: EXIT=0

@@ -4,6 +4,7 @@ use brain_contracts::{
 };
 use brain_storage::MemoryRepository;
 use dbrain_retrieval::{DenseEntry, DenseIndex, HybridRetriever, ReleaseRetriever};
+use sha2::{Digest, Sha256};
 use std::result::Result;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -18,7 +19,7 @@ fn record(id: &str, content: &str) -> SourceRecordV2 {
         source_id: "wiki".into(),
         logical_id: id.into(),
         revision: 7,
-        content_hash: format!("hash-{id}"),
+        content_hash: format!("{:x}", Sha256::digest(content.as_bytes())),
         content: content.into(),
         visibility: SourceVisibility::Public,
         allowed_scopes: BTreeSet::new(),
@@ -69,6 +70,7 @@ fn query(text: &str) -> Query {
         patch: Some("p1".into()),
         mode: Some("ranked".into()),
         domain: None,
+        answer_context: None,
     }
 }
 
@@ -233,7 +235,6 @@ async fn large_hero_default_budget_multiple_chunks_and_exact_provenance() {
     assert!(tail
         .iter()
         .any(|hit| hit.content.contains("TailMarkerImmutable")));
-    // Rebuilding and cloning yield identical chunk identities, provenance and ranking.
     assert_eq!(
         hits,
         ReleaseRetriever::new(store, 6).retrieve(&q, &c).unwrap()
@@ -518,6 +519,13 @@ struct Counted {
     largest_batch: Arc<AtomicUsize>,
 }
 impl SnapshotReadPort for Counted {
+    fn read_manifest_until(
+        &self,
+        release: &str,
+        deadline: Option<&RequestDeadline>,
+    ) -> Result<ReleaseReadManifest, PortError> {
+        self.inner.read_manifest_until(release, deadline)
+    }
     fn read_snapshot(&self, release: &str) -> Result<CorpusSnapshot, PortError> {
         self.snapshots.fetch_add(1, Ordering::SeqCst);
         self.inner.read_snapshot(release)
@@ -572,7 +580,8 @@ async fn stat_identifiers_and_typed_facts_are_not_semantically_reranked() {
         record("decoy", "Abrams unrelated prose"),
     ])
     .await;
-    let retriever = HybridRetriever::new(store, NoEmbedding, dense_index(), 6).unwrap();
+    let retriever =
+        HybridRetriever::new(store, NoEmbedding, dense_index("Abrams unrelated prose"), 6).unwrap();
     let hits = retriever
         .retrieve(&query("Abrams BonusMaxHealthPerHero"), &context())
         .unwrap();
@@ -580,7 +589,8 @@ async fn stat_identifiers_and_typed_facts_are_not_semantically_reranked() {
     let mut fact = record("fact", "Abrams health 650");
     fact.metadata.insert("kind".into(), "fact".into());
     let store = published(vec![fact, record("decoy", "Abrams unrelated prose")]).await;
-    let retriever = HybridRetriever::new(store, NoEmbedding, dense_index(), 6).unwrap();
+    let retriever =
+        HybridRetriever::new(store, NoEmbedding, dense_index("Abrams unrelated prose"), 6).unwrap();
     let (hits, usage) = retriever
         .retrieve_with_usage(&query("Abrams"), &context())
         .unwrap();
@@ -629,7 +639,7 @@ impl EmbeddingProviderPort for NoEmbedding {
         panic!("exact-number or ineligible query must not egress to embedding provider")
     }
 }
-fn dense_index() -> DenseIndex {
+fn dense_index(content: &str) -> DenseIndex {
     DenseIndex {
         release_id: "r1".into(),
         identity: EmbeddingIdentity {
@@ -647,7 +657,7 @@ fn dense_index() -> DenseIndex {
                 source_id: "wiki".into(),
                 logical_id: "decoy".into(),
                 revision: 7,
-                content_hash: "hash-decoy".into(),
+                content_hash: format!("{:x}", Sha256::digest(content.as_bytes())),
             },
             vector: vec![1.0, 0.0],
         }],
@@ -660,7 +670,13 @@ async fn exact_numeric_literals_bypass_dense_and_cannot_be_replaced_by_similar_n
         record("decoy", "Abrams damage 65 health 650"),
     ])
     .await;
-    let retriever = HybridRetriever::new(store, NoEmbedding, dense_index(), 6).unwrap();
+    let retriever = HybridRetriever::new(
+        store,
+        NoEmbedding,
+        dense_index("Abrams damage 65 health 650"),
+        6,
+    )
+    .unwrap();
     let c = context();
     let hits = retriever.retrieve(&query("Abrams damage 6.5"), &c).unwrap();
     assert_eq!(hits.len(), 1);

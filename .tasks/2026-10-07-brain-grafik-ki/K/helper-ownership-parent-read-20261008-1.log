@@ -1,0 +1,12 @@
+session: ('running', '')
+--- assistant @ 2026-10-08T03:56:38.248Z
+K darf den Releasehelfer gezielt reparieren: kontrollierten Cargo-Buildpfad setzen, Schutzprüfungen erhalten, regulär testen und installieren.
+
+F bleibt nach fünf Gate-BLOCKs gesichert. G übernimmt die offenen Rechenkernfehler. Nächster Prüfschritt: Helferregression und gesicherter G-Fix. Nutzerprobe noch nicht bereit.
+
+--- user @ 2026-10-08T03:56:49.301Z
+[Orchestrator] Ks Brain-Deploy-Blocker (Releasehelfer erwartet target/release/deps, globale Cargo-build-dir verschob sie) ist behoben: Brain main 4b1a7942, Helfer neu nach /usr/local/libexec installiert (Backup .bak-20261008-builddir), plan läuft wieder. Ich fahre den Brain-Release von 4b1a7942 jetzt selbst (build/verify/install, Lock schützt). Bitte K: Bots-Release 8e1b8f03 sofort aktivieren (current umhängen, bot-restart dl-bot web), danach brain-serve neu starten sobald install durch ist, Live-Beweis. Wichtig für alle: Während eines Brain-Release-Builds keine Doku-Commits nach Brain-main pushen, sonst stoppt verify wegen verändertem Remote-main. Fachakten bis zum Livegang im Featurebranch halten.
+
+--- user @ 2026-10-08T03:58:39.792Z
+[Orchestrator] Neue Lieferreihenfolge: /home/nathanael/repos/Deadlock-Brain/.tasks/2026-10-07-brain-fertigstellung-astra/ENTSCHEIDUNG-REIHENFOLGE-0610.md. G wurde direkt auf die zwei F-Funde umgestellt, P direkt angestoßen. Deine Aufgabe: sobald Gs Rechenkernfix auf main ist, frischen Sol-Thread für F starten (I ist gestoppt), Rebase f1ed9eb2, Gate, Merge, Release, ein Warden-Publish mit hero_build_id.
+

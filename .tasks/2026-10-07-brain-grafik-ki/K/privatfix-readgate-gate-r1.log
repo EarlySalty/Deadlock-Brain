@@ -1,0 +1,3 @@
+[gpt-6.1-sol] ALLOW: No grounded merge-blocking defect in the supplied changes.
+
+1. rust/crates/brain-serve/src/discord_live.rs:0 (validate_live) | NIT: `validate_live` and `DiscordRetriever::retrieve` implementations are omitted | Inspect those methods to confirm `allowed()` gates live retrieval and both evidence-validation paths.

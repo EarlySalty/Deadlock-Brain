@@ -59,7 +59,6 @@ where
         self
     }
 
-    /// Ausschließlich der Server bindet authentifizierte Identitäten an Releases.
     pub fn with_release_bindings(
         mut self,
         bindings: std::collections::BTreeMap<(String, String), String>,
@@ -477,6 +476,7 @@ mod tests {
 
     fn query(requested_scopes: &[&str]) -> Query {
         Query {
+            answer_context: None,
             domain: None,
             request_id: "request-1".into(),
             conversation_id: "conversation-1".into(),

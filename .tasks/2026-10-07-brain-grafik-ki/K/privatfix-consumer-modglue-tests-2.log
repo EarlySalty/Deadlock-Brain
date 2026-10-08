@@ -1,0 +1,95 @@
+cargo-slot: Slot 3, optimiert=0
+   Compiling libopus_sys v0.3.3
+   Compiling dl-stats v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-stats)
+   Compiling brain-contracts v0.1.0 (https://github.com/EarlySalty/Deadlock-Brain.git?rev=baf981f9146e69c9a2d270c915f45a444a2ed490#baf981f9)
+   Compiling uplink-infisical-transport v0.1.1 (https://github.com/EarlySalty/Deadlock-Brain.git?rev=baf981f9146e69c9a2d270c915f45a444a2ed490#baf981f9)
+   Compiling linux-raw-sys v0.12.1
+   Compiling rustix v1.1.4
+   Compiling opus2 v0.4.0
+   Compiling songbird v0.6.0
+   Compiling hound v3.5.1
+   Compiling fastrand v2.4.1
+   Compiling tempfile v3.27.0
+   Compiling dl-server-as-code v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-server-as-code)
+   Compiling brain-client v0.1.0 (https://github.com/EarlySalty/Deadlock-Brain.git?rev=baf981f9146e69c9a2d270c915f45a444a2ed490#baf981f9)
+   Compiling dl-brain v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-brain)
+   Compiling dl-discord v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-discord)
+   Compiling dl-bridges v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-bridges)
+   Compiling dl-ai v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-ai)
+   Compiling dl-answer v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-answer)
+   Compiling dl-activity v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-activity)
+   Compiling dl-squads v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-squads)
+   Compiling dl-moderation v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-moderation)
+   Compiling dl-community v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-community)
+   Compiling dl-dashboard v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-dashboard)
+   Compiling dl-voice v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-voice)
+   Compiling dl-bot v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/bin/dl-bot)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8m 16s
+     Running unittests src/main.rs (/home/nathanael/.worktrees/bots-k-live-20261007/rust/target/debug/deps/dl_bot-a2a55b112334bd20)
+
+running 61 tests
+test modglue::tests::brain_answer_embed_body_erhaelt_stichpunkt_newlines ... ok
+test modglue::tests::brain_answer_embed_body_setzt_embed_und_deaktiviert_mentions ... ok
+test modglue::tests::brain_emoji_index_dekoriert_build_entitaeten_wie_patchnotes ... ok
+test modglue::tests::brain_public_message_body_deaktiviert_mentions ... ok
+test modglue::tests::brain_slash_command_hat_frage_option_und_limit ... ok
+test modglue::tests::brain_handler_ohne_botidentitaet_startet_keinen_dm_aufruf ... ok
+test modglue::tests::brain_embed_truncation_bleibt_char_boundary_sicher ... ok
+test modglue::tests::brain_allowlist_invalid_config_wird_deny_all ... ok
+test modglue::tests::brain_slash_command_antwortet_ohne_separates_discord_io ... ok
+test modglue::tests::direkte_antwort_prueft_schreibrecht_vor_aufruf_und_zustellung ... ok
+test modglue::tests::direkte_antwort_beachtet_nutzerlimit_auch_zwischen_dm_und_server ... ok
+test modglue::tests::brain_deny_vermeidet_message_und_interaction_io ... ok
+test modglue::tests::clean_brain_markdown_wandelt_headings_und_kollabiert_leerzeilen ... ok
+test modglue::tests::attachment_rendering_erkennt_bilder_mit_ungenauem_content_type ... ok
+test modglue::tests::faq_private_channel_lehnt_guild_null_ohne_panic_ab ... ok
+test modglue::tests::direkte_dm_und_erwaehnung_binden_identitaet_und_reply_an_das_ereignis ... ok
+test modglue::tests::faq_message_body_deaktiviert_mentions ... ok
+test modglue::tests::gespraech_dm_guide_und_brain_befehl_bleiben_getrennt ... ok
+test modglue::tests::faq_channel_category_lehnt_guild_null_ohne_panic_ab ... ok
+test modglue::tests::gespraech_zehn_minuten_grenze_und_letzte_botantwort ... ok
+test modglue::tests::dm_inhalt_wird_nicht_in_oeffentliche_folgeantworten_uebernommen ... ok
+test modglue::tests::guide_benutzt_w6_identitaet_reply_und_gemeinsames_nutzerlimit ... ok
+test modglue::tests::direkter_zustellpfad_prueft_personenrechte_und_aktiven_timeout ... ok
+test modglue::tests::gespraech_zustellfehler_rechte_und_nutzerlimit_verlaengern_nicht ... ok
+test modglue::tests::gespraech_eventschleife_laesst_fortsetzung_ohne_erwaehnung_durch ... ok
+test modglue::tests::gespraech_nackte_erwaehnung_fragt_einmal_und_nimmt_folgefrage_an ... ok
+test modglue::tests::gespraech_fortsetzung_behaelt_ehrliche_leermeldung_ohne_minutensperre ... ok
+test modglue::tests::gespraech_nach_ablauf_braucht_auch_reply_wieder_erwaehnung ... ok
+test modglue::tests::gespraech_lounge_ping_oeffnet_keine_zusaetzliche_fortsetzung ... ok
+test modglue::tests::gespraech_fortsetzung_und_reply_nutzen_denselben_antwortweg ... ok
+test modglue::tests::guide_prueft_personenrechte_erneut_vor_zustellung ... ok
+test modglue::tests::guide_eventschleife_empfaengt_hilfe_und_bricht_laufenden_consumer_ab ... ok
+test modglue::tests::gespraech_fremde_nutzer_kanaele_und_replies_brauchen_erwaehnung ... ok
+test modglue::tests::lfg_freitext_rueckfrage_antwortet_ohne_mentions_auf_die_quellnachricht ... ok
+test modglue::tests::lfg_member_count_filtert_bots ... ok
+test modglue::tests::invite_resolver_cacht_nur_definitive_guild_ids ... ok
+test modglue::tests::aimod_unban_braucht_ban_members_nicht_manage_roles ... ok
+test modglue::tests::aimod_accept_braucht_moderate_members_nicht_manage_roles ... ok
+test modglue::tests::private_overwrites_verbieten_fremde_membersicht ... ok
+test modglue::tests::aimod_ban_braucht_ban_members_nicht_manage_roles ... ok
+test modglue::tests::np_lane_in_chill_wird_als_new_player_gelabelt ... ok
+test modglue::tests::offener_brain_testmodus_erlaubt_alle_serverkanaele_aber_keine_dms ... ok
+test modglue::tests::guide_verwirft_laufende_antwort_nach_menschlicher_hilfe_oder_gespraechsende ... ok
+test modglue::tests::private_overwrites_erlauben_nur_owner_und_bot ... ok
+test modglue::tests::lfg_offtopic_channels_werden_erkannt ... ok
+test modglue::tests::private_overwrites_brauchen_everyone_view_deny ... ok
+test modglue::tests::private_overwrites_verbieten_breite_rollensicht ... ok
+test modglue::tests::lfg_rankrollen_erkennen_ids_subranks_und_unverifiziert ... ok
+test modglue::tests::review_build_receipt_bleibt_knapp_und_zeigt_build_id ... ok
+test modglue::tests::guide_schweigt_ausserhalb_freigabe_bei_fremden_replies_bots_und_abschluss ... ok
+test modglue::tests::normale_nachrichten_und_eigene_botnachrichten_loesen_keinen_aufruf_aus ... ok
+test modglue::tests::brain_retriever_uebergibt_separator_vor_dash_frage_ohne_db_flag ... ok
+test modglue::tests::invite_resolver_cache_bleibt_global_begrenzt ... ok
+test modglue::tests::private_serverfragen_starten_lesegesperrten_consumer_und_slashgrenze_bleibt ... ok
+test modglue::tests::thinking_frame_rotiert_ueber_alle_frames ... ok
+test modglue::tests::support_ownership_predicate_cache_matrix_hat_exakt_einen_owner ... ok
+test modglue::tests::privatfix_folgefragen_reservieren_genau_einmal_und_teilen_oeffentliche_quote ... ok
+test modglue::tests::mehrere_erwaehnungen_bleiben_eine_anfrage_und_folgefragen_erreichen_dasselbe_tageslimit ... ok
+test modglue::tests::produktiver_discord_consumer_erhaelt_lange_antwort_und_quellbindung ... ok
+test modglue::tests::privatfix_consumer_staff_thread_dm_binden_lesesperre_im_echten_wire ... ok
+test modglue::tests::brain_retriever_cancellation_killt_kindprozess ... ok
+
+test result: ok. 61 passed; 0 failed; 0 ignored; 0 measured; 272 filtered out; finished in 0.31s
+
+cargo-slot: EXIT=0

@@ -354,6 +354,7 @@ fn observation_key(query: &Query, context: &AuthorizedContext) -> Result<String,
         &query.request_id,
         &query.conversation_id,
         &query.text,
+        &query.answer_context,
         &query.domain,
         &query.requested_scopes,
         &query.profile,
@@ -597,6 +598,85 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn beobachtungen_sind_an_den_tatsaechlichen_antwortort_gebunden() {
+        let mut query: Query = serde_json::from_value(json!({
+            "request_id":"r", "conversation_id":"c", "text":"Welche Lanes gibt es?", "requested_scopes":["bot.public"],
+            "answer_context":{"platform":"discord", "channel_name":"Hilfe", "is_thread":false, "is_direct_message":false}
+        })).unwrap();
+        let context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: None,
+                request_id: "r".into(),
+                scope: "discord.request:unbound".into(),
+            }),
+            principal: brain_contracts::Principal {
+                actor_id: "bot".into(),
+                channel: "test".into(),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:unbound".into()]),
+                provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "release".into(),
+            deadline_ms: 1000,
+            budget: brain_contracts::Budget::default(),
+            request_deadline: None,
+        };
+        let facts = json!({"schema":"discord.public-facts.v2","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"verified_members","channels":[],"voice_counts":[],"bot_infos":[]});
+        let (expires, item) = evidence(serde_json::from_value(facts).unwrap()).unwrap();
+        let items = vec![item.clone()];
+        let adapter = DiscordRetriever::new(Stored, None);
+        let key = observation_key(&query, &context).unwrap();
+        adapter
+            .observations
+            .lock()
+            .unwrap()
+            .insert(key.clone(), (expires, items.clone()));
+        adapter
+            .validate_evidence(&query, &context, &items, true)
+            .unwrap();
+        adapter
+            .validate_publication(&query, &context, &items)
+            .unwrap();
+        for format in [
+            brain_contracts::provider_input::ToolWireFormat::Native,
+            brain_contracts::provider_input::ToolWireFormat::OpenAiCompatible,
+        ] {
+            let payload = brain_contracts::provider_input::grounded_turn_payload(
+                &query,
+                &items,
+                &[],
+                &brain_contracts::ToolConversation::default(),
+                format,
+            )
+            .unwrap();
+            assert!(!payload.to_string().contains(&item.citation));
+            assert!(!payload.to_string().contains(&item.logical_id));
+        }
+        assert_eq!(items[0], item);
+        let original = query.clone();
+        for location in [
+            json!({"platform":"discord", "channel_name":"Coaching", "is_thread":false, "is_direct_message":false}),
+            json!({"platform":"discord", "channel_name":"Hilfe", "is_thread":true, "thread_name":"Frage", "is_direct_message":false}),
+            json!({"platform":"discord", "is_thread":false, "is_direct_message":true}),
+            json!({"platform":"twitch", "channel_name":"Testkanal", "is_partner":true}),
+        ] {
+            query = original.clone();
+            query.answer_context = Some(serde_json::from_value(location).unwrap());
+            assert_ne!(observation_key(&query, &context).unwrap(), key);
+            for provider in [false, true] {
+                assert!(adapter
+                    .validate_evidence(&query, &context, &items, provider)
+                    .is_err());
+            }
+            assert!(adapter
+                .validate_publication(&query, &context, &items)
+                .is_err());
+        }
+        query.answer_context = None;
+        assert_ne!(observation_key(&query, &context).unwrap(), key);
+    }
 
     #[test]
     fn grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget() {

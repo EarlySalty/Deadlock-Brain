@@ -1,0 +1,525 @@
+cargo-slot: Slot 1, optimiert=1
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling libc v0.2.186
+   Compiling syn v2.0.117
+   Compiling cfg-if v1.0.4
+   Compiling serde v1.0.228
+   Compiling serde_core v1.0.228
+   Compiling zeroize_derive v1.5.0
+   Compiling zeroize v1.8.2
+   Compiling serde_derive v1.0.228
+   Compiling getrandom v0.2.17
+   Compiling version_check v0.9.5
+   Compiling subtle v2.6.1
+   Compiling generic-array v0.14.7
+   Compiling rand_core v0.6.4
+   Compiling typenum v1.20.1
+   Compiling synstructure v0.13.2
+   Compiling crypto-common v0.1.7
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling zerovec-derive v0.11.3
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.9
+   Compiling cc v1.2.63
+   Compiling memchr v2.8.1
+   Compiling displaydoc v0.2.6
+   Compiling pin-project-lite v0.2.17
+   Compiling const-oid v0.9.6
+   Compiling smallvec v1.15.1
+   Compiling futures-core v0.3.32
+   Compiling log v0.4.32
+   Compiling itoa v1.0.18
+   Compiling ring v0.17.14
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling bytes v1.11.1
+   Compiling icu_normalizer_data v2.2.0
+   Compiling icu_properties_data v2.2.0
+   Compiling autocfg v1.5.1
+   Compiling futures-sink v0.3.32
+   Compiling zmij v1.0.21
+   Compiling once_cell v1.21.4
+   Compiling zerofrom v0.1.8
+   Compiling stable_deref_trait v1.2.1
+   Compiling cpufeatures v0.2.17
+   Compiling yoke v0.8.3
+   Compiling futures-channel v0.3.32
+   Compiling zerocopy v0.8.52
+   Compiling tracing-attributes v0.1.31
+   Compiling futures-macro v0.3.32
+   Compiling errno v0.3.14
+   Compiling futures-io v0.3.32
+   Compiling futures-task v0.3.32
+   Compiling slab v0.4.12
+   Compiling signal-hook-registry v1.4.8
+   Compiling futures-util v0.3.32
+   Compiling zerovec v0.11.6
+   Compiling tokio-macros v2.7.0
+   Compiling mio v1.2.1
+   Compiling socket2 v0.6.4
+   Compiling tokio v1.52.3
+   Compiling rustls-pki-types v1.14.1
+   Compiling tinystr v0.8.3
+   Compiling tracing-core v0.1.36
+   Compiling untrusted v0.9.0
+   Compiling percent-encoding v2.3.2
+   Compiling litemap v0.8.2
+   Compiling rustls v0.23.40
+   Compiling writeable v0.6.3
+   Compiling icu_locale_core v2.2.0
+   Compiling potential_utf v0.1.5
+   Compiling zerotrie v0.2.4
+   Compiling serde_json v1.0.150
+   Compiling utf8_iter v1.0.4
+   Compiling icu_collections v2.2.0
+   Compiling icu_provider v2.2.0
+   Compiling tracing v0.1.44
+   Compiling num-traits v0.2.19
+   Compiling form_urlencoded v1.2.2
+   Compiling http v1.4.2
+   Compiling icu_properties v2.2.0
+   Compiling icu_normalizer v2.2.0
+   Compiling thiserror v2.0.18
+   Compiling idna_adapter v1.2.2
+   Compiling httparse v1.10.1
+   Compiling ppv-lite86 v0.2.21
+   Compiling idna v1.1.0
+   Compiling thiserror-impl v2.0.18
+   Compiling crossbeam-utils v0.8.21
+   Compiling url v2.5.8
+   Compiling rustls-webpki v0.103.13
+   Compiling parking_lot_core v0.9.12
+   Compiling http-body v1.0.1
+   Compiling webpki-roots v1.0.7
+   Compiling hmac v0.12.1
+   Compiling base64 v0.22.1
+   Compiling tower-service v0.3.3
+   Compiling bitflags v2.13.0
+   Compiling sha2 v0.10.9
+   Compiling try-lock v0.2.5
+   Compiling httpdate v1.0.3
+   Compiling crc32fast v1.5.0
+   Compiling scopeguard v1.2.0
+   Compiling lock_api v0.4.14
+   Compiling want v0.3.1
+   Compiling sync_wrapper v1.0.2
+   Compiling tower-layer v0.3.3
+   Compiling simd-adler32 v0.3.9
+   Compiling adler2 v2.0.1
+   Compiling atomic-waker v1.1.2
+   Compiling mime v0.3.17
+   Compiling hyper v1.10.1
+   Compiling miniz_oxide v0.8.9
+   Compiling http-body-util v0.1.3
+   Compiling socket2 v0.5.10
+   Compiling unicase v2.9.0
+   Compiling ipnet v2.12.0
+   Compiling thiserror v1.0.69
+   Compiling hyper-util v0.1.20
+   Compiling mime_guess v2.0.5
+   Compiling flate2 v1.1.9
+   Compiling tower v0.5.3
+   Compiling hkdf v0.12.4
+   Compiling thiserror-impl v1.0.69
+   Compiling ryu v1.0.23
+   Compiling compression-core v0.4.33
+   Compiling compression-codecs v0.4.45
+   Compiling serde_urlencoded v0.7.1
+   Compiling tokio-rustls v0.26.4
+   Compiling rand_chacha v0.3.1
+   Compiling getrandom v0.3.4
+   Compiling syn v1.0.109
+   Compiling base64ct v1.8.3
+   Compiling pem-rfc7468 v0.7.0
+   Compiling rand v0.8.6
+   Compiling async-compression v0.4.50
+   Compiling tokio-util v0.7.18
+   Compiling http-range-header v0.4.2
+   Compiling equivalent v1.0.2
+   Compiling tower-http v0.6.11
+   Compiling der v0.7.10
+   Compiling hyper-rustls v0.27.9
+   Compiling iana-time-zone v0.1.65
+   Compiling chrono v0.4.45
+   Compiling reqwest v0.12.28
+   Compiling spki v0.7.3
+   Compiling hashbrown v0.17.1
+   Compiling indexmap v2.14.0
+   Compiling pkcs8 v0.10.2
+   Compiling rand_core v0.9.5
+   Compiling aho-corasick v1.1.4
+   Compiling inout v0.1.4
+   Compiling ff v0.13.1
+   Compiling base16ct v0.2.0
+   Compiling lazy_static v1.5.0
+   Compiling regex-syntax v0.8.11
+   Compiling sec1 v0.7.3
+   Compiling regex-automata v0.4.14
+   Compiling group v0.13.0
+   Compiling cipher v0.4.4
+   Compiling webpki-roots v0.26.11
+   Compiling crypto-bigint v0.5.5
+   Compiling either v1.16.0
+   Compiling allocator-api2 v0.2.21
+   Compiling tinyvec_macros v0.1.1
+   Compiling hex v0.4.3
+   Compiling foldhash v0.1.5
+   Compiling semver v1.0.28
+   Compiling hashbrown v0.15.5
+   Compiling rustc_version v0.4.1
+   Compiling tinyvec v1.11.0
+   Compiling elliptic-curve v0.13.8
+   Compiling parking_lot v0.12.5
+   Compiling concurrent-queue v2.5.0
+   Compiling crc-catalog v2.5.0
+   Compiling hax-lib v0.3.6
+   Compiling byteorder v1.5.0
+   Compiling parking v2.2.1
+   Compiling event-listener v5.4.1
+   Compiling crc v3.4.0
+   Compiling futures-intrusive v0.5.0
+   Compiling tokio-stream v0.1.18
+   Compiling unicode-normalization v0.1.25
+   Compiling curve25519-dalek v4.1.3
+   Compiling hashlink v0.10.0
+   Compiling rand_chacha v0.9.0
+   Compiling crossbeam-queue v0.3.12
+   Compiling signature v2.2.0
+   Compiling universal-hash v0.5.1
+   Compiling hax-lib-macros v0.3.6
+   Compiling tls_codec_derive v0.4.2
+   Compiling unicode-bidi v0.3.18
+   Compiling opaque-debug v0.3.1
+   Compiling cfg_aliases v0.2.1
+   Compiling unicode-properties v0.1.4
+   Compiling stringprep v0.1.5
+   Compiling sqlx-core v0.8.6
+   Compiling nix v0.29.0
+   Compiling tls_codec v0.4.2
+   Compiling rand v0.9.4
+   Compiling atoi v2.0.0
+   Compiling md-5 v0.10.6
+   Compiling futures-executor v0.3.32
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling strsim v0.9.3
+   Compiling rustls v0.22.4
+   Compiling fnv v1.0.7
+   Compiling home v0.5.12
+   Compiling crossbeam-epoch v0.9.20
+   Compiling whoami v1.6.1
+   Compiling dotenvy v0.15.7
+   Compiling ident_case v1.0.1
+   Compiling anyhow v1.0.102
+   Compiling sqlx-postgres v0.8.6
+   Compiling darling_core v0.10.2
+   Compiling futures v0.3.32
+   Compiling primeorder v0.13.6
+   Compiling matchers v0.2.0
+   Compiling sharded-slab v0.1.7
+   Compiling rfc6979 v0.4.0
+   Compiling rustls-webpki v0.102.8
+   Compiling tracing-log v0.2.0
+   Compiling sha1 v0.10.6
+   Compiling serde_spanned v0.6.9
+   Compiling toml_datetime v0.6.11
+   Compiling thread_local v1.1.9
+   Compiling heck v0.5.0
+   Compiling siphasher v1.0.3
+   Compiling crossbeam-deque v0.8.7
+   Compiling toml_write v0.1.2
+   Compiling parking_lot_core v0.8.6
+   Compiling nu-ansi-term v0.50.3
+   Compiling utf-8 v0.7.6
+   Compiling data-encoding v2.11.0
+   Compiling winnow v0.7.15
+   Compiling libcrux-intrinsics v0.0.6
+   Compiling toml_edit v0.22.27
+   Compiling tracing-subscriber v0.3.23
+   Compiling phf_shared v0.12.1
+   Compiling sqlx-macros-core v0.8.6
+   Compiling ecdsa v0.16.9
+   Compiling darling_macro v0.10.2
+   Compiling libcrux-secrets v0.0.5
+   Compiling openmls_traits v0.5.0
+   Compiling polyval v0.6.2
+   Compiling uplink-infisical-transport v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/vendor/uplink-infisical-transport)
+   Compiling filedescriptor v0.8.3
+   Compiling num-integer v0.1.46
+   Compiling aead v0.5.2
+   Compiling arrayvec v0.7.6
+   Compiling async-trait v0.1.89
+   Compiling instant v0.1.13
+   Compiling unicode-segmentation v1.13.3
+   Compiling libcrux-sha3 v0.0.8
+   Compiling chrono-tz v0.10.4
+   Compiling rayon-core v1.13.0
+   Compiling heck v0.3.3
+   Compiling dl-token-secrets v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-token-secrets)
+   Compiling ghash v0.5.1
+   Compiling libcrux-traits v0.0.6
+   Compiling darling v0.10.2
+   Compiling p256 v0.13.2
+   Compiling sqlx-macros v0.8.6
+   Compiling toml v0.8.23
+   Compiling phf v0.12.1
+   Compiling poly1305 v0.8.0
+   Compiling ed25519 v2.2.3
+   Compiling aes v0.8.4
+   Compiling chacha20 v0.9.1
+   Compiling ctr v0.9.2
+   Compiling hpke-rs-crypto v0.6.1
+   Compiling hashmap_derive v0.1.0
+   Compiling axum-core v0.5.6
+   Compiling serde_path_to_error v0.1.20
+   Compiling cmake v0.1.58
+   Compiling libcrux-platform v0.0.3
+   Compiling fs2 v0.4.3
+   Compiling powerfmt v0.2.0
+   Compiling strength_reduce v0.2.4
+   Compiling pkg-config v0.3.33
+   Compiling hashbrown v0.14.5
+   Compiling matchit v0.8.4
+   Compiling derive_builder v0.9.0
+   Compiling axum v0.8.9
+   Compiling libopus_sys v0.3.3
+   Compiling transpose v0.2.3
+   Compiling deranged v0.5.8
+   Compiling dl-core v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-core)
+   Compiling from_map v0.1.0
+   Compiling aes-gcm v0.10.3
+   Compiling chacha20poly1305 v0.10.1
+   Compiling sqlx v0.8.6
+   Compiling ed25519-dalek v2.2.0
+   Compiling derive_builder_core v0.9.0
+   Compiling parking_lot v0.11.2
+   Compiling strum_macros v0.17.1
+   Compiling primal-check v0.3.4
+   Compiling tokio-rustls v0.25.0
+   Compiling tungstenite v0.21.0
+   Compiling p384 v0.13.1
+   Compiling x25519-dalek v2.0.1
+   Compiling k256 v0.13.4
+   Compiling num-complex v0.4.6
+   Compiling bytemuck v1.25.2
+   Compiling getrandom v0.4.2
+   Compiling dl-central-db v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-central-db)
+   Compiling rand_core v0.10.1
+   Compiling num-conv v0.2.2
+   Compiling no-std-net v0.6.0
+   Compiling bitflags v1.3.2
+   Compiling serenity v0.12.5
+   Compiling convert_case v0.4.0
+   Compiling time-core v0.1.8
+   Compiling pin-utils v0.1.0
+   Compiling time v0.3.47
+   Compiling fluvio-wasm-timer v0.2.5
+   Compiling derive_more v0.99.20
+   Compiling symphonia-core v0.5.5
+   Compiling pnet_base v0.34.0
+   Compiling hpke-rs-rust-crypto v0.6.1
+   Compiling rustfft v6.4.1
+   Compiling tokio-tungstenite v0.21.0
+   Compiling strum v0.17.1
+   Compiling rayon v1.12.0
+   Compiling shorthand v0.1.1
+   Compiling hpke-rs v0.6.1
+   Compiling regex v1.12.4
+   Compiling dashmap v5.5.3
+   Compiling openmls_memory_storage v0.5.0
+   Compiling salsa20 v0.10.2
+   Compiling pbkdf2 v0.12.2
+   Compiling ordered-float v2.10.1
+   Compiling secrecy v0.8.0
+   Compiling serde_cow v0.1.2
+   Compiling serde_bytes v0.11.19
+   Compiling pin-project-internal v1.1.13
+   Compiling encoding_rs v0.8.35
+   Compiling syn v3.0.0
+   Compiling rustc-hash v2.1.2
+   Compiling typemap_rev v0.3.0
+   Compiling stable-vec v0.4.2
+   Compiling hls_m3u8 v0.4.2
+error: failed to run custom build command for `libopus_sys v0.3.3`
+
+Caused by:
+  process didn't exit successfully: `/home/nathanael/.worktrees/bots-k-live-20261007/rust/target/release/build/libopus_sys-a6e3ffb6b1565b4d/build-script-build` (exit status: 101)
+  --- stdout
+  cargo:rerun-if-changed=opus
+  cargo:rerun-if-env-changed=OPUS_LIB_DIR
+  cargo:rerun-if-env-changed=LIBOPUS_LIB_DIR
+  cargo:rerun-if-env-changed=OPUS_BUNDLED
+  cargo:rerun-if-env-changed=LIBOPUS_BUNDLED
+  cargo:rerun-if-env-changed=OPUS_STATIC
+  cargo:rerun-if-env-changed=LIBOPUS_STATIC
+  cargo:info=Static feature or environment variable found.
+  cargo:rerun-if-env-changed=OPUS_NO_PKG_CONFIG
+  cargo:rerun-if-env-changed=PKG_CONFIG_x86_64-unknown-linux-gnu
+  cargo:rerun-if-env-changed=PKG_CONFIG_x86_64_unknown_linux_gnu
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG
+  cargo:rerun-if-env-changed=PKG_CONFIG
+  cargo:rerun-if-env-changed=PKG_CONFIG_PATH_x86_64-unknown-linux-gnu
+  cargo:rerun-if-env-changed=PKG_CONFIG_PATH_x86_64_unknown_linux_gnu
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_PATH
+  cargo:rerun-if-env-changed=PKG_CONFIG_PATH
+  cargo:rerun-if-env-changed=PKG_CONFIG_LIBDIR_x86_64-unknown-linux-gnu
+  cargo:rerun-if-env-changed=PKG_CONFIG_LIBDIR_x86_64_unknown_linux_gnu
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_LIBDIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_LIBDIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR_x86_64-unknown-linux-gnu
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR_x86_64_unknown_linux_gnu
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_SYSROOT_DIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR
+  cargo:info=`pkg_config` could not find `Opus`.
+  cargo:info=Opus source path used: /home/nathanael/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libopus_sys-0.3.3/opus.
+  cargo:info=Building Opus via CMake.
+  CMAKE_TOOLCHAIN_FILE_x86_64-unknown-linux-gnu = None
+  CMAKE_TOOLCHAIN_FILE_x86_64_unknown_linux_gnu = None
+  HOST_CMAKE_TOOLCHAIN_FILE = None
+  CMAKE_TOOLCHAIN_FILE = None
+  CMAKE_GENERATOR_x86_64-unknown-linux-gnu = None
+  CMAKE_GENERATOR_x86_64_unknown_linux_gnu = None
+  HOST_CMAKE_GENERATOR = None
+  CMAKE_GENERATOR = None
+  CMAKE_PREFIX_PATH_x86_64-unknown-linux-gnu = None
+  CMAKE_PREFIX_PATH_x86_64_unknown_linux_gnu = None
+  HOST_CMAKE_PREFIX_PATH = None
+  CMAKE_PREFIX_PATH = None
+  CMAKE_x86_64-unknown-linux-gnu = None
+  CMAKE_x86_64_unknown_linux_gnu = None
+  HOST_CMAKE = None
+  CMAKE = None
+  -- Found Git: /usr/bin/git (found version "2.43.0") 
+  -- Opus project version: 0
+  -- The C compiler identification is GNU 13.3.0
+  -- Detecting C compiler ABI info
+  -- Detecting C compiler ABI info - done
+  -- Check for working C compiler: /usr/bin/cc - skipped
+  -- Detecting C compile features
+  -- Detecting C compile features - done
+  -- Performing Test VLA_SUPPORTED
+  -- Performing Test VLA_SUPPORTED -- success
+  -- Looking for alloca.h
+  -- Looking for alloca.h - found
+  -- Looking for alloca
+  -- Looking for alloca - found
+  -- Looking for floor in m
+  -- Looking for floor in m - found
+  -- Looking for lrintf
+  -- Looking for lrintf - found
+  -- Looking for lrint
+  -- Looking for lrint - found
+  -- Performing Test CPU_INFO_BY_ASM_SUPPORTED
+  -- Performing Test CPU_INFO_BY_ASM_SUPPORTED -- success
+  -- Looking for cpuid.h
+  -- Looking for cpuid.h - found
+  -- Performing Test CPU_INFO_BY_C_SUPPORTED
+  -- Performing Test CPU_INFO_BY_C_SUPPORTED -- success
+  -- Check SIMD support by compiler
+  -- Looking for xmmintrin.h
+  -- Looking for xmmintrin.h - found
+  -- Performing Test SSE1_SUPPORTED
+  -- Performing Test SSE1_SUPPORTED - Success
+  -- Looking for emmintrin.h
+  -- Looking for emmintrin.h - found
+  -- Performing Test SSE2_SUPPORTED
+  -- Performing Test SSE2_SUPPORTED - Success
+  -- Looking for smmintrin.h
+  -- Looking for smmintrin.h - found
+  -- Performing Test SSE4_1_SUPPORTED
+  -- Performing Test SSE4_1_SUPPORTED - Success
+  -- Looking for immintrin.h
+  -- Looking for immintrin.h - found
+  -- Performing Test AVX2_SUPPORTED
+  -- Performing Test AVX2_SUPPORTED - Success
+  -- Performing Test FAST_MATH_SUPPORTED
+  -- Performing Test FAST_MATH_SUPPORTED - Success
+  -- Performing Test STACK_PROTECTOR_SUPPORTED
+  -- Performing Test STACK_PROTECTOR_SUPPORTED - Success
+  -- Performing Test HIDDEN_VISIBILITY_SUPPORTED
+  -- Performing Test HIDDEN_VISIBILITY_SUPPORTED - Success
+  -- Performing Test Wall_SUPPORTED
+  -- Performing Test Wall_SUPPORTED - Success
+  -- Performing Test W_SUPPORTED
+  -- Performing Test W_SUPPORTED - Success
+  -- Performing Test Wstrictprototypes_SUPPORTED
+  -- Performing Test Wstrictprototypes_SUPPORTED - Success
+  -- Performing Test Wextra_SUPPORTED
+  -- Performing Test Wextra_SUPPORTED - Success
+  -- Performing Test Wcastalign_SUPPORTED
+  -- Performing Test Wcastalign_SUPPORTED - Success
+  -- Performing Test Wnestedexterns_SUPPORTED
+  -- Performing Test Wnestedexterns_SUPPORTED - Success
+  -- Performing Test Wshadow_SUPPORTED
+  -- Performing Test Wshadow_SUPPORTED - Success
+  -- The following features have been enabled:
+
+   * OPUS_ENABLE_FLOAT_API, compile with the floating point API (for machines with float library).
+   * OPUS_HARDENING, run-time checks that are cheap and safe for use in production.
+   * OPUS_INSTALL_CMAKE_CONFIG_MODULE, install CMake package config module.
+   * OPUS_VAR_ARRAYS, use variable length arrays for stack arrays.
+   * OPUS_STACK_PROTECTOR, use stack protection.
+   * OPUS_FORTIFY_SOURCE, add protection against buffer overflows.
+   * OPUS_X86_MAY_HAVE_SSE, does runtime check for SSE1 support.
+   * OPUS_X86_MAY_HAVE_SSE2, does runtime check for SSE2 support.
+   * OPUS_X86_MAY_HAVE_SSE4_1, does runtime check for SSE4.1 support.
+   * OPUS_X86_MAY_HAVE_AVX2, does runtime check for AVX FMA AVX2 support.
+   * OPUS_X86_PRESUME_SSE, assume target CPU has SSE1 support (override runtime check).
+   * OPUS_X86_PRESUME_SSE2, assume target CPU has SSE2 support (override runtime check).
+
+  -- The following OPTIONAL packages have been found:
+
+   * Git
+
+  -- The following features have been disabled:
+
+   * OPUS_BUILD_SHARED_LIBRARY, build shared library.
+   * OPUS_BUILD_TESTING, build tests.
+   * OPUS_CUSTOM_MODES, enable non-Opus modes, e.g. 44.1 kHz & 2^n frames.
+   * OPUS_BUILD_PROGRAMS, build programs.
+   * OPUS_DISABLE_INTRINSICS, disable all intrinsics optimizations.
+   * OPUS_FIXED_POINT, compile as fixed-point (for machines without a fast enough FPU).
+   * OPUS_FLOAT_APPROX, enable floating point approximations (Ensure your platform supports IEEE 754 before enabling).
+   * OPUS_ASSERTIONS, additional software error checking.
+   * OPUS_FUZZING, causes the encoder to make random decisions (do not use in production).
+   * OPUS_CHECK_ASM, enable bit-exactness checks between optimized and c implementations.
+   * OPUS_DNN_FLOAT_DEBUG, Run DNN computations as float for debugging purposes.
+   * OPUS_INSTALL_PKG_CONFIG_MODULE, install pkg-config module.
+   * OPUS_DRED, enable DRED.
+   * OPUS_OSCE, enable OSCE.
+   * OPUS_FIXED_POINT_DEBUG, debug fixed-point implementation.
+   * OPUS_USE_ALLOCA, use alloca for stack arrays (on non-C99 compilers).
+   * OPUS_NONTHREADSAFE_PSEUDOSTACK, use a non threadsafe pseudostack when neither variable length arrays or alloca is supported.
+   * OPUS_FAST_MATH, enable fast math (unsupported and discouraged use, as code is not well tested with this build option).
+   * OPUS_X86_PRESUME_SSE4_1, assume target CPU has SSE4.1 support (override runtime check).
+   * OPUS_X86_PRESUME_AVX2, assume target CPU has AVX FMA AVX2 support (override runtime check).
+
+  -- Configuring done (10.3s)
+  -- Generating done (0.2s)
+  -- Build files have been written to: /home/nathanael/.worktrees/bots-k-live-20261007/rust/target/release/build/libopus_sys-d46f61dc9048a86f/out/build
+  [  0%] Building C object CMakeFiles/opus.dir/src/opus.c.o
+  [  1%] Building C object CMakeFiles/opus.dir/src/opus_decoder.c.o
+  [  1%] Building C object CMakeFiles/opus.dir/src/opus_encoder.c.o
+  [  2%] Building C object CMakeFiles/opus.dir/src/extensions.c.o
+  [  3%] Building C object CMakeFiles/opus.dir/src/opus_multistream.c.o
+  [  3%] Building C object CMakeFiles/opus.dir/src/opus_multistream_encoder.c.o
+  [  4%] Building C object CMakeFiles/opus.dir/src/opus_multistream_decoder.c.o
+  [  5%] Building C object CMakeFiles/opus.dir/src/repacketizer.c.o
+  [  5%] Building C object CMakeFiles/opus.dir/src/opus_projection_encoder.c.o
+  [  6%] Building C object CMakeFiles/opus.dir/src/opus_projection_decoder.c.o
+  [  7%] Building C object CMakeFiles/opus.dir/src/mapping_matrix.c.o
+  [  7%] Building C object CMakeFiles/opus.dir/src/analysis.c.o
+  [  8%] Building C object CMakeFiles/opus.dir/src/mlp.c.o
+  [  9%] Building C object CMakeFiles/opus.dir/src/mlp_data.c.o
+  [  9%] Building C object CMakeFiles/opus.dir/silk/CNG.c.o
+  [ 10%] Building C object CMakeFiles/opus.dir/silk/code_signs.c.o
+  [ 11%] Building C object CMakeFiles/opus.dir/silk/init_decoder.c.o
+  [ 11%] Building C object CMakeFiles/opus.dir/silk/decode_core.c.o
+  [ 12%] Building C object CMakeFiles/opus.dir/silk/decode_frame.c.o
+  [ 13%] Building C object CMakeFiles/opus.dir/silk/decode_parameters.c.o
+  [ 13%] Building C object CMakeFiles/opus.dir/silk/decode_indices.c.o
+  [ 14%] Building C object CMakeFiles/opus.dir/silk/decode_pulses.c.o
+  [ 15%] Building C object CMakeFiles/opus.dir/silk/decoder_set_fs.c.o
+  [ 15%] Buildi

@@ -1,0 +1,4 @@
+Remote-main: 2e0de01f0da4bbb7f6630832b52b0694ea566c6f
+current: /opt/deadlock-brain/releases/b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2 (UID 0, Symlink true)
+maintenance-current: /opt/deadlock-brain/maintenance-releases/b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2 (UID 0, Symlink true)
+STOPP: Quelle liegt nicht auf Remote-main

@@ -1,0 +1,63 @@
+cargo-slot: Slot 2, optimiert=0
+   Compiling sqlx-core v0.8.6
+   Compiling mime_guess v2.0.5
+   Compiling serde_urlencoded v0.7.1
+   Compiling hyper-rustls v0.27.9
+   Compiling tower-http v0.6.11
+   Compiling futures-intrusive v0.5.0
+   Compiling tokio-stream v0.1.18
+   Compiling thiserror-impl v1.0.69
+   Compiling siphasher v1.0.3
+   Compiling heck v0.5.0
+   Compiling phf_shared v0.12.1
+   Compiling thiserror v1.0.69
+   Compiling reqwest v0.12.28
+   Compiling sqlx-postgres v0.8.6
+   Compiling regex v1.12.4
+   Compiling lazy_static v1.5.0
+   Compiling chrono-tz v0.10.4
+   Compiling sharded-slab v0.1.7
+   Compiling brain-contracts v0.1.0 (https://github.com/EarlySalty/Deadlock-Brain.git?rev=baf981f9146e69c9a2d270c915f45a444a2ed490#baf981f9)
+   Compiling uplink-infisical-transport v0.1.1 (https://github.com/EarlySalty/Deadlock-Brain.git?rev=baf981f9146e69c9a2d270c915f45a444a2ed490#baf981f9)
+   Compiling sqlx-macros-core v0.8.6
+   Compiling sqlx-macros v0.8.6
+   Compiling phf v0.12.1
+   Compiling matchers v0.2.0
+   Compiling tracing-log v0.2.0
+   Compiling thread_local v1.1.9
+   Compiling nu-ansi-term v0.50.3
+   Compiling tracing-subscriber v0.3.23
+   Compiling sqlx v0.8.6
+   Compiling async-trait v0.1.89
+   Compiling brain-client v0.1.0 (https://github.com/EarlySalty/Deadlock-Brain.git?rev=baf981f9146e69c9a2d270c915f45a444a2ed490#baf981f9)
+   Compiling dl-brain v0.1.0 (/home/nathanael/.worktrees/bots-k-live-20261007/rust/crates/dl-brain)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 09s
+     Running unittests src/lib.rs (/home/nathanael/.worktrees/bots-k-live-20261007/rust/target/debug/deps/dl_brain-814f05e0a809f20d)
+
+running 22 tests
+test api_ingest::tests::normalizes_current_shop_items_and_hero_base_stats ... ok
+test api_ingest::tests::content_hash_ignores_version_and_commit_metadata ... ok
+test api_ingest::tests::identical_second_run_plans_zero_updates ... ok
+test brain_api::tests::links_werden_auch_aus_markdown_und_autolinks_entfernt ... ok
+test brain_api::tests::linkentfernung_prueft_rekonstruierte_urls_bis_zum_linkfreien_ergebnis ... ok
+test tests::backendfehler_verbraucht_keinen_cooldown ... ok
+test tests::discord_verwendet_keinen_alten_antwortweg_als_ersatz ... ok
+test tests::discord_limit_laesst_fuenfzig_sofort_zu_und_meldet_die_einundfuenfzigste_einmal ... ok
+test tests::discord_limit_wechselt_am_berliner_kalendertag_auch_bei_zeitumstellungen ... ok
+test brain_api::tests::abgelaufenes_gesamtbudget_sendet_bei_belegter_admission_keine_anfrage ... ok
+test tests::chunk_message_splittet_ueber_2000_an_wortgrenzen ... ok
+test tests::gemeinsame_antwort_erhaelt_frage_und_beachtet_grenzen_und_cooldown ... ok
+test tests::discord_folgefragen_und_mehrfachfrage_zaehlen_je_einen_zentralen_aufruf ... ok
+test brain_api::tests::consumer_sendet_ereignisidentitaet_und_trennt_anfragekontexte ... ok
+test tests::discord_limit_ist_konfigurierbar_ohne_kanal_stunden_oder_globales_tageslimit ... ok
+test tests::parallele_discord_frage_wird_vor_der_ersten_antwort_begrenzt ... ok
+test tests::private_lesesperre_faellt_nicht_auf_alten_discord_antwortweg_zurueck ... ok
+test brain_api::tests::coachingziel_wird_nach_dem_linkfilter_auf_discord_projiziert ... ok
+test brain_api::tests::warnungen_nennen_nur_die_klasse_und_kuerzung_beachtet_utf16 ... ok
+test brain_api::tests::fixture_antworten_bleiben_trotz_links_und_ueberlaenge_erhalten ... ok
+test brain_api::tests::zentrale_ausfallzustaende_werden_nicht_als_antwort_ausgegeben ... ok
+test brain_api::tests::fixture_rekonstruierte_urls_kommen_nicht_in_der_antwort_an ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+cargo-slot: EXIT=0

@@ -1,0 +1,13 @@
+Remote-main: ef2f1f95257c37d50e1ffd6d4da7c14b3202c30c
+current: /opt/deadlock-brain/releases/b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2 (UID 0, Symlink true)
+maintenance-current: /opt/deadlock-brain/maintenance-releases/b7289d115c0b64016fcfe6cbfe3c797cf9fa76e2 (UID 0, Symlink true)
+{
+  "sha": "ef2f1f95257c37d50e1ffd6d4da7c14b3202c30c",
+  "tree": "6c56e6258254b1c829a1d79b35b9f3fac26936f4",
+  "fingerprint": "74c1c4af6a407fbb55b81e1710e4975ad41323249666337ac002930928983b1f",
+  "path": "/home/nathanael/.worktrees/brain-k-private-read-20261008",
+  "worktree_dev": 2820716161,
+  "worktree_ino": 6619420,
+  "git_pointer_sha256": "9dccbe300b4a8a2e46517ad161d9ed019c31aaa83e374ce474b587e7399f4045"
+}
+Buildargv: /home/nathanael/.cargo/bin/cargo build --locked --release --jobs 4 --workspace --bins --target-dir <neues Bundle>/target

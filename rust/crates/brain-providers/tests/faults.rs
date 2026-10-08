@@ -13,6 +13,7 @@ use std::{
 };
 fn query() -> Query {
     Query {
+        answer_context: None,
         domain: None,
         request_id: "fixture-request".into(),
         conversation_id: "fixture-conversation".into(),
