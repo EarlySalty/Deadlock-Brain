@@ -93,6 +93,7 @@ fn query() -> Query {
         request_id: "tool-loop-request".into(),
         conversation_id: "tool-loop-conversation".into(),
         text: "Erkläre Abrams und Warden".into(),
+        answer_context: None,
         domain: None,
         requested_scopes: BTreeSet::new(),
         profile: AnswerProfile::Explain,
