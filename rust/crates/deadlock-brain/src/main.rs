@@ -1983,8 +1983,8 @@ mod ingest_tests {
             panic!("wrong dispatch")
         };
         assert_eq!(args.data_dir, None);
-        assert_eq!(calls[1], "pg sync-patchnotes");
-        assert_eq!(calls[2], "pull build-data --hero all");
+        assert_eq!(calls[1], "pull build-data --hero all");
+        assert_eq!(calls[2], "pg sync-patchnotes");
     }
 
     #[test]

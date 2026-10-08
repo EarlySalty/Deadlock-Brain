@@ -342,7 +342,16 @@ fn gameplay_event_content(content: &str, index: &EntityIndex) -> Option<String> 
         let body = bullet_body(line);
         let body = normalize_patch_line(body.as_deref().unwrap_or(line));
         let body = bullet_body(&body).unwrap_or(body);
-        if index.exact(&body).is_some() || !has_change_action(&body) {
+        if index.exact(&body).is_some()
+            || !has_change_action(&body)
+            || matches!(
+                body.trim_matches(['[', ']'])
+                    .trim()
+                    .to_ascii_lowercase()
+                    .as_str(),
+                "new heroes" | "new items" | "new abilities" | "new objectives"
+            )
+        {
             if let Some(heading) = section_heading(line) {
                 section_entity = index.exact(&heading).map(|_| heading.clone()).or_else(|| {
                     section_subject(Some(&heading))
@@ -435,33 +444,41 @@ fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
         .filter(|word| !word.is_empty())
         .map(str::to_ascii_lowercase)
         .collect();
-    let cosmetic = words.iter().any(|word| {
-        matches!(
-            word.as_str(),
-            "cosmetic"
-                | "cosmetics"
-                | "emote"
-                | "emotes"
-                | "skin"
-                | "skins"
-                | "artwork"
-                | "portrait"
-                | "portraits"
-                | "icon"
-                | "icons"
-                | "sound"
-                | "sounds"
-                | "music"
-                | "visual"
-                | "visuals"
-                | "animation"
-                | "animations"
-                | "banner"
-                | "banners"
-                | "poster"
-                | "posters"
-        )
-    });
+    let context_start = [" during ", " while ", " after ", " before ", " when "]
+        .iter()
+        .filter_map(|delimiter| change_subject.find(delimiter))
+        .min()
+        .unwrap_or(change_subject.len());
+    let cosmetic = change_subject[..context_start]
+        .split(|character: char| !character.is_alphabetic())
+        .filter(|word| !word.is_empty())
+        .any(|word| {
+            matches!(
+                word,
+                "cosmetic"
+                    | "cosmetics"
+                    | "emote"
+                    | "emotes"
+                    | "skin"
+                    | "skins"
+                    | "artwork"
+                    | "portrait"
+                    | "portraits"
+                    | "icon"
+                    | "icons"
+                    | "sound"
+                    | "sounds"
+                    | "music"
+                    | "visual"
+                    | "visuals"
+                    | "animation"
+                    | "animations"
+                    | "banner"
+                    | "banners"
+                    | "poster"
+                    | "posters"
+            )
+        });
     let gameplay = bound_entity
         || words.iter().any(|word| {
             matches!(
@@ -1006,6 +1023,8 @@ mod tests {
             "Visitors\n- Added knockback\n- Increased from 1 to 2",
             "Holliday\nVisitors\n- Added knockback",
             "Holliday\nGeneral Changes\n- Increased from 1 to 2",
+            "Holliday\nNew Heroes\n- Added knockback",
+            "Holliday\n[ New Heroes ]\n- Added knockback",
             "Holliday\n- Visitors: added knockback and added a stun",
             "Holliday\n- Added new hero skins\n- Increased from 1 to 2 visitors",
             "Metal Skin\n- Improved animations\n- Added new artwork",
@@ -1465,6 +1484,10 @@ mod tests {
             "[ Items ] * Metal Skin: cooldown reduced from 22 to 20",
             "Holliday: added knockback",
             "* Holliday: added knockback",
+            "- Holliday: Fixed damage being applied twice during the attack animation",
+            "- Holliday: Fixed damage being applied twice after the attack animation",
+            "- Holliday: Fixed healing not working when the sound plays",
+            "- Holliday: Fixed damage being applied twice while the animation plays",
         ] {
             let html = forum_html(&post, original);
             let resolved = resolve_api_source(&post, &index, |_| Ok(html.clone()))
@@ -1486,6 +1509,8 @@ mod tests {
             "- Metal Skin: added artwork",
             "* Metal Skin: added new hero skins",
             "Metal Skin: improved animations",
+            "Metal Skin: improved animations during attacks",
+            "Metal Skin: added artwork after taking damage",
         ] {
             assert!(!is_patch_candidate(original, &index), "{original}");
         }
