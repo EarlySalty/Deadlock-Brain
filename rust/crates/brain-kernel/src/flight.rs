@@ -163,6 +163,14 @@ pub(super) fn cache_key_for_purpose(
         &context.conversation_id,
         &context.knowledge_release,
         &context.budget,
+        context.discord.as_ref().map(|request| {
+            (
+                request.user_id,
+                &request.request_id,
+                &request.scope,
+                request.allow_discord_reads,
+            )
+        }),
         &query.text,
         &query.domain,
         &query.profile,
@@ -171,6 +179,47 @@ pub(super) fn cache_key_for_purpose(
         &query.requested_scopes,
     ))
 }
+#[cfg(test)]
+#[test]
+fn private_read_gate_trennt_flightbindung_bei_gleicher_frage() {
+    let query: Query = serde_json::from_value(serde_json::json!({
+            "request_id":"r", "conversation_id":"c", "text":"Neutrale Frage", "requested_scopes":["bot.public"]
+        })).unwrap();
+    let mut context = AuthorizedContext {
+        discord: Some(brain_contracts::DiscordRequestContext {
+            user_id: Some(42),
+            request_id: "r".into(),
+            scope: "discord.request:fixture".into(),
+            allow_discord_reads: true,
+        }),
+        principal: brain_contracts::Principal {
+            actor_id: "bot".into(),
+            channel: "fixture".into(),
+            scopes: ["bot.public".into(), "discord.request:fixture".into()]
+                .into_iter()
+                .collect(),
+            provider_egress: ["public".into(), "discord_request".into()]
+                .into_iter()
+                .collect(),
+        },
+        conversation_id: "c".into(),
+        knowledge_release: "fixture".into(),
+        deadline_ms: 1000,
+        budget: brain_contracts::Budget::default(),
+        request_deadline: None,
+    };
+    let purpose = AnswerPurpose::ExternalPublication;
+    let public = cache_key_for_purpose(&query, &context, purpose).unwrap();
+    context.discord.as_mut().unwrap().allow_discord_reads = false;
+    let private = cache_key_for_purpose(&query, &context, purpose).unwrap();
+    assert_ne!(public, private);
+    context.discord.as_mut().unwrap().user_id = Some(43);
+    assert_ne!(
+        private,
+        cache_key_for_purpose(&query, &context, purpose).unwrap()
+    );
+}
+
 impl<R: RetrievalPort, P: AnswerProviderPort> AnswerKernelPort for CachedKernel<R, P> {
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
         self.answer_with_purpose(query, context, AnswerPurpose::InternalRead)
