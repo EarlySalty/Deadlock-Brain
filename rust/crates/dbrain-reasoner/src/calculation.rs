@@ -834,6 +834,7 @@ fn calculate_inner(
     let mut secondary_pellets_known = true;
     if let Some(weapon) = weapon {
         base.weapon = weapon.profile.clone();
+        base.weapon_timing = weapon.timing.clone();
         if scenario.secondary_fire {
             let primary_pellets = sourced
                 .primary_weapon

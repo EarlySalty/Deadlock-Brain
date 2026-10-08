@@ -92,6 +92,36 @@ fn close(left: f64, right: f64) {
 }
 
 #[test]
+fn recorded_weapon_timing_survives_model_loading_serialization_and_frozen_enrichment() {
+    let models = models();
+    let raw = raw_assets();
+    let snapshots = raw["heroes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(raw["items"].as_array().unwrap())
+        .cloned()
+        .collect::<Vec<_>>();
+    for hero_id in [2, 6] {
+        let sourced = &models.heroes[&hero_id];
+        let timing = &models.weapons[&sourced.primary_weapon.unwrap()].timing;
+        assert_eq!(&sourced.model.weapon_timing, timing);
+        let value = serde_json::to_value(&sourced.model).unwrap();
+        let restored: crate::HeroModel = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(&restored.weapon_timing, timing);
+        let mut old_value = value;
+        old_value.as_object_mut().unwrap().remove("weapon_timing");
+        let mut legacy: crate::HeroModel = serde_json::from_value(old_value).unwrap();
+        assert_eq!(legacy.weapon_timing, crate::WeaponTiming::default());
+        crate::data::enrich_frozen_models(&mut legacy, &mut [], &snapshots).unwrap();
+        assert_eq!(&legacy.weapon_timing, timing);
+        let projected =
+            crate::progression::at_souls(&legacy, &[], 20_000, &crate::ReasonerConfig::default());
+        assert_eq!(&projected.0.weapon_timing, timing);
+    }
+}
+
+#[test]
 fn recorded_three_heroes_match_versioned_probe_values_without_relabelling_raw_provenance() {
     let models = models();
     let probe: Value = serde_json::from_str(include_str!(

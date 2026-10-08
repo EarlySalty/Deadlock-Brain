@@ -770,7 +770,7 @@ fn evaluate_core_with_deadline(
                 detailed,
                 bindings,
                 scenario: None,
-                timing: None,
+                timing: Some(&hero.weapon_timing),
                 innate: None,
                 deadline,
             },
@@ -1085,6 +1085,8 @@ fn simulate(
     let mut out = CombatScenarioEvaluation {
         target_health: scenario.map_or(hero.base_health.max(1.0), |s| s.target.health),
         name: name.into(),
+        weapon_timing_unknown: timing
+            .is_some_and(|timing| !crate::mechanics::weapon_timing_known(timing)),
         ..CombatScenarioEvaluation::default()
     };
     let mut ability_ready = vec![0.0; hero.abilities.len()];
@@ -2656,6 +2658,7 @@ pub(crate) mod tests {
             standard_upgrade_levels: Default::default(),
             level_rewards: Default::default(),
             cost_bonuses: BTreeMap::new(),
+            weapon_timing: Default::default(),
             archetype: String::new(),
             base_health: 600.0,
             level_curve: vec![],
@@ -2772,6 +2775,126 @@ pub(crate) mod tests {
             window_seconds,
             reload_convention: crate::ReloadConvention::AfterFireInterval,
         }
+    }
+
+    pub(crate) fn recorded_hero(hero_id: i64) -> HeroModel {
+        let raw: serde_json::Value =
+            serde_json::from_str(include_str!("../testdata/calculation/recorded-assets.json"))
+                .unwrap();
+        let mut payload = raw["heroes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|hero| hero["id"] == hero_id)
+            .unwrap()
+            .clone();
+        let class = payload
+            .pointer("/items/weapon_primary")
+            .unwrap()
+            .as_str()
+            .unwrap();
+        let weapon = raw["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["class_name"] == class)
+            .unwrap();
+        payload["weapon_info"] = weapon["weapon_info"].clone();
+        crate::data::hero_model_from_payload(&payload, &[], &[]).unwrap()
+    }
+
+    fn inventory_paths(
+        hero: &HeroModel,
+        items: &[ItemModel],
+        cfg: &ReasonerConfig,
+    ) -> Vec<InventoryEvaluation> {
+        let bindings = BTreeMap::new();
+        let refs = items.iter().collect::<Vec<_>>();
+        let anchor = std::time::Instant::now();
+        let deadline = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || anchor,
+        );
+        vec![
+            evaluate_inventory(hero, items, cfg),
+            evaluate_inventory_fast(hero, items, cfg),
+            evaluate_inventory_refs_fast(hero, &refs, cfg),
+            evaluate_inventory_with_bindings(hero, items, cfg, &bindings),
+            evaluate_inventory_refs_fast_with_bindings(hero, &refs, cfg, &bindings),
+            evaluate_inventory_with_deadline(hero, items, cfg, &bindings, &deadline).unwrap(),
+        ]
+    }
+
+    #[test]
+    fn recorded_bursts_keep_their_actual_intervals_through_every_inventory_path() {
+        let mut hero = recorded_hero(2);
+        hero.base_health = 1e9;
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 1.2,
+            incoming_pressure_dps: Some(0.0),
+            ..ReasonerConfig::default()
+        };
+        assert_eq!(hero.weapon_timing.burst_shot_count, Some(3));
+        assert_eq!(hero.weapon_timing.intra_burst_cycle_time, Some(0.084));
+        for (items, shots) in [(vec![], 9.0), (vec![item(1, "BonusFireRate", 100.0)], 15.0)] {
+            for result in inventory_paths(&hero, &items, &cfg) {
+                assert!(result.unknown_effects.is_empty(), "{result:?}");
+                for scenario in result.scenarios {
+                    assert_eq!(scenario.shots, shots);
+                    assert!(!scenario.weapon_timing_unknown);
+                }
+            }
+        }
+        hero.weapon_timing = crate::WeaponTiming::default();
+        assert_eq!(evaluate_inventory(&hero, &[], &cfg).scenarios[0].shots, 7.0);
+    }
+
+    #[test]
+    fn recorded_single_bullet_reload_tracks_capacity_through_every_inventory_path() {
+        let mut hero = recorded_hero(6);
+        hero.base_health = 1e9;
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 40.0,
+            incoming_pressure_dps: Some(0.0),
+            ..ReasonerConfig::default()
+        };
+        assert_eq!(hero.weapon.clip_size, 9.0);
+        assert_eq!(hero.weapon_timing.reload_single_bullets, Some(true));
+        assert_eq!(hero.weapon_timing.raw_reload_duration, Some(0.3525));
+        assert_eq!(
+            hero.weapon_timing.reload_single_bullets_initial_delay,
+            Some(0.705)
+        );
+        assert!((hero.weapon.reload_duration - (0.705 + 9.0 * 0.3525)).abs() < 1e-9);
+        for (items, shots, reloads) in [
+            (vec![], 39.0, 4),
+            (vec![item(1, "BonusClipSizePercent", 100.0)], 42.0, 2),
+        ] {
+            for result in inventory_paths(&hero, &items, &cfg) {
+                assert!(result.unknown_effects.is_empty(), "{result:?}");
+                for scenario in result.scenarios {
+                    assert_eq!(scenario.shots, shots);
+                    assert_eq!(scenario.reloads, reloads);
+                    assert!(!scenario.weapon_timing_unknown);
+                }
+            }
+        }
+        hero.scaling.push(crate::ScalingStat {
+            stat: "EClipSize".into(),
+            per_level: 0.0,
+            per_spirit: Some(0.09),
+        });
+        hero.base_spirit_power = 100.0;
+        for result in inventory_paths(&hero, &[], &cfg) {
+            for scenario in result.scenarios {
+                assert_eq!(scenario.shots, 42.0);
+                assert_eq!(scenario.reloads, 2);
+            }
+        }
+        hero.scaling.clear();
+        hero.weapon_timing = crate::WeaponTiming::default();
+        let legacy = evaluate_inventory(&hero, &[item(1, "BonusClipSizePercent", 100.0)], &cfg);
+        assert_eq!(legacy.scenarios[0].shots, 52.0);
     }
 
     #[test]

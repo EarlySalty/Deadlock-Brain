@@ -287,15 +287,21 @@ pub fn buy_phase(item: &ItemModel) -> crate::BuyPhase {
 }
 
 pub fn weapon_dps(weapon: &WeaponProfile, window: f64) -> f64 {
-    if window <= 0.0 || weapon.shots_per_second <= 0.0 || weapon.clip_size <= 0.0 {
+    weapon_dps_with_timing(weapon, None, window)
+}
+
+pub fn weapon_dps_with_timing(
+    weapon: &WeaponProfile,
+    timing: Option<&crate::WeaponTiming>,
+    window: f64,
+) -> f64 {
+    if !window.is_finite() || window <= 0.0 {
         return 0.0;
     }
-    let cycle = weapon.clip_size / weapon.shots_per_second;
-    let cycle_with_reload = cycle + weapon.reload_duration.max(0.0);
-    if cycle_with_reload <= 0.0 {
-        return 0.0;
-    }
-    weapon.bullet_damage * weapon.clip_size / cycle_with_reload
+    weapon_cycle_seconds(weapon, timing, crate::ReloadConvention::AfterFireInterval)
+        .map_or(0.0, |cycle| {
+            weapon.bullet_damage * weapon.clip_size.floor() / cycle
+        })
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -494,7 +500,7 @@ pub fn weapon_cycle_seconds(
     } else {
         intervals / weapon.shots_per_second
     };
-    let cycle = firing + weapon_reload_seconds(weapon.clip_size, weapon, timing, 0.0);
+    let cycle = firing + weapon_reload_seconds(shots, weapon, timing, 0.0);
     (cycle.is_finite() && cycle > 0.0).then_some(cycle)
 }
 
@@ -723,7 +729,11 @@ pub fn damage_plan(hero: &HeroModel, cfg: &ReasonerConfig) -> DamagePlan {
     // eines Konverters spiegeln (Nullkonverter bleiben unveraendert). Dieselbe
     // zustandsbezogene Projektion wie im Item-Score; Basis-Spirit genau einmal.
     let weapon = weapon_with_spirit(hero, hero.base_spirit_power);
-    let weapon_dps = weapon_dps(&weapon, cfg.combat_window_seconds);
+    let weapon_dps = weapon_dps_with_timing(
+        &weapon,
+        Some(&hero.weapon_timing),
+        cfg.combat_window_seconds,
+    );
     let spirit_dps = hero
         .abilities
         .iter()
@@ -872,12 +882,14 @@ fn property_value(name: &str, value: f64, hero: &HeroModel, cfg: &ReasonerConfig
     if lower == "bonusclipsizepercent" || lower == "clipsizepercent" {
         let mut changed = hero.weapon.clone();
         changed.clip_size *= (1.0 + percent).max(0.0);
-        return weapon_dps(&changed, window) - weapon_dps(&hero.weapon, window);
+        return weapon_dps_with_timing(&changed, Some(&hero.weapon_timing), window)
+            - weapon_dps_with_timing(&hero.weapon, Some(&hero.weapon_timing), window);
     }
     if lower == "bonusfirerate" || lower == "firerate" {
         let mut changed = hero.weapon.clone();
         changed.shots_per_second *= (1.0 + percent).max(0.0);
-        return weapon_dps(&changed, window) - weapon_dps(&hero.weapon, window);
+        return weapon_dps_with_timing(&changed, Some(&hero.weapon_timing), window)
+            - weapon_dps_with_timing(&hero.weapon, Some(&hero.weapon_timing), window);
     }
     if lower.contains("weapon")
         || lower.contains("baseattackdamage")
@@ -1050,6 +1062,44 @@ fn reload_value(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recorded_weapon_timing_drives_scalar_damage_and_item_marginals() {
+        let cfg = ReasonerConfig::default();
+        let hero = crate::combat::tests::recorded_hero(6);
+        let base_cycle = 9.0 * 0.63 + 0.705 + 9.0 * 0.3525;
+        let base = hero.weapon.bullet_damage * 9.0 / base_cycle;
+        assert!((damage_plan(&hero, &cfg).weapon_dps - base).abs() < 1e-9);
+        let mut doubled = hero.weapon.clone();
+        doubled.clip_size = 18.9;
+        let double_cycle = 18.0 * 0.63 + 0.705 + 18.0 * 0.3525;
+        let double = hero.weapon.bullet_damage * 18.0 / double_cycle;
+        assert!(
+            (weapon_dps_with_timing(&doubled, Some(&hero.weapon_timing), 40.0) - double).abs()
+                < 1e-9
+        );
+        assert!(
+            (property_value("BonusClipSizePercent", 100.0, &hero, &cfg) - (double - base)).abs()
+                < 1e-9
+        );
+        let mut projected = hero.clone();
+        projected.base_spirit_power = 100.0;
+        projected.scaling.push(crate::ScalingStat {
+            stat: "EClipSize".into(),
+            per_level: 0.0,
+            per_spirit: Some(0.09),
+        });
+        assert!((damage_plan(&projected, &cfg).weapon_dps - double).abs() < 1e-9);
+        let burst = crate::combat::tests::recorded_hero(2);
+        let firing = 9.0 * (0.2625 + 3.0 * 0.084) + 2.0 * 0.084;
+        let expected = burst.weapon.bullet_damage * 29.0 / (firing + 2.35);
+        assert!((damage_plan(&burst, &cfg).weapon_dps - expected).abs() < 1e-9);
+        let faster = burst.weapon.bullet_damage * 29.0 / (firing / 2.0 + 2.35);
+        assert!(
+            (property_value("BonusFireRate", 100.0, &burst, &cfg) - (faster - expected)).abs()
+                < 1e-9
+        );
+    }
+
     #[test]
     fn reload_timing_rejects_invalid_components_without_a_standard_reload_fallback() {
         let weapon = hero().weapon;
@@ -1652,6 +1702,7 @@ mod tests {
             standard_upgrade_levels: Default::default(),
             level_rewards: Default::default(),
             cost_bonuses: Default::default(),
+            weapon_timing: Default::default(),
             hero_id: 25,
             name: "Warden".to_string(),
             archetype: "brawler".to_string(),

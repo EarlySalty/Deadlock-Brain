@@ -270,8 +270,11 @@ pub fn at_souls(
         }
     }
     evidence.assumptions.push("Fortschritt verwendet die tatsächlich gespeicherten Seelenschwellen und Levelbelohnungen. Verdiente Seelen sind vom ausgegebenen Geld getrennt; Verkäufe senken weder Level noch Skillrang. Keine Aussage über Spielminuten.".into());
-    hero.weapon.sustained_dps =
-        crate::mechanics::weapon_dps(&hero.weapon, cfg.combat_window_seconds);
+    hero.weapon.sustained_dps = crate::mechanics::weapon_dps_with_timing(
+        &hero.weapon,
+        Some(&hero.weapon_timing),
+        cfg.combat_window_seconds,
+    );
     if order.is_empty() {
         evidence.assumptions.push("Keine belegte Skillfolge: alle Basisfähigkeiten bleiben ein Vergleichsszenario; es werden keine Fähigkeitenränge erfunden.".into());
         hero.damage_plan = crate::mechanics::damage_plan(&hero, cfg);
