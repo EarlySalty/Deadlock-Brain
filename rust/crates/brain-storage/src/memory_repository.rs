@@ -186,6 +186,105 @@ impl DocumentStorePort for MemoryRepository {
     }
 }
 impl SnapshotReadPort for MemoryRepository {
+    fn read_manifest_until(
+        &self,
+        release_id: &str,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<brain_contracts::ReleaseReadManifest, PortError> {
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
+        let state = self.inner.lock().map_err(|_| error("store poisoned"))?;
+        let release = state
+            .releases
+            .get(release_id)
+            .ok_or_else(|| error("unknown release"))?;
+        let project = |record: &SourceRecordV2| {
+            let mut head = brain_contracts::DocumentHead::from(record);
+            head.metadata
+                .retain(|key, _| matches!(key.as_str(), "brain.origin" | "egress" | "patch"));
+            head
+        };
+        let mut revisions = Vec::new();
+        let mut heads = Vec::new();
+        for (source, pins) in &release.source_revisions {
+            for (logical, revision) in pins {
+                let record = state
+                    .records
+                    .history
+                    .get(&(source.clone(), logical.clone(), *revision))
+                    .ok_or_else(|| error("missing revision"))?;
+                revisions.push(brain_contracts::DocumentDescriptor {
+                    head: project(record),
+                    content_hash: record.content_hash.clone(),
+                });
+                heads.push(project(
+                    state
+                        .records
+                        .head(source, logical)
+                        .ok_or_else(|| error("missing current ACL"))?,
+                ));
+            }
+        }
+        let manifest = brain_contracts::ReleaseReadManifest {
+            release: release.clone(),
+            revisions,
+            heads,
+        };
+        manifest.validate()?;
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
+        Ok(manifest)
+    }
+    fn read_documents_until(
+        &self,
+        release_id: &str,
+        documents: &[brain_contracts::DocumentRevision],
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<Vec<SourceRecordV2>, PortError> {
+        if documents.len() > 10000 {
+            return Err(PortError::BudgetExceeded);
+        }
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
+        let state = self.inner.lock().map_err(|_| error("store poisoned"))?;
+        let release = state
+            .releases
+            .get(release_id)
+            .ok_or_else(|| error("unknown release"))?;
+        let mut seen = std::collections::BTreeSet::new();
+        let mut result = Vec::new();
+        for key in documents {
+            if let Some(deadline) = deadline {
+                deadline.check()?;
+            }
+            if !seen.insert((&key.source_id, &key.logical_id))
+                || release
+                    .source_revisions
+                    .get(&key.source_id)
+                    .and_then(|pins| pins.get(&key.logical_id))
+                    != Some(&key.revision)
+            {
+                return Err(error("document not pinned in release"));
+            }
+            let record = state
+                .records
+                .history
+                .get(&(key.source_id.clone(), key.logical_id.clone(), key.revision))
+                .ok_or_else(|| error("missing revision"))?;
+            record.validate().map_err(|e| error(&e.to_string()))?;
+            if record.content_hash != key.content_hash {
+                return Err(error("document hash mismatch"));
+            }
+            result.push(record.clone());
+        }
+        if let Some(deadline) = deadline {
+            deadline.check()?;
+        }
+        Ok(result)
+    }
     fn read_heads(
         &self,
         documents: &[brain_contracts::DocumentRevision],
@@ -262,4 +361,67 @@ pub fn validate_release(release: &CorpusRelease) -> Result<(), PortError> {
         return Err(error("invalid immutable release"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod targeted_read_tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+
+    #[tokio::test]
+    async fn targeted_reads_match_snapshot_and_reject_unpinned_or_changed_documents() {
+        let store = MemoryRepository::default();
+        let record = SourceRecordV2 {
+            source_id: "fixture".into(),
+            logical_id: "hero".into(),
+            revision: 1,
+            content_hash: format!("{:x}", Sha256::digest(b"Abrams")),
+            content: "Abrams".into(),
+            visibility: brain_contracts::SourceVisibility::Public,
+            allowed_scopes: Default::default(),
+            tombstone: false,
+            valid_from: None,
+            valid_to: None,
+            metadata: Default::default(),
+        };
+        store.apply_record(record.clone()).unwrap();
+        let release = store
+            .release_from_heads("release", "version", "patch")
+            .unwrap();
+        store.publish(&release).await.unwrap();
+        let snapshot = store.read_snapshot("release").unwrap();
+        let expected = brain_contracts::ReleaseReadManifest::from_snapshot(&snapshot);
+        let manifest = store.read_manifest_until("release", None).unwrap();
+        assert_eq!(manifest.release, expected.release);
+        assert_eq!(manifest.heads, expected.heads);
+        assert_eq!(
+            serde_json::to_value(manifest.revisions).unwrap(),
+            serde_json::to_value(expected.revisions).unwrap()
+        );
+        let key = brain_contracts::DocumentRevision {
+            source_id: record.source_id.clone(),
+            logical_id: record.logical_id.clone(),
+            revision: record.revision,
+            content_hash: record.content_hash.clone(),
+        };
+        assert_eq!(
+            store
+                .read_documents_until("release", std::slice::from_ref(&key), None)
+                .unwrap(),
+            vec![record]
+        );
+        assert!(store
+            .read_documents_until("release", &[key.clone(), key.clone()], None)
+            .is_err());
+        let mut changed = key.clone();
+        changed.content_hash = "b".repeat(64);
+        assert!(store
+            .read_documents_until("release", &[changed], None)
+            .is_err());
+        let mut unpinned = key;
+        unpinned.revision += 1;
+        assert!(store
+            .read_documents_until("release", &[unpinned], None)
+            .is_err());
+    }
 }

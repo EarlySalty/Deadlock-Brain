@@ -244,7 +244,7 @@ mod tests {
                 async move { run(Path::new("/bin/sh"), &args, &cwd, &[], 10_000, 100).await },
             );
         for _ in 0..100 {
-            if pidfile.exists() {
+            if std::fs::read_to_string(&pidfile).is_ok_and(|value| value.parse::<u32>().is_ok()) {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
