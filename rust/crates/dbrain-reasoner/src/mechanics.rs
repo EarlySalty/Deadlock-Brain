@@ -370,6 +370,10 @@ pub fn damage_factors(
     })
 }
 
+pub(crate) fn valid_pellet_count(value: f64) -> bool {
+    value.is_finite() && value > 0.0 && value.fract() == 0.0
+}
+
 pub(crate) fn weapon_timing_known(timing: &crate::WeaponTiming) -> bool {
     if let Some(count) = timing.burst_shot_count.filter(|count| *count > 1) {
         match (timing.cycle_time, timing.intra_burst_cycle_time) {

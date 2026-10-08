@@ -641,7 +641,8 @@ pub fn hero_model_from_payload(
 fn weapon_timing(payload: &Value) -> crate::WeaponTiming {
     let info = payload.get("weapon_info").unwrap_or(&Value::Null);
     crate::WeaponTiming {
-        pellets: number(info.get("bullets")),
+        pellets: number(info.get("bullets"))
+            .filter(|value| crate::mechanics::valid_pellet_count(*value)),
         burst_shot_count: number(info.get("burst_shot_count"))
             .filter(|v| *v >= 1.0 && v.fract() == 0.0)
             .map(|v| v as usize),
@@ -894,7 +895,6 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
                 .filter(|rate| rate.is_finite() && *rate >= 0.0)
         })
         .unwrap_or_default();
-    let pellets = timing.pellets.unwrap_or(1.0);
     let clip_size = get(&["clip_size"]).unwrap_or_default();
     let raw_reload = get(&["reload_duration"]).unwrap_or_default();
     let reload_duration = if timing.reload_single_bullets == Some(true) {
@@ -907,7 +907,11 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
     };
     WeaponProfile {
         bullet_damage: get(&["damage_per_shot"])
-            .or_else(|| get(&["bullet_damage"]).map(|v| v * pellets))
+            .or_else(|| {
+                get(&["bullet_damage"])
+                    .zip(timing.pellets)
+                    .map(|(damage, pellets)| damage * pellets)
+            })
             .unwrap_or_default(),
         shots_per_second: if crate::mechanics::weapon_timing_known(&timing) {
             shots_per_second
@@ -1002,18 +1006,25 @@ fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Re
     };
     let mut all_scaling = scaling_stats(payload.get("scaling_stats"));
     all_scaling.extend(stats.iter().cloned());
-    let pellets = weapon_timing(payload).pellets.unwrap_or(1.0);
-    for stat in &mut all_scaling {
-        if stat.stat == "EBulletDamage" {
-            stat.per_level *= pellets;
-            stat.per_spirit = stat.per_spirit.map(|value| value * pellets);
+    let pellets = weapon_timing(payload).pellets;
+    all_scaling.retain(|stat| stat.stat != "EBulletDamage" || pellets.is_some());
+    if let Some(pellets) = pellets {
+        for stat in &mut all_scaling {
+            if stat.stat == "EBulletDamage" {
+                stat.per_level *= pellets;
+                stat.per_spirit = stat.per_spirit.map(|value| value * pellets);
+            }
         }
     }
     let mut standard_level_up_upgrades = numeric_object(payload.get("standard_level_up_upgrades"));
-    if let Some(damage) =
-        standard_level_up_upgrades.get_mut("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL")
-    {
-        *damage *= pellets;
+    if let Some(pellets) = pellets {
+        if let Some(damage) =
+            standard_level_up_upgrades.get_mut("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL")
+        {
+            *damage *= pellets;
+        }
+    } else {
+        standard_level_up_upgrades.remove("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL");
     }
     Ok(HeroModel {
         base_spirit_power: number(payload.pointer("/starting_stats/tech_power/value"))
@@ -2972,7 +2983,7 @@ mod tests {
 
     #[test]
     fn hero_damage_uses_damage_and_falls_with_longer_cooldown() {
-        let payload = serde_json::json!({"id":25,"name":"Warden","weapon_info":{"bullet_damage":10,"shots_per_second":5,"clip_size":20,"reload_duration":2}});
+        let payload = serde_json::json!({"id":25,"name":"Warden","weapon_info":{"bullet_damage":10,"bullets":1,"shots_per_second":5,"clip_size":20,"reload_duration":2}});
         let mut ability = serde_json::json!({"id":1,"class_name":"test","properties":{"Damage":{"value":60},"AbilityCooldown":{"value":30}}});
         let fast = hero_model(&payload, &[ability.clone()], &[]).unwrap();
         assert!((fast.damage_plan.spirit_dps - 3.5).abs() < 1e-12);

@@ -254,6 +254,223 @@ fn burst_weapon_uses_real_intra_and_inter_burst_gaps() {
 }
 
 #[test]
+fn spirit_scaled_item_procs_without_spirit_never_receive_confirmed_metrics_or_ranks() {
+    let hero_id = 6;
+    let mut models = models();
+    let mut item = crate::item_model_from_payload(&json!({
+        "id": 1, "class_name": "spirit_proc_contract", "name": "Prüfgegenstand",
+        "cost": 800, "item_slot_type": "vitality", "shopable": true,
+        "properties": {"ProcDamage": {"value": 20.0}, "ProcCooldown": {"value": 1.0}, "ProcChance": {"value": 100.0}}
+    }))
+    .unwrap();
+    item.condition = crate::ConditionKind::ShotBound;
+    item.property_spirit_scaling
+        .insert("ProcDamage".into(), 1.0);
+    item.property_damage_types
+        .insert("ProcDamage".into(), crate::DamageType::Spirit);
+    models.item_sources.insert(1, source("items"));
+    models.items.push(item);
+    models
+        .heroes
+        .get_mut(&hero_id)
+        .unwrap()
+        .starting_stats
+        .remove("tech_power");
+    let mut input = scenario();
+    input.item_ids = vec![1];
+    input.target.health = 1_000_000.0;
+    input.window_seconds = 0.05;
+    input.spirit = SpiritInput::Total(40.0);
+    let confirmed = calculate_hero(&models, hero_id, &input).unwrap();
+    close(number(&confirmed, "simulated_proc_damage"), 60.0);
+    input.spirit = SpiritInput::Derived;
+    for result in [
+        calculate_hero(&models, hero_id, &input).unwrap(),
+        calculate_hero_with_deadline(&models, hero_id, &input, &deadline()).unwrap(),
+    ] {
+        assert!(matches!(
+            result.metrics["spirit_power"],
+            MeasuredValue::Unknown { .. }
+        ));
+        assert!(result.combat.as_ref().unwrap().proc_damage > 0.0);
+        for metric in [
+            "simulated_proc_damage",
+            "simulated_damage_per_second",
+            "ttk",
+        ] {
+            assert!(matches!(
+                result.metrics[metric],
+                MeasuredValue::Unknown { .. }
+            ));
+        }
+        assert!(result.metrics["weapon_dps"].value().is_some());
+    }
+    let ranked = rank_heroes(
+        &models,
+        &input,
+        "simulated_proc_damage",
+        MetricDirection::HigherIsBetter,
+    )
+    .unwrap();
+    assert!(ranked.missing.contains_key(&hero_id));
+    assert!(!ranked.ranks.iter().any(|rank| rank.hero_id == hero_id));
+    let sheet = compare_sheet_scenarios(
+        &models,
+        hero_id,
+        &SheetComparisonInput {
+            scenario: input,
+            contributions: Some(vec![PerShotContribution::SimulatedProc]),
+            sheet_shred: Some(0.0),
+            mode: ContributionComparison::Reevaluate,
+        },
+        &deadline(),
+    )
+    .unwrap();
+    assert!(sheet.variants.values().all(|variant| {
+        variant.additional_damage_per_shot.value().is_none()
+            && matches!(
+                variant.simulated_proc_damage,
+                Some(MeasuredValue::Unknown { .. })
+            )
+    }));
+}
+
+#[test]
+fn invalid_recorded_pellet_counts_never_certify_primary_or_secondary_damage() {
+    let baseline = models();
+    let weapon_id = baseline.heroes[&25].primary_weapon.unwrap();
+    let alternate_id = baseline.heroes[&2].primary_weapon.unwrap();
+    for pellets in [
+        json!(0.0),
+        json!(-1.0),
+        json!(0.5),
+        Value::Null,
+        json!("NaN"),
+        json!("inf"),
+    ] {
+        let mut raw = raw_assets();
+        let hero = raw["heroes"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|hero| hero["id"] == 25)
+            .unwrap();
+        hero["scaling_stats"]["EBulletDamage"] =
+            json!({"scaling_stat": "ETechPower", "scale": 0.25});
+        let weapon = raw["items"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|item| item["id"] == weapon_id)
+            .unwrap();
+        weapon["weapon_info"]["bullets"] = json!(pellets);
+        let mut models = calculation_models_from_payloads(
+            &raw["heroes"],
+            &raw["items"],
+            &source("heroes"),
+            &source("items"),
+        )
+        .unwrap();
+        assert_eq!(models.weapons[&weapon_id].timing.pellets, None);
+        assert!(!models.heroes[&25]
+            .model
+            .scaling
+            .iter()
+            .any(|scale| scale.stat == "EBulletDamage"));
+        assert!(!models.heroes[&25]
+            .model
+            .standard_level_up_upgrades
+            .contains_key("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL"));
+        models.heroes.get_mut(&25).unwrap().secondary_weapon = Some(alternate_id);
+        for secondary_fire in [false, true] {
+            for boons in [0, 35] {
+                let input = CalculationScenario {
+                    secondary_fire,
+                    progression: ProgressionInput::Boons(boons),
+                    expected_level: None,
+                    expected_unspent_ap: None,
+                    ..scenario()
+                };
+                let result = calculate_hero(&models, 25, &input).unwrap();
+                for metric in ["damage_per_shot", "bullet_damage", "weapon_dps", "ttk"] {
+                    assert!(
+                        matches!(result.metrics[metric], MeasuredValue::Unknown { .. }),
+                        "{pellets} {secondary_fire} {boons}: {metric}"
+                    );
+                }
+                assert!(result.combat.is_none());
+                assert!(result.metrics["health"].value().is_some());
+            }
+        }
+    }
+    for pellets in [0.0, 0.5, f64::NAN, f64::INFINITY] {
+        let mut models = models();
+        models.heroes.get_mut(&25).unwrap().secondary_weapon = Some(alternate_id);
+        models
+            .weapons
+            .get_mut(&alternate_id)
+            .unwrap()
+            .timing
+            .pellets = Some(pellets);
+        let input = CalculationScenario {
+            secondary_fire: true,
+            spirit: SpiritInput::Total(40.0),
+            ..scenario()
+        };
+        let result = calculate_hero(&models, 25, &input).unwrap();
+        assert!(matches!(
+            result.metrics["damage_per_shot"],
+            MeasuredValue::Unknown { .. }
+        ));
+        assert!(result.combat.is_none());
+        assert!(result.metrics["health"].value().is_some());
+    }
+}
+
+#[test]
+fn unknown_upgrade_types_leave_scalar_ability_properties_unconfirmed() {
+    let mut raw = raw_assets();
+    let ability = raw["items"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|item| item["id"] == 2948410412_i64)
+        .unwrap();
+    ability["upgrades"][0] = json!({"property_upgrades": [{"name": "Damage", "bonus": 10.0, "upgrade_type": "EUnknown"}]});
+    let models = calculation_models_from_payloads(
+        &raw["heroes"],
+        &raw["items"],
+        &source("heroes"),
+        &source("items"),
+    )
+    .unwrap();
+    let input = CalculationScenario {
+        progression: ProgressionInput::Boons(1),
+        expected_level: None,
+        ability_order: vec![
+            crate::AbilityStep {
+                ability_id: 2948410412,
+                currency_type: 2,
+                delta: -1,
+            },
+            crate::AbilityStep {
+                ability_id: 2948410412,
+                currency_type: 1,
+                delta: -1,
+            },
+        ],
+        ..scenario()
+    };
+    let result = project_hero(&models, 13, &input, &deadline()).unwrap();
+    assert!(!result.progression.unknown_effects.is_empty());
+    assert!(matches!(
+        result.ability_properties[&2948410412]["Damage"],
+        MeasuredValue::Unknown { .. }
+    ));
+    assert!(result.metrics["health"].value().is_some());
+}
+
+#[test]
 fn declared_bursts_never_certify_missing_or_negative_timing() {
     let baseline = models();
     let weapon_id = baseline.heroes[&2].primary_weapon.unwrap();

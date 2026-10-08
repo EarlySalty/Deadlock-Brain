@@ -441,6 +441,12 @@ fn applied_property_scale(
                 .get("upgrade_type")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("EAddToBase");
+            if !matches!(
+                kind,
+                "EAddToBase" | "EMultiplyBase" | "EAddToScale" | "EMultiplyScale"
+            ) {
+                return (scale, Some(format!("Upgradeart {kind} ist nicht belegt")));
+            }
             if !matches!(kind, "EAddToScale" | "EMultiplyScale") {
                 continue;
             }
@@ -825,6 +831,7 @@ fn calculate_inner(
     };
     let weapon = weapon_id.and_then(|id| models.weapons.get(&id));
     let mut base = sourced.model.clone();
+    let mut secondary_pellets_known = true;
     if let Some(weapon) = weapon {
         base.weapon = weapon.profile.clone();
         if scenario.secondary_fire {
@@ -832,19 +839,29 @@ fn calculate_inner(
                 .primary_weapon
                 .and_then(|id| models.weapons.get(&id))
                 .and_then(|w| w.timing.pellets)
-                .unwrap_or(1.0);
-            let pellets = weapon.timing.pellets.unwrap_or(1.0);
-            for scale in &mut base.scaling {
-                if scale.stat == "EBulletDamage" {
-                    scale.per_spirit = scale.per_spirit.map(|v| v / primary_pellets * pellets);
+                .filter(|value| crate::mechanics::valid_pellet_count(*value));
+            let pellets = weapon
+                .timing
+                .pellets
+                .filter(|value| crate::mechanics::valid_pellet_count(*value));
+            secondary_pellets_known = primary_pellets.is_some() && pellets.is_some();
+            if let (Some(primary_pellets), Some(pellets)) = (primary_pellets, pellets) {
+                for scale in &mut base.scaling {
+                    if scale.stat == "EBulletDamage" {
+                        scale.per_spirit = scale.per_spirit.map(|v| v / primary_pellets * pellets);
+                    }
                 }
+            } else {
+                base.scaling.retain(|scale| scale.stat != "EBulletDamage");
             }
             base.standard_level_up_upgrades
                 .remove("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL");
             if let Some(value) = sourced.raw.pointer("/standard_level_up_upgrades/MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL_ALT_FIRE")
                 .and_then(serde_json::Value::as_f64)
+                .zip(pellets)
+                .map(|(value, pellets)| value * pellets)
             {
-                base.standard_level_up_upgrades.insert("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL".into(), value * pellets);
+                base.standard_level_up_upgrades.insert("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL".into(), value);
             }
         }
     }
@@ -992,6 +1009,16 @@ fn calculate_inner(
         !effect.contains("MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL")
             && !effect.contains("MODIFIER_VALUE_OUT_OF_COMBAT_HEALTH_REGEN")
     });
+    if spirit.is_none()
+        && items.iter().any(|item| {
+            item.property_spirit_scaling
+                .values()
+                .any(|coefficient| *coefficient != 0.0)
+        })
+    {
+        combat_uncertain = true;
+        unknowns.push("Spiritabhängige Itemwirkungen ohne belegten Gesamt-Spirit".into());
+    }
     if scenario.use_abilities
         || hero
             .abilities
@@ -1353,6 +1380,11 @@ fn calculate_inner(
         };
         let scaling = crate::mechanics::weapon_spirit_scaling(&hero);
         let damage_known = damage_known
+            && weapon
+                .timing
+                .pellets
+                .is_some_and(crate::mechanics::valid_pellet_count)
+            && secondary_pellets_known
             && (scenario.weapon_bonus_percent.is_some() || shop_curve_known("weapon"))
             && boon_known
             && (spirit.is_some() || scaling.bullet_damage == 0.0)
@@ -1411,7 +1443,11 @@ fn calculate_inner(
                 );
             }
         }
-        if let Some(pellets) = weapon.timing.pellets.filter(|v| *v > 0.0 && v.is_finite()) {
+        if let Some(pellets) = weapon
+            .timing
+            .pellets
+            .filter(|value| crate::mechanics::valid_pellet_count(*value))
+        {
             if damage_known {
                 metrics.insert(
                     "bullet_damage".into(),
