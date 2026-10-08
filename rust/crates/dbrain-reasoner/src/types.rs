@@ -294,6 +294,7 @@ pub enum EvidenceKind {
     Author,
     Claim,
     Patch,
+    BuildProvenance(Box<crate::publish::BuildProvenance>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

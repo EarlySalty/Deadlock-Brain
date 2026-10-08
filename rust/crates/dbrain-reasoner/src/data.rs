@@ -1139,6 +1139,7 @@ pub(crate) struct MirrorProvenance {
 }
 
 struct MirroredAssets {
+    origin: Option<crate::publish::BuildDataOrigin>,
     provenance: MirrorProvenance,
     heroes: Vec<Value>,
     items: Vec<Value>,
@@ -1177,6 +1178,12 @@ async fn mirrored_assets(ctx: &ReasonerCtx) -> Result<MirroredAssets> {
             "Spielwerte gehören nicht zum selben aktuellen API-Abgleich.".into(),
         ));
     }
+    let origin = crate::publish::BuildDataOrigin::from_receipts(&heroes.receipt, &items.receipt)?;
+    if origin.mirrored_at != provenance.mirrored_at {
+        return Err(ReasonerError::Data(
+            "Originalspieldaten und API-Prüfung stimmen nicht überein.".into(),
+        ));
+    }
     let source = |receipt: &brain_storage::asset_mirror::AssetMirrorReceipt| crate::ModelSource {
         client_version: receipt.client_version,
         document_id: receipt.endpoint.source_document_id.to_string(),
@@ -1209,6 +1216,7 @@ async fn mirrored_assets(ctx: &ReasonerCtx) -> Result<MirroredAssets> {
     let heroes = records(heroes.payload)?;
     let items = records(items.payload)?;
     Ok(MirroredAssets {
+        origin: Some(origin),
         provenance,
         heroes,
         items,
@@ -1407,7 +1415,10 @@ fn hero_model_from_mirror(
         crate::SnapshotField {
             value: model.base_health,
             fetched_at: number(payload.get("_snapshot_fetched_at")),
-            source: "deadlock_assets_api/hero".into(),
+            source: match &assets.origin {
+                Some(origin) => origin.snapshot_source()?,
+                None => "deadlock_assets_api/hero".into(),
+            },
             label: "Base Health".into(),
         },
     );
@@ -2200,6 +2211,7 @@ mod tests {
         )
         .unwrap();
         let assets = super::MirroredAssets {
+            origin: None,
             provenance: super::MirrorProvenance {
                 client_version: models.client_version,
                 mirrored_at: 0,
@@ -2316,6 +2328,7 @@ mod tests {
     #[test]
     fn mirrored_items_preserve_api_values_without_catalog_or_legacy_cards() {
         let mut assets = super::MirroredAssets {
+            origin: None,
             provenance: super::MirrorProvenance {
                 client_version: 6000,
                 mirrored_at: 2000,
@@ -2348,6 +2361,7 @@ mod tests {
     #[test]
     fn mirrored_abilities_do_not_shift_missing_signature_slots() {
         let assets = super::MirroredAssets {
+            origin: None,
             provenance: super::MirrorProvenance {
                 client_version: 6000,
                 mirrored_at: 2000,

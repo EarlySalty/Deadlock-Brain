@@ -1,5 +1,246 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+
+const BUILD_DATA_MARKER: &str = "#build-data=";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BuildDataOrigin {
+    pub client_version: i64,
+    pub source_run_id: i64,
+    pub mirrored_at: i64,
+    pub parser_revision: String,
+    pub manifest_document_id: i64,
+    pub manifest_sha256: String,
+    pub heroes_document_id: i64,
+    pub heroes_sha256: String,
+    pub items_document_id: i64,
+    pub items_sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct BuildProvenance {
+    pub origin: BuildDataOrigin,
+    pub input_sha256: String,
+    pub plan_sha256: String,
+    pub config: crate::ReasonerConfig,
+}
+
+fn fingerprint(value: &impl Serialize) -> Result<String> {
+    let bytes = serde_json::to_vec(value)
+        .map_err(|_| ReasonerError::Data("Buildherkunft ist nicht prüfbar.".into()))?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+impl BuildDataOrigin {
+    fn validate(&self) -> Result<()> {
+        let hash_valid =
+            |hash: &str| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit());
+        if self.client_version <= 0
+            || self.source_run_id <= 0
+            || self.mirrored_at <= 0
+            || self.parser_revision.trim().is_empty()
+            || self.manifest_document_id <= 0
+            || self.heroes_document_id <= 0
+            || self.items_document_id <= 0
+            || !hash_valid(&self.manifest_sha256)
+            || !hash_valid(&self.heroes_sha256)
+            || !hash_valid(&self.items_sha256)
+        {
+            return Err(ReasonerError::Data(
+                "Originalspieldaten sind nicht vollständig belegt.".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn from_receipts(
+        heroes: &brain_storage::asset_mirror::AssetMirrorReceipt,
+        items: &brain_storage::asset_mirror::AssetMirrorReceipt,
+    ) -> Result<Self> {
+        if heroes.client_version != items.client_version
+            || heroes.source_run_id != items.source_run_id
+            || heroes.mirrored_at != items.mirrored_at
+            || heroes.parser_revision != items.parser_revision
+            || heroes.manifest.source_document_id != items.manifest.source_document_id
+            || heroes.manifest.raw_sha256 != items.manifest.raw_sha256
+            || heroes.kind != "heroes"
+            || items.kind != "items"
+            || heroes.language.as_deref() != Some("english")
+            || items.language != heroes.language
+        {
+            return Err(ReasonerError::Data(
+                "Originalspieldaten gehören nicht zum selben API-Abgleich.".into(),
+            ));
+        }
+        let origin = Self {
+            client_version: heroes.client_version,
+            source_run_id: heroes.source_run_id,
+            mirrored_at: heroes.mirrored_at,
+            parser_revision: heroes.parser_revision.clone(),
+            manifest_document_id: heroes.manifest.source_document_id,
+            manifest_sha256: heroes.manifest.raw_sha256.clone(),
+            heroes_document_id: heroes.endpoint.source_document_id,
+            heroes_sha256: heroes.endpoint.raw_sha256.clone(),
+            items_document_id: items.endpoint.source_document_id,
+            items_sha256: items.endpoint.raw_sha256.clone(),
+        };
+        origin.validate()?;
+        Ok(origin)
+    }
+
+    pub(crate) fn snapshot_source(&self) -> Result<String> {
+        self.validate()?;
+        let encoded = serde_json::to_string(self)
+            .map_err(|_| ReasonerError::Data("Originalspieldaten sind nicht prüfbar.".into()))?;
+        Ok(format!(
+            "deadlock_assets_api/hero{BUILD_DATA_MARKER}{encoded}"
+        ))
+    }
+}
+
+fn input_fingerprint(
+    hero: &crate::HeroModel,
+    items: &[crate::ItemModel],
+    snapshots: &[crate::PatchSnapshot],
+    config: &crate::ReasonerConfig,
+) -> Result<String> {
+    fingerprint(&(hero, items, snapshots, config))
+}
+
+fn plan_fingerprint(build: &BuildObject) -> Result<String> {
+    let item = |item: &BuildItem| {
+        (
+            item.item_id,
+            item.tier,
+            item.buy_phase.clone(),
+            item.imbue_target,
+            item.sell_priority,
+        )
+    };
+    fingerprint(&(
+        build.hero_id,
+        &build.hero_name,
+        &build.patch_tag,
+        build.core.iter().map(item).collect::<Vec<_>>(),
+        build
+            .situations
+            .iter()
+            .map(|block| {
+                (
+                    &block.kind,
+                    block.optional,
+                    block.items.iter().map(item).collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        &build.ability_order,
+    ))
+}
+
+pub(crate) fn calculation_provenance(
+    hero: &crate::HeroModel,
+    items: &[crate::ItemModel],
+    snapshots: &[crate::PatchSnapshot],
+    config: &crate::ReasonerConfig,
+) -> Result<Option<BuildProvenance>> {
+    let mut origin = None;
+    for field in snapshots
+        .iter()
+        .flat_map(|snapshot| snapshot.fields.values())
+    {
+        if let Some((source, encoded)) = field.source.split_once(BUILD_DATA_MARKER) {
+            if source != "deadlock_assets_api/hero" {
+                return Err(ReasonerError::Data(
+                    "Buildherkunft hat keine gültige Originalquelle.".into(),
+                ));
+            }
+            let found: BuildDataOrigin = serde_json::from_str(encoded)
+                .map_err(|_| ReasonerError::Data("Buildherkunft ist ungültig.".into()))?;
+            found.validate()?;
+            if origin.as_ref().is_some_and(|origin| origin != &found) {
+                return Err(ReasonerError::Data(
+                    "Buildherkunft ist widersprüchlich.".into(),
+                ));
+            }
+            origin = Some(found);
+        }
+    }
+    origin
+        .map(|origin| {
+            Ok(BuildProvenance {
+                origin,
+                input_sha256: input_fingerprint(hero, items, snapshots, config)?,
+                plan_sha256: String::new(),
+                config: config.clone(),
+            })
+        })
+        .transpose()
+}
+
+pub(crate) fn bind_calculated_build(
+    build: &mut BuildObject,
+    mut provenance: BuildProvenance,
+) -> Result<()> {
+    provenance.plan_sha256 = plan_fingerprint(build)?;
+    let first = build
+        .core
+        .first_mut()
+        .ok_or_else(|| ReasonerError::Data("Berechneter Build enthält keinen Kern.".into()))?;
+    first.sources.push(crate::Evidence {
+        kind: EvidenceKind::BuildProvenance(Box::new(provenance)),
+        detail: String::new(),
+    });
+    Ok(())
+}
+
+pub fn validate_build_provenance(build: &BuildObject) -> Result<&BuildProvenance> {
+    let mut origins = build
+        .core
+        .iter()
+        .chain(build.situations.iter().flat_map(|block| &block.items))
+        .flat_map(|item| &item.sources)
+        .filter_map(|evidence| match &evidence.kind {
+            EvidenceKind::BuildProvenance(provenance) => Some(provenance.as_ref()),
+            _ => None,
+        });
+    let provenance = origins.next().ok_or_else(|| {
+        ReasonerError::Data(
+            "Berechnete Buildherkunft fehlt. Bitte einen aktuellen Build berechnen.".into(),
+        )
+    })?;
+    provenance.origin.validate()?;
+    if origins.next().is_some()
+        || provenance.config.patch_tag != build.patch_tag
+        || provenance.plan_sha256 != plan_fingerprint(build)?
+        || provenance.input_sha256.len() != 64
+    {
+        return Err(ReasonerError::Data(
+            "Build stimmt nicht mit seiner berechneten Herkunft überein.".into(),
+        ));
+    }
+    Ok(provenance)
+}
+
+fn validate_calculated_inputs(
+    build: &BuildObject,
+    hero: &crate::HeroModel,
+    items: &[crate::ItemModel],
+    snapshots: &[crate::PatchSnapshot],
+) -> Result<()> {
+    let original = validate_build_provenance(build)?;
+    let current =
+        calculation_provenance(hero, items, snapshots, &original.config)?.ok_or_else(|| {
+            ReasonerError::Data("Aktuelle Originalspieldaten sind nicht belegt.".into())
+        })?;
+    if original.origin != current.origin || original.input_sha256 != current.input_sha256 {
+        return Err(ReasonerError::Data("Spieldaten oder Clientversion haben sich seit der Buildberechnung geändert. Es wurde nichts veröffentlicht.".into()));
+    }
+    Ok(())
+}
 
 use crate::{
     BuildItem, BuildObject, EvidenceKind, ReasonerError, Result, SituationBlock, SituationKind,
@@ -92,8 +333,6 @@ pub fn publish_task_payload(build: &BuildObject) -> Value {
     serde_json::to_value(to_publish_payload(build)).expect("BuildSpecPayload is serializable")
 }
 
-/// Validation precedes any queue write. A multi-family response cannot silently
-/// publish only its dominant child through the legacy single-build endpoint.
 pub fn validate_publish_input(build: &BuildObject) -> Result<()> {
     if !build.variants.is_empty() {
         return Err(ReasonerError::Data("Mehrere Buildfamilien: explizite Auswahl und Abnahme einer Variante erforderlich; der Einzelbuild-Publisher darf Varianten nicht still verwerfen.".into()));
@@ -143,6 +382,7 @@ pub fn validate_publish_input(build: &BuildObject) -> Result<()> {
 
 pub async fn validate_publish_current(pool: &PgPool, build: &BuildObject) -> Result<()> {
     validate_publish_input(build)?;
+    let original = validate_build_provenance(build)?;
     let patch_tag = dbrain_builds::latest_patch_tag(pool)
         .await
         .map_err(ReasonerError::Db)?;
@@ -157,7 +397,7 @@ pub async fn validate_publish_current(pool: &PgPool, build: &BuildObject) -> Res
         config: crate::ReasonerConfig {
             patch_tag,
             use_ai: false,
-            ..Default::default()
+            ..original.config.clone()
         },
     };
     let start = crate::data::load_family_policy(&ctx)
@@ -168,6 +408,12 @@ pub async fn validate_publish_current(pool: &PgPool, build: &BuildObject) -> Res
         })?;
     let mirrored = crate::data::load_models_from_mirror(&ctx, &build.hero_name).await?;
     validate_mirror_provenance(&mirrored.provenance, start)?;
+    let planning_items = mirrored
+        .items
+        .iter()
+        .map(crate::item::build_item_model)
+        .collect::<Result<Vec<_>>>()?;
+    validate_calculated_inputs(build, &mirrored.hero, &planning_items, &mirrored.snapshots)?;
     validate_publish_models(
         build,
         &mirrored.hero,
@@ -405,8 +651,6 @@ pub async fn enqueue_publish_task(pool: &PgPool, build: &BuildObject) -> Result<
         .map_err(ReasonerError::Db)
 }
 
-/// Expliziter Review-Pfad für interaktive Brain-Tests. Er verändert die reguläre
-/// Veröffentlichungsfreigabe nicht und kennzeichnet den Build sichtbar als Review.
 fn truncate_review_text(text: &str, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
         return text.to_string();
@@ -535,6 +779,97 @@ mod tests {
             family_discovery: None,
         };
         (build, hero, models, snapshots)
+    }
+
+    #[test]
+    fn fingerprints_bind_all_planning_inputs_without_new_receipt_fixtures() {
+        let (_, hero, mut items, mut snapshots) = model_fixture();
+        let cfg = crate::ReasonerConfig::default();
+        let original = input_fingerprint(&hero, &items, &snapshots, &cfg).unwrap();
+        assert_eq!(
+            original,
+            input_fingerprint(&hero, &items, &snapshots, &cfg).unwrap()
+        );
+        let mut changed = hero.clone();
+        changed.weapon.bullet_damage += 1.0;
+        assert_ne!(
+            original,
+            input_fingerprint(&changed, &items, &snapshots, &cfg).unwrap()
+        );
+        items.last_mut().unwrap().cost += 1;
+        assert_ne!(
+            original,
+            input_fingerprint(&hero, &items, &snapshots, &cfg).unwrap()
+        );
+        items.last_mut().unwrap().cost -= 1;
+        snapshots[0].fields.values_mut().next().unwrap().value += 1.0;
+        assert_ne!(
+            original,
+            input_fingerprint(&hero, &items, &snapshots, &cfg).unwrap()
+        );
+        snapshots[0].fields.values_mut().next().unwrap().value -= 1.0;
+        let mut changed = cfg.clone();
+        changed.combat_window_seconds += 1.0;
+        assert_ne!(
+            original,
+            input_fingerprint(&hero, &items, &snapshots, &changed).unwrap()
+        );
+        assert!(calculation_provenance(&hero, &items, &snapshots, &cfg)
+            .unwrap()
+            .is_none());
+        snapshots[0].fields.values_mut().next().unwrap().source =
+            "deadlock_assets_api/hero#build-data={}".into();
+        assert!(calculation_provenance(&hero, &items, &snapshots, &cfg).is_err());
+    }
+
+    #[test]
+    fn calculated_plan_binding_preserves_text_but_detects_purchase_and_skill_changes() {
+        let (build, _, _, _) = model_fixture();
+        let original = plan_fingerprint(&build).unwrap();
+        let mut changed = build.clone();
+        changed.rationale.push_str(" Ergänzende Erläuterung");
+        changed.core[0].why.push_str(" Ergänzende Erläuterung");
+        assert_eq!(original, plan_fingerprint(&changed).unwrap());
+        for changed in [
+            {
+                let mut changed = build.clone();
+                changed.core[0].imbue_target = Some(101);
+                changed
+            },
+            {
+                let mut changed = build.clone();
+                changed.core[0].sell_priority = Some(1);
+                changed
+            },
+            {
+                let mut changed = build.clone();
+                changed.core.push(item(2, None, None));
+                changed
+            },
+            {
+                let mut changed = build.clone();
+                changed.ability_order[0].delta = -2;
+                changed
+            },
+        ] {
+            assert_ne!(original, plan_fingerprint(&changed).unwrap());
+        }
+        let roundtrip: BuildObject =
+            serde_json::from_value(serde_json::to_value(&build).unwrap()).unwrap();
+        assert_eq!(build, roundtrip);
+        assert!(validate_build_provenance(&roundtrip).is_err());
+    }
+
+    #[tokio::test]
+    async fn legacy_build_is_rejected_before_database_or_queue_access() {
+        let (build, _, _, _) = model_fixture();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgresql://localhost/unavailable_f_provenance_test")
+            .unwrap();
+        let error = validate_publish_current(&pool, &build).await.unwrap_err();
+        assert!(error.to_string().contains("Buildherkunft fehlt"));
+        let error = enqueue_publish_task(&pool, &build).await.unwrap_err();
+        assert!(error.to_string().contains("Buildherkunft fehlt"));
     }
 
     #[test]
