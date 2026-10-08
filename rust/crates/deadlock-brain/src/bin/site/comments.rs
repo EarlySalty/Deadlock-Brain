@@ -51,10 +51,9 @@ pub(super) async fn preflight(pool: &PgPool) -> Result<()> {
          AND NOT (SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls FROM pg_roles WHERE rolname=current_user)
          AND NOT has_schema_privilege(current_user,'brain','CREATE')
          AND has_table_privilege(current_user,'brain.site_comments_v1','SELECT')
-         AND has_table_privilege(current_user,'brain.site_comments_v1','INSERT')
-         AND NOT has_table_privilege(current_user,'brain.site_comments_v1','UPDATE,DELETE,TRUNCATE')
-         AND has_sequence_privilege(current_user,'brain.site_comments_v1_id_seq','USAGE')
-         AND NOT has_sequence_privilege(current_user,'brain.site_comments_v1_id_seq','UPDATE')
+         AND has_function_privilege(current_user,'brain.append_site_comment_v1(text,text,text)','EXECUTE')
+         AND NOT has_table_privilege(current_user,'brain.site_comments_v1','INSERT,UPDATE,DELETE,TRUNCATE')
+         AND NOT has_sequence_privilege(current_user,'brain.site_comments_v1_id_seq','USAGE,UPDATE')
          AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
              WHERE n.nspname='brain' AND c.relkind IN ('r','p','v','m','f')
              AND c.relname<>'site_comments_v1'
@@ -173,26 +172,17 @@ async fn append(pool: &PgPool, request: Request) -> std::result::Result<Vec<Comm
     sqlx::query("SET LOCAL lock_timeout='5000ms'")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,742110026113))")
+    let text = (request.action == "add" && !request.text.trim().is_empty())
+        .then_some(request.text.as_str());
+    let comments = sqlx::query("SELECT text,ts FROM brain.append_site_comment_v1($1,$2,$3)")
         .bind(&request.key)
-        .execute(&mut *tx)
-        .await?;
-    if request.action == "add" && !request.text.trim().is_empty() {
-        sqlx::query("INSERT INTO brain.site_comments_v1(group_key,text,ts) VALUES($1,$2,$3)")
-            .bind(&request.key)
-            .bind(&request.text)
-            .bind(&request.ts)
-            .execute(&mut *tx)
-            .await?;
-    }
-    let comments =
-        sqlx::query("SELECT text,ts FROM brain.site_comments_v1 WHERE group_key=$1 ORDER BY id")
-            .bind(&request.key)
-            .fetch_all(&mut *tx)
-            .await?
-            .iter()
-            .map(comment)
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+        .bind(text)
+        .bind(&request.ts)
+        .fetch_all(&mut *tx)
+        .await?
+        .iter()
+        .map(comment)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
     tx.commit().await?;
     Ok(comments)
 }
