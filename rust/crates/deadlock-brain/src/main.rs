@@ -1290,7 +1290,7 @@ struct PgSyncPatchnotesArgs {
     dsn_env: String,
     #[arg(
         long,
-        help = "Kein fachlicher Import; Steam-Abrufjournal bleibt aktiv."
+        help = "Kein fachlicher Import; Datenbankzugriff und HTTP-Abrufe bleiben aktiv, ohne Steam-Abrufjournal."
     )]
     dry_run: bool,
 }
