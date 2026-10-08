@@ -444,54 +444,52 @@ fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
         .filter(|word| !word.is_empty())
         .map(str::to_ascii_lowercase)
         .collect();
-    let context_start = [" during ", " while ", " after ", " before ", " when "]
-        .iter()
-        .filter_map(|delimiter| change_subject.find(delimiter))
-        .min()
-        .unwrap_or(change_subject.len());
-    let cosmetic = change_subject[..context_start]
-        .split(|character: char| !character.is_alphabetic())
-        .filter(|word| !word.is_empty())
-        .any(|word| {
-            matches!(
-                word,
-                "cosmetic"
-                    | "cosmetics"
-                    | "emote"
-                    | "emotes"
-                    | "skin"
-                    | "skins"
-                    | "artwork"
-                    | "portrait"
-                    | "portraits"
-                    | "icon"
-                    | "icons"
-                    | "sound"
-                    | "sounds"
-                    | "music"
-                    | "visual"
-                    | "visuals"
-                    | "animation"
-                    | "animations"
-                    | "banner"
-                    | "banners"
-                    | "poster"
-                    | "posters"
-            )
-        });
-    let gameplay = bound_entity
-        || words.iter().any(|word| {
-            matches!(
+    let cosmetic_word = |word: &str| {
+        matches!(
+            word,
+            "cosmetic"
+                | "cosmetics"
+                | "emote"
+                | "emotes"
+                | "skin"
+                | "skins"
+                | "artwork"
+                | "portrait"
+                | "portraits"
+                | "icon"
+                | "icons"
+                | "sound"
+                | "sounds"
+                | "music"
+                | "visual"
+                | "visuals"
+                | "animation"
+                | "animations"
+                | "banner"
+                | "banners"
+                | "poster"
+                | "posters"
+        )
+    };
+    let cosmetic_position = words.iter().position(|word| cosmetic_word(word));
+    let mechanical_effect = words.iter().enumerate().any(|(position, word)| {
+        cosmetic_position.is_none_or(|cosmetic| position < cosmetic)
+            && !words.get(position + 1).is_some_and(|next| {
+                cosmetic_word(next)
+                    || matches!(
+                        next.as_str(),
+                        "number"
+                            | "numbers"
+                            | "bar"
+                            | "bars"
+                            | "display"
+                            | "indicator"
+                            | "indicators"
+                    )
+            })
+            && matches!(
                 word.as_str(),
-                "hero"
-                    | "heroes"
-                    | "ability"
-                    | "abilities"
-                    | "item"
-                    | "items"
-                    | "weapon"
-                    | "weapons"
-                    | "attack"
+                "attack"
                     | "attacks"
                     | "damage"
                     | "dps"
@@ -547,11 +545,29 @@ fn has_gameplay_change(clause: &str, index: &EntityIndex) -> bool {
                     | "recoil"
                     | "fire"
             )
+    });
+    let gameplay = bound_entity
+        || mechanical_effect
+        || words.iter().any(|word| {
+            matches!(
+                word.as_str(),
+                "hero"
+                    | "heroes"
+                    | "ability"
+                    | "abilities"
+                    | "item"
+                    | "items"
+                    | "weapon"
+                    | "weapons"
+            )
         });
     let unrelated_subject = words
         .iter()
         .any(|word| matches!(word.as_str(), "visitor" | "visitors"));
-    !cosmetic && !unrelated_subject && gameplay && has_change_action(&change_subject)
+    (cosmetic_position.is_none() || mechanical_effect)
+        && !unrelated_subject
+        && gameplay
+        && has_change_action(&change_subject)
 }
 
 fn resolve_api_source(
@@ -1485,6 +1501,9 @@ mod tests {
             "Holliday: added knockback",
             "* Holliday: added knockback",
             "- Holliday: Fixed damage being applied twice during the attack animation",
+            "- Holliday: Fixed damage being applied twice at the end of the attack animation",
+            "- Holliday: Fixed damage being applied twice right as the attack animation ends",
+            "- Holliday: Fixed health not increasing with the icon on screen",
             "- Holliday: Fixed damage being applied twice after the attack animation",
             "- Holliday: Fixed healing not working when the sound plays",
             "- Holliday: Fixed damage being applied twice while the animation plays",
@@ -1510,6 +1529,8 @@ mod tests {
             "* Metal Skin: added new hero skins",
             "Metal Skin: improved animations",
             "Metal Skin: improved animations during attacks",
+            "Metal Skin: improved damage animations",
+            "Metal Skin: fixed damage number animations",
             "Metal Skin: added artwork after taking damage",
         ] {
             assert!(!is_patch_candidate(original, &index), "{original}");
