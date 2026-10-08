@@ -841,14 +841,14 @@ fn push_inferred_entities(
 }
 
 pub fn has_change_action(text: &str) -> bool {
+    let (_, remainder) = split_subject(text);
     if matches!(
-        classify_change_type(text).as_str(),
+        classify_change_type(&remainder).as_str(),
         "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
     ) {
         return true;
     }
-    let lower = text.to_ascii_lowercase();
-    let (_, remainder) = split_subject(&lower);
+    let remainder = remainder.to_ascii_lowercase();
     let change = remainder
         .rsplit_once(" - ")
         .map_or(remainder.as_str(), |(_, change)| change)
@@ -1187,6 +1187,14 @@ mod tests {
             assert_eq!(events[1].entity_name, None);
             assert_eq!(events[1].normalized_line, general.trim_start_matches("- "));
         }
+    }
+
+    #[test]
+    fn change_actions_ignore_the_bound_entity_name() {
+        assert!(!has_change_action("Improved Spirit: Item Changes"));
+        assert!(!has_change_action("Improved Spirit: Passive"));
+        assert!(has_change_action("Improved Spirit: Added knockback"));
+        assert!(has_change_action("Improved Spirit: Now grants knockback"));
     }
 
     #[test]

@@ -14,12 +14,7 @@ struct ApiPatchPost {
     content: String,
 }
 
-pub fn sync_patchnotes(
-    http: &HttpClient,
-    _ledger: &SteamLedger,
-    dsn_env: &str,
-    dry_run: bool,
-) -> Result<Value> {
+pub fn sync_patchnotes(http: &HttpClient, dsn_env: &str, dry_run: bool) -> Result<Value> {
     let response = http.get_bounded(PATCH_FEED_URL, SourceHttpOptions::default())?;
     response.ensure_success()?;
     let mut posts: Vec<ApiPatchPost> =
@@ -42,9 +37,10 @@ pub fn sync_patchnotes(
     let index = load_entity_index(&mut client)?;
     let mut imported = Vec::new();
     let mut skipped = Vec::new();
+    let mut failed = Vec::new();
     for post in posts {
         let row = load_post_row(&mut client, &post)?;
-        let Some(resolved) = resolve_api_source(&post, &index, |url| {
+        let resolution = resolve_api_source(&post, &index, |url| {
             let response = http.get_bounded(
                 url,
                 SourceHttpOptions {
@@ -54,8 +50,15 @@ pub fn sync_patchnotes(
             )?;
             response.ensure_success()?;
             Ok(std::str::from_utf8(&response.content)?.to_string())
-        })?
-        else {
+        });
+        let resolved = match resolution {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                failed.push(json!({"url": post.link, "error": error.to_string(), "not_imported_as_patch": true}));
+                continue;
+            }
+        };
+        let Some(resolved) = resolved else {
             skipped.push(json!({"url":post.link,"reason":"preview_requires_official_fulltext","not_imported_as_patch":true}));
             continue;
         };
@@ -87,11 +90,15 @@ pub fn sync_patchnotes(
         };
         imported.push(import_prepared_patch(&mut client, &options, prepared)?);
     }
-    Ok(
-        json!({"source":PATCH_FEED_URL,"feed_sha256":stable_hash(&response.content),
+    let summary = json!({"source":PATCH_FEED_URL,"feed_sha256":stable_hash(&response.content),
         "observed_at":response.observed_at,"dry_run":dry_run,"imported":imported,"skipped":skipped,
-        "policy":"Discovery über API; Volltext und bestehender Parser bleiben maßgeblich"}),
-    )
+        "failed":failed,"complete":failed.is_empty(),
+        "policy":"Discovery über API; Volltext und bestehender Parser bleiben maßgeblich"});
+    if !failed.is_empty() {
+        eprintln!("{summary}");
+        anyhow::bail!("Patch-Erkennung unvollständig: {} Originalquellen nicht erreichbar; bestätigte Originale wurden verarbeitet", failed.len());
+    }
+    Ok(summary)
 }
 
 fn validate_post(post: &ApiPatchPost) -> Result<()> {
@@ -335,7 +342,7 @@ fn gameplay_event_content(content: &str, index: &EntityIndex) -> Option<String> 
         let body = bullet_body(line);
         let body = normalize_patch_line(body.as_deref().unwrap_or(line));
         let body = bullet_body(&body).unwrap_or(body);
-        if !has_change_action(&body) {
+        if index.exact(&body).is_some() || !has_change_action(&body) {
             if let Some(heading) = section_heading(line) {
                 section_entity = index.exact(&heading).map(|_| heading.clone()).or_else(|| {
                     section_subject(Some(&heading))
@@ -881,6 +888,8 @@ mod tests {
         index.insert("hero", "Holliday", "Holliday");
         index.insert("hero", "Holliday", "Powder Keg");
         index.insert("item", "Metal Skin", "Metal Skin");
+        index.insert("item", "Improved Spirit", "Improved Spirit");
+        index.insert("item", "Improved Burst", "Improved Burst");
         let index = index.finish();
         let mut changes = [
             "charge",
@@ -936,6 +945,13 @@ mod tests {
                 "Powder Keg: Ability Changes",
             ),
             ("Metal Skin", "Metal Skin", "Metal Skin"),
+            ("Improved Spirit", "Improved Spirit", "Improved Spirit"),
+            ("[ Improved Burst ]", "Improved Burst", "Improved Burst"),
+            (
+                "Improved Spirit: Item Changes",
+                "Improved Spirit",
+                "Improved Spirit: Item Changes",
+            ),
         ] {
             for change in &changes {
                 for source in ["steam", "forum"] {
