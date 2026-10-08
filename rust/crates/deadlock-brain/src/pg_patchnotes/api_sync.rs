@@ -129,15 +129,29 @@ fn trusted_original_url(raw: &str) -> Option<Url> {
     url.set_fragment(None);
     match url.host_str()? {
         "forums.playdeadlock.com" if forum_thread_id(&url).is_some() => Some(url),
-        "store.steampowered.com" if url.path().starts_with("/news/app/1422450/view/") => Some(url),
-        "steamcommunity.com"
-            if url.path().starts_with("/games/1422450/announcements/")
-                || url.path().starts_with("/app/1422450/") =>
-        {
+        "store.steampowered.com" | "steamcommunity.com" if steam_original_gid(&url).is_some() => {
             Some(url)
         }
         _ => None,
     }
+}
+
+fn steam_original_gid(url: &Url) -> Option<String> {
+    let path = url.path().strip_suffix('/').unwrap_or(url.path());
+    let prefixes: &[&str] = match url.host_str()? {
+        "store.steampowered.com" => &["/news/app/1422450/view/"],
+        "steamcommunity.com" => &[
+            "/app/1422450/event/",
+            "/games/1422450/announcements/detail/",
+            "/app/1422450/announcements/detail/",
+            "/app/1422450/externalpost/steam_community_announcements/",
+        ],
+        _ => return None,
+    };
+    let gid = prefixes
+        .iter()
+        .find_map(|prefix| path.strip_prefix(prefix))?;
+    (!gid.is_empty() && gid.bytes().all(|byte| byte.is_ascii_digit())).then(|| gid.to_string())
 }
 
 fn forum_thread_id(url: &Url) -> Option<u64> {
@@ -162,7 +176,6 @@ fn bound_forum_original(html: &str, url: &Url) -> Result<Option<String>> {
     {
         return Ok(None);
     }
-    // XenForo's main entity describes the start post, not the visible replies.
     let Some(script) = html
         .split("<script type=\"application/ld+json\">")
         .nth(1)
@@ -311,6 +324,7 @@ fn prepare_api_patch(
 fn gameplay_event_content(content: &str, index: &EntityIndex) -> Option<String> {
     let mut projected = Vec::new();
     let mut has_events = false;
+    let mut section_entity: Option<String> = None;
     for line in patch_lines(content) {
         let line = line.trim();
         if line.to_ascii_lowercase().contains("http") {
@@ -322,10 +336,16 @@ fn gameplay_event_content(content: &str, index: &EntityIndex) -> Option<String> 
         if !matches!(
             dbrain_normalize::classify_change_type(&body).as_str(),
             "buff" | "nerf" | "bugfix" | "added" | "removed" | "rework" | "rename"
-        ) && section_heading(line).is_some()
-        {
-            projected.push(line.to_string());
-            continue;
+        ) {
+            if let Some(heading) = section_heading(line) {
+                section_entity = index.exact(&heading).map(|_| heading.clone()).or_else(|| {
+                    section_subject(Some(&heading))
+                        .filter(|subject| index.exact(subject).is_some())
+                        .map(str::to_string)
+                });
+                projected.push(line.to_string());
+                continue;
+            }
         }
         let lower = body.to_ascii_lowercase();
         let mut separators = [";", "!", "?", ". ", " and ", " but ", " while "]
@@ -351,6 +371,7 @@ fn gameplay_event_content(content: &str, index: &EntityIndex) -> Option<String> 
             let clause = if subject.is_none() {
                 inherited_subject
                     .as_ref()
+                    .or(section_entity.as_ref())
                     .map(|subject| format!("{subject}: {clause}"))
                     .unwrap_or_else(|| clause.to_string())
             } else {
@@ -471,7 +492,8 @@ fn resolve_api_source(
         bound_forum_original(&html, &url)?
     } else {
         let item = SteamAppNewsItem {
-            gid: String::new(),
+            gid: steam_original_gid(&url)
+                .ok_or_else(|| anyhow!("Originalquelle ohne konkrete Steam-Kennung"))?,
             title: post.title.clone(),
             url: url.to_string(),
             contents: String::new(),
@@ -660,6 +682,145 @@ mod tests {
                 assert_eq!(event.metadata["source_kind"], source);
             }
         }
+    }
+
+    #[test]
+    fn entity_headings_bind_all_gameplay_siblings_to_prepared_events() {
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Holliday", "Holliday");
+        index.insert("hero", "Holliday", "Powder Keg");
+        index.insert("item", "Metal Skin", "Metal Skin");
+        let index = index.finish();
+        let mut changes = [
+            "charge",
+            "charges",
+            "jump",
+            "jumps",
+            "dash",
+            "dashes",
+            "knockback",
+            "knockdown",
+            "stun",
+            "stuns",
+            "root",
+            "roots",
+            "silence",
+            "cast",
+            "casting",
+            "projectile",
+            "projectiles",
+            "bounce",
+            "bounces",
+            "stack",
+            "stacks",
+        ]
+        .map(|word| format!("Added {word}"))
+        .to_vec();
+        changes.extend([
+            "Increased from 1 to 2".into(),
+            "Reduced from 2 to 1".into(),
+            "Decreased from 2% to 1%".into(),
+        ]);
+        for (heading, entity, section) in [
+            ("Holliday", "Holliday", "Holliday"),
+            ("Holliday:", "Holliday", "Holliday"),
+            ("[ Holliday ]", "Holliday", "Holliday"),
+            (
+                "Powder Keg: Ability Changes",
+                "Holliday",
+                "Powder Keg: Ability Changes",
+            ),
+            ("Metal Skin", "Metal Skin", "Metal Skin"),
+        ] {
+            for change in &changes {
+                for source in ["steam", "forum"] {
+                    let mut post = post();
+                    post.source = source.into();
+                    if source == "forum" {
+                        post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+                    }
+                    let original =
+                        format!("{heading}\n- Damage increased from 50 to 60\n- {change}");
+                    let html = if source == "forum" {
+                        forum_html(&post, &original)
+                    } else {
+                        steam_html(&post, &original)
+                    };
+                    let resolved = resolve_api_source(&post, &index, |_| Ok(html.clone()))
+                        .unwrap()
+                        .unwrap();
+                    let row = post_row(&post, Some(17)).unwrap();
+                    let baseline = prepare_patch(&row, &resolved, &index).unwrap();
+                    let prepared = prepare_api_patch(&row, &resolved, &index).unwrap();
+                    assert_eq!(prepared.events.len(), 2, "{source}/{original}");
+                    assert_eq!(prepared.raw_payload_text, baseline.raw_payload_text);
+                    assert_eq!(
+                        prepared.snapshot_payload_hash,
+                        baseline.snapshot_payload_hash
+                    );
+                    assert!(
+                        prepared.events.iter().all(|event| {
+                            event.entity_name.as_deref() == Some(entity)
+                                && event.section.as_deref() == Some(section)
+                        }),
+                        "{source}/{original}"
+                    );
+                    assert!(prepared.events[1].normalized_line.ends_with(change));
+                    let only_sibling = format!("{heading}\n- {change}");
+                    assert!(is_patch_candidate(&only_sibling, &index), "{only_sibling}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn section_binding_does_not_reuse_arbitrary_subjects_or_cosmetic_changes() {
+        let mut index = EntityIndex::default();
+        index.insert("hero", "Holliday", "Holliday");
+        index.insert("item", "Metal Skin", "Metal Skin");
+        let index = index.finish();
+        let row = post_row(&post(), Some(17)).unwrap();
+        for original in [
+            "General Changes\n- Added knockback\n- Increased from 1 to 2",
+            "Visitors\n- Added knockback\n- Increased from 1 to 2",
+            "Holliday\nVisitors\n- Added knockback",
+            "Holliday\nGeneral Changes\n- Increased from 1 to 2",
+            "Holliday\n- Visitors: added knockback and added a stun",
+            "Holliday\n- Added new hero skins\n- Increased from 1 to 2 visitors",
+            "Metal Skin\n- Improved animations\n- Added new artwork",
+            "Holliday\n- Visitor count increased from 1 to 2",
+            "- Holliday: added artwork. Added knockback",
+            "- Holliday: added artwork\n- Added knockback",
+        ] {
+            assert!(!is_patch_candidate(original, &index), "{original}");
+            let resolved = PatchSourceResolution {
+                raw_content: original.into(),
+                ..PatchSourceResolution::from_row(&row)
+            };
+            assert!(
+                prepare_api_patch(&row, &resolved, &index)
+                    .unwrap()
+                    .events
+                    .is_empty(),
+                "{original}"
+            );
+        }
+        let original = "Holliday\n- Added knockback. Added artwork\nMetal Skin\n- Added a stun\nGeneral Changes\n- Added knockdown";
+        let resolved = PatchSourceResolution {
+            raw_content: original.into(),
+            ..PatchSourceResolution::from_row(&row)
+        };
+        let prepared = prepare_api_patch(&row, &resolved, &index).unwrap();
+        assert_eq!(prepared.events.len(), 2);
+        assert_eq!(prepared.events[0].entity_name.as_deref(), Some("Holliday"));
+        assert_eq!(
+            prepared.events[1].entity_name.as_deref(),
+            Some("Metal Skin")
+        );
+        assert!(prepared
+            .events
+            .iter()
+            .all(|event| !event.normalized_line.contains("artwork")));
     }
 
     #[test]
@@ -1020,7 +1181,6 @@ mod tests {
         ));
     }
 
-    // Synthetic HTML wrappers carry XenForo's original-post metadata.
     fn forum_html(post: &ApiPatchPost, body: &str) -> String {
         let url = trusted_original_url(&post.link).unwrap();
         let thread_id = forum_thread_id(&url).unwrap();
@@ -1125,6 +1285,80 @@ mod tests {
             "<meta property=\"og:url\" content=\"{}\"><div data-partnereventstore=\"{encoded}\"></div>",
             post.link
         )
+    }
+
+    #[test]
+    fn steam_original_urls_require_exact_numeric_identity_before_fetching() {
+        let mut post = post();
+        let html = format!(
+            "<a href=\"https://store.steampowered.com/news/app/1422450/view/703281025618282632\">Other event</a>{}",
+            steam_html(&post, "- Weapon damage increased from 50 to 60")
+        );
+        for path in [
+            "https://store.steampowered.com/news/app/1422450/view/",
+            "https://store.steampowered.com/news/app/1422450/view/abc",
+            "https://store.steampowered.com/news/app/1422450/view/703281025618282632/other",
+            "https://store.steampowered.com/news/app/1422450/view/703281025618282632//",
+            "https://steamcommunity.com/games/1422450/announcements/",
+            "https://steamcommunity.com/games/1422450/announcements/detail/",
+            "https://steamcommunity.com/games/1422450/announcements/detail/abc",
+            "https://steamcommunity.com/games/1422450/announcements/detail/184467000000000001/other",
+            "https://steamcommunity.com/app/1422450/",
+            "https://steamcommunity.com/app/1422450/discussions/",
+            "https://steamcommunity.com/app/1422450/event/",
+            "https://steamcommunity.com/app/1422450/event/abc",
+            "https://steamcommunity.com/app/1422450/event/703281025618282632/other",
+            "https://steamcommunity.com/app/1422450/other/announcements/detail/184467000000000001",
+            "https://steamcommunity.com/app/1422450/announcements/detail/",
+            "https://steamcommunity.com/app/1422450/externalpost/steam_community_announcements/",
+            "https://steamcommunity.com/app/1422450/externalpost/steam_community_announcements/184467000000000001/other",
+        ] {
+            for suffix in ["", "?l=english#notes"] {
+                post.link = format!("{path}{suffix}");
+                assert!(trusted_original_url(&post.link).is_none(), "{}", post.link);
+                assert!(validate_post(&post).is_err(), "{}", post.link);
+                let mut fetched = false;
+                assert!(resolve_api_source(&post, &EntityIndex::default(), |_| {
+                    fetched = true;
+                    Ok(html.clone())
+                }).is_err(), "{}", post.link);
+                assert!(!fetched);
+            }
+        }
+    }
+
+    #[test]
+    fn steam_url_forms_preserve_event_and_announcement_identity_mapping() {
+        let event = "703281025618282632";
+        let announcement = "184467000000000001";
+        for (link, gid, canonical, wrong_gid) in [
+            (format!("https://store.steampowered.com/news/app/1422450/view/{event}"), event,
+                format!("https://store.steampowered.com/news/app/1422450/view/{event}"), event),
+            (format!("https://steamcommunity.com/app/1422450/event/{event}"), event,
+                format!("https://store.steampowered.com/news/app/1422450/view/{event}"), event),
+            (format!("https://steamcommunity.com/games/1422450/announcements/detail/{announcement}"), announcement,
+                format!("https://steamcommunity.com/games/1422450/announcements/detail/{announcement}"), announcement),
+            (format!("https://steamcommunity.com/app/1422450/announcements/detail/{announcement}"), announcement,
+                format!("https://steamcommunity.com/games/1422450/announcements/detail/{announcement}"), announcement),
+            (format!("https://steamcommunity.com/app/1422450/externalpost/steam_community_announcements/{announcement}"), announcement,
+                format!("https://steamcommunity.com/games/1422450/announcements/detail/{announcement}"), announcement),
+        ] {
+            for suffix in ["", "/", "?l=english#notes", "/?l=english#notes"] {
+                let mut post = post();
+                post.link = format!("{link}{suffix}");
+                validate_post(&post).unwrap();
+                let url = trusted_original_url(&post.link).unwrap();
+                assert_eq!(steam_original_gid(&url).as_deref(), Some(gid));
+                assert_eq!(canonical_post_url(&url).as_str(), canonical);
+                let body = "- Weapon damage increased from 50 to 60";
+                let html = format!("<a href=\"/view/123\">Other event</a>{}", steam_html(&post, body));
+                assert_eq!(resolve_api_source(&post, &EntityIndex::default(), |_| Ok(html.clone()))
+                    .unwrap().unwrap().raw_content, body);
+                let foreign = html.replace(wrong_gid, "123");
+                assert!(resolve_api_source(&post, &EntityIndex::default(), |_| Ok(foreign.clone()))
+                    .unwrap().is_none(), "{}", post.link);
+            }
+        }
     }
 
     #[test]
@@ -1401,7 +1635,7 @@ mod tests {
             INSERT INTO brain.entities(entity_type, canonical_name, source, created_at, updated_at)
             VALUES ('item', 'Metal Skin', 'scratch', now(), now()), ('hero', 'Holliday', 'scratch', now(), now())").unwrap();
         let index = load_entity_index(&mut client).unwrap();
-        let full = "<p>[ Items ] * Metal Skin: cooldown reduced from 22 to 20</p><p>Holliday: added knockback</p>";
+        let full = "<p>[ Items ] * Metal Skin: cooldown reduced from 22 to 20</p><p>Holliday</p><p>- Added knockback</p>";
         for (source, id, link) in [
             (
                 "steam",
