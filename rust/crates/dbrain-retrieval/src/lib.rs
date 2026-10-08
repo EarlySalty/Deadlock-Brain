@@ -42,6 +42,212 @@ pub use game_wiki::{
 pub use hybrid_port::{fuse_ranked, DenseEntry, DenseIndex, HybridRetriever};
 pub use release_port::{pack, ReleaseRetriever};
 
+/// Produktiver Teilanschluss für `server_knowledge` am bestehenden Release-Leser.
+/// Spielwerkzeuge werden ohne vollständige Receipt-/F-Verträge nicht angeboten.
+/// Der vorhandene Retriever samt Index, Pool und Rechteprüfung wird wiederverwendet.
+#[derive(Clone)]
+pub struct ReleaseToolExecutionPort<S> {
+    retrieval: ReleaseRetriever<S>,
+}
+
+impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
+    pub fn new(retrieval: ReleaseRetriever<S>) -> Self {
+        Self { retrieval }
+    }
+
+    fn check_request(
+        query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+    ) -> std::result::Result<(), brain_contracts::PortError> {
+        context
+            .request_deadline
+            .as_ref()
+            .ok_or_else(|| {
+                brain_contracts::PortError::Unavailable("Ursprüngliche Anfragefrist fehlt".into())
+            })?
+            .check()?;
+        if query.conversation_id != context.conversation_id {
+            return Err(brain_contracts::PortError::PermissionDenied(
+                "Anfragenbindung weicht ab".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn knowledge_query(
+        query: &brain_contracts::Query,
+        request: &brain_contracts::tools::ToolRequest,
+    ) -> std::result::Result<brain_contracts::Query, brain_contracts::PortError> {
+        let brain_contracts::tools::ToolSubrequest::ServerKnowledge(request) = request.subrequest()
+        else {
+            return Err(brain_contracts::PortError::Unavailable(
+                "Vollständiger Spielwerkzeuganschluss fehlt".into(),
+            ));
+        };
+        // Ein vom Modell gelieferter Kanal ist keine Sichtberechtigung. Der
+        // Teilanschluss verwendet ausschließlich den bereits gebundenen Kontext.
+        if request.public_channel_id.is_some() {
+            return Err(brain_contracts::PortError::Unavailable(
+                "Geprüfte Kanalbindung fehlt".into(),
+            ));
+        }
+        let mut subquery = query.clone();
+        subquery.text.clone_from(&request.question);
+        Ok(subquery)
+    }
+}
+
+impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecutionPort
+    for ReleaseToolExecutionPort<S>
+{
+    fn definitions(
+        &self,
+        query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+        _game_context: Option<&brain_contracts::PinnedGameContext>,
+    ) -> std::result::Result<Vec<brain_contracts::tools::ToolDefinition>, brain_contracts::PortError>
+    {
+        Self::check_request(query, context)?;
+        let definitions = vec![brain_contracts::tools::ToolDefinition {
+            name: brain_contracts::tools::ToolName::ServerKnowledge,
+            description: "Freigegebenes Wissen im bereits gebundenen Anfragenkontext suchen."
+                .into(),
+            input_schema: json!({
+                "type":"object", "additionalProperties":false,
+                "required":["question"],
+                "properties":{"question":{"type":"string","minLength":1,"maxLength":8192}}
+            }),
+        }];
+        brain_contracts::tools::validate_definitions(&definitions)?;
+        Ok(definitions)
+    }
+
+    fn execute(
+        &self,
+        query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+        game_context: Option<&brain_contracts::PinnedGameContext>,
+        call_id: &str,
+        request: &brain_contracts::tools::ToolRequest,
+    ) -> std::result::Result<brain_contracts::tools::ToolExecution, brain_contracts::PortError>
+    {
+        use brain_contracts::{tools::*, RetrievalPort};
+        Self::check_request(query, context)?;
+        let call = ToolCall {
+            id: call_id.into(),
+            name: request.name(),
+            arguments: request.arguments().clone(),
+        };
+        let checked = call.validate(&self.definitions(query, context, game_context)?)?;
+        if &checked != request {
+            return Err(brain_contracts::PortError::InvalidResponse(
+                "Werkzeugbindung weicht ab".into(),
+            ));
+        }
+        let subquery = Self::knowledge_query(query, request)?;
+        let evidence = self.retrieval.retrieve(&subquery, context)?;
+        if evidence.is_empty() {
+            return Err(brain_contracts::PortError::Unavailable(
+                "Keine freigegebenen Belege gefunden".into(),
+            ));
+        }
+        // InternalRead ist keine Modellfreigabe. Diese Übergabe prüft CURRENT
+        // Rechte, Löschungen und Originalbindungen über denselben Retriever neu.
+        if evidence
+            .iter()
+            .any(|item| item.visibility != brain_contracts::SourceVisibility::Public)
+        {
+            // Privatprojektion und Service-Consumer bleiben K zugeordnet. Dieser
+            // Teilanschluss gibt ohne deren gesicherten Vertrag keine Rohdaten weiter.
+            return Err(brain_contracts::PortError::Unavailable(
+                "Gesicherte Privatprojektion fehlt".into(),
+            ));
+        }
+        self.retrieval
+            .validate_evidence(&subquery, context, &evidence, true)?;
+        let matches: Vec<_> = evidence
+            .iter()
+            .map(|item| {
+                json!({
+                    "evidence_id":item.evidence_id,
+                    "content":item.content,
+                })
+            })
+            .collect();
+        let execution = ToolExecution {
+            result: ToolResult {
+                call_id: call.id.clone(),
+                name: ToolName::ServerKnowledge,
+                result: json!({"matches":matches}),
+                evidence_ids: evidence
+                    .iter()
+                    .map(|item| item.evidence_id.clone())
+                    .collect(),
+                is_error: false,
+            },
+            dependencies: vec![ToolEvidenceDependency {
+                request: request.clone(),
+                game_context: None,
+                evidence,
+            }],
+            // Ausschließlich lokale kanonische Reads, kein HTTP- oder Modellaufruf.
+            usage: brain_contracts::Usage::default(),
+        };
+        Self::check_request(query, context)?;
+        execution.validate_for(&call, request, game_context)?;
+        Ok(execution)
+    }
+
+    fn validate_dependencies(
+        &self,
+        query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+        _game_context: Option<&brain_contracts::PinnedGameContext>,
+        dependencies: &[brain_contracts::tools::ToolEvidenceDependency],
+        purpose: brain_contracts::tools::ToolValidationPurpose,
+    ) -> std::result::Result<(), brain_contracts::PortError> {
+        use brain_contracts::{tools::ToolValidationPurpose, RetrievalPort};
+        Self::check_request(query, context)?;
+        if dependencies.is_empty() || dependencies.len() > 100 {
+            return Err(brain_contracts::PortError::PermissionDenied(
+                "Werkzeugabhängigkeiten fehlen oder sind zu groß".into(),
+            ));
+        }
+        for dependency in dependencies {
+            if dependency.game_context.is_some()
+                || dependency
+                    .evidence
+                    .iter()
+                    .any(|item| item.visibility != brain_contracts::SourceVisibility::Public)
+            {
+                return Err(brain_contracts::PortError::PermissionDenied(
+                    "Wissensbeleg hat eine fremde Spiel- oder Privatbindung".into(),
+                ));
+            }
+            let subquery = Self::knowledge_query(query, &dependency.request)?;
+            match purpose {
+                ToolValidationPurpose::Provider | ToolValidationPurpose::Cache => {
+                    self.retrieval.validate_evidence(
+                        &subquery,
+                        context,
+                        &dependency.evidence,
+                        true,
+                    )?;
+                }
+                ToolValidationPurpose::Publication => {
+                    self.retrieval.validate_publication(
+                        &subquery,
+                        context,
+                        &dependency.evidence,
+                    )?;
+                }
+            }
+            Self::check_request(query, context)?;
+        }
+        Ok(())
+    }
+}
+
 const ASSETS_SOURCE: &str = "deadlock_assets_api";
 const MAX_EVENTS: i64 = 500;
 const MAX_TIMELINE_EVENTS: i64 = 2000;
