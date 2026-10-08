@@ -16,6 +16,14 @@ Aktuelle öffentliche Itemoriginale wurden mit dem vorhandenen Collector erneut 
 
 Die fünf bisherigen Originalpatchstichproben wurden als bestehende Erwartungen übernommen. Kein neuer Patch-Livebeweis und keine aktuelle Gesamtwissensbindung behauptet. `METHODIK.md`, `COLLECTOR.md` und `LAUFVERTRAG.json` trennen private Rohbelege, feste Vergleichsschicht, echte Zustellung und gemessene/reservierte/unbekannte Abrechnung. Eine ausführbare Kanalwiederholung ist noch nicht geliefert.
 
+## Fortsetzung nach ausdrücklicher K-Übergabe
+
+Der Delegator hat den Teilcheckpoint ausdrücklich als Zwischenstand bestätigt, nicht als Auftragsende. Der gesicherte Botsconsumer `8e1b8f03` und dessen vorhandener Wirefixturepfad wurden übernommen, ohne fremden K-Worktree zu bauen oder Produktcode zu ändern. Ein eigener detached Kontrollcheckout bindet diesen tatsächlich bestätigten Remote-main-SHA.
+
+Der vorhandene Einzeltest lief nach einem vor Testbeginn abgebrochenen ENOSPC-Versuch erfolgreich: 1 passed, 0 failed, 0 ignored, 332 filtered, Exit 0. Der Testprofilbau dauerte 10m46s, der Fixturelauf 0,03s. Weder Zeit noch synthetische Wirefälle sind P1- oder Goldbelege. Quellen-, Lock- und Protokollhashes sowie Wiederholungsbefehl stehen in `CONSUMER-BINDUNG.md`.
+
+Die echte Callback-/Consumer-/SDK-Kette und die requestgebundene Lesesperre sind damit lokal gebunden. K exportiert darüber keinen tatsächlichen Accounted-/ToolExecution-Messnachweis. Der vom Delegator bei G angefragte sichere Messnachweis und die G/K-Livebedingung bleiben offen. Weiterarbeit an festem 30er-Set und wiederholbarem Lauf bleibt derselbe Auftrag; kein Cleanup, Self-Settle oder Endstatus aus diesem Kontrolllauf.
+
 ## Erhaltene lokale Artefakte
 
 Die neue geschützte Prüfliste und aktuelle öffentliche Assetquelle sind außerhalb des Worktrees unter `/home/nathanael/.local/share/brain-q2-private-20261008/` erhalten. Prüflistenkopie: eine Datei; Assetkopie: zwei Dateien mit einer Digestbindung. Beide Seiten wurden auf Bytegleichheit, Eigentümer und Rechte geprüft. Alte private Kopien nicht überschrieben. Technische Hashes stehen in `STATUS.json`; dort stehen keine Originalfragen oder Personenkennungen.
@@ -60,14 +68,14 @@ Die ersten Proben verwendeten unbestätigte Standardpfade/Ports und lieferten 40
 
 ## Werkzeugprüfungen und Sicherung
 
-Alle Cargo-Aufrufe liefen über `cargo-slot`, Toolchain 1.97.1. `test --locked --offline --jobs 3 -- --include-ignored`: 11 passed, 0 failed, 0 ignored, 0 filtered. Clippy mit `--all-targets -- -D warnings`, Build und `fmt --check` jeweils Exit 0. Dateisystemtests prüfen echte Dateien; neue synthetische Testfixtures werden nicht als Gold- oder Kanalfragen gezählt. Baseline nicht gemessen, keine Altfehlerbehauptung.
+Alle Cargo-Aufrufe liefen über `cargo-slot`, Toolchain 1.97.1. `test --locked --offline --jobs 3 -- --include-ignored`: 17 passed, 0 failed, 0 ignored, 0 filtered. Clippy mit `--all-targets -- -D warnings`, Build und `fmt --check` jeweils Exit 0. Dateisystemtests prüfen echte Dateien; neue synthetische Testfixtures werden nicht als Gold- oder Kanalfragen gezählt. Baseline nicht gemessen, keine Altfehlerbehauptung.
 
-TESTNACHWEIS[TW-1]: 11 passed, 0 ignored | Baseline: nicht gemessen, keine Altfehler als rot behauptet
+TESTNACHWEIS[TW-1]: 18 passed, 0 ignored | Baseline: nicht gemessen; 17 Collector-Tests plus 1 Consumerfixture, keine Altfehlerbehauptung
 
 TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 1 belegt | Senke: .tasks/2026-10-08-q2-abnahme/BERICHT.md
 
 Der Textnachweis betrifft den Lesertext dieses Berichts. Das Absolutwort bezieht sich auf die vollständig protokollierten eigenen Cargo-Aufrufe über cargo-slot; technische Pfade und IDs sind keine Umlaut-Ersatzschreibung.
 
-Gate, Merge und Push werden nach Ausführung im Abschlussnachweis ergänzt. Keine Produktdeploys oder Dienstneustarts durch Q. Kein Cleanup und kein Self-Settle bei offenem Gesamtauftrag.
+Sourcegate für Collectorfix `b215876e`: gpt-6.1-sol ALLOW, regulär erneut bestätigt; siehe `REVIEW.md`. Der bestätigte Verzeichnisvergleichsfehler aus Runde 1 wurde im frischen nativen Fixer behoben. Merge und Push werden nach Ausführung im Sicherungsnachweis ergänzt. Keine Produktdeploys oder Dienstneustarts durch Q. Kein Cleanup und kein Self-Settle bei offenem Gesamtauftrag.
 
-MERGEPROTOKOLL[MS-1]: 8 Git-Schritte einzeln | Anläufe: 0 | Gate: noch nicht ausgeführt; reguläres Fast-forward auf frisches Main, ein vorgelagerter Rollenhinweis behoben
+MERGEPROTOKOLL[MS-1]: 8 Git-Schritte einzeln | Anläufe: 0 | Gate: historischer erster Fast-forward; Sourcefix danach gpt-6.1-sol ALLOW, eigener Main-Push noch nicht ausgeführt

@@ -34,4 +34,4 @@ RUSTUP_TOOLCHAIN=1.97.1 cargo-slot clippy --locked --offline --jobs 3 --all-targ
 RUSTUP_TOOLCHAIN=1.97.1 cargo-slot fmt --manifest-path .tasks/2026-10-07-brain-fertigstellung-astra/Q/collector/Cargo.toml --check
 ```
 
-11 Tests, darunter echte Dateisystemprüfungen für Modiverweigerung, Symlinks, Digestabweichung und Überschreibungsverbot. Keine Produktions-DSN, keine Botnachricht und kein Ausfall eines fremden Dienstes erforderlich.
+17 Tests, darunter echte Dateisystemprüfungen für Modiverweigerung, Symlinks, Digestabweichung, relative Verzeichnispfade und Überschreibungsverbot. Erfolgreicher 30-Fall-Strukturpfad und Ablehnungsmutationen verwenden synthetische Fixtures, keine echten Goldfragen. Keine Produktions-DSN, keine Botnachricht und kein Ausfall eines fremden Dienstes erforderlich.

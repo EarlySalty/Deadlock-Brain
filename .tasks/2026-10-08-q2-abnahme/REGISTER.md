@@ -3,7 +3,7 @@
 | Feld | Stand |
 |---|---|
 | Intent-/Delegator-Thread | `481426fe-b477-42b3-91c6-901811fcba1d` |
-| Ausführung | aktuelle zugewiesene Q2-Session, keine weiteren Worker-Threads |
+| Ausführung | aktuelle zugewiesene Q2-Session; frischer nativer Fixer für Gate-Runde 1, keine weiteren T3-Threads |
 | Worktree | `/home/nathanael/.worktrees/brain-q2-abnahme-20261008` |
 | Branch | `feat/brain-q2-abnahme-20261008` |
 | Start | `cf02c9a06d56aeab72cc1d685cc3256f00ed9b1a`, sauber |
@@ -11,6 +11,8 @@
 | Eigener Schreibbereich | dieser Aufgabenordner; enges Delta in vorhandenem `Q/collector` |
 | Private Altquellen | zentrale Q-Kopie und unabhängige lokale Sicherung, unverändert |
 | Altthread Q | gestoppt, nicht wiederaufgenommen |
-| Status | aktive lokale Vorbereitung; keine Provider- oder Liveabnahme gestartet |
+| Eigener Kontrollcheckout | `/home/nathanael/.worktrees/bots-q2-consumerproof-20261008`, detached `8e1b8f03`, keine Quelländerung; bestehender Wirefall 1 passed |
+| Sourcegate | Collectorfix `b215876e`, gpt-6.1-sol ALLOW, regulär erneut bestätigt; 17 Collector-Tests bestanden |
+| Status | aktive Runner-/Quellvorbereitung gemäß neuer K-Übergabe; keine Provider- oder Liveabnahme gestartet |
 
 Keine Koordination mit fremden Sessions. Produktcheckouts, zentrale Akten und Produktdateien unverändert. Cleanup und Self-Settle erst nach tatsächlichem Gesamtabschluss.
