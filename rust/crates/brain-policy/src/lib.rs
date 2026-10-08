@@ -256,6 +256,7 @@ mod tests {
 
     fn query(scopes: &[&str], conversation_id: &str) -> Query {
         Query {
+            answer_context: None,
             domain: None,
             request_id: "r1".into(),
             conversation_id: conversation_id.into(),

@@ -386,6 +386,7 @@ fn observation_key(query: &Query, context: &AuthorizedContext) -> Result<String,
         &query.request_id,
         &query.conversation_id,
         &query.text,
+        &query.answer_context,
         &query.domain,
         &query.requested_scopes,
         &query.profile,
@@ -615,7 +616,9 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                 }
                 candidates.retain(|item| item.source_id == SOURCE);
                 if query.text.to_lowercase().contains("lane") {
+                    let additional_documents = items.split_off(items.len().min(1));
                     items.append(&mut candidates);
+                    items.extend(additional_documents);
                     candidates = items;
                 } else {
                     candidates.append(&mut items);
@@ -1282,6 +1285,7 @@ mod tests {
                 .map(|i| {
                     let mut item = full_live.clone();
                     item.source_id = "docs.public".into();
+                    item.citation = "https://example.invalid/serverwissen".into();
                     item.evidence_id = format!("doc-{i}");
                     let prefix = if i == 0 {
                         "In der Willkommens-DM kannst du Casual, Ranked oder Street Brawl wählen.\n"
@@ -1302,7 +1306,7 @@ mod tests {
                     .sum::<usize>(),
                 5947
             );
-            let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es auf dem Discord-Server?","requested_scopes":["bot.public"]})).unwrap();
+            let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es auf dem Discord-Server?","requested_scopes":["bot.public"], "answer_context":{"platform":"discord", "channel_name":"Hilfe", "category_name":"Community", "is_thread":false, "is_direct_message":false, "input_kind":"mention"}})).unwrap();
             let mut context = AuthorizedContext {
                 discord: Some(brain_contracts::DiscordRequestContext {
                     user_id: None,
@@ -1356,6 +1360,12 @@ mod tests {
                 let supplied: Value =
                     serde_json::from_str(payload["messages"][1]["content"].as_str().unwrap())
                         .unwrap();
+                assert_eq!(supplied["answer_context"]["channel_name"], "Hilfe");
+                assert_eq!(supplied["answer_context"]["input_kind"], "mention");
+                assert!(!payload
+                    .to_string()
+                    .contains("https://discord.com/channels/1"));
+                println!("Provider-Input: Ortskontext Hilfe / Community / mention angekommen");
                 let ids: Vec<_> = supplied["evidence"]
                     .as_array()
                     .unwrap()
@@ -1433,6 +1443,11 @@ mod tests {
             assert_eq!(answer.usage.network_rounds + usage.network_rounds, 2);
             worker.join().unwrap();
             let mut other_query = query.clone();
+            other_query.answer_context = None;
+            assert!(adapter
+                .validate_evidence(&other_query, &context, &items, true)
+                .is_err());
+            other_query = query.clone();
             other_query.request_id = "anderer-Aufruf".into();
             assert!(adapter
                 .validate_evidence(&other_query, &context, &items, true)

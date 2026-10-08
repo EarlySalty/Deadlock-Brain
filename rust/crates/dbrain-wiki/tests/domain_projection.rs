@@ -129,6 +129,7 @@ async fn reviewed_wiki_card_is_retrievable_as_an_exact_source_authorized_fact() 
         budget: Budget::default(),
     };
     let q = Query {
+        answer_context: None,
         request_id: "wiki-domain".into(),
         conversation_id: context.conversation_id.clone(),
         text: "Exakter geprüfter Wikiwert".into(),

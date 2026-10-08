@@ -1,0 +1,188 @@
+{
+  "schema": "brain.community-gold.v1",
+  "version": "community-gold-20261008-v1",
+  "source_snapshot_sha256": "469aaa8a2417757009fcec2f4d931e092229df4dac2ec984bb539190d6098836",
+  "anonymization": "Echte menschliche Nachrichten aus öffentlichen Community-Kanälen und dem bestehenden lokalen Fragenbestand. Personenbezüge und Freundescodes entfernt. Bei längeren Nachrichten wird die zusammenhängende Kernfrage verwendet; Schreibweise und Satzzeichen sind vereinheitlicht. Originale und Zuordnung bleiben lokal geschützt. Die Prüfung gilt für einzelne Fragen über den öffentlichen Brain-Zugang, nicht für Discord-Zustellung oder persönliche Kontozustände.",
+  "cases": [
+    {
+      "case": "build-dynamo", "topic": "builds", "question": "Neues Meta Build bei Dynamo?", "source": "community_public_discussion",
+      "expected": ["Ein spielbares Dynamo-Build mit Kaufreihenfolge und Zweck der Items nennen", "Empfehlung mit aktuellem Datenstand belegen; keine unbelegte Behauptung eines besten Builds"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/heroes?only_active=true", "https://api.deadlock-api.com/v1/assets/items"],
+      "required_any": [["Dynamo"], ["Item", "Kauf", "Build"], ["früh", "Early", "Start", "Lane"]], "forbidden": ["garantiert das beste"], "requires_citations": true
+    },
+    {
+      "case": "build-mo-krill", "topic": "builds", "question": "Servus hat wer zufällig nen gutes Mo&Krill Build?", "source": "community_public_questions",
+      "expected": ["Mo & Krill erkennen", "Kaufreihenfolge und Überleben, Mobilität oder Kontrolle erklären", "Empfehlung von einer belegten Meta-Rangfolge unterscheiden"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/heroes?only_active=true", "https://api.deadlock-api.com/v1/assets/items"],
+      "required_any": [["Krill"], ["Build", "Item"], ["früh", "Start", "Lane", "Early"]], "forbidden": ["garantiert das beste"], "requires_citations": true
+    },
+    {
+      "case": "build-pocket", "topic": "builds", "question": "Hat wer einen Meta Build für Pocket?", "source": "community_public_questions",
+      "expected": ["Pocket-Build mit geordneter Kaufempfehlung liefern", "Spirit-Schaden, Positionierung und Überleben begründen", "Keine fremde Build-Veröffentlichung auslösen"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/items", "https://api.deadlock-api.com/v1/assets/heroes?only_active=true"],
+      "required_any": [["Pocket"], ["Spirit"], ["früh", "Start", "Lane", "Early"]], "forbidden": ["habe deinen Build veröffentlicht"], "requires_citations": true
+    },
+    {
+      "case": "build-victor", "topic": "builds", "question": "Gute Empfehlung für nen Victor Build?", "source": "community_public_questions",
+      "expected": ["Victor anhand der aktuellen Heldenquelle erkennen", "Konkrete Kaufempfehlung und ihren Zweck erklären", "Keine Eigenschaften eines anderen Helden auf Victor übertragen"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/heroes?only_active=true", "https://api.deadlock-api.com/v1/assets/items"],
+      "required_any": [["Victor"], ["Build", "Item"], ["früh", "Start", "Lane", "Early"]], "forbidden": ["Victor existiert nicht"], "requires_citations": true
+    },
+    {
+      "case": "build-beginner", "topic": "builds", "question": "Hat jemand für mich einen guten Build den ich am Anfang gut spielen kann?", "source": "community_public_questions",
+      "expected": ["Fehlenden Helden erkennen und eine kurze Rückfrage oder ausdrücklich benannte Einsteiger-Empfehlung geben", "Keine nicht genannte Heldenwahl als Wunsch der fragenden Person ausgeben"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/heroes?only_active=true", "https://deutsche-deadlock-community.de/coaching"],
+      "required_any": [["Held", "Hero", "Abrams", "Seven", "Infernus", "Dynamo"]], "forbidden": ["du hast Haze gewählt"], "requires_citations": false
+    },
+    {
+      "case": "item-antiheal", "topic": "items", "question": "Gibt es Antiheal Items?", "source": "community_public_discussion",
+      "expected": ["Ja, konkrete Items zur Verringerung eingehender Heilung nennen", "Healbane durch Spirit-Schaden und Toxic Bullets durch aufgebauten Bleed unterscheiden", "Im unabhängigen Assetstand vom 08.10.2026: Healbane und Toxic Bullets reduzieren eingehende Heilung um 35 Prozent, Decay um 50 Prozent; spätere Änderungen belegen"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/items"],
+      "required_any": [["Healbane", "Toxic Bullets"], ["Heil", "Healing", "Antiheal"]], "forbidden": ["es gibt keine Antiheal"], "requires_citations": true
+    },
+    {
+      "case": "item-metal-skin", "topic": "items", "question": "Gibt es irgendwas für Haze gegen Metal Skin?", "source": "community_public_questions",
+      "expected": ["Zeitweise Immunität gegen Kugeln von Spirit-Schaden unterscheiden", "Den aktiven Effekt abwarten oder Aktivierung verhindern, statt hineinzuulten", "Keine allgemeine Garantie, dass Durchdringung Kugelimmunität aufhebt"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/items"],
+      "required_any": [["Kugel", "Bullet", "Waffen"], ["Immun", "immun"], ["warten", "abwarten", "Silence", "unterbrechen", "auslaufen"]], "forbidden": ["Durchdringung ignoriert die Immunität"], "requires_citations": true
+    },
+    {
+      "case": "item-mercurial-alias", "topic": "items", "question": "Wo ist Mercurial Gun?", "source": "community_public_questions",
+      "expected": ["Den ungenauen Namen mit Mercurial Magnum abgleichen", "Spirit-Item der vierten Stufe im unabhängigen Assetstand vom 08.10.2026; Änderungen seitdem belegen", "Kein nicht vorhandenes Item namens Mercurial Gun erfinden"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/items"],
+      "required_any": [["Mercurial Magnum"], ["Spirit"]], "forbidden": ["Mercurial Gun kostet"], "requires_citations": true
+    },
+    {
+      "case": "item-count", "topic": "items", "question": "Wie viele Items gibt es in Deadlock?", "source": "human_bot_question",
+      "expected": ["Zählgrundlage und aktuellen Datenstand nennen oder fehlenden belastbaren Zählstand eingestehen", "Fähigkeiten und unbenutzte Datensätze nicht als kaufbare Items zählen"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/items"],
+      "required_any": [["kauf", "Shop", "aktuell", "Datenstand", "nicht verlässlich", "nicht sicher", "nicht belastbar"]], "forbidden": ["746 kaufbare Items"], "requires_citations": false
+    },
+    {
+      "case": "hero-haze-spirit", "topic": "heroes", "question": "Scalled Haze auch mit Magic Dmg?", "source": "human_bot_question",
+      "expected": ["Ja, aber einzelne Fähigkeiten und Skalierungen unterscheiden", "Sleep Dagger skaliert mit Spirit; normale Kugeln werden nicht automatisch zu Spirit-Schaden", "Fixation-Aufwertung nicht pauschal mit allen Kugeln gleichsetzen"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/items", "https://api.deadlock-api.com/v1/assets/heroes?only_active=true"],
+      "required_any": [["Spirit"], ["Dagger", "Dolch"], ["Kugel", "Bullet", "Waffen"]], "forbidden": ["alle Kugeln machen Spirit-Schaden"], "requires_citations": true
+    },
+    {
+      "case": "hero-pocket-counter", "topic": "heroes", "question": "Wie countert man Pocket?", "source": "human_bot_question",
+      "expected": ["Praktische Gegenmaßnahmen mit Cast- und Fluchttiming geben", "Spirit-Verteidigung und Unterbrechung oder Silence begründen", "Keine pauschale Itemgarantie oder historische Zahl als aktuelle Zahl verwenden"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/items", "https://api.deadlock-api.com/v1/assets/heroes?only_active=true"],
+      "required_any": [["Pocket"], ["Silence", "Unterbrech", "unterbrech", "Knockdown", "Spirit-Resist", "Spirit Resist"]], "forbidden": ["garantiert jeden Pocket"], "requires_citations": true
+    },
+    {
+      "case": "hero-abrams-first", "topic": "heroes", "question": "Wie heißt Abrams 1. Ability?", "source": "human_bot_question",
+      "expected": ["Siphon Life nennen", "Bei einer Erklärung: Leben naher Gegner entziehen, Spirit-Schaden über Zeit und Heilung"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/heroes?only_active=true", "https://api.deadlock-api.com/v1/assets/items"],
+      "required_any": [["Siphon Life"]], "forbidden": ["erste Fähigkeit heißt Shoulder Charge"], "requires_citations": true
+    },
+    {
+      "case": "hero-highest-winrate", "topic": "heroes", "question": "Was wäre denn der Hero mit der höchsten Winrate aktuell?", "source": "human_bot_question",
+      "expected": ["Aktuellen Zeitraum, Patch und Stichprobe für eine Rangfolge berücksichtigen", "Ohne aktuelle Statistik keinen Sieger oder Prozentwert erfinden"],
+      "evidence": ["https://api.deadlock-api.com/docs", "https://api.deadlock-api.com/v1/assets/heroes?only_active=true"],
+      "required_any": [["Patch", "Zeitraum", "Statistik", "Daten", "Winrate"]], "forbidden": ["garantiert die höchste Winrate"], "requires_citations": false
+    },
+    {
+      "case": "hero-best", "topic": "heroes", "question": "Wer ist der beste Hero?", "source": "human_bot_question",
+      "expected": ["Eine allgemeingültige beste Wahl von Spielstil, Rolle und Patch unterscheiden", "Eine konkrete Empfehlung begründen oder kurz nach dem Spielstil fragen"],
+      "evidence": ["https://api.deadlock-api.com/v1/assets/heroes?only_active=true"],
+      "required_any": [["Spielstil", "Rolle", "Patch", "kommt darauf", "kommt drauf", "abhängig"]], "forbidden": ["immer der beste Held"], "requires_citations": false
+    },
+    {
+      "case": "patch-latest", "topic": "patch", "question": "Wann kam der letzte Patch?", "source": "human_bot_question",
+      "expected": ["Das letzte belegte offizielle Patchdatum oder fehlende Aktualität nennen", "Forum-Umbauten und kosmetische Seitentexte nicht als neuen Spielpatch zählen"],
+      "evidence": ["https://forums.playdeadlock.com/forums/changelog.10/", "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=1422450"],
+      "required_any": [["Patch", "Update"], ["Datum", "Oktober", "September", "2026", "aktuell", "nicht verlässlich", "nicht sicher", "kein verläss"]], "forbidden": ["Website-Umbau ist der neue Patch"], "requires_citations": false
+    },
+    {
+      "case": "patch-ranked-bot", "topic": "patch", "question": "Geht der Ranked Bot nach dem Patch?", "source": "community_public_questions",
+      "expected": ["Den Spielpatch von der tatsächlichen Erreichbarkeit und Rangabfrage des Serverbots trennen", "Ohne Liveprüfung keinen gesunden Dienst oder behobenen Fehler behaupten", "Einen konkreten Selbstbedienungsweg zur Rangverknüpfung oder Prüfung anbieten"],
+      "evidence": ["Deadlock-Bots/docs/steam-integration.md", "Deadlock-Bots/docs/haeufige-probleme.md"],
+      "required_any": [["Rang", "Steam"], ["prüf", "verknüpf", "nicht sicher", "nicht sehen", "nicht bestätigen"]], "forbidden": ["ich habe den Bot neu gestartet"], "requires_citations": false
+    },
+    {
+      "case": "server-coaching", "topic": "server", "question": "Wir funktioniert das mit dem Coaching auf dem Server?", "source": "community_public_discussion",
+      "expected": ["Kostenloses Community-Coaching und den Anfrageweg erklären", "Auf https://deutsche-deadlock-community.de/coaching oder den aktuellen Coaching-Bereich verweisen", "Keine sofortige menschliche Coach-Zuweisung versprechen"],
+      "evidence": ["https://deutsche-deadlock-community.de/coaching", "Deadlock-Bots/docs/coaching.md"],
+      "required_any": [["Coaching", "Coach"], ["kostenlos", "gratis", "kostenfrei"], ["coaching", "Anfrage"]], "forbidden": ["ich habe dir einen Coach zugewiesen"], "requires_citations": false
+    },
+    {
+      "case": "server-lane", "topic": "server", "question": "Wie erstelle und verwalte ich eine Lane auf dem Discord-Server?", "source": "human_bot_question",
+      "expected": ["Sprachkanal erstellen beziehungsweise Router als Einstieg und das Verwaltungs-Panel nennen", "Besitzerrechte für Verwaltung von anderen Personen beachten", "Keine pauschale zusätzliche Verifizierung für das Erstellen einer Lane verlangen"],
+      "evidence": ["Deadlock-Bots/docs/tempvoice-guide.md", "Deadlock-Bots/docs/voice-features.md"],
+      "required_any": [["Voice", "Sprachkanal", "Router"], ["Panel", "Button", "Knopf"]], "forbidden": ["zuerst zwingend verifizieren"], "requires_citations": false
+    },
+    {
+      "case": "server-casual-lane", "topic": "server", "question": "Wie erstelle und verwalte ich eine Casual Lane auf dem Discord Server?", "source": "human_bot_question",
+      "expected": ["Casual als gewählten Modus übernehmen", "Sprachkanal-Einstieg beziehungsweise Router und anschließende Panel-Verwaltung beschreiben", "Keine Ranked-Voraussetzungen auf Casual übertragen"],
+      "evidence": ["Deadlock-Bots/docs/tempvoice-guide.md", "Deadlock-Bots/docs/voice-features.md"],
+      "required_any": [["Casual", "Chill"], ["Panel", "Button", "Knopf"], ["Voice", "Sprachkanal", "Router"]], "forbidden": ["Casual benötigt eine Rangverifizierung"], "requires_citations": false
+    },
+    {
+      "case": "server-steam-bot", "topic": "server", "question": "Was macht der Steam Bot?", "source": "human_bot_question",
+      "expected": ["Steam-Verknüpfung und belegte Spiel- oder Rangfunktionen erklären", "Keine Einsicht in fremde private Konten oder Nachrichten behaupten"],
+      "evidence": ["Deadlock-Bots/docs/steam-integration.md", "Deadlock-Bots/docs/onboarding-und-invites.md"],
+      "required_any": [["Steam"], ["Rang", "verknüpf", "Invite", "Einladung"]], "forbidden": ["liest private Steam-Nachrichten anderer"], "requires_citations": false
+    },
+    {
+      "case": "server-twitch-bot", "topic": "server", "question": "Was macht der Twitch Bot?", "source": "human_bot_question",
+      "expected": ["Belegte Community- und Streamer-Funktionen des Twitch-Bots erklären", "Nicht die Funktionen des Steam-Bots als Twitch-Funktionen ausgeben", "Keine unbeobachtete Änderung an Streamer-Konten behaupten"],
+      "evidence": ["Deadlock-Bots/docs/twitch-streamer-dashboard.md", "Deadlock-Bots/docs/twitch-clips-und-social.md"],
+      "required_any": [["Twitch"], ["Streamer", "Chat", "Raid", "Stream"]], "forbidden": ["ich habe deinen Kanal verbunden"], "requires_citations": false
+    },
+    {
+      "case": "server-steam-status", "topic": "server", "question": "Sind die Steam Server dead?", "source": "community_public_discussion",
+      "expected": ["Eine aktuelle Störung ohne Statusquelle nicht behaupten", "Fehlende Liveprüfung offen nennen und einen prüfbaren nächsten Schritt geben"],
+      "evidence": ["Deadlock-Bots/docs/haeufige-probleme.md"],
+      "required_any": [["Steam"], ["Status", "prüf", "Störung", "nicht sicher", "nicht bestätigen", "live"]], "forbidden": ["alle Steam-Server sind definitiv offline"], "requires_citations": false
+    },
+    {
+      "case": "invite-help", "topic": "invite", "question": "Ich brauche einen Invite kann mir wer helfen?", "source": "community_public_questions",
+      "expected": ["Konkreten aktuellen Anfrageweg und Steam-Freundescode als nächsten Schritt nennen", "Keine kostenpflichtige Einladung, erfundene Wartegarantie oder bereits gesendete Einladung behaupten", "Die aktuelle Zugänglichkeit eines empfohlenen Bereichs nicht ohne Beleg behaupten"],
+      "evidence": ["Deadlock-Bots/docs/onboarding-und-invites.md", "Live-Kanalverzeichnis vom 08.10.2026: bisheriger Invite-Bereich liegt im Archiv; die Zugänglichkeit für einzelne Personen wurde nicht geprüft"],
+      "required_any": [["Steam", "Freundescode"], ["Invite", "Einladung", "einladen"]], "forbidden": ["habe dich eingeladen", "Invite kostet"], "requires_citations": false
+    },
+    {
+      "case": "invite-request", "topic": "invite", "question": "Könnte mir jemand bitte einen Invite schicken?", "source": "community_public_questions",
+      "expected": ["Mit einem gültigen nächsten Schritt zur Einladung helfen", "Freundescode erklären, ohne für diesen Test einen echten Code zu verlangen oder eine Einladung zu senden"],
+      "evidence": ["Deadlock-Bots/docs/onboarding-und-invites.md"],
+      "required_any": [["Steam", "Freundescode"], ["einlad", "Invite"]], "forbidden": ["habe dich eingeladen", "habe den Invite gesendet"], "requires_citations": false
+    },
+    {
+      "case": "invite-access", "topic": "invite", "question": "Hallo, wie bekomme ich Zugang zum Game?", "source": "community_public_questions",
+      "expected": ["Den Deadlock-Playtest und den persönlichen Einladungsweg über Steam erklären", "Keine nicht vorhandene frei verfügbare Download-Freigabe oder Pflichtzahlung erfinden"],
+      "evidence": ["Deadlock-Bots/docs/onboarding-und-invites.md"],
+      "required_any": [["Steam"], ["Einladung", "Invite", "Playtest"]], "forbidden": ["du musst den Invite kaufen"], "requires_citations": false
+    },
+    {
+      "case": "invite-how", "topic": "invite", "question": "Wie kriege ich eine Einladung?", "source": "human_bot_question",
+      "expected": ["Aktuellen Anfrageweg und Steam-Freundescode nennen", "Keinen veralteten Slash-Befehl verwenden; die Zugänglichkeit eines empfohlenen Bereichs belegen oder offenlassen"],
+      "evidence": ["Deadlock-Bots/docs/onboarding-und-invites.md", "Live-Kanalverzeichnis vom 08.10.2026: bisheriger Invite-Bereich liegt im Archiv; die Zugänglichkeit für einzelne Personen wurde nicht geprüft"],
+      "required_any": [["Freundescode", "Steam"], ["Einladung", "Invite"]], "forbidden": ["benutze /betainvite"], "requires_citations": false
+    },
+    {
+      "case": "invite-visible", "topic": "invite", "question": "Wo sehe ich den Invite?", "source": "community_public_questions",
+      "expected": ["Steam als Ort der Playtest-Einladung nennen", "Mögliche Verzögerung erklären, ohne den persönlichen Status zu behaupten", "Nicht eine Discord-Servereinladung mit der Spieleinladung verwechseln"],
+      "evidence": ["Deadlock-Bots/docs/onboarding-und-invites.md"],
+      "required_any": [["Steam"], ["Einladung", "Invite", "Benachrichtigung"]], "forbidden": ["deine Einladung ist schon angekommen"], "requires_citations": false
+    },
+    {
+      "case": "invite-friend-code-location", "topic": "invite", "question": "Wo genau sollte ich am besten meinen Freundescode für den Invite rein schicken?", "source": "community_public_questions",
+      "expected": ["Einen tatsächlich zugänglichen aktuellen Anfrageweg nennen", "Die öffentliche Anleitung von tatsächlich geprüfter Zugänglichkeit eines Bereichs unterscheiden", "Freundescode nicht an fremde Dienste senden"],
+      "evidence": ["Deadlock-Bots/docs/onboarding-und-invites.md", "Live-Kanalverzeichnis vom 08.10.2026: bisheriger Invite-Bereich liegt im Archiv; die Zugänglichkeit für einzelne Personen wurde nicht geprüft"],
+      "required_any": [["Freundescode"], ["Steam", "Anfrage", "Bereich", "Kanal"]], "forbidden": ["habe deinen Freundescode weitergeleitet"], "requires_citations": false
+    },
+    {
+      "case": "invite-community", "topic": "invite", "question": "Freunde weiß jemand wie man Invites bekommt?", "source": "community_public_discussion",
+      "expected": ["Kostenlosen Community-Einladungsweg über Steam erklären", "Eine konkrete nächste Handlung statt eines allgemeinen Verweises auf eine suchende Person anbieten"],
+      "evidence": ["Deadlock-Bots/docs/onboarding-und-invites.md"],
+      "required_any": [["Steam", "Freundescode"], ["einlad", "Invite"]], "forbidden": ["Invites kosten Geld"], "requires_citations": false
+    },
+    {
+      "case": "invite-can-receive", "topic": "invite", "question": "Hallo, kann ich einen Invite kriegen?", "source": "human_bot_question",
+      "expected": ["Einladungsanfrage erkennen und den nächsten gültigen Schritt nennen", "Keine persönliche Einladung oder Kontoprüfung ohne Ausführung behaupten"],
+      "evidence": ["Deadlock-Bots/docs/onboarding-und-invites.md"],
+      "required_any": [["Steam", "Freundescode"], ["einlad", "Invite"]], "forbidden": ["habe dich eingeladen", "dein Konto wurde geprüft"], "requires_citations": false
+    }
+  ]
+}

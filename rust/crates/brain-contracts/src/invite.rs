@@ -154,6 +154,7 @@ pub fn project_query(query: &Query) -> Query {
     let mut projected = query.clone();
     if requested(query) {
         projected.text = QUESTION.into();
+        projected.answer_context = None;
         projected.domain = None;
         projected.profile = AnswerProfile::Explain;
         projected.patch = None;
@@ -415,7 +416,12 @@ mod tests {
     #[test]
     fn beide_providerformate_enthalten_nur_die_eigene_enum_und_zeit() {
         use crate::provider_input::{grounded_turn_payload, ToolWireFormat};
-        let query = query("Bin ich eingeladen? Chatkontext: private Kennung 76561197960265839");
+        let mut query = query("Bin ich eingeladen? Chatkontext: private Kennung 76561197960265839");
+        query.answer_context = Some(crate::AnswerContext::Discord(crate::DiscordAnswerContext {
+            purpose: Some("private Ortskennung".into()),
+            ..Default::default()
+        }));
+        assert!(project_query(&query).answer_context.is_none());
         let item = status_evidence(
             &SelfInviteStatus {
                 status: InviteStatus::Pending,
@@ -434,7 +440,12 @@ mod tests {
             )
             .unwrap();
             let raw = payload.to_string();
-            for private in ["private Kennung", "76561197960265839", "discord.request:"] {
+            for private in [
+                "private Kennung",
+                "private Ortskennung",
+                "76561197960265839",
+                "discord.request:",
+            ] {
                 assert!(!raw.contains(private));
             }
             let messages = payload["messages"].as_array().unwrap();
@@ -442,6 +453,7 @@ mod tests {
                 serde_json::from_str(messages.last().unwrap()["content"].as_str().unwrap())
                     .unwrap();
             assert_eq!(data["query"], QUESTION);
+            assert!(data.get("answer_context").is_none());
             assert_eq!(data["evidence"].as_array().unwrap().len(), 1);
             let projected: SelfInviteStatus =
                 serde_json::from_str(data["evidence"][0]["content"].as_str().unwrap()).unwrap();

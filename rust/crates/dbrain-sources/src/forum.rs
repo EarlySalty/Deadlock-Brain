@@ -947,6 +947,7 @@ mod kernel_integration_tests {
         store.publish(&release).await.unwrap();
         let retriever = ReleaseRetriever::new(store, 6);
         let query = Query {
+            answer_context: None,
             request_id: "fixture".into(),
             conversation_id: "fixture".into(),
             text: "Itemfehler".into(),

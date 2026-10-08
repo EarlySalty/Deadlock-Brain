@@ -62,6 +62,7 @@ fn budget() -> Budget {
 }
 fn query() -> Query {
     Query {
+        answer_context: None,
         request_id: "fixture-request".into(),
         conversation_id: "fixture-conversation".into(),
         text: "Operatorausschnitt".into(),

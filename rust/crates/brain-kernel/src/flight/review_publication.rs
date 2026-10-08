@@ -66,6 +66,7 @@ fn record(id: &str, revision: u64, publication: bool) -> SourceRecordV2 {
 fn request() -> (Query, AuthorizedContext) {
     (
         Query {
+            answer_context: None,
             request_id: "leader".into(),
             conversation_id: "c1".into(),
             text: "Abrams".into(),

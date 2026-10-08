@@ -317,6 +317,7 @@ pub fn authorize_public_guide(
         return Err(BotTaskError::Unavailable);
     }
     let query = Query {
+        answer_context: None,
         request_id: request.request_id.clone(),
         conversation_id: context.conversation_id.to_owned(),
         text: question.clone(),

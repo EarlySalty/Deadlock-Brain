@@ -85,6 +85,7 @@ async fn kernel_must_not_start_after_http_deadline_during_ownership_check() {
     )
     .unwrap();
     let query = Query {
+        answer_context: None,
         request_id: "review-1".into(),
         conversation_id: "review-conversation".into(),
         text: "Review fixture".into(),

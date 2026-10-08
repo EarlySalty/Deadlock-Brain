@@ -82,6 +82,7 @@ async fn fixture(fail_at: usize, every: usize, error: PortError) -> FaultReader 
 }
 fn query() -> Query {
     Query {
+        answer_context: None,
         request_id: "q1".into(),
         conversation_id: "c1".into(),
         text: "Abrams".into(),

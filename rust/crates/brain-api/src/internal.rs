@@ -344,6 +344,7 @@ mod tests {
     }
     fn query() -> Query {
         Query {
+            answer_context: None,
             request_id: "internal-fixture-r".into(),
             conversation_id: "internal-fixture-c".into(),
             text: "Erfundene Operatorfrage".into(),

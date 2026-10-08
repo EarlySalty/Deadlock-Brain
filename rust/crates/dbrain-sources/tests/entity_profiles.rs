@@ -2217,6 +2217,7 @@ async fn gitblobfelder_werden_im_normalen_ableitungs_und_abrufweg_geprüft(
                     .unwrap()
             });
             let query = brain_contracts::Query {
+                answer_context: None,
                 request_id: "blobfield".into(),
                 conversation_id: "blobfield".into(),
                 text: format!("Welche Gesundheit hat {}?", identity.name),

@@ -162,6 +162,7 @@ async fn postgres_match_commit_release_readback_replay_and_revoke() {
             .unwrap()
             .is_empty());
         let query = Query {
+            answer_context: None,
             request_id: "match-fixture-request".into(),
             conversation_id: "match-fixture-conversation".into(),
             text: "Match 92685682 account 281768392".into(),

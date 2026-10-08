@@ -105,6 +105,7 @@ impl AnswerProviderPort for Provider {
 }
 fn request() -> Query {
     Query {
+        answer_context: None,
         request_id: "review-1".into(),
         conversation_id: "review-conversation".into(),
         text: "Summarize the evidence".into(),

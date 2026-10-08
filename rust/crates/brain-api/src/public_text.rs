@@ -42,6 +42,7 @@ mod tests {
 
     fn query(text: &str) -> Query {
         Query {
+            answer_context: None,
             request_id: "request".into(),
             conversation_id: "conversation".into(),
             text: text.into(),

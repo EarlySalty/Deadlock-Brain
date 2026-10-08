@@ -73,6 +73,7 @@ fn bind(record: &mut SourceRecordV2, patch: Option<&str>) {
 }
 fn query() -> Query {
     Query {
+        answer_context: None,
         request_id: "patch-q".into(),
         conversation_id: "patch-c".into(),
         text: "Abrams health".into(),

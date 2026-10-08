@@ -755,6 +755,7 @@ mod tests {
 
     fn answer_query(predicate: &str) -> Query {
         Query {
+            answer_context: None,
             request_id: "fixture-request".into(),
             conversation_id: "fixture-conversation".into(),
             text: "Held 18: erfasste Partien".into(),

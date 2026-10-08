@@ -276,6 +276,7 @@ async fn handle(
             };
             let (request_id, conversation_id) = ids(&arguments);
             let query = Query {
+                answer_context: None,
                 request_id,
                 conversation_id,
                 text: question.to_string(),
@@ -807,6 +808,7 @@ mod tests {
     fn frame_limit_fits_maximum_schema_question_with_json_escaping() {
         let question = "\u{0001}".repeat(32_768);
         let query = Query {
+            answer_context: None,
             request_id: "request".to_string(),
             conversation_id: "conversation".to_string(),
             text: question.clone(),
@@ -880,6 +882,7 @@ mod tests {
         let trusted = BTreeSet::from(["docs.public".to_string()]);
         let (request_id, conversation_id) = ids(&args);
         let query = Query {
+            answer_context: None,
             request_id,
             conversation_id,
             text: args["question"].as_str().unwrap().to_string(),

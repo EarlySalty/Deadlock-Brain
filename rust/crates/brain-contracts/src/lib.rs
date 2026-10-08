@@ -61,6 +61,8 @@ pub enum ContractError {
     InvalidStableId,
     #[error("Contract Größenlimit überschritten")]
     LimitExceeded,
+    #[error("Widersprüchlicher Antwortort")]
+    InvalidAnswerContext,
     #[error("Anfragegebundene Inhalte dürfen nicht als Wissensquelle gespeichert werden")]
     RequestScopedSource,
 }
@@ -77,12 +79,99 @@ pub enum AnswerProfile {
     Coaching,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AnswerInputKind {
+    Message,
+    Mention,
+    SlashCommand,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiscordAnswerContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_thread: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_direct_message: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_kind: Option<AnswerInputKind>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TwitchAnswerContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_partner: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_kind: Option<AnswerInputKind>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "platform", rename_all = "snake_case")]
+pub enum AnswerContext {
+    Discord(DiscordAnswerContext),
+    Twitch(TwitchAnswerContext),
+}
+
+impl AnswerContext {
+    pub fn validate(&self) -> Result<()> {
+        if let Self::Discord(context) = self {
+            if (context.is_direct_message == Some(true) && context.is_thread == Some(true))
+                || (context.is_thread == Some(false) && context.thread_name.is_some())
+                || (context.is_direct_message == Some(true)
+                    && (context.channel_name.is_some()
+                        || context.category_name.is_some()
+                        || context.topic.is_some()
+                        || context.thread_name.is_some()))
+            {
+                return Err(ContractError::InvalidAnswerContext);
+            }
+        }
+        let (names, descriptions) = match self {
+            Self::Discord(context) => (
+                vec![
+                    &context.channel_name,
+                    &context.category_name,
+                    &context.thread_name,
+                ],
+                vec![&context.topic, &context.purpose],
+            ),
+            Self::Twitch(context) => (vec![&context.channel_name], Vec::new()),
+        };
+        if names.into_iter().flatten().any(|name| {
+            name.trim().is_empty() || name.len() > 512 || name.chars().any(char::is_control)
+        }) || descriptions
+            .into_iter()
+            .flatten()
+            .any(|text| text.trim().is_empty() || text.len() > 4096 || text.contains('\0'))
+        {
+            return Err(ContractError::LimitExceeded);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Query {
     pub request_id: String,
     pub conversation_id: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer_context: Option<AnswerContext>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<domain::DomainRequest>,
     #[serde(default)]
@@ -108,6 +197,9 @@ impl Query {
         }
         if let Some(request) = &self.domain {
             request.validate()?;
+        }
+        if let Some(context) = &self.answer_context {
+            context.validate()?;
         }
         if self.text.len() > 32_768 || self.requested_scopes.len() > 64 {
             return Err(ContractError::LimitExceeded);
@@ -680,6 +772,7 @@ mod tests {
     #[test]
     fn query_rejects_empty_identity_fields() {
         let query = Query {
+            answer_context: None,
             domain: None,
             request_id: String::new(),
             conversation_id: "c1".into(),
@@ -697,6 +790,7 @@ mod tests {
         let mut scopes = BTreeSet::new();
         scopes.insert("docs.public".to_string());
         let query = Query {
+            answer_context: None,
             domain: None,
             request_id: "r1".into(),
             conversation_id: "c1".into(),
@@ -709,6 +803,43 @@ mod tests {
         let json = serde_json::to_string(&query).unwrap();
         let decoded: Query = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, query);
+    }
+
+    #[test]
+    fn ortsvertrag_bleibt_optional_und_lehnt_ids_und_dm_guildfelder_ab() {
+        let query: Query = serde_json::from_value(serde_json::json!({
+            "request_id":"r", "conversation_id":"c", "text":"Frage"
+        }))
+        .unwrap();
+        assert!(query.answer_context.is_none());
+        assert!(serde_json::to_value(query)
+            .unwrap()
+            .get("answer_context")
+            .is_none());
+        for field in [
+            "channel_id",
+            "guild_id",
+            "user_id",
+            "requested_scopes",
+            "instructions",
+        ] {
+            let mut value = serde_json::json!({"platform":"discord"});
+            value[field] = serde_json::json!("123");
+            assert!(serde_json::from_value::<AnswerContext>(value).is_err());
+        }
+        for field in ["channel_name", "category_name", "topic", "thread_name"] {
+            let mut value = serde_json::json!({"platform":"discord", "is_direct_message":true});
+            value[field] = serde_json::json!("Guildwert");
+            assert!(serde_json::from_value::<AnswerContext>(value)
+                .unwrap()
+                .validate()
+                .is_err());
+        }
+        let context: AnswerContext = serde_json::from_value(serde_json::json!({
+            "platform":"discord", "is_direct_message":true, "input_kind":"message"
+        }))
+        .unwrap();
+        assert_eq!(context.validate(), Ok(()));
     }
 
     #[test]
