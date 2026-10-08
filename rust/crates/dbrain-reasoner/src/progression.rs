@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::{AbilityModel, AbilityStep, HeroModel, ReasonerConfig, ScalingStat};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ProgressionEvidence {
     pub earned_souls: i64,
     pub reached_level: i64,

@@ -93,7 +93,7 @@ pub struct PlanningContext<'a> {
     pub population: Option<&'a crate::PopulationPrior>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct PurchaseStep {
     pub transition: PurchaseTransition,
     pub evaluation: InventoryEvaluation,
@@ -102,14 +102,14 @@ pub struct PurchaseStep {
     pub imbue_targets: BTreeMap<i64, i64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct SavingDecision {
     pub earned_souls: i64,
     pub available_souls: i64,
     pub reason: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct PurchasePlan {
     pub steps: Vec<PurchaseStep>,
     pub final_evaluation: InventoryEvaluation,

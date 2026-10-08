@@ -27,6 +27,8 @@ pub struct BuildProvenance {
     pub input_sha256: String,
     pub plan_sha256: String,
     pub config: crate::ReasonerConfig,
+    #[serde(default)]
+    pub purchase_plan: Option<crate::planner::PurchasePlan>,
 }
 
 fn fingerprint(value: &impl Serialize) -> Result<String> {
@@ -92,6 +94,14 @@ impl BuildDataOrigin {
         Ok(origin)
     }
 
+    fn same_game_values(&self, other: &Self) -> bool {
+        self.client_version == other.client_version
+            && self.parser_revision == other.parser_revision
+            && self.manifest_sha256 == other.manifest_sha256
+            && self.heroes_sha256 == other.heroes_sha256
+            && self.items_sha256 == other.items_sha256
+    }
+
     pub(crate) fn snapshot_source(&self) -> Result<String> {
         self.validate()?;
         let encoded = serde_json::to_string(self)
@@ -111,7 +121,44 @@ fn input_fingerprint(
     fingerprint(&(hero, items, snapshots, config))
 }
 
-fn plan_fingerprint(build: &BuildObject) -> Result<String> {
+fn game_values_fingerprint(
+    hero: &crate::HeroModel,
+    items: &[crate::ItemModel],
+    snapshots: &[crate::PatchSnapshot],
+    config: &crate::ReasonerConfig,
+) -> Result<String> {
+    let fields = snapshots
+        .iter()
+        .map(|snapshot| {
+            (
+                &snapshot.target,
+                &snapshot.name,
+                snapshot
+                    .fields
+                    .iter()
+                    .map(|(name, field)| {
+                        (
+                            name,
+                            field.value,
+                            field
+                                .source
+                                .split(BUILD_DATA_MARKER)
+                                .next()
+                                .unwrap_or_default(),
+                            &field.label,
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
+    fingerprint(&(hero, items, fields, config))
+}
+
+fn plan_fingerprint(
+    build: &BuildObject,
+    plan: Option<&crate::planner::PurchasePlan>,
+) -> Result<String> {
     let item = |item: &BuildItem| {
         (
             item.item_id,
@@ -138,6 +185,7 @@ fn plan_fingerprint(build: &BuildObject) -> Result<String> {
             })
             .collect::<Vec<_>>(),
         &build.ability_order,
+        plan,
     ))
 }
 
@@ -176,6 +224,7 @@ pub(crate) fn calculation_provenance(
                 input_sha256: input_fingerprint(hero, items, snapshots, config)?,
                 plan_sha256: String::new(),
                 config: config.clone(),
+                purchase_plan: None,
             })
         })
         .transpose()
@@ -184,8 +233,10 @@ pub(crate) fn calculation_provenance(
 pub(crate) fn bind_calculated_build(
     build: &mut BuildObject,
     mut provenance: BuildProvenance,
+    purchase_plan: &crate::planner::PurchasePlan,
 ) -> Result<()> {
-    provenance.plan_sha256 = plan_fingerprint(build)?;
+    provenance.purchase_plan = Some(purchase_plan.clone());
+    provenance.plan_sha256 = plan_fingerprint(build, provenance.purchase_plan.as_ref())?;
     let first = build
         .core
         .first_mut()
@@ -215,7 +266,8 @@ pub fn validate_build_provenance(build: &BuildObject) -> Result<&BuildProvenance
     provenance.origin.validate()?;
     if origins.next().is_some()
         || provenance.config.patch_tag != build.patch_tag
-        || provenance.plan_sha256 != plan_fingerprint(build)?
+        || provenance.purchase_plan.is_none()
+        || provenance.plan_sha256 != plan_fingerprint(build, provenance.purchase_plan.as_ref())?
         || provenance.input_sha256.len() != 64
     {
         return Err(ReasonerError::Data(
@@ -223,6 +275,29 @@ pub fn validate_build_provenance(build: &BuildObject) -> Result<&BuildProvenance
         ));
     }
     Ok(provenance)
+}
+
+pub fn publication_caller(build: &BuildObject) -> Result<String> {
+    let provenance = validate_build_provenance(build)?;
+    let origin = &provenance.origin;
+    let identity = fingerprint(&(
+        origin.client_version,
+        &origin.parser_revision,
+        &origin.manifest_sha256,
+        &origin.heroes_sha256,
+        &origin.items_sha256,
+        &provenance.plan_sha256,
+        &provenance.config,
+    ))?;
+    Ok(format!("deadlock-brain-reasoner/{identity}"))
+}
+
+pub fn equivalent_calculated_builds(first: &BuildObject, second: &BuildObject) -> Result<bool> {
+    let first = validate_build_provenance(first)?;
+    let second = validate_build_provenance(second)?;
+    Ok(first.origin.same_game_values(&second.origin)
+        && first.plan_sha256 == second.plan_sha256
+        && first.config == second.config)
 }
 
 fn validate_calculated_inputs(
@@ -237,6 +312,49 @@ fn validate_calculated_inputs(
             ReasonerError::Data("Aktuelle Originalspieldaten sind nicht belegt.".into())
         })?;
     if original.origin != current.origin || original.input_sha256 != current.input_sha256 {
+        return Err(ReasonerError::Data("Spieldaten oder Clientversion haben sich seit der Buildberechnung geändert. Es wurde nichts veröffentlicht.".into()));
+    }
+    Ok(())
+}
+
+fn validate_current_game_values(
+    build: &BuildObject,
+    original: &crate::data::MirroredModels,
+    current: &crate::data::MirroredModels,
+) -> Result<()> {
+    let provenance = validate_build_provenance(build)?;
+    let planning_items = |models: &crate::data::MirroredModels| {
+        models
+            .items
+            .iter()
+            .map(crate::item::build_item_model)
+            .collect::<Result<Vec<_>>>()
+    };
+    let original_items = planning_items(original)?;
+    let current_items = planning_items(current)?;
+    validate_calculated_inputs(build, &original.hero, &original_items, &original.snapshots)?;
+    let current_provenance = calculation_provenance(
+        &current.hero,
+        &current_items,
+        &current.snapshots,
+        &provenance.config,
+    )?
+    .ok_or_else(|| ReasonerError::Data("Aktuelle Originalspieldaten sind nicht belegt.".into()))?;
+    if !provenance
+        .origin
+        .same_game_values(&current_provenance.origin)
+        || game_values_fingerprint(
+            &original.hero,
+            &original_items,
+            &original.snapshots,
+            &provenance.config,
+        )? != game_values_fingerprint(
+            &current.hero,
+            &current_items,
+            &current.snapshots,
+            &provenance.config,
+        )?
+    {
         return Err(ReasonerError::Data("Spieldaten oder Clientversion haben sich seit der Buildberechnung geändert. Es wurde nichts veröffentlicht.".into()));
     }
     Ok(())
@@ -408,19 +526,20 @@ pub async fn validate_publish_current(pool: &PgPool, build: &BuildObject) -> Res
         })?;
     let mirrored = crate::data::load_models_from_mirror(&ctx, &build.hero_name).await?;
     validate_mirror_provenance(&mirrored.provenance, start)?;
-    let planning_items = mirrored
-        .items
-        .iter()
-        .map(crate::item::build_item_model)
-        .collect::<Result<Vec<_>>>()?;
-    validate_calculated_inputs(build, &mirrored.hero, &planning_items, &mirrored.snapshots)?;
-    validate_publish_models(
+    let calculated =
+        crate::data::load_models_from_origin(&ctx, &build.hero_name, &original.origin).await?;
+    validate_current_game_values(build, &calculated, &mirrored)?;
+    validate_publish_models_with_plan(
         build,
+        original
+            .purchase_plan
+            .as_ref()
+            .ok_or_else(|| ReasonerError::Data("Berechnete Kaufkurve fehlt.".into()))?,
         &mirrored.hero,
         &mirrored.items,
         &mirrored.snapshots,
         mirrored.provenance.mirrored_at as f64,
-        &ctx.config,
+        &original.config,
     )
 }
 
@@ -441,8 +560,9 @@ fn validate_mirror_provenance(
     Ok(())
 }
 
-fn validate_publish_models(
+fn validate_publish_models_with_plan(
     build: &BuildObject,
+    plan: &crate::planner::PurchasePlan,
     hero: &crate::HeroModel,
     items: &[crate::ItemModel],
     snapshots: &[crate::PatchSnapshot],
@@ -509,13 +629,42 @@ fn validate_publish_models(
             ));
         }
     }
+    if plan.ability_order != order || plan.steps.len() != build.core.len() || plan.steps.is_empty()
+    {
+        return Err(error(
+            "Gespeicherte Kaufkurve passt nicht zum veröffentlichten Build.",
+        ));
+    }
+    let full_souls = hero
+        .level_curve
+        .iter()
+        .map(|level| level.required_souls)
+        .max()
+        .unwrap_or(0);
+    let (fully_progressed, full_progression) =
+        crate::progression::at_souls(hero, &order, full_souls, cfg);
+    if !full_progression.unknown_effects.is_empty()
+        || (order.iter().any(|step| step.currency_type == 1)
+            && full_progression.applied_order_steps != order.len())
+    {
+        return Err(error(
+            "Veröffentlichte Skillfolge enthält nicht belegte Fortschrittsmechanik.",
+        ));
+    }
+    let items = items
+        .iter()
+        .map(crate::item::build_item_model)
+        .collect::<Result<Vec<_>>>()?;
+    let items = items.as_slice();
     let rules = crate::inventory::InventoryRules::from_catalog(items)?;
     let mut inventory = crate::inventory::Inventory::default();
+    let mut bindings = std::collections::BTreeMap::new();
+    let mut earned_souls = 0;
     let meta = crate::MetaIndex {
         by_item: Default::default(),
         sample_ok: Default::default(),
     };
-    for purchase in &build.core {
+    for (purchase, step) in build.core.iter().zip(&plan.steps) {
         let item = items
             .iter()
             .find(|item| item.item_id == purchase.item_id)
@@ -536,45 +685,49 @@ fn validate_publish_models(
                 return Err(error("Ungültige Fähigkeitsbindung."));
             }
         }
-        let mut sale_ids = Vec::new();
-        let transition = loop {
-            match inventory.preview_purchase(item, items, &rules, &sale_ids) {
-                Ok(transition) => break transition,
-                Err(failure) => {
-                    let next = build
-                        .core
-                        .iter()
-                        .filter(|previous| {
-                            inventory.held_ids.contains(&previous.item_id)
-                                && !sale_ids.contains(&previous.item_id)
-                        })
-                        .filter_map(|previous| {
-                            previous
-                                .sell_priority
-                                .map(|priority| (priority, previous.item_id))
-                        })
-                        .min();
-                    let Some((_, id)) = next else {
-                        return Err(failure);
-                    };
-                    sale_ids.push(id);
-                }
-            }
-        };
-        inventory = transition.after;
-        let held = items
-            .iter()
-            .filter(|item| inventory.held_ids.contains(&item.item_id))
-            .cloned()
-            .collect::<Vec<_>>();
-        let bindings = build
-            .core
-            .iter()
-            .filter(|item| inventory.held_ids.contains(&item.item_id))
-            .filter_map(|item| item.imbue_target.map(|target| (item.item_id, target)))
-            .collect();
+        if step.transition.purchased_id != purchase.item_id
+            || step.progression.earned_souls < earned_souls
+            || step.transition.after.spent_souls > step.progression.earned_souls
+            || step.transition.net_cost <= 0
+            || step.transition.sold_ids.iter().any(|id| {
+                !build
+                    .core
+                    .iter()
+                    .any(|previous| previous.item_id == *id && previous.sell_priority.is_some())
+            })
+        {
+            return Err(error(
+                "Kauf oder Finanzierung stimmt nicht mit der gespeicherten Kaufkurve überein.",
+            ));
+        }
+        let transition =
+            inventory.preview_purchase(item, items, &rules, &step.transition.sold_ids)?;
+        if transition != step.transition {
+            return Err(error(
+                "Gespeicherter Kaufübergang passt nicht zu den aktuellen Spielwerten.",
+            ));
+        }
+        inventory.apply_transition(&transition)?;
+        bindings.retain(|id, _| inventory.held_ids.contains(id));
+        if let Some(target) = purchase.imbue_target {
+            bindings.insert(purchase.item_id, target);
+        }
+        if bindings != step.imbue_targets {
+            return Err(error(
+                "Fähigkeitsbindungen passen nicht zur gespeicherten Kaufkurve.",
+            ));
+        }
+        earned_souls = step.progression.earned_souls;
+        let (progressed, progression) =
+            crate::progression::at_souls(hero, &order, earned_souls, cfg);
+        if progression != step.progression || !progression.unknown_effects.is_empty() {
+            return Err(error(
+                "Kaufkurve enthält nicht belegte Fortschrittsmechanik.",
+            ));
+        }
+        let held = inventory.held_items(items)?;
         let evaluation =
-            crate::combat::evaluate_inventory_with_bindings(hero, &held, cfg, &bindings);
+            crate::combat::evaluate_inventory_with_bindings(&progressed, &held, cfg, &bindings);
         if !evaluation.score.is_finite() || !evaluation.unknown_effects.is_empty() {
             return Err(ReasonerError::Data(format!(
                 "Kaufkurve enthält nicht belegte Kampfmechanik: {}",
@@ -582,24 +735,23 @@ fn validate_publish_models(
             )));
         }
     }
-    let held = items
-        .iter()
-        .filter(|item| inventory.held_ids.contains(&item.item_id))
-        .cloned()
-        .collect::<Vec<_>>();
-    let bindings = build
-        .core
-        .iter()
-        .filter(|item| inventory.held_ids.contains(&item.item_id))
-        .filter_map(|item| item.imbue_target.map(|target| (item.item_id, target)))
-        .collect();
-    let evaluation = crate::combat::evaluate_inventory_with_bindings(hero, &held, cfg, &bindings);
-    let baseline = crate::combat::evaluate_inventory(hero, &[], cfg);
+    let held = inventory.held_items(items)?;
+    let (progressed, _) = crate::progression::at_souls(hero, &order, earned_souls, cfg);
+    let evaluation =
+        crate::combat::evaluate_inventory_with_bindings(&progressed, &held, cfg, &bindings);
+    let baseline = crate::combat::evaluate_inventory(&progressed, &[], cfg);
     if !evaluation.score.is_finite()
         || evaluation.score <= baseline.score
         || !evaluation.unknown_effects.is_empty()
     {
         return Err(error("Kern enthält nicht belegte Kampfmechanik."));
+    }
+    let published_evaluation =
+        crate::combat::evaluate_inventory_with_bindings(&fully_progressed, &held, cfg, &bindings);
+    if !published_evaluation.score.is_finite() || !published_evaluation.unknown_effects.is_empty() {
+        return Err(error(
+            "Veröffentlichter Kern enthält nicht belegte Kampfmechanik der Skillfolge.",
+        ));
     }
     for candidate in build.situations.iter().flat_map(|block| &block.items) {
         let item = items
@@ -625,7 +777,7 @@ fn validate_publish_models(
             .into_iter()
             .collect();
         let evaluation = crate::combat::evaluate_inventory_with_bindings(
-            hero,
+            &fully_progressed,
             std::slice::from_ref(item),
             cfg,
             &bindings,
@@ -781,6 +933,116 @@ mod tests {
         (build, hero, models, snapshots)
     }
 
+    fn fixture_plan(
+        build: &BuildObject,
+        hero: &crate::HeroModel,
+        items: &[crate::ItemModel],
+        cfg: &crate::ReasonerConfig,
+    ) -> Result<crate::planner::PurchasePlan> {
+        let rules = crate::inventory::InventoryRules::from_catalog(items)?;
+        let mut inventory = crate::inventory::Inventory::default();
+        let mut steps = Vec::new();
+        let mut earned = 0;
+        for purchase in &build.core {
+            let item = items
+                .iter()
+                .find(|item| item.item_id == purchase.item_id)
+                .unwrap();
+            let transition = inventory.preview_purchase(item, items, &rules, &[])?;
+            inventory.apply_transition(&transition)?;
+            earned += item.cost;
+            let (hero, progression) =
+                crate::progression::at_souls(hero, &build.ability_order, earned, cfg);
+            let bindings = build
+                .core
+                .iter()
+                .filter(|item| inventory.held_ids.contains(&item.item_id))
+                .filter_map(|item| item.imbue_target.map(|target| (item.item_id, target)))
+                .collect();
+            let evaluation = crate::combat::evaluate_inventory_with_bindings(
+                &hero,
+                &inventory.held_items(items)?,
+                cfg,
+                &bindings,
+            );
+            steps.push(crate::planner::PurchaseStep {
+                transition,
+                evaluation,
+                marginal_value: 1.0,
+                progression,
+                imbue_targets: bindings,
+            });
+        }
+        Ok(crate::planner::PurchasePlan {
+            final_evaluation: steps.last().unwrap().evaluation.clone(),
+            steps,
+            assumptions: Vec::new(),
+            ability_order: build.ability_order.clone(),
+            saving_decisions: Vec::new(),
+        })
+    }
+
+    fn validate_publish_models(
+        build: &BuildObject,
+        hero: &crate::HeroModel,
+        items: &[crate::ItemModel],
+        snapshots: &[crate::PatchSnapshot],
+        mirrored_at: f64,
+        cfg: &crate::ReasonerConfig,
+    ) -> Result<()> {
+        let plan = fixture_plan(build, hero, items, cfg)?;
+        validate_publish_models_with_plan(build, &plan, hero, items, snapshots, mirrored_at, cfg)
+    }
+
+    fn origin_fixture() -> BuildDataOrigin {
+        BuildDataOrigin {
+            client_version: 6000,
+            source_run_id: 10,
+            mirrored_at: 2000,
+            parser_revision: "fixture-parser".into(),
+            manifest_document_id: 11,
+            manifest_sha256: "1".repeat(64),
+            heroes_document_id: 12,
+            heroes_sha256: "2".repeat(64),
+            items_document_id: 13,
+            items_sha256: "3".repeat(64),
+        }
+    }
+
+    fn bound_fixture(origin: BuildDataOrigin) -> (BuildObject, crate::data::MirroredModels) {
+        let (mut build, hero, items, mut snapshots) = model_fixture();
+        for snapshot in &mut snapshots {
+            for field in snapshot.fields.values_mut() {
+                field.fetched_at = Some(origin.mirrored_at as f64);
+            }
+        }
+        snapshots[0].fields.values_mut().next().unwrap().source = origin.snapshot_source().unwrap();
+        let cfg = crate::ReasonerConfig {
+            patch_tag: build.patch_tag.clone(),
+            use_ai: false,
+            ..Default::default()
+        };
+        let plan = fixture_plan(&build, &hero, &items, &cfg).unwrap();
+        let provenance = calculation_provenance(&hero, &items, &snapshots, &cfg)
+            .unwrap()
+            .unwrap();
+        bind_calculated_build(&mut build, provenance, &plan).unwrap();
+        (
+            build,
+            crate::data::MirroredModels {
+                hero,
+                items,
+                snapshots,
+                provenance: crate::data::MirrorProvenance {
+                    client_version: origin.client_version,
+                    mirrored_at: origin.mirrored_at,
+                    checked_at: origin.mirrored_at,
+                },
+                flex_slots: None,
+            },
+        )
+    }
+
     #[test]
     fn fingerprints_bind_all_planning_inputs_without_new_receipt_fixtures() {
         let (_, hero, mut items, mut snapshots) = model_fixture();
@@ -823,13 +1085,224 @@ mod tests {
     }
 
     #[test]
+    fn current_guard_keeps_exact_origin_but_accepts_new_observations_of_identical_values() {
+        let (build, original) = bound_fixture(origin_fixture());
+        let mut observed = origin_fixture();
+        observed.source_run_id += 100;
+        observed.mirrored_at += 100;
+        observed.manifest_document_id += 100;
+        observed.heroes_document_id += 100;
+        observed.items_document_id += 100;
+        let (recalculated, current) = bound_fixture(observed.clone());
+        assert_ne!(validate_build_provenance(&build).unwrap().origin, observed);
+        validate_current_game_values(&build, &original, &current).unwrap();
+        assert!(equivalent_calculated_builds(&build, &recalculated).unwrap());
+        assert_ne!(
+            validate_build_provenance(&build).unwrap().input_sha256,
+            validate_build_provenance(&recalculated)
+                .unwrap()
+                .input_sha256
+        );
+        let original_json = serde_json::to_value(&build).unwrap();
+        let roundtrip = serde_json::from_value(original_json.clone()).unwrap();
+        validate_current_game_values(&roundtrip, &original, &current).unwrap();
+        assert_eq!(serde_json::to_value(&roundtrip).unwrap(), original_json);
+        for changed in [
+            {
+                let mut value = observed.clone();
+                value.client_version += 1;
+                value
+            },
+            {
+                let mut value = observed.clone();
+                value.parser_revision.push_str("-new");
+                value
+            },
+            {
+                let mut value = observed.clone();
+                value.items_sha256 = "4".repeat(64);
+                value
+            },
+            {
+                let mut value = observed;
+                value.heroes_sha256 = "5".repeat(64);
+                value
+            },
+        ] {
+            let (changed_build, changed_models) = bound_fixture(changed);
+            assert!(validate_current_game_values(&build, &original, &changed_models).is_err());
+            assert!(!equivalent_calculated_builds(&build, &changed_build).unwrap());
+        }
+        let (_, mut changed) = bound_fixture(origin_fixture());
+        changed.hero.weapon.bullet_damage += 1.0;
+        assert!(validate_current_game_values(&build, &original, &changed).is_err());
+        let (_, mut changed) = bound_fixture(origin_fixture());
+        changed.items[0].cost += 1;
+        assert!(validate_current_game_values(&build, &original, &changed).is_err());
+        let (_, mut changed) = bound_fixture(origin_fixture());
+        changed.snapshots[0]
+            .fields
+            .values_mut()
+            .next()
+            .unwrap()
+            .value += 1.0;
+        assert!(validate_current_game_values(&build, &original, &changed).is_err());
+        let mut forged = build.clone();
+        if let EvidenceKind::BuildProvenance(provenance) =
+            &mut forged.core[0].sources.last_mut().unwrap().kind
+        {
+            provenance.origin.source_run_id += 1;
+        }
+        assert!(validate_current_game_values(&forged, &original, &current).is_err());
+    }
+
+    #[test]
+    fn guard_checks_published_upgrades_even_after_the_last_purchase() {
+        let (mut build, mut hero, models, snapshots) = model_fixture();
+        hero.level_curve = vec![
+            crate::LevelPoint {
+                level: 1,
+                required_souls: 0,
+            },
+            crate::LevelPoint {
+                level: 2,
+                required_souls: 2000,
+            },
+        ];
+        hero.level_rewards = [
+            (1, vec!["EAbilityUnlocks".into()]),
+            (2, vec!["EAbilityPoints".into()]),
+        ]
+        .into_iter()
+        .collect();
+        build.ability_order.push(crate::AbilityStep {
+            ability_id: 101,
+            currency_type: 1,
+            delta: -1,
+        });
+        let cfg = crate::ReasonerConfig::default();
+        let plan = fixture_plan(&build, &hero, &models, &cfg).unwrap();
+        assert_eq!(plan.steps[0].progression.applied_order_steps, 1);
+        validate_publish_models_with_plan(&build, &plan, &hero, &models, &snapshots, 2000.0, &cfg)
+            .unwrap();
+        hero.abilities[0].upgrades[0]["property_upgrades"][0]["upgrade_type"] =
+            serde_json::json!("EUnknown");
+        assert!(crate::combat::evaluate_inventory(&hero, &models[..1], &cfg)
+            .unknown_effects
+            .is_empty());
+        let error = validate_publish_models_with_plan(
+            &build, &plan, &hero, &models, &snapshots, 2000.0, &cfg,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("Fortschrittsmechanik"));
+        hero.level_curve[1].required_souls = 100;
+        let plan = fixture_plan(&build, &hero, &models, &cfg).unwrap();
+        assert!(!plan.steps[0].progression.unknown_effects.is_empty());
+        assert!(validate_publish_models_with_plan(
+            &build, &plan, &hero, &models, &snapshots, 2000.0, &cfg
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn guard_replays_funding_sales_with_free_slots_and_binds_the_complete_plan() {
+        let (mut build, hero, mut models, snapshots) = model_fixture();
+        build.core[0].sell_priority = Some(1);
+        build.core.push(item(2, None, None));
+        models[1]
+            .properties
+            .insert("BaseAttackDamagePercent".into(), 100.0);
+        let cfg = crate::ReasonerConfig {
+            patch_tag: build.patch_tag.clone(),
+            ..Default::default()
+        };
+        let mut plan = fixture_plan(&build, &hero, &models, &cfg).unwrap();
+        let rules = crate::inventory::InventoryRules::from_catalog(&models).unwrap();
+        let before = &plan.steps[0].transition.after;
+        assert!(before.held_ids.len() < rules.max_slots);
+        let direct = before
+            .preview_purchase(&models[1], &models, &rules, &[])
+            .unwrap();
+        let funded = before
+            .preview_purchase(&models[1], &models, &rules, &[1])
+            .unwrap();
+        plan.steps[1].transition = funded;
+        plan.steps[1].progression =
+            crate::progression::at_souls(&hero, &build.ability_order, 2400, &cfg).1;
+        plan.steps[1].evaluation = crate::combat::evaluate_inventory(&hero, &models[1..2], &cfg);
+        plan.final_evaluation = plan.steps[1].evaluation.clone();
+        assert!(direct.after.spent_souls > plan.steps[1].progression.earned_souls);
+        validate_publish_models_with_plan(&build, &plan, &hero, &models, &snapshots, 2000.0, &cfg)
+            .unwrap();
+        let mut unfunded = plan.clone();
+        unfunded.steps[1].transition = direct;
+        assert!(validate_publish_models_with_plan(
+            &build, &unfunded, &hero, &models, &snapshots, 2000.0, &cfg
+        )
+        .is_err());
+        let mut corrupted = plan.clone();
+        corrupted.steps[1].transition.after.held_ids.insert(1);
+        assert!(validate_publish_models_with_plan(
+            &build, &corrupted, &hero, &models, &snapshots, 2000.0, &cfg
+        )
+        .is_err());
+        let mut wrong_skill = plan.clone();
+        wrong_skill.ability_order.clear();
+        assert!(validate_publish_models_with_plan(
+            &build,
+            &wrong_skill,
+            &hero,
+            &models,
+            &snapshots,
+            2000.0,
+            &cfg
+        )
+        .is_err());
+        let provenance = BuildProvenance {
+            origin: origin_fixture(),
+            input_sha256: input_fingerprint(&hero, &models, &snapshots, &cfg).unwrap(),
+            plan_sha256: String::new(),
+            config: cfg.clone(),
+            purchase_plan: None,
+        };
+        bind_calculated_build(&mut build, provenance, &plan).unwrap();
+        let restored: BuildObject =
+            serde_json::from_value(serde_json::to_value(&build).unwrap()).unwrap();
+        let bound = validate_build_provenance(&restored).unwrap();
+        assert_eq!(
+            serde_json::to_value(bound.purchase_plan.as_ref().unwrap()).unwrap(),
+            serde_json::to_value(&plan).unwrap()
+        );
+        validate_publish_models_with_plan(
+            &restored,
+            bound.purchase_plan.as_ref().unwrap(),
+            &hero,
+            &models,
+            &snapshots,
+            2000.0,
+            &cfg,
+        )
+        .unwrap();
+        let mut tampered = restored;
+        if let EvidenceKind::BuildProvenance(provenance) =
+            &mut tampered.core[0].sources.last_mut().unwrap().kind
+        {
+            provenance.purchase_plan.as_mut().unwrap().steps[1]
+                .transition
+                .sold_ids
+                .clear();
+        }
+        assert!(validate_build_provenance(&tampered).is_err());
+    }
+
+    #[test]
     fn calculated_plan_binding_preserves_text_but_detects_purchase_and_skill_changes() {
         let (build, _, _, _) = model_fixture();
-        let original = plan_fingerprint(&build).unwrap();
+        let original = plan_fingerprint(&build, None).unwrap();
         let mut changed = build.clone();
         changed.rationale.push_str(" Ergänzende Erläuterung");
         changed.core[0].why.push_str(" Ergänzende Erläuterung");
-        assert_eq!(original, plan_fingerprint(&changed).unwrap());
+        assert_eq!(original, plan_fingerprint(&changed, None).unwrap());
         for changed in [
             {
                 let mut changed = build.clone();
@@ -852,7 +1325,7 @@ mod tests {
                 changed
             },
         ] {
-            assert_ne!(original, plan_fingerprint(&changed).unwrap());
+            assert_ne!(original, plan_fingerprint(&changed, None).unwrap());
         }
         let roundtrip: BuildObject =
             serde_json::from_value(serde_json::to_value(&build).unwrap()).unwrap();
@@ -919,9 +1392,8 @@ mod tests {
             observations: vec![],
             family: None,
         };
-        let mut build = crate::plan_build(&hero, &models, &meta, &[], &snapshots, &cfg)
-            .unwrap()
-            .build;
+        let planned = crate::plan_build(&hero, &models, &meta, &[], &snapshots, &cfg).unwrap();
+        let mut build = planned.build;
         let confidence = build.confidence.clone();
         crate::annotate_missing_authors(&mut build, &meta);
         assert_eq!(build.confidence, confidence);
@@ -930,7 +1402,16 @@ mod tests {
         assert!(!build.core.is_empty());
         assert!(!build.ability_order.is_empty());
         validate_publish_input(&build).unwrap();
-        validate_publish_models(&build, &hero, &models, &snapshots, 2000.0, &cfg).unwrap();
+        validate_publish_models_with_plan(
+            &build,
+            &planned.purchase_plan,
+            &hero,
+            &models,
+            &snapshots,
+            2000.0,
+            &cfg,
+        )
+        .unwrap();
     }
 
     #[test]

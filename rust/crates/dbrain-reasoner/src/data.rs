@@ -1178,6 +1178,14 @@ async fn mirrored_assets(ctx: &ReasonerCtx) -> Result<MirroredAssets> {
             "Spielwerte gehören nicht zum selben aktuellen API-Abgleich.".into(),
         ));
     }
+    assets_from_receipts(heroes, items, provenance)
+}
+
+fn assets_from_receipts(
+    heroes: brain_storage::asset_mirror::MirroredAssets,
+    items: brain_storage::asset_mirror::MirroredAssets,
+    provenance: MirrorProvenance,
+) -> Result<MirroredAssets> {
     let origin = crate::publish::BuildDataOrigin::from_receipts(&heroes.receipt, &items.receipt)?;
     if origin.mirrored_at != provenance.mirrored_at {
         return Err(ReasonerError::Data(
@@ -1317,6 +1325,50 @@ pub(crate) async fn load_models_from_mirror(
     hero: &str,
 ) -> Result<MirroredModels> {
     let assets = mirrored_assets(ctx).await?;
+    models_from_assets(ctx, hero, assets)
+}
+
+pub(crate) async fn load_models_from_origin(
+    ctx: &ReasonerCtx,
+    hero: &str,
+    origin: &crate::publish::BuildDataOrigin,
+) -> Result<MirroredModels> {
+    let heroes = brain_storage::asset_mirror::load_mirrored_assets_for_run(
+        &ctx.pool,
+        origin.source_run_id,
+        origin.client_version,
+        "heroes",
+        Some("english"),
+    )
+    .await
+    .map_err(|error| ReasonerError::Data(format!("Original-API-Helden: {error}")))?;
+    let items = brain_storage::asset_mirror::load_mirrored_assets_for_run(
+        &ctx.pool,
+        origin.source_run_id,
+        origin.client_version,
+        "items",
+        Some("english"),
+    )
+    .await
+    .map_err(|error| ReasonerError::Data(format!("Original-API-Items: {error}")))?;
+    if crate::publish::BuildDataOrigin::from_receipts(&heroes.receipt, &items.receipt)? != *origin {
+        return Err(ReasonerError::Data(
+            "Gespeicherte Buildherkunft stimmt nicht mit ihren Originalbelegen überein.".into(),
+        ));
+    }
+    let provenance = MirrorProvenance {
+        client_version: heroes.receipt.client_version,
+        mirrored_at: heroes.receipt.mirrored_at,
+        checked_at: heroes.receipt.checked_at,
+    };
+    models_from_assets(ctx, hero, assets_from_receipts(heroes, items, provenance)?)
+}
+
+fn models_from_assets(
+    ctx: &ReasonerCtx,
+    hero: &str,
+    assets: MirroredAssets,
+) -> Result<MirroredModels> {
     let payload = mirrored_hero(&assets, hero)?;
     let flex_slots = crate::meta::snapshot_flex_slots(&payload);
     let (hero, mut snapshots) = hero_model_from_mirror(&ctx.config, hero, &assets)?;
