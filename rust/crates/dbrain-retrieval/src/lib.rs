@@ -1,7 +1,5 @@
 #![forbid(unsafe_code)]
 
-//! Retrieval-Crate fuer Context-, Timeline-, Review-, Quality- und Item-Abfragen.
-
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet, HashSet},
@@ -41,6 +39,583 @@ pub use game_wiki::{
 };
 pub use hybrid_port::{fuse_ranked, DenseEntry, DenseIndex, HybridRetriever};
 pub use release_port::{pack, ReleaseRetriever};
+
+#[derive(Clone)]
+pub struct ReleaseToolExecutionPort<S> {
+    retrieval: ReleaseRetriever<S>,
+    knowledge: Option<std::sync::Arc<dyn brain_contracts::RetrievalPort>>,
+    mirror: Option<brain_storage::entity_profile::MirroredGameContextReader>,
+}
+
+impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
+    pub fn new(retrieval: ReleaseRetriever<S>) -> Self {
+        Self {
+            retrieval,
+            knowledge: None,
+            mirror: None,
+        }
+    }
+
+    pub fn with_knowledge_retrieval(
+        mut self,
+        retrieval: impl brain_contracts::RetrievalPort + 'static,
+    ) -> Self {
+        self.knowledge = Some(std::sync::Arc::new(retrieval));
+        self
+    }
+
+    fn knowledge(&self) -> &dyn brain_contracts::RetrievalPort {
+        self.knowledge.as_deref().unwrap_or(&self.retrieval)
+    }
+
+    pub fn with_mirrored_entities(
+        mut self,
+        reader: brain_storage::entity_profile::MirroredGameContextReader,
+    ) -> Self {
+        self.mirror = Some(reader);
+        self
+    }
+
+    fn check_request(
+        query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+    ) -> std::result::Result<(), brain_contracts::PortError> {
+        context
+            .request_deadline
+            .as_ref()
+            .ok_or_else(|| {
+                brain_contracts::PortError::Unavailable("Ursprüngliche Anfragefrist fehlt".into())
+            })?
+            .check()?;
+        if query.conversation_id != context.conversation_id {
+            return Err(brain_contracts::PortError::PermissionDenied(
+                "Anfragenbindung weicht ab".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn mirrored_entities(
+        &self,
+        query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+        pin: &brain_contracts::PinnedGameContext,
+        request: &brain_contracts::tools::ToolRequest,
+        purpose: brain_contracts::tools::ToolValidationPurpose,
+    ) -> std::result::Result<(JsonValue, Vec<brain_contracts::Evidence>), brain_contracts::PortError>
+    {
+        use brain_contracts::{entity_profile::EntityKind, source::origin_from_record, tools::*};
+        Self::check_request(query, context)?;
+        let reader = self.mirror.as_ref().ok_or_else(|| {
+            brain_contracts::PortError::Unavailable("Gebundener Spielprofilanschluss fehlt".into())
+        })?;
+        reader.validate(query, context, Some(pin))?;
+        let bundle = reader.read_pinned(context, pin)?;
+        let language = match pin.language {
+            ToolLanguage::German => "german",
+            ToolLanguage::English => "english",
+        };
+        let kinds: &[&str] = match request.subrequest() {
+            ToolSubrequest::EntityFind(find) if find.language == pin.language => match find.kind {
+                Some(EntityKind::Hero) => &["heroes_all"],
+                Some(EntityKind::Item | EntityKind::Ability) => &["items"],
+                None => &["heroes_all", "items"],
+            },
+            ToolSubrequest::EntityProfile(profile)
+                if profile.scenario.is_none() && profile.analytics.is_none() =>
+            {
+                match profile.entity.kind {
+                    EntityKind::Hero => &["heroes_all"],
+                    EntityKind::Item | EntityKind::Ability => &["items"],
+                }
+            }
+            _ => {
+                return Err(brain_contracts::PortError::Unavailable(
+                    "Vollständiger Rechen- oder Analyticsanschluss fehlt".into(),
+                ))
+            }
+        };
+        let snapshot = self.retrieval.snapshot(query, context)?;
+        let canonical = match purpose {
+            ToolValidationPurpose::Provider | ToolValidationPurpose::Cache => {
+                snapshot.authorized(&context.principal, true)?
+            }
+            ToolValidationPurpose::Publication => {
+                snapshot.authorized_for_publication(&context.principal)?
+            }
+        };
+        let mut originals = BTreeMap::new();
+        for kind in kinds {
+            let asset = bundle.asset(kind, Some(language))?;
+            for (receipt, expected_payload) in [
+                (&asset.receipt.manifest, None),
+                (&asset.receipt.endpoint, Some(&asset.payload)),
+            ] {
+                let granted = match purpose {
+                    ToolValidationPurpose::Provider | ToolValidationPurpose::Cache => {
+                        receipt.provenance.provider_egress_authorized
+                    }
+                    ToolValidationPurpose::Publication => receipt.provenance.publication_authorized,
+                };
+                if !granted || receipt.visibility != brain_contracts::SourceVisibility::Public {
+                    return Err(brain_contracts::PortError::PermissionDenied(
+                        "Spiegeloriginal ist für diesen Zweck nicht freigegeben".into(),
+                    ));
+                }
+                let matching: Vec<_> = canonical
+                    .iter()
+                    .filter(|record| {
+                        origin_from_record(record).is_ok_and(|origin| {
+                            origin.identity.source_id == receipt.provenance.source
+                                && origin.locator == receipt.url
+                                && origin.raw_sha256 == receipt.raw_sha256
+                                && origin.source_revision == receipt.provenance.source_revision
+                                && origin.parser_revision == receipt.provenance.parser_revision
+                                && origin.parser_family == receipt.provenance.parser_family
+                                && origin.retrieved_at
+                                    == brain_contracts::value::Observed::known(
+                                        brain_contracts::source::SourceTimestamp::UnixSeconds(
+                                            receipt.provenance.observed_at,
+                                        ),
+                                    )
+                                && origin.origin_artifacts == receipt.provenance.origin_artifacts
+                                && origin.derivation_family
+                                    == brain_contracts::source::observed_option(
+                                        receipt.provenance.derivation_family.clone(),
+                                    )
+                                && origin.schema_version == receipt.schema_version
+                                && origin.policy.visibility == receipt.visibility
+                                && origin.policy.allowed_scopes == receipt.allowed_scopes
+                                && origin.policy.license == receipt.license
+                        })
+                    })
+                    .collect();
+                if matching.len() != 1 {
+                    return Err(brain_contracts::PortError::PermissionDenied(
+                        "Eindeutige kanonische Freigabe des Spiegeloriginals fehlt".into(),
+                    ));
+                }
+                let record = matching[0];
+                let original: JsonValue = serde_json::from_str(&record.content).map_err(|_| {
+                    brain_contracts::PortError::PermissionDenied(
+                        "Kanonische Originaldaten fehlen".into(),
+                    )
+                })?;
+                if format!("{:x}", Sha256::digest(record.content.as_bytes())) != receipt.raw_sha256
+                    || !expected_payload.map_or_else(
+                        || original["client_version"].as_i64() == Some(pin.client_version),
+                        |payload| original == *payload,
+                    )
+                {
+                    return Err(brain_contracts::PortError::PermissionDenied(
+                        "Spiegeldaten widersprechen dem kanonischen Original".into(),
+                    ));
+                }
+                if record.visibility != brain_contracts::SourceVisibility::Public {
+                    return Err(brain_contracts::PortError::PermissionDenied(
+                        "Spiegeloriginal hat eine eingeschränkte aktuelle Sichtbarkeit".into(),
+                    ));
+                }
+                originals.insert(
+                    (record.source_id.clone(), record.logical_id.clone()),
+                    record,
+                );
+            }
+        }
+        let mut entities = BTreeMap::new();
+        for kind in kinds {
+            let asset = bundle.asset(kind, Some(language))?;
+            for row in asset.payload.as_array().ok_or_else(|| {
+                brain_contracts::PortError::InvalidResponse("Entitätensatz ist kein Array".into())
+            })? {
+                context.check_deadline()?;
+                let entity_kind = if *kind == "heroes_all" {
+                    EntityKind::Hero
+                } else {
+                    match row["type"].as_str() {
+                        Some("upgrade") => EntityKind::Item,
+                        Some("ability") => EntityKind::Ability,
+                        _ => continue,
+                    }
+                };
+                let id = row["id"]
+                    .as_u64()
+                    .filter(|id| *id > 0 && *id <= i64::MAX as u64)
+                    .ok_or_else(|| {
+                        brain_contracts::PortError::InvalidResponse("Entitäts-ID fehlt".into())
+                    })?;
+                let name = row["name"]
+                    .as_str()
+                    .filter(|name| !name.trim().is_empty())
+                    .ok_or_else(|| {
+                        brain_contracts::PortError::InvalidResponse("Entitätsname fehlt".into())
+                    })?;
+                let key = (
+                    serde_json::to_string(&entity_kind).map_err(|_| {
+                        brain_contracts::PortError::InvalidResponse(
+                            "Entitätsart ist ungültig".into(),
+                        )
+                    })?,
+                    id,
+                );
+                if entities.insert(key, (entity_kind, id, name, row)).is_some() {
+                    return Err(brain_contracts::PortError::InvalidResponse(
+                        "Doppelte Entitätsbindung".into(),
+                    ));
+                }
+            }
+        }
+        let result = match request.subrequest() {
+            ToolSubrequest::EntityFind(find) => {
+                let terms = brain_contracts::lexical::terms(&find.query);
+                if terms.is_empty() {
+                    return Err(brain_contracts::PortError::InvalidResponse(
+                        "Suchbegriffe fehlen".into(),
+                    ));
+                }
+                let matches: Vec<_> = entities
+                    .values()
+                    .filter(|(kind, _, name, _)| {
+                        find.kind.is_none_or(|expected| expected == *kind)
+                            && terms
+                                .iter()
+                                .all(|term| brain_contracts::lexical::terms(name).contains(term))
+                    })
+                    .map(|(kind, id, name, _)| json!({"kind":kind,"id":id,"name":name}))
+                    .collect();
+                json!({"matches":matches})
+            }
+            ToolSubrequest::EntityProfile(profile) => {
+                let (_, _, name, row) = entities
+                    .values()
+                    .find(|(kind, id, _, _)| {
+                        *kind == profile.entity.kind && *id == profile.entity.id
+                    })
+                    .ok_or_else(|| {
+                        brain_contracts::PortError::Unavailable(
+                            "Entität fehlt im gebundenen Spiegel".into(),
+                        )
+                    })?;
+                let fields: BTreeMap<_, _> = profile
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        let value = row.get(field).filter(|value| !value.is_null()).map_or_else(
+                            || json!({"state":"unknown","reason":"not_present"}),
+                            |value| json!({"state":"known","value":value}),
+                        );
+                        (field.clone(), value)
+                    })
+                    .collect();
+                json!({"entity":profile.entity,"name":name,"fields":fields})
+            }
+            _ => {
+                return Err(brain_contracts::PortError::Unavailable(
+                    "Spielwerkzeug fehlt".into(),
+                ))
+            }
+        };
+        let content = serde_json::to_string(&result).map_err(|_| {
+            brain_contracts::PortError::InvalidResponse("Spielwerkzeugergebnis ist ungültig".into())
+        })?;
+        let request_hash = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(request).map_err(|_| {
+                brain_contracts::PortError::InvalidResponse("Spielunteranfrage ist ungültig".into())
+            })?)
+        );
+        let evidence = originals
+            .values()
+            .map(|record| brain_contracts::Evidence {
+                evidence_id: format!(
+                    "mirror-tool:{:x}",
+                    Sha256::digest(format!(
+                        "{request_hash}:{}:{}:{}",
+                        record.source_id, record.logical_id, record.revision
+                    ))
+                ),
+                source_id: record.source_id.clone(),
+                logical_id: record.logical_id.clone(),
+                revision: record.revision,
+                kind: brain_contracts::EvidenceKind::Prose,
+                content: content.clone(),
+                citation: record.logical_id.clone(),
+                visibility: record.visibility,
+                allowed_scopes: record.allowed_scopes.clone(),
+                score: 1.0,
+                patch: None,
+                provenance: Some(brain_contracts::ChunkProvenance {
+                    document: brain_contracts::DocumentRevision {
+                        source_id: record.source_id.clone(),
+                        logical_id: record.logical_id.clone(),
+                        revision: record.revision,
+                        content_hash: record.content_hash.clone(),
+                    },
+                    chunker_version: "mirrored-entity-tool-v1".into(),
+                    ordinal: 0,
+                    byte_start: 0,
+                    byte_end: record.content.len(),
+                    source_locator: record.logical_id.clone(),
+                    release_id: snapshot.release.release_id.clone(),
+                    knowledge_version: snapshot.release.knowledge_version.clone(),
+                    valid_from: None,
+                    valid_to: None,
+                    metadata: BTreeMap::new(),
+                }),
+            })
+            .collect();
+        reader.validate(query, context, Some(pin))?;
+        Self::check_request(query, context)?;
+        Ok((result, evidence))
+    }
+
+    fn knowledge_query(
+        query: &brain_contracts::Query,
+        request: &brain_contracts::tools::ToolRequest,
+    ) -> std::result::Result<brain_contracts::Query, brain_contracts::PortError> {
+        let brain_contracts::tools::ToolSubrequest::ServerKnowledge(request) = request.subrequest()
+        else {
+            return Err(brain_contracts::PortError::Unavailable(
+                "Vollständiger Spielwerkzeuganschluss fehlt".into(),
+            ));
+        };
+        if request.public_channel_id.is_some() {
+            return Err(brain_contracts::PortError::Unavailable(
+                "Geprüfte Kanalbindung fehlt".into(),
+            ));
+        }
+        let mut subquery = query.clone();
+        subquery.text.clone_from(&request.question);
+        Ok(subquery)
+    }
+}
+
+impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecutionPort
+    for ReleaseToolExecutionPort<S>
+{
+    fn definitions(
+        &self,
+        query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+        game_context: Option<&brain_contracts::PinnedGameContext>,
+    ) -> std::result::Result<Vec<brain_contracts::tools::ToolDefinition>, brain_contracts::PortError>
+    {
+        use brain_contracts::tools::{GameContextResolver, ToolDefinition, ToolName};
+        Self::check_request(query, context)?;
+        let mut definitions = vec![brain_contracts::tools::ToolDefinition {
+            name: brain_contracts::tools::ToolName::ServerKnowledge,
+            description: "Freigegebenes Wissen im bereits gebundenen Anfragenkontext suchen."
+                .into(),
+            input_schema: json!({
+                "type":"object", "additionalProperties":false,
+                "required":["question"],
+                "properties":{"question":{"type":"string","minLength":1,"maxLength":8192}}
+            }),
+        }];
+        if let Some(reader) = &self.mirror {
+            let pin = game_context.ok_or_else(|| {
+                brain_contracts::PortError::Unavailable("Gebundener Spiegel fehlt".into())
+            })?;
+            reader.validate(query, context, Some(pin))?;
+            definitions.extend([
+                ToolDefinition {
+                    name: ToolName::EntityFind,
+                    description: "Helden, Items und Fähigkeiten im gebundenen Spielstand nach Namen suchen.".into(),
+                    input_schema: json!({"type":"object","additionalProperties":false,"required":["query","language"],
+                        "properties":{"query":{"type":"string","minLength":1,"maxLength":8192},
+                            "kind":{"type":"string","enum":["hero","item","ability"]},
+                            "language":{"type":"string","enum":[pin.language]}}}),
+                },
+                ToolDefinition {
+                    name: ToolName::EntityProfile,
+                    description: "Originalfelder einer Spielkarte lesen. Fehlende Felder bleiben unbekannt; Rechnung und Analytics sind hier nicht verfügbar.".into(),
+                    input_schema: json!({"type":"object","additionalProperties":false,"required":["entity","fields"],
+                        "properties":{"entity":{"type":"object","additionalProperties":false,"required":["kind","id"],
+                            "properties":{"kind":{"type":"string","enum":["hero","item","ability"]},"id":{"type":"integer","minimum":1,"maximum":i64::MAX}}},
+                            "fields":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","minLength":1,"maxLength":512}}}}),
+                },
+            ]);
+        }
+        brain_contracts::tools::validate_definitions(&definitions)?;
+        Ok(definitions)
+    }
+
+    fn execute(
+        &self,
+        query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+        game_context: Option<&brain_contracts::PinnedGameContext>,
+        call_id: &str,
+        request: &brain_contracts::tools::ToolRequest,
+    ) -> std::result::Result<brain_contracts::tools::ToolExecution, brain_contracts::PortError>
+    {
+        use brain_contracts::tools::*;
+        Self::check_request(query, context)?;
+        let call = ToolCall {
+            id: call_id.into(),
+            name: request.name(),
+            arguments: request.arguments().clone(),
+        };
+        let checked = call.validate(&self.definitions(query, context, game_context)?)?;
+        if &checked != request {
+            return Err(brain_contracts::PortError::InvalidResponse(
+                "Werkzeugbindung weicht ab".into(),
+            ));
+        }
+        if request.name() != ToolName::ServerKnowledge {
+            let pin = game_context.ok_or_else(|| {
+                brain_contracts::PortError::Unavailable("Gebundener Spiegel fehlt".into())
+            })?;
+            let (result, evidence) = self.mirrored_entities(
+                query,
+                context,
+                pin,
+                request,
+                ToolValidationPurpose::Provider,
+            )?;
+            let execution = ToolExecution {
+                result: ToolResult {
+                    call_id: call_id.into(),
+                    name: request.name(),
+                    result,
+                    evidence_ids: evidence
+                        .iter()
+                        .map(|item| item.evidence_id.clone())
+                        .collect(),
+                    is_error: false,
+                },
+                dependencies: vec![ToolEvidenceDependency {
+                    request: request.clone(),
+                    game_context: Some(pin.clone()),
+                    evidence,
+                }],
+                usage: brain_contracts::Usage::default(),
+            };
+            execution.validate_for(&call, request, Some(pin))?;
+            return Ok(execution);
+        }
+        let subquery = Self::knowledge_query(query, request)?;
+        let (evidence, usage) = self.knowledge().retrieve_with_usage(&subquery, context)?;
+        if evidence.is_empty() {
+            return Err(brain_contracts::PortError::Unavailable(
+                "Keine freigegebenen Belege gefunden".into(),
+            ));
+        }
+        if evidence.iter().any(|item| {
+            !matches!(
+                item.visibility,
+                brain_contracts::SourceVisibility::Public
+                    | brain_contracts::SourceVisibility::RequestScoped
+            )
+        }) {
+            return Err(brain_contracts::PortError::Unavailable(
+                "Gesicherte Privatprojektion fehlt".into(),
+            ));
+        }
+        self.knowledge()
+            .validate_evidence(&subquery, context, &evidence, true)?;
+        let matches: Vec<_> = evidence
+            .iter()
+            .map(|item| {
+                json!({
+                    "evidence_id":item.evidence_id,
+                    "content":item.content,
+                })
+            })
+            .collect();
+        let execution = ToolExecution {
+            result: ToolResult {
+                call_id: call.id.clone(),
+                name: ToolName::ServerKnowledge,
+                result: json!({"matches":matches}),
+                evidence_ids: evidence
+                    .iter()
+                    .map(|item| item.evidence_id.clone())
+                    .collect(),
+                is_error: false,
+            },
+            dependencies: vec![ToolEvidenceDependency {
+                request: request.clone(),
+                game_context: None,
+                evidence,
+            }],
+            usage,
+        };
+        Self::check_request(query, context)?;
+        execution.validate_for(&call, request, game_context)?;
+        Ok(execution)
+    }
+
+    fn validate_dependencies(
+        &self,
+        query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+        game_context: Option<&brain_contracts::PinnedGameContext>,
+        dependencies: &[brain_contracts::tools::ToolEvidenceDependency],
+        purpose: brain_contracts::tools::ToolValidationPurpose,
+    ) -> std::result::Result<(), brain_contracts::PortError> {
+        use brain_contracts::tools::ToolValidationPurpose;
+        Self::check_request(query, context)?;
+        if dependencies.len() > 100 {
+            return Err(brain_contracts::PortError::PermissionDenied(
+                "Werkzeugabhängigkeiten sind zu groß".into(),
+            ));
+        }
+        for dependency in dependencies {
+            if dependency.request.name() != brain_contracts::tools::ToolName::ServerKnowledge {
+                let pin = game_context
+                    .filter(|pin| dependency.game_context.as_ref() == Some(*pin))
+                    .ok_or_else(|| {
+                        brain_contracts::PortError::PermissionDenied(
+                            "Spielbeleg hat eine fremde Spiegelbindung".into(),
+                        )
+                    })?;
+                let (_, expected) =
+                    self.mirrored_entities(query, context, pin, &dependency.request, purpose)?;
+                if dependency.evidence != expected {
+                    return Err(brain_contracts::PortError::PermissionDenied(
+                        "Spielbeleg widerspricht der kanonischen Unteranfrage".into(),
+                    ));
+                }
+                continue;
+            }
+            if dependency.game_context.is_some()
+                || dependency.evidence.is_empty()
+                || dependency.evidence.iter().any(|item| {
+                    !matches!(
+                        item.visibility,
+                        brain_contracts::SourceVisibility::Public
+                            | brain_contracts::SourceVisibility::RequestScoped
+                    )
+                })
+            {
+                return Err(brain_contracts::PortError::PermissionDenied(
+                    "Wissensbeleg hat eine fremde Spiel- oder Privatbindung".into(),
+                ));
+            }
+            let subquery = Self::knowledge_query(query, &dependency.request)?;
+            match purpose {
+                ToolValidationPurpose::Provider | ToolValidationPurpose::Cache => {
+                    self.knowledge().validate_evidence(
+                        &subquery,
+                        context,
+                        &dependency.evidence,
+                        true,
+                    )?;
+                }
+                ToolValidationPurpose::Publication => {
+                    self.knowledge().validate_publication(
+                        &subquery,
+                        context,
+                        &dependency.evidence,
+                    )?;
+                }
+            }
+            Self::check_request(query, context)?;
+        }
+        Ok(())
+    }
+}
 
 const ASSETS_SOURCE: &str = "deadlock_assets_api";
 const MAX_EVENTS: i64 = 500;
