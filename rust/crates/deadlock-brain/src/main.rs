@@ -2346,13 +2346,144 @@ mod requested_build_tests {
             "situations":[],"ability_order":[{"ability_id":101,"currency_type":2,"delta":-1}],
             "confidence":"Low","rationale":"Mechanikprüfung","family":null,"variants":[],"family_discovery":null
         })).unwrap();
-        let mut saved = SavedPublication::new(publish_request(&build, false).unwrap()).unwrap();
-        saved.build = Some(serde_json::to_value(&build).unwrap());
+        assert!(publish_request(&build, false).is_err());
+        let mut saved = regular_saved_observation(10, 6000, 20.0);
         assert!(saved.regular_build().unwrap().is_some());
         saved.build.as_mut().unwrap()["core"][0]["why"] = json!("Andere Beschreibung");
         assert!(saved.regular_build().is_err());
         let review = SavedPublication::new(publish_request(&build, true).unwrap()).unwrap();
         assert!(review.regular_build().unwrap().is_none());
+    }
+
+    fn regular_saved_observation(run: i64, version: i64, value: f64) -> SavedPublication {
+        let origin = dbrain_reasoner::publish::BuildDataOrigin {
+            client_version: version,
+            source_run_id: run,
+            mirrored_at: 2000 + run,
+            parser_revision: "fixture-parser".into(),
+            manifest_document_id: 100 + run,
+            manifest_sha256: "1".repeat(64),
+            heroes_document_id: 200 + run,
+            heroes_sha256: "2".repeat(64),
+            items_document_id: 300 + run,
+            items_sha256: "3".repeat(64),
+        };
+        let hero = serde_json::from_value(json!({
+            "hero_id":25,"name":"Warden","archetype":"weapon","base_health":600.0,
+            "level_curve":[],"purchase_bonuses":{"weapon":[],"spirit":[],"vitality":[]},"scaling":[],
+            "weapon":{"bullet_damage":value,"shots_per_second":4.0,"clip_size":16.0,"reload_duration":2.0,"range":20.0,"falloff_start_range":20.0,"falloff_end_range":50.0,"sustained_dps":50.0},
+            "damage_plan":{"weapon_dps":50.0,"spirit_dps":0.0,"weapon_share":1.0,"primary_axis":"Weapon"},
+            "abilities":[{"ability_id":101,"class_name":"ability_fixture","slot":1,"roles":[],"scaling":[],"channel_time":null,"charges":1,"cooldown":10.0,"scaling_step":null,"damage_type":"Spirit","base_effect":60.0,"properties":{"Damage":60.0,"AbilityCooldown":10.0}}]
+        })).unwrap();
+        let items = vec![serde_json::from_value(json!({
+            "item_id":1,"name":"Item 1","class_name":"item_1","slot":"Weapon","tier":2,"cost":1600,
+            "is_active":false,"shopable":true,"disabled":false,"damage_axis":"Weapon","defense_kind":[],
+            "properties":{"BaseAttackDamagePercent":10.0},"passive_properties":{},"condition":"None","proc_cooldown":null,"imbueable":false
+        })).unwrap()];
+        let snapshots = [
+            dbrain_reasoner::DeltaTarget::Hero(25),
+            dbrain_reasoner::DeltaTarget::Ability(101),
+            dbrain_reasoner::DeltaTarget::Item(1),
+        ]
+        .into_iter()
+        .map(|target| {
+            let source = if matches!(target, dbrain_reasoner::DeltaTarget::Hero(_)) {
+                format!(
+                    "deadlock_assets_api/hero#build-data={}",
+                    serde_json::to_string(&origin).unwrap()
+                )
+            } else {
+                "deadlock_assets_api/item_or_ability".into()
+            };
+            dbrain_reasoner::PatchSnapshot {
+                target,
+                name: "API".into(),
+                fields: [(
+                    "value".into(),
+                    dbrain_reasoner::SnapshotField {
+                        value: 10.0,
+                        fetched_at: Some(origin.mirrored_at as f64),
+                        source,
+                        label: "Spielwert".into(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            }
+        })
+        .collect::<Vec<_>>();
+        let meta = dbrain_reasoner::meta::MetaIndexWithSources {
+            index: dbrain_reasoner::MetaIndex {
+                by_item: Default::default(),
+                sample_ok: Default::default(),
+            },
+            author_builds: vec![],
+            hero_ability_orders: Default::default(),
+            core_layouts: Default::default(),
+            combinations: Default::default(),
+            population: Default::default(),
+            observations: vec![],
+            family: None,
+        };
+        let cfg = dbrain_reasoner::ReasonerConfig {
+            patch_tag: "fixture-patch".into(),
+            use_ai: false,
+            ..Default::default()
+        };
+        let build = dbrain_reasoner::plan_build(&hero, &items, &meta, &[], &snapshots, &cfg)
+            .unwrap()
+            .build;
+        let mut saved = SavedPublication::new(publish_request(&build, false).unwrap()).unwrap();
+        saved.build = Some(serde_json::to_value(build).unwrap());
+        saved
+    }
+
+    #[tokio::test]
+    async fn unchanged_observation_reuses_exact_saved_request_and_provenance_for_resume() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("publish.json");
+        let original = regular_saved_observation(10, 6000, 20.0);
+        let observed = regular_saved_observation(20, 6000, 20.0);
+        assert_eq!(observed.request, original.request);
+        assert_ne!(observed.build, original.build);
+        original.persist(&path).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        let inode = fs::metadata(&path).unwrap().ino();
+        let reused = observed.persist(&path).unwrap();
+        assert_eq!(reused, original);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
+        let expected = &original;
+        resume_publication_with(&resume_args(&path), |saved, _| async move {
+            assert_eq!(&saved, expected);
+            let restored = saved.regular_build()?.unwrap();
+            dbrain_reasoner::publish::validate_build_provenance(&restored)?;
+            PublicationReceipt::from_result(
+                &saved.request,
+                Err(brain_feeds::build_publish::PublishError::Timeout),
+            )
+        })
+        .await
+        .unwrap();
+        for changed in [
+            regular_saved_observation(30, 6001, 20.0),
+            regular_saved_observation(30, 6000, 21.0),
+        ] {
+            assert_ne!(changed.request.request_id, original.request.request_id);
+            assert_ne!(
+                changed.default_path().unwrap(),
+                original.default_path().unwrap()
+            );
+            assert!(changed.persist(&path).is_err());
+            let new_path = dir
+                .path()
+                .join(format!("{}.json", changed.request.request_id));
+            assert_eq!(changed.persist(&new_path).unwrap(), changed);
+            assert_eq!(SavedPublication::read(&new_path).unwrap(), changed);
+        }
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 3);
     }
 
     #[test]
@@ -2645,7 +2776,7 @@ mod requested_build_tests {
 
 const MAX_PUBLISH_STATE_BYTES: u64 = 300 * 1024;
 
-#[derive(Debug, serde::Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, serde::Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct SavedPublication {
     request_sha256: String,
@@ -2727,7 +2858,7 @@ impl SavedPublication {
         Ok(saved)
     }
 
-    fn persist(&self, path: &std::path::Path) -> Result<()> {
+    fn persist(&self, path: &std::path::Path) -> Result<Self> {
         use std::io::Write;
         self.validate()?;
         let bytes = serde_json::to_vec(self)
@@ -2758,6 +2889,7 @@ impl SavedPublication {
             .mode(0o400)
             .open(&temporary)
             .map_err(|_| anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden."))?;
+        let mut selected = self.clone();
         let result = (|| {
             file.write_all(&bytes)
                 .and_then(|_| file.sync_all())
@@ -2767,9 +2899,25 @@ impl SavedPublication {
             match fs::hard_link(&temporary, path) {
                 Ok(()) => {}
                 Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                    if Self::read(path)? != *self {
-                        anyhow::bail!("Die vorhandene Veröffentlichungsanfrage stimmt nicht überein. Sie wurde nicht überschrieben.");
+                    let existing = Self::read(path)?;
+                    if existing != *self {
+                        let equivalent = if existing.request == self.request {
+                            match (existing.regular_build()?, self.regular_build()?) {
+                                (Some(first), Some(second)) => {
+                                    dbrain_reasoner::publish::equivalent_calculated_builds(
+                                        &first, &second,
+                                    )?
+                                }
+                                _ => false,
+                            }
+                        } else {
+                            false
+                        };
+                        if !equivalent {
+                            anyhow::bail!("Die vorhandene Veröffentlichungsanfrage stimmt nicht überein. Sie wurde nicht überschrieben.");
+                        }
                     }
+                    selected = existing;
                 }
                 Err(_) => {
                     anyhow::bail!("Veröffentlichungsanfrage konnte nicht gespeichert werden.")
@@ -2786,7 +2934,8 @@ impl SavedPublication {
         let removed = fs::remove_file(temporary)
             .map_err(|_| anyhow!("Temporäre Veröffentlichungsdatei konnte nicht entfernt werden."));
         result?;
-        removed
+        removed?;
+        Ok(selected)
     }
 
     fn default_path(&self) -> Result<PathBuf> {
@@ -2913,11 +3062,10 @@ fn publish_request(
             .into(),
         payload,
         caller: if review {
-            "deadlock-brain-review"
+            "deadlock-brain-review".into()
         } else {
-            "deadlock-brain-reasoner"
-        }
-        .into(),
+            dbrain_reasoner::publish::publication_caller(build)?
+        },
     };
     brain_feeds::build_publish::deterministic_request(request)
         .map_err(|_| anyhow!("Veröffentlichungsanfrage ist ungültig."))
@@ -2962,7 +3110,7 @@ async fn publish_build_http(
     let mut saved = SavedPublication::new(publish_request(build, review)?)?;
     saved.build = Some(serde_json::to_value(build)?);
     let request_path = saved.default_path()?;
-    saved.persist(&request_path)?;
+    let saved = saved.persist(&request_path)?;
     publish_saved_http(Some(pool), saved, request_path, connection, wait_seconds).await
 }
 

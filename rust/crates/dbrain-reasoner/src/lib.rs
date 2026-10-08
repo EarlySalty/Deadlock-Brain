@@ -268,7 +268,7 @@ fn plan_build_with_family_policy(
     }
     build.family_discovery = discovery;
     if let Some(provenance) = provenance {
-        publish::bind_calculated_build(&mut build, provenance)?;
+        publish::bind_calculated_build(&mut build, provenance, &purchase_plan)?;
     }
     options.constraints.check()?;
     Ok(PlannedBuild {
