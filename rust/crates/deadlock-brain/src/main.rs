@@ -1297,11 +1297,11 @@ struct LedgerAccessArgs {
     infisical_config: PathBuf,
 }
 
-async fn ledger_for_pg(target: &PgCommands) -> Result<steam_web_api::SteamLedger> {
+async fn ledger_for_pg(target: &PgCommands) -> Result<Option<steam_web_api::SteamLedger>> {
     let (args, caller) = match target {
         PgCommands::ImportSteamNews(args) => (&args.ledger, pg_steam_news::STEAM_LEDGER_CALLER),
         PgCommands::ImportPatchnote(args) => (&args.ledger, pg_patchnotes::STEAM_LEDGER_CALLER),
-        PgCommands::SyncPatchnotes(args) => (&args.ledger, pg_patchnotes::STEAM_LEDGER_CALLER),
+        PgCommands::SyncPatchnotes(_) => return Ok(None),
     };
     let path = args.ledger_config.clone();
     let config: steam_web_api::SteamLedgerConfig = tokio::task::spawn_blocking(move || {
@@ -1337,6 +1337,7 @@ async fn ledger_for_pg(target: &PgCommands) -> Result<steam_web_api::SteamLedger
     .map_err(|_| anyhow!("Infisical antwortet nicht rechtzeitig"))?
     .map_err(|_| anyhow!("Infisical-Secretquelle ist nicht verfügbar"))?;
     steam_web_api::SteamLedger::from_snapshot(caller, &config, &values)
+        .map(Some)
         .map_err(|_| anyhow!("Ledger-Konfiguration oder Infisical-Referenz ist ungültig"))
 }
 
@@ -1667,7 +1668,7 @@ async fn run(cli: Cli) -> Result<()> {
             return tokio::task::spawn_blocking(move || {
                 fs::create_dir_all(&settings.cache_dir)?;
                 let http = http_client(&settings)?;
-                run_pg(&http, &ledger, target)
+                run_pg(&http, ledger.as_ref(), target)
             })
             .await?;
         }
@@ -1857,13 +1858,13 @@ async fn run(cli: Cli) -> Result<()> {
 
 fn run_pg(
     http: &HttpClient,
-    ledger: &steam_web_api::SteamLedger,
+    ledger: Option<&steam_web_api::SteamLedger>,
     target: PgCommands,
 ) -> Result<()> {
     match target {
         PgCommands::ImportSteamNews(args) => print_json(&pg_steam_news::import_steam_news(
             http,
-            ledger,
+            ledger.context("Steam-Abrufjournal fehlt")?,
             &pg_steam_news::ImportSteamNewsOptions {
                 dsn_env: args.dsn_env,
                 appid: args.appid,
@@ -1875,10 +1876,11 @@ fn run_pg(
                 dry_run: args.dry_run,
             },
         )?),
-        PgCommands::ImportPatchnote(args) => run_pg_patchnote(http, ledger, args),
+        PgCommands::ImportPatchnote(args) => {
+            run_pg_patchnote(http, ledger.context("Steam-Abrufjournal fehlt")?, args)
+        }
         PgCommands::SyncPatchnotes(args) => print_json(&pg_patchnotes::sync_patchnotes(
             http,
-            ledger,
             &args.dsn_env,
             args.dry_run,
         )?),
@@ -1986,6 +1988,25 @@ mod ingest_tests {
         };
         assert!(args.dry_run);
         assert!(!args.ledger.ledger_config.as_os_str().is_empty());
+    }
+
+    #[tokio::test]
+    async fn patch_sync_does_not_reload_unneeded_steam_credentials() {
+        let parsed = Cli::try_parse_from([
+            "deadlock-brain",
+            "pg",
+            "sync-patchnotes",
+            "--dry-run",
+            "--ledger-config",
+            "/nonexistent/steam-ledger.json",
+            "--infisical-config",
+            "/nonexistent/infisical.json",
+        ])
+        .unwrap();
+        let Commands::Pg { target } = parsed.command else {
+            panic!("wrong dispatch")
+        };
+        assert!(ledger_for_pg(&target).await.unwrap().is_none());
     }
 
     #[test]
