@@ -788,6 +788,23 @@ impl PinnedGameContext {
     }
 }
 
+/// Serverseitige Spiegelbindung vor der Bildung des Cache- und Flightschlüssels.
+/// Der bestehende Kernel exportiert denselben synchronen Vertrag weiter.
+pub trait GameContextResolver: Send + Sync {
+    fn resolve(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> Result<Option<PinnedGameContext>, PortError>;
+
+    fn validate(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        game_context: Option<&PinnedGameContext>,
+    ) -> Result<(), PortError>;
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ToolEvidenceDependency {
     pub request: ToolRequest,

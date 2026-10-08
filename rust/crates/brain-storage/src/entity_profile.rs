@@ -348,6 +348,232 @@ pub fn consumer_entity_identity(identity: &EntityIdentity) -> EntityIdentity {
     }
 }
 
+/// Interner, unveränderlicher Spiegelstand. Ein Receipt ersetzt keine Quellenfreigabe
+/// für Modellweitergabe oder Veröffentlichung.
+pub struct PinnedMirrorBundle {
+    game_context: brain_contracts::PinnedGameContext,
+    assets: BTreeMap<String, crate::asset_mirror::MirroredAssets>,
+}
+
+impl PinnedMirrorBundle {
+    pub fn game_context(&self) -> &brain_contracts::PinnedGameContext {
+        &self.game_context
+    }
+
+    pub fn asset(
+        &self,
+        kind: &str,
+        language: Option<&str>,
+    ) -> std::result::Result<&crate::asset_mirror::MirroredAssets, brain_contracts::PortError> {
+        let key = crate::asset_mirror::mirrored_asset_key(kind, language)
+            .map_err(|_| mirror_error("Ungültiger Spiegelendpunkt"))?;
+        self.assets
+            .get(&key)
+            .ok_or_else(|| mirror_error("Endpunkt gehört nicht zum gebundenen Spiegel"))
+    }
+}
+
+/// Verwendet den gelieferten Receiptleser und die vorhandene Service-Runtime.
+/// Es werden weder eine Runtime noch ein neuer Datenbankpool pro Turn angelegt.
+#[derive(Clone)]
+pub struct MirroredGameContextReader {
+    pool: sqlx::PgPool,
+    runtime: tokio::runtime::Handle,
+    language: brain_contracts::tools::ToolLanguage,
+}
+
+fn mirror_error(message: &str) -> brain_contracts::PortError {
+    brain_contracts::PortError::Unavailable(message.to_owned())
+}
+
+impl MirroredGameContextReader {
+    pub fn new(
+        pool: sqlx::PgPool,
+        runtime: tokio::runtime::Handle,
+        language: brain_contracts::tools::ToolLanguage,
+    ) -> std::result::Result<Self, brain_contracts::PortError> {
+        if runtime.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
+            return Err(mirror_error(
+                "Spiegelleser benötigt die vorhandene Mehrthread-Runtime",
+            ));
+        }
+        Ok(Self {
+            pool,
+            runtime,
+            language,
+        })
+    }
+
+    pub fn read_latest(
+        &self,
+        context: &brain_contracts::AuthorizedContext,
+    ) -> std::result::Result<PinnedMirrorBundle, brain_contracts::PortError> {
+        self.drive(context, async {
+            let version = crate::asset_mirror::latest_mirrored_client_version(&self.pool).await?;
+            let anchor = crate::asset_mirror::load_mirrored_assets_with_receipt(
+                &self.pool,
+                version,
+                "heroes_all",
+                Some("english"),
+            )
+            .await?;
+            self.read_run(version, anchor.receipt.source_run_id).await
+        })
+    }
+
+    pub fn read_pinned(
+        &self,
+        context: &brain_contracts::AuthorizedContext,
+        pin: &brain_contracts::PinnedGameContext,
+    ) -> std::result::Result<PinnedMirrorBundle, brain_contracts::PortError> {
+        pin.validate()?;
+        if pin.language != self.language {
+            return Err(mirror_error(
+                "Spiegelsprache weicht von der Serverbindung ab",
+            ));
+        }
+        let mut parts = pin.mechanic_revision.split(':');
+        let run = match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some("mirror.v1"), Some(run), Some(hash), None)
+                if hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()) =>
+            {
+                run.parse::<i64>().ok().filter(|id| *id > 0)
+            }
+            _ => None,
+        }
+        .ok_or_else(|| mirror_error("Gebundener Spiegellauf fehlt"))?;
+        let bundle = self.drive(context, self.read_run(pin.client_version, run))?;
+        if bundle.game_context() != pin {
+            return Err(mirror_error(
+                "Spiegelbelege oder Payload haben sich geändert",
+            ));
+        }
+        Ok(bundle)
+    }
+
+    fn drive<T>(
+        &self,
+        context: &brain_contracts::AuthorizedContext,
+        read: impl std::future::Future<Output = anyhow::Result<T>>,
+    ) -> std::result::Result<T, brain_contracts::PortError> {
+        // Die vom Kernel bereits gebundene Frist bleibt dieselbe. Kein Ersatzbudget.
+        let deadline = context
+            .request_deadline
+            .as_ref()
+            .ok_or_else(|| mirror_error("Ursprüngliche Anfragefrist fehlt"))?;
+        deadline.check()?;
+        if tokio::runtime::Handle::try_current().is_ok_and(|handle| {
+            handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::CurrentThread
+        }) {
+            return Err(mirror_error(
+                "Synchroner Spiegelleser benötigt den blockierenden Servicepfad",
+            ));
+        }
+        tokio::task::block_in_place(|| {
+            self.runtime.block_on(async {
+            tokio::pin!(read);
+            loop {
+                let remaining = deadline.remaining()?;
+                tokio::select! {
+                    biased;
+                    result = &mut read => {
+                        deadline.check()?;
+                        return result.map_err(|_| mirror_error("Lokaler Spiegel konnte nicht bestätigt werden"));
+                    }
+                    // Abbruch des Originalrequests wird auch bei wartendem SQL beobachtet.
+                    _ = tokio::time::sleep(remaining.min(std::time::Duration::from_millis(5))) => {}
+                }
+            }
+        })
+        })
+    }
+
+    async fn read_run(&self, version: i64, run: i64) -> anyhow::Result<PinnedMirrorBundle> {
+        use sha2::{Digest, Sha256};
+        let mut assets = BTreeMap::new();
+        let mut anchor: Option<crate::asset_mirror::AssetMirrorReceipt> = None;
+        for kind in crate::asset_mirror::MIRRORED_ASSET_KINDS {
+            for language in crate::asset_mirror::mirrored_asset_languages(kind)
+                .ok_or_else(|| anyhow::anyhow!("Unbekannte Spiegelart"))?
+            {
+                let language = (!language.is_empty()).then_some(*language);
+                let asset = crate::asset_mirror::load_mirrored_assets_for_run(
+                    &self.pool, run, version, kind, language,
+                )
+                .await?;
+                let receipt = &asset.receipt;
+                anyhow::ensure!(
+                    receipt.source_run_id == run && receipt.client_version == version,
+                    "Spiegellauf weicht ab"
+                );
+                if let Some(anchor) = &anchor {
+                    anyhow::ensure!(
+                        receipt.parser_revision == anchor.parser_revision
+                            && receipt.run_started_at == anchor.run_started_at
+                            && receipt.run_finished_at == anchor.run_finished_at
+                            && receipt.mirrored_at == anchor.mirrored_at
+                            && receipt.checked_at == anchor.checked_at
+                            && serde_json::to_value(&receipt.manifest)?
+                                == serde_json::to_value(&anchor.manifest)?,
+                        "Spiegelendpunkte gehören nicht zu demselben vollständigen Lauf"
+                    );
+                } else {
+                    anchor = Some(receipt.clone());
+                }
+                let key = crate::asset_mirror::mirrored_asset_key(kind, language)?;
+                anyhow::ensure!(
+                    assets.insert(key, asset).is_none(),
+                    "Doppelter Spiegelendpunkt"
+                );
+            }
+        }
+        anyhow::ensure!(anchor.is_some(), "Spiegelbelege fehlen");
+        // Der Payloadfingerabdruck ist kein Ersatz für den Originalhash im Receipt.
+        // Beide sind Teil der Bindung, einschließlich Sprache, Zeiten und Herkunft.
+        let digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&assets)?));
+        let game_context = brain_contracts::PinnedGameContext {
+            client_version: version,
+            language: self.language,
+            mechanic_revision: format!("mirror.v1:{run}:{digest}"),
+        };
+        game_context
+            .validate()
+            .map_err(|_| anyhow::anyhow!("Ungültige Spiegelbindung"))?;
+        Ok(PinnedMirrorBundle {
+            game_context,
+            assets,
+        })
+    }
+}
+
+impl brain_contracts::tools::GameContextResolver for MirroredGameContextReader {
+    fn resolve(
+        &self,
+        _query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+    ) -> std::result::Result<Option<brain_contracts::PinnedGameContext>, brain_contracts::PortError>
+    {
+        Ok(Some(self.read_latest(context)?.game_context))
+    }
+
+    fn validate(
+        &self,
+        _query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+        game_context: Option<&brain_contracts::PinnedGameContext>,
+    ) -> std::result::Result<(), brain_contracts::PortError> {
+        let pin = game_context.ok_or_else(|| mirror_error("Gebundener Spiegel fehlt"))?;
+        pin.validate()?;
+        // Ein neuer serverseitiger Spiegelstand macht den alten Cacheeintrag unbrauchbar.
+        if self.read_latest(context)?.game_context() != pin {
+            return Err(mirror_error(
+                "Serverseitiger Spiegelstand hat sich geändert",
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl PgStore {
     pub async fn store_entity_fact_bindings(
         &self,
