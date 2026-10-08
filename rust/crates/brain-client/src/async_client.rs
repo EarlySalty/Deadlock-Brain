@@ -57,7 +57,7 @@ impl AsyncBrainClient {
         })
     }
     pub async fn answer(&self, query: &Query) -> Result<PublicAnswerResponse> {
-        self.answer_with_identity(query, None, true).await
+        self.answer_with_identity(query, None, true, None).await
     }
 
     pub async fn answer_for_discord(
@@ -75,7 +75,20 @@ impl AsyncBrainClient {
         discord_user_id: u64,
         allow_discord_reads: bool,
     ) -> Result<PublicAnswerResponse> {
-        self.answer_with_identity(query, Some(discord_user_id), allow_discord_reads)
+        self.answer_with_identity(query, Some(discord_user_id), allow_discord_reads, None)
+            .await
+    }
+
+    pub async fn answer_discord_task(
+        &self,
+        query: &Query,
+        discord_user_id: u64,
+        task: &crate::DiscordAnswerTask,
+    ) -> Result<PublicAnswerResponse> {
+        if discord_user_id == 0 || !task.valid() {
+            return Err(ClientError::InvalidResponse);
+        }
+        self.answer_with_identity(query, Some(discord_user_id), false, Some(task))
             .await
     }
 
@@ -84,6 +97,7 @@ impl AsyncBrainClient {
         query: &Query,
         discord_user_id: Option<u64>,
         allow_discord_reads: bool,
+        task: Option<&crate::DiscordAnswerTask>,
     ) -> Result<PublicAnswerResponse> {
         let request = transport::encode_request(query)?;
         let mut builder = self
@@ -97,6 +111,9 @@ impl AsyncBrainClient {
         }
         if !allow_discord_reads {
             builder = builder.header("x-discord-read-access", "disabled");
+        }
+        if let Some(task) = task {
+            builder = builder.header("x-discord-answer-task", serde_json::to_string(task)?);
         }
         let mut response = builder.send().await?;
         let status = response.status();

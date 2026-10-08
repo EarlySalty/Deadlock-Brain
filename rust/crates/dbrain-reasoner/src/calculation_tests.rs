@@ -430,6 +430,147 @@ fn invalid_recorded_pellet_counts_never_certify_primary_or_secondary_damage() {
 }
 
 #[test]
+fn invalid_weapon_damage_never_gets_confirmed_metrics_ranks_or_sheet_comparisons() {
+    let baseline = models();
+    let weapon_id = baseline.heroes[&25].primary_weapon.unwrap();
+    for (field, damage, pellets) in [
+        ("damage_per_shot", -1.0, 1.0),
+        ("bullet_damage", -1.0, 1.0),
+        ("bullet_damage", 1e308, 2.0),
+    ] {
+        let mut models = baseline.clone();
+        let weapon = models.weapons.get_mut(&weapon_id).unwrap();
+        let info = weapon.raw["weapon_info"].as_object_mut().unwrap();
+        info.remove("damage_per_shot");
+        info.remove("bullet_damage");
+        info.insert(field.into(), json!(damage));
+        info.insert("bullets".into(), json!(pellets));
+        weapon.profile.bullet_damage = 0.0;
+        weapon.timing.pellets = Some(pellets);
+        let input = scenario();
+        for result in [
+            calculate_hero(&models, 25, &input).unwrap(),
+            calculate_hero_with_deadline(&models, 25, &input, &deadline()).unwrap(),
+        ] {
+            for metric in ["damage_per_shot", "bullet_damage", "weapon_dps", "ttk"] {
+                assert!(matches!(
+                    result.metrics[metric],
+                    MeasuredValue::Unknown { .. }
+                ));
+            }
+            assert!(result.combat.is_none());
+            assert!(result.metrics["health"].value().is_some());
+        }
+        let ranked = rank_heroes(
+            &models,
+            &input,
+            "weapon_dps",
+            MetricDirection::HigherIsBetter,
+        )
+        .unwrap();
+        assert!(ranked.missing.contains_key(&25));
+        assert!(!ranked.ranks.iter().any(|rank| rank.hero_id == 25));
+        let comparison = SheetComparisonInput {
+            scenario: input,
+            contributions: Some(vec![]),
+            sheet_shred: Some(0.0),
+            mode: ContributionComparison::HoldFixed,
+        };
+        let control = compare_sheet_scenarios(&baseline, 25, &comparison, &deadline()).unwrap();
+        assert!(control
+            .variants
+            .values()
+            .all(|variant| variant.sheet_dps.value().is_some()));
+        let actual = compare_sheet_scenarios(&models, 25, &comparison, &deadline()).unwrap();
+        assert!(actual
+            .variants
+            .values()
+            .all(|variant| variant.sheet_dps.value().is_none()));
+    }
+}
+
+#[test]
+fn invalid_weapon_capacity_or_reload_inputs_only_block_dependent_metrics() {
+    let weapon_id = models().heroes[&25].primary_weapon.unwrap();
+    for clip in [0.0, -1.0, 0.5, 2.5] {
+        let mut raw = raw_assets();
+        let hero = raw["heroes"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|hero| hero["id"] == 25)
+            .unwrap();
+        hero["scaling_stats"]["EClipSize"] = json!({"scaling_stat":"ETechPower","scale":2.0});
+        let weapon = raw["items"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|item| item["id"] == weapon_id)
+            .unwrap();
+        weapon["weapon_info"]["clip_size"] = json!(clip);
+        let models = calculation_models_from_payloads(
+            &raw["heroes"],
+            &raw["items"],
+            &source("heroes"),
+            &source("items"),
+        )
+        .unwrap();
+        let input = CalculationScenario {
+            spirit: SpiritInput::Total(40.0),
+            ..scenario()
+        };
+        let result = calculate_hero(&models, 25, &input).unwrap();
+        if clip >= 1.0 {
+            close(number(&result, "clip_size"), 82.0);
+            continue;
+        }
+        for metric in [
+            "clip_size",
+            "damage_per_magazine",
+            "weapon_dps_with_reload",
+            "ttk",
+        ] {
+            assert!(matches!(
+                result.metrics[metric],
+                MeasuredValue::Unknown { .. }
+            ));
+        }
+        assert!(result.metrics["damage_per_shot"].value().is_some());
+        assert!(result.metrics["health"].value().is_some());
+        assert!(result.combat.is_none());
+    }
+    for single_bullets in [false, true] {
+        let mut raw = raw_assets();
+        let weapon = raw["items"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|item| item["id"] == weapon_id)
+            .unwrap();
+        weapon["weapon_info"]["reload_single_bullets"] = json!(single_bullets);
+        weapon["weapon_info"]["reload_duration"] = json!(if single_bullets { 1.0 } else { -1.0 });
+        weapon["weapon_info"]["reload_single_bullets_initial_delay"] = json!(-0.1);
+        let models = calculation_models_from_payloads(
+            &raw["heroes"],
+            &raw["items"],
+            &source("heroes"),
+            &source("items"),
+        )
+        .unwrap();
+        let result = calculate_hero(&models, 25, &scenario()).unwrap();
+        for metric in ["reload_duration", "weapon_dps_with_reload", "ttk"] {
+            assert!(matches!(
+                result.metrics[metric],
+                MeasuredValue::Unknown { .. }
+            ));
+        }
+        assert!(result.metrics["weapon_dps"].value().is_some());
+        assert!(result.metrics["health"].value().is_some());
+        assert!(result.combat.is_none());
+    }
+}
+
+#[test]
 fn unknown_upgrade_types_leave_scalar_ability_properties_unconfirmed() {
     let mut raw = raw_assets();
     let ability = raw["items"]

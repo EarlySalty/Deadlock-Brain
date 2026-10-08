@@ -1351,22 +1351,14 @@ fn calculate_inner(
     let mut weapon_known = false;
     if let Some(weapon) = weapon {
         let raw = &weapon.raw["weapon_info"];
-        let damage_known = raw
-            .get("damage_per_shot")
-            .and_then(serde_json::Value::as_f64)
-            .is_some()
-            || raw
-                .get("bullet_damage")
-                .and_then(serde_json::Value::as_f64)
-                .is_some()
-                && weapon.timing.pellets.is_some();
+        let damage_known = crate::data::weapon_shot_damage(&weapon.raw).is_some();
         let rate_known = crate::mechanics::weapon_timing_known(&weapon.timing)
             && weapon.profile.shots_per_second.is_finite()
             && weapon.profile.shots_per_second > 0.0;
         let clip_known = raw
             .get("clip_size")
             .and_then(serde_json::Value::as_f64)
-            .is_some();
+            .is_some_and(|clip| clip >= 1.0);
         let boon_known = progression.standard_boons == 0
             || hero
                 .standard_level_up_upgrades
@@ -1474,9 +1466,13 @@ fn calculate_inner(
         if raw
             .get("reload_duration")
             .and_then(serde_json::Value::as_f64)
-            .is_some()
+            .is_some_and(nonnegative)
             && (weapon.timing.reload_single_bullets != Some(true)
-                || clip_known && weapon.timing.reload_single_bullets_initial_delay.is_some())
+                || clip_known
+                    && weapon
+                        .timing
+                        .reload_single_bullets_initial_delay
+                        .is_some_and(nonnegative))
             && 1.0 + stats.reload / 100.0 > 0.0
         {
             projected.reload_duration = crate::mechanics::weapon_reload_seconds(

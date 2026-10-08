@@ -2300,6 +2300,8 @@ fn simulate(
             active_bindings.clear();
             delayed_item_hits.clear();
             spirit_events.clear();
+            stack_counts.fill(0.0);
+            stack_until.fill(0.0);
             buildup.fill(0.0);
             burn_until.fill(0.0);
             last_hit.fill(f64::NEG_INFINITY);
@@ -3730,6 +3732,80 @@ pub(crate) mod tests {
             }
         }
         assert_eq!(deadline.remaining(), Ok(std::time::Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn new_opponents_lose_enemy_debuffs_without_erasing_caster_buffs() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 400.0;
+        hero.weapon.shots_per_second = 1.0;
+        let mut buff = ability(12, 0.0, 60.0);
+        buff.duration = Some(60.0);
+        buff.properties.extend([
+            ("WeaponDamage".into(), 25.0),
+            ("BulletArmorReduction".into(), 50.0),
+            ("AbilityDuration".into(), 60.0),
+        ]);
+        hero.abilities.push(buff);
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 3.0,
+            incoming_pressure_dps: Some(0.0),
+            ..ReasonerConfig::default()
+        };
+        let bindings = BTreeMap::new();
+        let anchor = std::time::Instant::now();
+        let deadline = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || anchor,
+        );
+        for result in [
+            evaluate_inventory(&hero, &[], &cfg),
+            evaluate_inventory_fast(&hero, &[], &cfg),
+            evaluate_inventory_with_bindings(&hero, &[], &cfg, &bindings),
+            evaluate_inventory_with_deadline(&hero, &[], &cfg, &bindings, &deadline).unwrap(),
+        ] {
+            let pressure = &result.scenarios[1];
+            assert_eq!(pressure.casts[&12], 1);
+            assert_eq!(pressure.targets_defeated, 1);
+            assert_eq!(pressure.target_switches, 1);
+            assert!((pressure.weapon_damage - 1100.0).abs() < 1e-8);
+            assert!((pressure.target_remaining_health - 100.0).abs() < 1e-8);
+        }
+    }
+
+    #[test]
+    fn defeated_targets_never_transfer_passive_stacks_to_the_next_opponent() {
+        let mut hero = stack_test_hero(false);
+        hero.weapon.bullet_damage = 400.0;
+        hero.weapon.shots_per_second = 1.0;
+        hero.abilities[0].properties.extend([
+            ("DamageBonusFixedPerStack".into(), 400.0),
+            ("AbilityDuration".into(), 60.0),
+        ]);
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 3.0,
+            incoming_pressure_dps: Some(0.0),
+            ..ReasonerConfig::default()
+        };
+        let bindings = BTreeMap::new();
+        let anchor = std::time::Instant::now();
+        let deadline = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || anchor,
+        );
+        for result in [
+            evaluate_inventory(&hero, &[], &cfg),
+            evaluate_inventory_fast(&hero, &[], &cfg),
+            evaluate_inventory_with_bindings(&hero, &[], &cfg, &bindings),
+            evaluate_inventory_with_deadline(&hero, &[], &cfg, &bindings, &deadline).unwrap(),
+        ] {
+            let pressure = &result.scenarios[1];
+            assert_eq!(pressure.targets_defeated, 1);
+            assert_eq!(pressure.target_switches, 1);
+            assert_eq!(pressure.kill_times, vec![1.0]);
+            assert!((pressure.weapon_damage - 1000.0).abs() < 1e-8);
+            assert!((pressure.target_remaining_health - 200.0).abs() < 1e-8);
+        }
     }
 
     #[test]

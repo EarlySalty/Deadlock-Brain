@@ -8,6 +8,7 @@ use thiserror::Error;
 pub const CONTRACT_VERSION: &str = "brain.v1";
 mod deadline;
 pub use deadline::RequestDeadline;
+pub mod discord_task;
 pub mod domain;
 pub mod domain_knowledge;
 pub mod embedding;

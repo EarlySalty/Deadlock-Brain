@@ -645,6 +645,17 @@ fn weapon_pellet_multiplier(payload: &Value) -> Option<f64> {
     }
 }
 
+pub(crate) fn weapon_shot_damage(payload: &Value) -> Option<f64> {
+    let info = payload.get("weapon_info")?;
+    let damage = match info.get("damage_per_shot") {
+        None | Some(Value::Null) => number(info.get("bullet_damage"))
+            .zip(weapon_pellet_multiplier(payload))
+            .map(|(damage, pellets)| damage * pellets),
+        Some(value) => number(Some(value)),
+    };
+    damage.filter(|value| value.is_finite() && *value >= 0.0)
+}
+
 fn weapon_timing(payload: &Value) -> crate::WeaponTiming {
     let info = payload.get("weapon_info").unwrap_or(&Value::Null);
     crate::WeaponTiming {
@@ -902,7 +913,6 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
                 .filter(|rate| rate.is_finite() && *rate >= 0.0)
         })
         .unwrap_or_default();
-    let pellets = weapon_pellet_multiplier(payload);
     let clip_size = get(&["clip_size"]).unwrap_or_default();
     let raw_reload = get(&["reload_duration"]).unwrap_or_default();
     let reload_duration = if timing.reload_single_bullets == Some(true) {
@@ -914,14 +924,7 @@ fn weapon_profile(payload: &Value) -> WeaponProfile {
         raw_reload
     };
     WeaponProfile {
-        bullet_damage: get(&["damage_per_shot"])
-            .or_else(|| {
-                get(&["bullet_damage"])
-                    .zip(pellets)
-                    .map(|(damage, pellets)| damage * pellets)
-            })
-            .filter(|value| value.is_finite() && *value >= 0.0)
-            .unwrap_or_default(),
+        bullet_damage: weapon_shot_damage(payload).unwrap_or_default(),
         shots_per_second: if crate::mechanics::weapon_timing_known(&timing) {
             shots_per_second
         } else {
@@ -972,6 +975,16 @@ fn validate_hero_spirit_scaling(payload: &Value) -> Result<()> {
 
 fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Result<HeroModel> {
     validate_hero_spirit_scaling(payload)?;
+    if payload.get("weapon_info").is_some_and(|info| {
+        ["damage_per_shot", "bullet_damage"]
+            .iter()
+            .any(|field| info.get(*field).is_some_and(|value| !value.is_null()))
+    }) && weapon_shot_damage(payload).is_none()
+    {
+        return Err(ReasonerError::Data(
+            "Ungültiger Waffenschaden für die Schadensrechnung".into(),
+        ));
+    }
     let hero_id = ability_id(payload).unwrap_or(0);
     let name = string(payload.get("name"));
     if hero_id == 0 || name.is_empty() {
@@ -3039,6 +3052,32 @@ mod tests {
             })
             .unwrap()
             .clone()
+    }
+
+    #[test]
+    fn invalid_weapon_damage_is_rejected_instead_of_becoming_confirmed_zero() {
+        let mut payload = recorded_weapon_payload();
+        for info in [
+            serde_json::json!({"damage_per_shot":-1.0,"bullet_damage":10.0,"bullets":1}),
+            serde_json::json!({"bullet_damage":-1.0,"bullets":1}),
+            serde_json::json!({"bullet_damage":1e308,"bullets":2}),
+            serde_json::json!({"damage_per_shot":"NaN","bullets":1}),
+            serde_json::json!({"damage_per_shot":"NaN","bullet_damage":10.0,"bullets":1}),
+            serde_json::json!({"damage_per_shot":"inf","bullet_damage":10.0,"bullets":1}),
+        ] {
+            payload["weapon_info"] = info;
+            assert_eq!(weapon_shot_damage(&payload), None);
+            assert!(hero_model_from_payload(&payload, &[], &[]).is_err());
+        }
+        payload["weapon_info"] = serde_json::json!({"damage_per_shot":0.0,"bullets":1});
+        assert_eq!(weapon_shot_damage(&payload), Some(0.0));
+        assert_eq!(
+            hero_model_from_payload(&payload, &[], &[])
+                .unwrap()
+                .weapon
+                .bullet_damage,
+            0.0
+        );
     }
 
     #[test]

@@ -258,6 +258,64 @@ async fn actual_receipt_reader_pins_one_run_and_rejects_drift() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn identical_deduplicated_documents_keep_the_new_successful_run_receipt() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = pool(&pg).await;
+    let first_run = seed(&pool, "unchanged").await;
+    let first = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
+        &pool,
+        6759,
+        "heroes",
+        Some("english"),
+    )
+    .await
+    .unwrap();
+    let second_run: i64 = sqlx::query_scalar(
+        "INSERT INTO brain.source_runs(source,status,summary) SELECT source,status,jsonb_set(summary,'{checked_at}','101') FROM brain.source_runs WHERE id=$1 RETURNING id",
+    ).bind(first_run).fetch_one(&pool).await.unwrap();
+    assert!(second_run > first_run);
+    for kind in MIRRORED_ASSET_KINDS {
+        for language in mirrored_asset_languages(kind).unwrap() {
+            let language = (!language.is_empty()).then_some(*language);
+            let old = brain_storage::asset_mirror::load_mirrored_assets_for_run(
+                &pool, first_run, 6759, kind, language,
+            )
+            .await
+            .unwrap();
+            let current = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
+                &pool, 6759, kind, language,
+            )
+            .await
+            .unwrap();
+            assert_eq!(old.receipt.source_run_id, first_run);
+            assert_eq!(current.receipt.source_run_id, second_run);
+            assert_eq!(current.receipt.checked_at, 101);
+            assert_eq!(old.payload, current.payload);
+            assert_eq!(
+                old.receipt.endpoint.source_document_id,
+                current.receipt.endpoint.source_document_id
+            );
+            assert_eq!(
+                old.receipt.endpoint.raw_sha256,
+                current.receipt.endpoint.raw_sha256
+            );
+        }
+    }
+    let latest = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
+        &pool,
+        6759,
+        "heroes",
+        Some("english"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(first.payload, latest.payload);
+    assert_eq!(first.receipt.source_run_id, first_run);
+    assert_eq!(latest.receipt.source_run_id, second_run);
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn original_controlled_lifetime_is_required_before_any_read() {
     let pg = scratch_pg::ScratchPg::start();
     let pool = pool(&pg).await;
