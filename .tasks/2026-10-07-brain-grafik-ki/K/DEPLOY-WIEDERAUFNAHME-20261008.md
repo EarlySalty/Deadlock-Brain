@@ -35,6 +35,14 @@ Unabhängiger plan nach Installationsfehler bestätigt Remote-main 2e0de01f0da4b
 
 Fresh fetch, diff und sauberer ignoriert-inclusive Status geprüft. Genau 14 Q-Collector-/Auftragsdateien hinzugekommen, keine Produktionsänderung unter rust/. Eigenen sauberen Releaseworktree regulär per --ff-only auf dieses main vorgezogen; ungeprüften Orts-WIP nicht berührt. Plan auf neuem main Exit 0. Regulärer Build bp9uxtskp für neues privates Bundle /home/nathanael/.local/state/k-private-read-release-2e0de01f0da4bbb7f6630832b52b0694ea566c6f läuft. Das ist ein aktueller-Main-Release, kein neuer Sourcebau wegen eines früheren Gate-Denys und keine Doppelinstanz. Noch kein Build-/Install-/Restartresultat behauptet.
 
+## Zweiter tatsächlicher Current-main-Abgleich
+
+bp9uxtskp tatsächlich Exit 1: Cargo erfolgreich in 13m15s, danach regulärer STOPP: Quelle oder Remote-main während Build verändert. Retained target enthält die 17 kompilierten Binaries; diese werden nicht als gültiges Releasebundle oder ausweichender Installationsweg verwendet.
+
+Fresh fetch bestätigt origin/main ef2f1f95257c37d50e1ffd6d4da7c14b3202c30c. Gegen 2e0de01f genau drei Q-Status-/Berichtsdateien geändert, weiterhin keine Produktionsänderung. Eigenen sauberen Releasebaum regulär fast-forwarded; plan Exit 0. Neues erforderliches Current-main-Bundle über unveränderten brain-release build läuft als b1w3swz9t unter /home/nathanael/.local/state/k-private-read-release-ef2f1f95257c37d50e1ffd6d4da7c14b3202c30c. Keine alte Manifestumetikettierung, keine Herkunftsprüfung übersprungen und kein Haltefenster für fremde Mainlieferungen verlangt.
+
+Der bestehende Parentthread wurde nach Statusprüfung ready über den normalen T3-Weg mit dem gesicherten Consumerrelease und der vorherigen konkreten Installationsgrenze informiert, sequence 1928804. Kein neuer Thread, Worker oder fremder Zugriff.
+
 ## Livegrenze
 
 Zuletzt tatsächlich: brain-serve PID 3178539, exe auf b7289d11 ohne deleted; dl-bot 2766584 und dl-web 2766645 auf 0fb873c6 ohne deleted. User-Units deadlock-bot-rust und deadlock-web-rust aktiv, NRestarts 0. Gleichnamige System-Units sind nicht die produktiven User-Units und wurden nicht gestartet. Start-/Journal-/Funktionsbeweis für neue Quellen steht aus.
