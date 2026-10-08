@@ -1038,7 +1038,24 @@ fn parse_events(
     content: &str,
     index: &EntityIndex,
 ) -> Vec<PreparedEvent> {
-    let lines = patch_lines(content);
+    parse_event_lines(
+        row,
+        source_url,
+        source_kind,
+        posted_at,
+        patch_lines(content),
+        index,
+    )
+}
+
+fn parse_event_lines(
+    row: &PatchnoteRow,
+    source_url: Option<&str>,
+    source_kind: &str,
+    posted_at: Option<DateTime<Utc>>,
+    lines: Vec<String>,
+    index: &EntityIndex,
+) -> Vec<PreparedEvent> {
     let mut events = Vec::new();
     let mut narrative_lines = Vec::<(Option<String>, String)>::new();
     let mut section: Option<String> = None;
@@ -1113,7 +1130,15 @@ fn parse_bullet_event(context: &EventParseContext<'_>) -> Option<PreparedEvent> 
         .as_deref()
         .and_then(|subject| context.index.exact(subject))
         .or_else(|| {
-            section_subject(context.section).and_then(|subject| context.index.exact(subject))
+            context
+                .section
+                .filter(|_| subject.is_none())
+                .and_then(|section| {
+                    context.index.exact(section).or_else(|| {
+                        section_subject(Some(section))
+                            .and_then(|subject| context.index.exact(subject))
+                    })
+                })
         })
         .or_else(|| context.index.infer(&normalized_line));
     let (entity_type, entity_name, confidence) = if let Some(entity) = entity {
@@ -1677,21 +1702,25 @@ fn summary_json(
 }
 
 fn patch_lines(content: &str) -> Vec<String> {
+    patch_lines_with(content, false)
+}
+
+fn patch_lines_with(content: &str, changes_only: bool) -> Vec<String> {
     let normalized = cleanup_patch_content(content);
-    if let Some(flat_lines) = split_flat_forum_lines(&normalized) {
+    if let Some(flat_lines) = split_flat_forum_lines(&normalized, changes_only) {
         return flat_lines;
     }
-    if let Some(flat_lines) = split_square_bracket_forum_lines(&normalized) {
+    if let Some(flat_lines) = split_square_bracket_forum_lines(&normalized, changes_only) {
         return flat_lines;
     }
 
     let mut lines = Vec::new();
     for raw in normalized.lines() {
-        if let Some(flat_lines) = split_square_bracket_forum_lines(raw.trim()) {
+        if let Some(flat_lines) = split_square_bracket_forum_lines(raw.trim(), changes_only) {
             lines.extend(flat_lines);
             continue;
         }
-        for part in expand_inline_bullets(raw) {
+        for part in expand_inline_bullets_with(raw, changes_only) {
             lines.push(part);
         }
     }
@@ -1729,7 +1758,7 @@ fn cleanup_patch_content(content: &str) -> String {
     text
 }
 
-fn split_flat_forum_lines(content: &str) -> Option<Vec<String>> {
+fn split_flat_forum_lines(content: &str, changes_only: bool) -> Option<Vec<String>> {
     if content.is_empty()
         || content.contains('\n')
         || !content.contains(": ==")
@@ -1769,7 +1798,7 @@ fn split_flat_forum_lines(content: &str) -> Option<Vec<String>> {
             section_body
         };
 
-        for line in expand_inline_bullets(section_body) {
+        for line in expand_inline_bullets_with(section_body, changes_only) {
             lines.push(line);
         }
     }
@@ -1781,7 +1810,7 @@ fn split_flat_forum_lines(content: &str) -> Option<Vec<String>> {
     }
 }
 
-fn split_square_bracket_forum_lines(content: &str) -> Option<Vec<String>> {
+fn split_square_bracket_forum_lines(content: &str, changes_only: bool) -> Option<Vec<String>> {
     if content.is_empty() || content.contains('\n') || !content.starts_with('[') {
         return None;
     }
@@ -1803,9 +1832,19 @@ fn split_square_bracket_forum_lines(content: &str) -> Option<Vec<String>> {
         let body_end = markers.get(idx + 1).map_or(content.len(), |next| next.0);
         let body = content[*section_end..body_end].trim();
         lines.push(section.clone());
-        for bullet in split_compact_forum_bullets(body) {
-            lines.push(format!("- {bullet}"));
-            saw_event = true;
+        let has_bullets = ["* ", "- ", "• "]
+            .iter()
+            .any(|marker| body.starts_with(marker) || body.contains(&format!(" {marker}")));
+        if changes_only && !has_bullets {
+            for line in expand_inline_bullets_with(body, true) {
+                saw_event |= bullet_body(&line).is_some() || has_change_action(&line);
+                lines.push(line);
+            }
+        } else {
+            for bullet in split_compact_forum_bullets(body) {
+                lines.push(format!("- {bullet}"));
+                saw_event = true;
+            }
         }
     }
 
@@ -1838,7 +1877,7 @@ fn split_compact_forum_bullets(body: &str) -> Vec<String> {
         return Vec::new();
     }
 
-    for (marker, prefix) in [('*', "* "), ('-', "- ")] {
+    for (marker, prefix) in [('*', "* "), ('-', "- "), ('•', "• ")] {
         if let Some(rest) = trimmed.strip_prefix(prefix) {
             return split_compact_forum_bullets_with_marker(rest, marker);
         }
@@ -1951,12 +1990,23 @@ fn is_inline_bullet_start(ch: char) -> bool {
 }
 
 fn expand_inline_bullets(raw_line: &str) -> Vec<String> {
+    expand_inline_bullets_with(raw_line, false)
+}
+
+fn expand_inline_bullets_with(raw_line: &str, changes_only: bool) -> Vec<String> {
     let stripped = raw_line.trim();
     if stripped.is_empty() {
         return Vec::new();
     }
 
     if is_forum_section_heading(stripped) || looks_like_plain_section_heading(stripped) {
+        return vec![raw_line.to_string()];
+    }
+    if changes_only
+        && bullet_body(stripped).is_none()
+        && !has_change_action(stripped)
+        && !stripped.contains(" - ")
+    {
         return vec![raw_line.to_string()];
     }
 
@@ -2013,17 +2063,15 @@ fn expand_inline_bullets(raw_line: &str) -> Vec<String> {
         }
     }
 
-    if normalized
-        .chars()
-        .next()
-        .is_some_and(is_inline_bullet_start)
+    if (!changes_only || has_change_action(normalized))
+        && normalized
+            .chars()
+            .next()
+            .is_some_and(is_inline_bullet_start)
     {
         vec![format!("- {normalized}")]
-    } else if stripped.starts_with("- ") || stripped.starts_with("* ") || stripped.starts_with("• ")
-    {
-        vec![format!("- {}", stripped[2..].trim())]
-    } else if stripped.starts_with("\u{2022} ") {
-        vec![format!("- {}", stripped[3..].trim())]
+    } else if let Some(body) = bullet_body(stripped) {
+        vec![format!("- {body}")]
     } else {
         vec![raw_line.to_string()]
     }
@@ -3010,6 +3058,7 @@ mod tests {
     fn split_flat_forum_content() {
         let lines = split_flat_forum_lines(
             "General Changes: == - Added A - Gameplay Changes: == - Abrams: Base Health increased from 550 to 600",
+            false,
         )
         .expect("flat");
         assert_eq!(lines.len(), 4);
