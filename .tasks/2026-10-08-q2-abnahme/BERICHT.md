@@ -88,13 +88,23 @@ Alle Cargo-Aufrufe liefen über `cargo-slot`, Toolchain 1.97.1. `test --locked -
 
 TESTNACHWEIS[TW-1]: 18 passed, 0 ignored | Baseline: nicht gemessen; 17 Collector-Tests plus 1 Consumerfixture, keine Altfehlerbehauptung
 
-Zwei zusätzliche eigene Kontrollaufträge sind gestartet: vorhandene dl-brain-Library und gesamte modglue-Fixturesuite auf unverändertem `8e1b8f03`, beide ausschließlich über cargo-slot. Sie sollen die vorhandenen 50/51-, Nutzertrennungs-, Berlin-/Zeitumstellungs-, Mehrfachnachrichten- und privaten Folgekontrollen wiederholen. Noch keine Ergebniszeile beobachtet, deshalb keine zusätzliche Passed-Zahl. Geschützte Logs und Jobkennungen in der eigenen Akte; keine Produktionsnachrichten oder Zählereingriffe.
+Die beiden zusätzlichen eigenen Kontrollaufträge über cargo-slot wurden vom Hintergrund-Zeitlimit nach 1800 Sekunden beendet. Beide geschützten Logs sind leer; kein Testbeginn, Exitcode einer Suite oder Passed-Ergebnis beobachtet. Deshalb bleiben diese beiden Kontrollen unbewiesen und werden nicht als fehlgeschlagene Tests gezählt. Die 18 zuvor belegten Prüfungen bleiben historische Belege. Keine fremden Builds gestoppt und keine Umgehung des Slots.
+
+## Grenze des Branch-Abschlusses
+
+Der Stop-Hook verlangt den Abschluss des bereits auf main integrierten Arbeitsbranches. Dieser mechanische Checkpointabschluss ist keine Q-Gesamtabnahme und ersetzt weder 30 echte Goldfälle noch einen Providerlauf. `total_q_accepted`, Gesamtcleanup und Self-Settle bleiben false. Der unveränderte eigene Bots-Kontrollcheckout bleibt für die Fortsetzung erhalten.
+
+Vor der angeforderten Entfernung des Brainworktrees wurden beide vollständigen eigenen privaten Bäume unabhängig gesichert: `/home/nathanael/.local/share/brain-q2-private-20261008/stop-checkpoint/`. 15 Dateien, fünf Verzeichnisse, Eigentümer und 0600/0700 geprüft. Rekursiver byte- und pfadgleicher Vergleich Exit 0; bekannte Review-, Consumerlog-, Zusatzquellen- und Assethashes erneut bestätigt. Keine privaten Originale in Git oder im Codiermodell.
+
+Das zuvor erfolgreich verwendete Collectorbinary war beim letzten Nachlesen nicht mehr im eigenen Debugcache vorhanden. Ursache nicht behauptet. Daher wurde die vollständige Sicherung mit `diff --recursive --brief --no-dereference` geprüft, ohne Inhalte auszugeben; Rechte und Eigentümer wurden getrennt kontrolliert. Der frühere Build-/Testbeleg ist keine Behauptung eines noch vorhandenen Binaries. Wiederaufbau des auf main gesicherten Rust-Collectors nur über cargo-slot. Die einzige weitere ignorierte Ablage ist dessen wiederherstellbarer Buildcache.
+
+Die genaue Fortsetzung steht in `TODO.md`. Die sicher auf main liegende Vorbereitung wird nicht als erledigter Gesamtauftrag ausgegeben; eine neue Ausführungsumgebung muss die geschützte fachliche Originalprüfung, die fehlenden Live-/Messbelege und die beiden nicht belegten Kontrollwiederholungen fortführen.
 
 TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 1 belegt | Senke: .tasks/2026-10-08-q2-abnahme/BERICHT.md
 
 Der Textnachweis betrifft den Lesertext dieses Berichts. Das Absolutwort bezieht sich auf die vollständig protokollierten eigenen Cargo-Aufrufe über cargo-slot; technische Pfade und IDs sind keine Umlaut-Ersatzschreibung.
 
-Sourcegate für Collectorfix `b215876e`: gpt-6.1-sol ALLOW, regulär erneut bestätigt; siehe `REVIEW.md`. Der bestätigte Verzeichnisvergleichsfehler aus Runde 1 wurde im frischen nativen Fixer behoben. Der sichere Collector-/Consumer-Belegteil ist mit `2e0de01f0da4bbb7f6630832b52b0694ea566c6f` auf main gesichert. Das Gesamtgate antwortete `[gpt-6.1-sol] ALLOW: No blocking defect established in the supplied diff.`, Exit 0. `HEAD:main` lief mit Exit 0; `ls-remote` bestätigte denselben vollständigen SHA unabhängig. Die Felder `merged` und `pushed` in STATUS gelten ausschließlich für diesen Teilstand, nicht für die Gesamtfreigabe. Keine Produktdeploys oder Dienstneustarts durch Q. Kein Cleanup und kein Self-Settle bei offenem Gesamtauftrag.
+Sourcegate für Collectorfix `b215876e`: gpt-6.1-sol ALLOW, regulär erneut bestätigt; siehe `REVIEW.md`. Der bestätigte Verzeichnisvergleichsfehler aus Runde 1 wurde im frischen nativen Fixer behoben. Der sichere Collector-/Consumer-Belegteil ist mit `2e0de01f0da4bbb7f6630832b52b0694ea566c6f` auf main gesichert. Das Gesamtgate antwortete `[gpt-6.1-sol] ALLOW: No blocking defect established in the supplied diff.`, Exit 0. `HEAD:main` lief mit Exit 0; `ls-remote` bestätigte denselben vollständigen SHA unabhängig. Die Felder `merged` und `pushed` in STATUS gelten ausschließlich für diesen Teilstand, nicht für die Gesamtfreigabe. Keine Produktdeploys oder Dienstneustarts durch Q. Keine Q-Gesamtbereinigung und kein Self-Settle bei offenem Gesamtauftrag; der Stop-Hook verlangt getrennt davon die Bereinigung des integrierten Arbeitsbranches nach vollständiger privater Sicherung.
 
 Die folgende Zählung betrifft die abgeschlossene Integration von `2e0de01f`: Status, explizites Add, Stagingliste, Commit, Fetch, Mainlog, Vorfahrenprüfung (Exit 0), Push und Remoteprüfung. Frühere Git-Schritte und spätere Nachträge sind nicht darin enthalten.
 

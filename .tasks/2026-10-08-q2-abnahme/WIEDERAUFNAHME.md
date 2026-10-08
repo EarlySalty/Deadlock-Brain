@@ -10,9 +10,15 @@ Gesamt-Q ist noch nicht abgenommen. Kein neuer Thread und keine zweite Quellensa
 - Sichere Verträge: `FALLVERTRAEGE.json`, `LAUFVERTRAG.json`, `METHODIK.md`. Referenzierte alte Patch-/Pocket-/Haze-Belege unverändert.
 - Ergänzende Originalbindung: `ORIGINALBINDUNG.md`. Neuer getrennt gesicherter Logabzug `q2-required-source-v1-20261008`, kein Ersatz des alten Sets. Geschützte Kopie unter `/home/nathanael/.local/share/brain-q2-private-20261008/required-user-sources/`; öffentliche Coachingabzüge unter `public-web-originals/`. Originale nicht an das Codiermodell geben. Die reine Stichwortprüfung bindet noch keinen Pflichtfall automatisch.
 
-## Bereits gestartete eigene Kontrollaufträge
+## Vollständige Sicherung vor mechanischem Branch-Abschluss
 
-`b1d39twbo` wiederholt die vorhandene dl-brain-Library; `bdca849wx` die gesamte modglue-Fixturesuite. Beide nutzen den eigenen unveränderten Botscheckout und cargo-slot. Beim Aktenstand noch kein Ergebnis. Nicht parallel duplizieren, keine fremden Builds oder Dienste stoppen. Nach eigener Jobmeldung die geschützten Protokolle `private/k-daily-controls.log` und `private/k-modglue-controls.log` auf tatsächliche Exit-/Passed-Zahlen prüfen; erst danach Erfolg dokumentieren und unabhängig sichern. Fixtures bleiben getrennt von Gold-, Provider- und Kanalabnahme.
+Der Stop-Hook verlangt die Bereinigung des bereits integrierten Brain-Arbeitsbranches. Das beendet nicht den Q-Gesamtauftrag. Beide vollständigen eigenen privaten Bäume liegen unter `/home/nathanael/.local/share/brain-q2-private-20261008/stop-checkpoint/`: `acceptance-private/` enthält Prüfliste und sämtliche eigenen Protokolle; `collector-private/` die neuen Asset- und Zusatzquellenversionen. 15 Dateien und fünf Verzeichnisse, Bytes und relative Pfade identisch, Eigentümer und 0600/0700 geprüft. Historische zentrale Originalkopien und bisherige Sicherungen bleiben unverändert. In einer frischen ausdrücklich zugewiesenen Ausführungsumgebung die auf main liegenden Quellen verwenden und private Daten ausschließlich aus diesen geschützten Kopien binden.
+
+Das zuvor verwendete Collectorbinary fehlt inzwischen im eigenen Debugcache. Ein neuer Build ist erforderlich; nur cargo-slot benutzen. Kein Compiler- oder Integritätsnachweis aus dem fehlenden Cache erfinden. Die Sicherung selbst wurde mit rekursivem, inhaltsfreiem `diff --brief` und getrennten Metadatenprüfungen tatsächlich bestätigt.
+
+## Zusätzliche Kontrollaufträge beendet, nicht bestanden
+
+`b1d39twbo` (dl-brain-Library) und `bdca849wx` (modglue-Fixturesuite) wurden nach 1800 Sekunden vom Hintergrundlimit beendet. Beide Protokolle sind leer; kein tatsächliches Suite-Ergebnis beobachtet. Sie sind keine noch laufenden Jobs und keine roten Testergebnisse. Für die spätere Wiederholung die Befehle aus `TODO.md` verwenden, mit ausreichend langem eigenen Harness-Zeitfenster. Keine fremden Builds oder Dienste stoppen, den Slot nicht umgehen. Fixtures bleiben getrennt von Gold-, Provider- und Kanalabnahme.
 
 ## Reihenfolge
 
