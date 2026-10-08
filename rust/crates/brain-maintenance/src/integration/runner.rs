@@ -743,6 +743,61 @@ impl Runner {
         Ok(status)
     }
 
+    pub async fn bind_entity_profiles(&self, apply: bool) -> Result<serde_json::Value> {
+        let uid = self.require_operator()?;
+        self.store.check_maintenance_schema().await?;
+        let config = load_maintenance(&self.runtime.maintenance_config)?;
+        let principal = local_operator_principal(uid, &self.runtime.maintenance_config)?;
+        let artifacts = self.artifacts.clone();
+        let publication_lock =
+            tokio::task::spawn_blocking(move || artifacts.publication_lock()).await??;
+        let serve_bytes = super::runtime_config::read_bounded(&self.runtime.serve_config, 65536)?;
+        let serve = brain_serve::Config::parse(&serve_bytes)?;
+        ensure!(
+            !self.runtime.entity_profile_sources.is_empty(),
+            "entity_profile_sources_missing"
+        );
+        let (_, prepared) = refresh_entity_profile_documents(
+            &self.store,
+            &self.pool,
+            &config,
+            &principal,
+            &self.artifacts,
+            &serve.release.id,
+            &self.runtime,
+        )
+        .await?;
+        drop(publication_lock);
+        let Some(prepared) = prepared else {
+            return Ok(json!({"status":"already_bound","release":{
+                "id":serve.release.id,"knowledge_version":serve.release.knowledge_version}}));
+        };
+        ensure!(
+            prepared
+                .candidate
+                .source_revisions
+                .get("git-game-facts-derived")
+                .is_some_and(|pins| !pins.is_empty()),
+            "entity_profile_documents_missing"
+        );
+        if apply {
+            super::entity_profiles::activate_refreshed_sources_with_expected_config(
+                &self.runtime,
+                &prepared,
+                Some(&digest(&serve_bytes)),
+            )
+            .await?;
+        }
+        Ok(
+            json!({"status":if apply {"active_candidate"} else {"prepared_not_activated"},
+            "release":{"id":prepared.candidate.release_id,
+                "knowledge_version":prepared.candidate.knowledge_version},
+            "base_release":prepared.base.release_id,"changed_sources":prepared.changed_sources,
+            "candidate_sha256":digest(&serde_json::to_vec(&prepared.candidate)?),
+            "serve_config_sha256":digest(&serve_bytes)}),
+        )
+    }
+
     pub async fn resume_entity_profiles(
         &self,
         original_release_id: &str,

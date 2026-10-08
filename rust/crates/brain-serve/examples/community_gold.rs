@@ -136,7 +136,28 @@ fn checks(case: &GoldCase, text: &str, citations: usize) -> Checks {
     }
 }
 
-fn process_binding(config_path: &str) -> Result<Value> {
+fn process_binding(config_path: &str, local_pid: Option<u32>) -> Result<Value> {
+    if let Some(pid) = local_pid {
+        let cmdline =
+            fs::read(format!("/proc/{pid}/cmdline")).map_err(|_| "local_command_unavailable")?;
+        let arguments: Vec<_> = cmdline.split(|byte| *byte == 0).collect();
+        if !arguments
+            .windows(2)
+            .any(|pair| pair[0] == b"--config" && pair[1] == config_path.as_bytes())
+        {
+            return Err("config_is_not_the_local_service_config");
+        }
+        let exe = fs::read_link(format!("/proc/{pid}/exe")).map_err(|_| "local_exe_unavailable")?;
+        if !exe.starts_with("/home/nathanael/.worktrees")
+            || exe.file_name().is_none_or(|name| name != "brain-serve")
+        {
+            return Err("local_worktree_exe_required");
+        }
+        let bytes = fs::read(format!("/proc/{pid}/exe")).map_err(|_| "local_exe_unavailable")?;
+        return Ok(
+            json!({"pid":pid,"exe":exe,"binary_sha256":format!("{:x}",Sha256::digest(bytes)),"local":true}),
+        );
+    }
     let output = Command::new("systemctl")
         .args([
             "--user",
@@ -195,11 +216,19 @@ async fn run(args: &[String]) -> Result<()> {
         );
         return Ok(());
     }
-    if args.len() != 6 || args[0] != "run" {
+    let local_pid = if args.len() == 7 && args[0] == "run-local" {
+        let pid = args[6].parse::<u32>().map_err(|_| "local_pid_invalid")?;
+        if pid == 0 {
+            return Err("local_pid_invalid");
+        }
+        Some(pid)
+    } else if args.len() == 6 && args[0] == "run" {
+        None
+    } else {
         return Err(
-            "usage_validate_gold_or_run_gold_output_runtime_config_infisical_config_expected_model",
+            "usage_validate_gold_or_run_gold_output_runtime_config_infisical_config_expected_model_or_run_local_with_pid",
         );
-    }
+    };
     let bytes = fs::read(&args[1]).map_err(|_| "gold_unavailable")?;
     let set = parse(&bytes)?;
     let config_bytes = fs::read(&args[3]).map_err(|_| "runtime_config_unavailable")?;
@@ -240,7 +269,7 @@ async fn run(args: &[String]) -> Result<()> {
         .mode(0o600)
         .open(output_path)
         .map_err(|_| "output_exists_or_unavailable")?;
-    let binding = process_binding(&args[3])?;
+    let binding = process_binding(&args[3], local_pid)?;
     let secrets = dl_token_secrets::values(Path::new(&args[4]))
         .await
         .map_err(|_| "existing_secret_loader_failed")?;
@@ -265,7 +294,7 @@ async fn run(args: &[String]) -> Result<()> {
     let mut answered = 0;
     let mut lexical_passes = 0;
     for case in &set.cases {
-        if process_binding(&args[3])? != binding
+        if process_binding(&args[3], local_pid)? != binding
             || fs::read(&args[3]).map_err(|_| "runtime_config_unavailable")? != config_bytes
         {
             return Err("live_binding_changed_during_run");
@@ -302,7 +331,7 @@ async fn run(args: &[String]) -> Result<()> {
             json!({"case":case.case,"elapsed_ms":elapsed_ms,"answered":answered,"lexical_passes":lexical_passes})
         );
     }
-    if process_binding(&args[3])? != binding
+    if process_binding(&args[3], local_pid)? != binding
         || fs::read(&args[3]).map_err(|_| "runtime_config_unavailable")? != config_bytes
     {
         return Err("live_binding_changed_during_run");
