@@ -286,8 +286,15 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
     let pg = scratch_pg::ScratchPg::start();
     let runtime = test_runtime();
     let (_store, retrieval, pool) = runtime.block_on(setup(&pg, true));
+    let mirror = brain_storage::entity_profile::MirroredGameContextReader::new(
+        pool.clone(),
+        runtime.handle().clone(),
+        ToolLanguage::German,
+    )
+    .unwrap();
     let port = ReleaseToolExecutionPort::new(retrieval.clone())
-        .with_knowledge_retrieval(Knowledge(retrieval.clone()));
+        .with_knowledge_retrieval(Knowledge(retrieval.clone()))
+        .with_mirrored_entities(mirror);
     let kernel = Kernel::new(retrieval, Provider).with_tools(port, KnowledgeResolver, "fixture");
     let (query, mut context, _) = context();
     context.deadline_ms = 60000;
@@ -449,10 +456,16 @@ fn actual_port_preserves_request_receipt_and_current_purpose_permissions() {
     let pg = scratch_pg::ScratchPg::start();
     let runtime = test_runtime();
     let (store, retrieval, pool) = runtime.block_on(setup(&pg, true));
-    let port = ReleaseToolExecutionPort::new(retrieval);
+    let mirror = brain_storage::entity_profile::MirroredGameContextReader::new(
+        pool.clone(),
+        runtime.handle().clone(),
+        ToolLanguage::German,
+    )
+    .unwrap();
+    let port = ReleaseToolExecutionPort::new(retrieval).with_mirrored_entities(mirror);
     let (query, context, _) = context();
     let definitions = port.definitions(&query, &context, None).unwrap();
-    assert_eq!(definitions.len(), 1);
+    assert_eq!(definitions.len(), 3);
     assert_eq!(definitions[0].name, ToolName::ServerKnowledge);
     for purpose in [
         ToolValidationPurpose::Provider,
@@ -723,7 +736,11 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
         .with_mirrored_entities(reader.clone());
     let (query, context, clock) = context();
     let pin = reader.resolve(&query, &context).unwrap().unwrap();
-    let definitions = port.definitions(&query, &context, Some(&pin)).unwrap();
+    let definitions = port.definitions(&query, &context, None).unwrap();
+    assert_eq!(
+        definitions,
+        port.definitions(&query, &context, Some(&pin)).unwrap()
+    );
     assert_eq!(definitions.len(), 3);
     assert!(!definitions
         .iter()
@@ -734,14 +751,42 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
         .unwrap();
     assert_eq!(
         find_schema.input_schema["properties"]["language"]["enum"],
-        json!(["german"])
+        json!(["german", "english"])
     );
-    let foreign_language = ToolCall {
-        id: "foreign-language".into(),
+    let english = ToolCall {
+        id: "english-search".into(),
         name: ToolName::EntityFind,
         arguments: json!({"query":"Prüfdaten","kind":"hero","language":"english"}),
     };
-    assert!(foreign_language.validate(&definitions).is_err());
+    let english_request = english.validate(&definitions).unwrap();
+    let english_execution = port
+        .execute(&query, &context, None, &english.id, &english_request)
+        .unwrap();
+    english_execution
+        .validate_for(&english, &english_request, None)
+        .unwrap();
+    assert_eq!(
+        english_execution.dependencies[0].game_context.as_ref(),
+        Some(&pin)
+    );
+    assert!(english_execution.dependencies[0]
+        .evidence
+        .iter()
+        .any(|evidence| { evidence.logical_id.contains("heroes_all/english") }));
+    for purpose in [
+        ToolValidationPurpose::Provider,
+        ToolValidationPurpose::Cache,
+        ToolValidationPurpose::Publication,
+    ] {
+        port.validate_dependencies(
+            &query,
+            &context,
+            None,
+            &english_execution.dependencies,
+            purpose,
+        )
+        .unwrap();
+    }
     let mut saved = None;
     for (kind, id, name) in [
         ("hero", 7, "Prüfdaten"),
@@ -755,8 +800,10 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
         };
         let request = call.validate(&definitions).unwrap();
         let execution = port
-            .execute(&query, &context, Some(&pin), &call.id, &request)
+            .execute(&query, &context, None, &call.id, &request)
             .unwrap();
+        execution.validate_for(&call, &request, None).unwrap();
+        assert_eq!(execution.dependencies[0].game_context.as_ref(), Some(&pin));
         assert_eq!(
             execution.result.result["matches"],
             json!([{"kind":kind,"id":id,"name":name}])

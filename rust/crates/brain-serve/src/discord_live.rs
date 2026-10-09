@@ -354,22 +354,13 @@ impl DiscordLive {
     }
 }
 
-fn relevant(query: &Query) -> bool {
-    let text = query.text.to_lowercase();
-    query.domain.is_none()
-        && [
-            "discord", "lane", "voice", "kanal", "kanäle", "router", "<#",
-        ]
-        .iter()
-        .any(|term| text.contains(term))
-}
 fn allowed(query: &Query, context: &AuthorizedContext, provider: bool) -> bool {
     query.requested_scopes.contains("bot.public")
         && context.principal.scopes.contains("bot.public")
         && context
             .discord
             .as_ref()
-            .is_none_or(|request| request.allow_discord_reads)
+            .is_some_and(|request| request.allow_discord_reads)
         && (!provider || context.principal.provider_egress.contains("public"))
 }
 
@@ -537,7 +528,7 @@ impl<R> DiscordRetriever<R> {
         items: &[Evidence],
         provider: bool,
     ) -> Result<(), PortError> {
-        if !allowed(query, context, provider) || !relevant(query) {
+        if !allowed(query, context, provider) {
             return Err(denied());
         }
         self.validate_observation(query, context, items)
@@ -561,7 +552,7 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
             return self.retrieve_invite(query, context);
         }
         let (mut items, mut usage) = self.inner.retrieve_with_usage(query, context)?;
-        if relevant(query) && allowed(query, context, false) {
+        if allowed(query, context, false) {
             if let Some(live) = &self.live {
                 if context.budget.max_network_rounds <= usage.network_rounds {
                     return Err(PortError::BudgetExceeded);
@@ -590,11 +581,7 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                     && brain_contracts::provider_input::grounded_input_ceiling(query, &candidates)
                         > packing_context.budget.max_input_tokens as u64
                 {
-                    let text = query.text.to_lowercase();
-                    let terms: Vec<_> = ["lane", "voice", "kanal", "kanäle", "router"]
-                        .into_iter()
-                        .filter(|term| text.contains(term))
-                        .collect();
+                    let terms = brain_contracts::lexical::terms(&query.text);
                     let mut lines: Vec<_> = current.content.lines().collect();
                     lines.sort_by_key(|line| {
                         let line = line.to_lowercase();
@@ -615,14 +602,10 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                         .collect();
                 }
                 candidates.retain(|item| item.source_id == SOURCE);
-                if query.text.to_lowercase().contains("lane") {
-                    let additional_documents = items.split_off(items.len().min(1));
-                    items.append(&mut candidates);
-                    items.extend(additional_documents);
-                    candidates = items;
-                } else {
-                    candidates.append(&mut items);
-                }
+                let additional_documents = items.split_off(items.len().min(1));
+                items.append(&mut candidates);
+                items.extend(additional_documents);
+                candidates = items;
                 items = dbrain_retrieval::pack(query, &packing_context, candidates)?;
                 let selected_live = items
                     .iter()
@@ -1587,7 +1570,7 @@ mod tests {
 
     #[test]
     fn reine_live_packs_werden_lokal_und_leere_packs_ablehnend_geprueft() {
-        let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
+        let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Wo finde ich Leute zum Spielen?","requested_scopes":["bot.public"]})).unwrap();
         let context = AuthorizedContext {
             discord: Some(brain_contracts::DiscordRequestContext {
                 user_id: None,
