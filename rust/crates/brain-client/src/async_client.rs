@@ -1,5 +1,3 @@
-//! Native async Brain transport. Dropping the future cancels this HTTP request;
-//! it does not create a detached blocking worker, retry, provider call or fallback.
 use crate::{transport, ClientError, Result};
 use brain_contracts::{PublicAnswerResponse, Query};
 use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE};
@@ -20,8 +18,6 @@ impl std::fmt::Debug for AsyncBrainClient {
     }
 }
 impl AsyncBrainClient {
-    /// For consumers of local community/internal knowledge. HTTPS is not an
-    /// implicit authorization to send their requests to an external host.
     pub fn new_local(base_url: &str, bearer_token: &str, timeout: Duration) -> Result<Self> {
         let parsed =
             reqwest::Url::parse(base_url.trim()).map_err(|_| ClientError::InvalidBaseUrl)?;
@@ -37,7 +33,6 @@ impl AsyncBrainClient {
         }
         Self::new(base_url, bearer_token, timeout)
     }
-    /// Explicit caller configuration only. Nothing is read from production config.
     pub fn new(base_url: &str, bearer_token: &str, timeout: Duration) -> Result<Self> {
         let (base_url, bearer) = transport::endpoint(base_url, bearer_token, timeout)?;
         let client = reqwest::Client::builder()
@@ -57,7 +52,8 @@ impl AsyncBrainClient {
         })
     }
     pub async fn answer(&self, query: &Query) -> Result<PublicAnswerResponse> {
-        self.answer_with_identity(query, None, true, None).await
+        self.answer_with_identity(query, None, true, None, None)
+            .await
     }
 
     pub async fn answer_for_discord(
@@ -75,8 +71,14 @@ impl AsyncBrainClient {
         discord_user_id: u64,
         allow_discord_reads: bool,
     ) -> Result<PublicAnswerResponse> {
-        self.answer_with_identity(query, Some(discord_user_id), allow_discord_reads, None)
-            .await
+        self.answer_with_identity(
+            query,
+            Some(discord_user_id),
+            allow_discord_reads,
+            None,
+            None,
+        )
+        .await
     }
 
     pub async fn answer_discord_task(
@@ -88,8 +90,28 @@ impl AsyncBrainClient {
         if discord_user_id == 0 || !task.valid() {
             return Err(ClientError::InvalidResponse);
         }
-        self.answer_with_identity(query, Some(discord_user_id), false, Some(task))
+        self.answer_with_identity(query, Some(discord_user_id), false, Some(task), None)
             .await
+    }
+
+    pub async fn answer_discord_task_with_history(
+        &self,
+        query: &Query,
+        discord_user_id: u64,
+        task: &crate::DiscordAnswerTask,
+        user_questions: &[String],
+    ) -> Result<PublicAnswerResponse> {
+        if discord_user_id == 0 || !task.valid() {
+            return Err(ClientError::InvalidResponse);
+        }
+        self.answer_with_identity(
+            query,
+            Some(discord_user_id),
+            false,
+            Some(task),
+            Some(user_questions),
+        )
+        .await
     }
 
     async fn answer_with_identity(
@@ -98,8 +120,35 @@ impl AsyncBrainClient {
         discord_user_id: Option<u64>,
         allow_discord_reads: bool,
         task: Option<&crate::DiscordAnswerTask>,
+        user_questions: Option<&[String]>,
     ) -> Result<PublicAnswerResponse> {
-        let request = transport::encode_request(query)?;
+        let request = if let Some(questions) = user_questions {
+            let url =
+                reqwest::Url::parse(&self.base_url).map_err(|_| ClientError::InvalidBaseUrl)?;
+            if !url.host_str().is_some_and(|host| {
+                host == "localhost"
+                    || host
+                        .trim_matches(['[', ']'])
+                        .parse::<std::net::IpAddr>()
+                        .is_ok_and(|ip| ip.is_loopback())
+            }) {
+                return Err(ClientError::InvalidBaseUrl);
+            }
+            let request = brain_contracts::discord_task::DiscordTaskRequest {
+                query: query.clone(),
+                user_questions: questions.to_vec(),
+            };
+            request
+                .validate()
+                .map_err(|_| ClientError::InvalidResponse)?;
+            let encoded = serde_json::to_vec(&request)?;
+            if encoded.len() > transport::MAX_REQUEST_BYTES {
+                return Err(ClientError::RequestTooLarge);
+            }
+            encoded
+        } else {
+            transport::encode_request(query)?
+        };
         let mut builder = self
             .client
             .post(format!("{}/v1/answer", self.base_url))

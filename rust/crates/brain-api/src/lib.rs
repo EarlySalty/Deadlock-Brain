@@ -27,6 +27,8 @@ pub struct ApiService<K> {
     retrieval: Option<std::sync::Arc<dyn brain_contracts::RetrievalPort>>,
     release_bindings: std::collections::BTreeMap<(String, String), String>,
     discord_consumers: std::collections::BTreeSet<(String, String)>,
+    discord_context:
+        Option<std::sync::Arc<dyn brain_contracts::discord_task::DiscordContextResolver>>,
 }
 
 impl<K> ApiService<K>
@@ -49,6 +51,7 @@ where
             retrieval: None,
             release_bindings: std::collections::BTreeMap::new(),
             discord_consumers: std::collections::BTreeSet::new(),
+            discord_context: None,
         }
     }
 
@@ -60,7 +63,6 @@ where
         self
     }
 
-    /// Ausschließlich der Server bindet authentifizierte Identitäten an Releases.
     pub fn with_release_bindings(
         mut self,
         bindings: std::collections::BTreeMap<(String, String), String>,
@@ -102,6 +104,14 @@ where
         consumers: std::collections::BTreeSet<(String, String)>,
     ) -> Self {
         self.discord_consumers = consumers;
+        self
+    }
+
+    pub fn with_discord_context_resolver(
+        mut self,
+        resolver: impl brain_contracts::discord_task::DiscordContextResolver + 'static,
+    ) -> Self {
+        self.discord_context = Some(std::sync::Arc::new(resolver));
         self
     }
 
@@ -173,9 +183,27 @@ where
             return json_error(401, "unauthorized", "Bearer Token fehlt oder ist ungültig");
         };
 
-        let mut query: Query = match serde_json::from_slice(body) {
-            Ok(query) => query,
-            Err(_) => return json_error(400, "invalid_request", "Query Contract ist ungültig"),
+        let (mut query, user_questions): (Query, Vec<String>) = if task.is_some() {
+            match serde_json::from_slice::<brain_contracts::discord_task::DiscordTaskRequest>(body)
+            {
+                Ok(request) if request.validate().is_ok() => {
+                    (request.query, request.user_questions)
+                }
+                Ok(_) => {
+                    return json_error(400, "invalid_request", "Gesprächskontext ist ungültig")
+                }
+                Err(_) => match serde_json::from_slice(body) {
+                    Ok(query) => (query, Vec::new()),
+                    Err(_) => {
+                        return json_error(400, "invalid_request", "Query Contract ist ungültig")
+                    }
+                },
+            }
+        } else {
+            match serde_json::from_slice(body) {
+                Ok(query) => (query, Vec::new()),
+                Err(_) => return json_error(400, "invalid_request", "Query Contract ist ungültig"),
+            }
         };
         if query.validate().is_err() {
             return json_error(400, "invalid_request", "Query Contract ist ungültig");
@@ -256,8 +284,6 @@ where
         if deadline.check().is_err() {
             return deadline_response();
         }
-        // `/v1/answer` always publishes externally. This purpose is not a Query
-        // field, scope, header or credential option the client can downgrade.
         if task.is_some() {
             context.principal.scopes = std::collections::BTreeSet::from(["bot.public".into()]);
             context
@@ -298,6 +324,48 @@ where
                 allow_discord_reads,
             });
         }
+        if task.is_some() && brain_contracts::discord_task::needs_reference(&query.text) {
+            use brain_contracts::discord_task::DiscordReference;
+            let reference = match &self.discord_context {
+                Some(resolver) => match resolver.resolve(&query, &context, &user_questions) {
+                    Ok(reference) => reference,
+                    Err(_) => {
+                        return json_error(
+                            503,
+                            "context_unavailable",
+                            "Gesprächsbezug ist gerade nicht verfügbar",
+                        )
+                    }
+                },
+                None => DiscordReference::Clarification,
+            };
+            match reference {
+                DiscordReference::Independent => {}
+                DiscordReference::Subject(subject)
+                    if subject.chars().count() <= 80
+                        && !subject.trim().is_empty()
+                        && subject
+                            .chars()
+                            .all(|c| c.is_alphabetic() || matches!(c, ' ' | '-' | '\''))
+                        && query.text.chars().count() + subject.chars().count() + 20 <= 4000 =>
+                {
+                    query.text.push_str("\nGesprächsthema: ");
+                    query.text.push_str(&subject);
+                }
+                _ => {
+                    return answer_response(&AnswerResponse {
+                        contract_version: CONTRACT_VERSION.into(),
+                        request_id: query.request_id.clone(),
+                        knowledge_release: context.knowledge_release.clone(),
+                        status: AnswerStatus::InsufficientEvidence,
+                        text: "Worauf beziehst du dich? Nenn bitte kurz das Thema.".into(),
+                        citations: Vec::new(),
+                        usage: Usage::default(),
+                    })
+                }
+            }
+        }
+        drop(user_questions);
         let query = brain_contracts::invite::project_query(&query);
         let mut answer = self.kernel.answer_for_publication(&query, &context);
         if deadline.check().is_err() {

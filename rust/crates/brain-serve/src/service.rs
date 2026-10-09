@@ -491,6 +491,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit)
         }
     };
+    let discord_context = retrieval.clone();
     let retrieval = AnalyticsRetriever::new(retrieval, prepared.analytics.clone());
     let retrieval = DiscordRetriever::new(retrieval, prepared.discord_live.clone())
         .with_provider(&prepared.config.provider);
@@ -517,6 +518,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         (&prepared.config.budgets).into(),
     )
     .with_retrieval(public_retrieval)
+    .with_discord_context_resolver(discord_context)
     .with_discord_consumers(
         prepared
             .config

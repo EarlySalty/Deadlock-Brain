@@ -292,6 +292,175 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         self.selected(&index, &ranked, query, context, 100, false)
     }
 }
+impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
+    for ReleaseRetriever<S>
+{
+    fn resolve(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        user_questions: &[String],
+    ) -> Result<brain_contracts::discord_task::DiscordReference, PortError> {
+        use brain_contracts::discord_task::{needs_reference, DiscordReference};
+        let bound = context.with_request_deadline();
+        let context = &bound;
+        check_context(query, context)?;
+        if !needs_reference(&query.text) {
+            return Ok(DiscordReference::Independent);
+        }
+        if user_questions.len() > 4
+            || user_questions
+                .iter()
+                .map(|q| q.chars().count())
+                .sum::<usize>()
+                > 4000
+        {
+            return Err(invalid("invalid private context bounds"));
+        }
+        let index = self.index(query, context)?;
+        let current = brain_contracts::lexical::terms(&query.text);
+        let history: Vec<_> = user_questions
+            .iter()
+            .map(|text| brain_contracts::lexical::terms(text))
+            .collect();
+        let mut matches: BTreeMap<String, Vec<DocumentRevision>> = BTreeMap::new();
+        for record in &index.records {
+            context.check_deadline()?;
+            if record.visibility != SourceVisibility::Public
+                || !record_allowed(record, &context.principal, true)
+                || record.tombstone
+            {
+                continue;
+            }
+            for (subject, names) in public_context_names(record) {
+                if names.iter().any(|name| {
+                    contains_terms(&current, name)
+                        || history
+                            .iter()
+                            .any(|question| contains_terms(question, name))
+                }) {
+                    matches.entry(subject).or_default().push(DocumentRevision {
+                        source_id: record.source_id.clone(),
+                        logical_id: record.logical_id.clone(),
+                        revision: record.revision,
+                        content_hash: record.content_hash.clone(),
+                    });
+                }
+            }
+        }
+        let documents: BTreeMap<_, _> = matches
+            .values()
+            .flatten()
+            .map(|doc| ((doc.source_id.clone(), doc.logical_id.clone()), doc.clone()))
+            .collect();
+        if documents.len() > 256 {
+            return Ok(DiscordReference::Clarification);
+        }
+        let heads = self.heads(&documents.into_values().collect::<Vec<_>>(), context)?;
+        let mut vocabulary: BTreeMap<String, Vec<Vec<String>>> = BTreeMap::new();
+        for record in &index.records {
+            if record.visibility != SourceVisibility::Public {
+                continue;
+            }
+            let key = (record.source_id.clone(), record.logical_id.clone());
+            if let Some(head) = heads.get(&key) {
+                if brain_contracts::store::record_publication_allowed(
+                    record,
+                    head,
+                    &context.principal,
+                ) && effective_head(record, Some(head), query, context, true)?
+                    .is_some_and(|head| head.visibility == SourceVisibility::Public)
+                {
+                    for (subject, names) in public_context_names(record) {
+                        if matches.contains_key(&subject) {
+                            vocabulary.entry(subject).or_default().extend(names);
+                        }
+                    }
+                }
+            }
+        }
+        let subjects = |words: &[String]| -> BTreeSet<String> {
+            vocabulary
+                .iter()
+                .filter(|(_, names)| names.iter().any(|name| contains_terms(words, name)))
+                .map(|(subject, _)| subject.clone())
+                .collect()
+        };
+        if !subjects(&current).is_empty() {
+            return Ok(DiscordReference::Independent);
+        }
+        for (text, words) in user_questions.iter().zip(&history).rev() {
+            let mut found = subjects(words);
+            if found.len() == 1 {
+                return Ok(DiscordReference::Subject(
+                    found.pop_first().expect("Ein öffentlicher Bezug"),
+                ));
+            }
+            if !found.is_empty() || !needs_reference(text) {
+                break;
+            }
+        }
+        Ok(DiscordReference::Clarification)
+    }
+}
+
+fn contains_terms(words: &[String], name: &[String]) -> bool {
+    !name.is_empty() && words.windows(name.len()).any(|window| window == name)
+}
+
+fn public_context_names(record: &SourceRecordV2) -> Vec<(String, Vec<Vec<String>>)> {
+    use brain_contracts::lexical::{fact_names, terms};
+    let mut result = Vec::new();
+    let words = terms(&record.content);
+    for (subject, aliases) in [
+        ("Paten", &["Pate", "Paten", "Patenschaft"][..]),
+        ("Coaching", &["Coaching", "Coach", "Coaches"][..]),
+        (
+            "Sprachkanäle",
+            &["Sprachkanal", "Sprachkanäle", "Voice", "Lanes"][..],
+        ),
+        ("Mitspieler", &["Mitspieler", "LFG"][..]),
+        ("Rollen", &["Rolle", "Rollen"][..]),
+        ("Datenschutz", &["Datenschutz"][..]),
+        ("FAQ", &["FAQ"][..]),
+    ] {
+        let names: Vec<_> = aliases.iter().map(|name| terms(name)).collect();
+        if names.iter().any(|name| contains_terms(&words, name)) {
+            result.push((subject.to_owned(), names));
+        }
+    }
+    let hero = (record.source_id == "deadlock-assets-heroes"
+        && record.logical_id.starts_with("asset/hero/"))
+        || (record.source_id == "legacy-entities" && record.logical_id.starts_with("entity/hero/"));
+    if hero {
+        let canonical = record
+            .metadata
+            .get("name")
+            .or_else(|| record.metadata.get("canonical_name"));
+        if let Some(name) = canonical.filter(|name| {
+            !name.is_empty()
+                && name.chars().count() <= 80
+                && name
+                    .chars()
+                    .all(|c| c.is_alphabetic() || matches!(c, ' ' | '-' | '\''))
+        }) {
+            result.push((
+                name.clone(),
+                fact_names("", &record.content, &record.metadata)
+                    .into_iter()
+                    .filter(|words| {
+                        words.len() <= 5
+                            && words
+                                .iter()
+                                .all(|word| word.chars().all(char::is_alphabetic))
+                    })
+                    .collect(),
+            ));
+        }
+    }
+    result
+}
+
 impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
     fn retrieve(
         &self,

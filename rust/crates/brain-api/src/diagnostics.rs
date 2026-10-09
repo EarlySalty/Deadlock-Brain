@@ -22,7 +22,12 @@ impl RequestTrace {
         let Ok(value) = serde_json::from_slice::<Value>(body) else {
             return;
         };
-        let Some(id) = value.get("request_id").and_then(Value::as_str) else {
+        let Some(id) = value
+            .get("query")
+            .unwrap_or(&value)
+            .get("request_id")
+            .and_then(Value::as_str)
+        else {
             return;
         };
         if !id.trim().is_empty() && id.len() <= 512 && !id.chars().any(char::is_control) {
