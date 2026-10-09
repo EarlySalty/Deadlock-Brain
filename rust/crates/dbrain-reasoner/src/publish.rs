@@ -121,6 +121,25 @@ fn input_fingerprint(
     fingerprint(&(hero, items, snapshots, config))
 }
 
+fn original_input_fingerprint(
+    hero: &crate::HeroModel,
+    items: &[crate::ItemModel],
+    snapshots: &[crate::PatchSnapshot],
+    config: &crate::ReasonerConfig,
+    origin: &BuildDataOrigin,
+) -> Result<String> {
+    let mut originals = snapshots.to_vec();
+    for field in originals
+        .iter_mut()
+        .flat_map(|snapshot| snapshot.fields.values_mut())
+    {
+        if field.fetched_at.is_some() {
+            field.fetched_at = Some(origin.mirrored_at as f64);
+        }
+    }
+    input_fingerprint(hero, items, &originals, config)
+}
+
 fn game_values_fingerprint(
     hero: &crate::HeroModel,
     items: &[crate::ItemModel],
@@ -220,8 +239,8 @@ pub(crate) fn calculation_provenance(
     origin
         .map(|origin| {
             Ok(BuildProvenance {
+                input_sha256: original_input_fingerprint(hero, items, snapshots, config, &origin)?,
                 origin,
-                input_sha256: input_fingerprint(hero, items, snapshots, config)?,
                 plan_sha256: String::new(),
                 config: config.clone(),
                 purchase_plan: None,
@@ -519,10 +538,21 @@ pub async fn validate_publish_current(pool: &PgPool, build: &BuildObject) -> Res
             ReasonerError::Data("Beginn des aktiven Patches ist nicht belegt.".into())
         })?;
     let mirrored = crate::data::load_models_from_mirror(&ctx, &build.hero_name).await?;
-    validate_mirror_provenance(&mirrored.provenance, start)?;
     let calculated =
         crate::data::load_models_from_origin(&ctx, &build.hero_name, &original.origin).await?;
-    validate_current_game_values(build, &calculated, &mirrored)?;
+    validate_publish_current_models(build, &calculated, &mirrored, start)
+}
+
+fn validate_publish_current_models(
+    build: &BuildObject,
+    calculated: &crate::data::MirroredModels,
+    mirrored: &crate::data::MirroredModels,
+    patch_started_at: i64,
+) -> Result<()> {
+    validate_publish_input(build)?;
+    let original = validate_build_provenance(build)?;
+    validate_mirror_provenance(&mirrored.provenance, patch_started_at)?;
+    validate_current_game_values(build, calculated, mirrored)?;
     validate_publish_models_with_plan(
         build,
         original
@@ -532,7 +562,7 @@ pub async fn validate_publish_current(pool: &PgPool, build: &BuildObject) -> Res
         &mirrored.hero,
         &mirrored.items,
         &mirrored.snapshots,
-        mirrored.provenance.mirrored_at as f64,
+        mirrored.provenance.checked_at as f64,
         &original.config,
     )
 }
@@ -560,14 +590,12 @@ fn validate_publish_models_with_plan(
     hero: &crate::HeroModel,
     items: &[crate::ItemModel],
     snapshots: &[crate::PatchSnapshot],
-    mirrored_at: f64,
+    checked_at: f64,
     cfg: &crate::ReasonerConfig,
 ) -> Result<()> {
     let error = |text: &str| ReasonerError::Data(text.into());
-    if !mirrored_at.is_finite() || mirrored_at <= 0.0 {
-        return Err(error(
-            "API-Spiegel hat keinen gültigen Erfassungszeitpunkt.",
-        ));
+    if !checked_at.is_finite() || checked_at <= 0.0 {
+        return Err(error("API-Spiegel hat keinen gültigen Prüfzeitpunkt."));
     }
     if hero.hero_id != build.hero_id || hero.abilities.is_empty() {
         return Err(error("Helden- oder Fähigkeitsdaten fehlen."));
@@ -615,7 +643,7 @@ fn validate_publish_models_with_plan(
                     || !field.source.starts_with("deadlock_assets_api/")
                     || field
                         .fetched_at
-                        .is_none_or(|time| !time.is_finite() || time != mirrored_at)
+                        .is_none_or(|time| !time.is_finite() || time != checked_at)
             })
         {
             return Err(error(
@@ -847,6 +875,8 @@ mod tests {
     use super::*;
     use crate::{BuildItem, BuyPhase, Confidence, Evidence, EvidenceKind};
 
+    include!("publish_patch_tests.rs");
+
     fn item(id: i64, imbue: Option<i64>, sell: Option<u32>) -> BuildItem {
         BuildItem {
             item_id: id,
@@ -982,11 +1012,11 @@ mod tests {
         hero: &crate::HeroModel,
         items: &[crate::ItemModel],
         snapshots: &[crate::PatchSnapshot],
-        mirrored_at: f64,
+        checked_at: f64,
         cfg: &crate::ReasonerConfig,
     ) -> Result<()> {
         let plan = fixture_plan(build, hero, items, cfg)?;
-        validate_publish_models_with_plan(build, &plan, hero, items, snapshots, mirrored_at, cfg)
+        validate_publish_models_with_plan(build, &plan, hero, items, snapshots, checked_at, cfg)
     }
 
     fn origin_fixture() -> BuildDataOrigin {
