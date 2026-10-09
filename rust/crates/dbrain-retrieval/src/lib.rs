@@ -416,7 +416,8 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
                 "properties":{"question":{"type":"string","minLength":1,"maxLength":8192}}
             }),
         }];
-        definitions.extend([
+        if self.mirror.is_some() {
+            definitions.extend([
                 ToolDefinition {
                     name: ToolName::EntityFind,
                     description: "Helden, Items und Fähigkeiten nach Namen suchen. Wähle deutsche oder englische Begriffe frei und suche bei Bedarf mehrfach; language bestimmt nur die Sprache der durchsuchten Spielkarten. Normales Spiel ist der Standard, Street Brawl nur auf ausdrückliche Nachfrage.".into(),
@@ -433,7 +434,8 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
                             "properties":{"kind":{"type":"string","enum":["hero","item","ability"]},"id":{"type":"integer","minimum":1,"maximum":i64::MAX}}},
                             "fields":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","minLength":1,"maxLength":512}}}}),
                 },
-        ]);
+            ]);
+        }
         brain_contracts::tools::validate_definitions(&definitions)?;
         Ok(definitions)
     }

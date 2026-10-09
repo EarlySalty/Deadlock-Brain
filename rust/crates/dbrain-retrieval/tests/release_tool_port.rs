@@ -310,6 +310,70 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
 }
 
 #[test]
+fn tool_definitions_follow_configured_capabilities_without_resolving_a_game_pin() {
+    let pg = scratch_pg::ScratchPg::start();
+    let runtime = test_runtime();
+    let (_store, retrieval, pool) = runtime.block_on(setup(&pg, true));
+    let unconfigured = ReleaseToolExecutionPort::new(retrieval.clone());
+    let mirror = brain_storage::entity_profile::MirroredGameContextReader::new(
+        pool.clone(),
+        runtime.handle().clone(),
+        ToolLanguage::German,
+    )
+    .unwrap();
+    let configured = ReleaseToolExecutionPort::new(retrieval).with_mirrored_entities(mirror);
+    runtime.block_on(pool.close());
+    let (mut query, context, _) = context();
+    let pin = brain_contracts::PinnedGameContext {
+        client_version: 6759,
+        language: ToolLanguage::English,
+        mechanic_revision: "unresolved-fixture-pin".into(),
+    };
+    for text in [
+        "Öffentliches Serverwissen",
+        "Unbekannter Begriff",
+        "What is this?",
+    ] {
+        query.text = text.into();
+        for game in [None, Some(&pin)] {
+            let definitions = unconfigured.definitions(&query, &context, game).unwrap();
+            assert_eq!(definitions.len(), 1);
+            assert_eq!(definitions[0].name, ToolName::ServerKnowledge);
+            let available = configured.definitions(&query, &context, game).unwrap();
+            assert_eq!(
+                available
+                    .iter()
+                    .map(|definition| definition.name)
+                    .collect::<Vec<_>>(),
+                vec![
+                    ToolName::ServerKnowledge,
+                    ToolName::EntityFind,
+                    ToolName::EntityProfile
+                ]
+            );
+            for call in [
+                ToolCall {
+                    id: "find".into(),
+                    name: ToolName::EntityFind,
+                    arguments: json!({"query":"Unbekannt","language":"english"}),
+                },
+                ToolCall {
+                    id: "profile".into(),
+                    name: ToolName::EntityProfile,
+                    arguments: json!({"entity":{"kind":"item","id":8},"fields":["zero"]}),
+                },
+            ] {
+                assert!(call.validate(&definitions).is_err());
+                let request = call.validate(&available).unwrap();
+                assert!(unconfigured
+                    .execute(&query, &context, game, &call.id, &request)
+                    .is_err());
+            }
+        }
+    }
+}
+
+#[test]
 fn charged_knowledge_usage_survives_every_post_retrieval_rejection() {
     use brain_contracts::{Evidence, Usage, UsageAccounting};
 
