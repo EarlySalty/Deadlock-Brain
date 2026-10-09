@@ -287,15 +287,21 @@ pub fn buy_phase(item: &ItemModel) -> crate::BuyPhase {
 }
 
 pub fn weapon_dps(weapon: &WeaponProfile, window: f64) -> f64 {
-    if window <= 0.0 || weapon.shots_per_second <= 0.0 || weapon.clip_size <= 0.0 {
+    weapon_dps_with_timing(weapon, None, window)
+}
+
+pub fn weapon_dps_with_timing(
+    weapon: &WeaponProfile,
+    timing: Option<&crate::WeaponTiming>,
+    window: f64,
+) -> f64 {
+    if !window.is_finite() || window <= 0.0 {
         return 0.0;
     }
-    let cycle = weapon.clip_size / weapon.shots_per_second;
-    let cycle_with_reload = cycle + weapon.reload_duration.max(0.0);
-    if cycle_with_reload <= 0.0 {
-        return 0.0;
-    }
-    weapon.bullet_damage * weapon.clip_size / cycle_with_reload
+    weapon_cycle_seconds(weapon, timing, crate::ReloadConvention::AfterFireInterval)
+        .map_or(0.0, |cycle| {
+            weapon.bullet_damage * weapon.clip_size.floor() / cycle
+        })
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -370,12 +376,34 @@ pub fn damage_factors(
     })
 }
 
+pub(crate) fn valid_pellet_count(value: f64) -> bool {
+    value.is_finite() && value > 0.0 && value.fract() == 0.0
+}
+
+pub(crate) fn weapon_timing_known(timing: &crate::WeaponTiming) -> bool {
+    if let Some(count) = timing.burst_shot_count.filter(|count| *count > 1) {
+        match (timing.cycle_time, timing.intra_burst_cycle_time) {
+            (Some(cycle), Some(intra)) => {
+                cycle.is_finite()
+                    && cycle >= 0.0
+                    && intra.is_finite()
+                    && intra > 0.0
+                    && (cycle + count as f64 * intra).is_finite()
+            }
+            _ => false,
+        }
+    } else {
+        true
+    }
+}
+
 pub fn weapon_shot_interval(
     shot_index: usize,
     rate: f64,
     timing: Option<&crate::WeaponTiming>,
 ) -> f64 {
-    if rate <= 0.0 {
+    if !rate.is_finite() || rate <= 0.0 || timing.is_some_and(|timing| !weapon_timing_known(timing))
+    {
         return f64::INFINITY;
     }
     if let Some(timing) = timing {
@@ -387,11 +415,16 @@ pub fn weapon_shot_interval(
             let period = cycle + count as f64 * intra;
             if count > 1 && period > 0.0 && intra > 0.0 {
                 let scale = count as f64 / period / rate;
-                return if shot_index.is_multiple_of(count) {
+                let interval = if shot_index.is_multiple_of(count) {
                     cycle + intra
                 } else {
                     intra
                 } * scale;
+                return if interval.is_finite() && interval > 0.0 {
+                    interval
+                } else {
+                    f64::INFINITY
+                };
             }
         }
     }
@@ -404,13 +437,34 @@ pub fn weapon_reload_seconds(
     timing: Option<&crate::WeaponTiming>,
     speed_percent: f64,
 ) -> f64 {
-    let raw = timing
-        .filter(|timing| timing.reload_single_bullets == Some(true))
-        .and_then(|timing| {
-            Some(timing.reload_single_bullets_initial_delay? + clip * timing.raw_reload_duration?)
-        })
-        .unwrap_or(weapon.reload_duration);
-    raw / (1.0 + speed_percent / 100.0)
+    let speed = 1.0 + speed_percent / 100.0;
+    if !clip.is_finite() || clip < 1.0 || !speed.is_finite() || speed <= 0.0 {
+        return f64::INFINITY;
+    }
+    let valid = |value: f64| value.is_finite() && value >= 0.0;
+    let raw =
+        if let Some(timing) = timing.filter(|timing| timing.reload_single_bullets == Some(true)) {
+            match (
+                timing.reload_single_bullets_initial_delay,
+                timing.raw_reload_duration,
+            ) {
+                (Some(delay), Some(duration)) if valid(delay) && valid(duration) => {
+                    delay + clip * duration
+                }
+                _ => return f64::INFINITY,
+            }
+        } else {
+            weapon.reload_duration
+        };
+    if !valid(raw) {
+        return f64::INFINITY;
+    }
+    let duration = raw / speed;
+    if valid(duration) {
+        duration
+    } else {
+        f64::INFINITY
+    }
 }
 
 pub fn weapon_cycle_seconds(
@@ -418,7 +472,12 @@ pub fn weapon_cycle_seconds(
     timing: Option<&crate::WeaponTiming>,
     convention: crate::ReloadConvention,
 ) -> Option<f64> {
-    if !weapon.clip_size.is_finite() || weapon.clip_size < 1.0 || weapon.shots_per_second <= 0.0 {
+    if !weapon.clip_size.is_finite()
+        || weapon.clip_size < 1.0
+        || !weapon.shots_per_second.is_finite()
+        || weapon.shots_per_second <= 0.0
+        || timing.is_some_and(|timing| !weapon_timing_known(timing))
+    {
         return None;
     }
     let shots = weapon.clip_size.floor();
@@ -441,7 +500,7 @@ pub fn weapon_cycle_seconds(
     } else {
         intervals / weapon.shots_per_second
     };
-    let cycle = firing + weapon_reload_seconds(weapon.clip_size, weapon, timing, 0.0);
+    let cycle = firing + weapon_reload_seconds(shots, weapon, timing, 0.0);
     (cycle.is_finite() && cycle > 0.0).then_some(cycle)
 }
 
@@ -670,7 +729,11 @@ pub fn damage_plan(hero: &HeroModel, cfg: &ReasonerConfig) -> DamagePlan {
     // eines Konverters spiegeln (Nullkonverter bleiben unveraendert). Dieselbe
     // zustandsbezogene Projektion wie im Item-Score; Basis-Spirit genau einmal.
     let weapon = weapon_with_spirit(hero, hero.base_spirit_power);
-    let weapon_dps = weapon_dps(&weapon, cfg.combat_window_seconds);
+    let weapon_dps = weapon_dps_with_timing(
+        &weapon,
+        Some(&hero.weapon_timing),
+        cfg.combat_window_seconds,
+    );
     let spirit_dps = hero
         .abilities
         .iter()
@@ -819,12 +882,14 @@ fn property_value(name: &str, value: f64, hero: &HeroModel, cfg: &ReasonerConfig
     if lower == "bonusclipsizepercent" || lower == "clipsizepercent" {
         let mut changed = hero.weapon.clone();
         changed.clip_size *= (1.0 + percent).max(0.0);
-        return weapon_dps(&changed, window) - weapon_dps(&hero.weapon, window);
+        return weapon_dps_with_timing(&changed, Some(&hero.weapon_timing), window)
+            - weapon_dps_with_timing(&hero.weapon, Some(&hero.weapon_timing), window);
     }
     if lower == "bonusfirerate" || lower == "firerate" {
         let mut changed = hero.weapon.clone();
         changed.shots_per_second *= (1.0 + percent).max(0.0);
-        return weapon_dps(&changed, window) - weapon_dps(&hero.weapon, window);
+        return weapon_dps_with_timing(&changed, Some(&hero.weapon_timing), window)
+            - weapon_dps_with_timing(&hero.weapon, Some(&hero.weapon_timing), window);
     }
     if lower.contains("weapon")
         || lower.contains("baseattackdamage")
@@ -997,6 +1062,143 @@ fn reload_value(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recorded_weapon_timing_drives_scalar_damage_and_item_marginals() {
+        let cfg = ReasonerConfig::default();
+        let hero = crate::combat::tests::recorded_hero(6);
+        let base_cycle = 9.0 * 0.63 + 0.705 + 9.0 * 0.3525;
+        let base = hero.weapon.bullet_damage * 9.0 / base_cycle;
+        assert!((damage_plan(&hero, &cfg).weapon_dps - base).abs() < 1e-9);
+        let mut doubled = hero.weapon.clone();
+        doubled.clip_size = 18.9;
+        let double_cycle = 18.0 * 0.63 + 0.705 + 18.0 * 0.3525;
+        let double = hero.weapon.bullet_damage * 18.0 / double_cycle;
+        assert!(
+            (weapon_dps_with_timing(&doubled, Some(&hero.weapon_timing), 40.0) - double).abs()
+                < 1e-9
+        );
+        assert!(
+            (property_value("BonusClipSizePercent", 100.0, &hero, &cfg) - (double - base)).abs()
+                < 1e-9
+        );
+        let mut projected = hero.clone();
+        projected.base_spirit_power = 100.0;
+        projected.scaling.push(crate::ScalingStat {
+            stat: "EClipSize".into(),
+            per_level: 0.0,
+            per_spirit: Some(0.09),
+        });
+        assert!((damage_plan(&projected, &cfg).weapon_dps - double).abs() < 1e-9);
+        let burst = crate::combat::tests::recorded_hero(2);
+        let firing = 9.0 * (0.2625 + 3.0 * 0.084) + 2.0 * 0.084;
+        let expected = burst.weapon.bullet_damage * 29.0 / (firing + 2.35);
+        assert!((damage_plan(&burst, &cfg).weapon_dps - expected).abs() < 1e-9);
+        let faster = burst.weapon.bullet_damage * 29.0 / (firing / 2.0 + 2.35);
+        assert!(
+            (property_value("BonusFireRate", 100.0, &burst, &cfg) - (faster - expected)).abs()
+                < 1e-9
+        );
+    }
+
+    #[test]
+    fn reload_timing_rejects_invalid_components_without_a_standard_reload_fallback() {
+        let weapon = hero().weapon;
+        assert_eq!(weapon_reload_seconds(20.0, &weapon, None, 100.0), 1.0);
+        for raw in [-1.0, f64::NAN, f64::INFINITY] {
+            let mut changed = weapon.clone();
+            changed.reload_duration = raw;
+            assert_eq!(
+                weapon_reload_seconds(20.0, &changed, None, 0.0),
+                f64::INFINITY
+            );
+            assert!(weapon_cycle_seconds(
+                &changed,
+                None,
+                crate::ReloadConvention::AfterFireInterval,
+            )
+            .is_none());
+        }
+        for speed in [-100.0, -200.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(
+                weapon_reload_seconds(20.0, &weapon, None, speed),
+                f64::INFINITY
+            );
+        }
+        for (delay, duration) in [
+            (None, Some(0.2)),
+            (Some(0.5), None),
+            (Some(-0.1), Some(0.2)),
+            (Some(0.5), Some(-0.1)),
+            (Some(f64::NAN), Some(0.2)),
+            (Some(0.5), Some(f64::INFINITY)),
+        ] {
+            let timing = crate::WeaponTiming {
+                reload_single_bullets: Some(true),
+                reload_single_bullets_initial_delay: delay,
+                raw_reload_duration: duration,
+                ..Default::default()
+            };
+            assert_eq!(
+                weapon_reload_seconds(3.0, &weapon, Some(&timing), 0.0),
+                f64::INFINITY
+            );
+        }
+        let timing = crate::WeaponTiming {
+            reload_single_bullets: Some(true),
+            reload_single_bullets_initial_delay: Some(0.5),
+            raw_reload_duration: Some(0.2),
+            ..Default::default()
+        };
+        assert!((weapon_reload_seconds(3.0, &weapon, Some(&timing), 0.0) - 1.1).abs() < 1e-9);
+        assert_eq!(
+            weapon_reload_seconds(f64::INFINITY, &weapon, None, 0.0),
+            f64::INFINITY
+        );
+        assert_eq!(
+            weapon_reload_seconds(0.5, &weapon, None, 0.0),
+            f64::INFINITY
+        );
+        assert_eq!(
+            weapon_reload_seconds(
+                1e308,
+                &weapon,
+                Some(&crate::WeaponTiming {
+                    raw_reload_duration: Some(2.0),
+                    ..timing
+                }),
+                0.0
+            ),
+            f64::INFINITY
+        );
+    }
+
+    #[test]
+    fn zero_reload_only_has_a_cycle_when_firing_advances_time() {
+        let mut weapon = hero().weapon;
+        weapon.reload_duration = 0.0;
+        weapon.clip_size = 1.0;
+        assert_eq!(
+            weapon_cycle_seconds(&weapon, None, crate::ReloadConvention::AfterLastShot),
+            None
+        );
+        assert_eq!(
+            weapon_cycle_seconds(&weapon, None, crate::ReloadConvention::AfterFireInterval),
+            Some(0.2)
+        );
+        weapon.clip_size = 2.0;
+        assert_eq!(
+            weapon_cycle_seconds(&weapon, None, crate::ReloadConvention::AfterLastShot),
+            Some(0.2)
+        );
+        let timing = crate::WeaponTiming {
+            burst_shot_count: Some(2),
+            cycle_time: Some(1.0),
+            intra_burst_cycle_time: Some(1e-308),
+            ..Default::default()
+        };
+        assert_eq!(weapon_shot_interval(1, 1e308, Some(&timing)), f64::INFINITY);
+    }
+
     #[test]
     fn thresholds_nonhero_and_unmeasured_heals_are_not_guaranteed_combat_value() {
         for name in [
@@ -1500,6 +1702,7 @@ mod tests {
             standard_upgrade_levels: Default::default(),
             level_rewards: Default::default(),
             cost_bonuses: Default::default(),
+            weapon_timing: Default::default(),
             hero_id: 25,
             name: "Warden".to_string(),
             archetype: "brawler".to_string(),
