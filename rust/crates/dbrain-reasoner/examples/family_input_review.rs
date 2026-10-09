@@ -57,6 +57,7 @@ fn cross_source_probe() -> Value {
 fn legacy_publish_probe() -> Value {
     // Call only the pure validator. Never call the queue or open a database.
     let build = dbrain_reasoner::BuildObject {
+        provenance: None,
         hero_id: 777,
         hero_name: "Synthetic validation probe".into(),
         patch_tag: "unverified".into(),

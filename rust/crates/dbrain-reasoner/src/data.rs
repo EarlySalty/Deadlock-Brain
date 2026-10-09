@@ -1287,6 +1287,7 @@ pub(crate) struct MirroredModels {
     pub hero: HeroModel,
     pub items: Vec<ItemModel>,
     pub snapshots: Vec<crate::PatchSnapshot>,
+    pub provenance: MirrorProvenance,
     pub flex_slots: Option<usize>,
 }
 
@@ -1296,6 +1297,42 @@ pub(crate) async fn load_models_from_mirror(
 ) -> Result<MirroredModels> {
     let assets = mirrored_assets(ctx).await?;
     models_from_assets(ctx, hero, assets)
+}
+
+pub(crate) async fn load_models_from_origin(
+    ctx: &ReasonerCtx,
+    hero: &str,
+    origin: &crate::publish::BuildDataOrigin,
+) -> Result<MirroredModels> {
+    let heroes = brain_storage::asset_mirror::load_mirrored_assets_for_run(
+        &ctx.pool,
+        origin.source_run_id,
+        origin.client_version,
+        "heroes",
+        Some("english"),
+    )
+    .await
+    .map_err(|error| ReasonerError::Data(format!("Original-API-Helden: {error}")))?;
+    let items = brain_storage::asset_mirror::load_mirrored_assets_for_run(
+        &ctx.pool,
+        origin.source_run_id,
+        origin.client_version,
+        "items",
+        Some("english"),
+    )
+    .await
+    .map_err(|error| ReasonerError::Data(format!("Original-API-Items: {error}")))?;
+    if crate::publish::BuildDataOrigin::from_receipts(&heroes.receipt, &items.receipt)? != *origin {
+        return Err(ReasonerError::Data(
+            "Gespeicherte Buildherkunft stimmt nicht mit ihren Originalbelegen überein.".into(),
+        ));
+    }
+    let provenance = MirrorProvenance {
+        client_version: heroes.receipt.client_version,
+        mirrored_at: heroes.receipt.mirrored_at,
+        checked_at: heroes.receipt.checked_at,
+    };
+    models_from_assets(ctx, hero, assets_from_receipts(heroes, items, provenance)?)
 }
 
 fn models_from_assets(
@@ -1312,6 +1349,7 @@ fn models_from_assets(
         hero,
         items,
         snapshots,
+        provenance: assets.provenance,
         flex_slots,
     })
 }
@@ -2278,6 +2316,48 @@ mod tests {
                 "deadlock_assets_api/item_or_ability"
             );
             assert_eq!(snapshots[0].fields["weapon.bullet_damage"].fetched_at, None);
+            let now = std::time::Instant::now();
+            let deadline = brain_contracts::RequestDeadline::after_with_clock(
+                std::time::Duration::from_secs(60),
+                move || now,
+            );
+            let order =
+                crate::progression::mechanic_order_with_deadline(&mirrored, &cfg, Some(&deadline))
+                    .unwrap();
+            for souls in [0, 10000, 30000] {
+                let (first, first_progression) =
+                    crate::progression::at_souls(&mirrored, &order, souls, &cfg);
+                let (second, second_progression) =
+                    crate::progression::at_souls(&sourced.model, &order, souls, &cfg);
+                assert_eq!(first_progression, second_progression);
+                let first = crate::combat::evaluate_inventory_with_deadline(
+                    &first,
+                    &[],
+                    &cfg,
+                    &std::collections::BTreeMap::new(),
+                    Some(&deadline),
+                )
+                .unwrap();
+                let second = crate::combat::evaluate_inventory_with_deadline(
+                    &second,
+                    &[],
+                    &cfg,
+                    &std::collections::BTreeMap::new(),
+                    Some(&deadline),
+                )
+                .unwrap();
+                assert_eq!(first.score, second.score);
+                assert_eq!(first.weapon_damage, second.weapon_damage);
+                assert_eq!(first.ability_damage, second.ability_damage);
+                assert_eq!(first.effective_health, second.effective_health);
+            }
+            deadline.cancel();
+            assert!(crate::progression::mechanic_order_with_deadline(
+                &mirrored,
+                &cfg,
+                Some(&deadline),
+            )
+            .is_err());
         }
     }
 

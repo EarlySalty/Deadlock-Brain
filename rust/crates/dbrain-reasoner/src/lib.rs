@@ -110,6 +110,64 @@ pub struct PlannedBuild {
     pub variant_scores: BTreeMap<String, Vec<ScoredItem>>,
     pub hero: HeroModel,
     pub deltas: Vec<PatchDelta>,
+    pub purchase_plan: planner::PurchasePlan,
+}
+
+pub struct BuildRequestContext<'a> {
+    pub request: &'a brain_contracts::tools::BuildPlanRequest,
+    pub deadline: &'a brain_contracts::RequestDeadline,
+}
+
+pub fn plan_build_with_request(
+    hero: &HeroModel,
+    items: &[ItemModel],
+    meta: &meta::MetaIndexWithSources,
+    events: &[Value],
+    snapshots: &[PatchSnapshot],
+    config: &ReasonerConfig,
+    context: BuildRequestContext<'_>,
+) -> Result<PlannedBuild> {
+    let request = context.request;
+    if i64::try_from(request.hero_id).ok() != Some(hero.hero_id) {
+        return Err(ReasonerError::Data(
+            "Buildanfrage gehört nicht zu diesem Helden.".into(),
+        ));
+    }
+    let mut imbues = BTreeMap::new();
+    for imbue in &request.imbues {
+        let item_id = i64::try_from(imbue.item_id)
+            .map_err(|_| ReasonerError::Data("Ungültige Itembindung.".into()))?;
+        let ability_id = i64::try_from(imbue.ability_id)
+            .map_err(|_| ReasonerError::Data("Ungültige Itembindung.".into()))?;
+        if item_id <= 0 || ability_id <= 0 || imbues.insert(item_id, ability_id).is_some() {
+            return Err(ReasonerError::Data(
+                "Ungültige oder doppelte Itembindung.".into(),
+            ));
+        }
+    }
+    let budget = request
+        .budget
+        .map(i64::try_from)
+        .transpose()
+        .map_err(|_| ReasonerError::Data("Ungültiges Buildbudget.".into()))?;
+    let constraints = planner::PlanningConstraints {
+        budget,
+        imbues,
+        deadline: Some(context.deadline),
+    };
+    plan_build_with_family_policy(
+        hero,
+        items,
+        meta,
+        events,
+        snapshots,
+        config,
+        PlanningOptions {
+            family_policy: &families::FamilyPolicy::for_patch(events, config),
+            playstyle: Playstyle::parse(Some(request.playstyle.as_str()))?,
+            constraints: &constraints,
+        },
+    )
 }
 
 pub fn plan_build(
@@ -142,6 +200,7 @@ pub fn plan_build_with_playstyle(
         PlanningOptions {
             family_policy: &families::FamilyPolicy::for_patch(events, config),
             playstyle: Playstyle::parse(requested_playstyle)?,
+            constraints: &Default::default(),
         },
     )
 }
@@ -149,6 +208,7 @@ pub fn plan_build_with_playstyle(
 struct PlanningOptions<'a> {
     family_policy: &'a families::FamilyPolicy,
     playstyle: Option<Playstyle>,
+    constraints: &'a planner::PlanningConstraints<'a>,
 }
 
 fn plan_build_with_family_policy(
@@ -160,6 +220,8 @@ fn plan_build_with_family_policy(
     config: &ReasonerConfig,
     options: PlanningOptions<'_>,
 ) -> Result<PlannedBuild> {
+    options.constraints.check()?;
+    let provenance = publish::calculation_provenance(hero, items, snapshots, config)?;
     let mut hero = hero.clone();
     let mut items = items.to_vec();
     let mut deltas = patch::compute_patch_delta_with_snapshots(&hero, events, snapshots);
@@ -172,100 +234,63 @@ fn plan_build_with_family_policy(
             options.family_policy,
         )
     });
-    let contexts = if let Some(discovery) = &discovery {
-        let contexts = discovery
-            .families
-            .iter()
-            .filter(|family| family.eligible_for_planning)
-            .map(|family| families::conditioned_meta(meta, family, config))
-            .collect::<Vec<_>>();
-        if contexts.is_empty() {
-            return Err(ReasonerError::Data(format!("{}: keine ausreichend belegte Buildfamilie in {} Beobachtungen; kein gemittelter Ersatzbuild wird veröffentlicht.", hero.name, discovery.input_observations)));
-        }
-        contexts
+    let conditioned;
+    let planning_context = if let Some(style) = options.playstyle {
+        conditioned = style.condition(meta, &hero, &items);
+        &conditioned
     } else {
-        vec![meta.clone()]
+        meta
     };
-    let mut plans = Vec::new();
-    let mut variant_scores = BTreeMap::new();
-    for context in &contexts {
-        let conditioned;
-        let planning_context = if let Some(style) = options.playstyle {
-            conditioned = style.condition(context, &hero, &items);
-            &conditioned
-        } else {
-            context
-        };
-        let mut scored = item::score_items(&hero, &items, &planning_context.index, &[], config);
-        let blocked = options
-            .playstyle
-            .map(|style| {
-                items
-                    .iter()
-                    .filter(|item| !style.allows_item(&hero, item))
-                    .map(|item| item.item_id.to_string())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        finish_scores(&mut scored);
-        let mut build = composer::compose_build_with_sources(
-            &hero,
-            &scored,
-            &deltas,
-            config,
-            &blocked,
-            planning_context,
-        )?;
-        if let Some(style) = options.playstyle {
-            scored.retain(|item| style.allows_item(&hero, &item.item));
-        }
-        build.family = context.family.clone();
-        if let Some(style) = options.playstyle {
-            build.name = format!("{} {}-Build", hero.name, style.label());
-            build.rationale = append_text(
-                &build.rationale,
-                &format!("Gewünschter Spielstil: {}. Die Itemauswahl folgt den Spielwerten; ergänzende defensive Käufe bleiben möglich.", style.label()),
-            );
-        }
-        if let Some(family) = &context.family {
-            build.name = match options.playstyle {
-                Some(style) => format!("{}: {} ({}-Build)", hero.name, family.label, style.label()),
-                None => format!("{}: {}", hero.name, family.label),
-            };
-            build.rationale = append_text(&build.rationale, &format!("Familie {}: {} Spieler-Matches, {} unabhängige Spieler, {} Autoren; Kohärenz {:.3}. {}", family.id, family.player_matches, family.distinct_players, family.distinct_authors, family.cohesion, family.limitations.join(" ")));
-            if variant_scores
-                .insert(family.id.clone(), scored.clone())
-                .is_some()
-            {
-                return Err(ReasonerError::Data(format!(
-                    "Nicht eindeutige Familien-ID {}; keine Variante wird still überschrieben.",
-                    family.id
-                )));
-            }
-        }
-        plans.push((build, scored));
+    let mut scored = item::score_items(&hero, &items, &planning_context.index, &[], config);
+    let blocked = options
+        .playstyle
+        .map(|style| {
+            items
+                .iter()
+                .filter(|item| !style.allows_item(&hero, item))
+                .map(|item| item.item_id.to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    finish_scores(&mut scored);
+    options.constraints.check()?;
+    let (mut build, purchase_plan) = composer::compose_build_with_sources_and_constraints(
+        &hero,
+        &scored,
+        &deltas,
+        config,
+        &blocked,
+        planning_context,
+        options.constraints,
+    )?;
+    if let Some(style) = options.playstyle {
+        scored.retain(|item| style.allows_item(&hero, &item.item));
+        build.name = format!("{} {}-Build", hero.name, style.label());
+        build.rationale = append_text(
+            &build.rationale,
+            &format!("Gewünschter Spielstil: {}. Die Itemauswahl folgt den Spielwerten; ergänzende defensive Käufe bleiben möglich.", style.label()),
+        );
     }
-    let (mut build, scored) = plans.remove(0);
-    build.variants = plans.into_iter().map(|(build, _)| build).collect();
     build.family_discovery = discovery;
+    if let Some(provenance) = provenance {
+        publish::bind_calculated_build(&mut build, provenance, &purchase_plan)?;
+    }
+    options.constraints.check()?;
     Ok(PlannedBuild {
         build,
         scored,
-        variant_scores,
+        variant_scores: BTreeMap::new(),
         hero,
         deltas,
+        purchase_plan,
     })
 }
 
 pub fn annotate_missing_authors(build: &mut BuildObject, meta: &meta::MetaIndexWithSources) {
     if meta.author_builds.is_empty() {
-        build.confidence = Confidence::Low;
         build.rationale = append_text(
             &build.rationale,
-            &format!(
-                "Für diesen Helden fehlen Builds aktiver beobachteter Autoren. Die Kaufkurve ist ein Behelf aus {} beobachteten Builds anderer Helden; ein eigener Autorenvergleich ist nicht möglich.",
-                meta.core_layouts.overall.source_builds
-            ),
+            "Für diesen Helden fehlen Builds aktiver beobachteter Autoren. Die Planung folgt den aktuellen Spielwerten; ein Autorenvergleich ist nicht möglich.",
         );
     }
 }
@@ -309,6 +334,7 @@ pub async fn reason_build_for_playstyle_with_options(
             PlanningOptions {
                 family_policy: &family_policy,
                 playstyle,
+                constraints: &Default::default(),
             },
         )?;
         let PlannedBuild {
@@ -330,8 +356,6 @@ pub async fn reason_build_for_playstyle_with_options(
             );
             if let Some(client) = ctx.ai.as_ref() {
                 if let Ok(critic) = ai_roles::run_critic(client, &build) {
-                    // AI criticism is explanatory only. It cannot remove or add
-                    // purchases, alter bindings, or recompute numeric families.
                     if !critic.issues.is_empty() {
                         build.rationale = append_text(
                             &build.rationale,
