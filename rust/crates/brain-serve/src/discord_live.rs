@@ -369,7 +369,7 @@ fn allowed(query: &Query, context: &AuthorizedContext, provider: bool) -> bool {
         && context
             .discord
             .as_ref()
-            .is_none_or(|request| request.allow_discord_reads)
+            .is_some_and(|request| request.allow_discord_reads)
         && (!provider || context.principal.provider_egress.contains("public"))
 }
 
@@ -1022,12 +1022,20 @@ mod tests {
         impl RetrievalPort for SafeStore {
             fn retrieve(
                 &self,
-                _: &Query,
+                query: &Query,
                 context: &AuthorizedContext,
             ) -> Result<Vec<Evidence>, PortError> {
-                let request = context.discord.as_ref().unwrap();
-                assert_eq!(request.user_id, Some(42));
-                assert!(context.principal.scopes.contains(&request.scope));
+                if let Some(request) = &context.discord {
+                    assert_eq!(request.user_id, Some(42));
+                    assert!(context.principal.scopes.contains(&request.scope));
+                } else {
+                    assert!(brain_contracts::discord_task::is_task_query(query));
+                    assert_eq!(context.principal.scopes, query.requested_scopes);
+                    assert_eq!(
+                        context.principal.provider_egress,
+                        BTreeSet::from(["public".into()])
+                    );
+                }
                 Ok(vec![self.0.clone()])
             }
             fn validate_evidence(
@@ -1118,6 +1126,52 @@ mod tests {
             patch: None,
         };
         let adapter = DiscordRetriever::new(SafeStore(stored.clone()), Some(live));
+        let mut task_context = context.clone();
+        task_context.discord = None;
+        task_context.principal.channel = "discord".into();
+        task_context.principal.scopes = BTreeSet::from(["bot.public".into()]);
+        task_context.principal.provider_egress = BTreeSet::from(["public".into()]);
+        let tasks: Vec<Query> = ["bot_task:concierge", "bot_task:faq"]
+            .into_iter()
+            .map(|purpose| {
+                serde_json::from_value(json!({
+                    "request_id": "r", "conversation_id": "c",
+                    "text": "Wie erstelle ich einen Sprachkanal auf dem Discord-Server?",
+                    "requested_scopes": ["bot.public"],
+                    "answer_context": {"platform": "discord", "purpose": purpose}
+                }))
+                .unwrap()
+            })
+            .collect();
+        for query in &tasks {
+            assert!(!allowed(query, &task_context, false));
+            let mut cached_live = stored.clone();
+            cached_live.source_id = SOURCE.into();
+            cached_live.visibility = SourceVisibility::RequestScoped;
+            cached_live.allowed_scopes = BTreeSet::from(["discord.request:fixture".into()]);
+            adapter.observations.lock().unwrap().insert(
+                observation_key(query, &task_context).unwrap(),
+                (
+                    Instant::now() + Duration::from_secs(60),
+                    vec![cached_live.clone()],
+                ),
+            );
+            for provider in [false, true] {
+                assert!(matches!(
+                    adapter.validate_evidence(
+                        query,
+                        &task_context,
+                        std::slice::from_ref(&cached_live),
+                        provider
+                    ),
+                    Err(PortError::PermissionDenied(_))
+                ));
+            }
+            assert!(matches!(
+                adapter.validate_publication(query, &task_context, &[cached_live]),
+                Err(PortError::PermissionDenied(_))
+            ));
+        }
         let kernel = Kernel::new(adapter, Answer);
         for text in [
             "Was macht Abrams?",
@@ -1127,6 +1181,12 @@ mod tests {
         ] {
             let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":text,"requested_scopes":["bot.public"]})).unwrap();
             let result = kernel.answer_for_publication(&query, &context);
+            assert_eq!(result.status, AnswerStatus::Answered);
+            assert_eq!(result.citations, vec![stored.clone()]);
+            assert_eq!(result.usage.network_rounds, 0);
+        }
+        for query in tasks {
+            let result = kernel.answer_for_publication(&query, &task_context);
             assert_eq!(result.status, AnswerStatus::Answered);
             assert_eq!(result.citations, vec![stored.clone()]);
             assert_eq!(result.usage.network_rounds, 0);
