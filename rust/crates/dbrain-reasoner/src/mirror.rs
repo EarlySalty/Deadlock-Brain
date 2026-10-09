@@ -11,6 +11,13 @@ pub struct MirroredCalculationModels {
     pub checked_at: i64,
 }
 
+pub(crate) struct BoundMirrorAssets {
+    pub heroes: MirroredAssets,
+    pub items: MirroredAssets,
+    pub origin: BuildDataOrigin,
+    pub checked_at: i64,
+}
+
 pub async fn load_calculation_models_from_mirror(ctx: &ReasonerCtx) -> Result<CalculationModels> {
     Ok(load_calculation_models_with_origin_from_mirror(ctx)
         .await?
@@ -20,6 +27,21 @@ pub async fn load_calculation_models_from_mirror(ctx: &ReasonerCtx) -> Result<Ca
 pub async fn load_calculation_models_with_origin_from_mirror(
     ctx: &ReasonerCtx,
 ) -> Result<MirroredCalculationModels> {
+    let assets = load_bound_assets(ctx).await?;
+    let models = crate::calculation_models_from_payloads(
+        &assets.heroes.payload,
+        &assets.items.payload,
+        &model_source(&assets.heroes.receipt),
+        &model_source(&assets.items.receipt),
+    )?;
+    Ok(MirroredCalculationModels {
+        models,
+        origin: assets.origin,
+        checked_at: assets.checked_at,
+    })
+}
+
+pub(crate) async fn load_bound_assets(ctx: &ReasonerCtx) -> Result<BoundMirrorAssets> {
     let client_version = brain_storage::asset_mirror::latest_mirrored_client_version(&ctx.pool)
         .await
         .map_err(|error| ReasonerError::Data(format!("API-Spiegel: {error}")))?;
@@ -46,30 +68,17 @@ pub async fn load_calculation_models_with_origin_from_mirror(
     .fetch_one(&ctx.pool)
     .await
     .map_err(ReasonerError::Db)?;
-    models_from_receipts(heroes, items, &run)
-}
-
-fn models_from_receipts(
-    heroes: MirroredAssets,
-    items: MirroredAssets,
-    run: &Value,
-) -> Result<MirroredCalculationModels> {
     let origin = BuildDataOrigin::from_receipts(&heroes.receipt, &items.receipt)?;
-    let checked_at = current_mirror_check(run, &origin)?;
-    let models = crate::calculation_models_from_payloads(
-        &heroes.payload,
-        &items.payload,
-        &model_source(&heroes.receipt),
-        &model_source(&items.receipt),
-    )?;
-    Ok(MirroredCalculationModels {
-        models,
+    let checked_at = current_mirror_check(&run, &origin)?;
+    Ok(BoundMirrorAssets {
+        heroes,
+        items,
         origin,
         checked_at,
     })
 }
 
-fn model_source(receipt: &AssetMirrorReceipt) -> ModelSource {
+pub(crate) fn model_source(receipt: &AssetMirrorReceipt) -> ModelSource {
     ModelSource {
         client_version: receipt.client_version,
         document_id: receipt.endpoint.source_document_id.to_string(),
@@ -151,6 +160,26 @@ mod tests {
                 "items/english":{"source_document_id":origin.items_document_id,"raw_sha256":origin.items_sha256}
             }
         }})
+    }
+
+    #[test]
+    fn latest_run_must_confirm_the_mirrored_version() {
+        let mut origin = origin();
+        origin.client_version = 6000;
+        origin.mirrored_at = 500;
+        let mut checked = run(&origin);
+        checked["summary"]["checked_at"] = json!(2000);
+        assert_eq!(current_mirror_check(&checked, &origin).unwrap(), 2000);
+        for (pointer, value) in [
+            ("/status", json!("error")),
+            ("/status", json!("running")),
+            ("/summary/client_version", json!(6001)),
+            ("/summary/mirror_complete", json!(false)),
+        ] {
+            let mut invalid = checked.clone();
+            *invalid.pointer_mut(pointer).unwrap() = value;
+            assert!(current_mirror_check(&invalid, &origin).is_err());
+        }
     }
 
     #[test]
