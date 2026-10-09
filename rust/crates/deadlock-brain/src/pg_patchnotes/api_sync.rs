@@ -336,10 +336,11 @@ fn prepare_api_patch(
             .exact(trimmed.trim_matches(['[', ']', ':']).trim())
             .is_some()
             || (trimmed.starts_with('[') && trimmed.ends_with(']'))
+            || is_forum_section_heading(trimmed)
             || !has_change_action(trimmed)
         {
-            if let Some(heading) = section_heading(trimmed) {
-                lines.push(heading);
+            if section_heading(trimmed).is_some() {
+                lines.push(line);
             }
         } else {
             lines.push(format!("- {trimmed}"));
@@ -911,6 +912,101 @@ mod tests {
                     assert_eq!(event.entity_name, None, "{source}/{line}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn recognized_patch_keeps_general_prefixed_and_short_now_changes() {
+        let index = patch_index();
+        let changes = [
+            "Parry: can now interrupt",
+            "Damage now scales",
+            "Players can now parry",
+            "Parry: can now interrupt - only melee attacks",
+            "Matchmaking: adjusted targeting",
+            "Voice/Text chat is now opt-in. There is a prompt pre-match for joining the chat.",
+            "You can now press ESC to mute individual players.",
+        ];
+        for source in ["steam", "forum"] {
+            let mut post = post();
+            post.source = source.into();
+            if source == "forum" {
+                post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+            }
+            for prefix in ["", "- ", "* ", "• "] {
+                let original = format!(
+                    "- Holliday: added knockback\nGeneral Changes:\n{}",
+                    changes.map(|line| format!("{prefix}{line}")).join("\n")
+                );
+                let html = if source == "forum" {
+                    forum_html(&post, &original)
+                } else {
+                    steam_html(&post, &original)
+                };
+                let resolved = resolve_api_source(&post, |_| Ok(html.clone()))
+                    .unwrap()
+                    .unwrap();
+                let row = post_row(&post, Some(17)).unwrap();
+                for prepared in [
+                    prepare_patch(&row, &resolved, &index).unwrap(),
+                    prepare_api_patch(&row, &resolved, &index).unwrap(),
+                ] {
+                    assert!(is_patch_candidate(&prepared, &index));
+                    assert_eq!(
+                        prepared.events.len(),
+                        changes.len() + 1,
+                        "{source}/{prefix}"
+                    );
+                    for (line, event) in changes.iter().zip(&prepared.events[1..]) {
+                        assert_eq!(event.normalized_line, *line, "{source}/{prefix}");
+                        assert_eq!(event.entity_name, None, "{source}/{line}");
+                        assert_eq!(event.entity_type, "general");
+                        assert_eq!(event.section.as_deref(), Some("General Changes"));
+                        assert_eq!(event.metadata["url"], post.link);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_action_named_sections_remain_headings() {
+        let index = patch_index();
+        let row = post_row(&post(), Some(17)).unwrap();
+        for original in [
+            "Holliday\n- Added knockback\n[ New Heroes ]\nPlayers can now parry",
+            "Holliday\n- Added knockback\nNew Heroes:\nPlayers can now parry",
+            "Holliday\n- Added knockback\nNew Heroes\nPlayers can now parry",
+            "[ Holliday ] Added knockback [ New Heroes ] Players can now parry",
+        ] {
+            let resolved = PatchSourceResolution {
+                raw_content: original.into(),
+                ..PatchSourceResolution::from_row(&row)
+            };
+            for prepared in [
+                prepare_patch(&row, &resolved, &index).unwrap(),
+                prepare_api_patch(&row, &resolved, &index).unwrap(),
+            ] {
+                assert_eq!(prepared.events.len(), 2, "{original}");
+                assert_eq!(prepared.events[0].entity_name.as_deref(), Some("Holliday"));
+                assert_eq!(prepared.events[1].normalized_line, "Players can now parry");
+                assert_eq!(prepared.events[1].entity_name, None);
+                assert_eq!(prepared.events[1].section.as_deref(), Some("New Heroes"));
+            }
+        }
+        let resolved = PatchSourceResolution {
+            raw_content: "Improved Spirit\nPlayers can now parry".into(),
+            ..PatchSourceResolution::from_row(&row)
+        };
+        for prepared in [
+            prepare_patch(&row, &resolved, &index).unwrap(),
+            prepare_api_patch(&row, &resolved, &index).unwrap(),
+        ] {
+            assert_eq!(prepared.events.len(), 1);
+            assert_eq!(
+                prepared.events[0].entity_name.as_deref(),
+                Some("Improved Spirit")
+            );
         }
     }
 
