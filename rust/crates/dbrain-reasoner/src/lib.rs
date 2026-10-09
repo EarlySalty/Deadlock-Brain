@@ -28,6 +28,11 @@ pub mod item;
 pub mod item_interactions;
 pub mod mechanics;
 pub mod meta;
+mod mirror;
+pub use mirror::{
+    load_calculation_models_from_mirror, load_calculation_models_with_origin_from_mirror,
+    MirroredCalculationModels,
+};
 pub mod patch;
 pub mod planner;
 pub mod playstyle;
