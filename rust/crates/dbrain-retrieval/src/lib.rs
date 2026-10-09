@@ -449,35 +449,105 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
         request: &brain_contracts::tools::ToolRequest,
     ) -> std::result::Result<brain_contracts::tools::ToolExecution, brain_contracts::PortError>
     {
+        self.execute_accounted(query, context, game_context, call_id, request)
+            .map(|accounted| accounted.value)
+            .map_err(|failure| failure.error)
+    }
+
+    fn execute_accounted(
+        &self,
+        query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+        game_context: Option<&brain_contracts::PinnedGameContext>,
+        call_id: &str,
+        request: &brain_contracts::tools::ToolRequest,
+    ) -> std::result::Result<
+        brain_contracts::Accounted<brain_contracts::tools::ToolExecution>,
+        brain_contracts::PortFailure,
+    > {
         use brain_contracts::tools::*;
-        Self::check_request(query, context)?;
-        let call = ToolCall {
-            id: call_id.into(),
-            name: request.name(),
-            arguments: request.arguments().clone(),
-        };
-        let checked = call.validate(&self.definitions(query, context, game_context)?)?;
-        if &checked != request {
-            return Err(brain_contracts::PortError::InvalidResponse(
-                "Werkzeugbindung weicht ab".into(),
-            ));
-        }
-        if request.name() != ToolName::ServerKnowledge {
-            let pin = game_context.ok_or_else(|| {
-                brain_contracts::PortError::Unavailable("Gebundener Spiegel fehlt".into())
-            })?;
-            let (result, evidence) = self.mirrored_entities(
-                query,
-                context,
-                pin,
-                request,
-                ToolValidationPurpose::Provider,
-            )?;
+        let mut accounting = Some(brain_contracts::UsageAccounting::default());
+        let execution = (|| {
+            Self::check_request(query, context)?;
+            let call = ToolCall {
+                id: call_id.into(),
+                name: request.name(),
+                arguments: request.arguments().clone(),
+            };
+            let checked = call.validate(&self.definitions(query, context, game_context)?)?;
+            if &checked != request {
+                return Err(brain_contracts::PortError::InvalidResponse(
+                    "Werkzeugbindung weicht ab".into(),
+                ));
+            }
+            if request.name() != ToolName::ServerKnowledge {
+                let pin = game_context.ok_or_else(|| {
+                    brain_contracts::PortError::Unavailable("Gebundener Spiegel fehlt".into())
+                })?;
+                let (result, evidence) = self.mirrored_entities(
+                    query,
+                    context,
+                    pin,
+                    request,
+                    ToolValidationPurpose::Provider,
+                )?;
+                let execution = ToolExecution {
+                    result: ToolResult {
+                        call_id: call_id.into(),
+                        name: request.name(),
+                        result,
+                        evidence_ids: evidence
+                            .iter()
+                            .map(|item| item.evidence_id.clone())
+                            .collect(),
+                        is_error: false,
+                    },
+                    dependencies: vec![ToolEvidenceDependency {
+                        request: request.clone(),
+                        game_context: Some(pin.clone()),
+                        evidence,
+                    }],
+                    usage: brain_contracts::Usage::default(),
+                };
+                execution.validate_for(&call, request, Some(pin))?;
+                return Ok(execution);
+            }
+            let subquery = Self::knowledge_query(query, request)?;
+            accounting = None;
+            let (evidence, usage) = self.knowledge().retrieve_with_usage(&subquery, context)?;
+            accounting = Some(brain_contracts::UsageAccounting::observed(usage.clone()));
+            if evidence.is_empty() {
+                return Err(brain_contracts::PortError::Unavailable(
+                    "Keine freigegebenen Belege gefunden".into(),
+                ));
+            }
+            if evidence.iter().any(|item| {
+                !matches!(
+                    item.visibility,
+                    brain_contracts::SourceVisibility::Public
+                        | brain_contracts::SourceVisibility::RequestScoped
+                )
+            }) {
+                return Err(brain_contracts::PortError::Unavailable(
+                    "Gesicherte Privatprojektion fehlt".into(),
+                ));
+            }
+            self.knowledge()
+                .validate_evidence(&subquery, context, &evidence, true)?;
+            let matches: Vec<_> = evidence
+                .iter()
+                .map(|item| {
+                    json!({
+                        "evidence_id":item.evidence_id,
+                        "content":item.content,
+                    })
+                })
+                .collect();
             let execution = ToolExecution {
                 result: ToolResult {
-                    call_id: call_id.into(),
-                    name: request.name(),
-                    result,
+                    call_id: call.id.clone(),
+                    name: ToolName::ServerKnowledge,
+                    result: json!({"matches":matches}),
                     evidence_ids: evidence
                         .iter()
                         .map(|item| item.evidence_id.clone())
@@ -486,64 +556,24 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
                 },
                 dependencies: vec![ToolEvidenceDependency {
                     request: request.clone(),
-                    game_context: Some(pin.clone()),
+                    game_context: None,
                     evidence,
                 }],
-                usage: brain_contracts::Usage::default(),
+                usage,
             };
-            execution.validate_for(&call, request, Some(pin))?;
-            return Ok(execution);
-        }
-        let subquery = Self::knowledge_query(query, request)?;
-        let (evidence, usage) = self.knowledge().retrieve_with_usage(&subquery, context)?;
-        if evidence.is_empty() {
-            return Err(brain_contracts::PortError::Unavailable(
-                "Keine freigegebenen Belege gefunden".into(),
-            ));
-        }
-        if evidence.iter().any(|item| {
-            !matches!(
-                item.visibility,
-                brain_contracts::SourceVisibility::Public
-                    | brain_contracts::SourceVisibility::RequestScoped
-            )
-        }) {
-            return Err(brain_contracts::PortError::Unavailable(
-                "Gesicherte Privatprojektion fehlt".into(),
-            ));
-        }
-        self.knowledge()
-            .validate_evidence(&subquery, context, &evidence, true)?;
-        let matches: Vec<_> = evidence
-            .iter()
-            .map(|item| {
-                json!({
-                    "evidence_id":item.evidence_id,
-                    "content":item.content,
-                })
+            Self::check_request(query, context)?;
+            execution.validate_for(&call, request, game_context)?;
+            Ok(execution)
+        })();
+        execution
+            .map(|value: ToolExecution| brain_contracts::Accounted {
+                accounting: brain_contracts::UsageAccounting::observed(value.usage.clone()),
+                value,
             })
-            .collect();
-        let execution = ToolExecution {
-            result: ToolResult {
-                call_id: call.id.clone(),
-                name: ToolName::ServerKnowledge,
-                result: json!({"matches":matches}),
-                evidence_ids: evidence
-                    .iter()
-                    .map(|item| item.evidence_id.clone())
-                    .collect(),
-                is_error: false,
-            },
-            dependencies: vec![ToolEvidenceDependency {
-                request: request.clone(),
-                game_context: None,
-                evidence,
-            }],
-            usage,
-        };
-        Self::check_request(query, context)?;
-        execution.validate_for(&call, request, game_context)?;
-        Ok(execution)
+            .map_err(|error| brain_contracts::PortFailure {
+                error,
+                accounting: accounting.map(Box::new),
+            })
     }
 
     fn validate_dependencies(
