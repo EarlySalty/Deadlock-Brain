@@ -1065,7 +1065,10 @@ fn parse_event_lines(
         if trimmed.is_empty() {
             continue;
         }
-        if let Some(body) = bullet_body(trimmed) {
+        if let Some(body) = bullet_body(trimmed).or_else(|| {
+            (index.exact(trimmed.trim_end_matches(':')).is_none() && has_change_action(trimmed))
+                .then(|| trimmed.to_string())
+        }) {
             line_index += 1;
             let event = parse_bullet_event(&EventParseContext {
                 row,

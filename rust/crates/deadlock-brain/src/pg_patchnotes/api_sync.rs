@@ -915,6 +915,60 @@ mod tests {
     }
 
     #[test]
+    fn recognized_patch_keeps_general_prefixed_and_short_now_changes() {
+        let index = patch_index();
+        let changes = [
+            "Parry: can now interrupt",
+            "Damage now scales",
+            "Players can now parry",
+            "Parry: can now interrupt - only melee attacks",
+            "Matchmaking: adjusted targeting",
+            "Voice/Text chat is now opt-in. There is a prompt pre-match for joining the chat.",
+            "You can now press ESC to mute individual players.",
+        ];
+        for source in ["steam", "forum"] {
+            let mut post = post();
+            post.source = source.into();
+            if source == "forum" {
+                post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+            }
+            for prefix in ["", "- ", "* ", "• "] {
+                let original = format!(
+                    "- Holliday: added knockback\nGeneral Changes:\n{}",
+                    changes.map(|line| format!("{prefix}{line}")).join("\n")
+                );
+                let html = if source == "forum" {
+                    forum_html(&post, &original)
+                } else {
+                    steam_html(&post, &original)
+                };
+                let resolved = resolve_api_source(&post, |_| Ok(html.clone()))
+                    .unwrap()
+                    .unwrap();
+                let row = post_row(&post, Some(17)).unwrap();
+                for prepared in [
+                    prepare_patch(&row, &resolved, &index).unwrap(),
+                    prepare_api_patch(&row, &resolved, &index).unwrap(),
+                ] {
+                    assert!(is_patch_candidate(&prepared, &index));
+                    assert_eq!(
+                        prepared.events.len(),
+                        changes.len() + 1,
+                        "{source}/{prefix}"
+                    );
+                    for (line, event) in changes.iter().zip(&prepared.events[1..]) {
+                        assert_eq!(event.normalized_line, *line, "{source}/{prefix}");
+                        assert_eq!(event.entity_name, None, "{source}/{line}");
+                        assert_eq!(event.entity_type, "general");
+                        assert_eq!(event.section.as_deref(), Some("General Changes"));
+                        assert_eq!(event.metadata["url"], post.link);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn change_qualifiers_stay_with_their_change() {
         let index = patch_index();
         let row = post_row(&post(), Some(17)).unwrap();
