@@ -502,7 +502,8 @@ WITH patch_catalog AS (
         coalesce(b.stat_name, ''),
         coalesce(b.old_value, ''),
         coalesce(b.new_value, ''),
-        b.raw_line
+        b.raw_line,
+        b.ability_name
     )
         pd.patch_title,
         pd.patch_date,
@@ -527,6 +528,7 @@ WITH patch_catalog AS (
         coalesce(b.old_value, ''),
         coalesce(b.new_value, ''),
         b.raw_line,
+        b.ability_name,
         b.confidence DESC,
         ((b.ability_name IS NOT NULL)::int + (b.stat_name IS NOT NULL)::int) DESC,
         b.hero_prefixed DESC,
@@ -682,7 +684,7 @@ mod tests {
     #[test]
     fn patch_story_migration_matches_initializer() {
         let migration = include_str!(
-            "../../../../scripts/migrations/2026-10-07-brain-patch-story-inline-v1.sql"
+            "../../../../scripts/migrations/2026-10-09-brain-patch-story-ability-pushdown-v1.sql"
         );
         let body = migration
             .trim()
