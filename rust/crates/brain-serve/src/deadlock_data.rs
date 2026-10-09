@@ -20,7 +20,7 @@ use std::{
 };
 
 const MCP: &str = "https://api.deadlock-api.com/v1/mcp";
-const SOURCE: &str = "deadlock-api-live-v1";
+const SOURCE: &str = brain_contracts::public_api::DEADLOCK_API_SOURCE_ID;
 
 fn invalid() -> PortError {
     PortError::InvalidResponse("Die Spielstatistik konnte nicht sicher gelesen werden.".into())

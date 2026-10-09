@@ -6,7 +6,6 @@ use brain_contracts::{
 };
 use brain_kernel::AnswerKernelPort;
 use brain_policy::PolicyError;
-use sha2::{Digest, Sha256};
 
 impl<K: AnswerKernelPort> ApiService<K> {
     pub fn handle_retrieve(&self, authorization: Option<&str>, body: &[u8]) -> ApiResponse {
@@ -121,11 +120,14 @@ impl<K: AnswerKernelPort> ApiService<K> {
             evidence: evidence
                 .iter()
                 .enumerate()
-                .map(|(index, item)| PublicEvidence {
-                    citation_id: format!("cite-{:x}", Sha256::digest(item.evidence_id.as_bytes())),
-                    label: format!("Beleg {}", index + 1),
-                    text: item.content.clone(),
-                    kind: item.kind,
+                .map(|(index, item)| {
+                    let citation = brain_contracts::PublicCitation::from_evidence(item, index);
+                    PublicEvidence {
+                        citation_id: citation.citation_id,
+                        label: citation.label,
+                        text: item.content.clone(),
+                        kind: item.kind,
+                    }
                 })
                 .collect(),
             truncated: false,
