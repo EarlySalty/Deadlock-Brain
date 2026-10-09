@@ -15,11 +15,15 @@ CREATE TABLE IF NOT EXISTS brain.response_deviations_v1 (
 CREATE INDEX IF NOT EXISTS response_deviations_request_v1 ON brain.response_deviations_v1(request_id, recorded_at);
 REVOKE ALL ON brain.response_deviations_v1 FROM PUBLIC;
 DO $$
-DECLARE role_name text;
+DECLARE role_name text; column_names text;
 BEGIN
+    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum) INTO column_names
+    FROM pg_attribute WHERE attrelid = 'brain.response_deviations_v1'::regclass AND attnum > 0 AND NOT attisdropped;
+    EXECUTE format('REVOKE ALL (%s) ON brain.response_deviations_v1 FROM PUBLIC', column_names);
     FOREACH role_name IN ARRAY ARRAY['brain_service', 'brain_readonly', 'brain_ingest'] LOOP
         IF EXISTS (SELECT FROM pg_roles WHERE rolname = role_name) THEN
             EXECUTE format('REVOKE ALL ON brain.response_deviations_v1 FROM %I', role_name);
+            EXECUTE format('REVOKE ALL (%s) ON brain.response_deviations_v1 FROM %I', column_names, role_name);
         END IF;
     END LOOP;
     IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'brain_service') THEN

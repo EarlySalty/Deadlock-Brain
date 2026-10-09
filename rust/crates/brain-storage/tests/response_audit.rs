@@ -38,7 +38,38 @@ async fn actual_http_validation_deviations_are_durable_private_and_do_not_trip_t
     let store = PgStore::new(owner.clone());
     store.migrate_core().await.unwrap();
     store.migrate_response_audit().await.unwrap();
-    store.migrate_response_audit().await.unwrap();
+    let grants = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../ops/brain-postgres/grants.sql"
+    ))
+    .lines()
+    .filter(|line| !line.starts_with('\\'))
+    .collect::<Vec<_>>()
+    .join("\n");
+    for apply_grants in [false, true] {
+        sqlx::raw_sql("GRANT SELECT(raw_output), UPDATE(raw_output) ON brain.response_deviations_v1 TO PUBLIC, brain_service, brain_readonly, brain_ingest").execute(&owner).await.unwrap();
+        if apply_grants {
+            sqlx::raw_sql(&grants).execute(&owner).await.unwrap();
+        } else {
+            store.migrate_response_audit().await.unwrap();
+        }
+        for role in ["brain_service", "brain_readonly", "brain_ingest"] {
+            for privilege in ["SELECT", "UPDATE"] {
+                let allowed: bool = sqlx::query_scalar("SELECT has_column_privilege($1, 'brain.response_deviations_v1', 'raw_output', $2)")
+                    .bind(role)
+                    .bind(privilege)
+                    .fetch_one(&owner)
+                    .await
+                    .unwrap();
+                assert!(
+                    !allowed,
+                    "{role} retains {privilege} after apply_grants={apply_grants}"
+                );
+            }
+        }
+        let audit_id_readable: bool = sqlx::query_scalar("SELECT has_column_privilege('brain_service', 'brain.response_deviations_v1', 'audit_id', 'SELECT')").fetch_one(&owner).await.unwrap();
+        assert!(audit_id_readable);
+    }
     sqlx::raw_sql("ALTER TABLE brain.response_deviations_v1 ADD CONSTRAINT fail_second_audit_fixture CHECK (request_id <> 'audit-atomic-failure' OR check_json->>'check' <> 'grounded_envelope')").execute(&owner).await.unwrap();
     sqlx::raw_sql("GRANT USAGE ON SCHEMA brain TO brain_service,brain_readonly,brain_ingest")
         .execute(&owner)

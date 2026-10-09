@@ -26,6 +26,7 @@ DO $$
 DECLARE
   patch_table text;
   patch_sequence text;
+  audit_columns text;
 BEGIN
   IF to_regprocedure('brain.source_read_header_v1(jsonb)') IS NOT NULL THEN
     GRANT EXECUTE ON FUNCTION brain.source_read_header_v1(jsonb) TO brain_ingest;
@@ -99,6 +100,9 @@ BEGIN
   END IF;
   IF to_regclass('brain.response_deviations_v1') IS NOT NULL THEN
     REVOKE ALL ON brain.response_deviations_v1 FROM brain_service, brain_ingest, brain_readonly, PUBLIC;
+    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum) INTO audit_columns
+    FROM pg_attribute WHERE attrelid = 'brain.response_deviations_v1'::regclass AND attnum > 0 AND NOT attisdropped;
+    EXECUTE format('REVOKE ALL (%s) ON brain.response_deviations_v1 FROM brain_service, brain_ingest, brain_readonly, PUBLIC', audit_columns);
     GRANT INSERT ON brain.response_deviations_v1 TO brain_service;
     GRANT SELECT(audit_id) ON brain.response_deviations_v1 TO brain_service;
   END IF;
