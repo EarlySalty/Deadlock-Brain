@@ -28,7 +28,7 @@ const PATCH_STORY_INLINE: &str =
 const PATCH_STORY_ABILITY_PUSHDOWN: &str = include_str!(
     "../../../../scripts/migrations/2026-10-09-brain-patch-story-ability-pushdown-v1.sql"
 );
-const ENTITY_MIGRATIONS: [(&str, &str); 4] = [
+const ENTITY_MIGRATIONS: [(&str, &str); 5] = [
     (
         include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"),
         "SELECT CASE WHEN to_regclass('brain.entity_profile_entities_v1') IS NULL AND to_regclass('brain.entity_profile_facts_v1') IS NULL THEN 0 WHEN to_regclass('brain.entity_profile_entities_v1') IS NOT NULL AND to_regclass('brain.entity_profile_facts_v1') IS NOT NULL THEN 1 ELSE 2 END",
@@ -45,8 +45,12 @@ const ENTITY_MIGRATIONS: [(&str, &str); 4] = [
         include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-derived-receipts-v1.sql"),
         "SELECT CASE WHEN to_regclass('brain.entity_derived_receipts_v1') IS NULL THEN 0 ELSE 1 END",
     ),
+    (
+        include_str!("../../../../scripts/migrations/2026-10-09-brain-entity-lookup-names-v1.sql"),
+        "SELECT CASE WHEN EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('brain.entity_profile_entities_v1') AND attname='lookup_names' AND NOT attisdropped) THEN 1 ELSE 0 END",
+    ),
 ];
-const ENTITY_SHAPE_PROBE: &str = "SELECT e.entity_key,e.identity_json,
+const ENTITY_SHAPE_PROBE: &str = "SELECT e.entity_key,e.identity_json,e.lookup_names,
     f.entity_key,f.source_id,f.logical_id,f.revision,f.fact_id,f.fact_json,f.binding_identity_json,
     s.entity_key,s.source_id,s.logical_id,s.revision,s.fact_id,s.relative_pointer,
     s.semantic_predicate,s.semantic_qualifiers_json,s.semantic_unit,

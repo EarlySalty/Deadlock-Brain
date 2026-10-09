@@ -303,6 +303,148 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
 }
 
 #[test]
+fn charged_knowledge_usage_survives_every_post_retrieval_rejection() {
+    use brain_contracts::{Evidence, Usage, UsageAccounting};
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum KnowledgeResultCase {
+        Success,
+        Empty,
+        Private,
+        Validation,
+        Deadline,
+        UnreportedFailure,
+        Duplicate,
+    }
+
+    struct ChargedKnowledge {
+        retrieval: ReleaseRetriever<LocalPgReader>,
+        mode: KnowledgeResultCase,
+        clock: Arc<Mutex<Instant>>,
+    }
+
+    impl RetrievalPort for ChargedKnowledge {
+        fn retrieve(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+        ) -> Result<Vec<Evidence>, PortError> {
+            self.retrieval.retrieve(query, context)
+        }
+
+        fn retrieve_with_usage(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+        ) -> Result<(Vec<Evidence>, Usage), PortError> {
+            let mut evidence = self.retrieve(query, context)?;
+            assert!(!evidence.is_empty());
+            match self.mode {
+                KnowledgeResultCase::Empty => evidence.clear(),
+                KnowledgeResultCase::Private => evidence[0].visibility = SourceVisibility::Private,
+                KnowledgeResultCase::UnreportedFailure => {
+                    return Err(PortError::Unavailable(
+                        "Retrievalfehler ohne Verbrauchsmeldung".into(),
+                    ))
+                }
+                KnowledgeResultCase::Duplicate => evidence.push(evidence[0].clone()),
+                _ => {}
+            }
+            Ok((
+                evidence,
+                Usage {
+                    network_rounds: 1,
+                    input_tokens: 12,
+                    output_tokens: 4,
+                    cost_micros: 7,
+                    ..Usage::default()
+                },
+            ))
+        }
+
+        fn validate_evidence(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+            evidence: &[Evidence],
+            provider: bool,
+        ) -> Result<(), PortError> {
+            self.retrieval
+                .validate_evidence(query, context, evidence, provider)?;
+            match self.mode {
+                KnowledgeResultCase::Validation => Err(PortError::PermissionDenied(
+                    "Wissensfreigabe nach Abruf abgelehnt".into(),
+                )),
+                KnowledgeResultCase::Deadline => {
+                    *self.clock.lock().unwrap() += Duration::from_secs(3601);
+                    Ok(())
+                }
+                _ => Ok(()),
+            }
+        }
+    }
+
+    let pg = scratch_pg::ScratchPg::start();
+    let runtime = test_runtime();
+    let (_store, retrieval, pool) = runtime.block_on(setup(&pg, true));
+    let expected = UsageAccounting::observed(Usage {
+        network_rounds: 1,
+        input_tokens: 12,
+        output_tokens: 4,
+        cost_micros: 7,
+        ..Usage::default()
+    });
+    for mode in [
+        KnowledgeResultCase::Success,
+        KnowledgeResultCase::Empty,
+        KnowledgeResultCase::Private,
+        KnowledgeResultCase::Validation,
+        KnowledgeResultCase::Deadline,
+        KnowledgeResultCase::UnreportedFailure,
+        KnowledgeResultCase::Duplicate,
+    ] {
+        let (query, context, clock) = context();
+        let port = ReleaseToolExecutionPort::new(retrieval.clone()).with_knowledge_retrieval(
+            ChargedKnowledge {
+                retrieval: retrieval.clone(),
+                mode,
+                clock,
+            },
+        );
+        let call = call();
+        let request = call
+            .validate(&port.definitions(&query, &context, None).unwrap())
+            .unwrap();
+        let mut foreign = context.clone();
+        foreign.conversation_id = "foreign".into();
+        let preflight = port
+            .execute_accounted(&query, &foreign, None, &call.id, &request)
+            .unwrap_err();
+        assert_eq!(
+            preflight.accounting.as_deref(),
+            Some(&UsageAccounting::default())
+        );
+        let result = port.execute_accounted(&query, &context, None, &call.id, &request);
+        if mode == KnowledgeResultCase::Success {
+            let success = result.unwrap();
+            assert_eq!(success.accounting, expected);
+            assert_eq!(success.value.usage, expected.observed);
+        } else {
+            let failure = result.unwrap_err();
+            if mode == KnowledgeResultCase::UnreportedFailure {
+                assert!(failure.accounting.is_none());
+            } else {
+                assert_eq!(failure.accounting.as_deref(), Some(&expected));
+            }
+            if mode == KnowledgeResultCase::Deadline {
+                assert_eq!(failure.error, PortError::BudgetExceeded);
+            }
+        }
+    }
+    runtime.block_on(pool.close());
+}
+
+#[test]
 fn actual_port_preserves_request_receipt_and_current_purpose_permissions() {
     let pg = scratch_pg::ScratchPg::start();
     let runtime = test_runtime();
