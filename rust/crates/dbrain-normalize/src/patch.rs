@@ -230,7 +230,10 @@ fn parse_patchnote_snapshot(
             continue;
         }
 
-        let Some(bullet_body) = bullet_body_from_line(line) else {
+        let Some(bullet_body) = bullet_body_from_line(line).or_else(|| {
+            (has_change_action(line) && index.canonical(line, None).0 == "general")
+                .then(|| line.to_string())
+        }) else {
             if let Some(maybe_group) = standalone_group_name(line) {
                 let (entity_type, canonical, confidence) =
                     index.canonical(&maybe_group, section.as_deref());
@@ -246,9 +249,12 @@ fn parse_patchnote_snapshot(
         let (subject, mut body) = split_subject(&bullet_body);
         let (entity_type, entity_name, confidence, event_subject) =
             if let Some(subject_text) = subject {
-                let (entity_type, entity_name, confidence) =
+                let (entity_type, mut entity_name, confidence) =
                     index.canonical(&subject_text, section.as_deref());
-                if looks_like_group_heading(&body) {
+                if entity_type == "general" {
+                    entity_name = None;
+                }
+                if looks_like_group_heading(&body) && !has_change_action(&body) {
                     current_group = entity_name
                         .clone()
                         .or(Some(clean_subject(Some(&subject_text))));
@@ -696,6 +702,7 @@ fn detect_section(line: &str) -> Option<String> {
         "general" => Some("General".to_string()),
         "items" | "item" => Some("Items".to_string()),
         "heroes" | "hero" => Some("Heroes".to_string()),
+        "new heroes" => Some("New Heroes".to_string()),
         "map" => Some("Map".to_string()),
         "ui" => Some("UI".to_string()),
         "audio" => Some("Audio".to_string()),
@@ -853,7 +860,10 @@ pub fn has_change_action(text: &str) -> bool {
         .rsplit_once(" - ")
         .map_or(remainder.as_str(), |(_, change)| change)
         .trim();
-    change.starts_with("now ")
+    remainder
+        .split_whitespace()
+        .zip(remainder.split_whitespace().skip(1))
+        .any(|(word, _)| matches!(word, "now" | "adjusted" | "changed" | "updated"))
         || change.split_once(" to ").is_some_and(|(old, new)| {
             old.chars().any(|character| character.is_ascii_digit())
                 && new.chars().any(|character| character.is_ascii_digit())
@@ -1218,6 +1228,70 @@ mod tests {
         assert!(!has_change_action("Improved Spirit: Passive"));
         assert!(has_change_action("Improved Spirit: Added knockback"));
         assert!(has_change_action("Improved Spirit: Now grants knockback"));
+    }
+
+    #[test]
+    fn general_prefixed_and_short_now_changes_are_actions() {
+        for line in [
+            "Parry: can now interrupt",
+            "Damage now scales",
+            "Players can now parry",
+            "Parry: can now interrupt - only melee attacks",
+            "Matchmaking: adjusted targeting",
+            "Matchmaking: updated queue rules",
+            "Matchmaking: changed queue rules",
+            "Voice/Text chat is now opt-in. There is a prompt pre-match for joining the chat.",
+            "You can now press ESC to mute individual players.",
+        ] {
+            assert!(has_change_action(line), "{line}");
+        }
+        for line in [
+            "General Changes",
+            "Improved Spirit: Item Changes",
+            "Now",
+            "Unknown",
+        ] {
+            assert!(!has_change_action(line), "{line}");
+        }
+    }
+
+    #[test]
+    fn snapshot_parser_keeps_general_prefixed_and_short_now_changes() {
+        let lines = [
+            "Parry: can now interrupt",
+            "Damage now scales",
+            "Players can now parry",
+            "Parry: can now interrupt - only melee attacks",
+            "Matchmaking: adjusted targeting",
+            "You can now press ESC to mute individual players.",
+        ];
+        let payload = json!({"raw_content": format!("- Holliday: added knockback\nGeneral\n{}", lines.join("\n"))});
+        let (events, skipped) =
+            parse_patchnote_snapshot(17, 17, "patch_17", &payload, &hero_index("Holliday"))
+                .unwrap();
+        assert_eq!(skipped, 0);
+        assert_eq!(events.len(), lines.len() + 1);
+        for (line, event) in lines.iter().zip(&events[1..]) {
+            assert_eq!(event.raw_line, *line);
+            assert_eq!(event.entity_type, "general");
+            assert_eq!(event.entity_name, None);
+            assert_eq!(event.section.as_deref(), Some("General"));
+        }
+    }
+
+    #[test]
+    fn action_named_section_resets_snapshot_entity_binding() {
+        for heading in ["[ New Heroes ]", "New Heroes:", "New Heroes"] {
+            let payload = json!({"raw_content": format!("Holliday\n- Added knockback\n{heading}\nPlayers can now parry")});
+            let (events, skipped) =
+                parse_patchnote_snapshot(17, 17, "patch_17", &payload, &hero_index("Holliday"))
+                    .unwrap();
+            assert_eq!(skipped, 0);
+            assert_eq!(events.len(), 2);
+            assert_eq!(events[0].entity_name.as_deref(), Some("Holliday"));
+            assert_eq!(events[1].entity_name, None);
+            assert_eq!(events[1].section.as_deref(), Some("New Heroes"));
+        }
     }
 
     #[test]

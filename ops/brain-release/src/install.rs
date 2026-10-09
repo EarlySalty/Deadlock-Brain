@@ -31,6 +31,55 @@ fn exists(path: &Path) -> Result<bool> {
     }
 }
 
+fn layout(path: &Path, binary_dir: &str, sha: &str, owner: u32) -> Result<Manifest> {
+    fs_safe::checked_path(path, owner, true)?;
+    let bytes = fs_safe::bytes(&path.join("manifest.json"), owner, 65536)?;
+    let manifest: Manifest = serde_json::from_slice(&bytes)?;
+    validate_manifest(&manifest)?;
+    ensure!(manifest.source.sha == sha, "Release-SHA stimmt nicht");
+    for artifact in &manifest.artifacts {
+        ensure!(
+            fs_safe::file_hash(&path.join(binary_dir).join(&artifact.name), owner)?
+                == artifact.sha256,
+            "Installiertes Binary verändert"
+        );
+    }
+    Ok(manifest)
+}
+
+pub fn staged(root: &Path, sha: &str, owner: u32) -> Result<Manifest> {
+    fs_safe::sha(sha)?;
+    let a = root.join("releases").join(sha);
+    let b = root.join("maintenance-releases").join(sha);
+    let left = layout(&a, "bin", sha, owner)?;
+    let right = layout(&b, "", sha, owner)?;
+    ensure!(
+        left == right
+            && fs_safe::bytes(&a.join("manifest.json"), owner, 65536)?
+                == fs_safe::bytes(&b.join("manifest.json"), owner, 65536)?,
+        "Release-Manifeste unterscheiden sich"
+    );
+    Ok(left)
+}
+
+pub fn build_proof(root: &Path, sha: &str, owner: u32) -> Result<Option<(Manifest, PathBuf)>> {
+    fs_safe::sha(sha)?;
+    let mut proof: Option<(Manifest, PathBuf)> = None;
+    for (parent, binary_dir) in [("releases", "bin"), ("maintenance-releases", "")] {
+        let path = root.join(parent).join(sha);
+        if !exists(&path)? {
+            continue;
+        }
+        let manifest = layout(&path, binary_dir, sha, owner)?;
+        if let Some((previous, _)) = &proof {
+            ensure!(*previous == manifest, "Buildbelege unterscheiden sich");
+        } else {
+            proof = Some((manifest, path.join(binary_dir)));
+        }
+    }
+    Ok(proof)
+}
+
 impl Installer {
     pub fn open(root: &Path, owner: u32) -> Result<Self> {
         fs_safe::checked_path(root, owner, true)?;
@@ -200,34 +249,11 @@ impl Installer {
     }
 
     fn layout(&self, path: &Path, binary_dir: &str, sha: &str) -> Result<Manifest> {
-        fs_safe::checked_path(path, self.owner, true)?;
-        let bytes = fs_safe::bytes(&path.join("manifest.json"), self.owner, 65536)?;
-        let manifest: Manifest = serde_json::from_slice(&bytes)?;
-        validate_manifest(&manifest)?;
-        ensure!(manifest.source.sha == sha, "Release-SHA stimmt nicht");
-        for artifact in &manifest.artifacts {
-            ensure!(
-                fs_safe::file_hash(&path.join(binary_dir).join(&artifact.name), self.owner)?
-                    == artifact.sha256,
-                "Installiertes Binary verändert"
-            );
-        }
-        Ok(manifest)
+        layout(path, binary_dir, sha, self.owner)
     }
 
     pub fn installed(&self, sha: &str) -> Result<Manifest> {
-        fs_safe::sha(sha)?;
-        let a = self.root.join("releases").join(sha);
-        let b = self.root.join("maintenance-releases").join(sha);
-        let left = self.layout(&a, "bin", sha)?;
-        let right = self.layout(&b, "", sha)?;
-        ensure!(
-            left == right
-                && fs_safe::bytes(&a.join("manifest.json"), self.owner, 65536)?
-                    == fs_safe::bytes(&b.join("manifest.json"), self.owner, 65536)?,
-            "Release-Manifeste unterscheiden sich"
-        );
-        Ok(left)
+        staged(&self.root, sha, self.owner)
     }
 
     fn atomic_link(&self, name: &str, target: Option<&Path>) -> Result<()> {
@@ -462,6 +488,71 @@ mod tests {
             fs::read_link(root.join("maintenance-current")).unwrap(),
             root.join("maintenance-releases").join(&manifest.source.sha)
         );
+    }
+
+    #[test]
+    fn one_published_layout_preserves_build_proof_without_recompilation() {
+        let (_dir, root, bundle, mut manifest) = fixture();
+        manifest.format = 3;
+        let installer = Installer::open(&root, fs_safe::uid()).unwrap();
+        assert!(build_proof(&root, &manifest.source.sha, fs_safe::uid())
+            .unwrap()
+            .is_none());
+        installer.stage(&bundle, &manifest).unwrap();
+        fs::rename(
+            root.join("releases").join(&manifest.source.sha),
+            root.join("retained-release"),
+        )
+        .unwrap();
+        let (proof, binaries) = build_proof(&root, &manifest.source.sha, fs_safe::uid())
+            .unwrap()
+            .unwrap();
+        assert_eq!(proof, manifest);
+        assert_eq!(
+            binaries,
+            root.join("maintenance-releases").join(&manifest.source.sha)
+        );
+        assert!(staged(&root, &manifest.source.sha, fs_safe::uid()).is_err());
+        installer.stage(&bundle, &proof).unwrap();
+        assert_eq!(
+            staged(&root, &manifest.source.sha, fs_safe::uid()).unwrap(),
+            manifest
+        );
+    }
+
+    #[test]
+    fn forged_bundle_and_manifest_do_not_match_staged_provenance() {
+        let (_dir, root, bundle, mut manifest) = fixture();
+        manifest.format = 3;
+        let installer = Installer::open(&root, fs_safe::uid()).unwrap();
+        installer.stage(&bundle, &manifest).unwrap();
+        let trusted = staged(&root, &manifest.source.sha, fs_safe::uid()).unwrap();
+        assert_eq!(trusted, manifest);
+        fs::write(bundle.join("brain-serve"), b"\x7fELFforged").unwrap();
+        let artifact = manifest
+            .artifacts
+            .iter_mut()
+            .find(|a| a.name == "brain-serve")
+            .unwrap();
+        artifact.sha256 = fs_safe::file_hash(&bundle.join("brain-serve"), OPERATOR).unwrap();
+        assert!(crate::source::compare_artifacts(&manifest.artifacts, &trusted.artifacts).is_err());
+        assert!(installer.stage(&bundle, &manifest).is_err());
+        assert!(fs::symlink_metadata(root.join("current")).is_err());
+        fs::set_permissions(
+            root.join("releases")
+                .join(&trusted.source.sha)
+                .join("bin/brain-serve"),
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        fs::write(
+            root.join("releases")
+                .join(&trusted.source.sha)
+                .join("bin/brain-serve"),
+            b"\x7fELFchanged",
+        )
+        .unwrap();
+        assert!(staged(&root, &trusted.source.sha, fs_safe::uid()).is_err());
     }
 
     #[test]
