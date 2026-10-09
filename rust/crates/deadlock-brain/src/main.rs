@@ -2126,7 +2126,7 @@ async fn run_build_eval(pool: &PgPool, settings: &Settings, args: BuildEvalArgs)
     let request = build_narration::build_narration_request(&build_context, client.config())?;
     let response = client.chat(&request)?;
     let narration = extract_ai_text(&response);
-    let known_item_names = load_known_item_names(pool).await?;
+    let known_item_names = load_known_item_names(pool, None).await?;
     let validation =
         build_narration::validate_narration(&narration, &build_context, &known_item_names);
     print_json(&json!({
@@ -2157,7 +2157,8 @@ async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs)
         Err(error) => return Err(error.into()),
     };
 
-    let known_item_names = load_known_item_names(pool).await?;
+    let known_item_names =
+        load_known_item_names(pool, Some(brain_contracts::game_mode::GameMode::Normal)).await?;
     let candidates =
         dbrain_builds::spec::build_candidate_set(&build_context, &corpus, &known_item_names);
     let client = AiClient::from_settings(settings)?;
@@ -2194,6 +2195,7 @@ async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs)
         &candidates.name_to_id,
         ability_order.as_deref(),
     );
+    dbrain_reasoner::publish::validate_publish_items(pool, &assembled.payload).await?;
     warnings.append(&mut assembled.warnings);
     eprintln!(
         "build-spec: item_count={} understanding_found={} skill_order_found={}",
@@ -2207,7 +2209,10 @@ async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs)
     print_json(&assembled.payload)
 }
 
-async fn load_known_item_names(pool: &PgPool) -> Result<BTreeSet<String>> {
+async fn load_known_item_names(
+    pool: &PgPool,
+    mode: Option<brain_contracts::game_mode::GameMode>,
+) -> Result<BTreeSet<String>> {
     let version = brain_storage::asset_mirror::latest_mirrored_client_version(pool).await?;
     let catalog = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
         pool,
@@ -2222,7 +2227,7 @@ async fn load_known_item_names(pool: &PgPool) -> Result<BTreeSet<String>> {
         .context("Aktueller Item-Katalog fehlt.")?;
     Ok(rows
         .iter()
-        .filter(|raw| brain_contracts::game_mode::GameMode::Normal.allows_item(raw))
+        .filter(|raw| raw["type"] == "upgrade" && mode.is_none_or(|mode| mode.allows_item(raw)))
         .filter_map(|raw| raw["name"].as_str())
         .map(str::trim)
         .filter(|name| !name.is_empty())
