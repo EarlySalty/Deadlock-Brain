@@ -17,6 +17,9 @@ dbrain-reasoner = { path = "../dbrain-reasoner" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }
 dbrain-sources = { path = "../dbrain-sources" }
 dl-token-secrets = { path = "../../../../Deadlock-Bots/rust/crates/dl-token-secrets" }
+getrandom = "0.4"
+hex.workspace = true
+hmac = "0.12"
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

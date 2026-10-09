@@ -7,6 +7,7 @@ use brain_contracts::{
     Usage, UsageAccounting,
 };
 use brain_storage::entity_profile::{MirroredGameContextReader, PinnedMirrorBundle};
+use hmac::{Hmac, Mac};
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -39,10 +40,127 @@ fn transport_error(error: reqwest::Error) -> PortError {
 #[derive(Clone)]
 struct Entry {
     expires: Instant,
-    request: ToolRequest,
-    pin: PinnedGameContext,
     result: Value,
     evidence: Vec<Evidence>,
+}
+
+struct Receipts {
+    key: [u8; 32],
+    origin: Instant,
+}
+
+impl Receipts {
+    fn new() -> Result<Self, Error> {
+        let mut key = [0; 32];
+        getrandom::fill(&mut key).map_err(|_| Error::ConfigInvalid("deadlock_api_receipt_key"))?;
+        Ok(Self {
+            key,
+            origin: Instant::now(),
+        })
+    }
+
+    fn mac(
+        &self,
+        request: &ToolRequest,
+        pin: &PinnedGameContext,
+        evidence: &Evidence,
+        expires_ms: u64,
+    ) -> Result<Hmac<Sha256>, PortError> {
+        let mut evidence = evidence.clone();
+        evidence.evidence_id.clear();
+        let bytes = serde_json::to_vec(&(
+            "deadlock-api-receipt-v1",
+            request,
+            pin,
+            evidence,
+            expires_ms,
+        ))
+        .map_err(|_| invalid())?;
+        let mut mac = Hmac::<Sha256>::new_from_slice(&self.key).map_err(|_| invalid())?;
+        mac.update(&bytes);
+        Ok(mac)
+    }
+
+    fn seal(
+        &self,
+        request: &ToolRequest,
+        pin: &PinnedGameContext,
+        evidence: &mut Evidence,
+        expires: Instant,
+    ) -> Result<(), PortError> {
+        let expires_ms = u64::try_from(
+            expires
+                .checked_duration_since(self.origin)
+                .ok_or_else(invalid)?
+                .as_millis(),
+        )
+        .map_err(|_| invalid())?;
+        let tag = self
+            .mac(request, pin, evidence, expires_ms)?
+            .finalize()
+            .into_bytes();
+        evidence.evidence_id = format!("deadlock-api:v1:{expires_ms}:{}", hex::encode(tag));
+        Ok(())
+    }
+
+    fn validate(
+        &self,
+        request: &ToolRequest,
+        pin: &PinnedGameContext,
+        evidence: &[Evidence],
+        now: Instant,
+    ) -> Result<(), PortError> {
+        let [evidence] = evidence else {
+            return Err(invalid());
+        };
+        let id = &evidence.evidence_id;
+        if id.len() > 128 {
+            return Err(invalid());
+        }
+        let (expires_ms, tag) = id
+            .strip_prefix("deadlock-api:v1:")
+            .and_then(|id| id.split_once(':'))
+            .ok_or_else(invalid)?;
+        let expires_ms = expires_ms.parse::<u64>().map_err(|_| invalid())?;
+        if tag.len() != 64 {
+            return Err(invalid());
+        }
+        let tag = hex::decode(tag).map_err(|_| invalid())?;
+        self.mac(request, pin, evidence, expires_ms)?
+            .verify_slice(&tag)
+            .map_err(|_| invalid())?;
+        let expires = self
+            .origin
+            .checked_add(Duration::from_millis(expires_ms))
+            .ok_or_else(invalid)?;
+        if now >= expires {
+            return Err(unavailable());
+        }
+        Ok(())
+    }
+}
+
+fn remember(
+    cache: &mut BTreeMap<String, Entry>,
+    key: String,
+    entry: Entry,
+    capacity: usize,
+    now: Instant,
+) {
+    cache.retain(|_, entry| entry.expires > now);
+    if capacity == 0 || entry.expires <= now {
+        return;
+    }
+    if cache.len() >= capacity && !cache.contains_key(&key) {
+        if let Some(oldest) = cache
+            .iter()
+            .min_by_key(|(_, entry)| entry.expires)
+            .map(|(key, _)| key.clone())
+        {
+            cache.remove(&oldest);
+        }
+    }
+    cache.insert(key, entry);
 }
 
 pub(crate) struct Runtime {
@@ -50,6 +168,7 @@ pub(crate) struct Runtime {
     config: config::DeadlockApi,
     client: Client,
     cache: Mutex<BTreeMap<String, Entry>>,
+    receipts: Receipts,
     discovered: Mutex<bool>,
 }
 
@@ -69,6 +188,7 @@ impl Runtime {
             mirror,
             client,
             cache: Mutex::new(BTreeMap::new()),
+            receipts: Receipts::new()?,
             discovered: Mutex::new(false),
         })
     }
@@ -445,7 +565,7 @@ impl Runtime {
             return Err(invalid());
         }
         let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
-        let evidence = vec![Evidence {
+        let mut evidence = vec![Evidence {
             evidence_id: format!("deadlock-api:{hash}"),
             source_id: SOURCE.into(),
             logical_id: format!("{endpoint}/{hash}"),
@@ -464,19 +584,24 @@ impl Runtime {
             provenance: None,
         }];
         self.check(query, context)?;
+        let expires = Instant::now()
+            .checked_add(Duration::from_millis(self.config.cache_ttl_ms))
+            .ok_or_else(invalid)?;
+        self.receipts
+            .seal(request, pin, &mut evidence[0], expires)?;
         let entry = Entry {
-            expires: Instant::now() + Duration::from_millis(self.config.cache_ttl_ms),
-            request: request.clone(),
-            pin: pin.clone(),
+            expires,
             result,
             evidence,
         };
         let mut cache = self.cache.lock().map_err(|_| unavailable())?;
-        cache.retain(|_, entry| entry.expires > Instant::now());
-        if cache.len() >= self.config.cache_entries {
-            return Err(unavailable());
-        }
-        cache.insert(key, entry.clone());
+        remember(
+            &mut cache,
+            key,
+            entry.clone(),
+            self.config.cache_entries,
+            Instant::now(),
+        );
         Ok(entry)
     }
 }
@@ -1040,18 +1165,12 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
                 .ok_or_else(invalid)?;
             self.runtime.mirror.validate(query, context, Some(pin))?;
             check_assets(&self.runtime.mirror.read_pinned(context, pin)?, context)?;
-            let cache = self.runtime.cache.lock().map_err(|_| unavailable())?;
-            let entry = cache
-                .get(&key(&dependency.request, pin)?)
-                .filter(|entry| {
-                    entry.expires > Instant::now()
-                        && entry.request == dependency.request
-                        && entry.pin == *pin
-                })
-                .ok_or_else(unavailable)?;
-            if entry.evidence != dependency.evidence {
-                return Err(invalid());
-            }
+            self.runtime.receipts.validate(
+                &dependency.request,
+                pin,
+                &dependency.evidence,
+                Instant::now(),
+            )?;
         }
         self.knowledge
             .validate_dependencies(query, context, pin, &knowledge, purpose)
@@ -1065,6 +1184,183 @@ mod scratch_pg;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn receipt_request(days: u32) -> ToolRequest {
+        ToolCall {
+            id: "receipt-probe".into(),
+            name: ToolName::DeadlockData,
+            arguments: json!({"operation":"ranked_heroes","days":days}),
+        }
+        .validate(&[ToolDefinition {
+            name: ToolName::DeadlockData,
+            description: "Probe".into(),
+            input_schema: json!({"type":"object","additionalProperties":false,
+                "required":["operation"],"properties":{
+                    "operation":{"type":"string","enum":["ranked_heroes"]},
+                    "days":{"type":"integer","minimum":1,"maximum":31}}}),
+        }])
+        .unwrap()
+    }
+
+    fn receipt_pin() -> PinnedGameContext {
+        PinnedGameContext {
+            client_version: 6766,
+            language: brain_contracts::tools::ToolLanguage::German,
+            mechanic_revision: "mirror.v1:1:receipt-probe".into(),
+        }
+    }
+
+    fn receipt_entry(receipts: &Receipts, request: &ToolRequest, pin: &PinnedGameContext) -> Entry {
+        let expires = receipts.origin + Duration::from_secs(60);
+        let result =
+            json!({"source":"Deadlock-API","observations":[{"hero_id":6,"matches":10,"wins":6}]});
+        let mut evidence = Evidence {
+            evidence_id: String::new(),
+            source_id: SOURCE.into(),
+            logical_id: "mcp/probe".into(),
+            revision: 1,
+            kind: EvidenceKind::Prose,
+            content: result.to_string(),
+            citation: "Deadlock-API: synthetic aggregate".into(),
+            visibility: SourceVisibility::Public,
+            allowed_scopes: Default::default(),
+            score: 1.0,
+            patch: None,
+            provenance: None,
+        };
+        receipts.seal(request, pin, &mut evidence, expires).unwrap();
+        Entry {
+            expires,
+            result,
+            evidence: vec![evidence],
+        }
+    }
+
+    #[test]
+    fn saturated_cache_preserves_in_flight_receipts_without_retaining_evicted_results() {
+        let receipts = Receipts::new().unwrap();
+        let pin = receipt_pin();
+        let first = receipt_request(1);
+        let second = receipt_request(2);
+        let first_entry = receipt_entry(&receipts, &first, &pin);
+        let second_entry = receipt_entry(&receipts, &second, &pin);
+        let now = receipts.origin + Duration::from_secs(1);
+        let mut cache = BTreeMap::new();
+        remember(
+            &mut cache,
+            key(&first, &pin).unwrap(),
+            first_entry.clone(),
+            1,
+            now,
+        );
+        remember(
+            &mut cache,
+            key(&second, &pin).unwrap(),
+            second_entry.clone(),
+            1,
+            now,
+        );
+        assert_eq!(cache.len(), 1);
+        assert!(!cache.contains_key(&key(&first, &pin).unwrap()));
+        receipts
+            .validate(&first, &pin, &first_entry.evidence, now)
+            .unwrap();
+        receipts
+            .validate(&second, &pin, &second_entry.evidence, now)
+            .unwrap();
+        let refreshed = receipt_entry(&receipts, &first, &pin);
+        remember(&mut cache, key(&first, &pin).unwrap(), refreshed, 1, now);
+        receipts
+            .validate(&first, &pin, &first_entry.evidence, now)
+            .unwrap();
+        receipts
+            .validate(&second, &pin, &second_entry.evidence, now)
+            .unwrap();
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn receipts_bind_request_pin_all_evidence_fields_expiry_and_runtime() {
+        let receipts = Receipts::new().unwrap();
+        let pin = receipt_pin();
+        let request = receipt_request(1);
+        let entry = receipt_entry(&receipts, &request, &pin);
+        let now = receipts.origin + Duration::from_secs(1);
+        let mut changed_pin = pin.clone();
+        changed_pin.client_version += 1;
+        assert!(receipts
+            .validate(&request, &changed_pin, &entry.evidence, now)
+            .is_err());
+        assert!(receipts
+            .validate(&receipt_request(2), &pin, &entry.evidence, now)
+            .is_err());
+        assert!(Receipts::new()
+            .unwrap()
+            .validate(&request, &pin, &entry.evidence, now)
+            .is_err());
+        assert!(receipts.validate(&request, &pin, &[], now).is_err());
+        assert!(receipts
+            .validate(
+                &request,
+                &pin,
+                &[entry.evidence[0].clone(), entry.evidence[0].clone()],
+                now
+            )
+            .is_err());
+        let original = serde_json::to_value(&entry.evidence[0]).unwrap();
+        for (field, replacement) in [
+            (
+                "evidence_id",
+                json!(entry.evidence[0].evidence_id.replace(":60000:", ":120000:")),
+            ),
+            ("source_id", json!("forged")),
+            ("logical_id", json!("forged")),
+            ("revision", json!(2)),
+            ("kind", json!("fact")),
+            ("content", json!("forged")),
+            ("citation", json!("forged")),
+            ("visibility", json!("private")),
+            ("allowed_scopes", json!(["forged"])),
+            ("score", json!(0.5)),
+            ("patch", json!("forged")),
+        ] {
+            let mut altered = original.clone();
+            altered[field] = replacement;
+            let altered: Evidence = serde_json::from_value(altered).unwrap();
+            assert!(
+                receipts.validate(&request, &pin, &[altered], now).is_err(),
+                "{field}"
+            );
+        }
+        assert!(matches!(
+            receipts.validate(&request, &pin, &entry.evidence, entry.expires),
+            Err(PortError::Unavailable(_))
+        ));
+    }
+
+    #[test]
+    fn cache_replacement_stays_bounded_and_discards_expired_entries() {
+        let receipts = Receipts::new().unwrap();
+        let pin = receipt_pin();
+        let request = receipt_request(1);
+        let entry = receipt_entry(&receipts, &request, &pin);
+        let mut cache = BTreeMap::new();
+        remember(&mut cache, "same".into(), entry.clone(), 1, receipts.origin);
+        remember(&mut cache, "same".into(), entry.clone(), 1, receipts.origin);
+        assert_eq!(cache.len(), 1);
+        remember(
+            &mut cache,
+            "expired".into(),
+            entry.clone(),
+            1,
+            entry.expires,
+        );
+        assert!(!cache.contains_key("same"));
+        assert!(cache.is_empty());
+        cache.clear();
+        remember(&mut cache, "disabled".into(), entry, 0, receipts.origin);
+        assert!(cache.is_empty());
+    }
 
     #[test]
     #[ignore = "explicit public assets, mechanics and aggregate probe in isolated Postgres"]
@@ -1141,7 +1437,10 @@ mod tests {
             brain_contracts::tools::ToolLanguage::German,
         )
         .unwrap();
-        let config = config::DeadlockApi::default();
+        let config = config::DeadlockApi {
+            cache_entries: 1,
+            ..Default::default()
+        };
         let deadline_ms = 60_000;
         let runtime = Runtime::new(config, mirror).unwrap();
         let authorization = AuthorizedContext {
@@ -1235,6 +1534,53 @@ mod tests {
             live_provider_acceptance(&executor, Arc::new(runtime), &item);
         }
         executor.block_on(pool.close());
+    }
+
+    #[test]
+    #[ignore = "explicit authenticated live HTTP acceptance with synthetic requests and no Discord reads"]
+    fn live_http_answers_use_the_running_service() {
+        let probe = std::env::var("BRAIN_API_HTTP_PROBE").unwrap();
+        let questions = match probe.as_str() {
+            "pocket" => vec!["wie countert man Pocket"],
+            "api" => vec![
+                "Welche Items passen zu Abrams?",
+                "Wie ist die Siegquote von Abrams mit Melee Lifesteal?",
+                "Welche Helden sind in Ranked am beliebtesten?",
+            ],
+            _ => panic!("explicit acceptance mode required"),
+        };
+        let config = crate::Config::parse(
+            &std::fs::read("/home/nathanael/.config/deadlock-brain/brain-serve.json").unwrap(),
+        )
+        .unwrap();
+        assert!(config.bind.ip().is_loopback());
+        let executor = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        executor.block_on(async {
+            let secrets = dl_token_secrets::values(std::path::Path::new("/etc/deadlock-brain/infisical.json")).await.unwrap();
+            let credential = config.credentials.iter().find(|grant| grant.actor_id == "dl-bot" && grant.channel == "discord").unwrap();
+            let token = secrets.iter().find(|(key, _)| key == &credential.token_env).map(|(_, value)| value.as_str()).unwrap();
+            let client = brain_client::AsyncBrainClient::new_local(&format!("http://{}", config.bind), token, Duration::from_millis(config.timeouts.request_ms)).unwrap();
+            for (index, question) in questions.into_iter().enumerate() {
+                let query: Query = serde_json::from_value(json!({
+                    "request_id":format!("synthetic-d-live-{probe}-{index}-{}", Utc::now().timestamp_millis()),
+                    "conversation_id":"synthetic-d-live-acceptance",
+                    "text":question, "profile":"explain", "requested_scopes":["bot.public"]
+                })).unwrap();
+                let answer = client.answer_for_discord_with_read_access(&query, 0, false).await.unwrap();
+                println!("{}", json!({"event":"deadlock_api_http_acceptance", "question":question, "answer":answer}));
+                assert!(!answer.text.trim().is_empty());
+                if probe == "api" {
+                    assert_eq!(answer.status, brain_contracts::AnswerStatus::Answered);
+                    assert!(serde_json::to_string(&answer.citations).unwrap().contains("Deadlock-API"));
+                } else {
+                    assert!(answer.status == brain_contracts::AnswerStatus::Answered
+                        || answer.text.starts_with(brain_contracts::public_api::UNVERIFIED_PREFIX));
+                }
+            }
+        });
     }
 
     struct ProbeProvider<P>(P);

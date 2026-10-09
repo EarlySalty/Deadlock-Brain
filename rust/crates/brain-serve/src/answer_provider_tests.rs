@@ -372,8 +372,31 @@ fn beide_enumzweige_erhalten_werkzeuge_und_die_gesamte_historie() {
                 let messages = payload["messages"].as_array().unwrap();
                 assert_eq!(
                     messages.len(),
-                    5 + usize::from(matches!(branch, Branch::OpenAi))
+                    5 + 3 * usize::from(matches!(branch, Branch::OpenAi))
                 );
+                for (index, id) in ["first", "second"].into_iter().enumerate() {
+                    let reminder = match branch {
+                        Branch::OpenAi => {
+                            let result = &messages[3 + index * 3];
+                            assert_eq!(result["role"], "tool");
+                            assert_eq!(result["tool_call_id"], id);
+                            let reminder = &messages[4 + index * 3];
+                            assert_eq!(reminder["role"], "user");
+                            reminder["content"].as_str().unwrap()
+                        }
+                        Branch::Subscription => {
+                            let result = &messages[2 + index * 2];
+                            assert_eq!(result["role"], "user");
+                            assert_eq!(result["content"][0]["type"], "tool_result");
+                            assert_eq!(result["content"][0]["tool_use_id"], id);
+                            assert_eq!(result["content"][1]["type"], "text");
+                            result["content"][1]["text"].as_str().unwrap()
+                        }
+                    };
+                    for evidence in &evidence {
+                        assert!(reminder.contains(&evidence.evidence_id));
+                    }
+                }
                 let wire = payload.to_string();
                 for marker in ["first", "second", "uncited", "entity_find"] {
                     assert!(wire.contains(marker));
