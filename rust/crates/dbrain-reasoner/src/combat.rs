@@ -2062,6 +2062,32 @@ fn apply_shop(hero: &HeroModel, items: &[&ItemModel], stats: &mut Stats) {
 pub(crate) mod tests {
     use super::*;
     use crate::{AbilityRole, CostBonus, DamagePlan, DamageType, PurchaseBonuses, WeaponProfile};
+    pub(crate) fn recorded_hero(hero_id: i64) -> HeroModel {
+        let raw: serde_json::Value =
+            serde_json::from_str(include_str!("../testdata/calculation/recorded-assets.json"))
+                .unwrap();
+        let mut payload = raw["heroes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|hero| hero["id"] == hero_id)
+            .unwrap()
+            .clone();
+        let class = payload
+            .pointer("/items/weapon_primary")
+            .unwrap()
+            .as_str()
+            .unwrap();
+        let weapon = raw["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["class_name"] == class)
+            .unwrap();
+        payload["weapon_info"] = weapon["weapon_info"].clone();
+        crate::data::hero_model_from_payload(&payload, &[], &[]).unwrap()
+    }
+
     pub(crate) fn hero() -> HeroModel {
         HeroModel {
             hero_id: 1,
@@ -2071,6 +2097,7 @@ pub(crate) mod tests {
             standard_upgrade_levels: Default::default(),
             level_rewards: Default::default(),
             cost_bonuses: BTreeMap::new(),
+            weapon_timing: Default::default(),
             archetype: String::new(),
             base_health: 600.0,
             level_curve: vec![],

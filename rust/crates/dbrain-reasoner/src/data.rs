@@ -661,7 +661,7 @@ pub fn hero_model_from_payload(
 fn weapon_pellet_multiplier(payload: &Value) -> Option<f64> {
     match payload.pointer("/weapon_info/bullets") {
         None | Some(Value::Null) => Some(1.0),
-        Some(raw) => number(Some(raw)).filter(|value| *value > 0.0 && value.fract() == 0.0),
+        Some(raw) => number(Some(raw)).filter(|value| crate::mechanics::valid_pellet_count(*value)),
     }
 }
 
@@ -1006,16 +1006,8 @@ fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Re
         .filter(|ability| matches!(ability.damage_type, DamageType::Spirit | DamageType::Hybrid))
         .map(|ability| ability_base_dps(ability, &crate::ReasonerConfig::default()))
         .sum();
-    let weapon_dps = if weapon.sustained_dps > 0.0 {
-        weapon.sustained_dps
-    } else {
-        let firing = weapon.clip_size / weapon.shots_per_second;
-        if firing.is_finite() && firing > 0.0 {
-            weapon.bullet_damage * weapon.clip_size / (firing + weapon.reload_duration.max(0.0))
-        } else {
-            0.0
-        }
-    };
+    let weapon_dps =
+        crate::mechanics::weapon_dps_with_timing(&weapon, Some(&weapon_timing(payload)), 40.0);
     let share = if weapon_dps + spirit_dps > 0.0 {
         weapon_dps / (weapon_dps + spirit_dps)
     } else {
@@ -1078,6 +1070,7 @@ fn hero_model(payload: &Value, abilities: &[Value], stats: &[ScalingStat]) -> Re
         purchase_bonuses: purchase_bonuses(payload),
         scaling: all_scaling,
         weapon,
+        weapon_timing: weapon_timing(payload),
         abilities: parsed_abilities,
         damage_plan: DamagePlan {
             weapon_dps,
@@ -2074,6 +2067,19 @@ pub fn enrich_frozen_models(
                 hero.name
             ))
         })?;
+    if let Some(weapon_raw) = hero_raw
+        .get("weapon_info")
+        .filter(|info| info.is_object())
+        .map(|_| hero_raw)
+        .or_else(|| {
+            let class = hero_raw.pointer("/items/weapon_primary")?.as_str()?;
+            raw.iter().find(|value| {
+                ability_class_name(value) == class && value.get("weapon_info").is_some()
+            })
+        })
+    {
+        hero.weapon_timing = weapon_timing(weapon_raw);
+    }
     hero.base_spirit_power =
         number(hero_raw.pointer("/starting_stats/tech_power/value")).unwrap_or_default();
     hero.standard_level_up_upgrades = numeric_object(hero_raw.get("standard_level_up_upgrades"));

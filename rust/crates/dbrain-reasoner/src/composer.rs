@@ -1442,6 +1442,7 @@ mod tests {
                 vitality: Vec::new(),
             },
             cost_bonuses: Default::default(),
+            weapon_timing: Default::default(),
             level_rewards: Default::default(),
             standard_level_up_upgrades: Default::default(),
             standard_upgrade_levels: Default::default(),
