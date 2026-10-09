@@ -143,9 +143,16 @@ fn fixture_requests<F: FnOnce(ProviderConfig) -> R, R>(
     config.retry_attempts = 2;
     config.retry_backoff = Duration::from_millis(1);
     config.timeout = Duration::from_millis(100);
-    let result = f(config);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(config)));
     stop.store(true, Ordering::SeqCst);
-    server.join().unwrap();
+    let server_result = server.join();
+    let result = match result {
+        Ok(result) => {
+            server_result.unwrap();
+            result
+        }
+        Err(payload) => std::panic::resume_unwind(payload),
+    };
     (
         result,
         calls.load(Ordering::SeqCst),
