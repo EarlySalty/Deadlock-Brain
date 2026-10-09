@@ -2106,6 +2106,9 @@ fn looks_like_plain_section_heading(line: &str) -> bool {
 
 fn is_forum_section_heading(line: &str) -> bool {
     let trimmed = line.trim();
+    if trimmed.eq_ignore_ascii_case("New Heroes") {
+        return true;
+    }
     if !trimmed.ends_with(':') {
         return false;
     }

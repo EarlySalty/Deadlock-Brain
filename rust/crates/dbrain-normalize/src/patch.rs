@@ -1281,7 +1281,7 @@ mod tests {
 
     #[test]
     fn action_named_section_resets_snapshot_entity_binding() {
-        for heading in ["[ New Heroes ]", "New Heroes:"] {
+        for heading in ["[ New Heroes ]", "New Heroes:", "New Heroes"] {
             let payload = json!({"raw_content": format!("Holliday\n- Added knockback\n{heading}\nPlayers can now parry")});
             let (events, skipped) =
                 parse_patchnote_snapshot(17, 17, "patch_17", &payload, &hero_index("Holliday"))

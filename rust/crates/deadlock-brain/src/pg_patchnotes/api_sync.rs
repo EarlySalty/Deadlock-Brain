@@ -336,6 +336,7 @@ fn prepare_api_patch(
             .exact(trimmed.trim_matches(['[', ']', ':']).trim())
             .is_some()
             || (trimmed.starts_with('[') && trimmed.ends_with(']'))
+            || is_forum_section_heading(trimmed)
             || !has_change_action(trimmed)
         {
             if section_heading(trimmed).is_some() {
@@ -975,6 +976,7 @@ mod tests {
         for original in [
             "Holliday\n- Added knockback\n[ New Heroes ]\nPlayers can now parry",
             "Holliday\n- Added knockback\nNew Heroes:\nPlayers can now parry",
+            "Holliday\n- Added knockback\nNew Heroes\nPlayers can now parry",
             "[ Holliday ] Added knockback [ New Heroes ] Players can now parry",
         ] {
             let resolved = PatchSourceResolution {
