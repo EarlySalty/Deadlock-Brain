@@ -142,7 +142,16 @@ fn recorded_three_heroes_match_versioned_probe_values_without_relabelling_raw_pr
     let probe: Value =
         serde_json::from_str(include_str!("../testdata/calculation/api-probe-6759.json")).unwrap();
     assert_eq!(probe["client_version"], 6759);
-    for row in probe["heroes"].as_array().unwrap() {
+    let heroes = probe["heroes"].as_array().unwrap();
+    assert_eq!(heroes.len(), 3);
+    assert_eq!(
+        heroes
+            .iter()
+            .map(|row| row["hero_id"].as_i64().unwrap())
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from([7, 13, 25]),
+    );
+    for row in heroes {
         let id = row["hero_id"].as_i64().unwrap();
         let result = calculate_hero(&models, id, &scenario()).unwrap();
         close(
