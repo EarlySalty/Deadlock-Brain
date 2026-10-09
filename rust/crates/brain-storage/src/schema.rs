@@ -25,6 +25,9 @@ const READ_HEADER_WRITER: &str = include_str!(
 );
 const PATCH_STORY_INLINE: &str =
     include_str!("../../../../scripts/migrations/2026-10-07-brain-patch-story-inline-v1.sql");
+const PATCH_STORY_ABILITY_PUSHDOWN: &str = include_str!(
+    "../../../../scripts/migrations/2026-10-09-brain-patch-story-ability-pushdown-v1.sql"
+);
 const ENTITY_MIGRATIONS: [(&str, &str); 4] = [
     (
         include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"),
@@ -298,10 +301,12 @@ impl PgStore {
         let patch_tables: bool = sqlx::query_scalar("SELECT to_regclass('brain.patch_events') IS NOT NULL AND to_regclass('brain.patch_event_enrichments') IS NOT NULL AND to_regclass('patchnotes.changelog_posts') IS NOT NULL")
             .fetch_one(&mut *tx).await.map_err(migration_error)?;
         if patch_tables {
-            sqlx::raw_sql(body(PATCH_STORY_INLINE)?)
-                .execute(&mut *tx)
-                .await
-                .map_err(migration_error)?;
+            for migration in [PATCH_STORY_INLINE, PATCH_STORY_ABILITY_PUSHDOWN] {
+                sqlx::raw_sql(body(migration)?)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(migration_error)?;
+            }
         }
         sqlx::raw_sql(
             "LOCK TABLE brain.source_record_revisions, brain.source_record_heads,
@@ -460,6 +465,11 @@ mod tests {
             assert!(!body.contains("BEGIN;"));
             assert!(!body.contains("COMMIT;"));
             assert!(body.contains("CREATE TABLE"));
+        }
+        for sql in [PATCH_STORY_INLINE, PATCH_STORY_ABILITY_PUSHDOWN] {
+            assert!(body(sql)
+                .unwrap()
+                .contains("CREATE OR REPLACE VIEW brain.patch_changes"));
         }
         assert!(body("BEGIN; SELECT 1; COMMIT; SELECT 2;").is_err());
         assert!(body("BEGIN; COMMIT; BEGIN; COMMIT;").is_err());
