@@ -133,7 +133,12 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
     let requests = Arc::new(Mutex::new(Vec::new()));
     let recorded = requests.clone();
     let provider_server = std::thread::spawn(move || {
-        for subject in ["Paten", "Coaching", "Sprachkanäle"] {
+        for (subject, question) in [
+            ("Paten", "Wie mache ich das? "),
+            ("Coaching", "Wie mache ich das? "),
+            ("Sprachkanäle", "Wie mache ich das? "),
+            ("Paten", "Wie kann ich das verbessern?"),
+        ] {
             let (mut stream, _) = listener.accept().unwrap();
             let request = read_request(&mut stream);
             assert!(request.starts_with("POST /v1/messages "));
@@ -143,7 +148,7 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
                 serde_json::from_str(data["messages"][0]["content"].as_str().unwrap()).unwrap();
             assert_eq!(
                 model_input["query"],
-                format!("Wie mache ich das? \nGesprächsthema: {subject}")
+                format!("{question}\nGesprächsthema: {subject}")
             );
             for forbidden in [
                 "PRIVATE_CANARY_äöüß",
@@ -241,6 +246,19 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
             .unwrap();
         assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
     }
+    let response = client
+        .answer_discord_task_with_history(
+            &query("pure-followups", "Wie kann ich das verbessern?"),
+            42,
+            &DiscordAnswerTask {
+                capability: DiscordAnswerCapability::Concierge,
+                channel_id: 10,
+            },
+            &["Paten?", "Wie mache ich das?", "Warum?", "Erzähl mir mehr"].map(str::to_owned),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
     for (id, history) in [
         ("missing", vec![]),
         ("unknown", vec!["PRIVATE_CANARY_äöüß".into()]),
@@ -249,6 +267,24 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
         (
             "changed-topic",
             vec!["Paten?".into(), "Unbekanntes Privatproblem".into()],
+        ),
+        (
+            "private-followup-topic",
+            vec!["Paten?".into(), "Und wie bekomme ich Rollen?".into()],
+        ),
+        (
+            "unknown-followup-topic",
+            vec![
+                "Paten?".into(),
+                "Und wie finde ich PRIVATE_CANARY_äöüß?".into(),
+            ],
+        ),
+        (
+            "unknown-pronoun-topic",
+            vec![
+                "Paten?".into(),
+                "Wie kann ich das Privatproblem verbessern?".into(),
+            ],
         ),
     ] {
         let response = client
@@ -303,7 +339,7 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
         .await
         .unwrap();
     assert_eq!(response.status().as_u16(), 413);
-    assert_eq!(requests.lock().unwrap().len(), 3);
+    assert_eq!(requests.lock().unwrap().len(), 4);
     provider_server.join().unwrap();
     server.abort();
 }
@@ -314,7 +350,10 @@ async fn local_reference_rechecks_current_public_acl_and_tombstones() {
         let store = store().await;
         let retrieval = ReleaseRetriever::new(store.clone(), 8);
         let q = query("revoked", "Wie mache ich das?");
-        let history = vec!["Wie finde ich einen Paten? PRIVATE_CANARY_äöüß".into()];
+        let history = vec![
+            "Coaching?".into(),
+            "Und wie finde ich einen Paten? PRIVATE_CANARY_äöüß".into(),
+        ];
         assert_eq!(
             retrieval.resolve(&q, &context(&q), &history).unwrap(),
             DiscordReference::Subject("Paten".into())
@@ -363,6 +402,19 @@ async fn local_reference_reuses_public_hero_names_without_numeric_identifiers() 
             .unwrap(),
         DiscordReference::Subject("Warden".into())
     );
+    for text in ["Und seine Ult?", "Wie kann ich sie spielen?"] {
+        let q = query("hero-followup", text);
+        assert_eq!(
+            retrieval
+                .resolve(
+                    &q,
+                    &context,
+                    &["Was macht der Wächter?", "Wie spielt er?", "Warum?"].map(str::to_owned),
+                )
+                .unwrap(),
+            DiscordReference::Subject("Warden".into())
+        );
+    }
     assert_eq!(
         retrieval
             .resolve(&q, &context, &["Was kostet 25?".into()])
@@ -439,6 +491,124 @@ impl brain_kernel::AnswerKernelPort for NeverKernel {
         context: &AuthorizedContext,
     ) -> brain_contracts::AnswerResponse {
         self.answer(query, context)
+    }
+}
+
+#[tokio::test]
+async fn newer_unsupported_topics_stop_both_routes_before_the_kernel() {
+    let store = store().await;
+    let mut revoked = record(
+        "coaching",
+        "Coaching hilft beim Spielen. Für Coaching meldest du dich im Coaching-Bereich.",
+        true,
+    );
+    revoked.revision = 2;
+    store.apply_record(revoked).unwrap();
+    let api = ApiService::new(
+        PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
+            "fixture",
+            "bot",
+            "discord",
+            BTreeSet::from(["bot.public".into()]),
+            BTreeSet::from(["public".into()]),
+        )])),
+        NeverKernel,
+        "context-release",
+        5000,
+        Budget::default(),
+    )
+    .with_discord_consumers(BTreeSet::from([("bot".into(), "discord".into())]))
+    .with_discord_context_resolver(ReleaseRetriever::new(store, 8));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, router(api)).await.unwrap() });
+    let client = AsyncBrainClient::new_local(&endpoint, "fixture", Duration::from_secs(5)).unwrap();
+    for capability in [
+        DiscordAnswerCapability::Faq,
+        DiscordAnswerCapability::Concierge,
+    ] {
+        for (current, history) in [
+            (
+                "Wie mache ich das?",
+                vec!["Paten?", "Und wie bekomme ich Rollen?"],
+            ),
+            (
+                "Wie mache ich das?",
+                vec!["Paten?", "Und wie finde ich PRIVATE_CANARY_äöüß?"],
+            ),
+            (
+                "Wie mache ich das?",
+                vec!["Paten?", "Und wie finde ich Coaching?"],
+            ),
+            (
+                "Wie kann ich das verbessern?",
+                vec!["Paten?", "Und wie bekomme ich Rollen?", "Warum?"],
+            ),
+            (
+                "Wie kann ich sie spielen?",
+                vec!["Paten?", "Und wie spiele ich Unbekannt?"],
+            ),
+            ("Und wie bekomme ich Rollen?", vec!["Paten?"]),
+            (
+                "Wie mache ich das?",
+                vec!["Paten?", "Und wie bekomme ich Ult?"],
+            ),
+            (
+                "Wie mache ich das?",
+                vec!["Paten?", "Und wie finde ich <#123456789012345678>?"],
+            ),
+            (
+                "Wie kann ich das verbessern mit Privatproblem?",
+                vec!["Paten?"],
+            ),
+        ] {
+            let response = client
+                .answer_discord_task_with_history(
+                    &query("unsupported-topic", current),
+                    42,
+                    &DiscordAnswerTask {
+                        capability,
+                        channel_id: 10,
+                    },
+                    &history.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status,
+                AnswerStatus::InsufficientEvidence,
+                "{current}"
+            );
+            assert!(response.citations.is_empty());
+            assert!(!response.text.is_empty());
+            assert!(!response.text.contains("PRIVATE_CANARY_äöüß"));
+        }
+    }
+    server.abort();
+}
+
+#[tokio::test]
+async fn current_public_topic_does_not_need_an_older_reference() {
+    let retrieval = ReleaseRetriever::new(store().await, 8);
+    for (text, expected) in [
+        ("Und wie bekomme ich Paten?", DiscordReference::Independent),
+        (
+            "Und wie bekomme ich Rollen?",
+            DiscordReference::Clarification,
+        ),
+        (
+            "Und wie finde ich Unbekannt?",
+            DiscordReference::Clarification,
+        ),
+    ] {
+        let q = query("current-topic", text);
+        assert_eq!(
+            retrieval
+                .resolve(&q, &context(&q), &["Paten?".into()])
+                .unwrap(),
+            expected,
+            "{text}",
+        );
     }
 }
 

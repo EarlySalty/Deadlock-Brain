@@ -389,6 +389,9 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
         if !subjects(&current).is_empty() {
             return Ok(DiscordReference::Independent);
         }
+        if !reference_only(&query.text) {
+            return Ok(DiscordReference::Clarification);
+        }
         for (text, words) in user_questions.iter().zip(&history).rev() {
             let mut found = subjects(words);
             if found.len() == 1 {
@@ -396,12 +399,112 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
                     found.pop_first().expect("Ein öffentlicher Bezug"),
                 ));
             }
-            if !found.is_empty() || !needs_reference(text) {
+            if !found.is_empty() || !reference_only(text) {
                 break;
             }
         }
         Ok(DiscordReference::Clarification)
     }
+}
+
+fn reference_only(text: &str) -> bool {
+    use brain_contracts::discord_task::needs_reference;
+    let words = brain_contracts::lexical::terms(text);
+    needs_reference(text)
+        && words.iter().enumerate().all(|(index, word)| {
+            (word == "ult"
+                && index > 0
+                && matches!(
+                    words[index - 1].as_str(),
+                    "seine" | "ihre" | "dessen" | "deren"
+                ))
+                || matches!(
+                    word.as_str(),
+                    "wie"
+                        | "wo"
+                        | "was"
+                        | "warum"
+                        | "wieso"
+                        | "und"
+                        | "auch"
+                        | "ich"
+                        | "mich"
+                        | "mir"
+                        | "man"
+                        | "wir"
+                        | "das"
+                        | "es"
+                        | "sie"
+                        | "der"
+                        | "die"
+                        | "den"
+                        | "welche"
+                        | "dafuer"
+                        | "dort"
+                        | "dabei"
+                        | "damit"
+                        | "darueber"
+                        | "dazu"
+                        | "davon"
+                        | "dahin"
+                        | "daraus"
+                        | "dieser"
+                        | "diese"
+                        | "dieses"
+                        | "diesem"
+                        | "diesen"
+                        | "dessen"
+                        | "er"
+                        | "ihn"
+                        | "ihm"
+                        | "ihnen"
+                        | "ihre"
+                        | "ihren"
+                        | "ihrem"
+                        | "seine"
+                        | "seinen"
+                        | "seiner"
+                        | "deren"
+                        | "ist"
+                        | "sind"
+                        | "kann"
+                        | "koennen"
+                        | "mache"
+                        | "macht"
+                        | "machen"
+                        | "bekomme"
+                        | "bekommen"
+                        | "finde"
+                        | "finden"
+                        | "nutze"
+                        | "nutzen"
+                        | "starten"
+                        | "einstellen"
+                        | "melde"
+                        | "anmelden"
+                        | "an"
+                        | "mit"
+                        | "fuer"
+                        | "denn"
+                        | "geht"
+                        | "funktioniert"
+                        | "kostet"
+                        | "spiele"
+                        | "spielt"
+                        | "spielen"
+                        | "verbessern"
+                        | "erzaehl"
+                        | "erzaehle"
+                        | "erklaer"
+                        | "erklaere"
+                        | "erklaeren"
+                        | "mehr"
+                        | "weiter"
+                        | "genau"
+                        | "genauer"
+                        | "nochmal"
+                )
+        })
 }
 
 fn contains_terms(words: &[String], name: &[String]) -> bool {

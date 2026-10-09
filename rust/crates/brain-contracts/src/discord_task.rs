@@ -136,10 +136,15 @@ pub fn needs_reference(text: &str) -> bool {
                         | "funktioniert"
                         | "geht"
                         | "kostet"
+                        | "verbessern"
+                        | "spielen"
                 )
             }),
             "es" | "sie" => words.get(index + 1).is_none_or(|next| {
-                matches!(next.as_str(), "weiter" | "genau" | "genauer" | "nochmal")
+                matches!(
+                    next.as_str(),
+                    "weiter" | "genau" | "genauer" | "nochmal" | "spielen" | "verbessern"
+                )
             }),
             _ => false,
         });
@@ -209,6 +214,8 @@ mod tests {
     fn followups_are_distinct_from_self_contained_questions() {
         for text in [
             "Wie mache ich das?",
+            "Wie kann ich sie spielen?",
+            "Wie kann ich das verbessern?",
             "Und seine Ult?",
             "Was kostet es?",
             "Wie geht es weiter?",
