@@ -169,6 +169,7 @@ mod tests {
             standard_upgrade_levels: Default::default(),
             level_rewards: Default::default(),
             cost_bonuses: Default::default(),
+            weapon_timing: Default::default(),
             hero_id: 1,
             name: "Fixture".into(),
             archetype: String::new(),
