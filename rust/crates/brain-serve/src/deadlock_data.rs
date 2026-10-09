@@ -959,7 +959,14 @@ fn mentioned_ids(
     kind: &str,
     text: &str,
 ) -> Result<std::collections::BTreeSet<i64>, PortError> {
-    let terms = brain_contracts::lexical::terms(text);
+    mentioned_ids_in_terms(bundle, kind, &brain_contracts::lexical::terms(text))
+}
+
+fn mentioned_ids_in_terms(
+    bundle: &PinnedMirrorBundle,
+    kind: &str,
+    terms: &[String],
+) -> Result<std::collections::BTreeSet<i64>, PortError> {
     let mut ids = std::collections::BTreeSet::new();
     for language in ["english", "german"] {
         for row in bundle
@@ -982,6 +989,33 @@ fn mentioned_ids(
     Ok(ids)
 }
 
+fn build_hero(
+    terms: &[String],
+    find: impl Fn(&[String]) -> Result<std::collections::BTreeSet<i64>, PortError>,
+) -> Result<Option<i64>, PortError> {
+    let all = find(terms)?;
+    if all.len() <= 1 {
+        return Ok(all.into_iter().next());
+    }
+    let opponent = |term: &String| matches!(term.as_str(), "gegen" | "vs" | "versus" | "against");
+    let mut targets = std::collections::BTreeSet::new();
+    for (index, term) in terms.iter().enumerate() {
+        let span = if opponent(term) {
+            &terms[..index]
+        } else if matches!(term.as_str(), "fuer" | "zu" | "for" | "on" | "als" | "as") {
+            let rest = &terms[index + 1..];
+            &rest[..rest.iter().position(opponent).unwrap_or(rest.len())]
+        } else {
+            continue;
+        };
+        let found = find(span)?;
+        if found.len() == 1 {
+            targets.extend(found);
+        }
+    }
+    Ok((targets.len() == 1).then(|| *targets.first().unwrap()))
+}
+
 pub(crate) struct Tools<T> {
     pub(crate) knowledge: T,
     pub(crate) runtime: Arc<Runtime>,
@@ -1000,9 +1034,18 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
         self.runtime.check(query, context)?;
         let bundle = self.runtime.mirror.read_pinned(context, pin)?;
         check_assets(&bundle, context)?;
-        let hero = mentioned_id(&bundle, "heroes_all", &query.text)?;
+        let ask_intent = intent(query);
+        let hero = if query.profile == brain_contracts::AnswerProfile::Build
+            || ask_intent == "build_recommendation"
+        {
+            build_hero(&brain_contracts::lexical::terms(&query.text), |terms| {
+                mentioned_ids_in_terms(&bundle, "heroes_all", terms)
+            })?
+        } else {
+            mentioned_id(&bundle, "heroes_all", &query.text)?
+        };
         let item = mentioned_id(&bundle, "items", &query.text)?;
-        let operation = match intent(query).as_str() {
+        let operation = match ask_intent.as_str() {
             _ if query.profile == brain_contracts::AnswerProfile::Build => Some(Operation::Builds),
             "build_recommendation" => Some(Operation::Items),
             "matchup" if hero.is_some() => Some(Operation::Matchups),
@@ -1184,6 +1227,58 @@ mod scratch_pg;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_target_distinguishes_opponents_without_guessing_between_heroes() {
+        let find = |terms: &[String]| {
+            Ok([(6, "abrams"), (50, "pocket"), (13, "haze")]
+                .into_iter()
+                .filter_map(|(id, name)| terms.iter().any(|term| term == name).then_some(id))
+                .collect())
+        };
+        for text in [
+            "Welche Items passen zu Abrams?",
+            "Welche Items passen zu Abrams gegen Pocket?",
+            "Build für Abrams gegen Pocket und Haze",
+            "Welche Items gegen Pocket für Abrams?",
+            "Gegen Pocket: welcher Build für Abrams?",
+            "Items on Abrams against Pocket",
+            "Abrams vs Pocket items",
+            "Build for Abrams versus Pocket",
+        ] {
+            assert_eq!(
+                build_hero(&brain_contracts::lexical::terms(text), find).unwrap(),
+                Some(6),
+                "{text}"
+            );
+        }
+        for text in [
+            "Welche Items für Abrams oder Pocket?",
+            "Build für Abrams und Haze gegen Pocket",
+            "Abrams gegen Pocket, Build für Haze",
+            "Abrams oder Pocket items",
+            "Welche Items passen?",
+        ] {
+            assert_eq!(
+                build_hero(&brain_contracts::lexical::terms(text), find).unwrap(),
+                None,
+                "{text}"
+            );
+        }
+        let aliases = |_terms: &[String]| Ok(std::collections::BTreeSet::from([6, 50]));
+        assert_eq!(
+            build_hero(
+                &brain_contracts::lexical::terms("Build für Abrams gegen Pocket"),
+                aliases
+            )
+            .unwrap(),
+            None
+        );
+        assert!(matches!(
+            build_hero(&[], |_| Err(PortError::PermissionDenied("probe".into()))),
+            Err(PortError::PermissionDenied(_))
+        ));
+    }
 
     fn receipt_request(days: u32) -> ToolRequest {
         ToolCall {
@@ -1673,6 +1768,37 @@ mod tests {
                 .with_mirrored_entities(runtime.mirror.clone()),
             runtime: runtime.clone(),
         };
+        for profile in [
+            brain_contracts::AnswerProfile::Explain,
+            brain_contracts::AnswerProfile::Build,
+        ] {
+            let query: Query = serde_json::from_value(json!({
+                "request_id":"synthetic-opponent-routing",
+                "conversation_id":authorization.conversation_id,
+                "text":"Welche Items passen zu Abrams gegen Pocket?",
+                "profile":profile,"requested_scopes":["bot.public"]
+            }))
+            .unwrap();
+            let context = authorization.with_request_deadline();
+            let pin = runtime.mirror.resolve(&query, &context).unwrap().unwrap();
+            let calls = tools.required_calls(&query, &context, Some(&pin)).unwrap();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].arguments["hero"], "6");
+            assert_eq!(
+                calls[0].arguments["operation"],
+                json!(if profile == brain_contracts::AnswerProfile::Build {
+                    Operation::Builds
+                } else {
+                    Operation::Items
+                })
+            );
+            let mut ambiguous = query;
+            ambiguous.text = "Welche Items passen zu Abrams oder Pocket?".into();
+            assert!(matches!(
+                tools.required_calls(&ambiguous, &context, Some(&pin)),
+                Err(PortError::Unavailable(_))
+            ));
+        }
         let kernel = brain_kernel::Kernel::new(retrieval, ProbeProvider(provider))
             .with_quality_filters(prepared.config.kernel.quality_filters)
             .with_tools(
@@ -1687,6 +1813,7 @@ mod tests {
             "Welche Items passen zu Abrams?".to_owned(),
             format!("Wie ist die Siegquote von Abrams mit {item}?"),
             "Welche Helden sind in Ranked am beliebtesten?".to_owned(),
+            "Welche Items passen zu Abrams gegen Pocket?".to_owned(),
         ]
         .into_iter()
         .enumerate()
