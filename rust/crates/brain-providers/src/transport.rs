@@ -302,7 +302,7 @@ impl OpenAiCompatibleProvider {
             .min(lifetime.expires_at());
         let budget = &context.budget;
         if context.deadline_ms == 0
-            || context.deadline_ms > 60000
+            || context.deadline_ms > 600_000
             || budget.max_network_rounds == 0
             || budget.max_input_tokens == 0
         {

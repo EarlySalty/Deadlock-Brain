@@ -140,7 +140,7 @@ impl PolicyEngine {
         deadline_ms: u64,
         budget: Budget,
     ) -> Result<AuthorizedContext> {
-        if !(1..=60000).contains(&deadline_ms) {
+        if !(1..=600_000).contains(&deadline_ms) {
             return Err(PolicyError::BudgetExceeded);
         }
         self.authorize_query_until(
@@ -208,7 +208,7 @@ impl PolicyEngine {
             .remaining()
             .map_err(|_| PolicyError::BudgetExceeded)?
             .as_millis()
-            .min(60000) as u64;
+            .min(600_000) as u64;
         if deadline_ms == 0 {
             return Err(PolicyError::BudgetExceeded);
         }
@@ -276,6 +276,33 @@ mod tests {
             scope_set(&["docs.public", "docs.internal"]),
             scope_set(&["public"]),
         )]))
+    }
+
+    #[test]
+    fn ten_minute_request_is_not_narrowed_to_one_minute() {
+        let context = engine()
+            .authorize_query(
+                "secret-token",
+                &query(&[], "long"),
+                "k1",
+                600_000,
+                Budget::default(),
+            )
+            .unwrap();
+        assert!(context.deadline_ms > 60_000);
+        assert!(context.deadline_ms <= 600_000);
+        assert_eq!(
+            engine()
+                .authorize_query(
+                    "secret-token",
+                    &query(&[], "too-long"),
+                    "k1",
+                    600_001,
+                    Budget::default()
+                )
+                .unwrap_err(),
+            PolicyError::BudgetExceeded
+        );
     }
 
     #[test]

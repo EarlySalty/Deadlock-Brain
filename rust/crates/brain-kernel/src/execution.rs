@@ -543,7 +543,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         }
     };
     if context.deadline_ms == 0
-        || context.deadline_ms > 60000
+        || context.deadline_ms > 600_000
         || context.knowledge_release.trim().is_empty()
         || !query.requested_scopes.is_subset(&context.principal.scopes)
     {
