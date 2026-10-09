@@ -1724,18 +1724,40 @@ mod tests {
             "Wie ist die Siegquote von Abrams mit {}?",
             brawl_only["name"].as_str().unwrap()
         );
+        let mode_request = ToolCall {
+            id: "mode-winrate-probe".into(),
+            name: ToolName::DeadlockData,
+            arguments: json!({"operation":"item_winrate","hero":"Abrams","item":brawl_only["name"],"days":1}),
+        }
+        .validate(&tools.definitions(&query, &context, Some(&pin)).unwrap())
+        .unwrap();
         let mode_context = authorization.with_request_deadline();
+        let mut mode_usage = Usage::default();
         assert!(matches!(
-            tools.required_calls(&unavailable_query, &mode_context, Some(&pin)),
+            runtime.lookup(
+                &unavailable_query,
+                &mode_context,
+                &pin,
+                &mode_request,
+                &mut mode_usage
+            ),
             Err(PortError::Unavailable(_))
         ));
+        assert_eq!(mode_usage.network_rounds, 0);
         unavailable_query.text.push_str(" Street Brawl");
         let mode_context = authorization.with_request_deadline();
-        let mode_calls = tools
-            .required_calls(&unavailable_query, &mode_context, Some(&pin))
+        let mode_result = runtime
+            .lookup(
+                &unavailable_query,
+                &mode_context,
+                &pin,
+                &mode_request,
+                &mut mode_usage,
+            )
             .unwrap();
-        assert_eq!(mode_calls.len(), 1);
-        assert_eq!(mode_calls[0].arguments["operation"], "item_winrate");
+        assert_eq!(mode_result.result["game_mode"], "street_brawl");
+        assert_eq!(mode_result.result["item_id"], brawl_only["id"]);
+        assert_eq!(mode_usage.network_rounds, 1);
         let mut street_query = query.clone();
         street_query.text = "Welche Items passen zu Abrams in Street Brawl?".into();
         let street_context = authorization.with_request_deadline();
