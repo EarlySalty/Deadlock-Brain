@@ -221,11 +221,11 @@ fn plan_build_with_family_policy(
     options: PlanningOptions<'_>,
 ) -> Result<PlannedBuild> {
     options.constraints.check()?;
-    let provenance = publish::calculation_provenance(hero, items, snapshots, config)?;
     let mut hero = hero.clone();
     let mut items = items.to_vec();
     let mut deltas = patch::compute_patch_delta_with_snapshots(&hero, events, snapshots);
     patch::apply_scored_patch_delta(&mut hero, &mut items, &mut deltas, &meta.index, config);
+    let provenance = publish::calculation_provenance(&hero, &items, snapshots, config)?;
     let discovery = (!meta.observations.is_empty()).then(|| {
         families::detect_families(
             &meta.observations,

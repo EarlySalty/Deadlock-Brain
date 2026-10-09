@@ -1193,6 +1193,20 @@ async fn mirrored_assets(ctx: &ReasonerCtx) -> Result<MirroredAssets> {
     assets_from_receipts(assets.heroes, assets.items, provenance)
 }
 
+fn mirror_records(value: Value, checked_at: i64) -> Result<Vec<Value>> {
+    let mut records = value
+        .as_array()
+        .cloned()
+        .ok_or_else(|| ReasonerError::Data("API-Spiegel enthält keinen Originalkatalog.".into()))?;
+    for record in &mut records {
+        let object = record.as_object_mut().ok_or_else(|| {
+            ReasonerError::Data("API-Katalog enthält kein Entitätsobjekt.".into())
+        })?;
+        object.insert("_snapshot_fetched_at".into(), serde_json::json!(checked_at));
+    }
+    Ok(records)
+}
+
 fn assets_from_receipts(
     heroes: brain_storage::asset_mirror::MirroredAssets,
     items: brain_storage::asset_mirror::MirroredAssets,
@@ -1213,23 +1227,8 @@ fn assets_from_receipts(
         &crate::mirror::model_source(&heroes.receipt),
         &crate::mirror::model_source(&items.receipt),
     )?;
-    let records = |value: Value| -> Result<Vec<Value>> {
-        let mut records = value.as_array().cloned().ok_or_else(|| {
-            ReasonerError::Data("API-Spiegel enthält keinen Originalkatalog.".into())
-        })?;
-        for record in &mut records {
-            let object = record.as_object_mut().ok_or_else(|| {
-                ReasonerError::Data("API-Katalog enthält kein Entitätsobjekt.".into())
-            })?;
-            object.insert(
-                "_snapshot_fetched_at".into(),
-                serde_json::json!(provenance.mirrored_at),
-            );
-        }
-        Ok(records)
-    };
-    let heroes = records(heroes.payload)?;
-    let items = records(items.payload)?;
+    let heroes = mirror_records(heroes.payload, provenance.checked_at)?;
+    let items = mirror_records(items.payload, provenance.checked_at)?;
     Ok(MirroredAssets {
         origin: Some(origin),
         provenance,
@@ -2247,6 +2246,8 @@ pub fn enrich_frozen_models(
 
 #[cfg(test)]
 mod tests {
+    include!("mirror_freshness_tests.rs");
+
     #[test]
     fn recorded_e_probe_keeps_mirrored_and_calculation_base_models_equal() {
         let raw: serde_json::Value =

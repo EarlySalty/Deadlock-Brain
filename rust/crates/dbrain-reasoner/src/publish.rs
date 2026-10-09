@@ -121,6 +121,25 @@ fn input_fingerprint(
     fingerprint(&(hero, items, snapshots, config))
 }
 
+fn original_input_fingerprint(
+    hero: &crate::HeroModel,
+    items: &[crate::ItemModel],
+    snapshots: &[crate::PatchSnapshot],
+    config: &crate::ReasonerConfig,
+    origin: &BuildDataOrigin,
+) -> Result<String> {
+    let mut originals = snapshots.to_vec();
+    for field in originals
+        .iter_mut()
+        .flat_map(|snapshot| snapshot.fields.values_mut())
+    {
+        if field.fetched_at.is_some() {
+            field.fetched_at = Some(origin.mirrored_at as f64);
+        }
+    }
+    input_fingerprint(hero, items, &originals, config)
+}
+
 fn game_values_fingerprint(
     hero: &crate::HeroModel,
     items: &[crate::ItemModel],
@@ -220,8 +239,8 @@ pub(crate) fn calculation_provenance(
     origin
         .map(|origin| {
             Ok(BuildProvenance {
+                input_sha256: original_input_fingerprint(hero, items, snapshots, config, &origin)?,
                 origin,
-                input_sha256: input_fingerprint(hero, items, snapshots, config)?,
                 plan_sha256: String::new(),
                 config: config.clone(),
                 purchase_plan: None,
@@ -846,6 +865,8 @@ pub async fn enqueue_review_publish_task(pool: &PgPool, build: &BuildObject) -> 
 mod tests {
     use super::*;
     use crate::{BuildItem, BuyPhase, Confidence, Evidence, EvidenceKind};
+
+    include!("publish_patch_tests.rs");
 
     fn item(id: i64, imbue: Option<i64>, sell: Option<u32>) -> BuildItem {
         BuildItem {
