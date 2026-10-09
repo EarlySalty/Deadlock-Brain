@@ -1,0 +1,120 @@
+{
+  "status": "read_only_reference_probe",
+  "date": "2026-10-07",
+  "client_version": 6759,
+  "production_version_verified": false,
+  "sources": [
+    "https://api.deadlock-api.com/v1/assets/heroes?client_version=6759",
+    "https://api.deadlock-api.com/v1/assets/items?client_version=6759",
+    "https://api.deadlock-api.com/v1/assets/generic-data?client_version=6759",
+    "https://api.deadlock-api.com/v1/assets/npc-units?client_version=6759",
+    "https://api.deadlock-api.com/v1/assets/misc-entities?client_version=6759"
+  ],
+  "sheet_scenario": {"boons": 35, "spirit": 38, "tab_count": 13, "hidden_tabs": 0},
+  "heroes": [
+    {
+      "name": "Warden",
+      "hero_id": 25,
+      "weapon_class": "citadel_weapon_warden_set",
+      "api": {
+        "bullet_damage": 17.34,
+        "cycle_time": 0.2625,
+        "bullets_per_second": 3.8095238095238098,
+        "damage_per_second": 66.05714285714285,
+        "damage_per_second_with_reload": 38.6520684455517,
+        "damage_per_magazine": 294.78,
+        "clip_size": 17,
+        "reload_duration": 2.914,
+        "damage_falloff_start_range": 708.661,
+        "damage_falloff_end_range": 1850.39,
+        "damage_falloff_start_scale": 1,
+        "damage_falloff_end_scale": 0.1,
+        "max_health": 805,
+        "base_health_regen": 2,
+        "rounds_per_second_per_spirit": 0.008,
+        "fire_rate_percent_per_spirit": 0.21,
+        "bullet_damage_per_boon": 0.25,
+        "health_per_boon": 60,
+        "spirit_per_boon": 1.1,
+        "level_info_entries": 36
+      },
+      "sheet": {
+        "row": 25,
+        "bullet_damage": 17.3,
+        "displayed_base_rate": 3.962,
+        "displayed_base_dps": 68.5426,
+        "displayed_dpm": 294.1,
+        "rate_formula": "3.81+(4*AG25%)",
+        "max_bullet_damage": 26.05,
+        "max_dps": 103.21
+      }
+    },
+    {
+      "name": "Wraith",
+      "hero_id": 7,
+      "weapon_class": "citadel_weapon_wraith_set",
+      "api": {
+        "bullet_damage": 5.64,
+        "cycle_time": 0.0945,
+        "bullets_per_second": 10.582010582010582,
+        "damage_per_second": 59.68253968253968,
+        "damage_per_second_with_reload": 36.73346693386773,
+        "damage_per_magazine": 293.28,
+        "clip_size": 52,
+        "reload_duration": 2.82,
+        "damage_falloff_start_range": 708.661,
+        "damage_falloff_end_range": 2047.24,
+        "max_health": 730,
+        "base_health_regen": 2,
+        "sprint_speed_per_spirit": 0.05
+      },
+      "sheet": {
+        "row": 30,
+        "bullet_damage": 5.64,
+        "displayed_base_rate": 10.6,
+        "displayed_base_dps": 59.784,
+        "displayed_dpm": 293.28,
+        "max_bullet_damage": 10.54,
+        "max_dps": 111.72
+      }
+    },
+    {
+      "name": "Haze",
+      "hero_id": 13,
+      "weapon_class": "citadel_weapon_haze_set",
+      "api": {
+        "bullet_damage": 5.26,
+        "cycle_time": 0.105,
+        "bullets_per_second": 9.523809523809524,
+        "damage_per_second": 50.095238095238095,
+        "damage_per_second_with_reload": 25.167464114832537,
+        "damage_per_magazine": 131.5,
+        "clip_size": 25,
+        "reload_duration": 2.35,
+        "damage_falloff_start_range": 787,
+        "damage_falloff_end_range": 1811,
+        "max_health": 730,
+        "base_health_regen": 2,
+        "clip_size_per_spirit": 0.5
+      },
+      "sheet": {
+        "row": 20,
+        "bullet_damage": 5.26,
+        "displayed_base_rate": 9.52,
+        "displayed_base_dps": 50.0752,
+        "displayed_ammo": 44,
+        "ammo_formula": "25+AG20",
+        "displayed_dpm": 231.44,
+        "max_bullet_damage": 10.265,
+        "max_dps": 97.72
+      }
+    }
+  ],
+  "interpretation": [
+    "API precalculated weapon metrics are comparison targets, not a new importer or a production dataset.",
+    "Sheet scenarios may already include spirit in columns named Base. Compare equal scenarios.",
+    "Wraith and Haze rates in the Sheet are rounded before multiplication, unlike exact API cycle_time calculations.",
+    "Warden bullet damage and spirit rate scaling differ from the versioned API payload. Preserve and explain the difference, do not tune Rust to the cached Sheet result.",
+    "Haze magazine and DPM in the displayed Sheet include 38 spirit, while the raw API magazine is 25."
+  ]
+}
