@@ -203,7 +203,26 @@ pub fn grounded_messages(query: &Query, evidence: &[Evidence]) -> Vec<ChatMessag
     } else {
         projected.text.clone()
     };
+    let (text, conversation_context) = if crate::discord_task::is_private_context_query(&projected)
+    {
+        text.rsplit_once(crate::discord_task::PUBLIC_CONTEXT_PREFIX)
+            .and_then(|(current, encoded)| {
+                serde_json::from_str::<crate::discord_task::DiscordContextProjection>(encoded)
+                    .ok()
+                    .filter(|projection| projection.valid())
+                    .map(|projection| (current.to_owned(), Some(projection)))
+            })
+            .unwrap_or((text, None))
+    } else {
+        (text, None)
+    };
     let mut data = json!({"query": text, "evidence": evidence});
+    if let Some(projection) = conversation_context {
+        data["public_conversation_context"] = json!({
+            "turns": projection.turns,
+            "private_content_omitted": true,
+        });
+    }
     if let Some(context) = &projected.answer_context {
         let mut value = json!(context);
         display_context(&mut value);
@@ -980,6 +999,90 @@ mod tests {
                 ..evidence[0].clone()
             };
             assert_eq!(evidence_display_content(&item), item.content);
+        }
+    }
+
+    #[test]
+    fn public_history_projection_stays_separate_from_the_current_question_and_counts_in_budget() {
+        use crate::discord_task::{DiscordContextProjection, PUBLIC_CONTEXT_PREFIX};
+        let projection = DiscordContextProjection {
+            turns: vec![
+                vec!["Abrams".into()],
+                vec!["Build".into(), "Spirit-Build".into()],
+                vec![],
+            ],
+        };
+        for text in [
+            "Abrams",
+            "Warum?",
+            "Wie bekomme ich mehr Seelen?",
+            "Gibt es auch Coaching?",
+        ] {
+            let mut current = query();
+            current.text = text.into();
+            current.answer_context =
+                Some(crate::AnswerContext::Discord(crate::DiscordAnswerContext {
+                    purpose: Some("bot_context:direct".into()),
+                    ..Default::default()
+                }));
+            let mut projected = current.clone();
+            projected.text.push_str(PUBLIC_CONTEXT_PREFIX);
+            projected
+                .text
+                .push_str(&serde_json::to_string(&projection).unwrap());
+            for format in [ToolWireFormat::Native, ToolWireFormat::OpenAiCompatible] {
+                for quality_filters in [false, true] {
+                    let conversation = ToolConversation::default();
+                    let before = grounded_turn_payload_with_quality(
+                        &current,
+                        &[],
+                        &[],
+                        &conversation,
+                        format,
+                        quality_filters,
+                    )
+                    .unwrap();
+                    let after = grounded_turn_payload_with_quality(
+                        &projected,
+                        &[],
+                        &[],
+                        &conversation,
+                        format,
+                        quality_filters,
+                    )
+                    .unwrap();
+                    let offset = usize::from(format == ToolWireFormat::OpenAiCompatible);
+                    let input: Value = serde_json::from_str(
+                        after["messages"][offset]["content"].as_str().unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(input["query"], text);
+                    assert_eq!(
+                        input["public_conversation_context"]["turns"],
+                        json!(projection.turns)
+                    );
+                    assert_eq!(
+                        input["public_conversation_context"]["private_content_omitted"],
+                        true
+                    );
+                    if format == ToolWireFormat::Native {
+                        assert_eq!(before["system"], after["system"]);
+                    } else {
+                        assert_eq!(before["messages"][0], after["messages"][0]);
+                    }
+                    let ceiling = grounded_turn_input_ceiling_with_quality(
+                        &projected,
+                        &[],
+                        &[],
+                        &conversation,
+                        format,
+                        quality_filters,
+                    )
+                    .unwrap();
+                    assert_eq!(ceiling, transport_input_ceiling(&after, true).unwrap());
+                    assert!(ceiling > transport_input_ceiling(&before, true).unwrap());
+                }
+            }
         }
     }
 

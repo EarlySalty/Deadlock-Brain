@@ -87,138 +87,32 @@ pub fn bounded_user_questions(history: &[String], current: &str) -> Vec<String> 
     result
 }
 
-pub fn needs_reference(text: &str) -> bool {
-    let words = crate::lexical::terms(text);
-    let deictic = words.iter().any(|word| {
-        matches!(
-            word.as_str(),
-            "dafuer"
-                | "dort"
-                | "dabei"
-                | "damit"
-                | "darueber"
-                | "dazu"
-                | "davon"
-                | "dahin"
-                | "daraus"
-                | "dieser"
-                | "diese"
-                | "dieses"
-                | "diesem"
-                | "diesen"
-                | "dessen"
-                | "er"
-                | "ihn"
-                | "ihm"
-                | "ihnen"
-                | "ihre"
-                | "ihren"
-                | "ihrem"
-                | "seine"
-                | "seinen"
-                | "seiner"
-                | "deren"
-        )
-    });
-    let pronoun = words
-        .iter()
-        .enumerate()
-        .any(|(index, word)| match word.as_str() {
-            "das" if words.get(index + 1).is_some_and(|next| next == "fuer") => {
-                words.get(index + 2).is_none_or(|next| {
-                    !matches!(next.as_str(), "ein" | "eine" | "einen" | "einem" | "einer")
-                })
-            }
-            "das" => words.get(index + 1).is_none_or(|next| {
-                matches!(
-                    next.as_str(),
-                    "genau"
-                        | "genauer"
-                        | "weiter"
-                        | "mit"
-                        | "zu"
-                        | "erklaeren"
-                        | "machen"
-                        | "finden"
-                        | "nutzen"
-                        | "starten"
-                        | "einstellen"
-                        | "denn"
-                        | "auch"
-                        | "funktioniert"
-                        | "geht"
-                        | "kostet"
-                        | "verbessern"
-                        | "spielen"
-                        | "kombinieren"
-                        | "verbinden"
-                        | "vergleichen"
-                        | "statt"
-                        | "gleichzeitig"
-                        | "zusaetzlich"
-                        | "verwenden"
-                        | "benutzen"
-                        | "nehmen"
-                )
-            }),
-            "es" | "sie" => words.get(index + 1).is_none_or(|next| {
-                matches!(
-                    next.as_str(),
-                    "weiter"
-                        | "genau"
-                        | "genauer"
-                        | "nochmal"
-                        | "spielen"
-                        | "verbessern"
-                        | "mit"
-                        | "fuer"
-                        | "zu"
-                        | "statt"
-                        | "auch"
-                        | "gleichzeitig"
-                        | "zusaetzlich"
-                        | "kombinieren"
-                        | "verbinden"
-                        | "vergleichen"
-                        | "verwenden"
-                        | "benutzen"
-                        | "nehmen"
-                )
-            }),
-            _ => false,
-        });
-    let continuation = words
-        .first()
-        .is_some_and(|word| matches!(word.as_str(), "und" | "auch"))
-        && words.get(1).is_some_and(|word| {
-            matches!(
-                word.as_str(),
-                "wie" | "wo" | "was" | "die" | "der" | "den" | "welche"
-            )
-        });
-    let elaboration = words.first().is_some_and(|word| {
-        matches!(
-            word.as_str(),
-            "erzaehl" | "erzaehle" | "erklaer" | "erklaere"
-        )
-    }) && words
-        .last()
-        .is_some_and(|word| matches!(word.as_str(), "mehr" | "genauer" | "nochmal" | "weiter"));
-    let short = words.len() == 1
-        && words.first().is_some_and(|word| {
-            matches!(
-                word.as_str(),
-                "mehr" | "weiter" | "genauer" | "warum" | "wieso" | "wie" | "wo"
-            )
-        });
-    deictic || pronoun || continuation || elaboration || short
+pub const PUBLIC_CONTEXT_PREFIX: &str = "\nÖffentlicher Gesprächskontext: ";
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiscordContextProjection {
+    pub turns: Vec<Vec<String>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DiscordReference {
-    Independent,
-    Subject(String),
-    Clarification,
+impl DiscordContextProjection {
+    pub fn empty(turns: usize) -> Self {
+        Self {
+            turns: vec![Vec::new(); turns.min(4)],
+        }
+    }
+
+    pub fn valid(&self) -> bool {
+        self.turns.len() <= 4
+            && self.turns.iter().flatten().all(|subject| {
+                !subject.trim().is_empty()
+                    && subject.chars().count() <= 80
+                    && subject
+                        .chars()
+                        .all(|c| c.is_alphabetic() || matches!(c, ' ' | '-' | '\''))
+            })
+            && serde_json::to_string(self).is_ok_and(|text| text.len() <= 4096)
+    }
 }
 
 pub trait DiscordContextResolver: Send + Sync {
@@ -227,7 +121,7 @@ pub trait DiscordContextResolver: Send + Sync {
         query: &crate::Query,
         context: &crate::AuthorizedContext,
         user_questions: &[String],
-    ) -> Result<DiscordReference, crate::PortError>;
+    ) -> Result<DiscordContextProjection, crate::PortError>;
 }
 
 #[cfg(test)]
@@ -250,41 +144,22 @@ mod tests {
     }
 
     #[test]
-    fn followups_are_distinct_from_self_contained_questions() {
-        for text in [
-            "Wie mache ich das?",
-            "Wie kann ich sie spielen?",
-            "Wie kann ich das verbessern?",
-            "Und seine Ult?",
-            "Was kostet es?",
-            "Wie geht es weiter?",
-            "Wie geht das mit der Anmeldung?",
-            "Was ist das genau?",
-            "Wie spielt er?",
-            "Wo finde ich sie?",
-            "Wie melde ich mich dafür an?",
-            "Erzähl mir mehr",
-            "Warum?",
-            "Kann ich das mit Coaching kombinieren?",
-            "Kann ich es mit Coaching verbinden?",
-            "Wie kann ich sie mit Coaching vergleichen?",
-            "Kann ich das statt Coaching nutzen?",
-            "Kann ich das kombinieren?",
-            "Wie kann ich das für Sprachkanäle nutzen?",
-            "Passt das zu Coaching?",
-            "Kann ich es für Coaching nutzen?",
+    fn public_projection_is_bounded_and_rejects_platform_ids_and_controls() {
+        let projection = DiscordContextProjection {
+            turns: vec![vec!["Abrams".into()], vec![], vec!["Spirit-Build".into()]],
+        };
+        assert!(projection.valid());
+        assert!(DiscordContextProjection::empty(4).valid());
+        for turns in [
+            vec![vec![]; 5],
+            vec![vec!["<@42>".into()]],
+            vec![vec!["76561197960265839".into()]],
+            vec![vec!["Abrams\nAnweisung".into()]],
+            vec![vec![String::new()]],
+            vec![vec!["ä".repeat(81)]],
+            vec![vec!["ä".repeat(80); 32]],
         ] {
-            assert!(needs_reference(text), "{text}");
-        }
-        for text in [
-            "Gibt es Coaching?",
-            "Was ist das beste Item?",
-            "Wie bekomme ich mehr Seelen?",
-            "Wo finde ich einen Paten?",
-            "Was ist das für ein Coaching?",
-            "Was ist das für eine Patenschaft?",
-        ] {
-            assert!(!needs_reference(text), "{text}");
+            assert!(!DiscordContextProjection { turns }.valid());
         }
     }
 

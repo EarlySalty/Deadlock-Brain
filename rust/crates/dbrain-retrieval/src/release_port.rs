@@ -286,16 +286,11 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
         query: &Query,
         context: &AuthorizedContext,
         user_questions: &[String],
-    ) -> Result<brain_contracts::discord_task::DiscordReference, PortError> {
-        use brain_contracts::discord_task::{needs_reference, DiscordReference};
+    ) -> Result<brain_contracts::discord_task::DiscordContextProjection, PortError> {
+        use brain_contracts::discord_task::DiscordContextProjection;
         let bound = context.with_request_deadline();
         let context = &bound;
         check_context(query, context)?;
-        let direct = matches!(&query.answer_context, Some(brain_contracts::AnswerContext::Discord(context))
-            if context.purpose.as_deref() == Some("bot_context:direct"));
-        if !needs_reference(&query.text) && !direct {
-            return Ok(DiscordReference::Independent);
-        }
         if user_questions.len() > 4
             || user_questions
                 .iter()
@@ -305,8 +300,10 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
         {
             return Err(invalid("invalid private context bounds"));
         }
+        if user_questions.is_empty() {
+            return Ok(DiscordContextProjection::default());
+        }
         let index = self.index(query, context)?;
-        let current = brain_contracts::lexical::terms(&query.text);
         let history: Vec<_> = user_questions
             .iter()
             .map(|text| brain_contracts::lexical::terms(text))
@@ -322,10 +319,9 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
             }
             for (subject, names) in public_context_names(record) {
                 if names.iter().any(|name| {
-                    contains_terms(&current, name)
-                        || history
-                            .iter()
-                            .any(|question| contains_terms(question, name))
+                    history
+                        .iter()
+                        .any(|question| contains_terms(question, name))
                 }) {
                     matches.entry(subject).or_default().push(DocumentRevision {
                         source_id: record.source_id.clone(),
@@ -342,11 +338,10 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
             .map(|doc| ((doc.source_id.clone(), doc.logical_id.clone()), doc.clone()))
             .collect();
         if documents.len() > 256 {
-            return Ok(DiscordReference::Clarification);
+            return Ok(DiscordContextProjection::empty(user_questions.len()));
         }
         let heads = self.heads(&documents.into_values().collect::<Vec<_>>(), context)?;
         let mut vocabulary: BTreeMap<String, Vec<Vec<String>>> = BTreeMap::new();
-        let mut hero_subjects = BTreeSet::new();
         for record in &index.records {
             if record.visibility != SourceVisibility::Public {
                 continue;
@@ -362,340 +357,35 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
                 {
                     for (subject, names) in public_context_names(record) {
                         if matches.contains_key(&subject) {
-                            let canonical = record
-                                .metadata
-                                .get("name")
-                                .or_else(|| record.metadata.get("canonical_name"));
-                            if is_hero_record(record) && canonical == Some(&subject) {
-                                hero_subjects.insert(subject.clone());
-                            }
                             vocabulary.entry(subject).or_default().extend(names);
                         }
                     }
                 }
             }
         }
-        let subjects = |words: &[String]| -> BTreeSet<String> {
-            vocabulary
+        let projection = DiscordContextProjection {
+            turns: history
                 .iter()
-                .filter(|(_, names)| names.iter().any(|name| contains_terms(words, name)))
-                .map(|(subject, _)| subject.clone())
-                .collect()
+                .map(|words| {
+                    vocabulary
+                        .iter()
+                        .filter(|(_, names)| names.iter().any(|name| contains_terms(words, name)))
+                        .map(|(subject, _)| subject.clone())
+                        .collect()
+                })
+                .collect(),
         };
-        let current_subjects = subjects(&current);
-        if direct && current_subjects.len() == 1 {
-            let subject = current_subjects.first().expect("Ein öffentlicher Bezug");
-            let subject_only = vocabulary[subject].contains(&current);
-            if subject_only && hero_subjects.contains(subject) {
-                if let Some(intent) = user_questions.last().and_then(|text| build_reference(text)) {
-                    return Ok(DiscordReference::Subject(format!("{subject} {intent}")));
-                }
-            }
-        }
-        let build = direct && build_reference(&query.text).is_some();
-        if direct
-            && user_questions
-                .last()
-                .and_then(|text| build_reference(text))
-                .is_some()
-            && current_subjects.len() != 1
-            && !build
-            && !needs_reference(&query.text)
-            && !current.first().is_some_and(|word| {
-                matches!(
-                    word.as_str(),
-                    "wie"
-                        | "wo"
-                        | "was"
-                        | "wer"
-                        | "wen"
-                        | "wem"
-                        | "wessen"
-                        | "wann"
-                        | "warum"
-                        | "wieso"
-                        | "weshalb"
-                        | "wozu"
-                        | "welche"
-                        | "welcher"
-                        | "welches"
-                        | "welchen"
-                        | "welchem"
-                        | "gibt"
-                        | "ist"
-                        | "sind"
-                        | "kann"
-                        | "koennen"
-                        | "hat"
-                        | "haben"
-                        | "darf"
-                        | "duerfen"
-                        | "soll"
-                        | "sollen"
-                        | "muss"
-                        | "muessen"
-                )
-            })
-        {
-            return Ok(DiscordReference::Clarification);
-        }
-        if !current_subjects.is_empty() && !explicit_reference(&query.text, &vocabulary) {
-            return Ok(DiscordReference::Independent);
-        }
-        if direct && !build && !needs_reference(&query.text) {
-            return Ok(DiscordReference::Independent);
-        }
-        if !reference_only(&without_public_subjects(&current, &vocabulary)) && !build {
-            return Ok(DiscordReference::Clarification);
-        }
-        let mut referenced = BTreeSet::new();
-        for (text, words) in user_questions.iter().zip(&history).rev() {
-            let found = subjects(words);
-            if !found.is_empty() {
-                let dependent = explicit_reference(text, &vocabulary);
-                if (found.len() > 1 && !dependent) || (build && !found.is_subset(&hero_subjects)) {
-                    return Ok(DiscordReference::Clarification);
-                }
-                referenced.extend(found);
-                if !dependent {
-                    let subject = referenced.into_iter().collect::<Vec<_>>().join(" ");
-                    return Ok(if subject.chars().count() <= 80 {
-                        DiscordReference::Subject(subject)
-                    } else {
-                        DiscordReference::Clarification
-                    });
-                }
-                if reference_only(&without_public_subjects(words, &vocabulary)) {
-                    continue;
-                }
-                break;
-            }
-            if !(reference_only(text) || (direct && build_reference(text).is_some())) {
-                break;
-            }
-        }
-        Ok(DiscordReference::Clarification)
-    }
-}
-
-fn build_reference(text: &str) -> Option<&'static str> {
-    let words = brain_contracts::lexical::terms(text);
-    if words.is_empty()
-        || !words
-            .iter()
-            .any(|word| matches!(word.as_str(), "build" | "spiritbuild"))
-        || !words.iter().all(|word| {
-            matches!(
-                word.as_str(),
-                "okay"
-                    | "ok"
-                    | "ja"
-                    | "ne"
-                    | "eine"
-                    | "einen"
-                    | "ein"
-                    | "idee"
-                    | "fuer"
-                    | "spirit"
-                    | "spiritbuild"
-                    | "build"
-                    | "bitte"
-                    | "gib"
-                    | "mir"
-                    | "kannst"
-                    | "du"
-                    | "hast"
-                    | "noch"
-                    | "und"
-                    | "auch"
-                    | "ich"
-                    | "moechte"
-                    | "will"
-                    | "haette"
-            )
-        })
-    {
-        return None;
-    }
-    Some(
-        if words
-            .iter()
-            .any(|word| matches!(word.as_str(), "spirit" | "spiritbuild"))
-        {
-            "Spirit-Build"
+        Ok(if projection.valid() {
+            projection
         } else {
-            "Build"
-        },
-    )
+            DiscordContextProjection::empty(user_questions.len())
+        })
+    }
 }
 
 fn is_hero_record(record: &SourceRecordV2) -> bool {
     (record.source_id == "deadlock-assets-heroes" && record.logical_id.starts_with("asset/hero/"))
         || (record.source_id == "legacy-entities" && record.logical_id.starts_with("entity/hero/"))
-}
-
-fn explicit_reference(text: &str, vocabulary: &BTreeMap<String, Vec<Vec<String>>>) -> bool {
-    let words = brain_contracts::lexical::terms(text);
-    let words = words
-        .iter()
-        .enumerate()
-        .map(|(index, word)| {
-            let named_possessive = matches!(
-                word.as_str(),
-                "seine" | "seinen" | "seiner" | "ihre" | "ihren" | "ihrem" | "dessen" | "deren"
-            ) && vocabulary.values().flatten().any(|name| {
-                !name.is_empty()
-                    && name.len() <= index
-                    && &words[index - name.len()..index] == name.as_slice()
-            });
-            if named_possessive {
-                "eigene".to_owned()
-            } else {
-                word.clone()
-            }
-        })
-        .skip_while(|word| matches!(word.as_str(), "und" | "auch"))
-        .collect::<Vec<_>>();
-    brain_contracts::discord_task::needs_reference(&words.join(" "))
-}
-
-fn without_public_subjects(
-    words: &[String],
-    vocabulary: &BTreeMap<String, Vec<Vec<String>>>,
-) -> String {
-    let mut result = Vec::new();
-    let mut offset = 0;
-    while offset < words.len() {
-        let length = vocabulary
-            .values()
-            .flatten()
-            .filter(|name| !name.is_empty() && words[offset..].starts_with(name))
-            .map(Vec::len)
-            .max();
-        if let Some(length) = length {
-            offset += length;
-        } else {
-            result.push(words[offset].as_str());
-            offset += 1;
-        }
-    }
-    result.join(" ")
-}
-
-fn reference_only(text: &str) -> bool {
-    use brain_contracts::discord_task::needs_reference;
-    let words = brain_contracts::lexical::terms(text);
-    needs_reference(text)
-        && words.iter().enumerate().all(|(index, word)| {
-            (word == "ult"
-                && index > 0
-                && matches!(
-                    words[index - 1].as_str(),
-                    "seine" | "seinen" | "seiner" | "ihre" | "ihren" | "ihrem" | "dessen" | "deren"
-                ))
-                || matches!(
-                    word.as_str(),
-                    "wie"
-                        | "wo"
-                        | "was"
-                        | "warum"
-                        | "wieso"
-                        | "und"
-                        | "auch"
-                        | "ich"
-                        | "mich"
-                        | "mir"
-                        | "man"
-                        | "wir"
-                        | "das"
-                        | "es"
-                        | "sie"
-                        | "der"
-                        | "die"
-                        | "den"
-                        | "welche"
-                        | "dafuer"
-                        | "dort"
-                        | "dabei"
-                        | "damit"
-                        | "darueber"
-                        | "dazu"
-                        | "davon"
-                        | "dahin"
-                        | "daraus"
-                        | "dieser"
-                        | "diese"
-                        | "dieses"
-                        | "diesem"
-                        | "diesen"
-                        | "dessen"
-                        | "er"
-                        | "ihn"
-                        | "ihm"
-                        | "ihnen"
-                        | "ihre"
-                        | "ihren"
-                        | "ihrem"
-                        | "seine"
-                        | "seinen"
-                        | "seiner"
-                        | "deren"
-                        | "ist"
-                        | "sind"
-                        | "kann"
-                        | "koennen"
-                        | "mache"
-                        | "macht"
-                        | "machen"
-                        | "bekomme"
-                        | "bekommen"
-                        | "finde"
-                        | "finden"
-                        | "nutze"
-                        | "nutzen"
-                        | "starten"
-                        | "einstellen"
-                        | "melde"
-                        | "anmelden"
-                        | "an"
-                        | "mit"
-                        | "zu"
-                        | "fuer"
-                        | "denn"
-                        | "geht"
-                        | "funktioniert"
-                        | "kostet"
-                        | "spiele"
-                        | "spielt"
-                        | "spielen"
-                        | "verbessern"
-                        | "kombinieren"
-                        | "verbinden"
-                        | "vergleichen"
-                        | "statt"
-                        | "oder"
-                        | "zusammen"
-                        | "gleichzeitig"
-                        | "zusaetzlich"
-                        | "verwenden"
-                        | "benutzen"
-                        | "nehmen"
-                        | "passen"
-                        | "passt"
-                        | "besser"
-                        | "als"
-                        | "erzaehl"
-                        | "erzaehle"
-                        | "erklaer"
-                        | "erklaere"
-                        | "erklaeren"
-                        | "mehr"
-                        | "weiter"
-                        | "genau"
-                        | "genauer"
-                        | "nochmal"
-                )
-        })
 }
 
 fn contains_terms(words: &[String], name: &[String]) -> bool {
@@ -717,6 +407,16 @@ fn public_context_names(record: &SourceRecordV2) -> Vec<(String, Vec<Vec<String>
         ("Rollen", &["Rolle", "Rollen"][..]),
         ("Datenschutz", &["Datenschutz"][..]),
         ("FAQ", &["FAQ"][..]),
+        ("Build", &["Build", "Builds"][..]),
+        (
+            "Spirit-Build",
+            &[
+                "Spirit-Build",
+                "Spirit-Builds",
+                "Spiritbuild",
+                "Spiritbuilds",
+            ][..],
+        ),
     ] {
         let names: Vec<_> = aliases.iter().map(|name| terms(name)).collect();
         if names.iter().any(|name| contains_terms(&words, name)) {

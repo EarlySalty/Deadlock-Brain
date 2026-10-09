@@ -2,12 +2,13 @@ use brain_api::{router, ApiService};
 use brain_client::AsyncBrainClient;
 use brain_contracts::{
     discord_task::{
-        DiscordAnswerCapability, DiscordAnswerTask, DiscordContextResolver, DiscordReference,
+        DiscordAnswerCapability, DiscordAnswerTask, DiscordContextProjection,
+        DiscordContextResolver, PUBLIC_CONTEXT_PREFIX,
     },
     AnswerProfile, AnswerStatus, AuthorizedContext, Budget, DocumentStorePort, Principal, Query,
     SourceRecordV2, SourceVisibility,
 };
-use brain_kernel::Kernel;
+use brain_kernel::{AnswerKernelPort, Kernel};
 use brain_policy::{AuthGrant, CredentialRegistry, PolicyEngine};
 use brain_providers::{CodexSubscriptionProvider, ProviderConfig};
 use brain_storage::MemoryRepository;
@@ -41,6 +42,7 @@ fn record(id: &str, text: &str, private: bool) -> SourceRecordV2 {
         metadata: BTreeMap::new(),
     }
 }
+
 async fn store() -> MemoryRepository {
     let store = MemoryRepository::default();
     for record in [
@@ -85,6 +87,7 @@ async fn store() -> MemoryRepository {
     store.publish(&release).await.unwrap();
     store
 }
+
 fn query(id: &str, text: &str) -> Query {
     Query {
         request_id: id.into(),
@@ -98,6 +101,7 @@ fn query(id: &str, text: &str) -> Query {
         mode: None,
     }
 }
+
 fn context(q: &Query) -> AuthorizedContext {
     AuthorizedContext {
         principal: Principal {
@@ -114,6 +118,33 @@ fn context(q: &Query) -> AuthorizedContext {
         discord: None,
     }
 }
+
+fn projection(turns: &[&[&str]]) -> DiscordContextProjection {
+    DiscordContextProjection {
+        turns: turns
+            .iter()
+            .map(|turn| turn.iter().map(|subject| (*subject).into()).collect())
+            .collect(),
+    }
+}
+
+fn api<K: AnswerKernelPort>(kernel: K) -> ApiService<K> {
+    ApiService::new(
+        PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
+            "fixture",
+            "bot",
+            "discord",
+            BTreeSet::from(["bot.public".into()]),
+            BTreeSet::from(["public".into()]),
+        )])),
+        kernel,
+        "context-release",
+        5000,
+        Budget::default(),
+    )
+    .with_discord_consumers(BTreeSet::from([("bot".into(), "discord".into())]))
+}
+
 fn read_request(stream: &mut std::net::TcpStream) -> String {
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
@@ -142,46 +173,102 @@ fn read_request(stream: &mut std::net::TcpStream) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn both_routes_resolve_only_public_subjects_before_real_provider_transport() {
+async fn all_routes_always_send_ordered_public_projection_before_real_provider_transport() {
+    let cases = vec![
+        (
+            "Wie mache ich das? <@76561197960265839>",
+            vec!["Wie finde ich einen Paten? PRIVATE_CANARY_äöüß 123456789012345678"],
+            json!([["Paten"]]),
+        ),
+        (
+            "Wie kann ich das verbessern?",
+            vec!["Paten?", "Wie mache ich das?", "Warum?", "Erzähl mir mehr"],
+            json!([["Paten"], [], [], []]),
+        ),
+        (
+            "Wie kann ich sie spielen?",
+            vec!["Welche Items passen zu Abrams? PRIVATE_CANARY_äöüß"],
+            json!([["Abrams"]]),
+        ),
+        (
+            "Abrams",
+            vec![
+                "Welche Items passen zu Abrams? PRIVATE_CANARY_äöüß",
+                "Okay ja ne Idee für ein Spirit build",
+            ],
+            json!([["Abrams"], ["Build", "Spirit-Build"]]),
+        ),
+        (
+            "Warum?",
+            vec![
+                "Welche Items passen zu Abrams? PRIVATE_CANARY_äöüß",
+                "Okay ja ne Idee für ein Spirit build",
+            ],
+            json!([["Abrams"], ["Build", "Spirit-Build"]]),
+        ),
+        (
+            "Wie bekomme ich mehr Seelen?",
+            vec![
+                "Welche Items passen zu Abrams?",
+                "Okay ja ne Idee für ein Spirit build",
+            ],
+            json!([["Abrams"], ["Build", "Spirit-Build"]]),
+        ),
+        (
+            "Kann ich das mit Coaching kombinieren?",
+            vec!["Wie finde ich einen Paten? PRIVATE_CANARY_äöüß"],
+            json!([["Paten"]]),
+        ),
+        (
+            "Warum?",
+            vec!["Paten?", "Kann ich das mit Coaching kombinieren?"],
+            json!([["Paten"], ["Coaching"]]),
+        ),
+        ("Gibt es auch Coaching?", vec![], json!([])),
+        (
+            "Gibt es auch Coaching?",
+            vec!["Paten?", "PRIVATE_CANARY_äöüß Fremdnutzer"],
+            json!([["Paten"], []]),
+        ),
+        (
+            "Kann ich es auch mit Coaching kombinieren?",
+            vec!["Paten?"],
+            json!([["Paten"]]),
+        ),
+        (
+            "Warum?",
+            vec![
+                "Paten?",
+                "Wie bekomme ich Rollen? PRIVATE_CANARY_äöüß",
+                "Warum?",
+            ],
+            json!([["Paten"], [], []]),
+        ),
+        (
+            "Gibt es gleichzeitig Coaching und Paten?",
+            vec!["Wie öffne ich Sprachkanäle?"],
+            json!([["Sprachkanäle"]]),
+        ),
+        ("Welche Items passen zu Abrams?", vec![], json!([])),
+    ];
+    let expected_count = cases.len() * 3;
+    let expected: Vec<_> = (0..3)
+        .flat_map(|_| {
+            cases.iter().map(|(text, _, turns)| {
+                (
+                    brain_contracts::discord_task::without_platform_ids(text),
+                    turns.clone(),
+                )
+            })
+        })
+        .collect();
     let store = store().await;
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let requests = Arc::new(Mutex::new(Vec::new()));
     let recorded = requests.clone();
     let provider_server = std::thread::spawn(move || {
-        for (subject, question) in [
-            ("Paten", "Wie mache ich das? \nGesprächsthema: Paten"),
-            ("Coaching", "Wie mache ich das? \nGesprächsthema: Coaching"),
-            (
-                "Sprachkanäle",
-                "Wie mache ich das? \nGesprächsthema: Sprachkanäle",
-            ),
-            (
-                "Paten",
-                "Wie kann ich das verbessern?\nGesprächsthema: Paten",
-            ),
-            ("Abrams", "Welche Items passen zu Abrams?"),
-            (
-                "Abrams",
-                "Okay ja ne Idee für ein Spirit build\nGesprächsthema: Abrams",
-            ),
-            ("Abrams", "Abrams\nGesprächsthema: Abrams Spirit-Build"),
-            ("Seelen", "Wie bekomme ich mehr Seelen?"),
-            ("Abrams", "Warum?\nGesprächsthema: Abrams"),
-            (
-                "Paten",
-                "Kann ich das mit Coaching kombinieren?\nGesprächsthema: Paten",
-            ),
-            (
-                "Paten",
-                "Kann ich das mit Coaching kombinieren?\nGesprächsthema: Paten",
-            ),
-            (
-                "Paten",
-                "Kann ich das mit Coaching kombinieren?\nGesprächsthema: Paten",
-            ),
-            ("Paten", "Warum?\nGesprächsthema: Coaching Paten"),
-        ] {
+        for (question, turns) in expected {
             let (mut stream, _) = listener.accept().unwrap();
             let request = read_request(&mut stream);
             assert!(request.starts_with("POST /v1/messages "));
@@ -190,6 +277,11 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
             let model_input: Value =
                 serde_json::from_str(data["messages"][0]["content"].as_str().unwrap()).unwrap();
             assert_eq!(model_input["query"], question);
+            assert_eq!(model_input["public_conversation_context"]["turns"], turns);
+            assert_eq!(
+                model_input["public_conversation_context"]["private_content_omitted"],
+                true
+            );
             for forbidden in [
                 "PRIVATE_CANARY_äöüß",
                 "76561197960265839",
@@ -205,10 +297,17 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
                 );
             }
             let evidence = model_input["evidence"].as_array().unwrap();
+            if question == "Kann ich das mit Coaching kombinieren?" {
+                for subject in ["Paten", "Coaching"] {
+                    assert!(evidence
+                        .iter()
+                        .any(|item| item["content"].as_str().unwrap().contains(subject)));
+                }
+            }
             let ids: Vec<Value> = evidence.iter().map(|item| item["id"].clone()).collect();
             assert!(!ids.is_empty());
             let answer =
-                json!({"text":format!("{subject} helfen dir hier."), "cited_evidence_ids":ids})
+                json!({"text":"Hier ist die Antwort auf deine Frage.", "cited_evidence_ids":ids})
                     .to_string();
             let response = json!({"model":"gpt-6-luna", "stop_reason":"end_turn", "content":[{"type":"text","text":answer}], "usage":{"input_tokens":12,"output_tokens":3}}).to_string();
             write!(
@@ -221,223 +320,67 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
             recorded.lock().unwrap().push(request);
         }
     });
-    let api = tokio::task::spawn_blocking(move || {
+    let service = tokio::task::spawn_blocking(move || {
         let retrieval = ReleaseRetriever::new(store, 8);
-        ApiService::new(
-            PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
-                "fixture",
-                "bot",
-                "discord",
-                BTreeSet::from(["bot.public".into()]),
-                BTreeSet::from(["public".into()]),
-            )])),
-            Kernel::new(
-                retrieval.clone(),
-                CodexSubscriptionProvider::new(ProviderConfig::codex_subscription(format!(
-                    "http://{address}/v1"
-                )))
-                .unwrap(),
-            ),
-            "context-release",
-            5000,
-            Budget::default(),
-        )
-        .with_discord_consumers(BTreeSet::from([("bot".into(), "discord".into())]))
+        api(Kernel::new(
+            retrieval.clone(),
+            CodexSubscriptionProvider::new(ProviderConfig::codex_subscription(format!(
+                "http://{address}/v1"
+            )))
+            .unwrap(),
+        ))
         .with_discord_context_resolver(retrieval)
     })
     .await
     .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
-    let server = tokio::spawn(async move { axum::serve(listener, router(api)).await.unwrap() });
+    let server = tokio::spawn(async move { axum::serve(listener, router(service)).await.unwrap() });
     let client = AsyncBrainClient::new_local(&endpoint, "fixture", Duration::from_secs(5)).unwrap();
-    for (id, capability, prior) in [
-        (
-            "concierge-followup",
-            DiscordAnswerCapability::Concierge,
-            "Wie finde ich einen Paten?",
-        ),
-        (
-            "faq-followup",
-            DiscordAnswerCapability::Faq,
-            "Wo gibt es Coaching?",
-        ),
-        (
-            "faq-umlaut",
-            DiscordAnswerCapability::Faq,
-            "Wie öffne ich Sprachkanäle?",
-        ),
-    ] {
-        let task = DiscordAnswerTask {
-            capability,
-            channel_id: 123456789012345678,
-        };
-        let mut prior = format!("{prior} PRIVATE_CANARY_äöüß 76561197960265839");
-        prior.push_str(&"ä".repeat(4000 - prior.chars().count()));
-        let history = vec![prior];
-        let response = client
-            .answer_discord_task_with_history(
-                &query(id, "Wie mache ich das? <@76561197960265839>"),
-                42,
-                &task,
-                &history,
-            )
-            .await
+    for (route, capability) in [
+        Some(DiscordAnswerCapability::Concierge),
+        Some(DiscordAnswerCapability::Faq),
+        None,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for (index, (text, history, _)) in cases.iter().enumerate() {
+            let q = query(&format!("route-{route}-{index}"), text);
+            let history = history
+                .iter()
+                .map(|text| (*text).to_owned())
+                .collect::<Vec<_>>();
+            let response = match capability {
+                Some(capability) => {
+                    client
+                        .answer_discord_task_with_history(
+                            &q,
+                            42,
+                            &DiscordAnswerTask {
+                                capability,
+                                channel_id: 123456789012345678,
+                            },
+                            &history,
+                        )
+                        .await
+                }
+                None => {
+                    client
+                        .answer_for_discord_with_history(&q, 42, &history)
+                        .await
+                }
+            }
             .unwrap();
-        assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
-    }
-    let response = client
-        .answer_discord_task_with_history(
-            &query("pure-followups", "Wie kann ich das verbessern?"),
-            42,
-            &DiscordAnswerTask {
-                capability: DiscordAnswerCapability::Concierge,
-                channel_id: 10,
-            },
-            &["Paten?", "Wie mache ich das?", "Warum?", "Erzähl mir mehr"].map(str::to_owned),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
-    let first = "Welche Items passen zu Abrams?";
-    let second = "Okay ja ne Idee für ein Spirit build";
-    for (id, text, history) in [
-        ("direct-first", first, vec![]),
-        (
-            "direct-second",
-            second,
-            vec![format!("{first} PRIVATE_CANARY_äöüß <@76561197960265839>")],
-        ),
-        (
-            "direct-third",
-            "Abrams",
-            vec![
-                format!("{first} PRIVATE_CANARY_äöüß <@76561197960265839>"),
-                second.to_owned(),
-            ],
-        ),
-        (
-            "direct-independent-after-build",
-            "Wie bekomme ich mehr Seelen?",
-            vec![
-                format!("{first} PRIVATE_CANARY_äöüß <@76561197960265839>"),
-                second.to_owned(),
-            ],
-        ),
-        (
-            "direct-followup-after-build",
-            "Warum?",
-            vec![
-                format!("{first} PRIVATE_CANARY_äöüß <@76561197960265839>"),
-                second.to_owned(),
-            ],
-        ),
-    ] {
-        let response = client
-            .answer_for_discord_with_history(&query(id, text), 42, &history)
-            .await
-            .unwrap();
-        assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
-    }
-    let mixed_history =
-        vec!["Wie finde ich einen Paten? PRIVATE_CANARY_äöüß <@76561197960265839>".into()];
-    let mixed = "Kann ich das mit Coaching kombinieren?";
-    for capability in [
-        DiscordAnswerCapability::Concierge,
-        DiscordAnswerCapability::Faq,
-    ] {
-        let response = client
-            .answer_discord_task_with_history(
-                &query("mixed-task", mixed),
-                42,
-                &DiscordAnswerTask {
-                    capability,
-                    channel_id: 123456789012345678,
-                },
-                &mixed_history,
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
-    }
-    let response = client
-        .answer_for_discord_with_history(&query("mixed-direct", mixed), 42, &mixed_history)
-        .await
-        .unwrap();
-    assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
-    let mut chained_history = mixed_history;
-    chained_history.push(mixed.into());
-    let response = client
-        .answer_for_discord_with_history(&query("mixed-chain", "Warum?"), 42, &chained_history)
-        .await
-        .unwrap();
-    assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
-    for history in [
-        vec![first, "Und wie spiele ich PRIVATE_CANARY_äöüß?"],
-        vec![first, "Und wie bekomme ich Rollen?"],
-        vec!["Paten?"],
-        vec![],
-    ] {
-        let response = client
-            .answer_for_discord_with_history(
-                &query("direct-unknown", second),
-                42,
-                &history.into_iter().map(str::to_owned).collect::<Vec<_>>(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status, AnswerStatus::InsufficientEvidence);
-        assert!(response.citations.is_empty());
-    }
-    for (id, history) in [
-        ("missing", vec![]),
-        ("unknown", vec!["PRIVATE_CANARY_äöüß".into()]),
-        ("ambiguous", vec!["Paten oder Coaching?".into()]),
-        ("private-source", vec!["Was sind Rollen?".into()]),
-        (
-            "changed-topic",
-            vec!["Paten?".into(), "Unbekanntes Privatproblem".into()],
-        ),
-        (
-            "private-followup-topic",
-            vec!["Paten?".into(), "Und wie bekomme ich Rollen?".into()],
-        ),
-        (
-            "unknown-followup-topic",
-            vec![
-                "Paten?".into(),
-                "Und wie finde ich PRIVATE_CANARY_äöüß?".into(),
-            ],
-        ),
-        (
-            "unknown-pronoun-topic",
-            vec![
-                "Paten?".into(),
-                "Wie kann ich das Privatproblem verbessern?".into(),
-            ],
-        ),
-    ] {
-        let response = client
-            .answer_discord_task_with_history(
-                &query(id, "Wie mache ich das?"),
-                42,
-                &DiscordAnswerTask {
-                    capability: DiscordAnswerCapability::Faq,
-                    channel_id: 10,
-                },
-                &history,
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status, AnswerStatus::InsufficientEvidence);
-        assert!(response.citations.is_empty());
-        assert!(!response.text.is_empty());
+            assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
+        }
     }
     let http = reqwest::Client::builder().no_proxy().build().unwrap();
     for body in [
         json!({"query":query("invalid-context", "Wie mache ich das?"), "user_questions":[""]}),
         json!({"query":query("invalid-context", "Wie mache ich das?"), "user_questions":[{"role":"assistant", "content":"PRIVATE_CANARY_äöüß"}]}),
         json!({"query":query("invalid-context", "Wie mache ich das?"), "user_questions":["Paten"], "resolved_subject":"PRIVATE_CANARY_äöüß"}),
+        json!({"query":query("invalid-context", "Coaching?"), "user_questions":[], "public_conversation_context":{"turns":[["Paten"]]}}),
     ] {
         let response = http
             .post(format!("{endpoint}/v1/answer"))
@@ -469,24 +412,21 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
         .await
         .unwrap();
     assert_eq!(response.status().as_u16(), 413);
-    assert_eq!(requests.lock().unwrap().len(), 13);
+    assert_eq!(requests.lock().unwrap().len(), expected_count);
     provider_server.join().unwrap();
     server.abort();
 }
 
 #[tokio::test]
-async fn local_reference_rechecks_current_public_acl_and_tombstones() {
+async fn local_projection_rechecks_current_public_acl_and_tombstones() {
     for tombstone in [false, true] {
         let store = store().await;
         let retrieval = ReleaseRetriever::new(store.clone(), 8);
         let q = query("revoked", "Wie mache ich das?");
-        let history = vec![
-            "Coaching?".into(),
-            "Und wie finde ich einen Paten? PRIVATE_CANARY_äöüß".into(),
-        ];
+        let history = ["Coaching?", "Gibt es auch Paten? PRIVATE_CANARY_äöüß"].map(str::to_owned);
         assert_eq!(
             retrieval.resolve(&q, &context(&q), &history).unwrap(),
-            DiscordReference::Subject("Paten".into())
+            projection(&[&["Coaching"], &["Paten"]])
         );
         let mut revoked = record(
             "paten",
@@ -498,13 +438,13 @@ async fn local_reference_rechecks_current_public_acl_and_tombstones() {
         store.apply_record(revoked).unwrap();
         assert_eq!(
             retrieval.resolve(&q, &context(&q), &history).unwrap(),
-            DiscordReference::Clarification
+            projection(&[&["Coaching"], &[]])
         );
     }
 }
 
 #[tokio::test]
-async fn local_reference_reuses_public_hero_names_without_numeric_identifiers() {
+async fn local_projection_reuses_public_hero_names_without_numeric_identifiers() {
     let store = store().await;
     let mut hero = record("asset/hero/25/health", "Hero: Warden\nhealth: 500", false);
     hero.source_id = "deadlock-assets-heroes".into();
@@ -519,121 +459,78 @@ async fn local_reference_reuses_public_hero_names_without_numeric_identifiers() 
         .unwrap();
     store.publish(&release).await.unwrap();
     let retrieval = ReleaseRetriever::new(store, 8);
-    let q = query("hero-followup", "Und seine Ult?");
-    let mut context = context(&q);
-    context.knowledge_release = "game-release".into();
-    assert_eq!(
-        retrieval
-            .resolve(
-                &q,
-                &context,
-                &["Was macht der Wächter? PRIVATE_CANARY_äöüß".into()]
-            )
-            .unwrap(),
-        DiscordReference::Subject("Warden".into())
-    );
-    for text in ["Und seine Ult?", "Wie kann ich sie spielen?"] {
+    for text in [
+        "Und seine Ult?",
+        "Wie kann ich sie spielen?",
+        "Gibt es auch Coaching?",
+    ] {
         let q = query("hero-followup", text);
+        let mut authorized = context(&q);
+        authorized.knowledge_release = "game-release".into();
+        let history = [
+            "Was macht der Wächter? PRIVATE_CANARY_äöüß",
+            "Wie spielt er?",
+            "Warum?",
+        ]
+        .map(str::to_owned);
+        assert_eq!(
+            retrieval.resolve(&q, &authorized, &history).unwrap(),
+            projection(&[&["Warden"], &[], &[]])
+        );
         assert_eq!(
             retrieval
-                .resolve(
-                    &q,
-                    &context,
-                    &["Was macht der Wächter?", "Wie spielt er?", "Warum?"].map(str::to_owned),
-                )
+                .resolve(&q, &authorized, &["Was kostet 25?".into()])
                 .unwrap(),
-            DiscordReference::Subject("Warden".into())
+            projection(&[&[]])
         );
     }
-    assert_eq!(
-        retrieval
-            .resolve(&q, &context, &["Was kostet 25?".into()])
-            .unwrap(),
-        DiscordReference::Clarification
-    );
 }
 
 #[tokio::test]
-async fn direct_build_history_preserves_independent_questions_and_safe_followups() {
+async fn direct_build_history_is_projected_without_classifying_the_current_question() {
     let retrieval = ReleaseRetriever::new(store().await, 8);
     let history = [
         "Welche Items passen zu Abrams?",
         "Okay ja ne Idee für ein Spirit build",
     ]
     .map(str::to_owned);
-    for (text, expected) in [
-        (
-            "Wie bekomme ich mehr Seelen?",
-            DiscordReference::Independent,
-        ),
-        ("Wie bekomme ich mehr Seelen", DiscordReference::Independent),
-        (
-            "Gibt es mehr Seelen im Dschungel?",
-            DiscordReference::Independent,
-        ),
-        (
-            "Kann ich mehr Seelen farmen?",
-            DiscordReference::Independent,
-        ),
-        ("Warum?", DiscordReference::Subject("Abrams".into())),
-        ("Und seine Ult?", DiscordReference::Subject("Abrams".into())),
-        (
-            "Okay ja ne Idee für ein Spirit build",
-            DiscordReference::Subject("Abrams".into()),
-        ),
-        ("Unbekannt", DiscordReference::Clarification),
-        ("Unbekannter Held", DiscordReference::Clarification),
-        ("PRIVATE_CANARY_äöüß", DiscordReference::Clarification),
-        (
-            "Und wie bekomme ich Rollen?",
-            DiscordReference::Clarification,
-        ),
-        (
-            "Wie kann ich das verbessern mit Privatproblem?",
-            DiscordReference::Clarification,
-        ),
+    for text in [
+        "Abrams",
+        "Warum?",
+        "Wie bekomme ich mehr Seelen?",
+        "Gibt es mehr Seelen im Dschungel?",
+        "Kann ich mehr Seelen farmen?",
+        "Und seine Ult?",
+        "Okay ja ne Idee für ein Spirit build",
+        "Unbekannter Held",
+        "Wie kann ich das verbessern mit Privatproblem?",
     ] {
-        let mut q = query("direct-after-build", text);
-        q.answer_context = Some(brain_contracts::AnswerContext::Discord(
-            brain_contracts::DiscordAnswerContext {
-                purpose: Some("bot_context:direct".into()),
-                ..Default::default()
-            },
-        ));
+        let q = query("direct-after-build", text);
         assert_eq!(
             retrieval.resolve(&q, &context(&q), &history).unwrap(),
-            expected,
-            "{text}",
+            projection(&[&["Abrams"], &["Build", "Spirit-Build"]]),
+            "{text}"
         );
-        if text == "Warum?" {
-            for barrier in ["Und wie bekomme ich Rollen?", "Unbekannter Held"] {
-                assert_eq!(
-                    retrieval
-                        .resolve(
-                            &q,
-                            &context(&q),
-                            &[history[0].clone(), barrier.into(), history[1].clone()],
-                        )
-                        .unwrap(),
-                    DiscordReference::Clarification,
-                    "{barrier}",
-                );
-            }
+        for barrier in ["Und wie bekomme ich Rollen?", "Unbekannter Held"] {
+            assert_eq!(
+                retrieval
+                    .resolve(
+                        &q,
+                        &context(&q),
+                        &[history[0].clone(), barrier.into(), history[1].clone()]
+                    )
+                    .unwrap(),
+                projection(&[&["Abrams"], &[], &["Build", "Spirit-Build"]])
+            );
         }
     }
 }
 
 #[tokio::test]
-async fn direct_build_reference_rechecks_public_hero_and_rejects_private_intents() {
+async fn direct_build_projection_rechecks_public_hero_and_omits_private_content() {
     let store = store().await;
     let retrieval = ReleaseRetriever::new(store.clone(), 8);
-    let mut q = query("direct-hero", "Abrams");
-    q.answer_context = Some(brain_contracts::AnswerContext::Discord(
-        brain_contracts::DiscordAnswerContext {
-            purpose: Some("bot_context:direct".into()),
-            ..Default::default()
-        },
-    ));
+    let q = query("direct-hero", "Abrams");
     let history = [
         "Welche Items passen zu Abrams?",
         "Okay ja ne Idee für ein Spirit build",
@@ -641,7 +538,7 @@ async fn direct_build_reference_rechecks_public_hero_and_rejects_private_intents
     .map(str::to_owned);
     assert_eq!(
         retrieval.resolve(&q, &context(&q), &history).unwrap(),
-        DiscordReference::Subject("Abrams Spirit-Build".into())
+        projection(&[&["Abrams"], &["Build", "Spirit-Build"]])
     );
     assert_eq!(
         retrieval
@@ -651,12 +548,7 @@ async fn direct_build_reference_rechecks_public_hero_and_rejects_private_intents
                 &["Spirit build PRIVATE_CANARY_äöüß".into()]
             )
             .unwrap(),
-        DiscordReference::Independent
-    );
-    q.text = "Unbekannt".into();
-    assert_eq!(
-        retrieval.resolve(&q, &context(&q), &history).unwrap(),
-        DiscordReference::Clarification
+        projection(&[&["Build", "Spirit-Build"]])
     );
     for tombstone in [false, true] {
         let mut revoked = record(
@@ -672,26 +564,19 @@ async fn direct_build_reference_rechecks_public_hero_and_rejects_private_intents
             ("kind".into(), "fact".into()),
         ]);
         store.apply_record(revoked).unwrap();
-        for text in ["Abrams", "Warum?", "Und seine Ult?"] {
-            q.text = text.into();
+        for text in [
+            "Abrams",
+            "Warum?",
+            "Und seine Ult?",
+            "Wie bekomme ich mehr Seelen?",
+        ] {
+            let q = query("revoked-build", text);
             assert_eq!(
                 retrieval.resolve(&q, &context(&q), &history).unwrap(),
-                DiscordReference::Clarification,
-                "{text}, tombstone={tombstone}",
+                projection(&[&[], &[]]),
+                "{text}"
             );
         }
-        q.text = "Wie bekomme ich mehr Seelen?".into();
-        assert_eq!(
-            retrieval.resolve(&q, &context(&q), &history).unwrap(),
-            DiscordReference::Independent,
-        );
-        q.text = "Okay ja ne Idee für ein Spirit build".into();
-        assert_eq!(
-            retrieval
-                .resolve(&q, &context(&q), &[history[0].clone()])
-                .unwrap(),
-            DiscordReference::Clarification
-        );
     }
 }
 
@@ -766,11 +651,47 @@ async fn private_history_transport_is_loopback_only_and_bounds_unicode() {
 
 struct NeverKernel;
 
-impl brain_kernel::AnswerKernelPort for NeverKernel {
+impl AnswerKernelPort for NeverKernel {
     fn answer(&self, _: &Query, _: &AuthorizedContext) -> brain_contracts::AnswerResponse {
-        panic!("Ungeprüfter Bezug darf den Kernel nicht erreichen")
+        panic!("Ungeprüfte Identität darf den Kernel nicht erreichen")
     }
+    fn answer_for_publication(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> brain_contracts::AnswerResponse {
+        self.answer(query, context)
+    }
+}
 
+struct RecordingKernel(Arc<Mutex<Vec<Query>>>);
+
+impl AnswerKernelPort for RecordingKernel {
+    fn answer(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> brain_contracts::AnswerResponse {
+        assert!(context.discord.is_none());
+        assert_eq!(
+            context.principal.scopes,
+            BTreeSet::from(["bot.public".into()])
+        );
+        assert_eq!(
+            context.principal.provider_egress,
+            BTreeSet::from(["public".into()])
+        );
+        self.0.lock().unwrap().push(query.clone());
+        brain_contracts::AnswerResponse {
+            contract_version: brain_contracts::CONTRACT_VERSION.into(),
+            request_id: query.request_id.clone(),
+            knowledge_release: context.knowledge_release.clone(),
+            status: AnswerStatus::InsufficientEvidence,
+            text: "Diese Frage erreicht den Kernel.".into(),
+            citations: Vec::new(),
+            usage: Default::default(),
+        }
+    }
     fn answer_for_publication(
         &self,
         query: &Query,
@@ -781,7 +702,7 @@ impl brain_kernel::AnswerKernelPort for NeverKernel {
 }
 
 #[tokio::test]
-async fn newer_unsupported_topics_stop_both_routes_before_the_kernel() {
+async fn newer_unsupported_topics_preserve_gaps_and_reach_all_routes_without_preclassification() {
     let store = store().await;
     let mut revoked = record(
         "coaching",
@@ -790,86 +711,92 @@ async fn newer_unsupported_topics_stop_both_routes_before_the_kernel() {
     );
     revoked.revision = 2;
     store.apply_record(revoked).unwrap();
-    let api = ApiService::new(
-        PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
-            "fixture",
-            "bot",
-            "discord",
-            BTreeSet::from(["bot.public".into()]),
-            BTreeSet::from(["public".into()]),
-        )])),
-        NeverKernel,
-        "context-release",
-        5000,
-        Budget::default(),
-    )
-    .with_discord_consumers(BTreeSet::from([("bot".into(), "discord".into())]))
-    .with_discord_context_resolver(ReleaseRetriever::new(store, 8));
+    let recorded = Arc::new(Mutex::new(Vec::new()));
+    let service = api(RecordingKernel(recorded.clone()))
+        .with_discord_context_resolver(ReleaseRetriever::new(store, 8));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
-    let server = tokio::spawn(async move { axum::serve(listener, router(api)).await.unwrap() });
+    let server = tokio::spawn(async move { axum::serve(listener, router(service)).await.unwrap() });
     let client = AsyncBrainClient::new_local(&endpoint, "fixture", Duration::from_secs(5)).unwrap();
+    let cases = [
+        (
+            "Wie mache ich das?",
+            vec!["Paten?", "Und wie bekomme ich Rollen?"],
+            json!([["Paten"], []]),
+        ),
+        (
+            "Wie mache ich das?",
+            vec!["Paten?", "Und wie finde ich PRIVATE_CANARY_äöüß?"],
+            json!([["Paten"], []]),
+        ),
+        (
+            "Wie mache ich das?",
+            vec!["Paten?", "Und wie finde ich Coaching?"],
+            json!([["Paten"], []]),
+        ),
+        (
+            "Wie kann ich das verbessern?",
+            vec!["Paten?", "Und wie bekomme ich Rollen?", "Warum?"],
+            json!([["Paten"], [], []]),
+        ),
+        (
+            "Wie kann ich sie spielen?",
+            vec!["Paten?", "Und wie spiele ich Unbekannt?"],
+            json!([["Paten"], []]),
+        ),
+        (
+            "Und wie bekomme ich Rollen?",
+            vec!["Paten?"],
+            json!([["Paten"]]),
+        ),
+        (
+            "Wie mache ich das?",
+            vec!["Paten?", "Und wie bekomme ich Ult?"],
+            json!([["Paten"], []]),
+        ),
+        (
+            "Wie mache ich das?",
+            vec!["Paten?", "Und wie finde ich <#123456789012345678>?"],
+            json!([["Paten"], []]),
+        ),
+        (
+            "Wie kann ich das verbessern mit Privatproblem?",
+            vec!["Paten?"],
+            json!([["Paten"]]),
+        ),
+        (
+            "Kann ich das mit Paten kombinieren?",
+            vec!["Sprachkanäle?", "Coaching?"],
+            json!([["Sprachkanäle"], []]),
+        ),
+        (
+            "Kann ich das mit Paten kombinieren?",
+            vec!["Sprachkanäle?", "PRIVATE_CANARY_äöüß", "Warum?"],
+            json!([["Sprachkanäle"], [], []]),
+        ),
+        (
+            "Warum?",
+            vec![
+                "Sprachkanäle?",
+                "Coaching?",
+                "Kann ich das mit Paten kombinieren?",
+            ],
+            json!([["Sprachkanäle"], [], ["Paten"]]),
+        ),
+        ("Gibt es auch Coaching?", vec![], json!([])),
+        ("Wie kann ich sie spielen?", vec![], json!([])),
+        ("Gibt es auch dafür Coaching?", vec![], json!([])),
+    ];
     for capability in [
         Some(DiscordAnswerCapability::Faq),
         Some(DiscordAnswerCapability::Concierge),
         None,
     ] {
-        for (current, history) in [
-            (
-                "Wie mache ich das?",
-                vec!["Paten?", "Und wie bekomme ich Rollen?"],
-            ),
-            (
-                "Wie mache ich das?",
-                vec!["Paten?", "Und wie finde ich PRIVATE_CANARY_äöüß?"],
-            ),
-            (
-                "Wie mache ich das?",
-                vec!["Paten?", "Und wie finde ich Coaching?"],
-            ),
-            (
-                "Wie kann ich das verbessern?",
-                vec!["Paten?", "Und wie bekomme ich Rollen?", "Warum?"],
-            ),
-            (
-                "Wie kann ich sie spielen?",
-                vec!["Paten?", "Und wie spiele ich Unbekannt?"],
-            ),
-            ("Und wie bekomme ich Rollen?", vec!["Paten?"]),
-            (
-                "Wie mache ich das?",
-                vec!["Paten?", "Und wie bekomme ich Ult?"],
-            ),
-            (
-                "Wie mache ich das?",
-                vec!["Paten?", "Und wie finde ich <#123456789012345678>?"],
-            ),
-            (
-                "Wie kann ich das verbessern mit Privatproblem?",
-                vec!["Paten?"],
-            ),
-            (
-                "Kann ich das mit Paten kombinieren?",
-                vec!["Sprachkanäle?", "Coaching?"],
-            ),
-            (
-                "Kann ich das mit Paten kombinieren?",
-                vec!["Sprachkanäle?", "PRIVATE_CANARY_äöüß", "Warum?"],
-            ),
-            (
-                "Kann ich das mit Paten kombinieren?",
-                vec!["Sprachkanäle?", "Wie bekomme ich Rollen?"],
-            ),
-            (
-                "Warum?",
-                vec![
-                    "Sprachkanäle?",
-                    "Coaching?",
-                    "Kann ich das mit Paten kombinieren?",
-                ],
-            ),
-        ] {
-            let history = history.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        for (current, history, turns) in &cases {
+            let history = history
+                .iter()
+                .map(|text| (*text).to_owned())
+                .collect::<Vec<_>>();
             let q = query("unsupported-topic", current);
             let response = match capability {
                 Some(capability) => {
@@ -892,129 +819,57 @@ async fn newer_unsupported_topics_stop_both_routes_before_the_kernel() {
                 }
             }
             .unwrap();
-            assert_eq!(
-                response.status,
-                AnswerStatus::InsufficientEvidence,
-                "{current}"
-            );
-            assert!(response.citations.is_empty());
-            assert!(!response.text.is_empty());
-            assert!(!response.text.contains("PRIVATE_CANARY_äöüß"));
+            assert_eq!(response.status, AnswerStatus::InsufficientEvidence);
+            let received = recorded.lock().unwrap().last().unwrap().clone();
+            let model_input: Value = serde_json::from_str(
+                &brain_contracts::provider_input::grounded_messages(&received, &[])[1].content,
+            )
+            .unwrap();
+            assert_eq!(model_input["query"], *current);
+            assert_eq!(model_input["public_conversation_context"]["turns"], *turns);
+            assert!(!received.text.contains("PRIVATE_CANARY_äöüß"));
         }
     }
+    assert_eq!(recorded.lock().unwrap().len(), cases.len() * 3);
     server.abort();
 }
 
 #[tokio::test]
-async fn current_public_topic_does_not_need_an_older_reference() {
+async fn current_public_topic_never_changes_the_history_projection() {
     let retrieval = ReleaseRetriever::new(store().await, 8);
-    for (text, expected) in [
-        ("Und wie bekomme ich Paten?", DiscordReference::Independent),
-        (
-            "Und wie bekomme ich Rollen?",
-            DiscordReference::Clarification,
-        ),
-        (
-            "Und wie finde ich Unbekannt?",
-            DiscordReference::Clarification,
-        ),
+    for text in [
+        "Und wie bekomme ich Paten?",
+        "Und wie bekomme ich Rollen?",
+        "Und wie finde ich Unbekannt?",
+        "Gibt es auch Coaching?",
     ] {
         let q = query("current-topic", text);
         assert_eq!(
             retrieval
                 .resolve(&q, &context(&q), &["Paten?".into()])
                 .unwrap(),
-            expected,
-            "{text}",
+            projection(&[&["Paten"]])
         );
     }
 }
 
 #[tokio::test]
-async fn mixed_public_topics_preserve_only_the_needed_local_reference() {
+async fn mixed_public_topics_are_projected_without_selecting_a_reference() {
     let retrieval = ReleaseRetriever::new(store().await, 8);
+    let history = [
+        "Wie finde ich einen Paten?",
+        "Kann ich das mit Coaching kombinieren?",
+    ]
+    .map(str::to_owned);
     for purpose in ["bot_context:direct", "bot_task:concierge", "bot_task:faq"] {
-        for (text, prior, expected) in [
-            (
-                "Kann ich das mit Coaching kombinieren?",
-                "Wie finde ich einen Paten?",
-                DiscordReference::Subject("Paten".into()),
-            ),
-            (
-                "Kann ich es mit Coaching verbinden?",
-                "Wie finde ich einen Paten?",
-                DiscordReference::Subject("Paten".into()),
-            ),
-            (
-                "Wie kann ich sie mit Coaching vergleichen?",
-                "Wie finde ich einen Paten?",
-                DiscordReference::Subject("Paten".into()),
-            ),
-            (
-                "Kann ich das statt Coaching nutzen?",
-                "Wie finde ich einen Paten?",
-                DiscordReference::Subject("Paten".into()),
-            ),
-            (
-                "Wie spielt Abrams seine Ult?",
-                "Wo gibt es Coaching?",
-                DiscordReference::Independent,
-            ),
-            (
-                "Kann ich das mit Abrams seiner Ult kombinieren?",
-                "Wo gibt es Coaching?",
-                DiscordReference::Subject("Coaching".into()),
-            ),
-            (
-                "Wie kann ich das für Sprachkanäle nutzen?",
-                "Wo gibt es Coaching?",
-                DiscordReference::Subject("Coaching".into()),
-            ),
-            (
-                "Kann ich es für Coaching nutzen?",
-                "Wie finde ich einen Paten?",
-                DiscordReference::Subject("Paten".into()),
-            ),
-            (
-                "Passt das zu Coaching?",
-                "Wie finde ich einen Paten?",
-                DiscordReference::Subject("Paten".into()),
-            ),
-            (
-                "Was ist das für ein Coaching?",
-                "Wie finde ich einen Paten?",
-                DiscordReference::Independent,
-            ),
-            (
-                "Kann ich das mit Coaching und Paten kombinieren?",
-                "Wie öffne ich Sprachkanäle?",
-                DiscordReference::Subject("Sprachkanäle".into()),
-            ),
-            (
-                "Gibt es Coaching?",
-                "Wie finde ich einen Paten?",
-                DiscordReference::Independent,
-            ),
-            (
-                "Und wie bekomme ich Paten?",
-                "Wo gibt es Coaching?",
-                DiscordReference::Independent,
-            ),
-            (
-                "Was ist das Coaching?",
-                "Wie finde ich einen Paten?",
-                DiscordReference::Independent,
-            ),
-            (
-                "Coaching oder Paten?",
-                "Wie öffne ich Sprachkanäle?",
-                DiscordReference::Independent,
-            ),
-            (
-                "Kann ich das mit Coaching und Privatproblem kombinieren?",
-                "Wie finde ich einen Paten?",
-                DiscordReference::Clarification,
-            ),
+        for text in [
+            "Kann ich das mit Coaching kombinieren?",
+            "Kann ich es mit Coaching verbinden?",
+            "Wie kann ich sie mit Coaching vergleichen?",
+            "Was ist das für ein Coaching?",
+            "Kann ich das statt Coaching nutzen?",
+            "Kann ich das mit Coaching und Privatproblem kombinieren?",
+            "Warum?",
         ] {
             let mut q = query("mixed-reference", text);
             q.answer_context = Some(brain_contracts::AnswerContext::Discord(
@@ -1024,82 +879,74 @@ async fn mixed_public_topics_preserve_only_the_needed_local_reference() {
                 },
             ));
             assert_eq!(
+                retrieval.resolve(&q, &context(&q), &history).unwrap(),
+                projection(&[&["Paten"], &["Coaching"]])
+            );
+            assert_eq!(
                 retrieval
-                    .resolve(&q, &context(&q), &[prior.into()])
+                    .resolve(&q, &context(&q), &["Paten oder Coaching?".into()])
                     .unwrap(),
-                expected,
-                "{purpose}: {text}",
+                projection(&[&["Coaching", "Paten"]])
             );
         }
     }
 }
 
 #[tokio::test]
-async fn mixed_reference_chains_stop_at_unknown_private_and_revoked_topics() {
+async fn existential_questions_and_real_references_use_the_same_ordered_projection() {
+    let retrieval = ReleaseRetriever::new(store().await, 8);
+    for text in [
+        "Gibt es auch Coaching?",
+        "Gibt es zusätzlich Coaching?",
+        "Wo gibt es auch Coaching?",
+        "Gibt es auch noch Coaching?",
+        "Gibt es für Anfänger auch Coaching?",
+        "Kann ich es auch mit Coaching kombinieren?",
+        "Gibt es auch dafür Coaching?",
+        "Gibt es das auch?",
+        "Gibt es auch?",
+    ] {
+        let q = query("existential-current", text);
+        for (history, expected) in [
+            (vec![], projection(&[])),
+            (vec!["Paten?"], projection(&[&["Paten"]])),
+            (
+                vec!["Paten?", "PRIVATE_CANARY_äöüß"],
+                projection(&[&["Paten"], &[]]),
+            ),
+            (
+                vec!["Paten?", "Wie bekomme ich Rollen?"],
+                projection(&[&["Paten"], &[]]),
+            ),
+        ] {
+            assert_eq!(
+                retrieval
+                    .resolve(
+                        &q,
+                        &context(&q),
+                        &history.into_iter().map(str::to_owned).collect::<Vec<_>>()
+                    )
+                    .unwrap(),
+                expected,
+                "{text}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn mixed_history_keeps_unknown_private_and_revoked_turns_in_place() {
     for tombstone in [false, true] {
         let store = store().await;
         let retrieval = ReleaseRetriever::new(store.clone(), 8);
-        for purpose in ["bot_context:direct", "bot_task:concierge", "bot_task:faq"] {
-            let mut q = query("mixed-chain", "Warum?");
-            q.answer_context = Some(brain_contracts::AnswerContext::Discord(
-                brain_contracts::DiscordAnswerContext {
-                    purpose: Some(purpose.into()),
-                    ..Default::default()
-                },
-            ));
+        let q = query("mixed-chain", "Warum?");
+        for barrier in ["PRIVATE_CANARY_äöüß", "Wie bekomme ich Rollen?"] {
+            let history =
+                ["Paten?", barrier, "Kann ich das mit Coaching kombinieren?"].map(str::to_owned);
             assert_eq!(
-                retrieval
-                    .resolve(
-                        &q,
-                        &context(&q),
-                        &["Paten?", "Kann ich das mit Coaching kombinieren?", "Warum?"]
-                            .map(str::to_owned),
-                    )
-                    .unwrap(),
-                DiscordReference::Subject("Coaching Paten".into()),
+                retrieval.resolve(&q, &context(&q), &history).unwrap(),
+                projection(&[&["Paten"], &[], &["Coaching"]])
             );
-            assert_eq!(
-                retrieval
-                    .resolve(
-                        &q,
-                        &context(&q),
-                        &[
-                            "Sprachkanäle?",
-                            "Kann ich das mit Coaching und Paten kombinieren?"
-                        ]
-                        .map(str::to_owned),
-                    )
-                    .unwrap(),
-                DiscordReference::Subject("Coaching Paten Sprachkanäle".into()),
-            );
-            for barrier in ["PRIVATE_CANARY_äöüß", "Wie bekomme ich Rollen?"] {
-                for text in ["Warum?", "Kann ich das mit Coaching kombinieren?"] {
-                    q.text = text.into();
-                    assert_eq!(
-                        retrieval
-                            .resolve(
-                                &q,
-                                &context(&q),
-                                &["Paten?", barrier, "Warum?"].map(str::to_owned),
-                            )
-                            .unwrap(),
-                        DiscordReference::Clarification,
-                        "{purpose}: {text}, {barrier}",
-                    );
-                }
-                q.text = "Warum?".into();
-                assert_eq!(
-                    retrieval
-                        .resolve(
-                            &q,
-                            &context(&q),
-                            &["Paten?", barrier, "Kann ich das mit Coaching kombinieren?"]
-                                .map(str::to_owned),
-                        )
-                        .unwrap(),
-                    DiscordReference::Clarification,
-                );
-            }
         }
         let mut revoked = record(
             "paten",
@@ -1109,41 +956,25 @@ async fn mixed_reference_chains_stop_at_unknown_private_and_revoked_topics() {
         revoked.revision = 2;
         revoked.tombstone = tombstone;
         store.apply_record(revoked).unwrap();
-        for purpose in ["bot_context:direct", "bot_task:concierge", "bot_task:faq"] {
-            for (text, history) in [
-                (
-                    "Kann ich das mit Coaching kombinieren?",
-                    vec!["Wie öffne ich Sprachkanäle?", "Wie finde ich einen Paten?"],
-                ),
-                (
-                    "Warum?",
-                    vec!["Paten?", "Kann ich das mit Coaching kombinieren?"],
-                ),
-            ] {
-                let mut q = query("mixed-revoked", text);
-                q.answer_context = Some(brain_contracts::AnswerContext::Discord(
-                    brain_contracts::DiscordAnswerContext {
-                        purpose: Some(purpose.into()),
-                        ..Default::default()
-                    },
-                ));
-                assert_eq!(
-                    retrieval
-                        .resolve(
-                            &q,
-                            &context(&q),
-                            &history.into_iter().map(str::to_owned).collect::<Vec<_>>(),
-                        )
-                        .unwrap(),
-                    DiscordReference::Clarification,
-                    "{purpose}: {text}, tombstone={tombstone}",
-                );
-            }
-        }
+        assert_eq!(
+            retrieval
+                .resolve(
+                    &q,
+                    &context(&q),
+                    &[
+                        "Sprachkanäle?",
+                        "Wie finde ich einen Paten?",
+                        "Kann ich das mit Coaching kombinieren?"
+                    ]
+                    .map(str::to_owned)
+                )
+                .unwrap(),
+            projection(&[&["Sprachkanäle"], &[], &["Coaching"]])
+        );
     }
 }
 
-struct InvalidProjection(String);
+struct InvalidProjection(DiscordContextProjection);
 
 impl DiscordContextResolver for InvalidProjection {
     fn resolve(
@@ -1151,63 +982,51 @@ impl DiscordContextResolver for InvalidProjection {
         _: &Query,
         _: &AuthorizedContext,
         _: &[String],
-    ) -> Result<DiscordReference, brain_contracts::PortError> {
-        Ok(DiscordReference::Subject(self.0.clone()))
+    ) -> Result<DiscordContextProjection, brain_contracts::PortError> {
+        Ok(self.0.clone())
     }
 }
 
 #[tokio::test]
-async fn invalid_projection_and_missing_local_release_fail_without_kernel_fallback() {
-    for projection in [
+async fn invalid_projection_and_missing_local_release_do_not_block_the_current_question() {
+    for candidate in [
         None,
         Some(String::new()),
         Some("<@42>".into()),
         Some("ä".repeat(81)),
     ] {
-        let mut api = ApiService::new(
-            PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
-                "fixture",
-                "bot",
-                "discord",
-                BTreeSet::from(["bot.public".into()]),
-                BTreeSet::from(["public".into()]),
-            )])),
-            NeverKernel,
-            "context-release",
-            5000,
-            Budget::default(),
-        )
-        .with_discord_consumers(BTreeSet::from([("bot".into(), "discord".into())]));
-        let unavailable = projection.is_none();
-        api = match projection {
-            Some(subject) => api.with_discord_context_resolver(InvalidProjection(subject)),
-            None => api.with_discord_context_resolver(ReleaseRetriever::new(
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let service = api(RecordingKernel(recorded.clone()));
+        let service = match candidate {
+            Some(subject) => {
+                service.with_discord_context_resolver(InvalidProjection(projection(&[&[&subject]])))
+            }
+            None => service.with_discord_context_resolver(ReleaseRetriever::new(
                 MemoryRepository::default(),
                 8,
             )),
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
-        let server = tokio::spawn(async move { axum::serve(listener, router(api)).await.unwrap() });
+        let server =
+            tokio::spawn(async move { axum::serve(listener, router(service)).await.unwrap() });
         for capability in ["faq", "concierge"] {
             let response = reqwest::Client::builder().no_proxy().build().unwrap()
                 .post(format!("{endpoint}/v1/answer")).bearer_auth("fixture")
                 .header("x-discord-user-id", "42").header("x-discord-read-access", "disabled")
                 .header("x-discord-answer-task", json!({"capability":capability, "channel_id":10}).to_string())
-                .json(&json!({"query":query(capability, "Wie mache ich das?"), "user_questions":["Paten PRIVATE_CANARY_äöüß"]}))
-                .send().await.unwrap();
+                .json(&json!({"query":query(capability, "Gibt es auch Coaching?"), "user_questions":["Paten PRIVATE_CANARY_äöüß"]})).send().await.unwrap();
+            assert_eq!(response.status().as_u16(), 200);
+        }
+        let recorded = recorded.lock().unwrap();
+        assert_eq!(recorded.len(), 2);
+        for received in recorded.iter() {
+            let (current, encoded) = received.text.rsplit_once(PUBLIC_CONTEXT_PREFIX).unwrap();
+            assert_eq!(current, "Gibt es auch Coaching?");
             assert_eq!(
-                response.status().as_u16(),
-                if unavailable { 503 } else { 200 }
+                serde_json::from_str::<DiscordContextProjection>(encoded).unwrap(),
+                projection(&[&[]])
             );
-            let body: Value = response.json().await.unwrap();
-            if unavailable {
-                assert_eq!(body["error"]["code"], "context_unavailable");
-            } else {
-                assert_eq!(body["status"], "insufficient_evidence");
-                assert_eq!(body["citations"], json!([]));
-            }
-            assert!(!body.to_string().contains("PRIVATE_CANARY_äöüß"));
         }
         server.abort();
     }
@@ -1215,7 +1034,7 @@ async fn invalid_projection_and_missing_local_release_fail_without_kernel_fallba
 
 #[tokio::test]
 async fn direct_history_requires_trusted_identity_and_server_owned_projection() {
-    let api = ApiService::new(
+    let service = ApiService::new(
         PolicyEngine::new(CredentialRegistry::new(vec![
             AuthGrant::from_secret(
                 "fixture",
@@ -1240,7 +1059,7 @@ async fn direct_history_requires_trusted_identity_and_server_owned_projection() 
     .with_discord_consumers(BTreeSet::from([("bot".into(), "discord".into())]));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
-    let server = tokio::spawn(async move { axum::serve(listener, router(api)).await.unwrap() });
+    let server = tokio::spawn(async move { axum::serve(listener, router(service)).await.unwrap() });
     let http = reqwest::Client::builder().no_proxy().build().unwrap();
     for (token, identity, reads, injected) in [
         ("outsider", "42", "disabled", false),
@@ -1288,8 +1107,7 @@ async fn direct_history_requires_trusted_identity_and_server_owned_projection() 
     headers.append("x-discord-user-id", "42".parse().unwrap());
     headers.append("x-discord-user-id", "43".parse().unwrap());
     let response = http.post(format!("{endpoint}/v1/answer")).bearer_auth("fixture")
-        .headers(headers)
-        .header("x-discord-read-access", "disabled")
+        .headers(headers).header("x-discord-read-access", "disabled")
         .json(&json!({"query": query("duplicate-identity", "Abrams"), "user_questions": ["PRIVATE_CANARY_äöüß"]})).send().await.unwrap();
     assert_eq!(response.status().as_u16(), 400);
     server.abort();

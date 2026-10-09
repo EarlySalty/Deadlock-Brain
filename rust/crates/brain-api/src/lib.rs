@@ -319,48 +319,27 @@ where
                 allow_discord_reads,
             });
         }
-        if (task.is_some() && brain_contracts::discord_task::needs_reference(&query.text))
-            || (local_context && task.is_none())
-        {
-            use brain_contracts::discord_task::DiscordReference;
-            let reference = match &self.discord_context {
-                Some(resolver) => match resolver.resolve(&query, &context, &user_questions) {
-                    Ok(reference) => reference,
-                    Err(_) => {
-                        return json_error(
-                            503,
-                            "context_unavailable",
-                            "Gesprächsbezug ist gerade nicht verfügbar",
-                        )
+        if task.is_some() || local_context {
+            use brain_contracts::discord_task::{DiscordContextProjection, PUBLIC_CONTEXT_PREFIX};
+            let projection = self
+                .discord_context
+                .as_ref()
+                .and_then(|resolver| match resolver.resolve(&query, &context, &user_questions) {
+                    Ok(projection)
+                        if projection.valid() && projection.turns.len() == user_questions.len() =>
+                    {
+                        Some(projection)
                     }
-                },
-                None => DiscordReference::Clarification,
-            };
-            match reference {
-                DiscordReference::Independent => {}
-                DiscordReference::Subject(subject)
-                    if subject.chars().count() <= 80
-                        && !subject.trim().is_empty()
-                        && subject
-                            .chars()
-                            .all(|c| c.is_alphabetic() || matches!(c, ' ' | '-' | '\''))
-                        && query.text.chars().count() + subject.chars().count() + 20 <= 4000 =>
-                {
-                    query.text.push_str("\nGesprächsthema: ");
-                    query.text.push_str(&subject);
-                }
-                _ => {
-                    return answer_response(&AnswerResponse {
-                        contract_version: CONTRACT_VERSION.into(),
-                        request_id: query.request_id.clone(),
-                        knowledge_release: context.knowledge_release.clone(),
-                        status: AnswerStatus::InsufficientEvidence,
-                        text: "Worauf beziehst du dich? Nenn bitte kurz das Thema.".into(),
-                        citations: Vec::new(),
-                        usage: Usage::default(),
-                    })
-                }
-            }
+                    _ => {
+                        tracing::warn!(request_id = %query.request_id, "Öffentlicher Gesprächskontext nicht verfügbar; private Inhalte bleiben lokal");
+                        None
+                    }
+                })
+                .unwrap_or_else(|| DiscordContextProjection::empty(user_questions.len()));
+            query.text.push_str(PUBLIC_CONTEXT_PREFIX);
+            query
+                .text
+                .push_str(&serde_json::to_string(&projection).expect("Geprüfte Kontextprojektion"));
         }
         drop(user_questions);
         let query = brain_contracts::invite::project_query(&query);
