@@ -1,4 +1,3 @@
-//! Immutable indexed release data plus fresh CURRENT ACL/delete checks on every handoff.
 use crate::chunk_index::ChunkIndex;
 use brain_contracts::{
     provider_input::grounded_input_ceiling, store::record_allowed, AuthorizedContext,
@@ -25,10 +24,6 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             indexes: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
-    /// Bulk canonical view for diagnostics and deterministic domain revalidation.
-    /// Lexical/dense queries and their validation only load a full snapshot for the
-    /// first index build; up to four immutable release indexes are kept. Domain
-    /// proofs also read current snapshots when revalidating publication on cache hits.
     pub fn snapshot(
         &self,
         query: &Query,
@@ -50,7 +45,6 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         context: &AuthorizedContext,
     ) -> Result<Arc<ChunkIndex>, PortError> {
         check_context(query, context)?;
-        // Hold build lock: concurrent cold requests must not load/build the same release twice.
         let mut indexes = self
             .indexes
             .lock()
@@ -62,8 +56,6 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         )?;
         check_release(&manifest.release, query, context)?;
         let documents = manifest.authorized(&context.principal, false, false)?;
-        // Aktuelle Rechte und der Principal gehören zum Cachevertrag. Neue Freigaben
-        // bauen den Index neu auf, Sperren werden zusätzlich vor jeder Übergabe geprüft.
         let mut index_principal = context.principal.clone();
         let declared_scopes: BTreeSet<_> = manifest
             .revisions
@@ -156,9 +148,6 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
                 )
             })
             .collect();
-        // The production reader caps one head snapshot at 256 keys. An excess
-        // of possible owners is ambiguous rather than a reader error or an
-        // inconsistent sequence of ACL snapshots.
         if documents.len() > 256 {
             return Ok(true);
         }
@@ -215,7 +204,6 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         }
         Ok(result)
     }
-    /// Compatibility bulk view for explicit callers; not used by lexical/dense queries.
     pub fn records(
         &self,
         query: &Query,
@@ -257,8 +245,6 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
         }
         Ok(records)
     }
-    /// Dense vectors remain document-revision keyed. Expand only selected documents to the
-    /// SAME canonical chunks as lexical retrieval; no whole-dossier provider payloads.
     pub(crate) fn dense_evidence(
         &self,
         query: &Query,
@@ -453,27 +439,38 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
         {
             return Ok(DiscordReference::Clarification);
         }
-        if !current_subjects.is_empty() {
+        if !current_subjects.is_empty() && !explicit_reference(&query.text, &vocabulary) {
             return Ok(DiscordReference::Independent);
         }
         if direct && !build && !needs_reference(&query.text) {
             return Ok(DiscordReference::Independent);
         }
-        if !reference_only(&query.text) && !build {
+        if !reference_only(&without_public_subjects(&current, &vocabulary)) && !build {
             return Ok(DiscordReference::Clarification);
         }
+        let mut referenced = BTreeSet::new();
         for (text, words) in user_questions.iter().zip(&history).rev() {
-            let mut found = subjects(words);
-            if found.len() == 1 {
-                let subject = found.pop_first().expect("Ein öffentlicher Bezug");
-                if build && !hero_subjects.contains(&subject) {
+            let found = subjects(words);
+            if !found.is_empty() {
+                let dependent = explicit_reference(text, &vocabulary);
+                if (found.len() > 1 && !dependent) || (build && !found.is_subset(&hero_subjects)) {
                     return Ok(DiscordReference::Clarification);
                 }
-                return Ok(DiscordReference::Subject(subject));
+                referenced.extend(found);
+                if !dependent {
+                    let subject = referenced.into_iter().collect::<Vec<_>>().join(" ");
+                    return Ok(if subject.chars().count() <= 80 {
+                        DiscordReference::Subject(subject)
+                    } else {
+                        DiscordReference::Clarification
+                    });
+                }
+                if reference_only(&without_public_subjects(words, &vocabulary)) {
+                    continue;
+                }
+                break;
             }
-            if !found.is_empty()
-                || !(reference_only(text) || (direct && build_reference(text).is_some()))
-            {
+            if !(reference_only(text) || (direct && build_reference(text).is_some())) {
                 break;
             }
         }
@@ -537,6 +534,54 @@ fn is_hero_record(record: &SourceRecordV2) -> bool {
         || (record.source_id == "legacy-entities" && record.logical_id.starts_with("entity/hero/"))
 }
 
+fn explicit_reference(text: &str, vocabulary: &BTreeMap<String, Vec<Vec<String>>>) -> bool {
+    let words = brain_contracts::lexical::terms(text);
+    let words = words
+        .iter()
+        .enumerate()
+        .map(|(index, word)| {
+            let named_possessive = matches!(
+                word.as_str(),
+                "seine" | "seinen" | "seiner" | "ihre" | "ihren" | "ihrem" | "dessen" | "deren"
+            ) && vocabulary.values().flatten().any(|name| {
+                !name.is_empty()
+                    && name.len() <= index
+                    && &words[index - name.len()..index] == name.as_slice()
+            });
+            if named_possessive {
+                "eigene".to_owned()
+            } else {
+                word.clone()
+            }
+        })
+        .skip_while(|word| matches!(word.as_str(), "und" | "auch"))
+        .collect::<Vec<_>>();
+    brain_contracts::discord_task::needs_reference(&words.join(" "))
+}
+
+fn without_public_subjects(
+    words: &[String],
+    vocabulary: &BTreeMap<String, Vec<Vec<String>>>,
+) -> String {
+    let mut result = Vec::new();
+    let mut offset = 0;
+    while offset < words.len() {
+        let length = vocabulary
+            .values()
+            .flatten()
+            .filter(|name| !name.is_empty() && words[offset..].starts_with(name))
+            .map(Vec::len)
+            .max();
+        if let Some(length) = length {
+            offset += length;
+        } else {
+            result.push(words[offset].as_str());
+            offset += 1;
+        }
+    }
+    result.join(" ")
+}
+
 fn reference_only(text: &str) -> bool {
     use brain_contracts::discord_task::needs_reference;
     let words = brain_contracts::lexical::terms(text);
@@ -546,7 +591,7 @@ fn reference_only(text: &str) -> bool {
                 && index > 0
                 && matches!(
                     words[index - 1].as_str(),
-                    "seine" | "ihre" | "dessen" | "deren"
+                    "seine" | "seinen" | "seiner" | "ihre" | "ihren" | "ihrem" | "dessen" | "deren"
                 ))
                 || matches!(
                     word.as_str(),
@@ -614,6 +659,7 @@ fn reference_only(text: &str) -> bool {
                         | "anmelden"
                         | "an"
                         | "mit"
+                        | "zu"
                         | "fuer"
                         | "denn"
                         | "geht"
@@ -623,6 +669,21 @@ fn reference_only(text: &str) -> bool {
                         | "spielt"
                         | "spielen"
                         | "verbessern"
+                        | "kombinieren"
+                        | "verbinden"
+                        | "vergleichen"
+                        | "statt"
+                        | "oder"
+                        | "zusammen"
+                        | "gleichzeitig"
+                        | "zusaetzlich"
+                        | "verwenden"
+                        | "benutzen"
+                        | "nehmen"
+                        | "passen"
+                        | "passt"
+                        | "besser"
+                        | "als"
                         | "erzaehl"
                         | "erzaehle"
                         | "erklaer"
@@ -720,9 +781,6 @@ impl<S: SnapshotReadPort> RetrievalPort for ReleaseRetriever<S> {
             return Ok(Vec::new());
         }
         let ranked = index.rank(query, context);
-        // A caller limit of one must not hide a second assertion of the same
-        // fact. The kernel receives the full bounded lexical candidate pack.
-        // More than 100 ranked candidates cannot be checked exhaustively.
         if query.profile == brain_contracts::AnswerProfile::Fact && ranked.len() > 100 {
             return Ok(Vec::new());
         }
@@ -804,8 +862,6 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
                 return Err(denied("domain evidence changed or no longer authorized"));
             }
             if purpose == brain_contracts::store::AnswerPurpose::ExternalPublication {
-                // Only parse dependency identities after recomputing the complete
-                // canonical proof. A model/source cannot invent its own grants.
                 let snapshot = self.snapshot(query, context)?;
                 let publishable = snapshot.authorized_for_publication(&context.principal)?;
                 for item in &canonical {
@@ -845,7 +901,6 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             documents.insert((doc.source_id.clone(), doc.logical_id.clone()), doc);
             canonical.push((item, chunk));
         }
-        // Only bounded current heads, never a full release scan or historical document fetch.
         let heads = self.heads(&documents.into_values().collect::<Vec<_>>(), context)?;
         for (item, chunk) in canonical {
             let record = &index.records[index.chunks[chunk].document];

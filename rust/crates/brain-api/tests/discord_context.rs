@@ -168,6 +168,19 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
             ("Abrams", "Abrams\nGesprächsthema: Abrams Spirit-Build"),
             ("Seelen", "Wie bekomme ich mehr Seelen?"),
             ("Abrams", "Warum?\nGesprächsthema: Abrams"),
+            (
+                "Paten",
+                "Kann ich das mit Coaching kombinieren?\nGesprächsthema: Paten",
+            ),
+            (
+                "Paten",
+                "Kann ich das mit Coaching kombinieren?\nGesprächsthema: Paten",
+            ),
+            (
+                "Paten",
+                "Kann ich das mit Coaching kombinieren?\nGesprächsthema: Paten",
+            ),
+            ("Paten", "Warum?\nGesprächsthema: Coaching Paten"),
         ] {
             let (mut stream, _) = listener.accept().unwrap();
             let request = read_request(&mut stream);
@@ -326,6 +339,39 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
             .unwrap();
         assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
     }
+    let mixed_history =
+        vec!["Wie finde ich einen Paten? PRIVATE_CANARY_äöüß <@76561197960265839>".into()];
+    let mixed = "Kann ich das mit Coaching kombinieren?";
+    for capability in [
+        DiscordAnswerCapability::Concierge,
+        DiscordAnswerCapability::Faq,
+    ] {
+        let response = client
+            .answer_discord_task_with_history(
+                &query("mixed-task", mixed),
+                42,
+                &DiscordAnswerTask {
+                    capability,
+                    channel_id: 123456789012345678,
+                },
+                &mixed_history,
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
+    }
+    let response = client
+        .answer_for_discord_with_history(&query("mixed-direct", mixed), 42, &mixed_history)
+        .await
+        .unwrap();
+    assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
+    let mut chained_history = mixed_history;
+    chained_history.push(mixed.into());
+    let response = client
+        .answer_for_discord_with_history(&query("mixed-chain", "Warum?"), 42, &chained_history)
+        .await
+        .unwrap();
+    assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
     for history in [
         vec![first, "Und wie spiele ich PRIVATE_CANARY_äöüß?"],
         vec![first, "Und wie bekomme ich Rollen?"],
@@ -423,7 +469,7 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
         .await
         .unwrap();
     assert_eq!(response.status().as_u16(), 413);
-    assert_eq!(requests.lock().unwrap().len(), 9);
+    assert_eq!(requests.lock().unwrap().len(), 13);
     provider_server.join().unwrap();
     server.abort();
 }
@@ -764,8 +810,9 @@ async fn newer_unsupported_topics_stop_both_routes_before_the_kernel() {
     let server = tokio::spawn(async move { axum::serve(listener, router(api)).await.unwrap() });
     let client = AsyncBrainClient::new_local(&endpoint, "fixture", Duration::from_secs(5)).unwrap();
     for capability in [
-        DiscordAnswerCapability::Faq,
-        DiscordAnswerCapability::Concierge,
+        Some(DiscordAnswerCapability::Faq),
+        Some(DiscordAnswerCapability::Concierge),
+        None,
     ] {
         for (current, history) in [
             (
@@ -801,19 +848,50 @@ async fn newer_unsupported_topics_stop_both_routes_before_the_kernel() {
                 "Wie kann ich das verbessern mit Privatproblem?",
                 vec!["Paten?"],
             ),
+            (
+                "Kann ich das mit Paten kombinieren?",
+                vec!["Sprachkanäle?", "Coaching?"],
+            ),
+            (
+                "Kann ich das mit Paten kombinieren?",
+                vec!["Sprachkanäle?", "PRIVATE_CANARY_äöüß", "Warum?"],
+            ),
+            (
+                "Kann ich das mit Paten kombinieren?",
+                vec!["Sprachkanäle?", "Wie bekomme ich Rollen?"],
+            ),
+            (
+                "Warum?",
+                vec![
+                    "Sprachkanäle?",
+                    "Coaching?",
+                    "Kann ich das mit Paten kombinieren?",
+                ],
+            ),
         ] {
-            let response = client
-                .answer_discord_task_with_history(
-                    &query("unsupported-topic", current),
-                    42,
-                    &DiscordAnswerTask {
-                        capability,
-                        channel_id: 10,
-                    },
-                    &history.into_iter().map(str::to_owned).collect::<Vec<_>>(),
-                )
-                .await
-                .unwrap();
+            let history = history.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            let q = query("unsupported-topic", current);
+            let response = match capability {
+                Some(capability) => {
+                    client
+                        .answer_discord_task_with_history(
+                            &q,
+                            42,
+                            &DiscordAnswerTask {
+                                capability,
+                                channel_id: 10,
+                            },
+                            &history,
+                        )
+                        .await
+                }
+                None => {
+                    client
+                        .answer_for_discord_with_history(&q, 42, &history)
+                        .await
+                }
+            }
+            .unwrap();
             assert_eq!(
                 response.status,
                 AnswerStatus::InsufficientEvidence,
@@ -849,6 +927,219 @@ async fn current_public_topic_does_not_need_an_older_reference() {
             expected,
             "{text}",
         );
+    }
+}
+
+#[tokio::test]
+async fn mixed_public_topics_preserve_only_the_needed_local_reference() {
+    let retrieval = ReleaseRetriever::new(store().await, 8);
+    for purpose in ["bot_context:direct", "bot_task:concierge", "bot_task:faq"] {
+        for (text, prior, expected) in [
+            (
+                "Kann ich das mit Coaching kombinieren?",
+                "Wie finde ich einen Paten?",
+                DiscordReference::Subject("Paten".into()),
+            ),
+            (
+                "Kann ich es mit Coaching verbinden?",
+                "Wie finde ich einen Paten?",
+                DiscordReference::Subject("Paten".into()),
+            ),
+            (
+                "Wie kann ich sie mit Coaching vergleichen?",
+                "Wie finde ich einen Paten?",
+                DiscordReference::Subject("Paten".into()),
+            ),
+            (
+                "Kann ich das statt Coaching nutzen?",
+                "Wie finde ich einen Paten?",
+                DiscordReference::Subject("Paten".into()),
+            ),
+            (
+                "Wie spielt Abrams seine Ult?",
+                "Wo gibt es Coaching?",
+                DiscordReference::Independent,
+            ),
+            (
+                "Kann ich das mit Abrams seiner Ult kombinieren?",
+                "Wo gibt es Coaching?",
+                DiscordReference::Subject("Coaching".into()),
+            ),
+            (
+                "Wie kann ich das für Sprachkanäle nutzen?",
+                "Wo gibt es Coaching?",
+                DiscordReference::Subject("Coaching".into()),
+            ),
+            (
+                "Kann ich es für Coaching nutzen?",
+                "Wie finde ich einen Paten?",
+                DiscordReference::Subject("Paten".into()),
+            ),
+            (
+                "Passt das zu Coaching?",
+                "Wie finde ich einen Paten?",
+                DiscordReference::Subject("Paten".into()),
+            ),
+            (
+                "Was ist das für ein Coaching?",
+                "Wie finde ich einen Paten?",
+                DiscordReference::Independent,
+            ),
+            (
+                "Kann ich das mit Coaching und Paten kombinieren?",
+                "Wie öffne ich Sprachkanäle?",
+                DiscordReference::Subject("Sprachkanäle".into()),
+            ),
+            (
+                "Gibt es Coaching?",
+                "Wie finde ich einen Paten?",
+                DiscordReference::Independent,
+            ),
+            (
+                "Und wie bekomme ich Paten?",
+                "Wo gibt es Coaching?",
+                DiscordReference::Independent,
+            ),
+            (
+                "Was ist das Coaching?",
+                "Wie finde ich einen Paten?",
+                DiscordReference::Independent,
+            ),
+            (
+                "Coaching oder Paten?",
+                "Wie öffne ich Sprachkanäle?",
+                DiscordReference::Independent,
+            ),
+            (
+                "Kann ich das mit Coaching und Privatproblem kombinieren?",
+                "Wie finde ich einen Paten?",
+                DiscordReference::Clarification,
+            ),
+        ] {
+            let mut q = query("mixed-reference", text);
+            q.answer_context = Some(brain_contracts::AnswerContext::Discord(
+                brain_contracts::DiscordAnswerContext {
+                    purpose: Some(purpose.into()),
+                    ..Default::default()
+                },
+            ));
+            assert_eq!(
+                retrieval
+                    .resolve(&q, &context(&q), &[prior.into()])
+                    .unwrap(),
+                expected,
+                "{purpose}: {text}",
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn mixed_reference_chains_stop_at_unknown_private_and_revoked_topics() {
+    for tombstone in [false, true] {
+        let store = store().await;
+        let retrieval = ReleaseRetriever::new(store.clone(), 8);
+        for purpose in ["bot_context:direct", "bot_task:concierge", "bot_task:faq"] {
+            let mut q = query("mixed-chain", "Warum?");
+            q.answer_context = Some(brain_contracts::AnswerContext::Discord(
+                brain_contracts::DiscordAnswerContext {
+                    purpose: Some(purpose.into()),
+                    ..Default::default()
+                },
+            ));
+            assert_eq!(
+                retrieval
+                    .resolve(
+                        &q,
+                        &context(&q),
+                        &["Paten?", "Kann ich das mit Coaching kombinieren?", "Warum?"]
+                            .map(str::to_owned),
+                    )
+                    .unwrap(),
+                DiscordReference::Subject("Coaching Paten".into()),
+            );
+            assert_eq!(
+                retrieval
+                    .resolve(
+                        &q,
+                        &context(&q),
+                        &[
+                            "Sprachkanäle?",
+                            "Kann ich das mit Coaching und Paten kombinieren?"
+                        ]
+                        .map(str::to_owned),
+                    )
+                    .unwrap(),
+                DiscordReference::Subject("Coaching Paten Sprachkanäle".into()),
+            );
+            for barrier in ["PRIVATE_CANARY_äöüß", "Wie bekomme ich Rollen?"] {
+                for text in ["Warum?", "Kann ich das mit Coaching kombinieren?"] {
+                    q.text = text.into();
+                    assert_eq!(
+                        retrieval
+                            .resolve(
+                                &q,
+                                &context(&q),
+                                &["Paten?", barrier, "Warum?"].map(str::to_owned),
+                            )
+                            .unwrap(),
+                        DiscordReference::Clarification,
+                        "{purpose}: {text}, {barrier}",
+                    );
+                }
+                q.text = "Warum?".into();
+                assert_eq!(
+                    retrieval
+                        .resolve(
+                            &q,
+                            &context(&q),
+                            &["Paten?", barrier, "Kann ich das mit Coaching kombinieren?"]
+                                .map(str::to_owned),
+                        )
+                        .unwrap(),
+                    DiscordReference::Clarification,
+                );
+            }
+        }
+        let mut revoked = record(
+            "paten",
+            "Paten helfen beim Einstieg. Für Paten meldest du dich beim Concierge.",
+            !tombstone,
+        );
+        revoked.revision = 2;
+        revoked.tombstone = tombstone;
+        store.apply_record(revoked).unwrap();
+        for purpose in ["bot_context:direct", "bot_task:concierge", "bot_task:faq"] {
+            for (text, history) in [
+                (
+                    "Kann ich das mit Coaching kombinieren?",
+                    vec!["Wie öffne ich Sprachkanäle?", "Wie finde ich einen Paten?"],
+                ),
+                (
+                    "Warum?",
+                    vec!["Paten?", "Kann ich das mit Coaching kombinieren?"],
+                ),
+            ] {
+                let mut q = query("mixed-revoked", text);
+                q.answer_context = Some(brain_contracts::AnswerContext::Discord(
+                    brain_contracts::DiscordAnswerContext {
+                        purpose: Some(purpose.into()),
+                        ..Default::default()
+                    },
+                ));
+                assert_eq!(
+                    retrieval
+                        .resolve(
+                            &q,
+                            &context(&q),
+                            &history.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+                        )
+                        .unwrap(),
+                    DiscordReference::Clarification,
+                    "{purpose}: {text}, tombstone={tombstone}",
+                );
+            }
+        }
     }
 }
 

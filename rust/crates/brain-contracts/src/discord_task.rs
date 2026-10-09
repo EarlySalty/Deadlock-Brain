@@ -124,6 +124,11 @@ pub fn needs_reference(text: &str) -> bool {
         .iter()
         .enumerate()
         .any(|(index, word)| match word.as_str() {
+            "das" if words.get(index + 1).is_some_and(|next| next == "fuer") => {
+                words.get(index + 2).is_none_or(|next| {
+                    !matches!(next.as_str(), "ein" | "eine" | "einen" | "einem" | "einer")
+                })
+            }
             "das" => words.get(index + 1).is_none_or(|next| {
                 matches!(
                     next.as_str(),
@@ -131,6 +136,7 @@ pub fn needs_reference(text: &str) -> bool {
                         | "genauer"
                         | "weiter"
                         | "mit"
+                        | "zu"
                         | "erklaeren"
                         | "machen"
                         | "finden"
@@ -144,12 +150,39 @@ pub fn needs_reference(text: &str) -> bool {
                         | "kostet"
                         | "verbessern"
                         | "spielen"
+                        | "kombinieren"
+                        | "verbinden"
+                        | "vergleichen"
+                        | "statt"
+                        | "gleichzeitig"
+                        | "zusaetzlich"
+                        | "verwenden"
+                        | "benutzen"
+                        | "nehmen"
                 )
             }),
             "es" | "sie" => words.get(index + 1).is_none_or(|next| {
                 matches!(
                     next.as_str(),
-                    "weiter" | "genau" | "genauer" | "nochmal" | "spielen" | "verbessern"
+                    "weiter"
+                        | "genau"
+                        | "genauer"
+                        | "nochmal"
+                        | "spielen"
+                        | "verbessern"
+                        | "mit"
+                        | "fuer"
+                        | "zu"
+                        | "statt"
+                        | "auch"
+                        | "gleichzeitig"
+                        | "zusaetzlich"
+                        | "kombinieren"
+                        | "verbinden"
+                        | "vergleichen"
+                        | "verwenden"
+                        | "benutzen"
+                        | "nehmen"
                 )
             }),
             _ => false,
@@ -232,6 +265,14 @@ mod tests {
             "Wie melde ich mich dafür an?",
             "Erzähl mir mehr",
             "Warum?",
+            "Kann ich das mit Coaching kombinieren?",
+            "Kann ich es mit Coaching verbinden?",
+            "Wie kann ich sie mit Coaching vergleichen?",
+            "Kann ich das statt Coaching nutzen?",
+            "Kann ich das kombinieren?",
+            "Wie kann ich das für Sprachkanäle nutzen?",
+            "Passt das zu Coaching?",
+            "Kann ich es für Coaching nutzen?",
         ] {
             assert!(needs_reference(text), "{text}");
         }
@@ -240,6 +281,8 @@ mod tests {
             "Was ist das beste Item?",
             "Wie bekomme ich mehr Seelen?",
             "Wo finde ich einen Paten?",
+            "Was ist das für ein Coaching?",
+            "Was ist das für eine Patenschaft?",
         ] {
             assert!(!needs_reference(text), "{text}");
         }
