@@ -1065,10 +1065,20 @@ fn parse_event_lines(
         if trimmed.is_empty() {
             continue;
         }
-        if let Some(body) = bullet_body(trimmed).or_else(|| {
-            (index.exact(trimmed.trim_end_matches(':')).is_none() && has_change_action(trimmed))
-                .then(|| trimmed.to_string())
-        }) {
+        let bullet = bullet_body(trimmed);
+        if bullet.is_none()
+            && (is_forum_section_heading(trimmed)
+                || (trimmed.starts_with('[') && trimmed.ends_with(']'))
+                || index.exact(trimmed).is_some())
+        {
+            if let Some(next_section) = section_heading(trimmed) {
+                section = Some(next_section);
+                continue;
+            }
+        }
+        if let Some(body) =
+            bullet.or_else(|| has_change_action(trimmed).then(|| trimmed.to_string()))
+        {
             line_index += 1;
             let event = parse_bullet_event(&EventParseContext {
                 row,
@@ -1786,7 +1796,7 @@ fn split_flat_forum_lines(content: &str, changes_only: bool) -> Option<Vec<Strin
 
     let mut lines = Vec::new();
     for (idx, (marker_pos, section)) in markers.iter().enumerate() {
-        lines.push(section.trim().to_string());
+        lines.push(format!("[ {section} ]"));
 
         let section_body_end = markers.get(idx + 1).map_or(content.len(), |next| next.0);
         let section_body = content[*marker_pos + 4..section_body_end].trim();
@@ -1834,7 +1844,7 @@ fn split_square_bracket_forum_lines(content: &str, changes_only: bool) -> Option
     for (idx, (_, section_end, section)) in markers.iter().enumerate() {
         let body_end = markers.get(idx + 1).map_or(content.len(), |next| next.0);
         let body = content[*section_end..body_end].trim();
-        lines.push(section.clone());
+        lines.push(format!("[ {section} ]"));
         let has_bullets = ["* ", "- ", "• "]
             .iter()
             .any(|marker| body.starts_with(marker) || body.contains(&format!(" {marker}")));

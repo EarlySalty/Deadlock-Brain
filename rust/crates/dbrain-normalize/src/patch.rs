@@ -702,6 +702,7 @@ fn detect_section(line: &str) -> Option<String> {
         "general" => Some("General".to_string()),
         "items" | "item" => Some("Items".to_string()),
         "heroes" | "hero" => Some("Heroes".to_string()),
+        "new heroes" => Some("New Heroes".to_string()),
         "map" => Some("Map".to_string()),
         "ui" => Some("UI".to_string()),
         "audio" => Some("Audio".to_string()),
@@ -1275,6 +1276,21 @@ mod tests {
             assert_eq!(event.entity_type, "general");
             assert_eq!(event.entity_name, None);
             assert_eq!(event.section.as_deref(), Some("General"));
+        }
+    }
+
+    #[test]
+    fn action_named_section_resets_snapshot_entity_binding() {
+        for heading in ["[ New Heroes ]", "New Heroes:"] {
+            let payload = json!({"raw_content": format!("Holliday\n- Added knockback\n{heading}\nPlayers can now parry")});
+            let (events, skipped) =
+                parse_patchnote_snapshot(17, 17, "patch_17", &payload, &hero_index("Holliday"))
+                    .unwrap();
+            assert_eq!(skipped, 0);
+            assert_eq!(events.len(), 2);
+            assert_eq!(events[0].entity_name.as_deref(), Some("Holliday"));
+            assert_eq!(events[1].entity_name, None);
+            assert_eq!(events[1].section.as_deref(), Some("New Heroes"));
         }
     }
 

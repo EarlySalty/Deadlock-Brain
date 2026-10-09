@@ -338,8 +338,8 @@ fn prepare_api_patch(
             || (trimmed.starts_with('[') && trimmed.ends_with(']'))
             || !has_change_action(trimmed)
         {
-            if let Some(heading) = section_heading(trimmed) {
-                lines.push(heading);
+            if section_heading(trimmed).is_some() {
+                lines.push(line);
             }
         } else {
             lines.push(format!("- {trimmed}"));
@@ -965,6 +965,46 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn explicit_action_named_sections_remain_headings() {
+        let index = patch_index();
+        let row = post_row(&post(), Some(17)).unwrap();
+        for original in [
+            "Holliday\n- Added knockback\n[ New Heroes ]\nPlayers can now parry",
+            "Holliday\n- Added knockback\nNew Heroes:\nPlayers can now parry",
+            "[ Holliday ] Added knockback [ New Heroes ] Players can now parry",
+        ] {
+            let resolved = PatchSourceResolution {
+                raw_content: original.into(),
+                ..PatchSourceResolution::from_row(&row)
+            };
+            for prepared in [
+                prepare_patch(&row, &resolved, &index).unwrap(),
+                prepare_api_patch(&row, &resolved, &index).unwrap(),
+            ] {
+                assert_eq!(prepared.events.len(), 2, "{original}");
+                assert_eq!(prepared.events[0].entity_name.as_deref(), Some("Holliday"));
+                assert_eq!(prepared.events[1].normalized_line, "Players can now parry");
+                assert_eq!(prepared.events[1].entity_name, None);
+                assert_eq!(prepared.events[1].section.as_deref(), Some("New Heroes"));
+            }
+        }
+        let resolved = PatchSourceResolution {
+            raw_content: "Improved Spirit\nPlayers can now parry".into(),
+            ..PatchSourceResolution::from_row(&row)
+        };
+        for prepared in [
+            prepare_patch(&row, &resolved, &index).unwrap(),
+            prepare_api_patch(&row, &resolved, &index).unwrap(),
+        ] {
+            assert_eq!(prepared.events.len(), 1);
+            assert_eq!(
+                prepared.events[0].entity_name.as_deref(),
+                Some("Improved Spirit")
+            );
         }
     }
 
