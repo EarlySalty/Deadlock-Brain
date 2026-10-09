@@ -169,6 +169,13 @@ impl Postgres {
 
 impl Drop for Postgres {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!(
+                "{}",
+                fs::read_to_string(self.directory.path().join("postgres.log"))
+                    .unwrap_or_else(|error| error.to_string())
+            );
+        }
         let result = Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
             .arg("-D")
             .arg(self.directory.path().join("data"))
@@ -428,11 +435,30 @@ async fn postgres_http_comments_survive_restart_and_roles_are_isolated() {
         .await
         .unwrap();
     assert_eq!(saved["parallel"].as_array().unwrap().len(), 16);
+    drop(client);
     handle.abort();
     let _ = handle.await;
     pool.close().await;
+    drop(pool);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let connected: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity WHERE usename='brain_site'",
+            )
+            .fetch_one(&owner)
+            .await
+            .unwrap();
+            if connected == 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     let pool = pg.pool("brain_site").await;
     let (url, handle) = server(root.path(), pool.clone()).await;
+    let client = Client::new();
     assert_eq!(
         client
             .get(format!("{url}/api/comments?unused=1"))
@@ -444,6 +470,7 @@ async fn postgres_http_comments_survive_restart_and_roles_are_isolated() {
             .unwrap(),
         saved
     );
+    let mut connection = pool.acquire().await.unwrap();
     for statement in [
         "INSERT INTO brain.site_comments_v1(group_key,text,ts) VALUES ('test','test','')",
         "SELECT nextval('brain.site_comments_v1_id_seq')",
@@ -453,7 +480,10 @@ async fn postgres_http_comments_survive_restart_and_roles_are_isolated() {
         "CREATE TABLE brain.site_forbidden(id int)",
         "SELECT setval('brain.site_comments_v1_id_seq',1)",
     ] {
-        let error = sqlx::query(statement).execute(&pool).await.unwrap_err();
+        let error = sqlx::query(statement)
+            .execute(&mut *connection)
+            .await
+            .unwrap_err();
         assert_eq!(
             error
                 .as_database_error()
@@ -464,6 +494,7 @@ async fn postgres_http_comments_survive_restart_and_roles_are_isolated() {
             "{statement}"
         );
     }
+    drop(connection);
     sqlx::query("ALTER TABLE brain.site_comments_v1 RENAME TO site_comments_test_unavailable")
         .execute(&owner)
         .await

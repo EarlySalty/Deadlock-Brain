@@ -305,7 +305,7 @@ impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
         let context = &bound;
         if query.validate().is_err()
             || query.conversation_id != context.conversation_id
-            || !(1..=60_000).contains(&context.deadline_ms)
+            || !(1..=600_000).contains(&context.deadline_ms)
             || context.knowledge_release.trim().is_empty()
             || !query.requested_scopes.is_subset(&context.principal.scopes)
         {
@@ -2175,6 +2175,36 @@ mod tests {
         assert_eq!(state.calls, 0);
         assert_eq!(state.resolves, 0);
         assert!(state.build_checks.is_empty());
+    }
+
+    #[test]
+    fn twenty_model_rounds_share_ten_minute_deadline_and_accumulated_budget() {
+        let calls: Vec<_> = (0..19)
+            .map(|round| find_call(&format!("round-{round}")))
+            .collect();
+        let mut turns: Vec<_> = calls
+            .iter()
+            .map(|call| tool_turn(vec![call.clone()]))
+            .collect();
+        turns.push(final_turn(&["round-18-cited"]));
+        let (kernel, state) = tool_kernel(&calls, turns);
+        let mut context = context(&[], &["public"]);
+        context.deadline_ms = 600_000;
+        context.budget.max_network_rounds = 20;
+        context.budget.max_input_tokens = 20_000_000;
+        context.budget.max_output_tokens = 8192;
+        let answer = kernel.answer_accounted(&query(AnswerProfile::Explain), &context);
+        assert_eq!(answer.value.status, AnswerStatus::Answered);
+        assert_eq!(answer.accounting.observed.network_rounds, 20);
+        let state = state.lock().unwrap();
+        assert_eq!(state.calls, 20);
+        assert_eq!(state.executions.len(), 19);
+        assert!(state.contexts[0].deadline_ms > 60_000);
+        assert_eq!(
+            state.contexts[19].request_deadline,
+            state.contexts[0].request_deadline
+        );
+        assert_eq!(state.contexts[19].budget.max_network_rounds, 1);
     }
 
     #[test]

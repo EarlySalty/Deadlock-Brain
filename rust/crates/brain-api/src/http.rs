@@ -67,7 +67,7 @@ async fn dispatch_response<K: AnswerKernelPort + 'static>(
 ) -> ApiResponse {
     // Request is not a body extractor: no body is polled before admission/authentication.
     let deadline = RequestDeadline::after(Duration::from_millis(
-        state.service.deadline_ms.clamp(1, 60000),
+        state.service.deadline_ms.clamp(1, 600_000),
     ));
     let _cancel = CancelOnDrop(deadline.clone());
     let permit = match state.slots.clone().try_acquire_owned() {
