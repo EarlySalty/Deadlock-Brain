@@ -198,6 +198,7 @@
                     assert_eq!(duel.shots, 3.0);
                     assert!((duel.weapon_damage - expected).abs() < 1e-9);
                     assert_eq!(result.score, results[0].score);
+                    assert_eq!(result.scenarios.len(), results[0].scenarios.len());
                     for (actual, reference) in result.scenarios.iter().zip(&results[0].scenarios) {
                         let mut actual = actual.clone();
                         actual.sequence = reference.sequence.clone();
