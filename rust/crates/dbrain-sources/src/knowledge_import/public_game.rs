@@ -1233,7 +1233,95 @@ mod tests {
         assert_eq!(published.revisions.len(), 3);
         assert!(!published.heads.contains(&changed_exclusion));
         assert!(!published.heads.contains(&withdrawn));
-        let mut changed = promoted[1].clone();
+        let mut withdrawn_localization = expected_all
+            .iter()
+            .find(|record| record.logical_id == localization.document_id)
+            .unwrap()
+            .clone();
+        withdrawn_localization.revision += 1;
+        withdrawn_localization.tombstone = true;
+        store.apply(&withdrawn_localization).await.unwrap();
+        let surviving = read_game_heads(&pool, &sources).await.unwrap();
+        assert_eq!(surviving.len(), 5);
+        assert!(surviving.contains(&withdrawn_localization));
+        assert!(surviving.contains(&withdrawn));
+        assert!(surviving.contains(&changed_exclusion));
+        assert!(reauthorize_game_heads(
+            &pool,
+            &sources,
+            &expected_all,
+            "operator:surviving",
+            Some("operator:public-provider"),
+        )
+        .await
+        .is_err());
+        let expected_without_withdrawn: Vec<_> = surviving
+            .iter()
+            .filter(|record| record.logical_id != withdrawn_localization.logical_id)
+            .cloned()
+            .collect();
+        assert!(reauthorize_game_heads(
+            &pool,
+            &sources,
+            &expected_without_withdrawn,
+            "operator:surviving",
+            Some("operator:public-provider"),
+        )
+        .await
+        .is_err());
+        assert_eq!(read_game_heads(&pool, &sources).await.unwrap(), surviving);
+        let report = reauthorize_game_heads(
+            &pool,
+            &sources,
+            &surviving,
+            "operator:surviving",
+            Some("operator:public-provider"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report["updated"], 2);
+        assert_eq!(report["unchanged"], 0);
+        assert_eq!(report["checked_heads"], 5);
+        assert_eq!(report["selection"]["excluded_live"], 1);
+        assert_eq!(report["selection"]["excluded_tombstones"], 2);
+        let surviving = read_game_heads(&pool, &sources).await.unwrap();
+        assert_eq!(surviving.len(), 5);
+        for original in &promoted {
+            assert_eq!(
+                surviving
+                    .iter()
+                    .find(|record| record.logical_id == original.logical_id)
+                    .unwrap()
+                    .revision,
+                3,
+            );
+        }
+        let report = reauthorize_game_heads(
+            &pool,
+            &sources,
+            &surviving,
+            "operator:surviving",
+            Some("operator:public-provider"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report["updated"], 0);
+        assert_eq!(report["unchanged"], 2);
+        assert_eq!(read_game_heads(&pool, &sources).await.unwrap(), surviving);
+        let withdrawn_head: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2")
+            .bind(&withdrawn_localization.source_id).bind(&withdrawn_localization.logical_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            withdrawn_head,
+            serde_json::to_value(&withdrawn_localization).unwrap()
+        );
+        let withdrawn_revisions: i64 = sqlx::query_scalar("SELECT count(*) FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2")
+            .bind(&withdrawn_localization.source_id).bind(&withdrawn_localization.logical_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(withdrawn_revisions, 3);
+        let mut changed = surviving
+            .iter()
+            .find(|record| record.logical_id == promoted[1].logical_id)
+            .unwrap()
+            .clone();
         changed.revision += 1;
         let mut origin = origin_from_record(&changed).unwrap();
         origin.policy.raw_retention_allowed = false;

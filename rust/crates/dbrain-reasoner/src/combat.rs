@@ -2770,6 +2770,8 @@ fn apply_shop(hero: &HeroModel, items: &[&ItemModel], stats: &mut InventoryStats
 pub(crate) mod tests {
     use super::*;
     use crate::{AbilityRole, CostBonus, DamagePlan, DamageType, PurchaseBonuses, WeaponProfile};
+
+    include!("combat_coverage_tests.rs");
     pub(crate) fn hero() -> HeroModel {
         HeroModel {
             hero_id: 1,
