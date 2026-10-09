@@ -461,6 +461,93 @@ async fn later_core_mirror_preserves_globals_from_the_actual_older_run() {
 }
 
 #[tokio::test]
+async fn receipt_projection_preserves_policy_and_rejects_malformed_field_records() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = scratch_pool(&pg).await;
+    let raw_dir = tempfile::tempdir().unwrap();
+    let store = SourceStore::new(&pool, raw_dir.path()).unwrap();
+    let (_, summary) = persist_run(&store, "projection").await;
+    let id = summary["endpoints"]["items/english"]["source_document_id"]
+        .as_i64()
+        .unwrap();
+    let original: Value =
+        sqlx::query_scalar("SELECT metadata FROM brain.source_documents WHERE id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let contract: brain_contracts::source::Versioned<brain_contracts::external::ExternalSourceIr> =
+        serde_json::from_value(original["contract"].clone()).unwrap();
+    let loaded = load_mirrored_assets_with_receipt(&pool, 6759, "items", Some("english"))
+        .await
+        .unwrap();
+    assert_eq!(
+        loaded.payload,
+        original["contract"]["data"]["payload"]["value"]
+    );
+    assert_eq!(loaded.receipt.endpoint.provenance, contract.data.provenance);
+    assert_eq!(loaded.receipt.endpoint.validation, contract.data.validation);
+    assert_eq!(loaded.receipt.endpoint.visibility, contract.data.visibility);
+    assert_eq!(
+        loaded.receipt.endpoint.allowed_scopes,
+        contract.data.allowed_scopes
+    );
+    assert_eq!(loaded.receipt.endpoint.license, contract.data.license);
+    assert_eq!(
+        loaded.receipt.endpoint.schema_version,
+        contract.data.schema_version
+    );
+    let after: Value =
+        sqlx::query_scalar("SELECT metadata FROM brain.source_documents WHERE id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(after, original);
+    let field = original["contract"]["data"]["field_provenance"]
+        .as_object()
+        .unwrap()
+        .values()
+        .next()
+        .unwrap()
+        .clone();
+    let mut wrong_locator = field.clone();
+    wrong_locator["locator"] = json!(9);
+    let mut extra_field = field.clone();
+    extra_field["unexpected"] = json!(true);
+    let mut missing_locator = field;
+    missing_locator.as_object_mut().unwrap().remove("locator");
+    for fields in [
+        Value::Null,
+        json!([]),
+        json!({"broken":{}}),
+        json!({"broken":null}),
+        json!({"broken":wrong_locator}),
+        json!({"broken":extra_field}),
+        json!({"broken":missing_locator}),
+    ] {
+        let mut malformed = original.clone();
+        malformed["contract"]["data"]["field_provenance"] = fields;
+        assert!(serde_json::from_value::<
+            brain_contracts::source::Versioned<brain_contracts::external::ExternalSourceIr>,
+        >(malformed["contract"].clone())
+        .is_err());
+        sqlx::query("UPDATE brain.source_documents SET metadata=$2 WHERE id=$1")
+            .bind(id)
+            .bind(malformed)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            load_mirrored_assets_with_receipt(&pool, 6759, "items", Some("english"))
+                .await
+                .is_err()
+        );
+    }
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn receipt_binds_actual_run_manifest_original_hash_and_independent_modifiers() {
     let pg = scratch_pg::ScratchPg::start();
     let pool = scratch_pool(&pg).await;

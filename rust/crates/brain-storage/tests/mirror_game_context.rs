@@ -168,6 +168,54 @@ pub(crate) async fn seed_with_grants(pool: &PgPool, marker: &str, granted: bool)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cached_receipts_recheck_policy_changes_without_waiting_for_expiry() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = pool(&pg).await;
+    let run = seed_with_grants(&pool, "granted", true).await;
+    let reader = MirroredGameContextReader::new(
+        pool.clone(),
+        tokio::runtime::Handle::current(),
+        ToolLanguage::German,
+    )
+    .unwrap()
+    .with_cache_ttl(Duration::from_secs(60));
+    let (context, _) = authorized_context();
+    let query = query();
+    let pin = reader.resolve(&query, &context).unwrap().unwrap();
+    assert!(
+        reader
+            .read_pinned(&context, &pin)
+            .unwrap()
+            .asset("heroes_all", Some("english"))
+            .unwrap()
+            .receipt
+            .endpoint
+            .provenance
+            .provider_egress_authorized
+    );
+    sqlx::query("UPDATE brain.source_documents SET metadata=jsonb_set(jsonb_set(metadata, \
+        '{provenance,provider_egress_authorized}', 'false'), \
+        '{contract,data,provenance,provider_egress_authorized}', 'false') \
+        WHERE id=(SELECT (summary->'endpoints'->'heroes_all/english'->>'source_document_id')::bigint \
+            FROM brain.source_runs WHERE id=$1)")
+        .bind(run).execute(&pool).await.unwrap();
+    assert!(reader.read_pinned(&context, &pin).is_err());
+    assert!(reader.validate(&query, &context, Some(&pin)).is_err());
+    let revoked = reader.read_latest(&context).unwrap();
+    assert_ne!(revoked.game_context(), &pin);
+    assert!(
+        !revoked
+            .asset("heroes_all", Some("english"))
+            .unwrap()
+            .receipt
+            .endpoint
+            .provenance
+            .provider_egress_authorized
+    );
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn actual_receipt_reader_pins_one_run_and_rejects_drift() {
     let pg = scratch_pg::ScratchPg::start();
     let pool = pool(&pg).await;
@@ -177,7 +225,8 @@ async fn actual_receipt_reader_pins_one_run_and_rejects_drift() {
         tokio::runtime::Handle::current(),
         ToolLanguage::German,
     )
-    .unwrap();
+    .unwrap()
+    .with_cache_ttl(Duration::from_secs(60));
     let (context, _) = authorized_context();
     let query = query();
     let pin = reader.resolve(&query, &context).unwrap().unwrap();
@@ -267,7 +316,8 @@ async fn original_controlled_lifetime_is_required_before_any_read() {
         tokio::runtime::Handle::current(),
         ToolLanguage::German,
     )
-    .unwrap();
+    .unwrap()
+    .with_cache_ttl(Duration::from_secs(60));
     let (context, clock) = authorized_context();
     let pin = reader.resolve(&query(), &context).unwrap().unwrap();
     let mut missing = context.clone();
@@ -316,7 +366,8 @@ async fn cancellation_finishes_the_caller_while_a_real_database_read_is_locked()
         tokio::runtime::Handle::current(),
         ToolLanguage::German,
     )
-    .unwrap();
+    .unwrap()
+    .with_cache_ttl(Duration::from_secs(60));
     let (context, _) = authorized_context();
     let cancellation = context.request_deadline.as_ref().unwrap().clone();
     let mut lock = pool.begin().await.unwrap();
@@ -326,7 +377,7 @@ async fn cancellation_finishes_the_caller_while_a_real_database_read_is_locked()
         .unwrap();
     let pending = tokio::task::spawn_blocking(move || reader.resolve(&query(), &context));
     loop {
-        let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%sr.summary%')")
+        let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%brain.source_runs%')")
             .fetch_one(&pool).await.unwrap();
         if waiting {
             break;
