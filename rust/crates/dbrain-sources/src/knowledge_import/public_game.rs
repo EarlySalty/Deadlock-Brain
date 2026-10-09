@@ -4,6 +4,7 @@ use brain_contracts::{
     source::origin_from_record, value::Observed, SourceRecordV2, SourceVisibility,
 };
 use brain_storage::source_versions::{DOCUMENT_METADATA_KEY, ORIGINAL_VERSION_KEY};
+use serde::Serialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 
@@ -191,7 +192,7 @@ pub fn validate_game_origin(record: &SourceRecordV2) -> Result<(), String> {
     Ok(())
 }
 
-pub fn authorize_game_record(
+fn bind_game_authorization(
     record: &SourceRecordV2,
     authorization_ref: &str,
     provider_egress_ref: Option<&str>,
@@ -231,6 +232,21 @@ pub fn authorize_game_record(
         .to_string(),
     );
     origin.bind_record(&mut next)?;
+    Ok(next)
+}
+
+pub fn authorize_game_record(
+    record: &SourceRecordV2,
+    authorization_ref: &str,
+    provider_egress_ref: Option<&str>,
+    next_revision: u64,
+) -> Result<SourceRecordV2, String> {
+    let next = bind_game_authorization(
+        record,
+        authorization_ref,
+        provider_egress_ref,
+        next_revision,
+    )?;
     dbrain_retrieval::knowledge_projection::project_knowledge(&next)
         .map_err(|error| {
             format!(
@@ -240,6 +256,165 @@ pub fn authorize_game_record(
         })?
         .ok_or("Faktenprojektion fehlt; keine öffentliche Freigabe")?;
     Ok(next)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GameExclusion {
+    pub source_id: String,
+    pub logical_id: String,
+    pub reason: String,
+    pub tombstone: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct GameSelection {
+    pub selected: BTreeSet<(String, String)>,
+    pub excluded: Vec<GameExclusion>,
+}
+
+impl GameSelection {
+    pub fn exclusion_reasons(&self) -> BTreeMap<String, usize> {
+        let mut reasons = BTreeMap::new();
+        for excluded in &self.excluded {
+            *reasons.entry(excluded.reason.clone()).or_default() += 1;
+        }
+        reasons
+    }
+
+    pub fn report(&self) -> Value {
+        let tombstones = self
+            .excluded
+            .iter()
+            .filter(|record| record.tombstone)
+            .count();
+        json!({"selected": self.selected.len(), "excluded": self.excluded.len(),
+            "excluded_live": self.excluded.len() - tombstones, "excluded_tombstones": tombstones,
+            "exclusion_reasons": self.exclusion_reasons(), "excluded_documents": self.excluded})
+    }
+
+    fn exclude(&mut self, record: &SourceRecordV2, reason: String) -> Result<(), String> {
+        let origin = origin_from_record(record)?;
+        if !record.tombstone
+            && (record.visibility == SourceVisibility::Public || origin.policy.publication_allowed)
+        {
+            return Err("Nicht zulässiges Spielmaterial ist bereits öffentlich freigegeben; keine automatische Rechteänderung".into());
+        }
+        self.excluded.push(GameExclusion {
+            source_id: record.source_id.clone(),
+            logical_id: record.logical_id.clone(),
+            reason,
+            tombstone: record.tombstone,
+        });
+        Ok(())
+    }
+}
+
+pub fn select_game_heads(
+    records: &[SourceRecordV2],
+    authorization_ref: &str,
+    provider_egress_ref: Option<&str>,
+) -> Result<GameSelection, String> {
+    if !valid_ref(authorization_ref) || provider_egress_ref.is_some_and(|value| !valid_ref(value)) {
+        return Err("Expliziter Freigabenachweis fehlt".into());
+    }
+    let mut selection = GameSelection::default();
+    let mut seen = BTreeSet::new();
+    for record in records {
+        record.validate().map_err(|_| "Quellvertrag ist ungültig")?;
+        origin_from_record(record)?;
+        if !SOURCES.contains(&record.source_id.as_str())
+            || !seen.insert((record.source_id.clone(), record.logical_id.clone()))
+        {
+            return Err("Fremde oder doppelte Spielquellköpfe".into());
+        }
+        if sha256_content(&record.content) != record.content_hash {
+            return Err("Spieloriginal hat eine widersprüchliche Inhaltsintegrität".into());
+        }
+        if record.tombstone {
+            selection.exclude(record, "withdrawn".into())?;
+            continue;
+        }
+        if let Err(error) = validate_game_origin(record) {
+            selection.exclude(record, format!("game_origin_unconfirmed:{error}"))?;
+            continue;
+        }
+        let next_revision = record
+            .revision
+            .checked_add(1)
+            .ok_or("Store-Revision ist ausgeschöpft")?;
+        let next = bind_game_authorization(
+            record,
+            authorization_ref,
+            provider_egress_ref,
+            next_revision,
+        )?;
+        match dbrain_retrieval::knowledge_projection::project_knowledge(&next) {
+            Ok(Some(projection))
+                if projection.raw_byte_end == 0 && !projection.facts.is_empty() =>
+            {
+                selection
+                    .selected
+                    .insert((record.source_id.clone(), record.logical_id.clone()));
+            }
+            Err(brain_contracts::PortError::InvalidResponse(reason))
+                if reason.starts_with("public_game_facts_empty_or_unparsed:") =>
+            {
+                if let Some(encoded) = record.metadata.get(DOCUMENT_METADATA_KEY) {
+                    let document: KnowledgeDocument = serde_json::from_str(encoded)
+                        .map_err(|_| "Originaldokument ist ungültig")?;
+                    if !document.facts.is_empty() {
+                        return Err(
+                            "Deklarierte Spielfakten besitzen keine auswertbare Originalgrundlage"
+                                .into(),
+                        );
+                    }
+                }
+                selection.exclude(record, reason)?;
+            }
+            Err(brain_contracts::PortError::InvalidResponse(reason))
+                if reason == "knowledge_projection_binding"
+                    && record.source_id.starts_with("legacy-")
+                    && !record.metadata.contains_key(DOCUMENT_METADATA_KEY) =>
+            {
+                selection.exclude(record, "legacy_text_facts_not_projectable".into())?;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "Spielprojektion verletzt ihren Vertrag für {}:{}: {error}",
+                    record.source_id, record.logical_id
+                ))
+            }
+            _ => return Err("Spielprojektion hat keine gebundenen Fakten geliefert".into()),
+        }
+    }
+    Ok(selection)
+}
+
+pub fn select_game_publication(records: &[SourceRecordV2]) -> Result<GameSelection, String> {
+    let mut selection = select_game_heads(records, "publish:dry-game-admission", None)?;
+    for record in records {
+        let key = (record.source_id.clone(), record.logical_id.clone());
+        if !selection.selected.contains(&key) {
+            continue;
+        }
+        let origin = origin_from_record(record)?;
+        if record.visibility != SourceVisibility::Public
+            || record.allowed_scopes != BTreeSet::from([PUBLIC_SCOPE.into()])
+            || !origin.policy.publication_allowed
+            || !record.metadata.contains_key(AUTHORIZATION_KEY)
+        {
+            selection.selected.remove(&key);
+            selection.exclude(record, "public_factual_authorization_missing".into())?;
+            continue;
+        }
+        let projection = dbrain_retrieval::knowledge_projection::project_knowledge(record)
+            .map_err(|_| "Gespeicherte öffentliche Faktenfreigabe ist ungültig")?
+            .ok_or("Gespeicherte öffentliche Faktenprojektion fehlt")?;
+        if projection.raw_byte_end != 0 || projection.facts.is_empty() {
+            return Err("Gespeicherte Freigabe ist keine reine Faktenprojektion".into());
+        }
+    }
+    Ok(selection)
 }
 
 pub fn is_game_reauthorization_transition(old: &SourceRecordV2, next: &SourceRecordV2) -> bool {
@@ -310,9 +485,9 @@ pub async fn reauthorize_game_heads(
     if expected.is_empty() || expected.len() > 10_000 {
         return Err("Erwartete Spielquellköpfe fehlen oder sind zu zahlreich".into());
     }
+    let selection = select_game_heads(expected, authorization_ref, provider_egress_ref)?;
     let mut expected_map = BTreeMap::new();
     for record in expected {
-        validate_game_origin(record)?;
         if !sources.contains(&record.source_id)
             || expected_map
                 .insert(
@@ -371,6 +546,12 @@ pub async fn reauthorize_game_heads(
     let mut updated = 0usize;
     let mut unchanged = 0usize;
     for record in actual {
+        if !selection
+            .selected
+            .contains(&(record.source_id.clone(), record.logical_id.clone()))
+        {
+            continue;
+        }
         super::legacy_game::verify_snapshot_record(&mut tx, &record).await?;
         let historical: Option<Value> = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
             .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).fetch_optional(&mut *tx).await.map_err(|_| "Originalrevision kann nicht geprüft werden")?;
@@ -423,7 +604,8 @@ pub async fn reauthorize_game_heads(
         .await
         .map_err(|_| "Atomare Freigabe wurde nicht bestätigt")?;
     Ok(
-        json!({"reauthorized": true, "updated": updated, "unchanged": unchanged,
+        json!({"reauthorized": !selection.selected.is_empty(), "updated": updated, "unchanged": unchanged,
+        "selection": selection.report(), "checked_heads": expected.len(),
         "sources": sources, "authorization_ref": authorization_ref,
         "provider_egress_ref": provider_egress_ref, "scope": PUBLIC_SCOPE,
         "publication_basis": "operator_public_factual_game_data", "raw_asset_redistribution_authorized": false,
@@ -445,13 +627,13 @@ mod tests {
     }
 
     fn fixture_content(content: &str) -> SourceRecordV2 {
+        fixture_path(content, "data/json/generic-data.json")
+    }
+
+    fn fixture_path(content: &str, path: &str) -> SourceRecordV2 {
         let directory = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(directory.path().join("data/json")).unwrap();
-        std::fs::write(
-            directory.path().join("data/json/generic-data.json"),
-            content,
-        )
-        .unwrap();
+        std::fs::write(directory.path().join(path), content).unwrap();
         let commit = "a".repeat(40);
         let options = GameFileOptions {
             root: directory.path().into(),
@@ -481,6 +663,79 @@ mod tests {
             .records()[0]
             .record
             .clone()
+    }
+
+    #[test]
+    fn admission_preserves_unconfirmed_empty_and_withdrawn_originals() {
+        let valid = fixture();
+        let empty = fixture_path("{}", "data/json/empty.json");
+        let mut withdrawn = fixture_path("{\"Urn\":12}", "data/json/withdrawn.json");
+        withdrawn.tombstone = true;
+        let mut unconfirmed = fixture_path("{\"Urn\":12}", "data/json/unconfirmed.json");
+        let mut document: Value =
+            serde_json::from_str(&unconfirmed.metadata[DOCUMENT_METADATA_KEY]).unwrap();
+        document["metadata"]["provenance"]["repository_url"] = json!("https://example.invalid");
+        unconfirmed
+            .metadata
+            .insert(DOCUMENT_METADATA_KEY.into(), document.to_string());
+        let records = vec![valid.clone(), empty.clone(), withdrawn.clone(), unconfirmed];
+        let before = records.clone();
+        let selection = select_game_heads(&records, "operator:public", None).unwrap();
+        assert_eq!(
+            selection.selected,
+            BTreeSet::from([(valid.source_id.clone(), valid.logical_id.clone())])
+        );
+        assert_eq!(selection.report()["excluded_live"], 2);
+        assert_eq!(selection.report()["excluded_tombstones"], 1);
+        assert!(selection.excluded.iter().any(|excluded| excluded
+            .reason
+            .starts_with("public_game_facts_empty_or_unparsed:")));
+        assert_eq!(records, before);
+        let private = select_game_publication(std::slice::from_ref(&valid)).unwrap();
+        assert!(private.selected.is_empty());
+        assert_eq!(
+            private.excluded[0].reason,
+            "public_factual_authorization_missing"
+        );
+        let granted = authorize_game_record(&valid, "operator:public", None, 2).unwrap();
+        let publication = select_game_publication(&[granted.clone(), empty, withdrawn]).unwrap();
+        assert_eq!(publication.selected, selection.selected);
+        let mut invalid_public = granted;
+        let mut origin = origin_from_record(&invalid_public).unwrap();
+        origin.policy.raw_retention_allowed = false;
+        origin.bind_record(&mut invalid_public).unwrap();
+        assert!(select_game_heads(&[invalid_public], "operator:public", None).is_err());
+    }
+
+    #[test]
+    fn admission_does_not_hide_corrupt_originals_or_fabricated_facts() {
+        let mut corrupt = fixture();
+        corrupt.content.push(' ');
+        assert!(select_game_heads(&[corrupt], "operator:public", None).is_err());
+        let mut fabricated = fixture();
+        let mut document: Value =
+            serde_json::from_str(&fabricated.metadata[DOCUMENT_METADATA_KEY]).unwrap();
+        document["facts"][0]["value"] = json!(999);
+        fabricated
+            .metadata
+            .insert(DOCUMENT_METADATA_KEY.into(), document.to_string());
+        assert!(select_game_heads(&[fabricated], "operator:public", None)
+            .unwrap_err()
+            .contains("public_game_facts_disagree_with_original"));
+        let mut internal = fixture();
+        let mut origin = origin_from_record(&internal).unwrap();
+        internal.source_id = "legacy-entities".into();
+        internal.logical_id = "entity/ability_internal/private".into();
+        internal.metadata.remove(DOCUMENT_METADATA_KEY);
+        internal.metadata.remove(ORIGINAL_VERSION_KEY);
+        origin.identity.source_id = internal.source_id.clone();
+        origin.identity.logical_id = internal.logical_id.clone();
+        origin.bind_record(&mut internal).unwrap();
+        let selection = select_game_heads(&[internal], "operator:public", None).unwrap();
+        assert!(selection.selected.is_empty());
+        assert!(selection.excluded[0]
+            .reason
+            .starts_with("game_origin_unconfirmed:"));
     }
 
     #[test]
@@ -878,6 +1133,106 @@ mod tests {
                 .await
                 .is_err()
         );
+        let empty = fixture_path("{}", "data/json/empty.json");
+        let mut withdrawn = fixture_path("{\"Urn\":12}", "data/json/withdrawn.json");
+        withdrawn.tombstone = true;
+        store.apply(&empty).await.unwrap();
+        store.apply(&withdrawn).await.unwrap();
+        let mixed = read_game_heads(&pool, &sources).await.unwrap();
+        let mut stale_exclusion = mixed.clone();
+        stale_exclusion
+            .iter_mut()
+            .find(|record| record.logical_id == withdrawn.logical_id)
+            .unwrap()
+            .revision += 1;
+        assert!(reauthorize_game_heads(
+            &pool,
+            &sources,
+            &stale_exclusion,
+            "operator:public",
+            Some("operator:public-provider")
+        )
+        .await
+        .is_err());
+        let report = reauthorize_game_heads(
+            &pool,
+            &sources,
+            &mixed,
+            "operator:public",
+            Some("operator:public-provider"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report["updated"], 1);
+        assert_eq!(report["unchanged"], 2);
+        assert_eq!(report["selection"]["excluded_live"], 1);
+        assert_eq!(report["selection"]["excluded_tombstones"], 1);
+        let admitted = read_game_heads(&pool, &sources).await.unwrap();
+        assert!(admitted.contains(&empty));
+        assert!(admitted.contains(&withdrawn));
+        let base_release = brain_contracts::CorpusRelease {
+            release_id: "selection-base".into(),
+            knowledge_version: "selection-base".into(),
+            patch: "fixture".into(),
+            created_at_epoch: 1,
+            source_revisions: BTreeMap::new(),
+        };
+        store.publish_release(&base_release).await.unwrap();
+        let base = store.snapshot(&base_release.release_id).await.unwrap();
+        let selection = select_game_publication(&admitted).unwrap();
+        let (candidate, expected_all) = brain_storage::PgStore::prepare_selected_imported_release(
+            &base,
+            &sources,
+            admitted.clone(),
+            &selection.selected,
+            "selection-candidate",
+            "selection-candidate",
+            2,
+        )
+        .unwrap();
+        assert_eq!(expected_all.len(), 5);
+        assert_eq!(candidate.source_revisions[&sources[0]].len(), 3);
+        let mut changed_exclusion = empty.clone();
+        changed_exclusion.revision += 1;
+        store.apply(&changed_exclusion).await.unwrap();
+        assert!(store
+            .publish_selected_imported_heads_checked(
+                &base.release.release_id,
+                &sources,
+                &candidate,
+                &expected_all,
+                &selection.selected
+            )
+            .await
+            .is_err());
+        let fresh = read_game_heads(&pool, &sources).await.unwrap();
+        let (candidate, expected_all) = brain_storage::PgStore::prepare_selected_imported_release(
+            &base,
+            &sources,
+            fresh,
+            &selection.selected,
+            "selection-candidate",
+            "selection-candidate",
+            2,
+        )
+        .unwrap();
+        assert_eq!(
+            store
+                .publish_selected_imported_heads_checked(
+                    &base.release.release_id,
+                    &sources,
+                    &candidate,
+                    &expected_all,
+                    &selection.selected
+                )
+                .await
+                .unwrap(),
+            3
+        );
+        let published = store.snapshot(&candidate.release_id).await.unwrap();
+        assert_eq!(published.revisions.len(), 3);
+        assert!(!published.heads.contains(&changed_exclusion));
+        assert!(!published.heads.contains(&withdrawn));
         let mut changed = promoted[1].clone();
         changed.revision += 1;
         let mut origin = origin_from_record(&changed).unwrap();
@@ -900,15 +1255,68 @@ mod tests {
             .await
             .unwrap();
         sqlx::query("INSERT INTO brain.entity_snapshots(id,source,entity_type,external_id,canonical_name,payload_hash,payload,source_document_id) VALUES(1,'deadlock_data','hero','test','Prüfheld',$1,$2,1),(2,'deadlock_data','member','excluded','Nicht übernehmen',$1,$2,1)").bind(sha256_content(&content)).bind(&payload).execute(&pool).await.unwrap();
-        let documents = super::super::legacy_game::export_legacy_game(&pool, "legacy-entities")
-            .await
-            .unwrap();
-        assert_eq!(documents.len(), 1);
-        assert_eq!(documents[0].content, content);
-        let validated = crate::knowledge_contract::validate_knowledge_jsonl_str(
-            &serde_json::to_string(&documents[0]).unwrap(),
+        let mut output = Vec::new();
+        let exported =
+            super::super::legacy_game::export_legacy_game(&pool, "legacy-entities", &mut output)
+                .await
+                .unwrap();
+        assert_eq!(exported.documents, 1);
+        assert_eq!(exported.excluded, 1);
+        let validated =
+            crate::knowledge_contract::validate_knowledge_jsonl(std::io::Cursor::new(output))
+                .unwrap();
+        assert_eq!(validated.documents()[0].document.content, content);
+        sqlx::query("INSERT INTO brain.source_documents VALUES(2,'deadlock_data',$1,'https://example.invalid/private','{}'),(3,'deadlock_data',$1,'https://steamcommunity.com/games/1422450/announcements/detail/123','{}')")
+            .bind("b".repeat(64)).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO brain.entity_snapshots(id,source,entity_type,external_id,payload_hash,payload,source_document_id) VALUES(3,'deadlock_data','patchnote','private','invalid','{\"private\":true}',2),(4,'deadlock_data','patchnote','official',$1,$2,3),(5,'deadlock_data','hero','empty',$3,'{}',1)")
+            .bind(sha256_content(&content)).bind(&payload).bind(sha256_content("{}"))
+            .execute(&pool).await.unwrap();
+        let mut patch_output = Vec::new();
+        let patches = super::super::legacy_game::export_legacy_game(
+            &pool,
+            "legacy-patchnotes",
+            &mut patch_output,
+        )
+        .await
+        .unwrap();
+        assert_eq!(patches.documents, 1);
+        assert_eq!(
+            patches.exclusion_reasons["official_public_patch_url_missing"],
+            1
+        );
+        let patch_documents = crate::knowledge_contract::validate_knowledge_jsonl(
+            std::io::Cursor::new(&patch_output),
         )
         .unwrap();
+        assert_eq!(
+            patch_documents.documents()[0].document.source_locator,
+            "brain.entity_snapshots/4"
+        );
+        assert!(!String::from_utf8(patch_output)
+            .unwrap()
+            .contains("example.invalid/private"));
+        let mut repeated_output = Vec::new();
+        let entities = super::super::legacy_game::export_legacy_game(
+            &pool,
+            "legacy-entities",
+            &mut repeated_output,
+        )
+        .await
+        .unwrap();
+        assert_eq!(entities.documents, 1);
+        assert_eq!(
+            entities.exclusion_reasons["public_game_facts_empty_or_unparsed:json"],
+            1
+        );
+        let mut empty_buffer = [];
+        let mut broken_writer = std::io::Cursor::new(empty_buffer.as_mut_slice());
+        assert!(super::super::legacy_game::export_legacy_game(
+            &pool,
+            "legacy-entities",
+            &mut broken_writer
+        )
+        .await
+        .is_err());
         let policy: ImportPolicy = serde_json::from_value(json!({"sources": {"legacy-entities": {
             "internal_read_allowed": true, "raw_retention_allowed": true, "publication_allowed": false,
             "provider_egress_allowed": false, "authorization_ref": "operator:legacy-internal", "provenance_evidence_ref": "evidence:legacy-snapshot", "allowed_scopes": ["internal_docs"]

@@ -341,6 +341,46 @@ impl PgStore {
         knowledge_version: &str,
         created_at_epoch: i64,
     ) -> Result<(CorpusRelease, Vec<SourceRecordV2>), PortError> {
+        Self::prepare_imported_release_selection(
+            base,
+            sources,
+            heads,
+            None,
+            release_id,
+            knowledge_version,
+            created_at_epoch,
+        )
+    }
+
+    pub fn prepare_selected_imported_release(
+        base: &CorpusSnapshot,
+        sources: &[String],
+        heads: Vec<SourceRecordV2>,
+        documents: &BTreeSet<(String, String)>,
+        release_id: &str,
+        knowledge_version: &str,
+        created_at_epoch: i64,
+    ) -> Result<(CorpusRelease, Vec<SourceRecordV2>), PortError> {
+        Self::prepare_imported_release_selection(
+            base,
+            sources,
+            heads,
+            Some(documents),
+            release_id,
+            knowledge_version,
+            created_at_epoch,
+        )
+    }
+
+    fn prepare_imported_release_selection(
+        base: &CorpusSnapshot,
+        sources: &[String],
+        heads: Vec<SourceRecordV2>,
+        documents: Option<&BTreeSet<(String, String)>>,
+        release_id: &str,
+        knowledge_version: &str,
+        created_at_epoch: i64,
+    ) -> Result<(CorpusRelease, Vec<SourceRecordV2>), PortError> {
         let selected: BTreeSet<_> = sources.iter().cloned().collect();
         if selected.is_empty() || selected.len() != sources.len() || created_at_epoch < 0 {
             return Err(invalid("Eindeutige ausgewählte Importquellen fehlen"));
@@ -368,7 +408,8 @@ impl PgStore {
         }
         let mut seen = BTreeSet::new();
         for record in heads {
-            if (record.tombstone
+            if (documents.is_none()
+                && record.tombstone
                 && !retired_entity_document(&record)
                 && !withdrawn_imported_original(&record))
                 || !selected.contains(&record.source_id)
@@ -387,7 +428,11 @@ impl PgStore {
                 .source_revisions
                 .entry(record.source_id.clone())
                 .or_default();
-            if !record.tombstone {
+            if !record.tombstone
+                && documents.is_none_or(|keys| {
+                    keys.contains(&(record.source_id.clone(), record.logical_id.clone()))
+                })
+            {
                 pins.insert(record.logical_id.clone(), record.revision);
             }
             if expected
@@ -403,6 +448,16 @@ impl PgStore {
         if seen.len() != selected.len() {
             return Err(invalid(
                 "Ausgewählte Importquelle hat keine gespeicherten Dokumente",
+            ));
+        }
+        if documents.is_some_and(|keys| {
+            keys.iter().any(|key| {
+                !selected.contains(&key.0)
+                    || expected.get(key).is_none_or(|record| record.tombstone)
+            })
+        }) {
+            return Err(invalid(
+                "Dokumentauswahl verweist nicht auf aktive ausgewählte Köpfe",
             ));
         }
         validate_release(&release)?;
@@ -431,6 +486,42 @@ impl PgStore {
         release: &CorpusRelease,
         expected_heads: &[SourceRecordV2],
     ) -> Result<usize, PortError> {
+        self.publish_imported_heads_selection_checked(
+            base_release_id,
+            selected_sources,
+            release,
+            expected_heads,
+            None,
+        )
+        .await
+    }
+
+    pub async fn publish_selected_imported_heads_checked(
+        &self,
+        base_release_id: &str,
+        selected_sources: &[String],
+        release: &CorpusRelease,
+        expected_heads: &[SourceRecordV2],
+        documents: &BTreeSet<(String, String)>,
+    ) -> Result<usize, PortError> {
+        self.publish_imported_heads_selection_checked(
+            base_release_id,
+            selected_sources,
+            release,
+            expected_heads,
+            Some(documents),
+        )
+        .await
+    }
+
+    async fn publish_imported_heads_selection_checked(
+        &self,
+        base_release_id: &str,
+        selected_sources: &[String],
+        release: &CorpusRelease,
+        expected_heads: &[SourceRecordV2],
+        documents: Option<&BTreeSet<(String, String)>>,
+    ) -> Result<usize, PortError> {
         brain_contracts::maintenance::bounded(base_release_id, 512)?;
         validate_release(release)?;
         if base_release_id == release.release_id {
@@ -450,7 +541,8 @@ impl PgStore {
                 .validate()
                 .map_err(|_| invalid("invalid expected imported head"))?;
             if sources.contains(&record.source_id) {
-                if record.tombstone
+                if documents.is_none()
+                    && record.tombstone
                     && !retired_entity_document(record)
                     && !withdrawn_imported_original(record)
                 {
@@ -459,7 +551,11 @@ impl PgStore {
                 brain_contracts::source::origin_from_record(record)
                     .map_err(|_| invalid("invalid imported source provenance"))?;
                 let pins = selected_pins.entry(record.source_id.clone()).or_default();
-                if !record.tombstone {
+                if !record.tombstone
+                    && documents.is_none_or(|keys| {
+                        keys.contains(&(record.source_id.clone(), record.logical_id.clone()))
+                    })
+                {
                     pins.insert(record.logical_id.clone(), record.revision);
                 }
             }
@@ -472,6 +568,15 @@ impl PgStore {
             {
                 return Err(invalid("duplicate expected imported head"));
             }
+        }
+        if documents.is_some_and(|keys| {
+            keys.iter().any(|key| {
+                !sources.contains(&key.0) || expected.get(key).is_none_or(|record| record.tombstone)
+            })
+        }) {
+            return Err(invalid(
+                "Dokumentauswahl verweist nicht auf aktive ausgewählte Köpfe",
+            ));
         }
         if selected_pins.keys().cloned().collect::<BTreeSet<_>>() != sources {
             return Err(invalid("selected imported source has no heads"));
@@ -510,7 +615,10 @@ impl PgStore {
             .collect();
         if expected
             .iter()
-            .filter(|(_, record)| !record.tombstone || !sources.contains(&record.source_id))
+            .filter(|(key, record)| {
+                !sources.contains(&record.source_id)
+                    || (!record.tombstone && documents.is_none_or(|keys| keys.contains(*key)))
+            })
             .map(|(key, _)| key.clone())
             .collect::<BTreeSet<_>>()
             != pin_keys
@@ -556,7 +664,8 @@ impl PgStore {
                     != row
                         .try_get::<bool, _>("tombstone")
                         .map_err(database_error)?
-                || (record.tombstone
+                || (documents.is_none()
+                    && record.tombstone
                     && !retired_entity_document(&record)
                     && !withdrawn_imported_original(&record))
                 || actual.insert((source, logical), record).is_some()
@@ -572,9 +681,16 @@ impl PgStore {
         if actual != selected_expected {
             return Err(invalid("imported source heads changed before release"));
         }
+        if documents.is_some() {
+            let inconsistent: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM brain.source_record_heads h LEFT JOIN brain.source_record_revisions r ON r.source_id=h.source_id AND r.logical_id=h.logical_id AND r.revision=h.revision WHERE h.source_id=ANY($1) AND (r.source_id IS NULL OR r.record_json IS DISTINCT FROM h.record_json OR r.content_hash IS DISTINCT FROM h.content_hash OR r.tombstone IS DISTINCT FROM h.tombstone OR r.read_header_json IS DISTINCT FROM h.read_header_json OR h.read_header_json#>>'{head,source_id}' IS DISTINCT FROM h.source_id OR h.read_header_json#>>'{head,logical_id}' IS DISTINCT FROM h.logical_id OR h.read_header_json#>>'{head,revision}' IS DISTINCT FROM h.revision::text OR h.read_header_json->>'content_hash' IS DISTINCT FROM h.content_hash OR h.read_header_json#>>'{head,tombstone}' IS DISTINCT FROM h.tombstone::text))")
+                .bind(&source_ids).fetch_one(&mut *tx).await.map_err(database_error)?;
+            if inconsistent {
+                return Err(invalid("Ausgewählte und ausgeschlossene Köpfe widersprechen ihren unveränderlichen Revisionen"));
+            }
+        }
         for record in actual
             .values()
-            .filter(|record| withdrawn_imported_original(record))
+            .filter(|record| documents.is_none() && withdrawn_imported_original(record))
         {
             verify_withdrawn_original_tx(&mut tx, record).await?;
         }
@@ -657,7 +773,6 @@ impl PgStore {
         Ok(count)
     }
 
-    /// Bindet eine bereits gespeicherte und unabhängig geprüfte Revision, ohne sie erneut zu schreiben.
     pub async fn reuse_maintenance_revision(
         &self,
         lease: &MaintenanceLease,
@@ -739,7 +854,6 @@ impl PgStore {
         tx.commit().await.map_err(database_error)?;
         Ok(())
     }
-    /// Verbindet eine unveränderte publizierte Dokumentrevision mit dem jetzt aktiven Basisrelease.
     pub async fn rebase_maintenance_publication(
         &self,
         lease: &MaintenanceLease,
@@ -844,8 +958,6 @@ impl PgStore {
             .await
     }
 
-    /// Übernimmt geprüfte Dokumente mit Job-Fence in derselben bestehenden Corpus-Transaktion.
-    /// Unberührte Quellen behalten genau die Pins des ausdrücklich genannten Basis-Releases.
     pub async fn commit_maintenance_batches_and_publish_checked(
         &self,
         maintenance_lease: &MaintenanceLease,
@@ -1169,7 +1281,6 @@ impl PgStore {
         Ok((receipts, expected))
     }
 
-    /// One repeatable-read transaction per call; callers re-open after provider work/cache hits.
     pub async fn snapshot(&self, release_id: &str) -> Result<CorpusSnapshot, PortError> {
         let mut tx = self.pool.begin().await.map_err(database_error)?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
