@@ -1,9 +1,12 @@
 use brain_contracts::{
-    provider_input::{grounded_input_ceiling, grounded_messages, transport_input_ceiling},
+    provider_input::{
+        grounded_input_ceiling, grounded_turn_payload, transport_input_ceiling, ToolWireFormat,
+    },
     *,
 };
 use brain_storage::MemoryRepository;
 use dbrain_retrieval::{DenseEntry, DenseIndex, HybridRetriever, ReleaseRetriever};
+use sha2::{Digest, Sha256};
 use std::result::Result;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -18,7 +21,7 @@ fn record(id: &str, content: &str) -> SourceRecordV2 {
         source_id: "wiki".into(),
         logical_id: id.into(),
         revision: 7,
-        content_hash: format!("hash-{id}"),
+        content_hash: format!("{:x}", Sha256::digest(content.as_bytes())),
         content: content.into(),
         visibility: SourceVisibility::Public,
         allowed_scopes: BTreeSet::new(),
@@ -200,8 +203,16 @@ async fn large_hero_default_budget_multiple_chunks_and_exact_provenance() {
     assert!(hits.iter().all(|hit| hit.content.len() < content.len()));
     let estimate = grounded_input_ceiling(&q, &hits);
     assert!(estimate <= 12_000);
-    let transport = serde_json::json!({"model":"fixture", "messages":grounded_messages(&q, &hits), "max_tokens":2000});
-    assert_eq!(estimate, transport_input_ceiling(&transport, true).unwrap());
+    let ceilings: Vec<_> = [ToolWireFormat::Native, ToolWireFormat::OpenAiCompatible]
+        .into_iter()
+        .map(|format| {
+            let transport =
+                grounded_turn_payload(&q, &hits, &[], &ToolConversation::default(), format)
+                    .unwrap();
+            transport_input_ceiling(&transport, true).unwrap()
+        })
+        .collect();
+    assert_eq!(estimate, *ceilings.iter().max().unwrap());
     for hit in &hits {
         let p = hit.provenance.as_ref().unwrap();
         assert_eq!(p.metadata, original.metadata);
@@ -515,6 +526,8 @@ async fn forged_chunk_range_source_provenance_content_and_acl_are_rejected() {
 struct Counted {
     inner: MemoryRepository,
     snapshots: Arc<AtomicUsize>,
+    manifests: Arc<AtomicUsize>,
+    document_batches: Arc<AtomicUsize>,
     head_keys: Arc<AtomicUsize>,
     largest_batch: Arc<AtomicUsize>,
 }
@@ -522,6 +535,24 @@ impl SnapshotReadPort for Counted {
     fn read_snapshot(&self, release: &str) -> Result<CorpusSnapshot, PortError> {
         self.snapshots.fetch_add(1, Ordering::SeqCst);
         self.inner.read_snapshot(release)
+    }
+    fn read_manifest_until(
+        &self,
+        release: &str,
+        deadline: Option<&RequestDeadline>,
+    ) -> Result<ReleaseReadManifest, PortError> {
+        self.manifests.fetch_add(1, Ordering::SeqCst);
+        self.inner.read_manifest_until(release, deadline)
+    }
+    fn read_documents_until(
+        &self,
+        release: &str,
+        documents: &[DocumentRevision],
+        deadline: Option<&RequestDeadline>,
+    ) -> Result<Vec<SourceRecordV2>, PortError> {
+        self.document_batches.fetch_add(1, Ordering::SeqCst);
+        self.inner
+            .read_documents_until(release, documents, deadline)
     }
     fn read_heads(&self, docs: &[DocumentRevision]) -> Result<Vec<DocumentHead>, PortError> {
         self.head_keys.fetch_add(docs.len(), Ordering::SeqCst);
@@ -538,6 +569,8 @@ async fn four_thousand_documents_concurrent_queries_build_once_and_read_only_can
     let store = Counted {
         inner: published(records).await,
         snapshots: Arc::new(AtomicUsize::new(0)),
+        manifests: Arc::new(AtomicUsize::new(0)),
+        document_batches: Arc::new(AtomicUsize::new(0)),
         head_keys: Arc::new(AtomicUsize::new(0)),
         largest_batch: Arc::new(AtomicUsize::new(0)),
     };
@@ -561,7 +594,9 @@ async fn four_thousand_documents_concurrent_queries_build_once_and_read_only_can
     for worker in workers {
         worker.join().unwrap();
     }
-    assert_eq!(store.snapshots.load(Ordering::SeqCst), 1);
+    assert_eq!(store.snapshots.load(Ordering::SeqCst), 0);
+    assert_eq!(store.manifests.load(Ordering::SeqCst), 8 * 10 * 3);
+    assert_eq!(store.document_batches.load(Ordering::SeqCst), 1);
     assert_eq!(store.head_keys.load(Ordering::SeqCst), 8 * 10 * 3);
     assert_eq!(store.largest_batch.load(Ordering::SeqCst), 1);
 }

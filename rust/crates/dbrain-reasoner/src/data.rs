@@ -2220,7 +2220,7 @@ pub fn enrich_frozen_models(
                 hero.name
             ))
         })?;
-    if let Some(weapon_raw) = hero_raw
+    let weapon_raw = hero_raw
         .get("weapon_info")
         .filter(|info| info.is_object())
         .map(|_| hero_raw)
@@ -2229,13 +2229,34 @@ pub fn enrich_frozen_models(
             raw.iter().find(|value| {
                 ability_class_name(value) == class && value.get("weapon_info").is_some()
             })
-        })
-    {
+        });
+    if let Some(weapon_raw) = weapon_raw {
         hero.weapon_timing = weapon_timing(weapon_raw);
     }
     hero.base_spirit_power =
         number(hero_raw.pointer("/starting_stats/tech_power/value")).unwrap_or_default();
     hero.standard_level_up_upgrades = numeric_object(hero_raw.get("standard_level_up_upgrades"));
+    if let Some(damage) = hero
+        .standard_level_up_upgrades
+        .get_mut("MODIFIER_VALUE_BASE_BULLET_DAMAGE_FROM_LEVEL")
+    {
+        let pellets = match weapon_raw {
+            Some(payload) => weapon_pellet_multiplier(payload),
+            None => Some(hero.weapon_timing.pellets.unwrap_or(1.0))
+                .filter(|pellets| crate::mechanics::valid_pellet_count(*pellets)),
+        }
+        .ok_or_else(|| {
+            ReasonerError::Data(
+                "Ungültige Projektilzahl für Schadens- und Wachstumsrechnung".into(),
+            )
+        })?;
+        *damage *= pellets;
+        if !damage.is_finite() {
+            return Err(ReasonerError::Data(
+                "Waffenwachstum ist nicht endlich".into(),
+            ));
+        }
+    }
     hero.standard_upgrade_levels = standard_upgrade_levels(hero_raw);
     hero.level_rewards = level_rewards(hero_raw);
     hero.cost_bonuses =

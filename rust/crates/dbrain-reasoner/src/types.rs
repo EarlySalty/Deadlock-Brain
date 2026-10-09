@@ -362,6 +362,8 @@ pub struct BuildObject {
     pub ability_order: Vec<AbilityStep>,
     pub confidence: Confidence,
     pub rationale: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<Box<crate::publish::BuildProvenance>>,
     #[serde(default)]
     pub family: Option<crate::families::BuildFamily>,
     #[serde(default)]

@@ -2349,7 +2349,7 @@ fn simulate(
     } else {
         dt
     };
-    let elapsed = out.elapsed_seconds.max(dt);
+    let elapsed = out.elapsed_seconds.max(dt.min(window));
     out.effective_health = health_sum;
     out.incoming_health_damage = incoming.health_damage;
     out.remaining_health = (last_maximum_health.unwrap_or(hero.base_health)

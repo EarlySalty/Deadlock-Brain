@@ -361,7 +361,12 @@ async fn large_utf8_source_keeps_tail_and_facts_retrievable() {
     let projection = project_knowledge(&original).unwrap().unwrap();
     assert_eq!(&projection.text[..projection.raw_byte_end], content);
     let retriever = ReleaseRetriever::new(published(original).await, 6);
-    let c = context();
+    let mut c = context();
+    let anchor = std::time::Instant::now();
+    c.request_deadline = Some(RequestDeadline::after_with_clock(
+        std::time::Duration::from_millis(c.deadline_ms),
+        move || anchor,
+    ));
     for term in ["LetzterOriginalmarker", "cooldown 12.5"] {
         let q = query(term);
         let hits = retriever.retrieve(&q, &c).unwrap();
@@ -374,6 +379,11 @@ async fn large_utf8_source_keeps_tail_and_facts_retrievable() {
         }
         retriever.validate_evidence(&q, &c, &hits, true).unwrap();
     }
+    c.request_deadline.as_ref().unwrap().cancel();
+    assert!(matches!(
+        retriever.retrieve(&query("LetzterOriginalmarker"), &c),
+        Err(PortError::BudgetExceeded)
+    ));
 }
 
 #[tokio::test]

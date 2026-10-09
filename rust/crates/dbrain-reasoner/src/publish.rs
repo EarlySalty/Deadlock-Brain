@@ -237,19 +237,12 @@ pub(crate) fn bind_calculated_build(
 ) -> Result<()> {
     provenance.purchase_plan = Some(purchase_plan.clone());
     provenance.plan_sha256 = plan_fingerprint(build, provenance.purchase_plan.as_ref())?;
-    let first = build
-        .core
-        .first_mut()
-        .ok_or_else(|| ReasonerError::Data("Berechneter Build enthält keinen Kern.".into()))?;
-    first.sources.push(crate::Evidence {
-        kind: EvidenceKind::BuildProvenance(Box::new(provenance)),
-        detail: String::new(),
-    });
+    build.provenance = Some(Box::new(provenance));
     Ok(())
 }
 
 pub fn validate_build_provenance(build: &BuildObject) -> Result<&BuildProvenance> {
-    let mut origins = build
+    let item_origins = build
         .core
         .iter()
         .chain(build.situations.iter().flat_map(|block| &block.items))
@@ -258,6 +251,7 @@ pub fn validate_build_provenance(build: &BuildObject) -> Result<&BuildProvenance
             EvidenceKind::BuildProvenance(provenance) => Some(provenance.as_ref()),
             _ => None,
         });
+    let mut origins = build.provenance.as_deref().into_iter().chain(item_origins);
     let provenance = origins.next().ok_or_else(|| {
         ReasonerError::Data(
             "Berechnete Buildherkunft fehlt. Bitte einen aktuellen Build berechnen.".into(),
@@ -913,6 +907,7 @@ mod tests {
             })
             .collect();
         let build = BuildObject {
+            provenance: None,
             hero_id: 700,
             hero_name: hero.name.clone(),
             patch_tag: "test-patch".into(),
@@ -1044,6 +1039,28 @@ mod tests {
     }
 
     #[test]
+    fn build_provenance_is_independent_of_items_and_rejects_duplicate_legacy_bindings() {
+        let (build, _) = bound_fixture(origin_fixture());
+        let expected = validate_build_provenance(&build).unwrap().clone();
+        assert!(build
+            .core
+            .iter()
+            .flat_map(|item| &item.sources)
+            .all(|evidence| { !matches!(evidence.kind, EvidenceKind::BuildProvenance(_)) }));
+        let mut legacy = build.clone();
+        let provenance = legacy.provenance.take().unwrap();
+        legacy.core[0].sources.push(Evidence {
+            kind: EvidenceKind::BuildProvenance(provenance),
+            detail: String::new(),
+        });
+        let restored: BuildObject =
+            serde_json::from_value(serde_json::to_value(&legacy).unwrap()).unwrap();
+        assert_eq!(validate_build_provenance(&restored).unwrap(), &expected);
+        legacy.provenance = build.provenance.clone();
+        assert!(validate_build_provenance(&legacy).is_err());
+    }
+
+    #[test]
     fn fingerprints_bind_all_planning_inputs_without_new_receipt_fixtures() {
         let (_, hero, mut items, mut snapshots) = model_fixture();
         let cfg = crate::ReasonerConfig::default();
@@ -1148,11 +1165,7 @@ mod tests {
             .value += 1.0;
         assert!(validate_current_game_values(&build, &original, &changed).is_err());
         let mut forged = build.clone();
-        if let EvidenceKind::BuildProvenance(provenance) =
-            &mut forged.core[0].sources.last_mut().unwrap().kind
-        {
-            provenance.origin.source_run_id += 1;
-        }
+        forged.provenance.as_mut().unwrap().origin.source_run_id += 1;
         assert!(validate_current_game_values(&forged, &original, &current).is_err());
     }
 
@@ -1284,14 +1297,17 @@ mod tests {
         )
         .unwrap();
         let mut tampered = restored;
-        if let EvidenceKind::BuildProvenance(provenance) =
-            &mut tampered.core[0].sources.last_mut().unwrap().kind
-        {
-            provenance.purchase_plan.as_mut().unwrap().steps[1]
-                .transition
-                .sold_ids
-                .clear();
-        }
+        tampered
+            .provenance
+            .as_mut()
+            .unwrap()
+            .purchase_plan
+            .as_mut()
+            .unwrap()
+            .steps[1]
+            .transition
+            .sold_ids
+            .clear();
         assert!(validate_build_provenance(&tampered).is_err());
     }
 
@@ -1482,6 +1498,7 @@ mod tests {
     #[test]
     fn publish_roundtrip_keeps_annotations_imbue_sell_and_layout() {
         let build = BuildObject {
+            provenance: None,
             family: None,
             variants: Vec::new(),
             family_discovery: None,

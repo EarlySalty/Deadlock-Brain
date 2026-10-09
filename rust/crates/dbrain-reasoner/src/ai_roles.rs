@@ -255,6 +255,7 @@ mod tests {
     #[test]
     fn run_critic_validates_verdict_over_http() {
         let build = BuildObject {
+            provenance: None,
             family: None,
             variants: Vec::new(),
             family_discovery: None,

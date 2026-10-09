@@ -276,6 +276,7 @@ fn unpublished_build() -> crate::BuildObject {
         .families
         .remove(0);
     crate::BuildObject {
+        provenance: None,
         hero_id: 700,
         hero_name: "Synthetic".into(),
         patch_tag: "test".into(),

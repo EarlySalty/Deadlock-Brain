@@ -773,6 +773,7 @@ fn compose_build_with_author_evidence_and_constraints(
     };
     constraints.check()?;
     Ok((BuildObject {
+        provenance: None,
         family: None,
         variants: Vec::new(),
         family_discovery: None,
@@ -825,12 +826,37 @@ mod tests {
                 ability_id: 101,
             }],
         };
+        let origin = crate::publish::BuildDataOrigin {
+            client_version: 6000,
+            source_run_id: 10,
+            mirrored_at: 2000,
+            parser_revision: "fixture-parser".into(),
+            manifest_document_id: 11,
+            manifest_sha256: "1".repeat(64),
+            heroes_document_id: 12,
+            heroes_sha256: "2".repeat(64),
+            items_document_id: 13,
+            items_sha256: "3".repeat(64),
+        };
+        let snapshots = vec![crate::PatchSnapshot {
+            target: crate::DeltaTarget::Hero(hero.hero_id),
+            name: hero.name.clone(),
+            fields: std::collections::BTreeMap::from([(
+                "value".into(),
+                crate::SnapshotField {
+                    value: 10.0,
+                    fetched_at: Some(2000.0),
+                    source: origin.snapshot_source().unwrap(),
+                    label: "Spielwert".into(),
+                },
+            )]),
+        }];
         let planned = crate::plan_build_with_request(
             &hero,
             &items,
             &meta,
             &[],
-            &[],
+            &snapshots,
             &config,
             crate::BuildRequestContext {
                 request: &request,
@@ -856,7 +882,7 @@ mod tests {
             &items,
             &meta,
             &[],
-            &[],
+            &snapshots,
             &config,
             crate::BuildRequestContext {
                 request: &low_budget,
@@ -866,6 +892,12 @@ mod tests {
         .unwrap();
         assert!(low.build.core.is_empty());
         assert!(low.purchase_plan.steps.is_empty());
+        let restored: BuildObject =
+            serde_json::from_value(serde_json::to_value(&low.build).unwrap()).unwrap();
+        let provenance = crate::publish::validate_build_provenance(&restored).unwrap();
+        assert_eq!(provenance.origin, origin);
+        assert_eq!(provenance.purchase_plan.as_ref(), Some(&low.purchase_plan));
+        assert!(crate::publish::validate_publish_input(&restored).is_err());
         let optional = low
             .build
             .situations

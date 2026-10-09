@@ -115,6 +115,21 @@ fn recorded_weapon_timing_survives_model_loading_serialization_and_frozen_enrich
         assert_eq!(legacy.weapon_timing, crate::WeaponTiming::default());
         crate::data::enrich_frozen_models(&mut legacy, &mut [], &snapshots).unwrap();
         assert_eq!(&legacy.weapon_timing, timing);
+        assert_eq!(
+            legacy.standard_level_up_upgrades,
+            sourced.model.standard_level_up_upgrades
+        );
+        let without_weapon = snapshots
+            .iter()
+            .filter(|value| value.get("weapon_info").is_none())
+            .cloned()
+            .collect::<Vec<_>>();
+        crate::data::enrich_frozen_models(&mut legacy, &mut [], &without_weapon).unwrap();
+        assert_eq!(&legacy.weapon_timing, timing);
+        assert_eq!(
+            legacy.standard_level_up_upgrades,
+            sourced.model.standard_level_up_upgrades
+        );
         let projected =
             crate::progression::at_souls(&legacy, &[], 20_000, &crate::ReasonerConfig::default());
         assert_eq!(&projected.0.weapon_timing, timing);
@@ -841,6 +856,15 @@ fn unconditional_inventory_shred_matches_scalar_and_real_shot_damage() {
     close(
         combat.weapon_damage,
         number(&result, "effective_damage_per_shot"),
+    );
+    close(combat.elapsed_seconds, input.window_seconds);
+    close(
+        combat.damage_per_second,
+        combat.weapon_damage / input.window_seconds,
+    );
+    close(
+        number(&result, "simulated_damage_per_second"),
+        combat.damage_per_second,
     );
 }
 
