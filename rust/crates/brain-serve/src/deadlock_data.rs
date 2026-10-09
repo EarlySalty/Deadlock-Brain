@@ -549,7 +549,10 @@ impl Runtime {
             "not_requested"
         };
         let result = json!({"source":"Deadlock-API","operation":data.operation,
-            "hero_id":hero_id,"item_id":item_id,"from_unix":start,"to_unix_exclusive":end,
+            "hero_id":hero_id,"item_id":item_id,
+            "hero_names":hero_id.map(|id| bundle.localized_names("heroes_all", id)).transpose()?,
+            "item_names":item_id.map(|id| bundle.localized_names("items", id)).transpose()?,
+            "from_unix":start,"to_unix_exclusive":end,
             "game_mode":mode,"population":mode.population(),"api_status":api_status,"build_api_status":build_api_status,"mechanical":mechanical,"observations":rows,"build_observations":builds,
             "interpretation":"Spielwerte bestimmen, was mechanisch passt. Matchdaten sind eine Gegenprobe, keine Vorschrift. Siegquoten sind kein Beweis, dass ein Item den Sieg verursacht. Keine zusätzliche Mindestzahl an Matches. In der Antwort Datenbasis und Zeitraum kurz nennen.",
             "build_limit":"Einzelitemvergleich aus dem Build-Reasoner, kein vollständiger geprüfter Kaufplan.",
@@ -851,18 +854,22 @@ fn add_names(
         ("item_id", "items", "item_name"),
     ] {
         if let Some(id) = row[field].as_i64() {
-            if let Some(entity) = bundle
-                .asset(kind, Some("german"))?
+            let eligible = bundle
+                .asset(kind, Some("english"))?
                 .payload
                 .as_array()
                 .ok_or_else(invalid)?
                 .iter()
-                .find(|entity| {
+                .any(|entity| {
                     entity["id"].as_i64() == Some(id)
                         && (kind != "items" || mode.allows_item(entity))
-                })
-            {
-                row[output] = entity["name"].clone();
+                });
+            if eligible {
+                let names = bundle.localized_names(kind, id)?;
+                if let Some(name) = names.get("english") {
+                    row[output] = name.clone();
+                }
+                row[format!("{output}s")] = names;
             }
         }
     }
@@ -941,12 +948,14 @@ fn mechanical_items(
                 std::slice::from_ref(&scored.item),
                 &config,
             );
-            json!({"item_id":scored.item.item_id,"name":scored.item.name,"cost":scored.item.cost,"tier":scored.item.tier,
-            "score":scored.score,"reasons":scored.sources,"combat":combat_summary(&evaluation, &baseline.unknown_effects)})
+            Ok(json!({"item_id":scored.item.item_id,"name":scored.item.name,
+            "names":bundle.localized_names("items", scored.item.item_id)?,"cost":scored.item.cost,"tier":scored.item.tier,
+            "score":scored.score,"reasons":scored.sources,"combat":combat_summary(&evaluation, &baseline.unknown_effects)}))
         })
-        .collect();
+        .collect::<Result<_, PortError>>()?;
     Ok(
         json!({"engine":"dbrain-reasoner","hero_id":hero_id,"hero_name":hero.model.name,
+        "hero_names":bundle.localized_names("heroes_all", hero_id)?,
         "client_version":models.client_version,"model_source":hero.source,"unknowns":hero.unknowns,
         "scenario":"Einzelitem am Basishelden; Simulation mit den bestehenden Standardannahmen des Reasoners. Kein vollständiger Build und keine behauptete Patchzuordnung der Matchdaten. baseline.unknown_effects gelten auch für jedes Item; combat.unknown_effects ergänzt die itemspezifischen Grenzen.",
         "baseline":combat_summary(&baseline, &[]),"assumptions":baseline.assumptions,"simulation_seconds":config.combat_window_seconds,"items":ranked}),
@@ -1671,6 +1680,20 @@ mod tests {
         assert_eq!(entry.result["mechanical"]["engine"], "dbrain-reasoner");
         let items = entry.result["mechanical"]["items"].as_array().unwrap();
         assert!(!items.is_empty());
+        let bundle = runtime.mirror.read_pinned(&context, &pin).unwrap();
+        for item in items {
+            let id = item["item_id"].as_i64().unwrap();
+            let names = bundle.localized_names("items", id).unwrap();
+            assert_eq!(item["names"], names);
+            assert_eq!(item["name"], names["english"]);
+            assert!(names["german"].as_str().is_some());
+        }
+        for observation in entry.result["observations"].as_array().unwrap() {
+            let id = observation["item_id"].as_i64().unwrap();
+            let names = bundle.localized_names("items", id).unwrap();
+            assert_eq!(observation["item_names"], names);
+            assert_eq!(observation["item_name"], names["english"]);
+        }
         assert!(items
             .iter()
             .all(|item| item["item_id"].as_u64().is_some_and(|id| id > 0)

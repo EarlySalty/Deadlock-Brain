@@ -374,6 +374,35 @@ impl PinnedMirrorBundle {
             .get(&key)
             .ok_or_else(|| mirror_error("Endpunkt gehört nicht zum gebundenen Spiegel"))
     }
+
+    pub fn localized_names(
+        &self,
+        kind: &str,
+        id: i64,
+    ) -> std::result::Result<Value, brain_contracts::PortError> {
+        let mut names = serde_json::Map::new();
+        for language in ["english", "german"] {
+            let rows = self
+                .asset(kind, Some(language))?
+                .payload
+                .as_array()
+                .ok_or_else(|| mirror_error("Entitätensatz ist kein Array"))?;
+            let mut matching = rows
+                .iter()
+                .filter(|entity| entity["id"].as_i64() == Some(id));
+            let entity = matching.next();
+            if matching.next().is_some() {
+                return Err(mirror_error("Mehrdeutige lokalisierte Entitätsbindung"));
+            }
+            if let Some(name) = entity
+                .and_then(|entity| entity["name"].as_str())
+                .filter(|name| !name.trim().is_empty())
+            {
+                names.insert(language.into(), Value::String(name.into()));
+            }
+        }
+        Ok(Value::Object(names))
+    }
 }
 
 type MirrorGeneration = Vec<(String, i64, String)>;
