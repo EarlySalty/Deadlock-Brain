@@ -3,7 +3,7 @@ use crate::{
     schema_watch::{
         asset_dependencies, validate_consumed, DriftReport, OpenApiSnapshot, OPENAPI_URL,
     },
-    store::{complete_run, open_pool, EntitySnapshotInput, SourceStore},
+    store::{complete_run, open_pool_with_limit, EntitySnapshotInput, SourceStore},
     Result, SourcesError,
 };
 use brain_storage::asset_mirror::{
@@ -14,7 +14,7 @@ use serde_json::{json, Map, Value};
 use std::{collections::BTreeSet, path::Path};
 
 pub const SOURCE: &str = "deadlock_assets_api";
-pub const PARSER_REVISION: &str = "dbrain-assets/4";
+pub const PARSER_REVISION: &str = "dbrain-assets/5";
 pub const BASE_URL: &str = "https://api.deadlock-api.com";
 pub const ENDPOINTS: &[(&str, &str)] = &[
     ("items", "/v1/assets/items"),
@@ -43,7 +43,7 @@ pub async fn pull_assets(
     options: PullAssetsOptions,
 ) -> Result<Value> {
     let selected = resolve_kinds(&options.kinds)?;
-    let pool = open_pool().await?;
+    let pool = open_pool_with_limit(1).await?;
     let store = SourceStore::new(&pool, raw_dir)?;
     let run_id = store.begin_run("assets").await?;
     let outcome = pull_assets_inner(&store, http, &selected).await;
@@ -78,7 +78,7 @@ pub(crate) async fn pull_assets_inner(
     http: &HttpClient,
     selected: &[(String, &'static str)],
 ) -> Result<Value> {
-    let manifest = SourceIr::from_http(
+    let mut manifest = SourceIr::from_http(
         SOURCE,
         PARSER_REVISION,
         http.get_bounded(
@@ -86,6 +86,7 @@ pub(crate) async fn pull_assets_inner(
             SourceHttpOptions::default(),
         )?,
     )?;
+    manifest.authorize_public_assets()?;
     let client_version = manifest
         .payload()?
         .get("client_version")
@@ -138,7 +139,10 @@ pub(crate) async fn pull_assets_inner(
         for language in languages {
             let url = asset_url(kind, endpoint, client_version, language);
             let response = http.get_bounded(&url, SourceHttpOptions::default())?;
-            let ir = prepare_assets(kind, response, Some(&report))?;
+            let mut ir = prepare_assets(kind, response, Some(&report))?;
+            if !ir.is_quarantined() {
+                ir.authorize_public_assets()?;
+            }
             let pinned = MIRRORED_ASSET_KINDS.contains(&kind.as_str());
             let language = (!language.is_empty()).then_some(*language);
             let key = if pinned {

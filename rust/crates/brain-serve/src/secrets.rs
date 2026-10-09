@@ -14,6 +14,7 @@ pub struct Secrets {
     pub(crate) credentials: CredentialRegistry,
     pub(crate) internal_credentials: CredentialRegistry,
     pub(crate) discord_live_token: Option<String>,
+    pub(crate) mirror_password: Option<String>,
 }
 
 impl std::fmt::Debug for Secrets {
@@ -119,11 +120,21 @@ impl Secrets {
                 false,
             )?),
         };
+        let mirror_password = config
+            .deadlock_api
+            .as_ref()
+            .map(|api| required(&lookup, &api.mirror_password_secret, "mirror", false))
+            .transpose()?;
         let mut tokens = BTreeSet::new();
         if !provider_key.is_empty() {
             tokens.insert(provider_key.clone());
         }
         if let Some(password) = &postgres_password {
+            if !tokens.insert(password.clone()) {
+                return Err(Error::SecretInvalid("duplicate"));
+            }
+        }
+        if let Some(password) = &mirror_password {
             if !tokens.insert(password.clone()) {
                 return Err(Error::SecretInvalid("duplicate"));
             }
@@ -154,6 +165,7 @@ impl Secrets {
             credentials: CredentialRegistry::new(grants),
             internal_credentials: CredentialRegistry::new(internal_grants),
             discord_live_token,
+            mirror_password,
         })
     }
 }
@@ -170,6 +182,56 @@ mod tests {
             "BRAIN_SERVE_PG_PASSWORD" => Some("synthetic-database-credential".into()),
             _ => None,
         }
+    }
+
+    #[test]
+    #[ignore = "explicit service snapshot probe with its existing private credential on FD5"]
+    fn live_service_snapshot_supplies_the_readonly_mirror_reference() {
+        let mut config = Config::parse(
+            &std::fs::read("/home/nathanael/.config/deadlock-brain/brain-serve.json").unwrap(),
+        )
+        .unwrap();
+        config.deadlock_api = Some(crate::config::DeadlockApi::default());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let secrets = runtime
+            .block_on(Secrets::from_infisical(
+                &config,
+                Path::new("/etc/deadlock-brain/infisical.json"),
+            ))
+            .unwrap();
+        assert!(secrets.mirror_password.is_some());
+        println!("mirror_reference_available=true");
+    }
+
+    #[test]
+    fn mirror_secret_is_explicit_required_and_not_a_duplicate_client_credential() {
+        let mut config = Config::parse(CONFIG).unwrap();
+        config.deadlock_api = Some(crate::config::DeadlockApi::default());
+        assert!(matches!(
+            Secrets::load(&config, fixture),
+            Err(Error::SecretMissing("mirror"))
+        ));
+        let secrets = Secrets::load(&config, |name| {
+            if name == "BRAIN_PG_READONLY_PASSWORD" {
+                Some("synthetic-mirror-password".into())
+            } else {
+                fixture(name)
+            }
+        })
+        .unwrap();
+        assert!(secrets.mirror_password.is_some());
+        assert!(!format!("{secrets:?}").contains("synthetic-mirror-password"));
+        assert!(matches!(
+            Secrets::load(&config, |name| if name == "BRAIN_PG_READONLY_PASSWORD" {
+                fixture("BRAIN_SERVE_API_TOKEN")
+            } else {
+                fixture(name)
+            }),
+            Err(Error::SecretInvalid("duplicate"))
+        ));
     }
 
     #[test]
