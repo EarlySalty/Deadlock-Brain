@@ -172,11 +172,26 @@ impl<'a> SourceStore<'a> {
                 "replacement raw artifact failed integrity check",
             ));
         }
+        let raw_path = path.to_string_lossy();
+        let previous_path: Option<String> = sqlx::query_scalar(
+            "SELECT raw_path FROM brain.source_documents \
+             WHERE id=$1 AND source=$2 AND content_hash=$3",
+        )
+        .bind(id)
+        .bind(source)
+        .bind(expected_hash)
+        .fetch_optional(self.pool)
+        .await?;
+        match previous_path {
+            Some(previous_path) if previous_path == raw_path.as_ref() => return Ok(true),
+            None => return Ok(false),
+            Some(_) => {}
+        }
         let result = sqlx::query(
             "UPDATE brain.source_documents SET raw_path=$1 \
              WHERE id=$2 AND source=$3 AND content_hash=$4",
         )
-        .bind(path.to_string_lossy().as_ref())
+        .bind(raw_path.as_ref())
         .bind(id)
         .bind(source)
         .bind(expected_hash)

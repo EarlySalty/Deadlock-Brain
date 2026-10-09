@@ -17,8 +17,15 @@ pub(super) async fn inspect_or_authorize(
     pool: &sqlx::PgPool,
 ) -> Result<Value, String> {
     let heads = authorization::read_game_heads(pool, &args.sources).await?;
+    let selection = authorization::select_game_heads(
+        &heads,
+        args.values
+            .get("--authorization-ref")
+            .map_or("inspect:dry-factual-projection", String::as_str),
+        args.values.get("--provider-egress-ref").map(String::as_str),
+    )?;
     if args.mode == "reauthorize-game" {
-        verify_git_heads(args, &heads)?;
+        verify_git_heads(args, &heads, &selection.selected)?;
         return authorization::reauthorize_game_heads(
             pool,
             &args.sources,
@@ -79,15 +86,9 @@ pub(super) async fn inspect_or_authorize(
             "game_origin_invalid"
         };
         summary[validity] = json!(summary[validity].as_u64().unwrap_or(0) + 1);
-        let projectable = record.revision.checked_add(1).is_some_and(|next| {
-            authorization::authorize_game_record(
-                &record,
-                "inspect:dry-factual-projection",
-                None,
-                next,
-            )
-            .is_ok()
-        });
+        let projectable = selection
+            .selected
+            .contains(&(record.source_id.clone(), record.logical_id.clone()));
         if projectable {
             summary["factual_projection_valid"] =
                 json!(summary["factual_projection_valid"].as_u64().unwrap_or(0) + 1);
@@ -99,7 +100,7 @@ pub(super) async fn inspect_or_authorize(
         }
     }
     Ok(
-        json!({"inspected": true, "sources": sources, "content_printed": false, "imported": false, "published": false, "activated": false}),
+        json!({"inspected": true, "sources": sources, "selection": selection.report(), "content_printed": false, "imported": false, "published": false, "activated": false}),
     )
 }
 
@@ -149,11 +150,12 @@ fn runtime_options(args: &Arguments, source: &str) -> Result<GameFileOptions, St
 fn verify_git_heads(
     args: &Arguments,
     heads: &[brain_contracts::SourceRecordV2],
+    selected: &std::collections::BTreeSet<(String, String)>,
 ) -> Result<(), String> {
-    for record in heads
-        .iter()
-        .filter(|record| authorization::SOURCES[..2].contains(&record.source_id.as_str()))
-    {
+    for record in heads.iter().filter(|record| {
+        selected.contains(&(record.source_id.clone(), record.logical_id.clone()))
+            && authorization::SOURCES[..2].contains(&record.source_id.as_str())
+    }) {
         authorization::validate_game_origin(record)?;
         let document: dbrain_sources::knowledge_contract::KnowledgeDocument = serde_json::from_str(
             &record.metadata[brain_storage::source_versions::DOCUMENT_METADATA_KEY],

@@ -295,8 +295,19 @@ fn public_game_projection_proof(
     let mut projected_bytes = 0usize;
     let mut facts = 0usize;
     let mut documents = Vec::new();
+    let mut selection = dbrain_sources::knowledge_import::public_game::GameSelection::default();
     for prepared_record in prepared.records() {
         let record = &prepared_record.record;
+        let admitted = dbrain_sources::knowledge_import::public_game::select_game_heads(
+            std::slice::from_ref(record),
+            authorization_ref,
+            None,
+        )?;
+        if admitted.selected.is_empty() {
+            selection.excluded.extend(admitted.excluded);
+            continue;
+        }
+        selection.selected.extend(admitted.selected);
         let next_revision = record
             .revision
             .checked_add(1)
@@ -335,6 +346,8 @@ fn public_game_projection_proof(
         "facts": facts,
         "projected_bytes": projected_bytes,
         "records": documents,
+        "selection": selection.report(), "checked_records": prepared.records().len(),
+        "originals_changed": false,
     }))
 }
 
@@ -459,22 +472,28 @@ async fn publish(args: &Arguments, store: &PgStore, pool: &sqlx::PgPool) -> Resu
         .snapshot(args.required("--base-release")?)
         .await
         .map_err(|_| "Basisrelease kann nicht vollständig gelesen werden")?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "SELECT record_json FROM brain.source_record_heads WHERE source_id = ANY($1) ORDER BY source_id,logical_id",
-    ).bind(&args.sources).fetch_all(pool).await
-        .map_err(|_| "Ausdrücklich benannte Quellköpfe können nicht gelesen werden")?;
-    let heads = rows
-        .into_iter()
-        .map(|row| {
-            serde_json::from_value(row)
-                .map_err(|_| "Gespeicherter Quellkopf ist ungültig".to_owned())
-        })
-        .collect::<Result<Vec<SourceRecordV2>, String>>()?;
+    let heads = if args.sources.iter().any(|source| {
+        dbrain_sources::knowledge_import::public_game::SOURCES.contains(&source.as_str())
+    }) {
+        dbrain_sources::knowledge_import::public_game::read_game_heads(pool, &args.sources).await?
+    } else {
+        let rows: Vec<Value> = sqlx::query_scalar(
+            "SELECT record_json FROM brain.source_record_heads WHERE source_id = ANY($1) ORDER BY source_id,logical_id",
+        ).bind(&args.sources).fetch_all(pool).await
+            .map_err(|_| "Ausdrücklich benannte Quellköpfe können nicht gelesen werden")?;
+        rows.into_iter()
+            .map(|row| {
+                serde_json::from_value(row)
+                    .map_err(|_| "Gespeicherter Quellkopf ist ungültig".to_owned())
+            })
+            .collect::<Result<Vec<SourceRecordV2>, String>>()?
+    };
     let PreparedPublication {
         release,
         expected_heads,
         source_counts: added,
         largest_content_bytes,
+        selection,
     } = prepare_publication(args, &base, heads)?;
     let release = store
         .imported_release_for_retry(&release)
@@ -506,9 +525,29 @@ async fn publish(args: &Arguments, store: &PgStore, pool: &sqlx::PgPool) -> Resu
         .values()
         .map(BTreeMap::len)
         .sum::<usize>();
-    let committed_count = store.publish_imported_heads_checked(
-        args.required("--base-release")?, &args.sources, &release, &expected_heads,
-    ).await.map_err(|_| "Releaseveröffentlichung fehlgeschlagen; Kopfstand oder Rechte müssen erneut geprüft werden")?;
+    let committed_count = if let Some(selection) = &selection {
+        store
+            .publish_selected_imported_heads_checked(
+                args.required("--base-release")?,
+                &args.sources,
+                &release,
+                &expected_heads,
+                &selection.selected,
+            )
+            .await
+    } else {
+        store
+            .publish_imported_heads_checked(
+                args.required("--base-release")?,
+                &args.sources,
+                &release,
+                &expected_heads,
+            )
+            .await
+    }
+    .map_err(|_| {
+        "Releaseveröffentlichung fehlgeschlagen; Kopfstand oder Rechte müssen erneut geprüft werden"
+    })?;
     let release = store
         .imported_release_for_retry(&release)
         .await
@@ -568,6 +607,7 @@ async fn publish(args: &Arguments, store: &PgStore, pool: &sqlx::PgPool) -> Resu
         "base_release_sha256": base_release_sha256, "candidate_release_sha256": candidate_release_sha256,
         "previous_pins": previous_pins, "documents": document_count,
         "selected_source_heads": added, "largest_content_bytes": largest_content_bytes,
+        "selection": selection.as_ref().map(|selection| selection.report()), "checked_heads": expected_heads.len(),
         "release_index": index_proof,
         "activation_required": "Der bestehende Brain-Dienst muss diesen Release ausdrücklich auswählen."
     }))
@@ -578,6 +618,7 @@ struct PreparedPublication {
     expected_heads: Vec<SourceRecordV2>,
     source_counts: BTreeMap<String, usize>,
     largest_content_bytes: usize,
+    selection: Option<dbrain_sources::knowledge_import::public_game::GameSelection>,
 }
 
 fn prepare_publication(
@@ -604,14 +645,34 @@ fn prepare_publication(
             .get_mut(&record.source_id)
             .ok_or("Unerwartete Quelle beim Releaseaufbau")? += 1;
     }
-    let (release, expected_heads) = PgStore::prepare_imported_release(
-        base,
-        &args.sources,
-        heads,
-        args.required("--release-id")?,
-        args.required("--knowledge-version")?,
-        created_at_epoch,
-    )
+    let selection = if args.sources.iter().any(|source| {
+        dbrain_sources::knowledge_import::public_game::SOURCES.contains(&source.as_str())
+    }) {
+        dbrain_sources::knowledge_import::public_game::validate_sources(&args.sources)?;
+        Some(dbrain_sources::knowledge_import::public_game::select_game_publication(&heads)?)
+    } else {
+        None
+    };
+    let (release, expected_heads) = if let Some(selection) = &selection {
+        PgStore::prepare_selected_imported_release(
+            base,
+            &args.sources,
+            heads,
+            &selection.selected,
+            args.required("--release-id")?,
+            args.required("--knowledge-version")?,
+            created_at_epoch,
+        )
+    } else {
+        PgStore::prepare_imported_release(
+            base,
+            &args.sources,
+            heads,
+            args.required("--release-id")?,
+            args.required("--knowledge-version")?,
+            created_at_epoch,
+        )
+    }
     .map_err(|_| {
         "Release verletzt den bestehenden Vertrag oder enthält ungültige Quellköpfe".to_owned()
     })?;
@@ -620,6 +681,7 @@ fn prepare_publication(
         expected_heads,
         source_counts: added,
         largest_content_bytes,
+        selection,
     })
 }
 
@@ -655,19 +717,31 @@ async fn execute(args: Arguments) -> Result<bool, String> {
             return Err("Ausgabe und Bericht müssen getrennte Dateien sein".into());
         }
         let pool = pool(&args).await?;
-        let documents = dbrain_sources::knowledge_import::legacy_game::export_legacy_game(
-            &pool,
-            &args.sources[0],
-        )
-        .await?;
         let mut file =
             tempfile::NamedTempFile::new_in(output.parent().ok_or("Ausgabeordner fehlt")?)
                 .map_err(|_| "Legacy-Ausgabe kann nicht vorbereitet werden")?;
-        for document in &documents {
-            serde_json::to_writer(file.as_file_mut(), document)
-                .map_err(|_| "Legacy-Dokument kann nicht serialisiert werden")?;
-            file.write_all(b"\n")
-                .map_err(|_| "Legacy-Dokument kann nicht geschrieben werden")?;
+        let export = {
+            let mut writer = std::io::BufWriter::new(file.as_file_mut());
+            let export = dbrain_sources::knowledge_import::legacy_game::export_legacy_game(
+                &pool,
+                &args.sources[0],
+                &mut writer,
+            )
+            .await?;
+            writer
+                .flush()
+                .map_err(|_| "Legacy-Ausgabe kann nicht geschrieben werden")?;
+            export
+        };
+        if export.documents == 0 {
+            write_report(
+                &report,
+                &json!({"exported": false, "complete": false, "source": args.sources[0],
+                "documents": 0, "selection": export, "output_persisted": false,
+                "imported": false, "published": false, "activated": false}),
+            )?;
+            pool.close().await;
+            return Err("Keine bestätigten öffentlichen Spielfakten ausgewählt; Ausschlüsse stehen im Bericht, keine Ausgabe veröffentlicht".into());
         }
         file.as_file()
             .sync_all()
@@ -680,12 +754,12 @@ async fn execute(args: Arguments) -> Result<bool, String> {
             .map_err(|_| "Ausgabeordner kann nicht gespeichert werden")?;
         write_report(
             &report,
-            &json!({"exported": true, "source": args.sources[0], "documents": documents.len(), "output": output, "imported": false, "published": false, "activated": false}),
+            &json!({"exported": true, "source": args.sources[0], "documents": export.documents, "selection": export, "output": output, "imported": false, "published": false, "activated": false}),
         )?;
         pool.close().await;
         println!(
             "{}",
-            json!({"exported": true, "documents": documents.len(), "report": report})
+            json!({"exported": true, "documents": export.documents, "report": report})
         );
         return Ok(true);
     }
@@ -898,6 +972,88 @@ mod tests {
         values[0] = "import";
         values.extend(["--runtime-config", "/runtime"]);
         assert!(args(&values).is_err());
+    }
+
+    fn prepared_game_fixture() -> PreparedKnowledgeImport {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join("data/json")).unwrap();
+        std::fs::write(
+            directory.path().join("data/json/value.json"),
+            "{\"Urn\":12}",
+        )
+        .unwrap();
+        std::fs::write(directory.path().join("data/json/empty.json"), "{}").unwrap();
+        let commit = "a".repeat(40);
+        let options = dbrain_sources::game_files::GameFileOptions {
+            root: directory.path().into(),
+            app_id: 1422450,
+            source_id: "deadlock-wiki-deadlock-data".into(),
+            observed_at: "2026-10-09T12:00:00Z".into(),
+            build_id: None,
+            manifest_id: None,
+            source_revision: Some(commit.clone()),
+            depot_id: None,
+            language: "und".into(),
+            attribution: "Valve game data".into(),
+            license_name: "unverified".into(),
+            license_url: None,
+            provenance: json!({"repository_url": "https://github.com/deadlock-wiki/deadlock-data", "git_commit": commit}),
+            max_file_bytes: 8388608,
+        };
+        let mut bytes = Vec::new();
+        dbrain_sources::game_files::extract_game_files(&options, &mut bytes).unwrap();
+        let input = validate_knowledge_jsonl(Cursor::new(bytes)).unwrap();
+        let policy: ImportPolicy = serde_json::from_value(json!({"sources": {"deadlock-wiki-deadlock-data": {
+            "internal_read_allowed": true, "raw_retention_allowed": true, "publication_allowed": false,
+            "provider_egress_allowed": false, "authorization_ref": "operator:original",
+            "provenance_evidence_ref": "evidence:original", "allowed_scopes": ["internal_docs"]
+        }}})).unwrap();
+        prepare_validated_knowledge(&input, &policy, "game-files-v2").unwrap()
+    }
+
+    #[test]
+    fn offline_simulation_and_publication_account_for_preserved_excluded_originals() {
+        let prepared = prepared_game_fixture();
+        let proof = public_game_projection_proof(&prepared, "operator:public").unwrap();
+        assert_eq!(proof["documents"], 1);
+        assert_eq!(proof["facts"], 1);
+        assert_eq!(proof["checked_records"], 2);
+        assert_eq!(proof["selection"]["excluded_live"], 1);
+        assert_eq!(proof["selection"]["excluded_tombstones"], 0);
+        assert_eq!(proof["originals_changed"], false);
+        let mut heads: Vec<_> = prepared
+            .records()
+            .iter()
+            .map(|record| record.record.clone())
+            .collect();
+        let args = publication_args(&["deadlock-wiki-deadlock-data"]);
+        let base = publication_base();
+        let private = prepare_publication(&args, &base, heads.clone()).unwrap();
+        assert!(private.release.source_revisions["deadlock-wiki-deadlock-data"].is_empty());
+        for record in &mut heads {
+            if record.content != "{}" {
+                *record = dbrain_sources::knowledge_import::public_game::authorize_game_record(
+                    record,
+                    "operator:public",
+                    None,
+                    2,
+                )
+                .unwrap();
+            }
+        }
+        let publication = prepare_publication(&args, &base, heads.clone()).unwrap();
+        assert_eq!(
+            publication.release.source_revisions["deadlock-wiki-deadlock-data"].len(),
+            1
+        );
+        assert!(heads
+            .iter()
+            .all(|record| publication.expected_heads.contains(record)));
+        assert_eq!(
+            publication.release.source_revisions["legacy"],
+            base.release.source_revisions["legacy"]
+        );
+        assert_eq!(publication.selection.unwrap().report()["excluded_live"], 1);
     }
 
     #[test]

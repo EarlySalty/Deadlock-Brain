@@ -4,8 +4,10 @@ use crate::knowledge_contract::{
 };
 use brain_contracts::SourceRecordV2;
 use brain_storage::source_versions::DOCUMENT_METADATA_KEY;
+use serde::Serialize;
 use serde_json::{json, Value};
 use sqlx::{PgConnection, PgPool, Row};
+use std::{collections::BTreeMap, io::Write};
 
 pub const SNAPSHOT_KEY: &str = "legacy_game_snapshot";
 pub const SNAPSHOT_VERSION: &str = "legacy-game-snapshot-v1";
@@ -40,10 +42,37 @@ fn official_patch_url(url: &str) -> bool {
         || url.starts_with("https://steamcommunity.com/games/1422450/announcements/detail/")
 }
 
+#[derive(Debug, Serialize)]
+pub struct LegacyGameExclusion {
+    pub snapshot_id: i64,
+    pub reason: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct LegacyGameExport {
+    pub documents: usize,
+    pub considered: usize,
+    pub excluded: usize,
+    pub exclusion_reasons: BTreeMap<String, usize>,
+    pub excluded_snapshots: Vec<LegacyGameExclusion>,
+}
+
+impl LegacyGameExport {
+    fn exclude(&mut self, id: i64, reason: String) {
+        self.excluded += 1;
+        *self.exclusion_reasons.entry(reason.clone()).or_default() += 1;
+        self.excluded_snapshots.push(LegacyGameExclusion {
+            snapshot_id: id,
+            reason,
+        });
+    }
+}
+
 pub async fn export_legacy_game(
     pool: &PgPool,
     source: &str,
-) -> Result<Vec<KnowledgeDocument>, String> {
+    output: &mut impl Write,
+) -> Result<LegacyGameExport, String> {
     let (upstreams, kinds) = match source {
         "legacy-entities" => (
             vec!["deadlock_data", "deadlock_assets_api"],
@@ -65,15 +94,48 @@ pub async fn export_legacy_game(
         _ => {
             return Err(
                 "Legacy-Export ist auf öffentliche Spielentitäten und Patchnotes begrenzt".into(),
-            );
+            )
         }
     };
-    let rows = sqlx::query("SELECT DISTINCT ON (e.source,e.entity_type,e.external_id) e.id,e.source,e.entity_type,e.external_id,e.canonical_name,e.payload_hash,e.payload,e.fetched_at,e.source_document_id,d.source AS document_source,d.content_hash AS document_hash,d.url,d.metadata FROM brain.entity_snapshots e JOIN brain.source_documents d ON d.id=e.source_document_id WHERE e.source=ANY($1) AND e.entity_type=ANY($2) AND (e.entity_type<>'localization' OR (e.source='deadlock_data' AND e.external_id IN ('english','german'))) ORDER BY e.source,e.entity_type,e.external_id,e.fetched_at DESC,e.id DESC LIMIT 10001")
-        .bind(upstreams).bind(kinds).fetch_all(pool).await.map_err(|_| "Vorhandene Spiel-Snapshots können nicht gelesen werden")?;
-    if rows.is_empty() || rows.len() > 10_000 {
-        return Err("Legacy-Spielbestand ist leer oder überschreitet 10.000 Dokumente".into());
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|_| "Legacy-Lesetransaktion kann nicht starten")?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| "Konsistenter privater Snapshot kann nicht geöffnet werden")?;
+    let rows = sqlx::query("SELECT DISTINCT ON (e.source,e.entity_type,e.external_id) e.id,e.source,e.entity_type,e.external_id,d.source AS document_source,d.url FROM brain.entity_snapshots e LEFT JOIN brain.source_documents d ON d.id=e.source_document_id WHERE e.source=ANY($1) AND e.entity_type=ANY($2) AND (e.entity_type<>'localization' OR (e.source='deadlock_data' AND e.external_id IN ('english','german'))) ORDER BY e.source,e.entity_type,e.external_id,e.fetched_at DESC,e.id DESC LIMIT 10001")
+        .bind(&upstreams).bind(&kinds).fetch_all(&mut *tx).await.map_err(|_| "Spiel-Snapshot-Metadaten können nicht gelesen werden")?;
+    if rows.len() > 10_000 {
+        return Err("Legacy-Spielbestand überschreitet 10.000 Dokumente".into());
     }
-    let mut documents = Vec::new();
+    let mut report = LegacyGameExport {
+        considered: rows.len(),
+        ..Default::default()
+    };
+    let excluded = sqlx::query("SELECT entity_type,count(DISTINCT (source,external_id)) AS documents FROM brain.entity_snapshots WHERE source=ANY($1) AND (entity_type<>ALL($2) OR (entity_type='localization' AND NOT (source='deadlock_data' AND external_id IN ('english','german')))) GROUP BY entity_type")
+        .bind(&upstreams).bind(&kinds).fetch_all(&mut *tx).await.map_err(|_| "Ausgeschlossene Kategorien können nicht gezählt werden")?;
+    for category in excluded {
+        let kind: String = category
+            .try_get("entity_type")
+            .map_err(|_| "Ausgeschlossene Kategorie fehlt")?;
+        let count: i64 = category
+            .try_get("documents")
+            .map_err(|_| "Kategoriezahl fehlt")?;
+        let count = usize::try_from(count).map_err(|_| "Kategoriezahl ist ungültig")?;
+        report.considered = report
+            .considered
+            .checked_add(count)
+            .ok_or("Kategoriezahl ist zu groß")?;
+        report.excluded = report
+            .excluded
+            .checked_add(count)
+            .ok_or("Kategoriezahl ist zu groß")?;
+        report
+            .exclusion_reasons
+            .insert(format!("game_category_not_admitted:{kind}"), count);
+    }
     for row in rows {
         let id: i64 = row.try_get("id").map_err(|_| "Snapshot-ID fehlt")?;
         let upstream: String = row.try_get("source").map_err(|_| "Snapshot-Quelle fehlt")?;
@@ -83,16 +145,25 @@ pub async fn export_legacy_game(
         let external: String = row
             .try_get("external_id")
             .map_err(|_| "Snapshot-Identität fehlt")?;
-        let document_source: String = row
+        let document_source: Option<String> = row
             .try_get("document_source")
             .map_err(|_| "Originalquelle fehlt")?;
-        if !allowed(&upstream, &kind, &external, source) || document_source != upstream {
-            return Err("Snapshot hat eine fremde Spielherkunft".into());
+        if !allowed(&upstream, &kind, &external, source)
+            || document_source.as_deref() != Some(upstream.as_str())
+        {
+            return Err("Snapshot hat eine fehlende oder fremde Spielherkunft".into());
         }
-        let payload: Value = row
+        let url: Option<String> = row.try_get("url").map_err(|_| "Originaladresse fehlt")?;
+        if source == "legacy-patchnotes" && !url.as_deref().is_some_and(official_patch_url) {
+            report.exclude(id, "official_public_patch_url_missing".into());
+            continue;
+        }
+        let payload_row = sqlx::query("SELECT e.canonical_name,e.payload_hash,e.payload,e.fetched_at,e.source_document_id,d.content_hash AS document_hash,d.metadata FROM brain.entity_snapshots e JOIN brain.source_documents d ON d.id=e.source_document_id WHERE e.id=$1")
+            .bind(id).fetch_one(&mut *tx).await.map_err(|_| "Ausgewählter Spiel-Snapshot kann nicht gelesen werden")?;
+        let payload: Value = payload_row
             .try_get("payload")
             .map_err(|_| "Snapshot-Nutzlast fehlt")?;
-        let payload_hash: String = row
+        let payload_hash: String = payload_row
             .try_get("payload_hash")
             .map_err(|_| "Snapshot-Hash fehlt")?;
         let content = crate::store::json_string(&payload)
@@ -100,22 +171,28 @@ pub async fn export_legacy_game(
         if sha256_content(&content) != payload_hash {
             return Err("Snapshot-Hash widerspricht seiner Nutzlast".into());
         }
-        let url: Option<String> = row.try_get("url").map_err(|_| "Originaladresse fehlt")?;
-        if source == "legacy-patchnotes" && !url.as_deref().is_some_and(official_patch_url) {
-            return Err("Patchnote besitzt keine offizielle öffentliche Spielquelle".into());
-        }
-        let observed: chrono::DateTime<chrono::Utc> = row
+        let observed: chrono::DateTime<chrono::Utc> = payload_row
             .try_get("fetched_at")
             .map_err(|_| "Snapshot-Beobachtungszeit fehlt")?;
-        let source_document_id: i64 = row
+        let source_document_id: i64 = payload_row
             .try_get("source_document_id")
             .map_err(|_| "Originalbindung fehlt")?;
-        let document_hash: String = row
+        let document_hash: String = payload_row
             .try_get("document_hash")
             .map_err(|_| "Originalhash fehlt")?;
-        let source_metadata: Value = row
+        let source_metadata: Value = payload_row
             .try_get("metadata")
             .map_err(|_| "Originalmetadaten fehlen")?;
+        if id <= 0
+            || source_document_id <= 0
+            || !source_metadata.is_object()
+            || document_hash.len() != 64
+            || !document_hash
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err("Spiel-Snapshot besitzt keine gültige Originalbindung".into());
+        }
         let path = format!("legacy/{upstream}/{kind}/{}", sha256_content(&external));
         let (facts, parse_status) =
             brain_storage::entity_profile::derivation::game_file_facts::extract_facts(
@@ -123,9 +200,11 @@ pub async fn export_legacy_game(
                 &content,
             );
         if facts.is_empty() {
-            return Err(format!(
-                "Legacy-Spielwissen enthält keine auswertbaren Fakten: {path}: {parse_status}"
-            ));
+            report.exclude(
+                id,
+                format!("public_game_facts_empty_or_unparsed:{parse_status}"),
+            );
+            continue;
         }
         let facts = serde_json::from_value(Value::Array(facts))
             .map_err(|_| "Legacy-Fakten verletzen den Wissensvertrag")?;
@@ -135,28 +214,17 @@ pub async fn export_legacy_game(
             source_id: source.into(),
             document_id: format!("game:1422450:{path}"),
             source_locator: format!("brain.entity_snapshots/{id}"),
-            title: row
-                .try_get::<Option<String>, _>("canonical_name")
-                .map_err(|_| "Snapshot-Name ist ungültig")?
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| format!("{kind}:{external}")),
-            language: if kind == "localization" {
-                if external == "german" { "de" } else { "en" }
-            } else {
-                "und"
-            }
-            .into(),
+            title: payload_row.try_get::<Option<String>, _>("canonical_name").map_err(|_| "Snapshot-Name ist ungültig")?
+                .filter(|value| !value.trim().is_empty()).unwrap_or_else(|| format!("{kind}:{external}")),
+            language: if kind == "localization" { if external == "german" { "de" } else { "en" } } else { "und" }.into(),
             revision: format!("legacy-snapshot:{id}:{payload_hash}"),
             observed_at: observed.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             content_sha256: payload_hash.clone(),
             content,
             evidence_status: KnowledgeEvidenceStatus::ExtractedValue,
             license: KnowledgeLicense {
-                name: "unverified".into(),
-                url: None,
-                attribution: format!(
-                    "{upstream}; Valve game data; original rights declaration retained in source metadata"
-                ),
+                name: "unverified".into(), url: None,
+                attribution: format!("{upstream}; Valve game data; original rights declaration retained in source metadata"),
                 redistribution_allowed: false,
             },
             metadata: serde_json::from_value(json!({"app_id": 1422450, "relative_path": path,
@@ -165,15 +233,23 @@ pub async fn export_legacy_game(
                     "upstream_source": upstream, "entity_type": kind, "external_id": external,
                     "payload_hash": payload_hash, "source_document_id": source_document_id,
                     "original_document_sha256": document_hash, "original_url": url}}))
-            .map_err(|_| "Snapshot-Herkunft ist ungültig")?,
+                .map_err(|_| "Snapshot-Herkunft ist ungültig")?,
             facts,
         };
         document
             .validate(1)
             .map_err(|_| "Legacy-Dokument verletzt den Wissensvertrag")?;
-        documents.push(document);
+        serde_json::to_writer(&mut *output, &document)
+            .map_err(|_| "Legacy-Dokument kann nicht serialisiert werden")?;
+        output
+            .write_all(b"\n")
+            .map_err(|_| "Legacy-Dokument kann nicht geschrieben werden")?;
+        report.documents += 1;
     }
-    Ok(documents)
+    tx.commit()
+        .await
+        .map_err(|_| "Legacy-Lesesnapshot wurde nicht vollständig bestätigt")?;
+    Ok(report)
 }
 
 pub fn validate_snapshot_record(
