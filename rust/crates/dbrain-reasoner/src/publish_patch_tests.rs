@@ -1,6 +1,6 @@
 #[test]
 fn repeated_api_confirmation_preserves_original_input_identity_and_resume_validation() {
-    let (mut build, original) = bound_fixture(origin_fixture());
+    let (mut build, mut original) = bound_fixture(origin_fixture());
     let previous = validate_build_provenance(&build).unwrap().clone();
     let caller = publication_caller(&build).unwrap();
     let mut current = bound_fixture(origin_fixture()).1;
@@ -24,9 +24,13 @@ fn repeated_api_confirmation_preserves_original_input_identity_and_resume_valida
     assert_eq!(checked.input_sha256, previous.input_sha256);
     bind_calculated_build(&mut build, checked, previous.purchase_plan.as_ref().unwrap()).unwrap();
     assert_eq!(publication_caller(&build).unwrap(), caller);
-    validate_current_game_values(&build, &original, &current).unwrap();
-    assert_eq!(validate_build_provenance(&build).unwrap().origin.mirrored_at, 2000);
+    validate_publish_current_models(&build, &original, &current, 3500).unwrap();
+    assert_eq!(validate_build_provenance(&build).unwrap(), &previous);
+    assert_eq!(current.provenance.mirrored_at, 2000);
     assert_eq!(original.provenance.checked_at, 2000);
+    let serialized = serde_json::to_value(&build).unwrap();
+    let resumed: BuildObject = serde_json::from_value(serialized.clone()).unwrap();
+    validate_publish_current_models(&resumed, &original, &current, 3500).unwrap();
     current.provenance.checked_at = 5000;
     for field in current
         .snapshots
@@ -35,7 +39,74 @@ fn repeated_api_confirmation_preserves_original_input_identity_and_resume_valida
     {
         field.fetched_at = Some(5000.0);
     }
-    validate_current_game_values(&build, &original, &current).unwrap();
+    original.provenance.checked_at = 5000;
+    for field in original
+        .snapshots
+        .iter_mut()
+        .flat_map(|snapshot| snapshot.fields.values_mut())
+    {
+        field.fetched_at = Some(5000.0);
+    }
+    validate_publish_current_models(&resumed, &original, &current, 4500).unwrap();
+    assert_eq!(validate_build_provenance(&resumed).unwrap(), &previous);
+    assert_eq!(publication_caller(&resumed).unwrap(), caller);
+    assert_eq!(serde_json::to_value(&resumed).unwrap(), serialized);
+    assert_eq!(original.provenance.mirrored_at, 2000);
+    assert_eq!(current.provenance.mirrored_at, 2000);
+}
+
+#[test]
+fn renewed_confirmation_rejects_stale_snapshots_and_changed_bound_inputs() {
+    let (build, mut original) = bound_fixture(origin_fixture());
+    let mut current = bound_fixture(origin_fixture()).1;
+    current.provenance.checked_at = 4000;
+    for field in current
+        .snapshots
+        .iter_mut()
+        .flat_map(|snapshot| snapshot.fields.values_mut())
+    {
+        field.fetched_at = Some(4000.0);
+    }
+    validate_publish_current_models(&build, &original, &current, 3500).unwrap();
+    for target in [
+        crate::DeltaTarget::Hero(build.hero_id),
+        crate::DeltaTarget::Ability(build.ability_order[0].ability_id),
+        crate::DeltaTarget::Item(build.core[0].item_id),
+    ] {
+        let field = current
+            .snapshots
+            .iter_mut()
+            .find(|snapshot| snapshot.target == target)
+            .unwrap()
+            .fields
+            .values_mut()
+            .next()
+            .unwrap();
+        field.fetched_at = Some(2000.0);
+        validate_current_game_values(&build, &original, &current).unwrap();
+        assert!(validate_publish_current_models(&build, &original, &current, 3500).is_err());
+        current
+            .snapshots
+            .iter_mut()
+            .find(|snapshot| snapshot.target == target)
+            .unwrap()
+            .fields
+            .values_mut()
+            .next()
+            .unwrap()
+            .fetched_at = Some(4000.0);
+    }
+    assert!(validate_publish_current_models(&build, &original, &current, 4001).is_err());
+    original.items[0].cost += 1;
+    assert!(validate_publish_current_models(&build, &original, &current, 3500).is_err());
+    original.items[0].cost -= 1;
+    current.hero.weapon.bullet_damage += 1.0;
+    assert!(validate_publish_current_models(&build, &original, &current, 3500).is_err());
+    current.hero.weapon.bullet_damage -= 1.0;
+    let mut forged = build.clone();
+    forged.provenance.as_mut().unwrap().input_sha256 = "0".repeat(64);
+    assert!(validate_publish_current_models(&forged, &original, &current, 3500).is_err());
+    validate_publish_current_models(&build, &original, &current, 3500).unwrap();
 }
 
 #[test]
