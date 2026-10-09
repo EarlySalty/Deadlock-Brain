@@ -908,13 +908,16 @@ mod tests {
         internal.policy.visibility = SourceVisibility::Public;
         assert!(cp.validate(&internal, MaintenanceStatus::Publish).is_err());
     }
-    /// Ausschließlich eigener lokaler Scratch-Cluster ohne TCP, ENV oder Credentials.
     #[tokio::test]
-    #[ignore = "requires dedicated /tmp/brain-maintenance-test-20261002/socket PostgreSQL fixture"]
+    #[ignore = "requires isolated PostgreSQL Unix socket: BRAIN_MAINTENANCE_TEST_PG_SOCKET"]
     async fn postgres_queue_races_expiry_and_checkpoint_restart() {
+        let socket = std::env::var("BRAIN_MAINTENANCE_TEST_PG_SOCKET")
+            .expect("explicit scratch socket required");
+        assert!(socket.ends_with("/.maintenance-test-pg"));
+        assert!(std::path::Path::new(&socket).is_absolute());
         let options = sqlx::postgres::PgConnectOptions::new_without_pgpass()
             .password("")
-            .host("/tmp/brain-maintenance-test-20261002/socket")
+            .host(&socket)
             .port(55447)
             .username("brain_maintenance_test")
             .database("postgres");

@@ -411,6 +411,7 @@ struct EntityDocumentRequest<'a> {
     provider: bool,
     purpose: brain_contracts::store::AnswerPurpose,
     hero_count: bool,
+    entity_keys: &'a [String],
 }
 
 impl std::fmt::Debug for LocalPgReader {
@@ -784,6 +785,23 @@ impl SnapshotReadPort for LocalPgReader {
             || words
                 .windows(3)
                 .any(|phrase| phrase[0] == "number" && phrase[1] == "of" && phrase[2] == "heroes");
+        let mut entity_keys = Vec::new();
+        if !hero_count {
+            let identities = tx.query("SELECT entity_key,lookup_names FROM brain.entity_profile_entities_v1 ORDER BY entity_key LIMIT 10001", &[])?;
+            if identities.len() > 10000 {
+                return Err(PortError::BudgetExceeded);
+            }
+            for identity in identities {
+                request_check(deadline)?;
+                let names: Vec<String> = identity.try_get(1).map_err(error)?;
+                if names.iter().any(|name| {
+                    let name = brain_contracts::lexical::terms(name);
+                    !name.is_empty() && words.windows(name.len()).any(|part| part == name)
+                }) {
+                    entity_keys.push(identity.try_get::<_, String>(0).map_err(error)?);
+                }
+            }
+        }
         if let Some(access) = &self.entity_profile_access {
             if let Some(evidence) = Self::derived_entity_evidence(
                 &mut tx,
@@ -796,6 +814,7 @@ impl SnapshotReadPort for LocalPgReader {
                     provider,
                     purpose,
                     hero_count,
+                    entity_keys: &entity_keys,
                 },
             )? {
                 request_check(deadline)?;
@@ -891,7 +910,11 @@ impl SnapshotReadPort for LocalPgReader {
             tx.commit()?;
             return Ok(Some(vec![result]));
         }
-        let identities = tx.query("SELECT DISTINCT ON(f.entity_key,f.source_id,f.logical_id,f.revision,f.binding_identity_json) f.entity_key,f.binding_identity_json,f.fact_json,r.record_json,h.record_json FROM brain.entity_profile_facts_v1 f JOIN brain.source_record_revisions r USING(source_id,logical_id,revision) JOIN brain.source_record_heads h USING(source_id,logical_id) WHERE ($2::jsonb->f.source_id->>f.logical_id)::bigint=f.revision AND (position(lower(f.binding_identity_json->>'name') in lower($1))>0 OR EXISTS(SELECT 1 FROM jsonb_array_elements_text(f.binding_identity_json->'aliases') a WHERE a.value<>'' AND position(lower(a.value) in lower($1))>0)) ORDER BY f.entity_key,f.source_id,f.logical_id,f.revision,f.binding_identity_json,f.fact_id LIMIT 101", &[&query.text,&pins])?;
+        if entity_keys.is_empty() {
+            tx.commit()?;
+            return Ok(None);
+        }
+        let identities = tx.query("SELECT DISTINCT ON(f.entity_key,f.source_id,f.logical_id,f.revision,f.binding_identity_json) f.entity_key,f.binding_identity_json,f.fact_json,r.record_json,h.record_json FROM brain.entity_profile_facts_v1 f JOIN brain.source_record_revisions r USING(source_id,logical_id,revision) JOIN brain.source_record_heads h USING(source_id,logical_id) WHERE ($1::jsonb->f.source_id->>f.logical_id)::bigint=f.revision AND f.entity_key=ANY($2::text[]) ORDER BY f.entity_key,f.source_id,f.logical_id,f.revision,f.binding_identity_json,f.fact_id LIMIT 101", &[&pins,&entity_keys])?;
         if identities.len() > 100 {
             return Err(PortError::BudgetExceeded);
         }
@@ -1384,6 +1407,7 @@ impl LocalPgReader {
             provider,
             purpose,
             hero_count,
+            entity_keys,
         } = request;
         let deadline = context.request_deadline.as_ref();
         request_check(deadline)?;
@@ -1395,7 +1419,7 @@ impl LocalPgReader {
         }
         let pins = serde_json::to_value(&release.source_revisions)
             .map_err(|_| invalid("Releasepins sind ungültig"))?;
-        let rows = tx.query("SELECT r.record_json,h.record_json FROM brain.source_record_revisions r JOIN brain.source_record_heads h USING(source_id,logical_id) WHERE r.source_id='git-game-facts-derived' AND ($1::jsonb->r.source_id->>r.logical_id)::bigint=r.revision AND ($3 OR position(lower((r.record_json->>'content')::jsonb->'entity'->>'name') in lower($2))>0) ORDER BY r.logical_id LIMIT 1001", &[&pins,&query.text,&hero_count])?;
+        let rows = tx.query("SELECT r.record_json,h.record_json FROM brain.source_record_revisions r JOIN brain.source_record_heads h USING(source_id,logical_id) WHERE r.source_id='git-game-facts-derived' AND ($1::jsonb->r.source_id->>r.logical_id)::bigint=r.revision AND ($3 OR r.logical_id=ANY($2::text[])) ORDER BY r.logical_id LIMIT 1001", &[&pins,&entity_keys,&hero_count])?;
         if rows.len() > 1000 {
             return Err(PortError::BudgetExceeded);
         }
@@ -1407,7 +1431,8 @@ impl LocalPgReader {
         let mut snapshots = BTreeMap::new();
         let mut evidence = Vec::new();
         let mut names = BTreeSet::new();
-        let mut matched = 0usize;
+        let mut matched = BTreeSet::new();
+        let mut ambiguous = false;
         let mut recognized = false;
         for row in rows {
             request_check(deadline)?;
@@ -1581,7 +1606,9 @@ impl LocalPgReader {
             if name.is_empty() || !words.windows(name.len()).any(|part| part == name) {
                 continue;
             }
-            matched += 1;
+            if !matched.insert(name) {
+                ambiguous = true;
+            }
             if let Some(date) = patch_date {
                 let dates: BTreeSet<_> = profile
                     .patch_story
@@ -1675,7 +1702,7 @@ impl LocalPgReader {
                 kind: EvidenceKind::Fact,content: format!("Gespeicherter Steckbriefbestand: {} Helden. Quellenstand: {}; keine belegte aktuelle Patchzahl.",names.len(),release.release_id),
                 citation: format!("git-game-facts-derived:{}",release.release_id),visibility: brain_contracts::SourceVisibility::Public,allowed_scopes: Default::default(),score: 1.0,patch: None,provenance: None,
             });
-        } else if matched != 1 {
+        } else if ambiguous || matched.is_empty() {
             evidence.clear();
         }
         Ok(if hero_count || recognized {

@@ -746,6 +746,13 @@ impl PgStore {
                     .bind(&entity.entity_key).bind(&record.source_id).bind(&record.logical_id).bind(revision).bind(&fact.fact_id).bind(&identity).execute(&mut *tx).await?;
             }
         }
+        if !fact_ids.is_empty() {
+            let names: Vec<_> = std::iter::once(entity.name.clone())
+                .chain(entity.aliases.iter().cloned())
+                .collect();
+            sqlx::query("UPDATE brain.entity_profile_entities_v1 SET lookup_names=ARRAY(SELECT DISTINCT n FROM unnest(lookup_names || $2::text[]) n WHERE n<>'' ORDER BY n) WHERE entity_key=$1")
+                .bind(&entity.entity_key).bind(names).execute(&mut *tx).await?;
+        }
         tx.commit().await?;
         Ok(inserted)
     }
