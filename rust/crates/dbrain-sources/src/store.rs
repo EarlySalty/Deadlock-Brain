@@ -154,16 +154,8 @@ impl<'a> SourceStore<'a> {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
             Err(error) => return Err(error.into()),
         };
-        let raw_path = self.write_raw(source, &external_id, &raw, "bin")?;
-        let updated = sqlx::query(
-            "UPDATE brain.source_documents SET raw_path=$1 WHERE id=$2 AND content_hash=$3",
-        )
-        .bind(raw_path.to_string_lossy().as_ref())
-        .bind(id)
-        .bind(hash)
-        .execute(self.pool)
-        .await?;
-        Ok(updated.rows_affected() == 1)
+        self.write_raw(source, &external_id, &raw, "bin")?;
+        Ok(true)
     }
 
     pub(crate) async fn persist_ir(
@@ -251,20 +243,25 @@ impl<'a> SourceStore<'a> {
             return Ok(id);
         }
 
-        let existing = sqlx::query_scalar::<_, i64>(
-            "UPDATE brain.source_documents SET raw_path=$1 \
-             WHERE source=$2 AND external_id=$3 AND content_hash=$4 RETURNING id",
+        let existing = sqlx::query_as::<_, (i64, String)>(
+            "SELECT id, raw_path FROM brain.source_documents \
+             WHERE source=$1 AND external_id=$2 AND content_hash=$3",
         )
-        .bind(raw_path)
         .bind(document.source)
         .bind(document.external_id)
-        .bind(content_hash)
+        .bind(&content_hash)
         .fetch_optional(self.pool)
         .await?;
 
-        existing.ok_or_else(|| {
+        let (id, existing_path) = existing.ok_or_else(|| {
             SourcesError::invariant("source_documents row missing after INSERT ... ON CONFLICT")
-        })
+        })?;
+        if stable_hash_bytes(&fs::read(existing_path)?) != content_hash {
+            return Err(SourcesError::invariant(
+                "existing raw artifact failed integrity check",
+            ));
+        }
+        Ok(id)
     }
 
     pub(crate) async fn upsert_entity_snapshot(

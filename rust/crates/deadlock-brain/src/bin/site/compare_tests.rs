@@ -15,6 +15,21 @@ use brain_storage::compare_artifact::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+#[test]
+fn comparison_links_are_fixed_service_paths() {
+    let id = "a".repeat(64);
+    let mut publication = brain_storage::compare_artifact::ComparePublication {
+        artifact_id: id.clone(),
+        html_path: format!("/site/compare/{id}"),
+        svg_path: format!("/site/compare/{id}/chart.svg"),
+    };
+    assert!(publication.public_link().is_ok());
+    publication.html_path = "https://example.org/model-destination".into();
+    assert!(publication.public_link().is_err());
+    publication.html_path = format!("/site/compare/{id}?redirect=other");
+    assert!(publication.public_link().is_err());
+}
+
 struct Fixture {
     record: SourceRecordV2,
     release: CorpusRelease,
@@ -160,6 +175,13 @@ async fn public_compare_http_has_no_cache_and_rechecks_revocation() {
     )
     .await
     .unwrap();
+    assert_eq!(
+        publication.public_link().unwrap(),
+        format!(
+            "https://deutsche-deadlock-community.de/brain/site/compare/{}",
+            artifact.id()
+        )
+    );
     for (path, expected) in [
         (&publication.html_path, &artifact.body().html),
         (&publication.svg_path, &artifact.body().svg),

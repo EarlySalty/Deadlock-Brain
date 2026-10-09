@@ -1,6 +1,6 @@
 use super::*;
 use brain_contracts::{
-    provider_input::{grounded_turn_input_ceiling, ToolWireFormat},
+    provider_input::{grounded_turn_input_ceiling_with_quality, ToolWireFormat},
     EvidenceKind, ModelBlock, ProviderTurn, ToolConversation, ToolMessage,
 };
 use std::{
@@ -182,19 +182,21 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                 &build_executions,
                 purpose,
             )?;
-            let input = grounded_turn_input_ceiling(
+            let input = grounded_turn_input_ceiling_with_quality(
                 query,
                 &evidence,
                 &session.definitions,
                 &conversation,
                 ToolWireFormat::Native,
+                kernel.quality_filters,
             )?
-            .max(grounded_turn_input_ceiling(
+            .max(grounded_turn_input_ceiling_with_quality(
                 query,
                 &evidence,
                 &session.definitions,
                 &conversation,
                 ToolWireFormat::OpenAiCompatible,
+                kernel.quality_filters,
             )?);
             let next = remaining(context, &accounting.charged(), elapsed())
                 .ok_or(PortError::BudgetExceeded)?;
@@ -243,12 +245,14 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                 ProviderTurn::Final { answer, .. } => {
                     let ids: BTreeSet<_> = answer.cited_evidence_ids.iter().collect();
                     let insufficient = answer.text.is_empty() && ids.is_empty();
-                    if (!insufficient && (answer.text.trim().is_empty() || ids.is_empty()))
-                        || answer.text.len() > 64 * 1024
-                        || ids.len() != answer.cited_evidence_ids.len()
-                        || ids
+                    let grounded = !ids.is_empty()
+                        && ids.len() == answer.cited_evidence_ids.len()
+                        && ids
                             .iter()
-                            .any(|id| !evidence.iter().any(|item| &item.evidence_id == *id))
+                            .all(|id| evidence.iter().any(|item| &item.evidence_id == *id));
+                    if answer.text.len() > 64 * 1024
+                        || (!insufficient && answer.text.trim().is_empty())
+                        || (kernel.quality_filters && !insufficient && !grounded)
                     {
                         return Err(PortError::InvalidResponse(
                             "Ungültige finale Werkzeugantwort".into(),
@@ -272,7 +276,8 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         &build_executions,
                         purpose,
                     )?;
-                    if query.profile == brain_contracts::AnswerProfile::Build
+                    if kernel.quality_filters
+                        && query.profile == brain_contracts::AnswerProfile::Build
                         && !insufficient
                         && !has_build_citation(
                             &build_executions,
@@ -397,15 +402,38 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
         )
         .into(),
         Ok(answer) => {
+            let grounded = !answer.cited_evidence_ids.is_empty()
+                && answer
+                    .cited_evidence_ids
+                    .iter()
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    == answer.cited_evidence_ids.len()
+                && answer
+                    .cited_evidence_ids
+                    .iter()
+                    .all(|id| evidence.iter().any(|item| &item.evidence_id == id));
+            let status = if grounded
+                && (query.profile != brain_contracts::AnswerProfile::Build
+                    || kernel.quality_filters)
+            {
+                AnswerStatus::Answered
+            } else {
+                eprintln!(
+                    "{}",
+                    serde_json::json!({"event":"brain_answer_unverified","request_id":query.request_id,"reason":"tool_answer_unchecked"})
+                );
+                AnswerStatus::Unverified
+            };
             let citations = evidence
                 .into_iter()
-                .filter(|item| answer.cited_evidence_ids.contains(&item.evidence_id))
+                .filter(|item| grounded && answer.cited_evidence_ids.contains(&item.evidence_id))
                 .collect();
             KernelAnswer {
                 answer: response(
                     query,
                     context,
-                    AnswerStatus::Answered,
+                    status,
                     answer.text,
                     citations,
                     accounting.observed.clone(),
@@ -430,13 +458,15 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
 }
 
 pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
-    retrieval: &R,
-    provider: &P,
+    kernel: &Kernel<R, P>,
     query: &Query,
     context: &AuthorizedContext,
     purpose: AnswerPurpose,
     now: &dyn Fn() -> Instant,
 ) -> KernelAnswer {
+    let retrieval = &kernel.retrieval;
+    let provider = &kernel.provider;
+    let quality_filters = kernel.quality_filters;
     let started = now();
     let elapsed_ms = || now().saturating_duration_since(started).as_millis() as u64;
     let expired = || {
@@ -528,7 +558,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         .into_iter()
         .filter(|item| item.validate().is_ok() && evidence_allowed(&context.principal, item))
         .collect();
-    if evidence.is_empty() {
+    if evidence.is_empty() && (had_retrieved || quality_filters) {
         return fail(
             if had_retrieved {
                 AnswerStatus::UnauthorizedEvidence
@@ -544,12 +574,14 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             .total_cmp(&a.score)
             .then_with(|| a.evidence_id.cmp(&b.evidence_id))
     });
-    if let Err(error) = retrieval.validate_evidence(query, context, &evidence, false) {
-        return fail(
-            validation_status(&error),
-            "Evidenz konnte nicht sicher bestätigt werden.",
-            retrieval_usage,
-        );
+    if !evidence.is_empty() {
+        if let Err(error) = retrieval.validate_evidence(query, context, &evidence, false) {
+            return fail(
+                validation_status(&error),
+                "Evidenz konnte nicht sicher bestätigt werden.",
+                retrieval_usage,
+            );
+        }
     }
     if expired() {
         return fail(
@@ -634,10 +666,12 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             }
         }
     }
-    if matches!(query.profile, brain_contracts::AnswerProfile::Build) {
+    if quality_filters && matches!(query.profile, brain_contracts::AnswerProfile::Build) {
         return fail(AnswerStatus::InsufficientEvidence, "Keine geprüfte Rule-/Buildantwort vorhanden. Eine deterministische Buildanfrage mit Patch und Modus ist erforderlich.", retrieval_usage);
     }
-    if matches!(query.profile, brain_contracts::AnswerProfile::Fact) {
+    if matches!(query.profile, brain_contracts::AnswerProfile::Fact)
+        && (quality_filters || super::fact_relevance::select(query, &evidence).is_some())
+    {
         let Some(fact) = super::fact_relevance::select(query, &evidence) else {
             return fail(
                 AnswerStatus::InsufficientEvidence,
@@ -670,24 +704,25 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             retrieval_usage,
         );
     }
-    let egress = evidence.iter().all(|item| {
-        if item.visibility == brain_contracts::SourceVisibility::RequestScoped
-            && !context.discord.as_ref().is_some_and(|request| {
-                request.request_id == query.request_id
-                    && item.allowed_scopes
-                        == std::collections::BTreeSet::from([request.scope.clone()])
-            })
-        {
-            return false;
-        }
-        let class = match item.visibility {
-            brain_contracts::SourceVisibility::Public => "public",
-            brain_contracts::SourceVisibility::Internal => "internal",
-            brain_contracts::SourceVisibility::Private => "private",
-            brain_contracts::SourceVisibility::RequestScoped => "discord_request",
-        };
-        provider_egress_allowed(&context.principal, class)
-    });
+    let egress = (!evidence.is_empty() || provider_egress_allowed(&context.principal, "public"))
+        && evidence.iter().all(|item| {
+            if item.visibility == brain_contracts::SourceVisibility::RequestScoped
+                && !context.discord.as_ref().is_some_and(|request| {
+                    request.request_id == query.request_id
+                        && item.allowed_scopes
+                            == std::collections::BTreeSet::from([request.scope.clone()])
+                })
+            {
+                return false;
+            }
+            let class = match item.visibility {
+                brain_contracts::SourceVisibility::Public => "public",
+                brain_contracts::SourceVisibility::Internal => "internal",
+                brain_contracts::SourceVisibility::Private => "private",
+                brain_contracts::SourceVisibility::RequestScoped => "discord_request",
+            };
+            provider_egress_allowed(&context.principal, class)
+        });
     if !egress {
         return fail(
             AnswerStatus::UnauthorizedEvidence,
@@ -695,12 +730,14 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             retrieval_usage,
         );
     }
-    if let Err(error) = retrieval.validate_evidence(query, context, &evidence, true) {
-        return fail(
-            validation_status(&error),
-            "Provider-Evidenz konnte nicht sicher bestätigt werden.",
-            retrieval_usage,
-        );
+    if !evidence.is_empty() {
+        if let Err(error) = retrieval.validate_evidence(query, context, &evidence, true) {
+            return fail(
+                validation_status(&error),
+                "Provider-Evidenz konnte nicht sicher bestätigt werden.",
+                retrieval_usage,
+            );
+        }
     }
     let Some(provider_context) = remaining(context, &retrieval_usage, elapsed_ms()) else {
         return fail(
@@ -741,23 +778,27 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
     }
     let ids: BTreeSet<_> = answer.cited_evidence_ids.iter().collect();
     let insufficient = answer.text.is_empty() && ids.is_empty();
-    if (!insufficient && (answer.text.trim().is_empty() || ids.is_empty()))
-        || answer.text.len() > 64 * 1024
-        || ids.len() != answer.cited_evidence_ids.len()
-        || ids
+    let grounded = !ids.is_empty()
+        && ids.len() == answer.cited_evidence_ids.len()
+        && ids
             .iter()
-            .any(|id| !evidence.iter().any(|e| &e.evidence_id == *id))
+            .all(|id| evidence.iter().any(|e| &e.evidence_id == *id));
+    if answer.text.len() > 64 * 1024
+        || (!insufficient && answer.text.trim().is_empty())
+        || (quality_filters && !insufficient && !grounded)
     {
         return fail_provider(
             AnswerStatus::ProviderError,
             "Antwort enthält ungültige Quellenreferenzen.",
         );
     }
-    if let Err(error) = validate_output(retrieval, query, context, &evidence, purpose) {
-        return fail_provider(
-            validation_status(&error),
-            "Evidenz konnte nach dem Provider-Aufruf nicht sicher bestätigt werden.",
-        );
+    if !evidence.is_empty() {
+        if let Err(error) = validate_output(retrieval, query, context, &evidence, purpose) {
+            return fail_provider(
+                validation_status(&error),
+                "Evidenz konnte nach dem Provider-Aufruf nicht sicher bestätigt werden.",
+            );
+        }
     }
     if expired() {
         return fail_provider(AnswerStatus::BudgetExceeded, "Request Deadline erreicht.");
@@ -768,16 +809,25 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             "Dazu hab ich gerade nichts Genaues, frag am besten direkt im Discord nach.",
         );
     }
+    let status = if grounded && query.profile != brain_contracts::AnswerProfile::Build {
+        AnswerStatus::Answered
+    } else {
+        eprintln!(
+            "{}",
+            serde_json::json!({"event":"brain_answer_unverified","request_id":query.request_id,"reason":if evidence.is_empty() {"no_evidence"} else if !grounded {"citation_invalid"} else {"build_unchecked"}})
+        );
+        AnswerStatus::Unverified
+    };
     let citations = evidence
         .iter()
-        .filter(|item| ids.contains(&item.evidence_id))
+        .filter(|item| grounded && ids.contains(&item.evidence_id))
         .cloned()
         .collect();
     KernelAnswer {
         answer: response(
             query,
             context,
-            AnswerStatus::Answered,
+            status,
             answer.text,
             citations,
             accounting.observed.clone(),

@@ -1,5 +1,7 @@
 #[path = "compare_tests.rs"]
 mod compare_tests;
+#[path = "profile_tests.rs"]
+mod profile_tests;
 
 use super::*;
 use reqwest::Client;
@@ -32,15 +34,9 @@ impl TestStore {
     }
 
     async fn migrate_site_comments(&self) -> Result<()> {
-        let exists: bool =
-            sqlx::query_scalar("SELECT to_regclass('brain.site_comments_v1') IS NOT NULL")
-                .fetch_one(&self.pool)
-                .await?;
-        if !exists {
-            sqlx::raw_sql(include_str!("test_comments.sql"))
-                .execute(&self.pool)
-                .await?;
-        }
+        brain_storage::PgStore::new(self.pool.clone())
+            .migrate_site_comments()
+            .await?;
         self.check_site_comments_schema().await
     }
 }
@@ -156,7 +152,7 @@ impl Postgres {
             .arg(root.join("ops/brain-postgres/grants.sql"))
             .args([
                 "-c",
-                "REVOKE ALL ON ALL TABLES IN SCHEMA brain FROM brain_site; REVOKE ALL ON ALL SEQUENCES IN SCHEMA brain FROM brain_site; GRANT USAGE ON SCHEMA brain TO brain_site; GRANT SELECT, INSERT ON brain.site_comments_v1 TO brain_site; GRANT USAGE ON SEQUENCE brain.site_comments_v1_id_seq TO brain_site; REVOKE ALL ON brain.site_comments_v1 FROM brain_readonly;",
+                "REVOKE ALL ON ALL TABLES IN SCHEMA brain FROM brain_site; REVOKE ALL ON ALL SEQUENCES IN SCHEMA brain FROM brain_site; GRANT USAGE ON SCHEMA brain TO brain_site; GRANT SELECT ON brain.site_comments_v1 TO brain_site; GRANT EXECUTE ON FUNCTION brain.append_site_comment_v1(text,text,text) TO brain_site; REVOKE ALL ON brain.site_comments_v1 FROM brain_readonly;",
             ])
             .env_remove("PGOPTIONS")
             .env_remove("PGPASSWORD")
@@ -275,14 +271,11 @@ fn assets_are_explicit_and_symlinks_never_followed() {
     fs::write(outside.path().join("hero/abcd.html"), b"Private").unwrap();
     std::os::unix::fs::symlink(outside.path(), root.path().join("site/entities")).unwrap();
     assert!(assets.read("/site/entities/hero/abcd.html").is_err());
-    let name = std::ffi::CString::new(
-        root.path()
-            .join("site/style.css")
-            .as_os_str()
-            .as_encoded_bytes(),
-    )
-    .unwrap();
-    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    assert!(Command::new("/usr/bin/mkfifo")
+        .arg(root.path().join("site/style.css"))
+        .status()
+        .unwrap()
+        .success());
     assert!(assets.read("/site/style.css").is_err());
 }
 
@@ -452,6 +445,8 @@ async fn postgres_http_comments_survive_restart_and_roles_are_isolated() {
         saved
     );
     for statement in [
+        "INSERT INTO brain.site_comments_v1(group_key,text,ts) VALUES ('test','test','')",
+        "SELECT nextval('brain.site_comments_v1_id_seq')",
         "DELETE FROM brain.site_comments_v1",
         "UPDATE brain.site_comments_v1 SET text='mutated'",
         "SELECT * FROM brain.source_record_heads",
@@ -517,13 +512,13 @@ async fn postgres_http_comments_survive_restart_and_roles_are_isolated() {
         .await
         .unwrap();
     assert_eq!(before, after);
-    assert!(sqlx::query(
-        "INSERT INTO brain.site_comments_v1(group_key,text,ts) VALUES ('test',$1,'')"
-    )
-    .bind("x".repeat(4001))
-    .execute(&pool)
-    .await
-    .is_err());
+    assert!(
+        sqlx::query("SELECT * FROM brain.append_site_comment_v1('test',$1,'')")
+            .bind("x".repeat(4001))
+            .execute(&pool)
+            .await
+            .is_err()
+    );
     handle.abort();
     let _ = handle.await;
     pool.close().await;

@@ -1,10 +1,9 @@
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{ensure, Context, Result};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    ffi::CString,
     fs::File,
     io::Read,
-    os::{fd::AsRawFd, fd::FromRawFd, unix::fs::OpenOptionsExt},
+    os::unix::fs::OpenOptionsExt,
     path::Path,
 };
 
@@ -106,21 +105,19 @@ impl Assets {
         let mut directory = self.root.try_clone()?;
         let mut parts = path.split('/').peekable();
         while let Some(part) = parts.next() {
-            let name = CString::new(part)?;
-            let flags = libc::O_RDONLY
-                | libc::O_NOFOLLOW
-                | libc::O_CLOEXEC
-                | libc::O_NONBLOCK
+            use rustix::fs::{openat, Mode, OFlags};
+            let flags = OFlags::RDONLY
+                | OFlags::NOFOLLOW
+                | OFlags::CLOEXEC
+                | OFlags::NONBLOCK
                 | if parts.peek().is_some() {
-                    libc::O_DIRECTORY
+                    OFlags::DIRECTORY
                 } else {
-                    0
+                    OFlags::empty()
                 };
-            let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
-            if fd < 0 {
-                bail!("Öffentliche Datei nicht verfügbar.");
-            }
-            directory = unsafe { File::from_raw_fd(fd) };
+            let fd = openat(&directory, part, flags, Mode::empty())
+                .context("Öffentliche Datei nicht verfügbar.")?;
+            directory = File::from(fd);
         }
         let metadata = directory.metadata()?;
         ensure!(

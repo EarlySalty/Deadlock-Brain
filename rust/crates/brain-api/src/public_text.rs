@@ -5,6 +5,19 @@ pub const COACHING_URL: &str = "https://deutsche-deadlock-community.de/coaching"
 pub const COACHING_REFERENCE: &str = "[[coaching]]";
 
 pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool) {
+    if matches!(
+        answer.status,
+        AnswerStatus::Answered | AnswerStatus::Unverified | AnswerStatus::BuildRejected
+    ) {
+        answer.text = brain_contracts::provider_input::discord_display_text(&answer.text);
+    }
+    if answer.status == AnswerStatus::Unverified {
+        answer.text = format!(
+            "{}{}",
+            brain_contracts::public_api::UNVERIFIED_PREFIX,
+            answer.text.trim()
+        );
+    }
     if answer.status == AnswerStatus::InsufficientEvidence {
         let question = query.text.to_lowercase();
         let twitch_bot = [
@@ -23,7 +36,7 @@ pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool)
         .into();
     } else if matches!(
         answer.status,
-        AnswerStatus::Answered | AnswerStatus::BuildRejected
+        AnswerStatus::Answered | AnswerStatus::Unverified | AnswerStatus::BuildRejected
     ) {
         let destination = if discord {
             format!("<#{}>", COACHING_CHANNEL_ID)
@@ -31,6 +44,13 @@ pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool)
             format!("Discord oder {COACHING_URL}")
         };
         answer.text = answer.text.replace(COACHING_REFERENCE, &destination);
+        if answer.text.len() > brain_contracts::public_api::MAX_PUBLIC_ANSWER_TEXT_BYTES {
+            let mut end = brain_contracts::public_api::MAX_PUBLIC_ANSWER_TEXT_BYTES;
+            while !answer.text.is_char_boundary(end) {
+                end -= 1;
+            }
+            answer.text.truncate(end);
+        }
     }
 }
 
@@ -63,6 +83,53 @@ mod tests {
             text: text.into(),
             citations: Vec::new(),
             usage: Usage::default(),
+        }
+    }
+
+    #[test]
+    fn unverified_text_is_delivered_with_legacy_wire_status_and_platform_owned_link() {
+        let mut response = answer(
+            AnswerStatus::Unverified,
+            "Hilfreiche Antwort <@123456789012345678> [[coaching]]",
+        );
+        prepare(&mut response, &query("Pocket"), true);
+        assert_eq!(response.status, AnswerStatus::Unverified);
+        assert!(response
+            .text
+            .starts_with(brain_contracts::public_api::UNVERIFIED_PREFIX));
+        assert!(!response.text.contains("<@"));
+        assert!(!response.text.contains(COACHING_REFERENCE));
+        let wire = super::super::answer_response(&response);
+        assert_eq!(wire.status, 200);
+        let public: brain_contracts::PublicAnswerResponse =
+            serde_json::from_str(&wire.body).unwrap();
+        assert_eq!(public.status, AnswerStatus::InsufficientEvidence);
+        assert_eq!(public.text, response.text);
+        assert!(public.citations.is_empty());
+    }
+
+    #[test]
+    fn unverified_prefix_and_link_expansion_preserve_the_public_text_bound() {
+        let limit = brain_contracts::public_api::MAX_PUBLIC_ANSWER_TEXT_BYTES;
+        let text = format!(
+            "{COACHING_REFERENCE}{}",
+            "ü".repeat((limit - COACHING_REFERENCE.len()) / 2)
+        );
+        assert!(text.len() <= limit);
+        for discord in [true, false] {
+            let mut response = answer(AnswerStatus::Unverified, &text);
+            prepare(&mut response, &query("Pocket"), discord);
+            assert!(response
+                .text
+                .starts_with(brain_contracts::public_api::UNVERIFIED_PREFIX));
+            assert!(response.text.len() <= limit);
+            assert!(response.text.ends_with('ü'));
+            assert!(!response.text.contains(COACHING_REFERENCE));
+            let wire = super::super::answer_response(&response);
+            assert_eq!(wire.status, 200);
+            let public: brain_contracts::PublicAnswerResponse =
+                serde_json::from_str(&wire.body).unwrap();
+            public.validate("request").unwrap();
         }
     }
 

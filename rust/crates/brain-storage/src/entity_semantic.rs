@@ -6,7 +6,7 @@ use brain_contracts::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 type StoredGitBindingRow = (
     String,
@@ -56,12 +56,12 @@ fn bound_relative_pointer_from_facts(
         "{}:{}:{}:",
         source_id, logical_id, fact.provenance.original_revision
     );
-    let matches_identity = |identifier: &str| {
-        std::iter::once(&identity.entity_key)
-            .chain(std::iter::once(&identity.name))
-            .chain(&identity.aliases)
-            .any(|name| name.to_lowercase() == identifier.to_lowercase())
-    };
+    let identifiers: BTreeSet<_> = std::iter::once(&identity.entity_key)
+        .chain(std::iter::once(&identity.name))
+        .chain(&identity.aliases)
+        .map(|name| name.to_lowercase())
+        .collect();
+    let matches_identity = |identifier: &str| identifiers.contains(&identifier.to_lowercase());
     let mut scopes = Vec::new();
     for evidence in &identity.identity_evidence {
         let Some(reference) = evidence.strip_prefix(&evidence_prefix) else {

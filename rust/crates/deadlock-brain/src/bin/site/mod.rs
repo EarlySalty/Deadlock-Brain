@@ -1,8 +1,10 @@
 mod assets;
 mod comments;
 mod compare;
+mod database;
+mod profiles;
 
-use anyhow::Result;
+use anyhow::{ensure, Context, Result};
 use axum::{
     extract::{DefaultBodyLimit, State},
     http::{header, Method, StatusCode, Uri},
@@ -12,18 +14,71 @@ use axum::{
 };
 use sqlx::PgPool;
 use std::{
-    path::Path,
+    net::SocketAddr,
+    path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
 };
+
+#[derive(Debug, clap::Args)]
+pub struct MigrationArgs {
+    #[command(flatten)]
+    pub database: database::ConnectionArgs,
+}
+
+pub async fn migrate(args: MigrationArgs) -> Result<()> {
+    let pool = args.database.pool("brain_migrate").await?;
+    let store = brain_storage::PgStore::new(pool);
+    store.migrate_site_comments().await?;
+    store.migrate_compare_artifacts().await?;
+    store.migrate_site_profiles().await?;
+    Ok(())
+}
+
+#[derive(Debug, clap::Args)]
+pub struct Args {
+    #[arg(long)]
+    pub corpus_root: PathBuf,
+    #[command(flatten)]
+    pub database: database::ConnectionArgs,
+    #[arg(long)]
+    pub serve_config: Option<PathBuf>,
+    #[arg(long, default_value = "127.0.0.1:8087")]
+    pub bind: SocketAddr,
+}
+
+pub async fn serve(args: Args) -> Result<()> {
+    ensure!(
+        args.bind.ip().is_loopback(),
+        "Die Brain-Site darf nur auf Loopback lauschen."
+    );
+    let pool = args.database.pool("brain_site").await?;
+    let release = args
+        .serve_config
+        .as_deref()
+        .map(profiles::release_from_config)
+        .transpose()?;
+    let app = router_with_release(&args.corpus_root, pool, release).await?;
+    let listener = tokio::net::TcpListener::bind(args.bind)
+        .await
+        .context("Der lokale Siteport ist nicht verfügbar.")?;
+    axum::serve(listener, app)
+        .await
+        .context("Der Brain-Sitedienst wurde unterbrochen.")
+}
 
 #[derive(Clone)]
 struct Site {
     assets: Arc<assets::Assets>,
+    release: Option<String>,
     pool: PgPool,
     comments_available: Arc<AtomicBool>,
 }
 
 pub async fn router(root: &Path, pool: PgPool) -> Result<Router> {
+    router_with_release(root, pool, None).await
+}
+
+async fn router_with_release(root: &Path, pool: PgPool, release: Option<String>) -> Result<Router> {
     comments::preflight(&pool).await?;
     let assets = assets::Assets::new(root)?;
     Ok(Router::new()
@@ -33,11 +88,17 @@ pub async fn router(root: &Path, pool: PgPool) -> Result<Router> {
         )
         .route("/compare/{id}", get(compare::page))
         .route("/compare/{id}/chart.svg", get(compare::chart))
+        .route("/site/compare/{id}", get(compare::page))
+        .route("/site/compare/{id}/chart.svg", get(compare::chart))
+        .route("/site/steckbriefe", get(profiles::index))
+        .route("/site/steckbriefe/", get(profiles::index))
+        .route("/site/steckbriefe/{kind}/{id}", get(profiles::page))
         .fallback(file)
         .layer(DefaultBodyLimit::max(65536))
         .layer(axum::middleware::map_response(security_headers))
         .with_state(Site {
             assets: Arc::new(assets),
+            release,
             pool,
             comments_available: Arc::new(AtomicBool::new(true)),
         }))

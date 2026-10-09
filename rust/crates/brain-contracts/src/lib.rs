@@ -490,6 +490,7 @@ impl From<PortError> for PortFailure {
 #[serde(rename_all = "snake_case")]
 pub enum AnswerStatus {
     Answered,
+    Unverified,
     BuildRejected,
     InsufficientEvidence,
     UnauthorizedEvidence,

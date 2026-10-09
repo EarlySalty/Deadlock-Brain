@@ -80,6 +80,7 @@ pub struct Kernel<R, P> {
     retrieval: R,
     provider: P,
     tools: Option<ToolBinding>,
+    quality_filters: bool,
     clock: std::sync::Arc<dyn Fn() -> std::time::Instant + Send + Sync>,
 }
 
@@ -98,8 +99,14 @@ impl<R, P> Kernel<R, P> {
             retrieval,
             provider,
             tools: None,
+            quality_filters: true,
             clock: std::sync::Arc::new(std::time::Instant::now),
         }
+    }
+
+    pub fn with_quality_filters(mut self, enabled: bool) -> Self {
+        self.quality_filters = enabled;
+        self
     }
 
     pub fn with_tools(
@@ -198,6 +205,9 @@ impl<R, P> Kernel<R, P> {
         executions: &[brain_contracts::ToolExecution],
         purpose: AnswerPurpose,
     ) -> Result<(), PortError> {
+        if !self.quality_filters {
+            return context.check_deadline();
+        }
         for execution in executions {
             context.check_deadline()?;
             let pin = session.game_context.as_ref().ok_or_else(|| {
@@ -337,14 +347,7 @@ impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
         if let Some(session) = session.filter(|session| !session.definitions.is_empty()) {
             return execution::answer_tools(self, query, context, session, purpose);
         }
-        execution::answer(
-            &self.retrieval,
-            &self.provider,
-            query,
-            context,
-            purpose,
-            self.clock.as_ref(),
-        )
+        execution::answer(self, query, context, purpose, self.clock.as_ref())
     }
 
     fn validate_reuse(
@@ -615,6 +618,121 @@ mod tests {
             metadata: Default::default(),
         });
         fact
+    }
+
+    #[test]
+    fn relaxed_quality_calls_model_for_empty_knowledge_and_marks_delivery_unverified() {
+        for profile in [
+            AnswerProfile::Explain,
+            AnswerProfile::Fact,
+            AnswerProfile::Build,
+        ] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let kernel = Kernel::new(
+                FixedRetrieval(Vec::new()),
+                CountingProvider {
+                    calls: calls.clone(),
+                },
+            )
+            .with_quality_filters(false);
+            let answer = kernel.answer(&query(profile), &context(&[], &["public"]));
+            assert_eq!(answer.status, AnswerStatus::Unverified);
+            assert!(!answer.text.is_empty());
+            assert!(answer.citations.is_empty());
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    #[test]
+    fn relaxed_quality_does_not_bypass_private_or_internal_egress() {
+        for (visibility, scopes) in [
+            (SourceVisibility::Private, vec!["private"]),
+            (SourceVisibility::Internal, vec!["docs.internal"]),
+        ] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let kernel = Kernel::new(
+                FixedRetrieval(vec![evidence(
+                    "blocked",
+                    EvidenceKind::Prose,
+                    visibility,
+                    &scopes,
+                )]),
+                CountingProvider {
+                    calls: calls.clone(),
+                },
+            )
+            .with_quality_filters(false);
+            let answer = kernel.answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+            assert_eq!(answer.status, AnswerStatus::UnauthorizedEvidence);
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+            assert!(answer.citations.is_empty());
+        }
+    }
+
+    #[test]
+    fn relaxed_quality_without_evidence_still_requires_query_egress() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let kernel = Kernel::new(
+            FixedRetrieval(Vec::new()),
+            CountingProvider {
+                calls: calls.clone(),
+            },
+        )
+        .with_quality_filters(false);
+        let answer = kernel.answer(&query(AnswerProfile::Explain), &context(&[], &[]));
+        assert_eq!(answer.status, AnswerStatus::UnauthorizedEvidence);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn relaxed_quality_rejects_foreign_request_scoped_channel_content() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let kernel = Kernel::new(
+            FixedRetrieval(vec![evidence(
+                "foreign",
+                EvidenceKind::Prose,
+                SourceVisibility::RequestScoped,
+                &["discord.request:foreign"],
+            )]),
+            CountingProvider {
+                calls: calls.clone(),
+            },
+        )
+        .with_quality_filters(false);
+        let mut context = context(
+            &["discord.request:foreign", "discord.request:own"],
+            &["public", "discord_request"],
+        );
+        context.discord = Some(brain_contracts::DiscordRequestContext {
+            user_id: None,
+            request_id: "r1".into(),
+            scope: "discord.request:own".into(),
+            allow_discord_reads: true,
+        });
+        let answer = kernel.answer(&query(AnswerProfile::Explain), &context);
+        assert_eq!(answer.status, AnswerStatus::UnauthorizedEvidence);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(answer.citations.is_empty());
+    }
+
+    #[test]
+    fn relaxed_tool_quality_allows_uncited_final_but_keeps_private_dependency_checks() {
+        let call = find_call("first");
+        let (kernel, _) = tool_kernel(std::slice::from_ref(&call), vec![final_turn(&[])]);
+        let answer = kernel
+            .with_quality_filters(false)
+            .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+        assert_eq!(answer.status, AnswerStatus::Unverified);
+        let (kernel, state) = tool_kernel(
+            std::slice::from_ref(&call),
+            vec![tool_turn(vec![call.clone()]), final_turn(&[])],
+        );
+        state.lock().unwrap().private_input = true;
+        let answer = kernel
+            .with_quality_filters(false)
+            .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+        assert_eq!(answer.status, AnswerStatus::UnauthorizedEvidence);
+        assert_eq!(state.lock().unwrap().calls, 1);
     }
 
     #[test]

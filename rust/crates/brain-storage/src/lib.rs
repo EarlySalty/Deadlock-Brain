@@ -11,6 +11,7 @@ mod pg_jobs;
 mod pg_maintenance;
 mod pg_release;
 mod schema;
+mod site_profiles;
 pub mod source_versions;
 pub use domain_reader::DomainReader;
 pub use local_pg_reader::{LocalPgPoolStats, LocalPgReader};

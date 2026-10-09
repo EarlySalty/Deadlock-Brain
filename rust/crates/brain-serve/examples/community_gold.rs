@@ -136,7 +136,28 @@ fn checks(case: &GoldCase, text: &str, citations: usize) -> Checks {
     }
 }
 
-fn process_binding(config_path: &str) -> Result<Value> {
+fn process_binding(config_path: &str, local_pid: Option<u32>) -> Result<Value> {
+    if let Some(pid) = local_pid {
+        let cmdline =
+            fs::read(format!("/proc/{pid}/cmdline")).map_err(|_| "local_command_unavailable")?;
+        let arguments: Vec<_> = cmdline.split(|byte| *byte == 0).collect();
+        if !arguments
+            .windows(2)
+            .any(|pair| pair[0] == b"--config" && pair[1] == config_path.as_bytes())
+        {
+            return Err("config_is_not_the_local_service_config");
+        }
+        let exe = fs::read_link(format!("/proc/{pid}/exe")).map_err(|_| "local_exe_unavailable")?;
+        if !exe.starts_with("/home/nathanael/.worktrees")
+            || exe.file_name().is_none_or(|name| name != "brain-serve")
+        {
+            return Err("local_worktree_exe_required");
+        }
+        let bytes = fs::read(format!("/proc/{pid}/exe")).map_err(|_| "local_exe_unavailable")?;
+        return Ok(
+            json!({"pid":pid,"exe":exe,"binary_sha256":format!("{:x}",Sha256::digest(bytes)),"local":true}),
+        );
+    }
     let output = Command::new("systemctl")
         .args([
             "--user",
@@ -195,11 +216,23 @@ async fn run(args: &[String]) -> Result<()> {
         );
         return Ok(());
     }
-    if args.len() != 6 || args[0] != "run" {
+    let local_pid = if args.len() == 7 && args[0] == "run-local" {
+        let pid = args[6].parse::<u32>().map_err(|_| "local_pid_invalid")?;
+        if pid == 0 {
+            return Err("local_pid_invalid");
+        }
+        Some(pid)
+    } else if args.len() == 6 && args[0] == "run" {
+        return Err("evaluation_requires_isolated_local_service");
+    } else {
         return Err(
-            "usage_validate_gold_or_run_gold_output_runtime_config_infisical_config_expected_model",
+            "usage_validate_gold_or_run_gold_output_runtime_config_infisical_config_expected_model_or_run_local_with_pid",
         );
-    }
+    };
+    let recovery_delay_ms = std::env::var("BRAIN_GOLD_PROVIDER_RECOVERY_MS")
+        .unwrap_or_else(|_| "0".into())
+        .parse::<u64>()
+        .map_err(|_| "provider_recovery_delay_invalid")?;
     let bytes = fs::read(&args[1]).map_err(|_| "gold_unavailable")?;
     let set = parse(&bytes)?;
     let config_bytes = fs::read(&args[3]).map_err(|_| "runtime_config_unavailable")?;
@@ -207,6 +240,7 @@ async fn run(args: &[String]) -> Result<()> {
     if !matches!(config.provider.kind, ProviderKind::CodexSubscription)
         || config.provider.model != args[5]
         || !config.bind.ip().is_loopback()
+        || config.bind.port() == 8788
     {
         return Err("requested_subscription_model_not_configured");
     }
@@ -240,7 +274,7 @@ async fn run(args: &[String]) -> Result<()> {
         .mode(0o600)
         .open(output_path)
         .map_err(|_| "output_exists_or_unavailable")?;
-    let binding = process_binding(&args[3])?;
+    let binding = process_binding(&args[3], local_pid)?;
     let secrets = dl_token_secrets::values(Path::new(&args[4]))
         .await
         .map_err(|_| "existing_secret_loader_failed")?;
@@ -259,13 +293,14 @@ async fn run(args: &[String]) -> Result<()> {
         .duration_since(UNIX_EPOCH)
         .map_err(|_| "clock_invalid")?
         .as_nanos();
-    let header = json!({"schema":"brain.community-gold-run.v1","version":set.version,"gold_sha256":format!("{:x}",Sha256::digest(&bytes)),"runtime_config_sha256":format!("{:x}",Sha256::digest(&config_bytes)),"provider_kind":"codex_subscription","configured_model":config.provider.model,"live_process":binding,"transport":"public_docs_service_http_not_discord_delivery","cases":set.cases.len(),"started_at_unix_ns":run_id});
+    let header = json!({"schema":"brain.community-gold-run.v1","version":set.version,"gold_sha256":format!("{:x}",Sha256::digest(&bytes)),"runtime_config_sha256":format!("{:x}",Sha256::digest(&config_bytes)),"provider_kind":"codex_subscription","configured_model":config.provider.model,"live_process":binding,"transport":"public_docs_service_http_not_discord_delivery","cases":set.cases.len(),"provider_recovery_delay_ms":recovery_delay_ms,"started_at_unix_ns":run_id});
     writeln!(output, "{header}").map_err(|_| "output_write_failed")?;
     output.sync_all().map_err(|_| "output_sync_failed")?;
     let mut answered = 0;
+    let mut unverified = 0;
     let mut lexical_passes = 0;
     for case in &set.cases {
-        if process_binding(&args[3])? != binding
+        if process_binding(&args[3], local_pid)? != binding
             || fs::read(&args[3]).map_err(|_| "runtime_config_unavailable")? != config_bytes
         {
             return Err("live_binding_changed_during_run");
@@ -281,6 +316,14 @@ async fn run(args: &[String]) -> Result<()> {
             patch: None,
             mode: None,
         };
+        if recovery_delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(recovery_delay_ms)).await;
+        }
+        if process_binding(&args[3], local_pid)? != binding
+            || fs::read(&args[3]).map_err(|_| "runtime_config_unavailable")? != config_bytes
+        {
+            return Err("live_binding_changed_during_run");
+        }
         let started = Instant::now();
         let result = client.answer(&query).await;
         let elapsed_ms = started.elapsed().as_millis();
@@ -288,6 +331,12 @@ async fn run(args: &[String]) -> Result<()> {
             Ok(answer) => {
                 let rubric = checks(case, &answer.text, answer.citations.len());
                 answered += usize::from(answer.status == brain_client::AnswerStatus::Answered);
+                unverified += usize::from(
+                    answer.status == brain_client::AnswerStatus::InsufficientEvidence
+                        && answer
+                            .text
+                            .starts_with(brain_contracts::public_api::UNVERIFIED_PREFIX),
+                );
                 lexical_passes += usize::from(rubric.lexical_pass);
                 json!({"case":case.case,"topic":case.topic,"elapsed_ms":elapsed_ms,"answer":answer,"checks":rubric})
             }
@@ -299,15 +348,15 @@ async fn run(args: &[String]) -> Result<()> {
         output.sync_all().map_err(|_| "output_sync_failed")?;
         println!(
             "{}",
-            json!({"case":case.case,"elapsed_ms":elapsed_ms,"answered":answered,"lexical_passes":lexical_passes})
+            json!({"case":case.case,"elapsed_ms":elapsed_ms,"answered":answered,"unverified_delivered":unverified,"lexical_passes":lexical_passes})
         );
     }
-    if process_binding(&args[3])? != binding
+    if process_binding(&args[3], local_pid)? != binding
         || fs::read(&args[3]).map_err(|_| "runtime_config_unavailable")? != config_bytes
     {
         return Err("live_binding_changed_during_run");
     }
-    let footer = json!({"completed_cases":set.cases.len(),"answered":answered,"lexical_passes":lexical_passes,"semantic_review_required":true,"live_process_unchanged":true});
+    let footer = json!({"completed_cases":set.cases.len(),"answered":answered,"unverified_delivered":unverified,"lexical_passes":lexical_passes,"semantic_review_required":true,"live_process_unchanged":true});
     writeln!(output, "{footer}").map_err(|_| "output_write_failed")?;
     output.sync_all().map_err(|_| "output_sync_failed")?;
     println!("{footer}");

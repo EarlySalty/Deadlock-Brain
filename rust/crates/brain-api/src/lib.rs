@@ -341,7 +341,11 @@ fn answer_response(answer: &AnswerResponse) -> ApiResponse {
         contract_version: brain_contracts::PUBLIC_API_VERSION.into(),
         request_id: answer.request_id.clone(),
         knowledge_release: answer.knowledge_release.clone(),
-        status: answer.status,
+        status: if answer.status == AnswerStatus::Unverified {
+            AnswerStatus::InsufficientEvidence
+        } else {
+            answer.status
+        },
         text: answer.text.clone(),
         citations: answer
             .citations

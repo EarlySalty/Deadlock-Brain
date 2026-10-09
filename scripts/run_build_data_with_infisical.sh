@@ -61,3 +61,4 @@ fi
 
 "$BRAIN_BIN" pull assets
 "$BRAIN_BIN" pull build-data --hero all
+"$BRAIN_BIN" pg sync-patchnotes

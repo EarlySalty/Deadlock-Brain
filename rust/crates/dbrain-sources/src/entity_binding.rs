@@ -330,7 +330,13 @@ pub async fn bind_stored_document(
     revision: u64,
     catalog: &[CatalogEntity],
 ) -> brain_storage::Result<StoredBindingSummary> {
-    stored_document_bindings(store, source_id, logical_id, revision, catalog, false).await
+    match verify_stored_document_bindings(store, source_id, logical_id, revision, catalog).await {
+        Ok(verified) => Ok(verified),
+        Err(brain_storage::StorageError::Json(_)) => {
+            stored_document_bindings(store, source_id, logical_id, revision, catalog, false).await
+        }
+        Err(error) => Err(error),
+    }
 }
 
 pub async fn verify_stored_document_bindings(
@@ -409,18 +415,16 @@ async fn stored_document_bindings(
         identity.aliases.extend(entry.identifiers.clone());
         identity.aliases.sort();
         identity.aliases.dedup();
-        identity.identity_evidence = bindings
-            .iter()
-            .flat_map(|binding| binding.identity_evidence.clone())
-            .collect();
-        identity.identity_evidence.sort();
-        identity.identity_evidence.dedup();
         let previous: BTreeMap<_, _> = if verify_only {
-            verified
-                .iter()
-                .filter(|((entity, _), _)| entity == &key)
-                .map(|((_, id), binding)| (id.clone(), binding.clone()))
-                .collect()
+            let mut previous = BTreeMap::new();
+            while verified
+                .first_key_value()
+                .is_some_and(|((entity, _), _)| entity == &key)
+            {
+                let ((_, id), binding) = verified.pop_first().expect("Vorhandene Bindung");
+                previous.insert(id, binding);
+            }
+            previous
         } else {
             store
                 .stored_git_entity_bindings_with_context(&key, &context)
@@ -429,18 +433,20 @@ async fn stored_document_bindings(
                 .map(|binding| (binding.original_fact.fact_id.clone(), binding))
                 .collect()
         };
-        identity
-            .identity_evidence
-            .extend(previous.values().flat_map(|binding| {
+        identity.identity_evidence = bindings
+            .iter()
+            .flat_map(|binding| &binding.identity_evidence)
+            .chain(previous.values().flat_map(|binding| {
                 binding
                     .binding_identity
                     .identity_evidence
                     .iter()
                     .filter(|evidence| evidence.starts_with(&original_prefix))
-                    .cloned()
-            }));
-        identity.identity_evidence.sort();
-        identity.identity_evidence.dedup();
+            }))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .cloned()
+            .collect();
         for chunk in bindings.chunks(10_000) {
             let ids: Vec<_> = chunk
                 .iter()
@@ -492,6 +498,9 @@ async fn stored_document_bindings(
             }
         }
         result.entity_keys.push(key);
+    }
+    if verify_only && !verified.is_empty() {
+        return Err(binding_validation_error());
     }
     Ok(result)
 }
