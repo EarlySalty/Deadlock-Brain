@@ -111,12 +111,16 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
         })?;
         reader.validate(query, context, Some(pin))?;
         let bundle = reader.read_pinned(context, pin)?;
-        let language = match pin.language {
+        let language = match request.subrequest() {
+            ToolSubrequest::EntityFind(find) => find.language,
+            _ => pin.language,
+        };
+        let language = match language {
             ToolLanguage::German => "german",
             ToolLanguage::English => "english",
         };
         let kinds: &[&str] = match request.subrequest() {
-            ToolSubrequest::EntityFind(find) if find.language == pin.language => match find.kind {
+            ToolSubrequest::EntityFind(find) => match find.kind {
                 Some(EntityKind::Hero) => &["heroes_all"],
                 Some(EntityKind::Item | EntityKind::Ability) => &["items"],
                 None => &["heroes_all", "items"],
@@ -397,14 +401,14 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
         &self,
         query: &brain_contracts::Query,
         context: &brain_contracts::AuthorizedContext,
-        game_context: Option<&brain_contracts::PinnedGameContext>,
+        _game_context: Option<&brain_contracts::PinnedGameContext>,
     ) -> std::result::Result<Vec<brain_contracts::tools::ToolDefinition>, brain_contracts::PortError>
     {
-        use brain_contracts::tools::{GameContextResolver, ToolDefinition, ToolName};
+        use brain_contracts::tools::{ToolDefinition, ToolName};
         Self::check_request(query, context)?;
         let mut definitions = vec![brain_contracts::tools::ToolDefinition {
             name: brain_contracts::tools::ToolName::ServerKnowledge,
-            description: "Freigegebenes Wissen im bereits gebundenen Anfragenkontext suchen."
+            description: "Freigegebenes Server- und Spielwissen suchen. Wähle deutsche oder englische Suchbegriffe frei, übersetze bei Bedarf und suche mehrfach mit anderen Begriffen. Normales Spiel ist der Standard; Street Brawl nur bei ausdrücklicher Frage danach."
                 .into(),
             input_schema: json!({
                 "type":"object", "additionalProperties":false,
@@ -412,23 +416,19 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
                 "properties":{"question":{"type":"string","minLength":1,"maxLength":8192}}
             }),
         }];
-        if let Some(reader) = &self.mirror {
-            let pin = game_context.ok_or_else(|| {
-                brain_contracts::PortError::Unavailable("Gebundener Spiegel fehlt".into())
-            })?;
-            reader.validate(query, context, Some(pin))?;
+        if self.mirror.is_some() {
             definitions.extend([
                 ToolDefinition {
                     name: ToolName::EntityFind,
-                    description: "Helden, Items und Fähigkeiten im gebundenen Spielstand nach Namen suchen.".into(),
+                    description: "Helden, Items und Fähigkeiten nach Namen suchen. Wähle deutsche oder englische Begriffe frei und suche bei Bedarf mehrfach; language bestimmt nur die Sprache der durchsuchten Spielkarten. Normales Spiel ist der Standard, Street Brawl nur auf ausdrückliche Nachfrage.".into(),
                     input_schema: json!({"type":"object","additionalProperties":false,"required":["query","language"],
                         "properties":{"query":{"type":"string","minLength":1,"maxLength":8192},
                             "kind":{"type":"string","enum":["hero","item","ability"]},
-                            "language":{"type":"string","enum":[pin.language]}}}),
+                            "language":{"type":"string","enum":["german","english"]}}}),
                 },
                 ToolDefinition {
                     name: ToolName::EntityProfile,
-                    description: "Originalfelder einer Spielkarte lesen. Fehlende Felder bleiben unbekannt; Rechnung und Analytics sind hier nicht verfügbar.".into(),
+                    description: "Originalfelder einer gefundenen Spielkarte lesen, einschließlich vorhandener Itemkatalogfelder. Fehlende Felder bleiben unbekannt; Rechnung und Analytics sind hier nicht verfügbar. Du kannst weitere Karten und Felder abfragen und Begriffe selbst übersetzen. Normales Spiel ist der Standard, Street Brawl nur auf ausdrückliche Nachfrage.".into(),
                     input_schema: json!({"type":"object","additionalProperties":false,"required":["entity","fields"],
                         "properties":{"entity":{"type":"object","additionalProperties":false,"required":["kind","id"],
                             "properties":{"kind":{"type":"string","enum":["hero","item","ability"]},"id":{"type":"integer","minimum":1,"maximum":i64::MAX}}},
@@ -481,9 +481,27 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
                 ));
             }
             if request.name() != ToolName::ServerKnowledge {
-                let pin = game_context.ok_or_else(|| {
-                    brain_contracts::PortError::Unavailable("Gebundener Spiegel fehlt".into())
-                })?;
+                let resolved;
+                let pin = match game_context {
+                    Some(pin) => pin,
+                    None => {
+                        resolved = self
+                            .mirror
+                            .as_ref()
+                            .ok_or_else(|| {
+                                brain_contracts::PortError::Unavailable(
+                                    "Gebundener Spielprofilanschluss fehlt".into(),
+                                )
+                            })?
+                            .resolve(query, context)?
+                            .ok_or_else(|| {
+                                brain_contracts::PortError::Unavailable(
+                                    "Gebundener Spiegel fehlt".into(),
+                                )
+                            })?;
+                        &resolved
+                    }
+                };
                 let (result, evidence) = self.mirrored_entities(
                     query,
                     context,
@@ -593,8 +611,10 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
         }
         for dependency in dependencies {
             if dependency.request.name() != brain_contracts::tools::ToolName::ServerKnowledge {
-                let pin = game_context
-                    .filter(|pin| dependency.game_context.as_ref() == Some(*pin))
+                let pin = dependency
+                    .game_context
+                    .as_ref()
+                    .filter(|pin| game_context.is_none_or(|expected| expected == *pin))
                     .ok_or_else(|| {
                         brain_contracts::PortError::PermissionDenied(
                             "Spielbeleg hat eine fremde Spiegelbindung".into(),

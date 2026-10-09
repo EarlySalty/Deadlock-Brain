@@ -446,7 +446,6 @@ mod tests {
         thread,
     };
 
-    use brain_contracts::provider_input::grounded_messages;
     use brain_contracts::{AnswerProfile, Principal};
 
     use super::*;
@@ -711,12 +710,18 @@ mod tests {
                 let request = read_request(&mut stream);
                 let (_, body) = request.split_once("\r\n\r\n").unwrap();
                 let body: serde_json::Value = serde_json::from_str(body).unwrap();
-                let mut expected = serde_json::json!({
-                    "model": model,
-                    "messages": grounded_messages(&query(), &[]),
-                    "max_tokens": 17,
-                    "stream": false,
-                });
+                let mut expected = grounded_turn_payload_with_quality(
+                    &query(),
+                    &[],
+                    &[],
+                    &ToolConversation::default(),
+                    ToolWireFormat::OpenAiCompatible,
+                    true,
+                )
+                .unwrap();
+                expected["model"] = serde_json::json!(model);
+                expected["max_tokens"] = serde_json::json!(17);
+                expected["stream"] = serde_json::json!(false);
                 if let Some(effort) = reasoning_effort {
                     expected["reasoning_effort"] = serde_json::json!(effort);
                 }
