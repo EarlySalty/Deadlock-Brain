@@ -27,6 +27,7 @@ use std::{
 #[serde(rename_all = "snake_case")]
 enum Target {
     Standard,
+    PublicGame,
     SecondBrainInternal,
     EntityProfiles,
     EntityProfilesInternal,
@@ -114,6 +115,7 @@ impl Cli {
     fn activation_target(&self) -> ActivationTarget {
         match self.target {
             Target::Standard | Target::EntityProfiles => ActivationTarget::Standard,
+            Target::PublicGame => ActivationTarget::PublicGame,
             Target::SecondBrainInternal | Target::EntityProfilesInternal => {
                 ActivationTarget::SecondBrainInternal
             }
@@ -143,6 +145,12 @@ impl Cli {
                 && sources.iter().all(|source| safe_id(source)),
             "source_allowlist"
         );
+        if self.target == Target::PublicGame {
+            dbrain_sources::knowledge_import::public_game::validate_sources(
+                &sources.iter().cloned().collect::<Vec<_>>(),
+            )
+            .map_err(anyhow::Error::msg)?;
+        }
         if self.target == Target::SecondBrainInternal {
             ensure!(
                 sources.iter().all(|source| internal_feed_source(source)),
@@ -285,11 +293,18 @@ fn check_rights(
     target: Target,
 ) -> Result<()> {
     let internal_scopes = BTreeSet::from(["second_brain.internal".into()]);
+    if target == Target::PublicGame {
+        dbrain_sources::knowledge_import::public_game::validate_sources(
+            &allowed.iter().cloned().collect::<Vec<_>>(),
+        )
+        .map_err(anyhow::Error::msg)?;
+    }
     let principal = brain_contracts::Principal {
         actor_id: "candidate-activation".into(),
         channel: "local-operator".into(),
         scopes: match target {
             Target::Standard => BTreeSet::new(),
+            Target::PublicGame => BTreeSet::from(["bot.public".into()]),
             Target::SecondBrainInternal
             | Target::EntityProfiles
             | Target::EntityProfilesInternal => internal_scopes.clone(),
@@ -366,6 +381,25 @@ fn check_rights(
                 record.visibility == SourceVisibility::Public && origin.policy.publication_allowed,
                 "standard_requires_public_source"
             ),
+            Target::PublicGame => {
+                dbrain_sources::knowledge_import::public_game::validate_game_origin(record)
+                    .map_err(anyhow::Error::msg)?;
+                ensure!(
+                    record.visibility == SourceVisibility::Public
+                        && record.allowed_scopes == BTreeSet::from(["bot.public".into()])
+                        && origin.policy.publication_allowed
+                        && record.metadata.contains_key(
+                            dbrain_sources::knowledge_import::public_game::AUTHORIZATION_KEY
+                        ),
+                    "public_game_source_rights"
+                );
+                let projection = dbrain_retrieval::knowledge_projection::project_knowledge(record)?
+                    .ok_or_else(|| anyhow::anyhow!("public_game_projection_missing"))?;
+                ensure!(
+                    projection.raw_byte_end == 0 && !projection.facts.is_empty(),
+                    "public_game_factual_projection_required"
+                );
+            }
             Target::SecondBrainInternal => ensure!(
                 internal_feed_source(&record.source_id)
                     && record.visibility == SourceVisibility::Internal
@@ -404,8 +438,10 @@ fn check_rights(
         if let Some(old) = old {
             let old_origin =
                 origin_from_record(old).map_err(|_| anyhow::anyhow!("base_rights_missing"))?;
+            let explicit_game_reauthorization = target == Target::PublicGame
+                && dbrain_sources::knowledge_import::public_game::is_game_reauthorization_transition(old, record);
             ensure!(
-                origin.policy == old_origin.policy
+                (origin.policy == old_origin.policy || explicit_game_reauthorization)
                     && record.metadata.get("egress") == old.metadata.get("egress"),
                 "source_policy_changed"
             );
@@ -995,15 +1031,16 @@ fn credential_stdin_to_fd5() -> Result<()> {
 
 fn main() {
     let cli = Cli::parse();
-    let report = match start(&cli)
-        .and_then(|(allowed, runtime)| runtime.block_on(run(&cli, allowed)))
-    {
-        Ok(report) => report,
-        Err(_) => {
-            eprintln!("Kandidatenaktivierung gesperrt: Prüfung fehlgeschlagen. Kein Aktivierungsnachweis.");
-            std::process::exit(1);
-        }
-    };
+    let report =
+        match start(&cli).and_then(|(allowed, runtime)| runtime.block_on(run(&cli, allowed))) {
+            Ok(report) => report,
+            Err(_) => {
+                eprintln!(
+                "Kandidatenaktivierung gesperrt: Prüfung fehlgeschlagen. Kein Aktivierungsnachweis."
+            );
+                std::process::exit(1);
+            }
+        };
     let success = report.success;
     let written = serde_json::to_vec(&report).ok().is_some_and(|mut bytes| {
         bytes.push(b'\n');
@@ -2486,6 +2523,238 @@ mod tests {
         origin.policy.publication_allowed = false;
         origin.bind_record(&mut base.heads[0]).unwrap();
         assert!(check_rights(&base, &candidate, &allowed(), Target::Standard).is_err());
+    }
+
+    #[test]
+    fn public_game_rights_require_an_exact_original_preserving_grant() {
+        use dbrain_sources::{game_files, knowledge_import};
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join("data/json")).unwrap();
+        std::fs::write(
+            directory.path().join("data/json/convars.json"),
+            br#"{"citadel_koth_spawn_initial_delay":720}"#,
+        )
+        .unwrap();
+        let source = knowledge_import::public_game::SOURCES[0];
+        let commit = "a".repeat(40);
+        let options = game_files::GameFileOptions {
+            root: directory.path().into(),
+            app_id: 1422450,
+            source_id: source.into(),
+            observed_at: "2026-10-09T12:00:00Z".into(),
+            build_id: None,
+            manifest_id: None,
+            source_revision: Some(commit.clone()),
+            depot_id: None,
+            language: "und".into(),
+            attribution: "Valve game data".into(),
+            license_name: "unverified".into(),
+            license_url: None,
+            provenance: serde_json::json!({"repository_url":"https://github.com/deadlock-wiki/deadlock-data","git_commit":commit}),
+            max_file_bytes: 8388608,
+        };
+        let mut input = Vec::new();
+        game_files::extract_game_files(&options, &mut input).unwrap();
+        let policy: knowledge_import::ImportPolicy = serde_json::from_value(serde_json::json!({"sources": {(source): {
+            "internal_read_allowed":true,"raw_retention_allowed":true,"publication_allowed":false,
+            "provider_egress_allowed":false,"authorization_ref":"operator:original",
+            "provenance_evidence_ref":"evidence:original","allowed_scopes":["internal_docs"]
+        }}})).unwrap();
+        let old = knowledge_import::prepare_knowledge_jsonl(
+            std::io::Cursor::new(input),
+            &policy,
+            game_files::EXTRACTOR_VERSION,
+        )
+        .unwrap()
+        .records()[0]
+            .record
+            .clone();
+        let granted = knowledge_import::public_game::authorize_game_record(
+            &old,
+            "operator:public",
+            Some("operator:provider"),
+            2,
+        )
+        .unwrap();
+        let base = snapshot(old, "base");
+        let candidate = snapshot(granted, "candidate");
+        let allowed = BTreeSet::from([source.into()]);
+        check_transition(&base.release, &candidate.release, &allowed).unwrap();
+        check_rights(&base, &candidate, &allowed, Target::PublicGame).unwrap();
+        for target in [
+            Target::Standard,
+            Target::EntityProfiles,
+            Target::EntityProfilesInternal,
+            Target::SecondBrainInternal,
+        ] {
+            assert!(check_rights(&base, &candidate, &allowed, target).is_err());
+        }
+        for variant in 0..5 {
+            let mut record = candidate.revisions[0].clone();
+            match variant {
+                0 => {
+                    record.metadata.insert("foreign".into(), "changed".into());
+                }
+                1 => {
+                    record.metadata.insert("egress".into(), "public".into());
+                }
+                2 => {
+                    let key = knowledge_import::public_game::AUTHORIZATION_KEY;
+                    let mut grant: serde_json::Value =
+                        serde_json::from_str(&record.metadata[key]).unwrap();
+                    grant["previous_store_revision"] = serde_json::json!(2);
+                    record.metadata.insert(key.into(), grant.to_string());
+                }
+                3 => {
+                    let key = brain_storage::source_versions::DOCUMENT_METADATA_KEY;
+                    let mut document: serde_json::Value =
+                        serde_json::from_str(&record.metadata[key]).unwrap();
+                    document["title"] = serde_json::json!("Fremdes Dokument");
+                    record.metadata.insert(key.into(), document.to_string());
+                }
+                _ => {
+                    let mut origin = origin_from_record(&record).unwrap();
+                    record.allowed_scopes.insert("foreign.scope".into());
+                    origin.policy.allowed_scopes = record.allowed_scopes.clone();
+                    origin.bind_record(&mut record).unwrap();
+                }
+            }
+            assert!(check_rights(
+                &base,
+                &snapshot(record, "candidate"),
+                &allowed,
+                Target::PublicGame
+            )
+            .is_err());
+        }
+        let mut superseded = candidate.clone();
+        superseded.heads[0].revision += 1;
+        assert!(check_rights(&base, &superseded, &allowed, Target::PublicGame).is_err());
+        assert!(check_rights(
+            &snapshot(record(1, SourceVisibility::Public), "base"),
+            &snapshot(record(2, SourceVisibility::Public), "candidate"),
+            &BTreeSet::from(["patchnotes".into()]),
+            Target::PublicGame
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn public_game_plan_preserves_internal_and_independent_bindings() {
+        let mut old = c9_value();
+        old["entity_profile_maintenance_config"] = serde_json::json!("/tmp/brain-maintenance.json");
+        let base_pin = old["release"].clone();
+        old["credentials"][0]["actor_id"] = serde_json::json!("dl-bot");
+        old["credentials"][0]["channel"] = serde_json::json!("discord");
+        for index in [0, 1] {
+            old["credentials"][index]["scopes"] = serde_json::json!(["bot.public"]);
+            old["credentials"][index]["entity_profile_model_context"] = serde_json::json!(true);
+            old["credentials"][index]["release"] = base_pin.clone();
+        }
+        old["credentials"][2]["release"] = base_pin.clone();
+        old["internal_operator"]["release"] = base_pin.clone();
+        old["credentials"].as_array_mut().unwrap().extend([
+            serde_json::json!({"token_env":"OTHER_GAME_TEST_TOKEN","actor_id":"other-game","channel":"game","scopes":["bot.public"],"provider_egress":["public"],"entity_profile_model_context":true,"release":{"id":"independent","knowledge_version":"independent-kv"}}),
+            serde_json::json!({"token_env":"OTHER_READER_TEST_TOKEN","actor_id":"other-reader","channel":"reader","scopes":["bot.public"],"provider_egress":["public"],"release":base_pin}),
+        ]);
+        let cli = Cli::try_parse_from([
+            "brain-candidate-activate",
+            "--config",
+            "/tmp/runtime.json",
+            "--target",
+            "public-game",
+            "--base-release-id",
+            "base",
+            "--base-release-sha256",
+            &"a".repeat(64),
+            "--candidate-release-id",
+            "candidate",
+            "--candidate-release-sha256",
+            &"b".repeat(64),
+            "--expected-serve-config-sha256",
+            &"c".repeat(64),
+            "--allow-source",
+            "deadlock-wiki-deadlock-data",
+        ])
+        .unwrap();
+        assert_eq!(cli.activation_target(), ActivationTarget::PublicGame);
+        cli.sources().unwrap();
+        let mut foreign_cli = cli;
+        foreign_cli.allow_source = vec!["member-data".into()];
+        assert!(foreign_cli.sources().is_err());
+        let (_dir, artifacts, writer, runtime) = plan_fixture(&old);
+        let candidate = release("candidate", "candidate-kv", 2);
+        let plan = ActivationPlan::prepare_target(
+            &runtime,
+            &artifacts,
+            &candidate,
+            &writer,
+            ActivationTarget::PublicGame,
+        )
+        .unwrap();
+        assert_eq!(plan.target(), ActivationTarget::PublicGame);
+        let journal_bytes = artifacts.read(plan.journal_ref()).unwrap();
+        let journal: Journal = serde_json::from_slice(&journal_bytes).unwrap();
+        let new_bytes = artifacts.read(&journal.new_config).unwrap();
+        let new: serde_json::Value = serde_json::from_slice(&new_bytes).unwrap();
+        let mut expected = old.clone();
+        expected["release"] =
+            serde_json::json!({"id":"candidate","knowledge_version":"candidate-kv"});
+        for index in [0, 1] {
+            expected["credentials"][index]["release"] = expected["release"].clone();
+        }
+        assert_eq!(new, expected);
+        assert_eq!(writer.read().unwrap(), serde_json::to_vec(&old).unwrap());
+        check_config_transition(
+            &serde_json::to_vec(&old).unwrap(),
+            &new_bytes,
+            &candidate,
+            ActivationTarget::PublicGame,
+        )
+        .unwrap();
+        check_basis(
+            &serde_json::to_vec(&old).unwrap(),
+            &release("base", "base-kv", 1),
+            &digest(&serde_json::to_vec(&old).unwrap()),
+            ActivationTarget::PublicGame,
+        )
+        .unwrap();
+        for variant in 0..4 {
+            let mut forged: serde_json::Value = serde_json::from_slice(&journal_bytes).unwrap();
+            if variant == 0 {
+                forged
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("new_bindings_sha256");
+            } else {
+                let mut changed = new.clone();
+                match variant {
+                    1 => {
+                        changed["credentials"][2]["release"] = changed["release"].clone();
+                        changed["internal_operator"]["release"] = changed["release"].clone();
+                    }
+                    2 => {
+                        changed["credentials"][3]["release"] = changed["release"].clone();
+                    }
+                    _ => {
+                        changed["credentials"][0]["release"]["id"] = serde_json::json!("unrelated");
+                    }
+                }
+                let changed = serde_json::to_vec(&changed).unwrap();
+                forged["new_config"] = serde_json::json!(artifacts.put(&changed, "json").unwrap());
+                forged["new_bindings_sha256"] =
+                    serde_json::json!(brain_serve::Config::parse(&changed)
+                        .unwrap()
+                        .release_bindings_sha256());
+            }
+            let reference = artifacts
+                .put(&serde_json::to_vec(&forged).unwrap(), "json")
+                .unwrap();
+            assert!(
+                ActivationPlan::load(&runtime, &artifacts, &reference, &candidate.release_id)
+                    .is_err()
+            );
+        }
     }
 
     #[test]

@@ -392,6 +392,11 @@ fn valid_ref(value: &str) -> bool {
     !value.trim().is_empty() && !value.chars().any(char::is_control)
 }
 
+#[path = "knowledge_import/legacy_game.rs"]
+pub mod legacy_game;
+#[path = "knowledge_import/public_game.rs"]
+pub mod public_game;
+
 #[cfg(test)]
 mod tests {
     use super::*;
