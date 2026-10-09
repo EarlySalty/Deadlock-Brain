@@ -59,7 +59,8 @@ pub fn build_hero_model(
             "Waffenprofil unvollständig; Primärwaffen-Snapshot laden".into(),
         ));
     }
-    hero.weapon.sustained_dps = mechanics::weapon_dps(&hero.weapon, 40.0);
+    hero.weapon.sustained_dps =
+        mechanics::weapon_dps_with_timing(&hero.weapon, Some(&hero.weapon_timing), 40.0);
     hero.damage_plan = damage_plan(&hero, &ReasonerConfig::default());
     Ok(hero)
 }
@@ -239,6 +240,7 @@ mod tests {
             standard_upgrade_levels: Default::default(),
             level_rewards: Default::default(),
             cost_bonuses: Default::default(),
+            weapon_timing: Default::default(),
             hero_id: 25,
             name: "Warden".to_string(),
             archetype: "brawler".to_string(),
