@@ -488,7 +488,7 @@ impl Config {
         )?;
         let b = &self.budgets;
         require(
-            (1..=8).contains(&b.max_network_rounds)
+            (1..=20).contains(&b.max_network_rounds)
                 && b.max_input_tokens > 0
                 && b.max_output_tokens > 0
                 && b.max_cost_micros > 0,
@@ -512,14 +512,14 @@ impl Config {
         let t = &self.timeouts;
         require(
             (1..=120_000).contains(&t.startup_ms)
-                && (1..=60_000).contains(&t.request_ms)
+                && (1..=600_000).contains(&t.request_ms)
                 && (1..=t.startup_ms.min(t.request_ms)).contains(&t.postgres_connect_ms)
                 && (1..=t.request_ms).contains(&t.postgres_pool_wait_ms)
                 && (1..=t.request_ms).contains(&t.postgres_statement_ms)
                 && (1..=t.postgres_statement_ms).contains(&t.postgres_lock_ms)
                 && (1..=t.request_ms).contains(&t.provider_ms)
                 && (1..=t.startup_ms).contains(&t.readiness_ms)
-                && (t.request_ms..=120_000).contains(&t.shutdown_ms),
+                && (t.request_ms..=600_000).contains(&t.shutdown_ms),
             "timeouts",
         )?;
         require((1..=100).contains(&self.retrieval.limit), "retrieval")?;

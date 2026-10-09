@@ -427,7 +427,7 @@ async fn all_admitted_body_read_timeouts_return_their_permits() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invalid_service_deadlines_fail_closed_instead_of_being_clamped() {
-    for budget in [0, 60001] {
+    for budget in [0, 600_001] {
         let server = Server::new(budget, None).await;
         let mut stream = request(server.address, "normal").await;
         let reply = response(&mut stream, Duration::from_millis(400)).await;
@@ -439,6 +439,15 @@ async fn invalid_service_deadlines_fail_closed_instead_of_being_clamped() {
         assert_eq!(server.calls.load(Ordering::SeqCst), 0);
         server.finish().await;
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ten_minute_service_deadline_reaches_kernel_over_http() {
+    let server = Server::new(600_000, None).await;
+    let mut stream = request(server.address, "normal").await;
+    status(&response(&mut stream, Duration::from_secs(1)).await, 200);
+    assert_eq!(server.calls.load(Ordering::SeqCst), 1);
+    server.finish().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
