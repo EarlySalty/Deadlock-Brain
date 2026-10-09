@@ -1631,21 +1631,27 @@ fn item_models_from_mirror(
 }
 
 pub async fn load_meta_rows(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<MetaRow>> {
-    let rows = sqlx::query("SELECT item_id, patch_tag, prevalence_builds, wins, losses, matches, avg_buy_time_relative, lift_pp FROM brain.hero_item_stats WHERE hero_id=$1 AND bracket=$2 AND patch_tag=$3 ORDER BY item_id")
+    let assets = mirrored_assets(ctx).await?;
+    let allowed: BTreeSet<_> = assets
+        .items
+        .iter()
+        .filter(|raw| brain_contracts::game_mode::GameMode::Normal.allows_item(raw))
+        .filter_map(|raw| raw["id"].as_i64())
+        .collect();
+    let rows = sqlx::query("SELECT item_id, patch_tag, wins, losses, matches, avg_buy_time_relative, lift_pp FROM brain.hero_item_stats WHERE hero_id=$1 AND bracket=$2 AND patch_tag=$3 ORDER BY item_id")
         .bind(hero_id)
         .bind(&ctx.config.bracket)
         .bind(&ctx.config.patch_tag)
         .fetch_all(&ctx.pool)
         .await
         .map_err(ReasonerError::Db)?;
-    rows.into_iter()
+    let rows = rows
+        .into_iter()
         .map(|row| {
             Ok(MetaRow {
                 item_id: row.try_get("item_id").map_err(ReasonerError::Db)?,
                 patch_tag: row.try_get("patch_tag").map_err(ReasonerError::Db)?,
-                prevalence_builds: row
-                    .try_get("prevalence_builds")
-                    .map_err(ReasonerError::Db)?,
+                prevalence_builds: 0,
                 wins: row.try_get("wins").map_err(ReasonerError::Db)?,
                 losses: row.try_get("losses").map_err(ReasonerError::Db)?,
                 matches: row.try_get("matches").map_err(ReasonerError::Db)?,
@@ -1655,7 +1661,11 @@ pub async fn load_meta_rows(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<MetaR
                 lift_pp: row.try_get("lift_pp").map_err(ReasonerError::Db)?,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    Ok(rows
+        .into_iter()
+        .filter(|row| allowed.contains(&row.item_id))
+        .collect())
 }
 
 pub async fn load_patch_events(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Value>> {

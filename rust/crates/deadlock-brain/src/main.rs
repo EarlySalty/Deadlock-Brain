@@ -2193,19 +2193,26 @@ async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs)
 }
 
 async fn load_known_item_names(pool: &PgPool) -> Result<BTreeSet<String>> {
-    let names = sqlx::query_scalar::<_, String>(
-        "SELECT name FROM brain.item_catalog WHERE name IS NOT NULL AND name <> ''",
+    let version = brain_storage::asset_mirror::latest_mirrored_client_version(pool).await?;
+    let catalog = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
+        pool,
+        version,
+        "items",
+        Some("english"),
     )
-    .fetch_all(pool)
     .await?;
-    let mut set = BTreeSet::new();
-    for name in names {
-        let trimmed = name.trim();
-        if !trimmed.is_empty() {
-            set.insert(trimmed.to_string());
-        }
-    }
-    Ok(set)
+    let rows = catalog
+        .payload
+        .as_array()
+        .context("Aktueller Item-Katalog fehlt.")?;
+    Ok(rows
+        .iter()
+        .filter(|raw| brain_contracts::game_mode::GameMode::Normal.allows_item(raw))
+        .filter_map(|raw| raw["name"].as_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect())
 }
 
 async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
