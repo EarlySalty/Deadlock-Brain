@@ -8,7 +8,6 @@ use dbrain_sources::knowledge_import::{
 };
 use serde::Serialize;
 use serde_json::{json, Value};
-#[cfg(test)]
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -17,6 +16,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[path = "brain-knowledge-import/public_game.rs"]
+mod public_game;
 #[path = "brain-knowledge-import/runtime.rs"]
 mod runtime;
 
@@ -38,7 +39,14 @@ impl Arguments {
         }
         if !matches!(
             mode.as_str(),
-            "partition" | "validate" | "import" | "publish"
+            "partition"
+                | "validate"
+                | "import"
+                | "publish"
+                | "inspect-game"
+                | "reauthorize-game"
+                | "extract-game"
+                | "export-legacy-game"
         ) {
             return Err("Unbekannter Unterbefehl".into());
         }
@@ -50,7 +58,14 @@ impl Arguments {
         while let Some(key) = args.next() {
             let allowed = match parsed.mode.as_str() {
                 "partition" => ["--input", "--output-dir", "--report"].as_slice(),
-                "validate" => ["--input", "--policy", "--parser-revision", "--report"].as_slice(),
+                "validate" => [
+                    "--input",
+                    "--policy",
+                    "--parser-revision",
+                    "--report",
+                    "--authorization-ref",
+                ]
+                .as_slice(),
                 "import" => [
                     "--input",
                     "--policy",
@@ -67,6 +82,38 @@ impl Arguments {
                     "--source",
                     "--report",
                     "--infisical-config",
+                    "--runtime-config",
+                ]
+                .as_slice(),
+                "inspect-game" => [
+                    "--source",
+                    "--report",
+                    "--runtime-config",
+                    "--infisical-config",
+                ]
+                .as_slice(),
+                "reauthorize-game" => [
+                    "--source",
+                    "--authorization-ref",
+                    "--provider-egress-ref",
+                    "--report",
+                    "--runtime-config",
+                    "--infisical-config",
+                ]
+                .as_slice(),
+                "export-legacy-game" => [
+                    "--source",
+                    "--output",
+                    "--report",
+                    "--runtime-config",
+                    "--infisical-config",
+                ]
+                .as_slice(),
+                "extract-game" => [
+                    "--source",
+                    "--revision",
+                    "--output",
+                    "--report",
                     "--runtime-config",
                 ]
                 .as_slice(),
@@ -110,9 +157,41 @@ impl Arguments {
                     return Err("Neuer Release muss eine eigene Kennung erhalten".into());
                 }
             }
+            "inspect-game" | "reauthorize-game" | "extract-game" | "export-legacy-game" => {
+                dbrain_sources::knowledge_import::public_game::validate_sources(&parsed.sources)?;
+                if parsed.mode == "export-legacy-game" {
+                    if parsed.sources.len() != 1
+                        || !["legacy-entities", "legacy-patchnotes"]
+                            .contains(&parsed.sources[0].as_str())
+                    {
+                        return Err("Legacy-Export erfordert genau eine Legacy-Spielquelle".into());
+                    }
+                    parsed.path("--output")?;
+                }
+                if parsed.mode == "reauthorize-game" {
+                    parsed.required("--authorization-ref")?;
+                }
+                if parsed.mode == "extract-game" {
+                    if parsed.sources.len() != 1
+                        || !dbrain_sources::knowledge_import::public_game::SOURCES[..2]
+                            .contains(&parsed.sources[0].as_str())
+                    {
+                        return Err(
+                            "Extraktion erfordert genau eine gepinnte Git-Spielquelle".into()
+                        );
+                    }
+                    parsed.path("--output")?;
+                    parsed.path("--runtime-config")?;
+                    dbrain_sources::git_source::validate_commit(parsed.required("--revision")?)
+                        .map_err(|_| "Vollständiger Git-Commit erforderlich")?;
+                }
+            }
             _ => unreachable!(),
         }
-        if matches!(parsed.mode.as_str(), "import" | "publish") {
+        if matches!(
+            parsed.mode.as_str(),
+            "import" | "publish" | "inspect-game" | "reauthorize-game" | "export-legacy-game"
+        ) {
             parsed.path("--runtime-config")?;
             if parsed.values.contains_key("--infisical-config") {
                 parsed.path("--infisical-config")?;
@@ -207,6 +286,56 @@ fn prepare(args: &Arguments) -> Result<(PreparedKnowledgeImport, InputProof), St
             .unwrap_or(0),
     };
     Ok((prepared, proof))
+}
+
+fn public_game_projection_proof(
+    prepared: &PreparedKnowledgeImport,
+    authorization_ref: &str,
+) -> Result<Value, String> {
+    let mut projected_bytes = 0usize;
+    let mut facts = 0usize;
+    let mut documents = Vec::new();
+    for prepared_record in prepared.records() {
+        let record = &prepared_record.record;
+        let next_revision = record
+            .revision
+            .checked_add(1)
+            .ok_or("Speicherrevision ist zu groß für die Offline-Probe")?;
+        let authorized = dbrain_sources::knowledge_import::public_game::authorize_game_record(
+            record,
+            authorization_ref,
+            None,
+            next_revision,
+        )?;
+        let projection = dbrain_retrieval::knowledge_projection::project_knowledge(&authorized)
+            .map_err(|_| "Öffentliche Faktenprojektion hat ihren Vertrag nicht bestanden")?
+            .ok_or("Öffentliche Faktenprojektion fehlt")?;
+        if projection.raw_byte_end != 0 || projection.facts.is_empty() {
+            return Err("Offline-Probe enthält keine reine Faktenprojektion".into());
+        }
+        projected_bytes = projected_bytes
+            .checked_add(projection.text.len())
+            .ok_or("Projektionsgröße ist zu groß")?;
+        facts = facts
+            .checked_add(projection.facts.len())
+            .ok_or("Faktenzahl ist zu groß")?;
+        documents.push(json!({
+            "source_id": record.source_id,
+            "logical_id": record.logical_id,
+            "raw_sha256": projection.raw_sha256,
+            "semantic_sha256": projection.semantic_sha256,
+            "projected_bytes": projection.text.len(),
+            "facts": projection.facts.len(),
+        }));
+    }
+    Ok(json!({
+        "simulation_only": true,
+        "projection_version": dbrain_retrieval::knowledge_projection::PUBLIC_GAME_FACTS_PROJECTION_VERSION,
+        "documents": documents.len(),
+        "facts": facts,
+        "projected_bytes": projected_bytes,
+        "records": documents,
+    }))
 }
 
 fn report_preflight(path: &Path) -> Result<(), String> {
@@ -419,9 +548,24 @@ async fn publish(args: &Arguments, store: &PgStore, pool: &sqlx::PgPool) -> Resu
             "Nachgelesener Release entspricht nicht dem geprüften Manifest und Kopfstand".into(),
         );
     }
+    let base_release_sha256 = format!(
+        "{:x}",
+        Sha256::digest(
+            serde_json::to_vec(&base.release)
+                .map_err(|_| "Basisrelease kann nicht gebunden werden")?
+        )
+    );
+    let candidate_release_sha256 = format!(
+        "{:x}",
+        Sha256::digest(
+            serde_json::to_vec(&verified.release)
+                .map_err(|_| "Kandidatenrelease kann nicht gebunden werden")?
+        )
+    );
     Ok(json!({
         "published": true, "activated": false, "release_id": release.release_id,
         "knowledge_version": release.knowledge_version, "base_release": base.release.release_id,
+        "base_release_sha256": base_release_sha256, "candidate_release_sha256": candidate_release_sha256,
         "previous_pins": previous_pins, "documents": document_count,
         "selected_source_heads": added, "largest_content_bytes": largest_content_bytes,
         "release_index": index_proof,
@@ -495,12 +639,82 @@ async fn execute(args: Arguments) -> Result<bool, String> {
         return Ok(true);
     }
     report_preflight(&report)?;
+    if args.mode == "extract-game" {
+        let value = public_game::extract(&args)?;
+        write_report(&report, &value)?;
+        println!(
+            "{}",
+            json!({"extracted": true, "imported": false, "report": report})
+        );
+        return Ok(true);
+    }
+    if args.mode == "export-legacy-game" {
+        let output = args.path("--output")?;
+        report_preflight(&output)?;
+        if output == report {
+            return Err("Ausgabe und Bericht müssen getrennte Dateien sein".into());
+        }
+        let pool = pool(&args).await?;
+        let documents = dbrain_sources::knowledge_import::legacy_game::export_legacy_game(
+            &pool,
+            &args.sources[0],
+        )
+        .await?;
+        let mut file =
+            tempfile::NamedTempFile::new_in(output.parent().ok_or("Ausgabeordner fehlt")?)
+                .map_err(|_| "Legacy-Ausgabe kann nicht vorbereitet werden")?;
+        for document in &documents {
+            serde_json::to_writer(file.as_file_mut(), document)
+                .map_err(|_| "Legacy-Dokument kann nicht serialisiert werden")?;
+            file.write_all(b"\n")
+                .map_err(|_| "Legacy-Dokument kann nicht geschrieben werden")?;
+        }
+        file.as_file()
+            .sync_all()
+            .map_err(|_| "Legacy-Ausgabe kann nicht gespeichert werden")?;
+        file.persist_noclobber(&output).map_err(|_| {
+            "Legacy-Ausgabe existiert bereits oder kann nicht veröffentlicht werden"
+        })?;
+        File::open(output.parent().ok_or("Ausgabeordner fehlt")?)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|_| "Ausgabeordner kann nicht gespeichert werden")?;
+        write_report(
+            &report,
+            &json!({"exported": true, "source": args.sources[0], "documents": documents.len(), "output": output, "imported": false, "published": false, "activated": false}),
+        )?;
+        pool.close().await;
+        println!(
+            "{}",
+            json!({"exported": true, "documents": documents.len(), "report": report})
+        );
+        return Ok(true);
+    }
+    if matches!(args.mode.as_str(), "inspect-game" | "reauthorize-game") {
+        let pool = pool(&args).await?;
+        let store = PgStore::new(pool.clone());
+        store
+            .check_core_schema()
+            .await
+            .map_err(|_| "Bestehendes Core-Schema ist nicht kompatibel")?;
+        let value = public_game::inspect_or_authorize(&args, &pool).await?;
+        write_report(&report, &value)?;
+        pool.close().await;
+        println!(
+            "{}",
+            json!({"complete": true, "report": report, "published": false, "activated": false})
+        );
+        return Ok(true);
+    }
     match args.mode.as_str() {
         "validate" => {
             let (prepared, proof) = prepare(&args)?;
             let complete = proof.input_conflicts == 0 && prepared.skipped_reasons().is_empty();
-            let value = json!({"validated": true, "complete": complete, "input": proof,
+            let mut value = json!({"validated": true, "complete": complete, "input": proof,
                 "rights": prepared.rights(), "skipped_reasons": prepared.skipped_reasons()});
+            if let Some(authorization_ref) = args.values.get("--authorization-ref") {
+                value["public_game_factual_projection"] =
+                    public_game_projection_proof(&prepared, authorization_ref)?;
+            }
             write_report(&report, &value)?;
             println!(
                 "{}",
@@ -557,7 +771,12 @@ async fn main() -> ExitCode {
     }));
     match Arguments::parse(std::env::args().skip(1)) {
         Ok(None) => {
-            println!("brain-knowledge-import partition --input /pfad/daten.jsonl --output-dir /pfad/neue-partitionen --report /pfad/neuer-bericht.json\nbrain-knowledge-import validate --input /pfad/daten.jsonl --policy /pfad/rechte.json --parser-revision <stand> --report /pfad/neuer-bericht.json\nbrain-knowledge-import import <dieselben Optionen> --runtime-config /etc/deadlock-brain/maintenance-runtime.json\nbrain-knowledge-import publish --base-release <id> --release-id <neue-id> --knowledge-version <stand> --source <quelle> [--source <weitere-quelle>] --runtime-config /etc/deadlock-brain/maintenance-runtime.json --report /pfad/neuer-bericht.json\n\nPartitionierung prüft die gesamte Eingabe vor der Ausgabe und erhält ihre exakten Bytes. Ausgabeordner müssen neu sein, ihre Elternordner bereits vorhanden. Der Bericht darf direkt im neuen Ausgabeordner liegen, sonst muss sein Elternordner vorhanden sein. Normale Partitionen umfassen höchstens 1.000 Dokumentzeilen und 64 MiB. Größere Einzeldokumente bis 128 MiB erhalten eine eigene Partition. Jede Eingabe ist auf 100.000 historische Dokumentzeilen, 2 GiB Sicherungsbytes und einen 64-MiB-Identitätsindex begrenzt; der Release bleibt getrennt auf 10.000 aktive Pins, 256 MiB Indextext und 500.000 Chunks begrenzt. Import und Validate lesen höchstens 128 MiB je Eingabe. Import und Veröffentlichung verwenden ausschließlich das dedizierte Ziel und den Infisical-Verweis der normalen Runtime-Konfiguration. Jede Datenbankverbindung bestätigt Rolle, Datenbank, lokalen Socket und Port vor der Verarbeitung. Ein optionaler --infisical-config-Pfad muss mit der Runtime übereinstimmen. Partitionierung importiert, veröffentlicht und aktiviert keine Daten und benötigt weder Importrechte noch Infisical. Import und Veröffentlichung aktivieren keinen Dienst. Bestehende Berichte werden nicht überschrieben. Geheimnisse bleiben im vorhandenen Infisical-Verfahren.");
+            println!(
+                "brain-knowledge-import extract-game --source <git-spielquelle> --revision <vollständiger-commit> --runtime-config /etc/deadlock-brain/maintenance-runtime.json --output /pfad/neue-spieldaten.jsonl --report /pfad/neuer-bericht.json\nbrain-knowledge-import export-legacy-game --source <legacy-entities|legacy-patchnotes> --runtime-config /etc/deadlock-brain/maintenance-runtime.json --output /pfad/neue-legacy-daten.jsonl --report /pfad/neuer-bericht.json\nbrain-knowledge-import inspect-game --source <spielquelle> [--source <weitere-spielquelle>] --runtime-config /etc/deadlock-brain/maintenance-runtime.json --report /pfad/neuer-bericht.json\nbrain-knowledge-import reauthorize-game --source <spielquelle> [--source <weitere-spielquelle>] --authorization-ref <ausdrücklicher-freigabenachweis> [--provider-egress-ref <gesonderter-weitergabenachweis>] --runtime-config /etc/deadlock-brain/maintenance-runtime.json --report /pfad/neuer-bericht.json\n\nSpielquellenfreigaben gelten ausschließlich für öffentliche sachliche Spieldaten mit geprüftem Ursprung. Ursprüngliche Lizenzerklärungen bleiben erhalten; daraus entsteht keine Lizenz zur Weitergabe von Rohassets. Die Freigabe schreibt nur monotone Rechteversionen für genau benannte Quellen. Ohne gesonderten Nachweis bleibt die Weitergabe an Modellanbieter gesperrt. Veröffentlichung und Aktivierung bleiben getrennte Schritte. Extraktion liest ausschließlich gepinnte Git-Objekte mit geprüfter Repository-Herkunft. Der Legacy-Export übernimmt nur vorhandene Spielentitäten, deutsche und englische Lokalisierungen sowie offizielle Patchnotes, keine Community- oder Nutzerdaten."
+            );
+            println!(
+                "brain-knowledge-import partition --input /pfad/daten.jsonl --output-dir /pfad/neue-partitionen --report /pfad/neuer-bericht.json\nbrain-knowledge-import validate --input /pfad/daten.jsonl --policy /pfad/rechte.json --parser-revision <stand> --report /pfad/neuer-bericht.json [--authorization-ref <freigabenachweis>]\nbrain-knowledge-import import <dieselben Optionen> --runtime-config /etc/deadlock-brain/maintenance-runtime.json\nbrain-knowledge-import publish --base-release <id> --release-id <neue-id> --knowledge-version <stand> --source <quelle> [--source <weitere-quelle>] --runtime-config /etc/deadlock-brain/maintenance-runtime.json --report /pfad/neuer-bericht.json\n\nPartitionierung prüft die gesamte Eingabe vor der Ausgabe und erhält ihre exakten Bytes. Ausgabeordner müssen neu sein, ihre Elternordner bereits vorhanden. Der Bericht darf direkt im neuen Ausgabeordner liegen, sonst muss sein Elternordner vorhanden sein. Normale Partitionen umfassen höchstens 1.000 Dokumentzeilen und 64 MiB. Größere Einzeldokumente bis 128 MiB erhalten eine eigene Partition. Jede Eingabe ist auf 100.000 historische Dokumentzeilen, 2 GiB Sicherungsbytes und einen 64-MiB-Identitätsindex begrenzt; der Release bleibt getrennt auf 10.000 aktive Pins, 256 MiB Indextext und 500.000 Chunks begrenzt. Import und Validate lesen höchstens 128 MiB je Eingabe. Validate misst mit --authorization-ref zusätzlich die öffentlichen Faktenprojektionen im Speicher und meldet deren genaue UTF-8-Bytes; ohne diese Option bleibt die zusätzliche Probe aus. Diese Probe ändert keine gespeicherten Rechte oder Daten. Import und Veröffentlichung verwenden ausschließlich das dedizierte Ziel und den Infisical-Verweis der normalen Runtime-Konfiguration. Jede Datenbankverbindung bestätigt Rolle, Datenbank, lokalen Socket und Port vor der Verarbeitung. Ein optionaler --infisical-config-Pfad muss mit der Runtime übereinstimmen. Partitionierung importiert, veröffentlicht und aktiviert keine Daten und benötigt weder Importrechte noch Infisical. Import und Veröffentlichung aktivieren keinen Dienst. Bestehende Berichte werden nicht überschrieben. Geheimnisse bleiben im vorhandenen Infisical-Verfahren."
+            );
             ExitCode::SUCCESS
         }
         Ok(Some(args)) => match execute(args).await {
@@ -581,6 +800,41 @@ mod tests {
 
     fn args(values: &[&str]) -> Result<Option<Arguments>, String> {
         Arguments::parse(values.iter().map(|value| value.to_string()))
+    }
+
+    #[test]
+    fn public_game_modes_require_exact_sources_and_explicit_evidence() {
+        let common = [
+            "--source",
+            "deadlock-wiki-deadlock-data",
+            "--report",
+            "/report",
+            "--runtime-config",
+            "/runtime",
+        ];
+        let mut inspect = vec!["inspect-game"];
+        inspect.extend(common);
+        assert!(args(&inspect).is_ok());
+        let mut authorize = vec!["reauthorize-game"];
+        authorize.extend(common);
+        assert!(args(&authorize).is_err());
+        authorize.extend(["--authorization-ref", "operator:explicit-public-facts"]);
+        assert!(args(&authorize).is_ok());
+        authorize.extend(["--source", "member-data"]);
+        assert!(args(&authorize).is_err());
+        let mut extract = vec!["extract-game"];
+        extract.extend(common);
+        extract.extend(["--output", "/output", "--revision", "HEAD"]);
+        assert!(args(&extract).is_err());
+        extract.pop();
+        extract.push("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        assert!(args(&extract).is_ok());
+        let mut export = vec!["export-legacy-game"];
+        export.extend(common);
+        export.extend(["--output", "/output"]);
+        assert!(args(&export).is_err());
+        export[2] = "legacy-entities";
+        assert!(args(&export).is_ok());
     }
 
     #[test]
@@ -618,6 +872,32 @@ mod tests {
             "v1"
         ])
         .is_ok());
+    }
+
+    #[test]
+    fn validate_factual_projection_requires_the_explicit_offline_option() {
+        let mut values = vec![
+            "validate",
+            "--input",
+            "/input",
+            "--policy",
+            "/policy",
+            "--parser-revision",
+            "v1",
+            "--report",
+            "/report",
+        ];
+        let parsed = args(&values).unwrap().unwrap();
+        assert!(!parsed.values.contains_key("--authorization-ref"));
+        values.extend(["--authorization-ref", "operator:public-game-facts"]);
+        let parsed = args(&values).unwrap().unwrap();
+        assert_eq!(
+            parsed.required("--authorization-ref").unwrap(),
+            "operator:public-game-facts"
+        );
+        values[0] = "import";
+        values.extend(["--runtime-config", "/runtime"]);
+        assert!(args(&values).is_err());
     }
 
     #[test]
@@ -1255,6 +1535,17 @@ mod tests {
                 assert!(snapshot.release.source_revisions[&original.source_id].is_empty());
                 assert_eq!(snapshot.revisions, vec![kept.clone()]);
                 assert_eq!(snapshot.heads, vec![kept.clone()]);
+                assert_eq!(
+                    proof["base_release_sha256"],
+                    format!("{:x}", Sha256::digest(serde_json::to_vec(&base).unwrap()))
+                );
+                assert_eq!(
+                    proof["candidate_release_sha256"],
+                    format!(
+                        "{:x}",
+                        Sha256::digest(serde_json::to_vec(&snapshot.release).unwrap())
+                    )
+                );
             }
             let mut forged = withdrawn.clone();
             forged.revision += 1;
