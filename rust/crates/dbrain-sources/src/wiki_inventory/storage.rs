@@ -22,7 +22,17 @@ pub(super) struct WikiSpool {
     max_total_bytes: usize,
     stored_bytes: Cell<usize>,
     bound_origin: RefCell<Option<String>>,
-    _lock: File,
+    _lock: InventoryLock,
+}
+
+struct InventoryLock(File);
+
+impl Drop for InventoryLock {
+    fn drop(&mut self) {
+        if let Err(error) = self.0.unlock() {
+            eprintln!("Wiki-Inventarsperre konnte nicht freigegeben werden: {error}");
+        }
+    }
 }
 
 impl WikiSpool {
@@ -41,6 +51,7 @@ impl WikiSpool {
                 "Das Wiki-Inventar wird bereits bearbeitet: {error}"
             ))
         })?;
+        let lock = InventoryLock(lock);
         let records_dir = root.join("documents");
         create_dir_all_durable(&records_dir)?;
         let mut stored_bytes = 0usize;
@@ -956,6 +967,20 @@ mod tests {
         collect_wiki_inventory_with_transport, read_wiki_inventory_report, WikiInventoryOptions,
     };
     use std::collections::VecDeque;
+
+    #[test]
+    fn duplicated_descriptor_does_not_retain_a_finished_inventory_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let spool = WikiSpool::open(root.path(), 4096).unwrap();
+        let inherited = spool._lock.0.try_clone().unwrap();
+        assert!(WikiSpool::open(root.path(), 4096).is_err());
+        drop(spool);
+        let reopened = WikiSpool::open(root.path(), 4096).unwrap();
+        drop(inherited);
+        assert!(WikiSpool::open(root.path(), 4096).is_err());
+        drop(reopened);
+        assert!(WikiSpool::open(root.path(), 4096).is_ok());
+    }
 
     #[test]
     fn persisted_content_conflict_remains_a_gap_after_original_retry_and_namespace_completion() {
