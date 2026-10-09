@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::{AbilityModel, AbilityStep, HeroModel, ReasonerConfig, ScalingStat};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ProgressionEvidence {
     pub earned_souls: i64,
     pub reached_level: i64,
@@ -53,6 +53,138 @@ pub fn coherent_order(hero: &HeroModel, order: &[AbilityStep]) -> (Vec<AbilitySt
         output.push(step.clone());
     }
     (output, Vec::new())
+}
+
+pub fn mechanic_order(hero: &HeroModel, cfg: &ReasonerConfig) -> Vec<AbilityStep> {
+    mechanic_order_with_deadline(hero, cfg, None)
+        .expect("Unbegrenzte Skillplanung hat keinen Abbruchpfad")
+}
+
+pub(crate) fn mechanic_order_with_deadline(
+    hero: &HeroModel,
+    cfg: &ReasonerConfig,
+    deadline: Option<&brain_contracts::RequestDeadline>,
+) -> crate::Result<Vec<AbilityStep>> {
+    let constraints = crate::planner::PlanningConstraints {
+        deadline,
+        ..Default::default()
+    };
+    constraints.check()?;
+    let value = |candidate: &HeroModel| -> crate::Result<f64> {
+        if let Some(deadline) = deadline {
+            Ok(crate::combat::evaluate_inventory_with_deadline(
+                candidate,
+                &[],
+                cfg,
+                &BTreeMap::new(),
+                Some(deadline),
+            )?
+            .score)
+        } else {
+            Ok(crate::combat::evaluate_inventory_fast(candidate, &[], cfg).score)
+        }
+    };
+    let mut abilities = hero
+        .abilities
+        .iter()
+        .filter(|ability| ability.ability_id > 0)
+        .map(|ability| {
+            let mut candidate = hero.clone();
+            candidate.abilities = vec![ability.clone()];
+            Ok((value(&candidate)?, ability.clone()))
+        })
+        .collect::<crate::Result<Vec<_>>>()?;
+    abilities.sort_by(|(left_value, left), (right_value, right)| {
+        right_value
+            .total_cmp(left_value)
+            .then_with(|| left.slot.cmp(&right.slot))
+            .then_with(|| left.ability_id.cmp(&right.ability_id))
+    });
+    constraints.check()?;
+    if hero.level_curve.is_empty() || hero.level_rewards.is_empty() {
+        return Ok(abilities
+            .iter()
+            .map(|(_, ability)| AbilityStep {
+                ability_id: ability.ability_id,
+                currency_type: 2,
+                delta: -1,
+            })
+            .collect());
+    }
+    let mut order = Vec::new();
+    let mut unlocks = abilities.iter();
+    let mut levels = hero.level_curve.iter().collect::<Vec<_>>();
+    levels.sort_by_key(|level| (level.required_souls, level.level));
+    for level in levels {
+        constraints.check()?;
+        let (_, available) = at_souls(hero, &order, level.required_souls, cfg);
+        for _ in 0..available.unspent_unlocks {
+            let Some((_, ability)) = unlocks.next() else {
+                break;
+            };
+            order.push(AbilityStep {
+                ability_id: ability.ability_id,
+                currency_type: 2,
+                delta: -1,
+            });
+        }
+        let (mut working, mut available) = at_souls(hero, &order, level.required_souls, cfg);
+        while available.unspent_ability_points > 0 && !available.ability_ranks.is_empty() {
+            let baseline = value(&working)?;
+            let mut candidates = Vec::new();
+            for ability in &working.abilities {
+                let rank = available
+                    .ability_ranks
+                    .get(&ability.ability_id)
+                    .copied()
+                    .unwrap_or_default();
+                let Some(cost) = [1, 2, 5].get(rank).copied() else {
+                    continue;
+                };
+                if cost > available.unspent_ability_points {
+                    continue;
+                }
+                let Some(upgrade) = ability.upgrades.get(rank) else {
+                    continue;
+                };
+                let mut candidate = working.clone();
+                let Some(target) = candidate
+                    .abilities
+                    .iter_mut()
+                    .find(|target| target.ability_id == ability.ability_id)
+                else {
+                    continue;
+                };
+                let mut unknown = Vec::new();
+                apply_upgrade(target, upgrade, &mut unknown);
+                if !unknown.is_empty() {
+                    continue;
+                }
+                let score = (value(&candidate)? - baseline) / cost as f64;
+                if score.is_finite() {
+                    candidates.push((score, ability.ability_id, cost, candidate));
+                }
+            }
+            let best = candidates.into_iter().max_by(|left, right| {
+                left.0
+                    .total_cmp(&right.0)
+                    .then_with(|| right.1.cmp(&left.1))
+            });
+            let Some((_, id, cost, candidate)) = best else {
+                break;
+            };
+            order.push(AbilityStep {
+                ability_id: id,
+                currency_type: 1,
+                delta: -cost,
+            });
+            *available.ability_ranks.entry(id).or_default() += 1;
+            available.unspent_ability_points -= cost;
+            working = candidate;
+        }
+    }
+    constraints.check()?;
+    Ok(order)
 }
 
 pub fn at_boons(
@@ -374,6 +506,91 @@ mod tests {
             without_order.weapon.sustained_dps,
             ready.weapon.sustained_dps
         );
+    }
+
+    #[test]
+    fn mechanic_fallback_spends_early_points_before_later_unlocks() {
+        let mut hero = hero();
+        for (id, slot) in [(30, 3), (40, 4)] {
+            let mut ability = hero.abilities[1].clone();
+            ability.ability_id = id;
+            ability.slot = slot;
+            hero.abilities.push(ability);
+        }
+        hero.level_curve.push(
+            serde_json::from_value(serde_json::json!({"level":7,"required_souls":2400})).unwrap(),
+        );
+        hero.level_rewards.insert(7, vec!["EAbilityUnlocks".into()]);
+        let cfg = ReasonerConfig::default();
+        let order = mechanic_order(&hero, &cfg);
+        assert_eq!(order[0].ability_id, 10);
+        assert_eq!(order[0].currency_type, 2);
+        assert_eq!(order[1].ability_id, 10);
+        assert_eq!(order[1].currency_type, 1);
+        assert_eq!(order[1].delta, -1);
+        assert!(coherent_order(&hero, &order).1.is_empty());
+        let (early, evidence) = at_souls(&hero, &order, 200, &cfg);
+        assert_eq!(early.abilities.len(), 1);
+        assert_eq!(early.abilities[0].base_effect, 95.0);
+        assert_eq!(evidence.ability_ranks.get(&10), Some(&1));
+        assert_eq!(evidence.unspent_ability_points, 0);
+        for (souls, unlocks) in [(500, 2), (1400, 3), (2400, 4)] {
+            let (progressed, evidence) = at_souls(&hero, &order, souls, &cfg);
+            assert_eq!(progressed.abilities.len(), unlocks);
+            assert_eq!(evidence.unspent_unlocks, 0);
+            assert!(evidence.unknown_effects.is_empty());
+        }
+        let (_, evidence) = at_souls(&hero, &order, 2000, &cfg);
+        assert_eq!(evidence.ability_ranks.get(&10), Some(&2));
+        assert_eq!(evidence.unspent_ability_points, 0);
+    }
+
+    #[test]
+    fn mechanic_fallback_selects_affordable_upgrades_instead_of_blocking_unlocks() {
+        let mut hero = hero();
+        hero.abilities[1].upgrades =
+            vec![serde_json::json!({"property_upgrades":[{"name":"Damage","bonus":"1"}]})];
+        let cfg = ReasonerConfig::default();
+        let order = mechanic_order(&hero, &cfg);
+        let (progressed, evidence) = at_souls(&hero, &order, 500, &cfg);
+        assert_eq!(progressed.abilities.len(), 2);
+        assert_eq!(evidence.unspent_unlocks, 0);
+        assert_eq!(evidence.ability_ranks.get(&10), Some(&1));
+        let (_, evidence) = at_souls(&hero, &order, 900, &cfg);
+        assert_eq!(evidence.ability_ranks.get(&10), Some(&1));
+        assert_eq!(evidence.ability_ranks.get(&20), Some(&1));
+        assert_eq!(evidence.unspent_ability_points, 0);
+        assert!(evidence.unknown_effects.is_empty());
+    }
+
+    #[test]
+    fn mechanic_fallback_requires_rewards_and_honors_the_original_deadline() {
+        let mut hero = hero();
+        let cfg = ReasonerConfig::default();
+        let now = std::time::Instant::now();
+        let checks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let clock_checks = checks.clone();
+        let deadline = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || {
+                if clock_checks.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= 3 {
+                    now + std::time::Duration::from_secs(61)
+                } else {
+                    now
+                }
+            },
+        );
+        assert!(mechanic_order_with_deadline(&hero, &cfg, Some(&deadline)).is_err());
+        assert!(checks.load(std::sync::atomic::Ordering::SeqCst) > 3);
+        assert!(deadline.check().is_err());
+        hero.level_rewards.clear();
+        let order = mechanic_order(&hero, &cfg);
+        assert_eq!(order.len(), hero.abilities.len());
+        assert!(order
+            .iter()
+            .all(|step| step.currency_type == 2 && step.delta == -1));
+        assert!(coherent_order(&hero, &order).1.is_empty());
+        assert!(mechanic_order_with_deadline(&hero, &cfg, Some(&deadline)).is_err());
     }
 
     #[test]

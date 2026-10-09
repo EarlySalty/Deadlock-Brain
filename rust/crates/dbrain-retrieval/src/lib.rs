@@ -8436,6 +8436,7 @@ mod tests {
             }],
         };
         let build = BuildObject {
+            provenance: None,
             family: None,
             family_discovery: None,
             variants: Vec::new(),
