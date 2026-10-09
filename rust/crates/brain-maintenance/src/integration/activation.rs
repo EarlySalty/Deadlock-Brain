@@ -33,6 +33,7 @@ static RESTART_SCHEDULE: LazyLock<tokio::sync::Mutex<RestartSchedule>> =
 pub enum ActivationTarget {
     #[default]
     Standard,
+    PublicGame,
     SecondBrainInternal,
 }
 
@@ -51,7 +52,7 @@ impl ActivationTarget {
 
     pub fn release(self, config: &brain_serve::Config) -> Result<&brain_serve::config::Release> {
         match self {
-            Self::Standard => Ok(&config.release),
+            Self::Standard | Self::PublicGame => Ok(&config.release),
             Self::SecondBrainInternal => {
                 let grant = &config.credentials[self.internal_index(config)?];
                 let release = grant
@@ -119,6 +120,25 @@ impl ActivationTarget {
                     {
                         value["credentials"][index]["release"] = pin.clone();
                         value["internal_operator"]["release"] = pin.clone();
+                    }
+                }
+                value["release"] = pin;
+            }
+            Self::PublicGame => {
+                for (index, grant) in config.credentials.iter().enumerate() {
+                    let public_profile = grant.entity_profile_model_context
+                        && (grant.scopes
+                            == std::collections::BTreeSet::from(["bot.public".into()])
+                            || grant.scopes
+                                == std::collections::BTreeSet::from(["docs.public".into()]))
+                        && grant.provider_egress
+                            == std::collections::BTreeSet::from(["public".into()]);
+                    let shares_base = grant.release.as_ref().is_some_and(|release| {
+                        release.id == config.release.id
+                            && release.knowledge_version == config.release.knowledge_version
+                    });
+                    if public_profile && shares_base {
+                        value["credentials"][index]["release"] = pin.clone();
                     }
                 }
                 value["release"] = pin;
@@ -348,6 +368,15 @@ impl ActivationPlan {
             .map_err(|_| anyhow::anyhow!("serve_config_schema"))?;
         let mut proposed: serde_json::Value = serde_json::from_slice(&new_bytes)
             .map_err(|_| anyhow::anyhow!("serve_config_schema"))?;
+        if journal.target == ActivationTarget::PublicGame {
+            let mut expected = old.clone();
+            journal.target.replace_pin(&mut expected, &old_config,
+                serde_json::json!({"id":journal.release_id,"knowledge_version":journal.knowledge_version}))?;
+            ensure!(
+                expected == proposed,
+                "activation_public_game_binding_changed"
+            );
+        }
         journal.target.replace_pin(
             &mut proposed,
             &old_config,
