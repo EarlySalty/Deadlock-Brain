@@ -4,6 +4,22 @@ use deadlock_brain_core::http::SourceHttpOptions;
 use reqwest::Url;
 
 const PATCH_FEED_URL: &str = "https://api.deadlock-api.com/v2/patches";
+const GENERAL_PATCH_SUBJECTS: &[&str] = &[
+    "bullet spread",
+    "bullet velocity",
+    "weapon damage",
+    "fire rate",
+    "reload time",
+    "health regen",
+    "max health",
+    "movement speed",
+    "stamina",
+    "troopers",
+    "guardians",
+    "walkers",
+    "patrons",
+    "ziplines",
+];
 
 #[derive(Debug, Deserialize)]
 struct ApiPatchPost {
@@ -359,6 +375,20 @@ fn prepare_api_patch(
 fn is_patch_candidate(patch: &PreparedPatch, index: &EntityIndex) -> bool {
     patch.events.iter().any(|event| {
         event.entity_name.is_some()
+            || (event.subject.is_none()
+                && has_change_action(&event.normalized_line)
+                && (event.section.as_deref().is_some_and(|section| {
+                    matches!(
+                        section.to_ascii_lowercase().as_str(),
+                        "general" | "general changes" | "gameplay" | "map changes" | "objectives"
+                    )
+                }) || GENERAL_PATCH_SUBJECTS.iter().any(|subject| {
+                    event
+                        .normalized_line
+                        .to_ascii_lowercase()
+                        .strip_prefix(subject)
+                        .is_some_and(|rest| rest.starts_with(char::is_whitespace))
+                })))
             || event.section.as_deref().is_some_and(|section| {
                 index.exact(section).is_some()
                     || section_subject(Some(section))
@@ -503,7 +533,6 @@ mod tests {
         let index = patch_index();
         for original in [
             "<p>Scrap Grenade damage increased from 65 to 70.</p>",
-            "<p>Bullet velocity increased from 1000 to 1200.</p>",
             "<p>Today we introduce six new heroes, including Holliday.</p>",
             "<p>- Rat King: Rule, Ratannia! - Now falls faster while charging</p>",
             "<p>- Holliday: T1 +1m/s Move Speed to +2m/s Move Speed</p>",
@@ -519,6 +548,53 @@ mod tests {
             "- Unknown: damage increased from 10 to 20",
             "Holliday",
             "Improved Spirit",
+        ] {
+            assert!(!candidate(original, &index), "{original}");
+        }
+    }
+
+    #[test]
+    fn general_patch_changes_do_not_require_or_invent_entity_bindings() {
+        let index = EntityIndex::default();
+        for original in [
+            "Bullet spread reduced from 4 to 3",
+            "Bullet velocity increased from 1000 to 1200.",
+            "Fire rate increased from 5 to 6",
+            "[ General Changes ]\n- Added knockdown",
+        ] {
+            assert!(candidate(original, &index), "{original}");
+            for source in ["steam", "forum"] {
+                let mut post = post();
+                post.source = source.into();
+                if source == "forum" {
+                    post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+                }
+                let html = if source == "forum" {
+                    forum_html(&post, original)
+                } else {
+                    steam_html(&post, original)
+                };
+                let resolved = resolve_api_source(&post, |_| Ok(html.clone()))
+                    .unwrap()
+                    .unwrap();
+                let prepared =
+                    prepare_api_patch(&post_row(&post, Some(17)).unwrap(), &resolved, &index)
+                        .unwrap();
+                assert!(is_patch_candidate(&prepared, &index), "{source}/{original}");
+                assert_eq!(prepared.events.len(), 1, "{source}/{original}");
+                let event = &prepared.events[0];
+                assert_eq!(event.entity_type, "general");
+                assert_eq!(event.entity_name, None);
+                assert_eq!(event.subject, None);
+                assert_eq!(event.metadata["source_kind"], source);
+                assert_eq!(event.metadata["url"], post.link);
+            }
+        }
+        for original in [
+            "- Unknown: damage increased from 10 to 20",
+            "Sale price reduced from 4 to 3",
+            "Added unknown artwork",
+            "[ General Changes ]\nHolliday is our favourite hero.",
         ] {
             assert!(!candidate(original, &index), "{original}");
         }

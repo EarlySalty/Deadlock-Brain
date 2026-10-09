@@ -1,7 +1,7 @@
 mod assets;
 mod comments;
 mod compare;
-mod database;
+pub(crate) mod database;
 mod profiles;
 
 use anyhow::{ensure, Context, Result};
@@ -18,21 +18,6 @@ use std::{
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
 };
-
-#[derive(Debug, clap::Args)]
-pub struct MigrationArgs {
-    #[command(flatten)]
-    pub database: database::ConnectionArgs,
-}
-
-pub async fn migrate(args: MigrationArgs) -> Result<()> {
-    let pool = args.database.pool("brain_migrate").await?;
-    let store = brain_storage::PgStore::new(pool);
-    store.migrate_site_comments().await?;
-    store.migrate_compare_artifacts().await?;
-    store.migrate_site_profiles().await?;
-    Ok(())
-}
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -74,6 +59,7 @@ struct Site {
     comments_available: Arc<AtomicBool>,
 }
 
+#[cfg(test)]
 pub async fn router(root: &Path, pool: PgPool) -> Result<Router> {
     router_with_release(root, pool, None).await
 }

@@ -264,7 +264,7 @@ where
                 .provider_egress
                 .retain(|scope| scope == "public");
         }
-        if context.principal.scopes.contains("bot.public") && task.is_none() {
+        if context.principal.scopes.contains("bot.public") {
             use std::io::Read;
             let mut nonce = [0u8; 32];
             if std::fs::File::open("/dev/urandom")
@@ -411,7 +411,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn bot_tasks_reuse_answer_without_private_reads_or_platform_ids() {
+    async fn bot_tasks_bind_identity_without_channel_reads_or_platform_ids() {
         use brain_contracts::discord_task::{DiscordAnswerCapability, DiscordAnswerTask};
         struct Recorder(Arc<std::sync::Mutex<Vec<(Query, AuthorizedContext)>>>);
         impl AnswerKernelPort for Recorder {
@@ -473,10 +473,24 @@ mod tests {
             std::time::Duration::from_secs(2),
         )
         .unwrap();
-        client
-            .answer_discord_task(&query, 76561197960265839, &task)
-            .await
-            .unwrap();
+        let questions = [
+            query.text.clone(),
+            "Welche Lanes gibt es auf dem Discord-Server?".into(),
+            "Habe ich eine Einladung erhalten?".into(),
+        ];
+        for capability in [
+            DiscordAnswerCapability::Concierge,
+            DiscordAnswerCapability::Faq,
+        ] {
+            for question in &questions {
+                query.text = question.clone();
+                let task = DiscordAnswerTask { capability, ..task };
+                client
+                    .answer_discord_task(&query, 76561197960265839, &task)
+                    .await
+                    .unwrap();
+            }
+        }
         let other = brain_client::AsyncBrainClient::new_local(
             &endpoint,
             "other",
@@ -492,15 +506,35 @@ mod tests {
         ));
         assert!(client.answer_discord_task(&query, 42, &task).await.is_err());
         let records = recorded.lock().unwrap();
-        assert_eq!(records.len(), 1);
-        assert!(!records[0].0.text.contains("123456789012345678"));
-        assert!(records[0].1.discord.is_none());
-        assert!(!records[0]
-            .1
-            .principal
-            .scopes
+        assert_eq!(records.len(), 6);
+        for (index, (query, context)) in records.iter().enumerate() {
+            assert!(!query.text.contains("123456789012345678"));
+            let discord = context.discord.as_ref().unwrap();
+            assert_eq!(discord.user_id, Some(76561197960265839));
+            assert_eq!(discord.request_id, query.request_id);
+            assert!(!discord.allow_discord_reads);
+            assert!(context.principal.scopes.contains(&discord.scope));
+            assert_eq!(context.principal.scopes.len(), 2);
+            assert_eq!(
+                context.principal.provider_egress,
+                scopes(&["public", "discord_request"])
+            );
+            let expected = if index < 3 {
+                "bot_task:concierge"
+            } else {
+                "bot_task:faq"
+            };
+            assert!(matches!(
+                &query.answer_context,
+                Some(brain_contracts::AnswerContext::Discord(answer))
+                    if answer.purpose.as_deref() == Some(expected)
+            ));
+        }
+        let request_scopes: BTreeSet<_> = records
             .iter()
-            .any(|s| s.starts_with("discord.request:")));
+            .map(|(_, context)| context.discord.as_ref().unwrap().scope.clone())
+            .collect();
+        assert_eq!(request_scopes.len(), 6);
         server.abort();
     }
 
