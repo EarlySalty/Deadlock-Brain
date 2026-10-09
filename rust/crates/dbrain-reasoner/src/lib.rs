@@ -6,6 +6,11 @@ use sqlx::Row;
 pub mod ability_interactions;
 mod ai_roles;
 pub mod backtest;
+pub mod calculation;
+pub use calculation::{
+    calculate_hero, calculate_hero_with_deadline, compare_hero_curves, compare_sheet_scenarios,
+    damage_breakdown, hero_growth, project_hero, rank_heroes, validate_calculation_scenario,
+};
 pub mod combat;
 pub mod composer;
 pub mod core_rules;
@@ -42,6 +47,8 @@ pub mod progression;
 pub mod publish;
 mod types;
 
+#[cfg(test)]
+mod calculation_tests;
 #[cfg(test)]
 mod fix_tests;
 
