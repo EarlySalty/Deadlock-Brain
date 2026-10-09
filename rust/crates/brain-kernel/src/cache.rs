@@ -49,7 +49,7 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
         if query.validate().is_err()
             || query.conversation_id != context.conversation_id
             || context.deadline_ms == 0
-            || context.deadline_ms > 60000
+            || context.deadline_ms > 600_000
             || !query.requested_scopes.is_subset(&context.principal.scopes)
         {
             return response(

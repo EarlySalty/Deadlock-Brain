@@ -18,7 +18,7 @@ pub(super) fn validate_endpoint(config: &ProviderConfig) -> Result<()> {
         || !(url.scheme() == "https" || (url.scheme() == "http" && loopback))
         || (!loopback && config.pricing.is_none())
         || config.timeout.is_zero()
-        || config.timeout > Duration::from_secs(60)
+        || config.timeout > Duration::from_secs(600)
         || !(1..=8).contains(&config.retry_attempts)
         || !(128..=8 * 1024 * 1024).contains(&config.max_response_bytes)
     {
@@ -35,7 +35,7 @@ pub(super) fn authorize(
         || query.conversation_id != context.conversation_id
         || context.knowledge_release.trim().is_empty()
         || context.deadline_ms == 0
-        || context.deadline_ms > 60000
+        || context.deadline_ms > 600_000
         || !context.principal.provider_egress.contains("public")
     {
         return Err(ProviderError::InvalidResponse(
@@ -242,6 +242,15 @@ mod tests {
         assert!(authorize(&query, &context, &[forged]).is_err());
         query.text = "Wie funktioniert der Invite-Bot?".into();
         assert!(authorize(&query, &context, &[item]).is_err());
+    }
+
+    #[test]
+    fn ten_minute_provider_timeout_has_an_explicit_upper_bound() {
+        let mut config = ProviderConfig::new("fixture", "http://127.0.0.1:1234", "fixture");
+        config.timeout = Duration::from_secs(600);
+        assert!(validate_endpoint(&config).is_ok());
+        config.timeout = Duration::from_millis(600_001);
+        assert!(validate_endpoint(&config).is_err());
     }
 
     #[test]
