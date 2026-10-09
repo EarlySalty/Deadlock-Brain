@@ -127,6 +127,13 @@ impl AnswerKernelPort for TrackedKernel {
         q: &Query,
         c: &AuthorizedContext,
     ) -> brain_contracts::AnswerResponse {
+        if q.conversation_id == "ten-minutes" {
+            assert!(c.deadline_ms > 60_000);
+            assert!(c.deadline_ms <= 600_000);
+            assert!(
+                c.request_deadline.as_ref().unwrap().remaining().unwrap() > Duration::from_secs(60)
+            );
+        }
         self.inner.answer_for_publication(q, c)
     }
     fn answer(&self, q: &Query, c: &AuthorizedContext) -> brain_contracts::AnswerResponse {
@@ -444,7 +451,7 @@ async fn invalid_service_deadlines_fail_closed_instead_of_being_clamped() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ten_minute_service_deadline_reaches_kernel_over_http() {
     let server = Server::new(600_000, None).await;
-    let mut stream = request(server.address, "normal").await;
+    let mut stream = request(server.address, "ten-minutes").await;
     status(&response(&mut stream, Duration::from_secs(1)).await, 200);
     assert_eq!(server.calls.load(Ordering::SeqCst), 1);
     server.finish().await;

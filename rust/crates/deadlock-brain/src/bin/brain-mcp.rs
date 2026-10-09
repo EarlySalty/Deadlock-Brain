@@ -146,7 +146,7 @@ impl Config {
         {
             return Err("MCP-Scopes sind ungültig");
         }
-        if !(1..=60_000).contains(&self.timeout_ms) {
+        if !(1..=600_000).contains(&self.timeout_ms) {
             return Err("MCP-Timeout ist ungültig");
         }
         Ok(())
@@ -652,6 +652,15 @@ mod tests {
         assert_eq!(config.secret_reference, "BRAIN_SERVE_API_TOKEN");
         assert_eq!(config.scopes, BTreeSet::from(["docs.public".to_string()]));
         assert_eq!(config.timeout_ms, 8_000);
+    }
+
+    #[test]
+    fn ten_minute_timeout_is_explicitly_bounded() {
+        for (timeout, accepted) in [(600_000, true), (600_001, false), (0, false)] {
+            let mut config = Config::parse(EXAMPLE_CONFIG).unwrap();
+            config.timeout_ms = timeout;
+            assert_eq!(config.validate().is_ok(), accepted);
+        }
     }
 
     #[test]
