@@ -87,6 +87,12 @@ pub fn discord_display_text(text: &str) -> String {
                 continue;
             }
         }
+        let public_link = public_steam_link_prefix(rest);
+        if public_link > 0 {
+            out.push_str(&rest[..public_link]);
+            rest = &rest[public_link..];
+            continue;
+        }
         let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
         if digits > 0 {
             if digits < 15 {
@@ -100,6 +106,38 @@ pub fn discord_display_text(text: &str) -> String {
         }
     }
     out
+}
+
+fn public_steam_link_prefix(text: &str) -> usize {
+    for prefix in [
+        "https://store.steampowered.com/news/app/1422450/view/",
+        "https://steamcommunity.com/games/1422450/announcements/detail/",
+        "https://steamcommunity.com/app/1422450/announcements/detail/",
+        "https://steamcommunity.com/app/1422450/event/",
+    ] {
+        let Some(head) = text.get(..prefix.len()) else {
+            continue;
+        };
+        if !head.eq_ignore_ascii_case(prefix) {
+            continue;
+        }
+        let tail = &text[prefix.len()..];
+        let digits = tail.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 || !tail[..digits].parse::<u64>().is_ok_and(|id| id > 0) {
+            continue;
+        }
+        let suffix = tail[digits..].strip_prefix('/').unwrap_or(&tail[digits..]);
+        if suffix.chars().next().is_none_or(|character| {
+            character.is_whitespace()
+                || matches!(
+                    character,
+                    '?' | '#' | '.' | ',' | ';' | ':' | ')' | ']' | '>' | '\"' | '\''
+                )
+        }) {
+            return prefix.len() + digits;
+        }
+    }
+    0
 }
 
 fn display_context(value: &mut Value) {
@@ -661,6 +699,76 @@ mod tests {
             json!({"request_id":"r", "conversation_id":"c", "text":"Wo bekomme ich Hilfe?"}),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn discord_projection_preserves_public_patch_links_without_platform_ids() {
+        let event = "703281025618282632";
+        for prefix in [
+            "https://store.steampowered.com/news/app/1422450/view/",
+            "https://steamcommunity.com/games/1422450/announcements/detail/",
+            "https://steamcommunity.com/app/1422450/announcements/detail/",
+            "HTTPS://steamcommunity.com/app/1422450/event/",
+        ] {
+            let link = format!("{prefix}{event}?l=english#notes");
+            let text = format!("Patch: [{link}] <@123456789012345678> 76561197960265839");
+            assert_eq!(discord_display_text(&text), format!("Patch: [{link}]  "));
+            let mut query = query();
+            query.text = text.clone();
+            query.answer_context =
+                Some(crate::AnswerContext::Discord(crate::DiscordAnswerContext {
+                    purpose: Some("bot_task:faq".into()),
+                    ..Default::default()
+                }));
+            let evidence = Evidence {
+                evidence_id: "public-patch".into(),
+                source_id: "steam-patches".into(),
+                logical_id: "patch".into(),
+                revision: 1,
+                kind: crate::EvidenceKind::Prose,
+                content: text,
+                citation: link.clone(),
+                visibility: crate::SourceVisibility::Public,
+                allowed_scopes: BTreeSet::new(),
+                score: 1.0,
+                provenance: None,
+                patch: None,
+            };
+            for format in [ToolWireFormat::Native, ToolWireFormat::OpenAiCompatible] {
+                let payload = grounded_turn_payload(
+                    &query,
+                    std::slice::from_ref(&evidence),
+                    &[],
+                    &ToolConversation::default(),
+                    format,
+                )
+                .unwrap();
+                let serialized = payload.to_string();
+                assert!(serialized.contains(&link));
+                assert!(!serialized.contains("123456789012345678"));
+                assert!(!serialized.contains("76561197960265839"));
+                assert_eq!(
+                    grounded_turn_input_ceiling(
+                        &query,
+                        std::slice::from_ref(&evidence),
+                        &[],
+                        &ToolConversation::default(),
+                        format
+                    )
+                    .unwrap(),
+                    transport_input_ceiling(&payload, true).unwrap()
+                );
+            }
+        }
+        for link in [
+            format!("https://discord.com/channels/{event}/{event}"),
+            format!("https://steamcommunity.com/profiles/{event}"),
+            format!("https://store.steampowered.com.evil.invalid/news/app/1422450/view/{event}"),
+            format!("https://user@store.steampowered.com/news/app/1422450/view/{event}"),
+            format!("https://store.steampowered.com/news/app/1422450/view/{event}/users"),
+        ] {
+            assert!(!discord_display_text(&link).contains(event), "{link}");
+        }
     }
 
     #[test]

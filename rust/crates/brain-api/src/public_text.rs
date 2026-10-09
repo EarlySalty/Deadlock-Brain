@@ -87,6 +87,24 @@ mod tests {
     }
 
     #[test]
+    fn public_answers_keep_patch_links_and_remove_platform_ids() {
+        let link = "https://store.steampowered.com/news/app/1422450/view/703281025618282632";
+        for status in [
+            AnswerStatus::Answered,
+            AnswerStatus::Unverified,
+            AnswerStatus::BuildRejected,
+        ] {
+            for discord in [false, true] {
+                let mut response = answer(status, &format!("Patch: {link} <@123456789012345678>"));
+                prepare(&mut response, &query("Was hat sich geändert?"), discord);
+                assert!(response.text.contains(link));
+                assert!(!response.text.contains("123456789012345678"));
+                assert!(!response.text.contains("<@"));
+            }
+        }
+    }
+
+    #[test]
     fn unverified_text_is_delivered_with_legacy_wire_status_and_platform_owned_link() {
         let mut response = answer(
             AnswerStatus::Unverified,
