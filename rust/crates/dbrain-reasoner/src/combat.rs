@@ -717,7 +717,7 @@ fn evaluate_core_with_deadline(
         "Drei gleich gewichtete Szenarien: gesundes Duell, steigender Lebensdruck, bewegliches Ziel. Gleiche Annahmen für alle Helden.".into(),
         "Eigener Tod bewertet den verbleibenden Rest des Kampffensters als Wirkungsausfall: Schadensleistung und Überlebensbeitrag werden nicht durch die kurze Niederlage hochgerechnet. Beobachteter Durchsatz und tatsächliche Kampfzeit bleiben separat sichtbar; gewonnene Einzelduelle verwenden ihre echte Tötungszeit.".into(),
         "Fähigkeiten und Itemladungen starten bereit; es gelten die übergebenen Fähigkeitsstufen und belegten Ladungs-/Abklingzeiten. Kanalisieren und Schießen teilen die verfügbare Kampfzeit.".into(),
-        "Jedes Ziel hat als globale Vergleichsannahme das Basisleben des übergebenen Helden. Duell und bewegliches Einzelziel enden bei Zieltod; unter Druck folgt nach genau 1,0 s ein gleiches frisches Ziel. Wechselpause und eigene Abklingzeiten zählen zur tatsächlichen verstrichenen Zeit.".into(),
+        "Jedes Ziel hat als globale Vergleichsannahme das Basisleben des übergebenen Helden. Duell und bewegliches Einzelziel enden bei Zieltod; unter Druck folgt frühestens nach 1,0 s bei der nächsten 0,2-s-Zustandsauswertung ein gleiches frisches Ziel. Wechselpause und eigene Abklingzeiten zählen zur tatsächlichen verstrichenen Zeit.".into(),
         "Schaden wird vor Auslösern und Heilung am verbleibenden Zielleben begrenzt. Zielgebundene Treffer, DoTs, Kontrolle und Schadensschwellen enden beim Zieltod; eigene HP, Munition und Abklingzeiten werden nicht zurückgesetzt.".into(),
         "PulseDPS mit Radius wird als eigene zeitlich laufende Aura interpretiert und darf ein Folgeziel während der verbleibenden Dauer treffen. Unklare andere Effektübertragung auf Folgeziele wird konservativ nicht angenommen; Mehrfachkontakte sind kein belegtes Matchmodell.".into(),
         "Schadensleistung nutzt die tatsächlich verstrichene Szenariozeit. Der separat ausgewiesene Überlebensbeitrag bleibt effektives Leben geteilt durch das ursprüngliche konfigurierte Kampffenster; kurze TTK erhöht sein Gewicht nicht.".into(),
@@ -922,7 +922,6 @@ struct SimulationTarget {
     shields: crate::defense::DamageLedger,
     killed_at: Option<f64>,
     updated_at: f64,
-    damage_interval_start: Option<f64>,
 }
 
 impl SimulationTarget {
@@ -943,7 +942,6 @@ impl SimulationTarget {
             shields,
             killed_at: None,
             updated_at: 0.0,
-            damage_interval_start: None,
         }
     }
 
@@ -955,6 +953,132 @@ impl SimulationTarget {
                 .min(self.maximum);
         }
         self.updated_at = self.updated_at.max(at);
+    }
+
+    fn effective_damage(
+        &self,
+        damage: f64,
+        kind: &crate::DamageType,
+        at: f64,
+        shred: f64,
+        amp: f64,
+    ) -> f64 {
+        let mut modifiers = self
+            .settings
+            .as_ref()
+            .map(|settings| {
+                let change = settings
+                    .changes
+                    .iter()
+                    .rev()
+                    .find(|change| change.at_seconds <= at);
+                match kind {
+                    crate::DamageType::Weapon => {
+                        change.map_or(&settings.bullet, |change| &change.bullet)
+                    }
+                    crate::DamageType::Spirit => {
+                        change.map_or(&settings.spirit, |change| &change.spirit)
+                    }
+                    crate::DamageType::Hybrid | crate::DamageType::None => {
+                        return crate::DamageModifiers::default();
+                    }
+                }
+                .clone()
+            })
+            .unwrap_or_default();
+        modifiers.point_shreds.push(shred / 100.0);
+        modifiers.amplifications.push(amp);
+        crate::mechanics::damage_factors(damage.max(0.0), &modifiers)
+            .map_or(0.0, |factors| factors.effective_damage)
+    }
+
+    fn receive_interval(
+        &mut self,
+        start: f64,
+        at: f64,
+        sources: &mut [ContinuousDamage],
+        stats: &InventoryStats,
+    ) {
+        if sources.is_empty() {
+            self.advance(at);
+            return;
+        }
+        self.advance(start);
+        let duration = (at - start).max(0.0);
+        if self.health <= 0.0 || duration == 0.0 {
+            for source in sources {
+                source.damage = 0.0;
+            }
+            return;
+        }
+        let mut rates = [0.0; 3];
+        for source in sources.iter_mut() {
+            let (channel, shred, amp) = match source.damage_type {
+                crate::DamageType::Weapon => (1, stats.bullet_shred, stats.weapon_amp),
+                crate::DamageType::Spirit => (2, stats.spirit_shred, stats.spirit_amp),
+                _ => (0, 0.0, 0.0),
+            };
+            source.damage =
+                self.effective_damage(source.damage, &source.damage_type, start, shred, amp)
+                    / duration;
+            rates[channel] += source.damage;
+        }
+        let regeneration = self.settings.as_ref().map_or(0.0, |s| s.regeneration);
+        let mut elapsed = 0.0;
+        while elapsed < duration && self.health > 0.0 {
+            let mut shield_rates = rates;
+            let mut health_rate = rates[0];
+            for channel in [1, 2] {
+                if self.shields.remaining[channel] == 0.0 {
+                    shield_rates[channel] = 0.0;
+                    health_rate += rates[channel];
+                }
+            }
+            if self.shields.remaining[0] > 0.0 {
+                shield_rates[0] = health_rate;
+                health_rate = 0.0;
+            } else {
+                shield_rates[0] = 0.0;
+            }
+            let shield_boundaries = std::array::from_fn::<_, 3, _>(|channel| {
+                if shield_rates[channel] > 0.0 {
+                    self.shields.remaining[channel] / shield_rates[channel]
+                } else {
+                    f64::INFINITY
+                }
+            });
+            let net_loss = health_rate - regeneration;
+            let death_boundary = if net_loss > 0.0 {
+                self.health / net_loss
+            } else {
+                f64::INFINITY
+            };
+            let phase = shield_boundaries
+                .iter()
+                .copied()
+                .fold((duration - elapsed).min(death_boundary), f64::min);
+            for channel in [0, 1, 2] {
+                self.shields.remaining[channel] = if phase >= shield_boundaries[channel] {
+                    0.0
+                } else {
+                    (self.shields.remaining[channel] - shield_rates[channel] * phase).max(0.0)
+                };
+            }
+            self.shields.health_damage += health_rate * phase;
+            self.health = if phase >= death_boundary {
+                0.0
+            } else {
+                (self.health - net_loss * phase).clamp(0.0, self.maximum)
+            };
+            elapsed += phase;
+        }
+        for source in sources {
+            source.damage *= elapsed;
+        }
+        self.updated_at = self.updated_at.max(at);
+        if self.health == 0.0 {
+            self.killed_at.get_or_insert(at);
+        }
     }
 }
 
@@ -971,31 +1095,7 @@ impl DamageReceiver for SimulationTarget {
             return 0.0;
         }
         self.advance(at);
-        let mut modifiers =
-            self.settings
-                .as_ref()
-                .map(|settings| {
-                    let change = settings.changes.iter().rev().find(|change| {
-                        change.at_seconds <= self.damage_interval_start.unwrap_or(at)
-                    });
-                    match kind {
-                        crate::DamageType::Weapon => {
-                            change.map_or(&settings.bullet, |change| &change.bullet)
-                        }
-                        crate::DamageType::Spirit => {
-                            change.map_or(&settings.spirit, |change| &change.spirit)
-                        }
-                        crate::DamageType::Hybrid | crate::DamageType::None => {
-                            return crate::DamageModifiers::default();
-                        }
-                    }
-                    .clone()
-                })
-                .unwrap_or_default();
-        modifiers.point_shreds.push(shred / 100.0);
-        modifiers.amplifications.push(amp);
-        let damage = crate::mechanics::damage_factors(damage.max(0.0), &modifiers)
-            .map_or(0.0, |factors| factors.effective_damage);
+        let damage = self.effective_damage(damage, kind, at, shred, amp);
         let channel = match kind {
             crate::DamageType::Weapon => 1,
             crate::DamageType::Spirit => 2,
@@ -1762,6 +1862,11 @@ fn simulate(
                 }
             }
         }
+        for end in &burn_until {
+            if *end > time && *end < frame_end {
+                events.push((*end, FrameEvent::Boundary));
+            }
+        }
         if let Some(scenario) = scenario {
             for change in &scenario.target.changes {
                 if change.at_seconds > time && change.at_seconds < frame_end {
@@ -1780,6 +1885,7 @@ fn simulate(
         let mut shots = 0.0;
         let mut gun_damage = 0.0;
         let mut excluded_spirit_events = Vec::new();
+        let mut continuous_sources = Vec::new();
         while !events.is_empty() && target_remaining.health > 0.0 {
             if deadline.is_some_and(|deadline| deadline.check().is_err()) {
                 break;
@@ -1787,33 +1893,19 @@ fn simulate(
             events.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
             let (at, action) = events.pop().unwrap();
             let mut ultimate_events = BTreeMap::new();
-            target_remaining.damage_interval_start = Some(cursor);
+            continuous_sources.clear();
             for event in &pending_damage {
                 let elapsed = (event.end.min(at) - event.start.max(cursor)).max(0.0);
                 if elapsed <= 0.0 {
                     continue;
                 }
-                let dealt = damage_event(
-                    elapsed * event.rate,
-                    &event.damage_type,
-                    &stats,
-                    hit,
-                    at,
-                    if event.item_proc_disabled {
-                        &mut excluded_spirit_events
-                    } else {
-                        &mut spirit_events
-                    },
-                    &mut leech_sum,
-                    &mut target_remaining,
-                );
-                out.ability_damage += dealt;
-                leech_sum += dealt * event.heal.max(0.0);
-                if dealt > 0.0 {
-                    if let Some(source) = event.ultimate_source {
-                        ultimate_events.entry(source).or_insert(at);
-                    }
-                }
+                continuous_sources.push(ContinuousDamage {
+                    damage: elapsed * event.rate * hit,
+                    damage_type: event.damage_type.clone(),
+                    item_proc_disabled: event.item_proc_disabled,
+                    heal: event.heal,
+                    ultimate_source: event.ultimate_source,
+                });
             }
             for (idx, ability) in hero.abilities.iter().enumerate() {
                 let burn_duration = ability
@@ -1827,23 +1919,38 @@ fn simulate(
                         + prepared[idx].damage_scale(ability_spirit(ability, &stats)))
                         / burn_duration
                         * elapsed;
-                    out.ability_damage += damage_event(
+                    continuous_sources.push(ContinuousDamage {
                         damage,
-                        &ability.damage_type,
-                        &stats,
-                        1.0,
-                        at,
-                        if ability.item_proc_disabled {
-                            &mut excluded_spirit_events
-                        } else {
-                            &mut spirit_events
-                        },
-                        &mut leech_sum,
-                        &mut target_remaining,
-                    );
+                        damage_type: ability.damage_type.clone(),
+                        item_proc_disabled: ability.item_proc_disabled,
+                        heal: 0.0,
+                        ultimate_source: None,
+                    });
                 }
             }
-            target_remaining.damage_interval_start = None;
+            target_remaining.receive_interval(cursor, at, &mut continuous_sources, &stats);
+            for source in &continuous_sources {
+                let dealt = source.damage;
+                out.ability_damage += dealt;
+                let lifesteal = match source.damage_type {
+                    crate::DamageType::Weapon => stats.bullet_leech,
+                    crate::DamageType::Spirit => stats.spirit_leech,
+                    _ => 0.0,
+                };
+                leech_sum += dealt * (lifesteal.max(0.0) / 100.0 + source.heal.max(0.0));
+                if dealt > 0.0 {
+                    if source.damage_type == crate::DamageType::Spirit {
+                        if source.item_proc_disabled {
+                            excluded_spirit_events.push((at, dealt));
+                        } else {
+                            spirit_events.push((at, dealt));
+                        }
+                    }
+                    if let Some(source) = source.ultimate_source {
+                        ultimate_events.entry(source).or_insert(at);
+                    }
+                }
+            }
             for binding in &mut active_bindings {
                 let elapsed = (binding.end.min(at) - binding.start.max(cursor)).max(0.0);
                 if moving && stats.control <= 0.0 {
@@ -2088,6 +2195,9 @@ fn simulate(
                                     buildup[idx] = 0.0;
                                     *out.ability_procs.entry(ability.ability_id).or_default() += 1;
                                 }
+                            }
+                            if burn_until[idx] > at && burn_until[idx] < frame_end {
+                                events.push((burn_until[idx], FrameEvent::Boundary));
                             }
                         }
                     }
@@ -2337,7 +2447,7 @@ fn simulate(
     }
     out.target_remaining_health = target_remaining.health;
     out.target_remaining_shields = target_remaining.shields.remaining;
-    out.time_resolution_seconds = if hero.abilities.is_empty() && items.is_empty() {
+    out.time_resolution_seconds = if !pressure && hero.abilities.is_empty() && items.is_empty() {
         0.0
     } else {
         dt
@@ -2394,6 +2504,14 @@ enum FrameEvent {
     CastProc(usize),
     Shot,
     Boundary,
+}
+
+struct ContinuousDamage {
+    damage: f64,
+    damage_type: crate::DamageType,
+    item_proc_disabled: bool,
+    ultimate_source: Option<u64>,
+    heal: f64,
 }
 
 struct DamagePeriod {
@@ -3101,6 +3219,237 @@ pub(crate) mod tests {
         assert_eq!(result.scenarios[0].proc_damage, 200.0);
         assert_eq!(result.scenarios[0].weapon_damage, 400.0);
         assert_eq!(result.scenarios[0].ability_damage, 0.0);
+    }
+
+    fn continuous_ability(id: i64, rate: f64, duration: f64, passive: bool) -> AbilityModel {
+        let mut dot = ability(id, rate * duration, 1000.0);
+        if passive {
+            dot.properties = BTreeMap::from([
+                ("BuildUpBulletPercentPerHit".into(), 100.0),
+                ("BuildUpDuration".into(), 1.0),
+                ("BurnDuration".into(), duration),
+            ]);
+        } else {
+            dot.duration = Some(duration);
+            dot.tick_rate = Some(0.2);
+        }
+        dot
+    }
+
+    #[test]
+    fn continuous_damage_preserves_regeneration_at_full_health_in_both_paths() {
+        for passive in [false, true] {
+            for (rate, health) in [(500.0, 520.0), (50.0, 600.0), (3050.0, 10.0)] {
+                let mut hero = hero();
+                hero.weapon.bullet_damage = 0.0;
+                hero.abilities = vec![continuous_ability(1, rate, 0.2, passive)];
+                let mut scenario = event_scenario(0.2);
+                scenario.use_abilities = !passive;
+                let result = simulate_calculation(
+                    &hero,
+                    &[],
+                    &scenario,
+                    &crate::WeaponTiming::default(),
+                    &BTreeMap::new(),
+                );
+                assert!(
+                    (result.target_remaining_health - health).abs() < 1e-8,
+                    "passive={passive} rate={rate}: {result:?}"
+                );
+                assert!((result.ability_damage - rate * 0.2).abs() < 1e-8);
+                assert_eq!(result.first_ttk, None);
+                assert_eq!(result.end_reason, CombatEndReason::WindowElapsed);
+            }
+        }
+    }
+
+    #[test]
+    fn overlapping_continuous_sources_share_one_regeneration_interval() {
+        for both_passive in [false, true] {
+            let mut hero = hero();
+            hero.weapon.bullet_damage = 0.0;
+            hero.abilities = vec![
+                continuous_ability(1, 250.0, 0.2, both_passive),
+                continuous_ability(2, 250.0, 0.2, true),
+            ];
+            let mut scenario = event_scenario(0.2);
+            scenario.use_abilities = !both_passive;
+            let result = simulate_calculation(
+                &hero,
+                &[],
+                &scenario,
+                &crate::WeaponTiming::default(),
+                &BTreeMap::new(),
+            );
+            assert!(
+                (result.target_remaining_health - 520.0).abs() < 1e-8,
+                "{result:?}"
+            );
+            assert!((result.ability_damage - 100.0).abs() < 1e-8);
+            assert_eq!(result.first_ttk, None);
+        }
+    }
+
+    #[test]
+    fn continuous_regeneration_is_capped_while_shields_still_absorb_damage() {
+        for passive in [false, true] {
+            for (shields, health) in [
+                ([50.0, 0.0, 25.0], 580.0),
+                ([0.0, 100.0, 0.0], 520.0),
+                ([0.0, 0.0, 100.0], 600.0),
+            ] {
+                let mut hero = hero();
+                hero.weapon.bullet_damage = 0.0;
+                hero.abilities = vec![continuous_ability(1, 500.0, 0.2, passive)];
+                let mut scenario = event_scenario(0.2);
+                scenario.use_abilities = !passive;
+                scenario.target.shields = shields;
+                let result = simulate_calculation(
+                    &hero,
+                    &[],
+                    &scenario,
+                    &crate::WeaponTiming::default(),
+                    &BTreeMap::new(),
+                );
+                assert!(
+                    (result.target_remaining_health - health).abs() < 1e-8,
+                    "passive={passive} shields={shields:?}: {result:?}"
+                );
+                assert!((result.ability_damage - 100.0).abs() < 1e-8);
+                assert_eq!(result.target_remaining_shields, [0.0, shields[1], 0.0]);
+            }
+        }
+    }
+
+    #[test]
+    fn staggered_continuous_sources_do_not_repeat_or_store_regeneration() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 0.0;
+        hero.abilities = vec![
+            continuous_ability(1, 250.0, 0.4, false),
+            continuous_ability(2, 250.0, 0.2, false),
+        ];
+        let scenario = event_scenario(0.4);
+        let result = simulate_calculation(
+            &hero,
+            &[],
+            &scenario,
+            &crate::WeaponTiming::default(),
+            &BTreeMap::new(),
+        );
+        assert_eq!(result.casts[&1], 1);
+        assert_eq!(result.casts[&2], 1);
+        assert!((result.ability_damage - 150.0).abs() < 1e-8);
+        assert!(
+            (result.target_remaining_health - 490.0).abs() < 1e-8,
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn continuous_damage_and_discrete_bursts_keep_separate_regeneration_semantics() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 0.0;
+        let mut burst = ability(2, 100.0, 1000.0);
+        burst.properties.insert("ExplodeDelay".into(), 0.1);
+        hero.abilities = vec![continuous_ability(1, 500.0, 0.2, false), burst];
+        hero.abilities[0]
+            .properties
+            .insert("AbilityCastDelay".into(), 0.2);
+        let scenario = event_scenario(0.6);
+        let result = simulate_calculation(
+            &hero,
+            &[],
+            &scenario,
+            &crate::WeaponTiming::default(),
+            &BTreeMap::new(),
+        );
+        assert_eq!(result.casts[&1], 1);
+        assert_eq!(result.casts[&2], 1);
+        assert!((result.ability_damage - 200.0).abs() < 1e-8);
+        assert!(
+            (result.target_remaining_health - 440.0).abs() < 1e-8,
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn expiring_passive_burns_stop_before_the_idle_regeneration_interval() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 0.0;
+        hero.abilities = vec![continuous_ability(1, 500.0, 0.15, true)];
+        let mut scenario = event_scenario(0.2);
+        scenario.use_abilities = false;
+        scenario.target.shields = [50.0, 0.0, 0.0];
+        let result = simulate_calculation(
+            &hero,
+            &[],
+            &scenario,
+            &crate::WeaponTiming::default(),
+            &BTreeMap::new(),
+        );
+        assert!((result.ability_damage - 75.0).abs() < 1e-8);
+        assert!(
+            (result.target_remaining_health - 585.0).abs() < 1e-8,
+            "{result:?}"
+        );
+        assert_eq!(result.target_remaining_shields, [0.0; 3]);
+    }
+
+    #[test]
+    fn simultaneous_typed_continuous_damage_is_order_independent_and_death_bounded() {
+        for reverse in [false, true] {
+            for (health, shields, expected_health, expected_damage) in [
+                (600.0, [25.0, 25.0, 0.0], 560.0, 100.0),
+                (10.0, [0.0; 3], 0.0, 12.5),
+            ] {
+                let mut scenario = event_scenario(0.2);
+                scenario.target.shields = shields;
+                let mut target = SimulationTarget::new(600.0, Some(&scenario));
+                target.health = health;
+                let mut sources =
+                    [DamageType::Weapon, DamageType::Spirit].map(|damage_type| ContinuousDamage {
+                        damage: 50.0,
+                        damage_type,
+                        item_proc_disabled: false,
+                        ultimate_source: None,
+                        heal: 0.0,
+                    });
+                if reverse {
+                    sources.reverse();
+                }
+                target.receive_interval(0.0, 0.2, &mut sources, &InventoryStats::default());
+                assert!((target.health - expected_health).abs() < 1e-8);
+                assert_eq!(target.shields.remaining, [0.0; 3]);
+                for source in sources {
+                    assert!((source.damage - expected_damage / 2.0).abs() < 1e-8);
+                }
+                assert_eq!(target.killed_at, (expected_health == 0.0).then_some(0.2));
+                target.advance(0.4);
+                assert!((target.health - if health == 10.0 { 0.0 } else { 580.0 }).abs() < 1e-8);
+            }
+        }
+    }
+
+    #[test]
+    fn weapon_only_pressure_reports_its_quantized_target_switch_resolution() {
+        let mut hero = hero();
+        hero.weapon.bullet_damage = 300.0;
+        hero.weapon.shots_per_second = 1.0 / 0.15;
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 2.0,
+            incoming_pressure_dps: Some(0.0),
+            ..ReasonerConfig::default()
+        };
+        for result in inventory_paths(&hero, &[], &cfg) {
+            let duel = &result.scenarios[0];
+            let pressure = &result.scenarios[1];
+            assert_eq!(duel.time_resolution_seconds, 0.0);
+            assert_eq!(pressure.time_resolution_seconds, 0.2);
+            assert_eq!(pressure.target_switches, 1);
+            assert!((pressure.kill_times[0] - 0.15).abs() < 1e-8);
+            assert!((pressure.kill_times[1] - 1.35).abs() < 1e-8);
+        }
     }
 
     #[test]
