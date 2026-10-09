@@ -3,7 +3,7 @@ use crate::{
     schema_watch::{
         asset_dependencies, validate_consumed, DriftReport, OpenApiSnapshot, OPENAPI_URL,
     },
-    store::{complete_run, open_pool, EntitySnapshotInput, SourceStore},
+    store::{complete_run, open_pool_with_limit, EntitySnapshotInput, SourceStore},
     Result, SourcesError,
 };
 use brain_storage::asset_mirror::{
@@ -43,7 +43,7 @@ pub async fn pull_assets(
     options: PullAssetsOptions,
 ) -> Result<Value> {
     let selected = resolve_kinds(&options.kinds)?;
-    let pool = open_pool().await?;
+    let pool = open_pool_with_limit(1).await?;
     let store = SourceStore::new(&pool, raw_dir)?;
     let run_id = store.begin_run("assets").await?;
     let outcome = pull_assets_inner(&store, http, &selected).await;
