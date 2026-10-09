@@ -346,6 +346,9 @@ where
         }
         drop(user_questions);
         let query = brain_contracts::invite::project_query(&query);
+        if query.validate().is_err() {
+            return json_error(400, "invalid_request", "Query Contract ist ungültig");
+        }
         let mut answer = self.kernel.answer_for_publication(&query, &context);
         if deadline.check().is_err() {
             return deadline_response();

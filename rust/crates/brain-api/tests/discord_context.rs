@@ -174,6 +174,7 @@ fn read_request(stream: &mut std::net::TcpStream) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn all_routes_always_send_ordered_public_projection_before_real_provider_transport() {
+    let maximum_question = format!("Coaching?{}", "ä".repeat(3991));
     let cases = vec![
         (
             "Wie mache ich das? <@76561197960265839>",
@@ -250,6 +251,11 @@ async fn all_routes_always_send_ordered_public_projection_before_real_provider_t
             json!([["Sprachkanäle"]]),
         ),
         ("Welche Items passen zu Abrams?", vec![], json!([])),
+        (
+            maximum_question.as_str(),
+            vec!["Paten?"],
+            json!([["Paten"]]),
+        ),
     ];
     let expected_count = cases.len() * 3;
     let expected: Vec<_> = (0..3)
@@ -425,6 +431,46 @@ async fn all_routes_always_send_ordered_public_projection_before_real_provider_t
                 .unwrap();
             assert_eq!(response.status().as_u16(), 403);
         }
+    }
+    for capability in ["concierge", "faq"] {
+        let response = http
+            .post(format!("{endpoint}/v1/answer"))
+            .bearer_auth("fixture")
+            .header("x-discord-user-id", "42")
+            .header("x-discord-read-access", "disabled")
+            .header(
+                "x-discord-answer-task",
+                json!({"capability": capability, "channel_id": 10}).to_string(),
+            )
+            .json(&query(
+                &format!("unicode-budget-{capability}"),
+                &format!("Coaching?{}", "🦀".repeat(3991)),
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), 200);
+        let response: brain_contracts::PublicAnswerResponse = response.json().await.unwrap();
+        assert_eq!(response.status, AnswerStatus::BudgetExceeded);
+    }
+    for capability in ["concierge", "faq"] {
+        let response = http
+            .post(format!("{endpoint}/v1/answer"))
+            .bearer_auth("fixture")
+            .header("x-discord-user-id", "42")
+            .header("x-discord-read-access", "disabled")
+            .header(
+                "x-discord-answer-task",
+                json!({"capability": capability, "channel_id": 10}).to_string(),
+            )
+            .json(&query(
+                &format!("projection-overflow-{capability}"),
+                &"ä".repeat(16384),
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), 400);
     }
     let response = http
         .post(format!("{endpoint}/v1/answer"))
