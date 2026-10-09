@@ -1,5 +1,9 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
 
+use brain_contracts::RequestDeadline;
 use serde_json::Value;
 
 use crate::{
@@ -68,6 +72,145 @@ fn scenario() -> CalculationScenario {
 
 fn close(left: f64, right: f64) {
     assert!((left - right).abs() < 1e-8, "{left} != {right}");
+}
+
+fn deadline() -> RequestDeadline {
+    let now = Instant::now();
+    RequestDeadline::after_with_clock(Duration::from_secs(1), move || now)
+}
+
+#[test]
+fn growth_sweeps_clear_both_original_progression_assertions() {
+    let models = models();
+    let deadline = deadline();
+    let range = crate::BoonRange {
+        min_boons: 1,
+        max_boons: 3,
+    };
+    for (progression, level, ap) in [
+        (ProgressionInput::Boons(0), 1, 0),
+        (ProgressionInput::Souls(900), 4, 2),
+    ] {
+        for assertions in [
+            (Some(level), None),
+            (None, Some(ap)),
+            (Some(level), Some(ap)),
+        ] {
+            let mut input = scenario();
+            input.progression = progression;
+            input.expected_level = assertions.0;
+            input.expected_unspent_ap = assertions.1;
+            let original = input.clone();
+            let growth = crate::hero_growth(&models, 2, &input, range, &deadline).unwrap();
+            assert_eq!(input, original);
+            assert_eq!(growth.scenario, original);
+            assert_eq!(growth.points.len(), 3);
+            assert_eq!(growth.per_boon.len(), 3);
+            for point in std::iter::once(&growth.base).chain(&growth.points) {
+                let mut direct = input.clone();
+                direct.progression = ProgressionInput::Boons(point.boons);
+                direct.expected_level = Some(point.boons as i64 + 1);
+                direct.expected_unspent_ap = Some([0, 1, 1, 2][point.boons]);
+                let projected = crate::project_hero(&models, 2, &direct, &deadline).unwrap();
+                for (metric, value) in &point.metrics {
+                    assert!(value.value().is_some(), "{metric:?}: {value:?}");
+                    assert_eq!(value, &projected.metrics[metric.name()]);
+                }
+            }
+            for change in growth.per_boon.iter().chain([&growth.early_to_late]) {
+                assert!(change
+                    .absolute
+                    .values()
+                    .all(|value| value.value().is_some()));
+                assert!(change
+                    .relative
+                    .values()
+                    .all(|value| value.value().is_some()));
+            }
+        }
+    }
+}
+
+#[test]
+fn curve_comparison_clears_stale_assertions_for_both_hero_sweeps() {
+    let models = models();
+    let deadline = deadline();
+    let range = crate::BoonRange {
+        min_boons: 0,
+        max_boons: 3,
+    };
+    let input = scenario();
+    for metric in [
+        crate::GrowthMetric::WeaponDps,
+        crate::GrowthMetric::DamagePerMagazine,
+        crate::GrowthMetric::Health,
+    ] {
+        let comparison =
+            crate::compare_hero_curves(&models, [2, 6], &input, range, metric, &deadline).unwrap();
+        assert_ne!(comparison.status, crate::CurveComparisonStatus::Incomplete);
+        assert_eq!(comparison.points.len(), 4);
+        assert_eq!(comparison.left.scenario, input);
+        assert_eq!(comparison.right.scenario, input);
+        for point in &comparison.points {
+            let left = comparison.left.points[point.boons].metrics[&metric]
+                .value()
+                .unwrap();
+            let right = comparison.right.points[point.boons].metrics[&metric]
+                .value()
+                .unwrap();
+            close(point.difference.value().unwrap(), left - right);
+            assert_eq!(
+                point.leader,
+                if left > right {
+                    crate::CurveLeader::Left
+                } else if left < right {
+                    crate::CurveLeader::Right
+                } else {
+                    crate::CurveLeader::Tie
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn direct_projection_still_checks_level_and_unspent_ap_assertions() {
+    let models = models();
+    let deadline = deadline();
+    for assertions in [(Some(2), Some(0)), (Some(1), Some(1))] {
+        let mut input = scenario();
+        input.expected_level = assertions.0;
+        input.expected_unspent_ap = assertions.1;
+        assert!(crate::project_hero(&models, 2, &input, &deadline).is_err());
+        assert!(calculate_hero(&models, 2, &input).is_err());
+    }
+    assert!(crate::project_hero(&models, 2, &scenario(), &deadline).is_ok());
+}
+
+#[test]
+fn growth_sweeps_preserve_the_skill_order_guard() {
+    let models = models();
+    let deadline = deadline();
+    let mut input = scenario();
+    input.ability_order = vec![crate::AbilityStep {
+        ability_id: models.heroes[&2].model.abilities[0].ability_id,
+        currency_type: 1,
+        delta: -1,
+    }];
+    let growth = crate::hero_growth(
+        &models,
+        2,
+        &input,
+        crate::BoonRange {
+            min_boons: 0,
+            max_boons: 3,
+        },
+        &deadline,
+    )
+    .unwrap();
+    for point in std::iter::once(&growth.base).chain(&growth.points) {
+        assert!(point.metrics.values().all(|value| value.value().is_none()));
+    }
 }
 
 #[test]

@@ -405,17 +405,6 @@ fn property_kind(raw: &serde_json::Value, key: &str) -> AbilityPropertyKind {
         _ if raw.get("postfix").and_then(serde_json::Value::as_str) == Some("s") => {
             AbilityPropertyKind::Time
         }
-        _ if matches!(
-            key,
-            "WeaponDamageBonus"
-                | "BulletResist"
-                | "TechResist"
-                | "MaxHealthRegen"
-                | "BuffMeleeDamage"
-        ) =>
-        {
-            AbilityPropertyKind::State
-        }
         _ => AbilityPropertyKind::Other,
     }
 }
@@ -1957,6 +1946,8 @@ pub fn hero_growth(
         check_deadline(Some(deadline))?;
         let mut input = scenario.clone();
         input.progression = ProgressionInput::Boons(boons);
+        input.expected_level = None;
+        input.expected_unspent_ap = None;
         let projected = project_hero(models, hero_id, &input, deadline);
         check_deadline(Some(deadline))?;
         let metrics = [
