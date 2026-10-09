@@ -128,7 +128,7 @@ impl<R, P> Kernel<R, P> {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<Option<ToolSession>, PortError> {
-        if query.domain.is_some() || brain_contracts::discord_task::is_task_query(query) {
+        if query.domain.is_some() {
             return Ok(None);
         }
         let Some(binding) = &self.tools else {
@@ -1476,6 +1476,115 @@ mod tests {
             "fixture-provider/config-v1",
         );
         (kernel, state)
+    }
+
+    #[test]
+    fn discord_tasks_offer_tools_and_complete_the_tool_loop() {
+        for purpose in ["bot_task:concierge", "bot_task:faq"] {
+            let find = find_call("find");
+            let knowledge = tool_call(
+                "knowledge",
+                brain_contracts::ToolName::ServerKnowledge,
+                serde_json::json!({"question":"Wie funktioniert die Urne?"}),
+            );
+            let (kernel, state) = tool_kernel(
+                &[find.clone(), knowledge.clone()],
+                vec![
+                    tool_turn(vec![find, knowledge]),
+                    final_turn(&["find-cited", "knowledge-cited"]),
+                ],
+            );
+            let mut request = query(AnswerProfile::Explain);
+            request.text = "Wie funktioniert die Urne?".into();
+            request.answer_context = Some(brain_contracts::AnswerContext::Discord(
+                brain_contracts::DiscordAnswerContext {
+                    purpose: Some(purpose.into()),
+                    ..Default::default()
+                },
+            ));
+            let authorization = context(&[], &["public"]);
+            let context = authorization.with_request_deadline();
+            let session = kernel.prepare_tools(&request, &context).unwrap().unwrap();
+            assert_eq!(session.definitions.len(), 2);
+            let answer = kernel.answer_prepared(
+                &request,
+                &context,
+                AnswerPurpose::ExternalPublication,
+                Some(&session),
+            );
+            assert_eq!(answer.answer.status, AnswerStatus::Answered);
+            assert_eq!(answer.answer.citations.len(), 2);
+            assert_eq!(answer.tool_dependencies.len(), 2);
+            let state = state.lock().unwrap();
+            assert_eq!(state.resolves, 1);
+            assert_eq!(state.calls, 2);
+            assert_eq!(state.executions.len(), 2);
+            assert_eq!(state.observed[1].messages.len(), 2);
+            assert!(state
+                .validations
+                .contains(&ToolValidationPurpose::Publication));
+        }
+    }
+
+    #[test]
+    fn discord_tasks_do_not_bypass_tool_privacy_or_current_grants() {
+        for purpose in ["bot_task:concierge", "bot_task:faq"] {
+            for private in [true, false] {
+                let call = find_call("first");
+                let (kernel, state) = tool_kernel(
+                    std::slice::from_ref(&call),
+                    vec![tool_turn(vec![call.clone()]), final_turn(&["first-cited"])],
+                );
+                {
+                    let mut state = state.lock().unwrap();
+                    state.private_input = private;
+                    state.deny_provider = !private;
+                }
+                let mut request = query(AnswerProfile::Explain);
+                request.answer_context = Some(brain_contracts::AnswerContext::Discord(
+                    brain_contracts::DiscordAnswerContext {
+                        purpose: Some(purpose.into()),
+                        ..Default::default()
+                    },
+                ));
+                let answer = kernel.answer(&request, &context(&[], &["public"]));
+                assert_eq!(answer.status, AnswerStatus::UnauthorizedEvidence);
+                assert!(answer.citations.is_empty());
+                let state = state.lock().unwrap();
+                assert_eq!(state.calls, 1);
+                assert_eq!(state.executions.len(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn discord_tasks_keep_the_typed_domain_route_separate() {
+        for purpose in ["bot_task:concierge", "bot_task:faq"] {
+            let (kernel, state) = tool_kernel(&[find_call("unused")], Vec::new());
+            let mut request = query(AnswerProfile::Build);
+            request.patch = Some("p1".into());
+            request.mode = Some("ranked".into());
+            request.domain = Some(brain_contracts::domain::DomainRequest::Build {
+                hero: "hero:fixture".into(),
+                locale: "en".into(),
+                catalog_id: "fixture".into(),
+                items: vec!["101".into()],
+            });
+            request.answer_context = Some(brain_contracts::AnswerContext::Discord(
+                brain_contracts::DiscordAnswerContext {
+                    purpose: Some(purpose.into()),
+                    ..Default::default()
+                },
+            ));
+            assert!(kernel
+                .prepare_tools(&request, &context(&[], &["public"]))
+                .unwrap()
+                .is_none());
+            let state = state.lock().unwrap();
+            assert_eq!(state.resolves, 0);
+            assert_eq!(state.calls, 0);
+            assert!(state.executions.is_empty());
+        }
     }
 
     #[test]

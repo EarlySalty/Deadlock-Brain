@@ -354,22 +354,13 @@ impl DiscordLive {
     }
 }
 
-fn relevant(query: &Query) -> bool {
-    let text = query.text.to_lowercase();
-    query.domain.is_none()
-        && [
-            "discord", "lane", "voice", "kanal", "kanäle", "router", "<#",
-        ]
-        .iter()
-        .any(|term| text.contains(term))
-}
 fn allowed(query: &Query, context: &AuthorizedContext, provider: bool) -> bool {
     query.requested_scopes.contains("bot.public")
         && context.principal.scopes.contains("bot.public")
         && context
             .discord
             .as_ref()
-            .is_none_or(|request| request.allow_discord_reads)
+            .is_some_and(|request| request.allow_discord_reads)
         && (!provider || context.principal.provider_egress.contains("public"))
 }
 
@@ -537,7 +528,7 @@ impl<R> DiscordRetriever<R> {
         items: &[Evidence],
         provider: bool,
     ) -> Result<(), PortError> {
-        if !allowed(query, context, provider) || !relevant(query) {
+        if !allowed(query, context, provider) {
             return Err(denied());
         }
         self.validate_observation(query, context, items)
@@ -561,14 +552,33 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
             return self.retrieve_invite(query, context);
         }
         let (mut items, mut usage) = self.inner.retrieve_with_usage(query, context)?;
-        if relevant(query) && allowed(query, context, false) {
+        context.check_deadline()?;
+        if query.domain.is_none() && allowed(query, context, false) {
             if let Some(live) = &self.live {
-                if context.budget.max_network_rounds <= usage.network_rounds {
+                let key = observation_key(query, context)?;
+                self.observations
+                    .lock()
+                    .map_err(|_| unavailable())?
+                    .remove(&key);
+                let rounds = context
+                    .budget
+                    .max_network_rounds
+                    .checked_sub(usage.network_rounds)
+                    .ok_or(PortError::BudgetExceeded)?;
+                if !items.is_empty()
+                    && rounds <= u32::from(query.profile != brain_contracts::AnswerProfile::Fact)
+                {
+                    eprintln!(
+                        "{}",
+                        json!({"event":"brain_discord_live_skipped","request_id":query.request_id,"reason":"network_budget"})
+                    );
+                    return Ok((items, usage));
+                }
+                if rounds == 0 {
                     return Err(PortError::BudgetExceeded);
                 }
-                let key = observation_key(query, context)?;
                 let mut live_context = context.clone();
-                live_context.budget.max_network_rounds -= usage.network_rounds;
+                live_context.budget.max_network_rounds = rounds;
                 let channel_id = query
                     .text
                     .split("<#")
@@ -576,8 +586,19 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                     .and_then(|suffix| suffix.split('>').next())
                     .and_then(|id| id.parse::<u64>().ok())
                     .filter(|id| *id != 0);
-                let (expires, current) = live.read_channel(&live_context, channel_id)?;
                 usage.network_rounds += 1;
+                let (expires, current) = match live.read_channel(&live_context, channel_id) {
+                    Ok(current) => current,
+                    Err(error @ PortError::Unavailable(_)) if !items.is_empty() => {
+                        context.check_deadline()?;
+                        eprintln!(
+                            "{}",
+                            json!({"event":"brain_discord_live_skipped","request_id":query.request_id,"reason":"unavailable","error":error.to_string()})
+                        );
+                        return Ok((items, usage));
+                    }
+                    Err(error) => return Err(error),
+                };
                 let packing_context =
                     if matches!(query.profile, brain_contracts::AnswerProfile::Fact) {
                         context.clone()
@@ -590,11 +611,7 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                     && brain_contracts::provider_input::grounded_input_ceiling(query, &candidates)
                         > packing_context.budget.max_input_tokens as u64
                 {
-                    let text = query.text.to_lowercase();
-                    let terms: Vec<_> = ["lane", "voice", "kanal", "kanäle", "router"]
-                        .into_iter()
-                        .filter(|term| text.contains(term))
-                        .collect();
+                    let terms = brain_contracts::lexical::terms(&query.text);
                     let mut lines: Vec<_> = current.content.lines().collect();
                     lines.sort_by_key(|line| {
                         let line = line.to_lowercase();
@@ -615,14 +632,10 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                         .collect();
                 }
                 candidates.retain(|item| item.source_id == SOURCE);
-                if query.text.to_lowercase().contains("lane") {
-                    let additional_documents = items.split_off(items.len().min(1));
-                    items.append(&mut candidates);
-                    items.extend(additional_documents);
-                    candidates = items;
-                } else {
-                    candidates.append(&mut items);
-                }
+                let additional_documents = items.split_off(items.len().min(1));
+                items.append(&mut candidates);
+                items.extend(additional_documents);
+                candidates = items;
                 items = dbrain_retrieval::pack(query, &packing_context, candidates)?;
                 let selected_live = items
                     .iter()
@@ -1117,7 +1130,7 @@ mod tests {
             provenance: None,
             patch: None,
         };
-        let adapter = DiscordRetriever::new(SafeStore(stored.clone()), Some(live));
+        let adapter = DiscordRetriever::new(SafeStore(stored.clone()), Some(live.clone()));
         let kernel = Kernel::new(adapter, Answer);
         for text in [
             "Was macht Abrams?",
@@ -1131,10 +1144,92 @@ mod tests {
             assert_eq!(result.citations, vec![stored.clone()]);
             assert_eq!(result.usage.network_rounds, 0);
         }
+        for rounds in [0, 1] {
+            let mut context = context.clone();
+            context.discord.as_mut().unwrap().allow_discord_reads = true;
+            context.budget.max_network_rounds = rounds;
+            let adapter = DiscordRetriever::new(SafeStore(stored.clone()), Some(live.clone()));
+            for text in [
+                "Was macht Abrams?",
+                "Welche Lanes gibt es?",
+                "What is this?",
+            ] {
+                let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":text,"requested_scopes":["bot.public"]})).unwrap();
+                let (items, usage) = adapter.retrieve_with_usage(&query, &context).unwrap();
+                assert_eq!(items, vec![stored.clone()]);
+                assert_eq!(usage.network_rounds, 0);
+                adapter
+                    .validate_evidence(&query, &context, &items, true)
+                    .unwrap();
+                adapter
+                    .validate_publication(&query, &context, &items)
+                    .unwrap();
+            }
+        }
+        let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es?","requested_scopes":["bot.public"],"domain":{"kind":"rule","rule_id":"fixture-rule"}})).unwrap();
+        let mut context = context.clone();
+        context.discord.as_mut().unwrap().allow_discord_reads = true;
+        let adapter = DiscordRetriever::new(SafeStore(stored.clone()), Some(live.clone()));
+        let (items, usage) = adapter.retrieve_with_usage(&query, &context).unwrap();
+        assert_eq!(items, vec![stored.clone()]);
+        assert_eq!(usage.network_rounds, 0);
         assert_eq!(
             listener.accept().unwrap_err().kind(),
             std::io::ErrorKind::WouldBlock
         );
+        drop(listener);
+        let mut query = query;
+        query.domain = None;
+        let facts = json!({"schema":"discord.public-facts.v2","guild_id":"1","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"requester","channels":[],"voice_counts":[],"bot_infos":[]});
+        let (expires, mut old) = evidence(serde_json::from_value(facts).unwrap()).unwrap();
+        old.allowed_scopes = BTreeSet::from([context.discord.as_ref().unwrap().scope.clone()]);
+        let key = observation_key(&query, &context).unwrap();
+        adapter
+            .observations
+            .lock()
+            .unwrap()
+            .insert(key.clone(), (expires, vec![old.clone()]));
+        adapter
+            .validate_evidence(&query, &context, std::slice::from_ref(&old), true)
+            .unwrap();
+        let (items, usage) = adapter.retrieve_with_usage(&query, &context).unwrap();
+        assert_eq!(items, vec![stored.clone()]);
+        assert_eq!(usage.network_rounds, 1);
+        assert!(!adapter.observations.lock().unwrap().contains_key(&key));
+        for provider in [false, true] {
+            adapter
+                .validate_evidence(&query, &context, &items, provider)
+                .unwrap();
+            assert!(adapter
+                .validate_evidence(&query, &context, std::slice::from_ref(&old), provider)
+                .is_err());
+        }
+        adapter
+            .validate_publication(&query, &context, &items)
+            .unwrap();
+        assert!(adapter
+            .validate_publication(&query, &context, &[old])
+            .is_err());
+        let mut invite = query.clone();
+        invite.text = brain_contracts::invite::QUESTION.into();
+        assert!(adapter.retrieve_with_usage(&invite, &context).is_err());
+        let result = Kernel::new(
+            DiscordRetriever::new(SafeStore(stored.clone()), Some(live)),
+            Answer,
+        )
+        .answer_for_publication(&query, &context);
+        assert_eq!(result.status, AnswerStatus::Answered);
+        assert_eq!(result.citations, vec![stored]);
+        assert_eq!(result.usage.network_rounds, 1);
+        let start = Instant::now();
+        context.request_deadline = Some(brain_contracts::RequestDeadline::after_with_clock(
+            Duration::ZERO,
+            move || start,
+        ));
+        assert!(matches!(
+            adapter.retrieve_with_usage(&query, &context),
+            Err(PortError::BudgetExceeded)
+        ));
     }
 
     #[test]
@@ -1587,7 +1682,7 @@ mod tests {
 
     #[test]
     fn reine_live_packs_werden_lokal_und_leere_packs_ablehnend_geprueft() {
-        let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Welche Lanes gibt es?","requested_scopes":["bot.public"]})).unwrap();
+        let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Wo finde ich Leute zum Spielen?","requested_scopes":["bot.public"]})).unwrap();
         let context = AuthorizedContext {
             discord: Some(brain_contracts::DiscordRequestContext {
                 user_id: None,

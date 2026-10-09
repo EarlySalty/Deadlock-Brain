@@ -897,10 +897,6 @@ fn combat_summary(
             .filter(|effect| !shared_unknown_effects.contains(effect)).collect::<Vec<_>>()})
 }
 
-fn intent(query: &Query) -> String {
-    dbrain_retrieval::classify_ask_intent(&query.text.to_lowercase(), true, "hero")
-}
-
 pub(crate) struct Resolver(pub(crate) MirroredGameContextReader);
 
 impl GameContextResolver for Resolver {
@@ -909,27 +905,8 @@ impl GameContextResolver for Resolver {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<Option<PinnedGameContext>, PortError> {
-        if !matches!(
-            intent(query).as_str(),
-            "build_recommendation" | "meta_question" | "matchup"
-        ) && query.profile != brain_contracts::AnswerProfile::Build
-        {
-            return Ok(None);
-        }
-        let Some(pin) = self.0.resolve(query, context)? else {
-            return Ok(None);
-        };
-        if query.profile != brain_contracts::AnswerProfile::Build
-            && !dbrain_retrieval::asks_for_hero_population(&query.text)
-        {
-            let bundle = self.0.read_pinned(context, &pin)?;
-            if mentioned_ids(&bundle, "heroes_all", &query.text)?.is_empty()
-                && mentioned_ids(&bundle, "items", &query.text)?.is_empty()
-            {
-                return Ok(None);
-            }
-        }
-        Ok(Some(pin))
+        self.validate(query, context, None)?;
+        Ok(None)
     }
 
     fn validate(
@@ -938,83 +915,19 @@ impl GameContextResolver for Resolver {
         context: &AuthorizedContext,
         pin: Option<&PinnedGameContext>,
     ) -> Result<(), PortError> {
+        context.check_deadline()?;
+        if query.conversation_id != context.conversation_id
+            || !context.principal.provider_egress.contains("public")
+        {
+            return Err(PortError::PermissionDenied(
+                "Spielabfrage ist nicht freigegeben.".into(),
+            ));
+        }
         match pin {
             Some(_) => self.0.validate(query, context, pin),
-            None => context.check_deadline(),
+            None => Ok(()),
         }
     }
-}
-
-fn mentioned_id(
-    bundle: &PinnedMirrorBundle,
-    kind: &str,
-    text: &str,
-) -> Result<Option<i64>, PortError> {
-    let ids = mentioned_ids(bundle, kind, text)?;
-    Ok((ids.len() == 1).then(|| *ids.first().unwrap()))
-}
-
-fn mentioned_ids(
-    bundle: &PinnedMirrorBundle,
-    kind: &str,
-    text: &str,
-) -> Result<std::collections::BTreeSet<i64>, PortError> {
-    mentioned_ids_in_terms(bundle, kind, &brain_contracts::lexical::terms(text))
-}
-
-fn mentioned_ids_in_terms(
-    bundle: &PinnedMirrorBundle,
-    kind: &str,
-    terms: &[String],
-) -> Result<std::collections::BTreeSet<i64>, PortError> {
-    let mut ids = std::collections::BTreeSet::new();
-    for language in ["english", "german"] {
-        for row in bundle
-            .asset(kind, Some(language))?
-            .payload
-            .as_array()
-            .ok_or_else(invalid)?
-        {
-            if kind == "items" && row["type"] != "upgrade" {
-                continue;
-            }
-            if row["name"].as_str().is_some_and(|name| {
-                let name_terms = brain_contracts::lexical::terms(name);
-                !name_terms.is_empty() && name_terms.iter().all(|term| terms.contains(term))
-            }) {
-                ids.insert(row["id"].as_i64().ok_or_else(invalid)?);
-            }
-        }
-    }
-    Ok(ids)
-}
-
-fn build_hero(
-    terms: &[String],
-    find: impl Fn(&[String]) -> Result<std::collections::BTreeSet<i64>, PortError>,
-) -> Result<Option<i64>, PortError> {
-    let all = find(terms)?;
-    let opponent = |term: &String| matches!(term.as_str(), "gegen" | "vs" | "versus" | "against");
-    let first_opponent = terms.iter().position(opponent);
-    if all.len() <= 1 && first_opponent.is_none() {
-        return Ok(all.into_iter().next());
-    }
-    let mut targets = std::collections::BTreeSet::new();
-    for (index, term) in terms.iter().enumerate() {
-        let span = if Some(index) == first_opponent {
-            &terms[..index]
-        } else if matches!(term.as_str(), "fuer" | "zu" | "for" | "on" | "als" | "as") {
-            let rest = &terms[index + 1..];
-            &rest[..rest.iter().position(opponent).unwrap_or(rest.len())]
-        } else {
-            continue;
-        };
-        let found = find(span)?;
-        if found.len() == 1 {
-            targets.extend(found);
-        }
-    }
-    Ok((targets.len() == 1).then(|| *targets.first().unwrap()))
 }
 
 pub(crate) struct Tools<T> {
@@ -1029,57 +942,8 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
         context: &AuthorizedContext,
         pin: Option<&PinnedGameContext>,
     ) -> Result<Vec<ToolCall>, PortError> {
-        let Some(pin) = pin else {
-            return Ok(Vec::new());
-        };
         self.runtime.check(query, context)?;
-        let bundle = self.runtime.mirror.read_pinned(context, pin)?;
-        check_assets(&bundle, context)?;
-        let ask_intent = intent(query);
-        let hero = if query.profile == brain_contracts::AnswerProfile::Build
-            || ask_intent == "build_recommendation"
-        {
-            build_hero(&brain_contracts::lexical::terms(&query.text), |terms| {
-                mentioned_ids_in_terms(&bundle, "heroes_all", terms)
-            })?
-        } else {
-            mentioned_id(&bundle, "heroes_all", &query.text)?
-        };
-        let item = mentioned_id(&bundle, "items", &query.text)?;
-        let operation = match ask_intent.as_str() {
-            _ if query.profile == brain_contracts::AnswerProfile::Build => Some(Operation::Builds),
-            "build_recommendation" => Some(Operation::Items),
-            "matchup" if hero.is_some() => Some(Operation::Matchups),
-            "meta_question" if hero.is_some() && item.is_some() => Some(Operation::ItemWinrate),
-            "meta_question"
-                if hero.is_none()
-                    && item.is_none()
-                    && dbrain_retrieval::asks_for_hero_population(&query.text) =>
-            {
-                Some(Operation::RankedHeroes)
-            }
-            _ => None,
-        };
-        let Some(operation) = operation else {
-            return Ok(Vec::new());
-        };
-        if operation != Operation::RankedHeroes && hero.is_none() {
-            return Err(PortError::Unavailable(
-                "Bitte einen eindeutigen Helden nennen.".into(),
-            ));
-        }
-        let mut arguments = json!({"operation":operation});
-        if let Some(hero) = hero {
-            arguments["hero"] = json!(hero.to_string());
-        }
-        if let Some(item) = item {
-            arguments["item"] = json!(item.to_string());
-        }
-        Ok(vec![ToolCall {
-            id: "required-deadlock-data".into(),
-            name: ToolName::DeadlockData,
-            arguments,
-        }])
+        self.knowledge.required_calls(query, context, pin)
     }
 
     fn definitions(
@@ -1088,13 +952,10 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
         context: &AuthorizedContext,
         pin: Option<&PinnedGameContext>,
     ) -> Result<Vec<ToolDefinition>, PortError> {
-        if pin.is_none() {
-            return Ok(Vec::new());
-        }
         self.runtime.check(query, context)?;
         let mut definitions = self.knowledge.definitions(query, context, pin)?;
         definitions.push(ToolDefinition { name: ToolName::DeadlockData,
-            description: "Items und Builds: zuerst bestehender Build-Reasoner mit Spielwerten, DPS und Skalierung, danach Deadlock-API als Gegenprobe zu Käufen und Siegquoten. Nutze dieses Werkzeug für Item-Empfehlungen, Builds, Item-Siegquoten, Ranked-Helden und Matchups. hero und item sind Spielnamen oder Spiel-IDs, keine Namen von Personen. Datenbasis und Zeitraum kurz in der Antwort nennen. Die API ist keine Kaufvorschrift.".into(),
+            description: "Items und Builds: bestehender Build-Reasoner mit Spielwerten, DPS und Skalierung, danach Deadlock-API als Gegenprobe zu Käufen und Siegquoten. Für Item-Empfehlungen, Builds, Item-Siegquoten, Ranked-Helden und Matchups. Entscheide selbst, ob und wie oft du abfragst. hero und item sind frei gewählte deutsche oder englische Spielnamen oder Spiel-IDs, keine Namen von Personen. Normales Spiel ist der Standard; beachte die ausgewiesenen Spielmodusgrenzen der Ergebnisse. Datenbasis und Zeitraum kurz in der Antwort nennen. Die API ist keine Kaufvorschrift.".into(),
             input_schema: json!({"type":"object","additionalProperties":false,"required":["operation"],
                 "properties":{"operation":{"type":"string","enum":["items","builds","item_winrate","ranked_heroes","matchups"]},
                     "hero":{"type":"string","minLength":1,"maxLength":128},
@@ -1126,6 +987,9 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
         id: &str,
         request: &ToolRequest,
     ) -> Result<Accounted<ToolExecution>, PortFailure> {
+        self.runtime
+            .check(query, context)
+            .map_err(|error| PortFailure::accounted(error, UsageAccounting::default()))?;
         if request.name() != ToolName::DeadlockData {
             return self
                 .knowledge
@@ -1133,7 +997,19 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
         }
         let mut usage = Usage::default();
         let result = (|| {
-            let pin = pin.ok_or_else(invalid)?;
+            self.runtime.check(query, context)?;
+            let resolved;
+            let pin = match pin {
+                Some(pin) => pin,
+                None => {
+                    resolved = self
+                        .runtime
+                        .mirror
+                        .resolve(query, context)?
+                        .ok_or_else(invalid)?;
+                    &resolved
+                }
+            };
             let call = ToolCall {
                 id: id.into(),
                 name: request.name(),
@@ -1204,8 +1080,10 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
                 knowledge.push(dependency.clone());
                 continue;
             }
-            let pin = pin
-                .filter(|pin| dependency.game_context.as_ref() == Some(*pin))
+            let pin = dependency
+                .game_context
+                .as_ref()
+                .filter(|bound| pin.is_none_or(|expected| expected == *bound))
                 .ok_or_else(invalid)?;
             self.runtime.mirror.validate(query, context, Some(pin))?;
             check_assets(&self.runtime.mirror.read_pinned(context, pin)?, context)?;
@@ -1228,69 +1106,6 @@ mod scratch_pg;
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn build_target_distinguishes_opponents_without_guessing_between_heroes() {
-        let find = |terms: &[String]| {
-            Ok([(6, "abrams"), (50, "pocket"), (13, "haze")]
-                .into_iter()
-                .filter_map(|(id, name)| terms.iter().any(|term| term == name).then_some(id))
-                .collect())
-        };
-        for text in [
-            "Welche Items passen zu Abrams?",
-            "Welche Items passen zu Abrams gegen Pocket?",
-            "Build für Abrams gegen Pocket und Haze",
-            "Welche Items gegen Pocket für Abrams?",
-            "Gegen Pocket: welcher Build für Abrams?",
-            "Items on Abrams against Pocket",
-            "Abrams vs Pocket items",
-            "Build for Abrams versus Pocket",
-            "Abrams gegen Pocket",
-            "Gegen Pocket: Build für Abrams",
-            "Build für Abrams gegen Abrams",
-            "Build für Abrams gegen Pocket versus Haze",
-        ] {
-            assert_eq!(
-                build_hero(&brain_contracts::lexical::terms(text), find).unwrap(),
-                Some(6),
-                "{text}"
-            );
-        }
-        for text in [
-            "Welche Items für Abrams oder Pocket?",
-            "Build für Abrams und Haze gegen Pocket",
-            "Abrams gegen Pocket, Build für Haze",
-            "Abrams oder Pocket items",
-            "Welche Items passen?",
-            "Build gegen Pocket",
-            "Items gegen Pocket",
-            "Items against Pocket",
-            "Build vs Pocket",
-            "Build versus Pocket",
-            "Build gegen Pocket versus Haze",
-            "Items gegen Pocket und Haze",
-        ] {
-            assert_eq!(
-                build_hero(&brain_contracts::lexical::terms(text), find).unwrap(),
-                None,
-                "{text}"
-            );
-        }
-        let aliases = |_terms: &[String]| Ok(std::collections::BTreeSet::from([6, 50]));
-        assert_eq!(
-            build_hero(
-                &brain_contracts::lexical::terms("Build für Abrams gegen Pocket"),
-                aliases
-            )
-            .unwrap(),
-            None
-        );
-        assert!(matches!(
-            build_hero(&[], |_| Err(PortError::PermissionDenied("probe".into()))),
-            Err(PortError::PermissionDenied(_))
-        ));
-    }
 
     fn receipt_request(days: u32) -> ToolRequest {
         ToolCall {
@@ -1580,7 +1395,8 @@ mod tests {
             "{}",
             json!({"event":"mirror_resolution_probe","elapsed_ms":resolving.elapsed().as_millis(),"resolved":resolved.is_ok()})
         );
-        let pin = resolved.unwrap().unwrap();
+        assert!(resolved.unwrap().is_none());
+        let pin = runtime.mirror.resolve(&query, &context).unwrap().unwrap();
         let reader =
             brain_storage::LocalPgReader::new(&socket, 55439, "brain_core_test", "postgres")
                 .unwrap();
@@ -1608,18 +1424,7 @@ mod tests {
                 let calls = tools
                     .required_calls(&routing_query, &context, Some(&pin))
                     .unwrap();
-                assert_eq!(calls.len(), 1, "{profile:?}: {text}");
-                assert_eq!(calls[0].name, ToolName::DeadlockData);
-                assert_eq!(calls[0].arguments["hero"], "6", "{profile:?}: {text}");
-                assert_eq!(
-                    calls[0].arguments["operation"],
-                    json!(if profile == brain_contracts::AnswerProfile::Build {
-                        Operation::Builds
-                    } else {
-                        Operation::Items
-                    }),
-                    "{profile:?}: {text}"
-                );
+                assert!(calls.is_empty(), "{profile:?}: {text}");
             }
             for text in [
                 "Build gegen Pocket",
@@ -1634,10 +1439,10 @@ mod tests {
             ] {
                 routing_query.text = text.into();
                 assert!(
-                    matches!(
-                        tools.required_calls(&routing_query, &context, Some(&pin)),
-                        Err(PortError::Unavailable(_))
-                    ),
+                    tools
+                        .required_calls(&routing_query, &context, Some(&pin))
+                        .unwrap()
+                        .is_empty(),
                     "{profile:?}: {text}"
                 );
             }
@@ -1855,22 +1660,13 @@ mod tests {
             let context = authorization.with_request_deadline();
             let pin = runtime.mirror.resolve(&query, &context).unwrap().unwrap();
             let calls = tools.required_calls(&query, &context, Some(&pin)).unwrap();
-            assert_eq!(calls.len(), 1);
-            assert_eq!(calls[0].arguments["hero"], "6");
-            assert_eq!(
-                calls[0].arguments["operation"],
-                json!(if profile == brain_contracts::AnswerProfile::Build {
-                    Operation::Builds
-                } else {
-                    Operation::Items
-                })
-            );
+            assert!(calls.is_empty());
             let mut ambiguous = query;
             ambiguous.text = "Welche Items passen zu Abrams oder Pocket?".into();
-            assert!(matches!(
-                tools.required_calls(&ambiguous, &context, Some(&pin)),
-                Err(PortError::Unavailable(_))
-            ));
+            assert!(tools
+                .required_calls(&ambiguous, &context, None)
+                .unwrap()
+                .is_empty());
         }
         let kernel = brain_kernel::Kernel::new(retrieval, ProbeProvider(provider))
             .with_quality_filters(prepared.config.kernel.quality_filters)
@@ -2058,29 +1854,87 @@ mod tests {
     }
 
     #[test]
-    fn runtime_routing_reuses_existing_intents_without_taking_over_profile_queries() {
-        let classify =
-            |text: &str| dbrain_retrieval::classify_ask_intent(&text.to_lowercase(), true, "hero");
-        assert_eq!(
-            classify("Welche Items passen zu Abrams?"),
-            "build_recommendation"
-        );
-        assert_eq!(
-            classify("Welcher Build passt zu Abrams?"),
-            "build_recommendation"
-        );
-        assert_eq!(
-            classify("Wie ist die Siegquote von Abrams mit Melee Lifesteal?"),
-            "meta_question"
-        );
-        assert_eq!(
-            classify("Welche Helden sind in Ranked am beliebtesten?"),
-            "meta_question"
-        );
-        assert_eq!(
-            classify("Wie viel Lebenspunkte hat Abrams?"),
-            "hero_overview"
-        );
+    fn tools_are_offered_without_query_classification_or_mirror_reads() {
+        let executor = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let pool = {
+            let _entered = executor.enter();
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgresql://127.0.0.1:1/unused")
+                .unwrap()
+        };
+        let mirror = MirroredGameContextReader::new(
+            pool,
+            executor.handle().clone(),
+            brain_contracts::tools::ToolLanguage::German,
+        )
+        .unwrap();
+        let runtime =
+            Arc::new(Runtime::new(config::DeadlockApi::default(), mirror.clone()).unwrap());
+        let directory = tempfile::tempdir().unwrap();
+        let reader = brain_storage::LocalPgReader::new(
+            directory.path(),
+            55439,
+            "brain_core_test",
+            "postgres",
+        )
+        .unwrap();
+        let tools = Tools {
+            knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(
+                dbrain_retrieval::ReleaseRetriever::new(reader, 6),
+            )
+            .with_mirrored_entities(mirror.clone()),
+            runtime,
+        };
+        let resolver = Resolver(mirror);
+        let context: AuthorizedContext = serde_json::from_value(json!({
+            "principal":{"actor_id":"fixture","channel":"test","scopes":[],"provider_egress":["public"]},
+            "conversation_id":"fixture","knowledge_release":"fixture","deadline_ms":60000,
+            "budget":{"max_network_rounds":4,"max_input_tokens":12000,"max_output_tokens":2000,"max_cost_micros":50000}
+        }))
+        .unwrap();
+        let context = context.with_request_deadline();
+        for text in [
+            "wie funktioniert die Urne",
+            "How does Sleep Dagger work?",
+            "Was bewirkt Warp Stone?",
+            "Welche Items passen zu Abrams oder Pocket?",
+            "Welche Helden sind in Ranked am beliebtesten?",
+            "Öffentliche Sprechstunden",
+        ] {
+            let query: Query = serde_json::from_value(json!({
+                "request_id":"fixture","conversation_id":"fixture","text":text,"profile":"explain"
+            }))
+            .unwrap();
+            assert!(resolver.resolve(&query, &context).unwrap().is_none());
+            assert!(tools
+                .required_calls(&query, &context, None)
+                .unwrap()
+                .is_empty());
+            let definitions = tools.definitions(&query, &context, None).unwrap();
+            assert_eq!(
+                definitions
+                    .iter()
+                    .map(|definition| definition.name)
+                    .collect::<Vec<_>>(),
+                vec![
+                    ToolName::ServerKnowledge,
+                    ToolName::EntityFind,
+                    ToolName::EntityProfile,
+                    ToolName::DeadlockData
+                ]
+            );
+            brain_contracts::tools::validate_definitions(&definitions).unwrap();
+            let mut denied = context.clone().into_owned();
+            denied.principal.provider_egress.clear();
+            assert!(tools.definitions(&query, &denied, None).is_err());
+            let mut foreign = query.clone();
+            foreign.conversation_id = "foreign".into();
+            assert!(resolver.resolve(&foreign, &context).is_err());
+            assert!(tools.definitions(&foreign, &context, None).is_err());
+        }
     }
 
     #[test]

@@ -871,13 +871,26 @@ impl ToolExecution {
         let expected_game = if request.name() == ToolName::ServerKnowledge {
             None
         } else {
-            let game = game_context.ok_or_else(|| invalid("Gebundene Spielversion fehlt"))?;
+            let game = game_context
+                .or_else(|| {
+                    self.dependencies
+                        .first()
+                        .filter(|_| {
+                            matches!(
+                                request.subrequest(),
+                                ToolSubrequest::EntityFind(_)
+                                    | ToolSubrequest::DeadlockData(_)
+                                    | ToolSubrequest::EntityProfile(EntityProfileRequest {
+                                        scenario: None,
+                                        analytics: None,
+                                        ..
+                                    })
+                            )
+                        })
+                        .and_then(|dependency| dependency.game_context.as_ref())
+                })
+                .ok_or_else(|| invalid("Gebundene Spielversion fehlt"))?;
             game.validate()?;
-            if let ToolSubrequest::EntityFind(find) = request.subrequest() {
-                if find.language != game.language {
-                    return Err(invalid("Werkzeugsprache weicht von der Anfragebindung ab"));
-                }
-            }
             Some(game)
         };
         if self.result.call_id != call.id
@@ -1575,7 +1588,25 @@ mod tests {
             usage: Usage::default(),
         };
         assert!(execution.validate_for(&call, &request, Some(&game)).is_ok());
-        assert!(execution.validate_for(&call, &request, None).is_err());
+        assert!(execution.validate_for(&call, &request, None).is_ok());
+        let mut missing_game = execution.clone();
+        missing_game.dependencies[0].game_context = None;
+        assert!(missing_game.validate_for(&call, &request, None).is_err());
+        let mut invalid_lazy_game = execution.clone();
+        invalid_lazy_game.dependencies[0]
+            .game_context
+            .as_mut()
+            .unwrap()
+            .client_version = 0;
+        assert!(invalid_lazy_game
+            .validate_for(&call, &request, None)
+            .is_err());
+        let mut mixed_games = execution.clone();
+        let mut second = mixed_games.dependencies[0].clone();
+        second.game_context.as_mut().unwrap().client_version += 1;
+        second.evidence[0].evidence_id = "e2".into();
+        mixed_games.dependencies.push(second);
+        assert!(mixed_games.validate_for(&call, &request, None).is_err());
         let mut invalid_game = game.clone();
         invalid_game.client_version = 0;
         assert!(execution
