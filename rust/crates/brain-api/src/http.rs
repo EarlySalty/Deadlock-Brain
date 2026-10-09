@@ -64,7 +64,7 @@ async fn dispatch_response<K: AnswerKernelPort + 'static>(
     trace: Arc<RequestTrace>,
 ) -> ApiResponse {
     let deadline = RequestDeadline::after(Duration::from_millis(
-        state.service.deadline_ms.clamp(1, 60000),
+        state.service.deadline_ms.clamp(1, 600_000),
     ));
     let _cancel = CancelOnDrop(deadline.clone());
     let permit = match state.slots.clone().try_acquire_owned() {

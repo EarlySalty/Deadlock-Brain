@@ -117,7 +117,7 @@ where
 
     pub fn handle_answer(&self, authorization: Option<&str>, body: &[u8]) -> ApiResponse {
         let deadline = brain_contracts::RequestDeadline::after(std::time::Duration::from_millis(
-            self.deadline_ms.clamp(1, 60000),
+            self.deadline_ms.clamp(1, 600_000),
         ));
         self.handle_answer_until(authorization, body, deadline)
     }
@@ -175,7 +175,7 @@ where
         }
         if self.knowledge_release.trim().is_empty()
             || self.knowledge_release == "current"
-            || !(1..=60000).contains(&self.deadline_ms)
+            || !(1..=600_000).contains(&self.deadline_ms)
         {
             return json_error(503, "not_ready", "Kein gültiger Core-Kontext konfiguriert");
         }
