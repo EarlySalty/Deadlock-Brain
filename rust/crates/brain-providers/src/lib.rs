@@ -536,6 +536,8 @@ mod tests {
                 "{\"text\":\"Deckung nutzen\",\"cited_evidence_ids\":[]}",
                 "Ohne passende Quellen trotzdem antworten.",
                 "{\"text\":\"Teilantwort <#123456789012345678>",
+                "Deckung nutzen [[ev-657479902dd7919055375b33f82b0d5c926c3837a917be14]] [[]]",
+                "Teilantwort [[ev-unvollständig",
             ] {
                 let (mut stream, _) = listener.accept().unwrap();
                 let request = read_request(&mut stream);
@@ -558,6 +560,8 @@ mod tests {
             "Abstand halten",
             "Deckung nutzen",
             "Ohne passende Quellen trotzdem antworten.",
+            "Teilantwort ",
+            "Deckung nutzen  ",
             "Teilantwort ",
         ] {
             let response = provider

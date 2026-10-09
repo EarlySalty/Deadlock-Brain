@@ -1014,9 +1014,21 @@ fn unverified_answer(raw: &str, usage: Usage, evidence: &[Evidence]) -> Result<P
     }
     let text = answer_text.unwrap_or(body);
     let mut text = brain_contracts::provider_input::discord_display_text(text);
+    text = text
+        .split("[[ev-")
+        .enumerate()
+        .filter_map(|(index, part)| {
+            if index == 0 {
+                Some(part)
+            } else {
+                part.split_once("]]").map(|(_, rest)| rest)
+            }
+        })
+        .collect();
     for item in evidence {
         text = text.replace(&item.evidence_id, "");
     }
+    text = text.replace("[[]]", "");
     if text.trim().is_empty() || text.len() > 64 * 1024 {
         return Err(ProviderError::InvalidResponse(
             "empty or oversized unverified answer".into(),
