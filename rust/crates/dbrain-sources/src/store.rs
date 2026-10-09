@@ -373,7 +373,11 @@ pub(crate) async fn complete_run(
 }
 
 pub(crate) async fn open_pool() -> Result<PgPool> {
-    let pool = deadlock_brain_core::pg::pg_pool()
+    open_pool_with_limit(4).await
+}
+
+pub(crate) async fn open_pool_with_limit(max_connections: u32) -> Result<PgPool> {
+    let pool = deadlock_brain_core::pg::pg_pool_with_limit(max_connections)
         .await
         .map_err(|error| SourcesError::Pool(error.to_string()))?;
     ensure_patch_changes_view(&pool).await?;

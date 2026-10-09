@@ -1,16 +1,17 @@
 use crate::fs_safe::{self, Lock};
 use crate::source::{self, Artifact, Manifest, OPERATOR};
 use anyhow::{ensure, Context, Result};
-#[cfg(test)]
-use std::fs;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-fn version(program: &str) -> Result<String> {
-    let output = source::command(program).arg("--version").output()?;
+fn version(program: &str, source: &Path) -> Result<String> {
+    let output = source::command(program)
+        .current_dir(source.join("rust"))
+        .arg("--version")
+        .output()?;
     ensure!(
         output.status.success(),
         "Werkzeugversion nicht lesbar (Exit {:?})",
@@ -28,6 +29,9 @@ fn build_dir_override(target: &Path) -> Result<String> {
     Ok(format!("build.build-dir=\"{path}\""))
 }
 
+pub const RUSTFLAGS: &str = "--remap-path-prefix=/home/nathanael=/brain-operator";
+pub const TARGET: &str = "/home/nathanael/.cache/brain-release-target";
+
 fn run_cargo(source: &Path, target: &Path) -> Result<()> {
     ensure!(
         fs_safe::uid() == OPERATOR,
@@ -37,19 +41,16 @@ fn run_cargo(source: &Path, target: &Path) -> Result<()> {
     let status = source::command("/home/nathanael/.cargo/bin/cargo")
         .current_dir(source.join("rust"))
         .env("CARGO_INCREMENTAL", "0")
-        .env(
-            "RUSTFLAGS",
-            format!(
-                "--remap-path-prefix={}=/brain-release-target",
-                target.display()
-            ),
-        )
+        .env("RUSTFLAGS", RUSTFLAGS)
+        .env("RUSTC_WRAPPER", "/home/nathanael/.cargo/bin/sccache")
+        .env("SCCACHE_DIR", "/home/nathanael/.cache/sccache")
         .args(source::BUILD_ARGS)
         .arg("--target-dir")
         .arg(target)
         .arg("--config")
         .arg(build_dir_override(target)?)
-        .stdout(Stdio::inherit())
+        .stdout(std::io::stderr())
+        .stderr(Stdio::inherit())
         .status()?;
     ensure!(
         status.success(),
@@ -100,6 +101,70 @@ fn copy_artifacts(target: &Path, bundle: &Path, names: Vec<String>) -> Result<Ve
     Ok(artifacts)
 }
 
+fn remove_target(target: &Path) -> Result<()> {
+    match fs::symlink_metadata(target) {
+        Ok(_) => {
+            fs_safe::checked_path(target, OPERATOR, true)?;
+            fs::remove_dir_all(target)
+                .context("Build-Zwischenartefakte konnten nicht entfernt werden")
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn with_clean_target<T>(target: &Path, build: impl FnOnce(&Path) -> Result<T>) -> Result<T> {
+    fs_safe::checked_path(
+        target.parent().context("Target-Elternpfad fehlt")?,
+        OPERATOR,
+        true,
+    )?;
+    remove_target(target)?;
+    let result = build(target);
+    let cleanup = remove_target(target);
+    match result {
+        Ok(value) => {
+            cleanup?;
+            Ok(value)
+        }
+        Err(error) => {
+            cleanup.with_context(|| format!("Aufräumen nach Buildfehler: {error:#}"))?;
+            Err(error)
+        }
+    }
+}
+
+fn restore_bundle(bundle: &Path, manifest: &Manifest, binaries: &Path) -> Result<()> {
+    fs_safe::new_dir(bundle)?;
+    let result = (|| {
+        for artifact in &manifest.artifacts {
+            let mut input = fs_safe::regular(&binaries.join(&artifact.name), 0)?;
+            let mut output = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o500)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(bundle.join(&artifact.name))?;
+            std::io::copy(&mut input, &mut output)?;
+            output.sync_all()?;
+            ensure!(
+                fs_safe::file_hash(&bundle.join(&artifact.name), OPERATOR)? == artifact.sha256,
+                "Bestätigtes Binary beim Kopieren verändert"
+            );
+        }
+        fs_safe::new_file(
+            &bundle.join("manifest.json"),
+            &serde_json::to_vec_pretty(manifest)?,
+            0o400,
+        )?;
+        fs_safe::sync_dir(bundle)
+    })();
+    if result.is_err() {
+        remove_target(bundle)?;
+    }
+    result
+}
+
 pub fn compile(source: &Path, bundle: &Path) -> Result<Manifest> {
     ensure!(
         fs_safe::uid() == OPERATOR,
@@ -120,9 +185,27 @@ pub fn compile(source: &Path, bundle: &Path) -> Result<Manifest> {
         true,
     )?;
     ensure!(
-        !bundle.starts_with(source) && bundle.is_absolute(),
-        "Bundle muss außerhalb der Quelle liegen"
+        !bundle.starts_with(source)
+            && bundle.is_absolute()
+            && !bundle.starts_with(TARGET)
+            && !Path::new(TARGET).starts_with(bundle),
+        "Bundle muss außerhalb von Quelle und Build-Ablage liegen"
     );
+    if let Some((manifest, binaries)) =
+        crate::install::build_proof(Path::new(crate::install::ROOT), &before.sha, 0)?
+    {
+        ensure!(
+            manifest.format == 3 && manifest.source.same_revision(&before),
+            "Vorhandener Build gehört zu einer anderen Revision oder zum alten Verfahren"
+        );
+        restore_bundle(bundle, &manifest, &binaries)?;
+        if let Err(error) = source::verify_unchanged(source, bundle, &manifest) {
+            remove_target(bundle)?;
+            return Err(error);
+        }
+        eprintln!("Bestätigten Sourcebuild wiederverwendet; Cargo nicht gestartet");
+        return Ok(manifest);
+    }
     let _host = loop {
         let mut available = None;
         for slot in 1..=3 {
@@ -139,58 +222,92 @@ pub fn compile(source: &Path, bundle: &Path) -> Result<Manifest> {
     };
     let _cargo = Lock::acquire(Path::new("/tmp/deadlock-cargo-release.lock"), OPERATOR)?;
     fs_safe::new_dir(bundle)?;
-    for (program, args) in [
-        ("/usr/bin/free", vec!["-m"]),
-        (
-            "/usr/bin/df",
-            vec!["-h", bundle.to_str().context("Bundle-Pfad ist kein UTF-8")?],
-        ),
-    ] {
-        let output = Command::new(program).args(args).output()?;
-        eprintln!("{}", String::from_utf8_lossy(&output.stdout));
+    let result = (|| {
+        for (program, args) in [
+            ("/usr/bin/free", vec!["-m"]),
+            (
+                "/usr/bin/df",
+                vec!["-h", bundle.to_str().context("Bundle-Pfad ist kein UTF-8")?],
+            ),
+        ] {
+            let output = Command::new(program).args(args).output()?;
+            eprintln!("{}", String::from_utf8_lossy(&output.stdout));
+            ensure!(
+                output.status.success(),
+                "Hostprüfung fehlgeschlagen (Exit {:?})",
+                output.status.code()
+            );
+        }
+        let cargo_version = version("/home/nathanael/.cargo/bin/cargo", source)?;
+        let rustc_version = version("/home/nathanael/.cargo/bin/rustc", source)?;
+        let names = source::inventory(source)?;
         ensure!(
-            output.status.success(),
-            "Hostprüfung fehlgeschlagen (Exit {:?})",
-            output.status.code()
+            source::inspect(source)? == before && source::remote_main()? == before.sha,
+            "Quelle oder Remote-main vor Build verändert"
         );
+        with_clean_target(Path::new(TARGET), |target| {
+            run_cargo(source, target)?;
+            ensure!(
+                source::inspect(source)? == before && source::remote_main()? == before.sha,
+                "Quelle oder Remote-main während Build verändert"
+            );
+            let artifacts = copy_artifacts(target, bundle, names)?;
+            let manifest = Manifest {
+                format: 3,
+                source: before,
+                origin: source::ORIGIN.into(),
+                cargo_version,
+                rustc_version,
+                build_args: source::BUILD_ARGS.iter().map(|x| x.to_string()).collect(),
+                artifacts,
+            };
+            fs_safe::new_file(
+                &bundle.join("manifest.json"),
+                &serde_json::to_vec_pretty(&manifest)?,
+                0o400,
+            )?;
+            fs_safe::sync_dir(bundle)?;
+            source::verify_unchanged(source, bundle, &manifest)?;
+            Ok(manifest)
+        })
+    })();
+    if result.is_err() {
+        remove_target(bundle)?;
     }
-    let cargo_version = version("/home/nathanael/.cargo/bin/cargo")?;
-    let rustc_version = version("/home/nathanael/.cargo/bin/rustc")?;
-    let names = source::inventory(source)?;
-    ensure!(
-        source::inspect(source)? == before && source::remote_main()? == before.sha,
-        "Quelle oder Remote-main vor Build verändert"
-    );
-    let target = bundle.join("target");
-    run_cargo(source, &target)?;
-    ensure!(
-        source::inspect(source)? == before && source::remote_main()? == before.sha,
-        "Quelle oder Remote-main während Build verändert"
-    );
-    let artifacts = copy_artifacts(&target, bundle, names)?;
-    let manifest = Manifest {
-        format: 2,
-        source: before,
-        origin: source::ORIGIN.into(),
-        cargo_version,
-        rustc_version,
-        build_args: source::BUILD_ARGS.iter().map(|x| x.to_string()).collect(),
-        artifacts,
-    };
-    fs_safe::new_file(
-        &bundle.join("manifest.json"),
-        &serde_json::to_vec_pretty(&manifest)?,
-        0o400,
-    )?;
-    fs_safe::sync_dir(bundle)?;
-    source::verify_unchanged(source, bundle, &manifest)?;
-    Ok(manifest)
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::fs::{symlink, PermissionsExt};
+
+    #[test]
+    fn target_is_fresh_and_removed_on_success_and_failure() {
+        let dir = tempfile::tempdir_in("/home/nathanael/.cache").unwrap();
+        let target = dir.path().join("target");
+        fs_safe::new_dir(&target).unwrap();
+        fs_safe::new_file(&target.join("stale"), b"other-commit", 0o600).unwrap();
+        let result = with_clean_target(&target, |path| {
+            assert!(!path.exists());
+            fs_safe::new_dir(path)?;
+            fs_safe::new_file(&path.join("built"), b"this-commit", 0o600)?;
+            Ok(7)
+        })
+        .unwrap();
+        assert_eq!(result, 7);
+        assert!(!target.exists());
+        let result: Result<()> = with_clean_target(&target, |path| {
+            fs_safe::new_dir(path)?;
+            fs_safe::new_file(&path.join("partial"), b"failed", 0o600)?;
+            anyhow::bail!("compile failed")
+        });
+        assert!(result.is_err());
+        assert!(!target.exists());
+        symlink(dir.path(), &target).unwrap();
+        assert!(with_clean_target(&target, |_| Ok(())).is_err());
+        assert!(dir.path().exists());
+    }
 
     #[test]
     fn fresh_cargo_release_links_and_forged_bundle_are_checked() {

@@ -20,6 +20,7 @@ pub enum ToolName {
     BuildPlan,
     GameRules,
     ServerKnowledge,
+    DeadlockData,
 }
 
 impl ToolName {
@@ -33,6 +34,7 @@ impl ToolName {
             Self::BuildPlan => "build_plan",
             Self::GameRules => "game_rules",
             Self::ServerKnowledge => "server_knowledge",
+            Self::DeadlockData => "deadlock_data",
         }
     }
 }
@@ -358,6 +360,26 @@ pub struct ServerKnowledgeRequest {
     pub public_channel_id: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeadlockDataOperation {
+    Items,
+    Builds,
+    ItemWinrate,
+    RankedHeroes,
+    Matchups,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeadlockDataRequest {
+    pub operation: DeadlockDataOperation,
+    pub hero: Option<String>,
+    pub item: Option<String>,
+    pub days: Option<u32>,
+    pub limit: Option<usize>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "name", content = "arguments", rename_all = "snake_case")]
 pub enum ToolSubrequest {
@@ -369,6 +391,7 @@ pub enum ToolSubrequest {
     BuildPlan(BuildPlanRequest),
     GameRules(GameRulesRequest),
     ServerKnowledge(ServerKnowledgeRequest),
+    DeadlockData(DeadlockDataRequest),
 }
 
 impl ToolSubrequest {
@@ -389,6 +412,9 @@ impl ToolSubrequest {
             }
             ToolName::BuildPlan => serde_json::from_value(arguments.clone()).map(Self::BuildPlan),
             ToolName::GameRules => serde_json::from_value(arguments.clone()).map(Self::GameRules),
+            ToolName::DeadlockData => {
+                serde_json::from_value(arguments.clone()).map(Self::DeadlockData)
+            }
             ToolName::ServerKnowledge => {
                 serde_json::from_value(arguments.clone()).map(Self::ServerKnowledge)
             }
@@ -461,6 +487,24 @@ impl ToolSubrequest {
                     .scenario
                     .as_ref()
                     .map_or(Ok(()), ToolScenario::validate)
+            }
+            Self::DeadlockData(request) => {
+                for name in request.hero.iter().chain(&request.item) {
+                    validate_text(name)?;
+                    if name.len() > 128 || name.chars().any(char::is_control) {
+                        return Err(invalid("Ungültiger Spielname"));
+                    }
+                }
+                if request.days == Some(0)
+                    || request.limit == Some(0)
+                    || (request.operation != DeadlockDataOperation::RankedHeroes
+                        && request.hero.is_none())
+                    || (request.operation == DeadlockDataOperation::ItemWinrate
+                        && request.item.is_none())
+                {
+                    return Err(invalid("Spielauswahl fehlt"));
+                }
+                Ok(())
             }
             Self::ServerKnowledge(request) => {
                 validate_text(&request.question)?;
@@ -887,6 +931,15 @@ pub enum ToolValidationPurpose {
 }
 
 pub trait ToolExecutionPort: Send + Sync {
+    fn required_calls(
+        &self,
+        _query: &Query,
+        _context: &AuthorizedContext,
+        _game_context: Option<&PinnedGameContext>,
+    ) -> Result<Vec<ToolCall>, PortError> {
+        Ok(Vec::new())
+    }
+
     fn definitions(
         &self,
         _query: &Query,

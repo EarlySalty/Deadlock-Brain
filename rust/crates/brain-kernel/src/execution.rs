@@ -160,6 +160,13 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             .tools
             .as_ref()
             .ok_or_else(|| PortError::Unavailable("Werkzeuganschluss fehlt".into()))?;
+        let required =
+            binding
+                .port
+                .required_calls(query, context, session.game_context.as_ref())?;
+        let required_ids: BTreeSet<_> = required.iter().map(|call| call.id.clone()).collect();
+        let mut pending = (!required.is_empty()).then_some(required);
+        let mut required_evidence = Vec::<Vec<String>>::new();
         loop {
             let next = remaining(context, &accounting.charged(), elapsed())
                 .ok_or(PortError::BudgetExceeded)?;
@@ -182,65 +189,77 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                 &build_executions,
                 purpose,
             )?;
-            let input = grounded_turn_input_ceiling_with_quality(
-                query,
-                &evidence,
-                &session.definitions,
-                &conversation,
-                ToolWireFormat::Native,
-                kernel.quality_filters,
-            )?
-            .max(grounded_turn_input_ceiling_with_quality(
-                query,
-                &evidence,
-                &session.definitions,
-                &conversation,
-                ToolWireFormat::OpenAiCompatible,
-                kernel.quality_filters,
-            )?);
-            let next = remaining(context, &accounting.charged(), elapsed())
-                .ok_or(PortError::BudgetExceeded)?;
-            if input > u64::from(next.budget.max_input_tokens) {
-                return Err(PortError::BudgetExceeded);
-            }
-            let Accounted {
-                value: turn,
-                accounting: mut turn_accounting,
-            } = match kernel.provider.answer_turn_accounted(
-                query,
-                &next,
-                &evidence,
-                &session.definitions,
-                &conversation,
-            ) {
-                Ok(turn) => turn,
-                Err(failure) => return Err(account_failure(&mut accounting, failure, &next)),
+            let turn = if let Some(calls) = pending.take() {
+                ProviderTurn::ToolCalls {
+                    blocks: calls
+                        .into_iter()
+                        .map(|call| ModelBlock::ToolUse { call })
+                        .collect(),
+                    finish_reason: brain_contracts::ProviderFinishReason::ToolUse,
+                    usage: Usage::default(),
+                }
+            } else {
+                let input = grounded_turn_input_ceiling_with_quality(
+                    query,
+                    &evidence,
+                    &session.definitions,
+                    &conversation,
+                    ToolWireFormat::Native,
+                    kernel.quality_filters,
+                )?
+                .max(grounded_turn_input_ceiling_with_quality(
+                    query,
+                    &evidence,
+                    &session.definitions,
+                    &conversation,
+                    ToolWireFormat::OpenAiCompatible,
+                    kernel.quality_filters,
+                )?);
+                let next = remaining(context, &accounting.charged(), elapsed())
+                    .ok_or(PortError::BudgetExceeded)?;
+                if input > u64::from(next.budget.max_input_tokens) {
+                    return Err(PortError::BudgetExceeded);
+                }
+                let Accounted {
+                    value: turn,
+                    accounting: mut turn_accounting,
+                } = match kernel.provider.answer_turn_accounted(
+                    query,
+                    &next,
+                    &evidence,
+                    &session.definitions,
+                    &conversation,
+                ) {
+                    Ok(turn) => turn,
+                    Err(failure) => return Err(account_failure(&mut accounting, failure, &next)),
+                };
+                let reserved_input =
+                    input.checked_mul(u64::from(turn_accounting.observed.network_rounds));
+                let charge = turn_accounting.charged();
+                turn_accounting.accumulate(&UsageAccounting {
+                    reserved: Usage {
+                        input_tokens: reserved_input
+                            .unwrap_or(u64::MAX)
+                            .saturating_sub(charge.input_tokens),
+                        ..Usage::default()
+                    },
+                    unaccounted: reserved_input.is_none(),
+                    ..UsageAccounting::default()
+                });
+                accounting.accumulate(&turn_accounting);
+                if accounting.unaccounted {
+                    return Err(PortError::BudgetExceeded);
+                }
+                remaining(context, &accounting.charged(), elapsed())
+                    .ok_or(PortError::BudgetExceeded)?;
+                if turn.usage().network_rounds == 0 {
+                    return Err(PortError::InvalidResponse(
+                        "Modellrunde hat keinen Netzwerkzähler".into(),
+                    ));
+                }
+                turn
             };
-            let reserved_input =
-                input.checked_mul(u64::from(turn_accounting.observed.network_rounds));
-            let charge = turn_accounting.charged();
-            turn_accounting.accumulate(&UsageAccounting {
-                reserved: Usage {
-                    input_tokens: reserved_input
-                        .unwrap_or(u64::MAX)
-                        .saturating_sub(charge.input_tokens),
-                    ..Usage::default()
-                },
-                unaccounted: reserved_input.is_none(),
-                ..UsageAccounting::default()
-            });
-            accounting.accumulate(&turn_accounting);
-            if accounting.unaccounted {
-                return Err(PortError::BudgetExceeded);
-            }
-            remaining(context, &accounting.charged(), elapsed())
-                .ok_or(PortError::BudgetExceeded)?;
             turn.validate(&session.definitions)?;
-            if turn.usage().network_rounds == 0 {
-                return Err(PortError::InvalidResponse(
-                    "Modellrunde hat keinen Netzwerkzähler".into(),
-                ));
-            }
             match turn {
                 ProviderTurn::Final { answer, .. } => {
                     let ids: BTreeSet<_> = answer.cited_evidence_ids.iter().collect();
@@ -276,6 +295,17 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         &build_executions,
                         purpose,
                     )?;
+                    if !insufficient
+                        && required_evidence.iter().any(|required| {
+                            !required
+                                .iter()
+                                .any(|id| answer.cited_evidence_ids.contains(id))
+                        })
+                    {
+                        return Err(PortError::Unavailable(
+                            "Pflichtbeleg fehlt in der Antwort.".into(),
+                        ));
+                    }
                     if kernel.quality_filters
                         && query.profile == brain_contracts::AnswerProfile::Build
                         && !insufficient
@@ -345,6 +375,15 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
                         execution.validate_for(call, &request, session.game_context.as_ref())?;
+                        if required_ids.contains(&call.id) {
+                            if execution.result.is_error || execution.result.evidence_ids.is_empty()
+                            {
+                                return Err(PortError::Unavailable(
+                                    "Pflichtwerkzeug lieferte keinen Beleg.".into(),
+                                ));
+                            }
+                            required_evidence.push(execution.result.evidence_ids.clone());
+                        }
                         if request.name() == brain_contracts::ToolName::BuildPlan
                             && !execution.result.is_error
                         {
@@ -444,15 +483,21 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                 build_executions: build_executions.into(),
             }
         }
-        Err(error) => response(
-            query,
-            context,
-            validation_status(&error),
-            "Werkzeugantwort konnte nicht sicher abgeschlossen werden.",
-            Vec::new(),
-            accounting.observed.clone(),
-        )
-        .into(),
+        Err(error) => {
+            eprintln!(
+                "{}",
+                serde_json::json!({"event":"brain_tool_answer_failed","request_id":query.request_id,"error":error.to_string()})
+            );
+            response(
+                query,
+                context,
+                validation_status(&error),
+                "Werkzeugantwort konnte nicht sicher abgeschlossen werden.",
+                Vec::new(),
+                accounting.observed.clone(),
+            )
+            .into()
+        }
     };
     outcome.with_accounting(accounting)
 }

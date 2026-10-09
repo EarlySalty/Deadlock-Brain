@@ -1065,7 +1065,20 @@ fn parse_event_lines(
         if trimmed.is_empty() {
             continue;
         }
-        if let Some(body) = bullet_body(trimmed) {
+        let bullet = bullet_body(trimmed);
+        if bullet.is_none()
+            && (is_forum_section_heading(trimmed)
+                || (trimmed.starts_with('[') && trimmed.ends_with(']'))
+                || index.exact(trimmed).is_some())
+        {
+            if let Some(next_section) = section_heading(trimmed) {
+                section = Some(next_section);
+                continue;
+            }
+        }
+        if let Some(body) =
+            bullet.or_else(|| has_change_action(trimmed).then(|| trimmed.to_string()))
+        {
             line_index += 1;
             let event = parse_bullet_event(&EventParseContext {
                 row,
@@ -1783,7 +1796,7 @@ fn split_flat_forum_lines(content: &str, changes_only: bool) -> Option<Vec<Strin
 
     let mut lines = Vec::new();
     for (idx, (marker_pos, section)) in markers.iter().enumerate() {
-        lines.push(section.trim().to_string());
+        lines.push(format!("[ {section} ]"));
 
         let section_body_end = markers.get(idx + 1).map_or(content.len(), |next| next.0);
         let section_body = content[*marker_pos + 4..section_body_end].trim();
@@ -1831,7 +1844,7 @@ fn split_square_bracket_forum_lines(content: &str, changes_only: bool) -> Option
     for (idx, (_, section_end, section)) in markers.iter().enumerate() {
         let body_end = markers.get(idx + 1).map_or(content.len(), |next| next.0);
         let body = content[*section_end..body_end].trim();
-        lines.push(section.clone());
+        lines.push(format!("[ {section} ]"));
         let has_bullets = ["* ", "- ", "• "]
             .iter()
             .any(|marker| body.starts_with(marker) || body.contains(&format!(" {marker}")));
@@ -2010,11 +2023,8 @@ fn expand_inline_bullets_with(raw_line: &str, changes_only: bool) -> Vec<String>
         return vec![raw_line.to_string()];
     }
 
-    let normalized = if let Some(rest) = stripped.strip_prefix("- ") {
-        rest.trim()
-    } else {
-        stripped
-    };
+    let bullet = bullet_body(stripped);
+    let normalized = bullet.as_deref().unwrap_or(stripped).trim();
 
     if split_subject(normalized).0.is_some() {
         let mut grouped = Vec::<String>::new();
@@ -2096,6 +2106,9 @@ fn looks_like_plain_section_heading(line: &str) -> bool {
 
 fn is_forum_section_heading(line: &str) -> bool {
     let trimmed = line.trim();
+    if trimmed.eq_ignore_ascii_case("New Heroes") {
+        return true;
+    }
     if !trimmed.ends_with(':') {
         return false;
     }
@@ -3062,9 +3075,9 @@ mod tests {
         )
         .expect("flat");
         assert_eq!(lines.len(), 4);
-        assert_eq!(lines[0], "General Changes");
+        assert_eq!(lines[0], "[ General Changes ]");
         assert_eq!(lines[1], "- Added A");
-        assert_eq!(lines[2], "Gameplay Changes");
+        assert_eq!(lines[2], "[ Gameplay Changes ]");
         assert_eq!(lines[3], "- Abrams: Base Health increased from 550 to 600");
     }
 

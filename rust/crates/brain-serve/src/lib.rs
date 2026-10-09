@@ -3,6 +3,7 @@
 
 mod analytics;
 pub mod config;
+mod deadlock_data;
 mod discord_live;
 mod health;
 mod operator_socket;
