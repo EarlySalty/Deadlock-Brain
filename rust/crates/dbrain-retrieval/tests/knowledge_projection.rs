@@ -361,7 +361,12 @@ async fn large_utf8_source_keeps_tail_and_facts_retrievable() {
     let projection = project_knowledge(&original).unwrap().unwrap();
     assert_eq!(&projection.text[..projection.raw_byte_end], content);
     let retriever = ReleaseRetriever::new(published(original).await, 6);
-    let c = context();
+    let mut c = context();
+    let now = std::time::Instant::now();
+    c.request_deadline = Some(RequestDeadline::after_with_clock(
+        std::time::Duration::from_millis(c.deadline_ms),
+        move || now,
+    ));
     for term in ["LetzterOriginalmarker", "cooldown 12.5"] {
         let q = query(term);
         let hits = retriever.retrieve(&q, &c).unwrap();
