@@ -2195,7 +2195,8 @@ async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs)
         &candidates.name_to_id,
         ability_order.as_deref(),
     );
-    dbrain_reasoner::publish::validate_publish_items(pool, &assembled.payload).await?;
+    let payload = serde_json::to_value(&assembled.payload)?;
+    dbrain_reasoner::publish::validate_publish_items(pool, &payload).await?;
     warnings.append(&mut assembled.warnings);
     eprintln!(
         "build-spec: item_count={} understanding_found={} skill_order_found={}",
