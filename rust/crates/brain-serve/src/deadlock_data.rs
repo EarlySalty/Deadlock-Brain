@@ -1,4 +1,5 @@
 use crate::{config, Error};
+use brain_contracts::game_mode::GameMode;
 use brain_contracts::{
     tools::{DeadlockDataOperation as Operation, GameContextResolver, ToolSubrequest},
     Accounted, AuthorizedContext, Evidence, EvidenceKind, PinnedGameContext, PortError,
@@ -375,13 +376,14 @@ impl Runtime {
         &self,
         context: &AuthorizedContext,
         endpoint: &str,
+        mode: GameMode,
         start: i64,
         end: i64,
         params: &[(&str, i64)],
         usage: &mut Usage,
     ) -> Result<Vec<Value>, PortError> {
+        let mut url = analytics_url(endpoint, mode, start, params)?;
         Self::charge(context, usage)?;
-        let mut url = dbrain_builds::analytics_url(endpoint, start, params);
         url.push_str(&format!(
             "&max_unix_timestamp={}&min_match_id=0&bucket=no_bucket",
             end - 1
@@ -423,7 +425,8 @@ impl Runtime {
     ) -> Result<Entry, PortError> {
         self.check(query, context)?;
         self.mirror.validate(query, context, Some(pin))?;
-        let key = key(request, pin)?;
+        let mode = GameMode::from_question(&query.text);
+        let key = key(request, pin, mode)?;
         {
             let mut cache = self.cache.lock().map_err(|_| unavailable())?;
             cache.retain(|_, entry| entry.expires > Instant::now());
@@ -446,18 +449,19 @@ impl Runtime {
         let hero_id = data
             .hero
             .as_deref()
-            .map(|name| resolve(&bundle, "heroes_all", name))
+            .map(|name| resolve(&bundle, "heroes_all", name, mode))
             .transpose()?;
         let item_id = data
             .item
             .as_deref()
-            .map(|name| resolve(&bundle, "items", name))
+            .map(|name| resolve(&bundle, "items", name, mode))
             .transpose()?;
         let mechanical = if matches!(data.operation, Operation::Items | Operation::Builds) {
             Some(mechanical_items(
                 &bundle,
                 hero_id.ok_or_else(invalid)?,
                 self.config.mechanical_items,
+                mode,
             )?)
         } else {
             None
@@ -468,28 +472,41 @@ impl Runtime {
         }
         let fetched = (|| -> Result<(Vec<Value>, &str), PortError> {
             Ok(match data.operation {
-                Operation::RankedHeroes => (
+                Operation::RankedHeroes if mode == GameMode::Normal => (
                     self.ranked(context, start, end, usage)?,
                     "mcp/execute_query",
+                ),
+                Operation::RankedHeroes => (
+                    self.rest(context, "hero-stats", mode, start, end, &params, usage)?,
+                    "analytics/hero-stats",
                 ),
                 Operation::Items | Operation::Builds => {
                     params.push(("min_matches", 1));
                     (
-                        self.rest(context, "item-stats", start, end, &params, usage)?,
+                        self.rest(context, "item-stats", mode, start, end, &params, usage)?,
                         "analytics/item-stats",
                     )
                 }
                 Operation::ItemWinrate => {
                     params.clear();
                     params.push(("include_item_ids", item_id.ok_or_else(invalid)?));
-                    let mut rows = self.rest(context, "hero-stats", start, end, &params, usage)?;
+                    let mut rows =
+                        self.rest(context, "hero-stats", mode, start, end, &params, usage)?;
                     rows.retain(|row| row["hero_id"].as_i64() == hero_id);
                     (rows, "analytics/hero-stats")
                 }
                 Operation::Matchups => {
                     params.push(("min_matches", 1));
                     (
-                        self.rest(context, "hero-counter-stats", start, end, &params, usage)?,
+                        self.rest(
+                            context,
+                            "hero-counter-stats",
+                            mode,
+                            start,
+                            end,
+                            &params,
+                            usage,
+                        )?,
                         "analytics/hero-counter-stats",
                     )
                 }
@@ -507,10 +524,11 @@ impl Runtime {
             }
             Err(error) => return Err(error),
         };
+        retain_shop_items(&bundle, &mut rows, mode)?;
         let all_rows = rows.clone();
         rows.truncate(limit);
         for row in &mut rows {
-            add_names(&bundle, row)?;
+            add_names(&bundle, row, mode)?;
         }
         let mut mechanical = mechanical;
         if let Some(calculation) = &mut mechanical {
@@ -524,35 +542,18 @@ impl Runtime {
                 }
             }
         }
-        let mut builds = Vec::new();
-        let mut build_api_status = "not_requested";
-        if data.operation == Operation::Builds && api_status == "available" {
-            let path = format!("hero-build-stats/{}", hero_id.ok_or_else(invalid)?);
-            match self.rest(context, &path, start, end, &[("min_matches", 1)], usage) {
-                Ok(rows) => {
-                    builds = rows;
-                    builds.truncate(limit);
-                    build_api_status = "available";
-                }
-                Err(PortError::Unavailable(_)) => {
-                    context.check_deadline()?;
-                    build_api_status = "unavailable";
-                    eprintln!(
-                        "{}",
-                        json!({"event":"deadlock_data_countercheck_unavailable","request_id":query.request_id,"operation":data.operation,"endpoint":"hero-build-stats"})
-                    );
-                }
-                Err(error) => return Err(error),
-            }
-        } else if data.operation == Operation::Builds {
-            build_api_status = "unavailable";
-        }
+        let builds: Vec<Value> = Vec::new();
+        let build_api_status = if data.operation == Operation::Builds {
+            "unavailable_mode_filter"
+        } else {
+            "not_requested"
+        };
         let result = json!({"source":"Deadlock-API","operation":data.operation,
             "hero_id":hero_id,"item_id":item_id,"from_unix":start,"to_unix_exclusive":end,
-            "population":"Ranked, Normal","api_status":api_status,"build_api_status":build_api_status,"mechanical":mechanical,"observations":rows,"build_observations":builds,
+            "game_mode":mode,"population":mode.population(),"api_status":api_status,"build_api_status":build_api_status,"mechanical":mechanical,"observations":rows,"build_observations":builds,
             "interpretation":"Spielwerte bestimmen, was mechanisch passt. Matchdaten sind eine Gegenprobe, keine Vorschrift. Siegquoten sind kein Beweis, dass ein Item den Sieg verursacht. Keine zusätzliche Mindestzahl an Matches. In der Antwort Datenbasis und Zeitraum kurz nennen.",
             "build_limit":"Einzelitemvergleich aus dem Build-Reasoner, kein vollständiger geprüfter Kaufplan.",
-            "build_observation_basis":"Build-Statistik zählt den zu Matchbeginn ausgewählten Guide, nicht einen nachgewiesenen Kaufplan. Ranked; der Upstream bietet hier keinen Spielmodusfilter.",
+            "build_observation_basis":"Keine Build-Statistik: Der Upstream unterstützt hier keinen Spielmodusfilter. Keine Daten aus anderen Spielmodi verwenden.",
             "matchup_observation_basis":"Gegner in derselben Lane nach dem Standardfilter der Deadlock-API."});
         let content = result.to_string();
         if content.len() > self.config.max_result_bytes {
@@ -573,9 +574,10 @@ impl Runtime {
             kind: EvidenceKind::Prose,
             content,
             citation: format!(
-                "Deadlock-API: {} bis {} (UTC), Ranked",
+                "Deadlock-API: {} bis {} (UTC), {}",
                 stamp(start)?,
-                stamp(end)?
+                stamp(end)?,
+                mode.population()
             ),
             visibility: SourceVisibility::Public,
             allowed_scopes: Default::default(),
@@ -725,10 +727,38 @@ fn parse_ranked(text: &str, max_rows: usize) -> Result<Vec<(u64, u64, u64)>, Por
     Ok(rows)
 }
 
-fn key(request: &ToolRequest, pin: &PinnedGameContext) -> Result<String, PortError> {
+fn analytics_url(
+    endpoint: &str,
+    mode: GameMode,
+    start: i64,
+    params: &[(&str, i64)],
+) -> Result<String, PortError> {
+    if !matches!(endpoint, "item-stats" | "hero-stats" | "hero-counter-stats") {
+        return Err(unavailable());
+    }
+    let mut url = reqwest::Url::parse(&dbrain_builds::analytics_url(endpoint, start, params))
+        .map_err(|_| invalid())?;
+    let pairs: Vec<_> = url
+        .query_pairs()
+        .filter(|(key, _)| key != "game_mode" && key != "match_mode")
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    url.query_pairs_mut()
+        .clear()
+        .extend_pairs(pairs)
+        .append_pair("game_mode", mode.api_value())
+        .append_pair("match_mode", mode.match_mode());
+    Ok(url.into())
+}
+
+fn key(
+    request: &ToolRequest,
+    pin: &PinnedGameContext,
+    mode: GameMode,
+) -> Result<String, PortError> {
     Ok(format!(
         "{:x}",
-        Sha256::digest(serde_json::to_vec(&(request, pin)).map_err(|_| invalid())?)
+        Sha256::digest(serde_json::to_vec(&(request, pin, mode)).map_err(|_| invalid())?)
     ))
 }
 
@@ -752,7 +782,12 @@ fn check_assets(bundle: &PinnedMirrorBundle, context: &AuthorizedContext) -> Res
     Ok(())
 }
 
-fn resolve(bundle: &PinnedMirrorBundle, kind: &str, name: &str) -> Result<i64, PortError> {
+fn resolve(
+    bundle: &PinnedMirrorBundle,
+    kind: &str,
+    name: &str,
+    mode: GameMode,
+) -> Result<i64, PortError> {
     let mut ids = std::collections::BTreeSet::new();
     for language in ["english", "german"] {
         for row in bundle
@@ -761,7 +796,7 @@ fn resolve(bundle: &PinnedMirrorBundle, kind: &str, name: &str) -> Result<i64, P
             .as_array()
             .ok_or_else(invalid)?
         {
-            if kind == "items" && row["type"] != "upgrade" {
+            if kind == "items" && !mode.allows_item(row) {
                 continue;
             }
             if [row["name"].as_str(), row["class_name"].as_str()]
@@ -782,7 +817,34 @@ fn resolve(bundle: &PinnedMirrorBundle, kind: &str, name: &str) -> Result<i64, P
     ids.into_iter().next().ok_or_else(invalid)
 }
 
-fn add_names(bundle: &PinnedMirrorBundle, row: &mut Value) -> Result<(), PortError> {
+fn retain_shop_items(
+    bundle: &PinnedMirrorBundle,
+    rows: &mut Vec<Value>,
+    mode: GameMode,
+) -> Result<(), PortError> {
+    let eligible: std::collections::BTreeSet<_> = bundle
+        .asset("items", Some("english"))?
+        .payload
+        .as_array()
+        .ok_or_else(invalid)?
+        .iter()
+        .filter(|item| mode.allows_item(item))
+        .filter_map(|item| item["id"].as_i64())
+        .collect();
+    rows.retain(|row| {
+        row.get("item_id").is_none()
+            || row["item_id"]
+                .as_i64()
+                .is_some_and(|id| eligible.contains(&id))
+    });
+    Ok(())
+}
+
+fn add_names(
+    bundle: &PinnedMirrorBundle,
+    row: &mut Value,
+    mode: GameMode,
+) -> Result<(), PortError> {
     for (field, kind, output) in [
         ("hero_id", "heroes_all", "hero_name"),
         ("enemy_hero_id", "heroes_all", "enemy_hero_name"),
@@ -795,7 +857,10 @@ fn add_names(bundle: &PinnedMirrorBundle, row: &mut Value) -> Result<(), PortErr
                 .as_array()
                 .ok_or_else(invalid)?
                 .iter()
-                .find(|entity| entity["id"].as_i64() == Some(id))
+                .find(|entity| {
+                    entity["id"].as_i64() == Some(id)
+                        && (kind != "items" || mode.allows_item(entity))
+                })
             {
                 row[output] = entity["name"].clone();
             }
@@ -808,6 +873,7 @@ fn mechanical_items(
     bundle: &PinnedMirrorBundle,
     hero_id: i64,
     limit: usize,
+    mode: GameMode,
 ) -> Result<Value, PortError> {
     let heroes = bundle.asset("heroes_all", Some("english"))?;
     let items = bundle.asset("items", Some("english"))?;
@@ -820,11 +886,12 @@ fn mechanical_items(
             language: "english".into(),
             json_pointer: String::new(),
         };
-    let models = dbrain_reasoner::calculation_models_from_payloads(
+    let models = dbrain_reasoner::calculation_models_for_mode(
         &heroes.payload,
         &items.payload,
         &source(heroes),
         &source(items),
+        mode,
     )
     .map_err(|error| {
         eprintln!(
@@ -924,7 +991,13 @@ impl GameContextResolver for Resolver {
         {
             let bundle = self.0.read_pinned(context, &pin)?;
             if mentioned_ids(&bundle, "heroes_all", &query.text)?.is_empty()
-                && mentioned_ids(&bundle, "items", &query.text)?.is_empty()
+                && mentioned_ids_in_terms(
+                    &bundle,
+                    "items",
+                    &brain_contracts::lexical::terms(&query.text),
+                    None,
+                )?
+                .is_empty()
             {
                 return Ok(None);
             }
@@ -959,13 +1032,19 @@ fn mentioned_ids(
     kind: &str,
     text: &str,
 ) -> Result<std::collections::BTreeSet<i64>, PortError> {
-    mentioned_ids_in_terms(bundle, kind, &brain_contracts::lexical::terms(text))
+    mentioned_ids_in_terms(
+        bundle,
+        kind,
+        &brain_contracts::lexical::terms(text),
+        Some(GameMode::from_question(text)),
+    )
 }
 
 fn mentioned_ids_in_terms(
     bundle: &PinnedMirrorBundle,
     kind: &str,
     terms: &[String],
+    mode: Option<GameMode>,
 ) -> Result<std::collections::BTreeSet<i64>, PortError> {
     let mut ids = std::collections::BTreeSet::new();
     for language in ["english", "german"] {
@@ -975,7 +1054,9 @@ fn mentioned_ids_in_terms(
             .as_array()
             .ok_or_else(invalid)?
         {
-            if kind == "items" && row["type"] != "upgrade" {
+            if kind == "items"
+                && (row["type"] != "upgrade" || mode.is_some_and(|mode| !mode.allows_item(row)))
+            {
                 continue;
             }
             if row["name"].as_str().is_some_and(|name| {
@@ -1040,11 +1121,24 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
             || ask_intent == "build_recommendation"
         {
             build_hero(&brain_contracts::lexical::terms(&query.text), |terms| {
-                mentioned_ids_in_terms(&bundle, "heroes_all", terms)
+                mentioned_ids_in_terms(
+                    &bundle,
+                    "heroes_all",
+                    terms,
+                    Some(GameMode::from_question(&query.text)),
+                )
             })?
         } else {
             mentioned_id(&bundle, "heroes_all", &query.text)?
         };
+        let terms = brain_contracts::lexical::terms(&query.text);
+        let all_items = mentioned_ids_in_terms(&bundle, "items", &terms, None)?;
+        let available_items = mentioned_ids(&bundle, "items", &query.text)?;
+        if !all_items.is_subset(&available_items) {
+            return Err(PortError::Unavailable(
+                "Das genannte Item ist im angefragten Spielmodus nicht kaufbar.".into(),
+            ));
+        }
         let item = mentioned_id(&bundle, "items", &query.text)?;
         let operation = match ask_intent.as_str() {
             _ if query.profile == brain_contracts::AnswerProfile::Build => Some(Operation::Builds),
@@ -1209,6 +1303,13 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
                 .ok_or_else(invalid)?;
             self.runtime.mirror.validate(query, context, Some(pin))?;
             check_assets(&self.runtime.mirror.read_pinned(context, pin)?, context)?;
+            if dependency.evidence.iter().any(|evidence| {
+                serde_json::from_str::<Value>(&evidence.content).map_or(true, |value| {
+                    value["game_mode"] != json!(GameMode::from_question(&query.text))
+                })
+            }) {
+                return Err(invalid());
+            }
             self.runtime.receipts.validate(
                 &dependency.request,
                 pin,
@@ -1228,6 +1329,35 @@ mod scratch_pg;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn analytics_and_cache_bind_the_question_mode_without_mixed_build_stats() {
+        for endpoint in ["item-stats", "hero-stats", "hero-counter-stats"] {
+            for mode in [GameMode::Normal, GameMode::StreetBrawl] {
+                let url = reqwest::Url::parse(
+                    &analytics_url(endpoint, mode, 1791331200, &[("hero_id", 6)]).unwrap(),
+                )
+                .unwrap();
+                let pairs: Vec<_> = url.query_pairs().collect();
+                for (field, expected) in [
+                    ("game_mode", mode.api_value()),
+                    ("match_mode", mode.match_mode()),
+                ] {
+                    let actual: Vec<_> = pairs.iter().filter(|(key, _)| key == field).collect();
+                    assert_eq!(actual.len(), 1);
+                    assert_eq!(actual[0].1, expected);
+                }
+            }
+        }
+        assert!(analytics_url("hero-build-stats/6", GameMode::Normal, 1791331200, &[]).is_err());
+        assert!(
+            analytics_url("hero-build-stats/6", GameMode::StreetBrawl, 1791331200, &[]).is_err()
+        );
+        assert_ne!(
+            key(&receipt_request(1), &receipt_pin(), GameMode::Normal).unwrap(),
+            key(&receipt_request(1), &receipt_pin(), GameMode::StreetBrawl).unwrap()
+        );
+    }
 
     #[test]
     fn build_target_distinguishes_opponents_without_guessing_between_heroes() {
@@ -1355,20 +1485,20 @@ mod tests {
         let mut cache = BTreeMap::new();
         remember(
             &mut cache,
-            key(&first, &pin).unwrap(),
+            key(&first, &pin, GameMode::Normal).unwrap(),
             first_entry.clone(),
             1,
             now,
         );
         remember(
             &mut cache,
-            key(&second, &pin).unwrap(),
+            key(&second, &pin, GameMode::Normal).unwrap(),
             second_entry.clone(),
             1,
             now,
         );
         assert_eq!(cache.len(), 1);
-        assert!(!cache.contains_key(&key(&first, &pin).unwrap()));
+        assert!(!cache.contains_key(&key(&first, &pin, GameMode::Normal).unwrap()));
         receipts
             .validate(&first, &pin, &first_entry.evidence, now)
             .unwrap();
@@ -1376,7 +1506,13 @@ mod tests {
             .validate(&second, &pin, &second_entry.evidence, now)
             .unwrap();
         let refreshed = receipt_entry(&receipts, &first, &pin);
-        remember(&mut cache, key(&first, &pin).unwrap(), refreshed, 1, now);
+        remember(
+            &mut cache,
+            key(&first, &pin, GameMode::Normal).unwrap(),
+            refreshed,
+            1,
+            now,
+        );
         receipts
             .validate(&first, &pin, &first_entry.evidence, now)
             .unwrap();
@@ -1675,6 +1811,97 @@ mod tests {
             .any(|item| item["match_observation"].is_object()));
         assert!(!entry.result["observations"].as_array().unwrap().is_empty());
         assert_eq!(usage.network_rounds, 1);
+        let bundle = runtime.mirror.read_pinned(&context, &pin).unwrap();
+        let catalog = bundle
+            .asset("items", Some("english"))
+            .unwrap()
+            .payload
+            .as_array()
+            .unwrap();
+        for row in items
+            .iter()
+            .chain(entry.result["observations"].as_array().unwrap())
+        {
+            let raw = catalog
+                .iter()
+                .find(|raw| raw["id"] == row["item_id"])
+                .unwrap();
+            assert!(GameMode::Normal.allows_item(raw));
+        }
+        let brawl_only = catalog
+            .iter()
+            .find(|raw| raw["item_tier"] == 5 && GameMode::StreetBrawl.allows_item(raw))
+            .unwrap();
+        assert!(resolve(
+            &bundle,
+            "items",
+            brawl_only["name"].as_str().unwrap(),
+            GameMode::Normal
+        )
+        .is_err());
+        assert_eq!(
+            resolve(
+                &bundle,
+                "items",
+                brawl_only["name"].as_str().unwrap(),
+                GameMode::StreetBrawl
+            )
+            .unwrap(),
+            brawl_only["id"].as_i64().unwrap()
+        );
+        let mut unavailable_query = query.clone();
+        unavailable_query.text = format!(
+            "Wie ist die Siegquote von Abrams mit {}?",
+            brawl_only["name"].as_str().unwrap()
+        );
+        let mode_context = authorization.with_request_deadline();
+        assert!(matches!(
+            tools.required_calls(&unavailable_query, &mode_context, Some(&pin)),
+            Err(PortError::Unavailable(_))
+        ));
+        unavailable_query.text.push_str(" Street Brawl");
+        let mode_context = authorization.with_request_deadline();
+        let mode_calls = tools
+            .required_calls(&unavailable_query, &mode_context, Some(&pin))
+            .unwrap();
+        assert_eq!(mode_calls.len(), 1);
+        assert_eq!(mode_calls[0].arguments["operation"], "item_winrate");
+        let mut street_query = query.clone();
+        street_query.text = "Welche Items passen zu Abrams in Street Brawl?".into();
+        let street_context = authorization.with_request_deadline();
+        let mut street_usage = Usage::default();
+        let street = runtime
+            .lookup(
+                &street_query,
+                &street_context,
+                &pin,
+                &request,
+                &mut street_usage,
+            )
+            .unwrap();
+        assert_eq!(street.result["game_mode"], "street_brawl");
+        for row in street.result["mechanical"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(street.result["observations"].as_array().unwrap())
+        {
+            let raw = catalog
+                .iter()
+                .find(|raw| raw["id"] == row["item_id"])
+                .unwrap();
+            assert!(GameMode::StreetBrawl.allows_item(raw));
+        }
+        assert!(street.result["mechanical"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["tier"] == 5));
+        assert_eq!(street_usage.network_rounds, 1);
+        println!(
+            "{}",
+            json!({"event":"street_brawl_catalog_probe", "result":street.result})
+        );
         println!(
             "{}",
             json!({"client_version":pin.client_version,"mechanical_items":items.len(),
@@ -1710,6 +1937,10 @@ mod tests {
         let probe = std::env::var("BRAIN_API_HTTP_PROBE").unwrap();
         let questions = match probe.as_str() {
             "pocket" => vec!["wie countert man Pocket"],
+            "shop_modes" => vec![
+                "Welche Items passen zu Abrams?",
+                "Welche Items passen zu Abrams in Street Brawl?",
+            ],
             "api" => vec![
                 "Welche Items passen zu Abrams?",
                 "Wie ist die Siegquote von Abrams mit Melee Lifesteal?",
@@ -1740,12 +1971,57 @@ mod tests {
                 let answer = client.answer_for_discord_with_read_access(&query, 0, false).await.unwrap();
                 println!("{}", json!({"event":"deadlock_api_http_acceptance", "question":question, "answer":answer}));
                 assert!(!answer.text.trim().is_empty());
-                if probe == "api" {
+                if probe == "api" || probe == "shop_modes" {
                     assert_eq!(answer.status, brain_contracts::AnswerStatus::Answered);
                     assert!(serde_json::to_string(&answer.citations).unwrap().contains("Deadlock-API"));
+                    if probe == "shop_modes" {
+                        let mode = GameMode::from_question(question);
+                        let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_with(
+                            sqlx::postgres::PgConnectOptions::new_without_pgpass().host("/var/run/postgresql").port(5432).username("nathanael").database("deadlock")
+                        ).await.unwrap();
+                        let version = brain_storage::asset_mirror::latest_mirrored_client_version(&pool).await.unwrap();
+                        let answer_terms = brain_contracts::lexical::terms(&answer.text);
+                        let mut named = std::collections::BTreeSet::new();
+                        for language in ["english", "german"] {
+                            let catalog = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(&pool, version, "items", Some(language)).await.unwrap();
+                            for raw in catalog.payload.as_array().unwrap().iter().filter(|raw| raw["type"] == "upgrade") {
+                                let name = raw["name"].as_str().unwrap();
+                                let terms = brain_contracts::lexical::terms(name);
+                                if !terms.is_empty() && answer_terms.windows(terms.len()).any(|window| window == terms) {
+                                    assert!(mode.allows_item(raw), "Nicht kaufbares Item in Liveantwort: {name}");
+                                    named.insert(raw["id"].as_i64().unwrap());
+                                }
+                            }
+                        }
+                        pool.close().await;
+                        assert!(!named.is_empty());
+                        println!("{}", json!({"event":"live_answer_catalog_checked", "game_mode":mode, "item_ids":named, "client_version":version}));
+                        if index == 0 {
+                            assert!(!answer.text.contains("Shadow Strike"));
+                        } else {
+                            assert!(answer.text.to_lowercase().replace('-', " ").contains("street brawl"));
+                        }
+                    }
                 } else {
                     assert!(answer.status == brain_contracts::AnswerStatus::Answered
                         || answer.text.starts_with(brain_contracts::public_api::UNVERIFIED_PREFIX));
+                }
+                if probe == "shop_modes" && std::env::var("BRAIN_API_HTTP_BOT_LOGS").as_deref() == Ok("1") {
+                    let mcp_token = secrets.iter().find(|(key, _)| key == "TWITCH_INTERNAL_API_TOKEN").map(|(_, value)| value.as_str()).unwrap();
+                    let content = format!("**Brain-Liveprobe: {question}**\n\n{}", answer.text);
+                    assert!(content.chars().count() <= 2000);
+                    let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(Duration::from_millis(config.timeouts.request_ms)).build().unwrap();
+                    let rpc = |name: &str, arguments: Value| json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":arguments}});
+                    let decode = |reply: Value| {
+                        assert!(reply.get("error").is_none());
+                        assert_eq!(reply["result"]["isError"], false);
+                        serde_json::from_str::<Value>(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+                    };
+                    let posted = decode(http.post("http://127.0.0.1:8890/mcp").bearer_auth(mcp_token).json(&rpc("api_call", json!({"method":"POST","path":"/channels/1374364800817303632/messages","body":{"content":content,"allowed_mentions":{"parse":[]}}}))).send().await.unwrap().error_for_status().unwrap().json().await.unwrap());
+                    let id = posted["id"].as_str().unwrap();
+                    let read = decode(http.post("http://127.0.0.1:8890/mcp").bearer_auth(mcp_token).json(&rpc("api_call", json!({"method":"GET","path":format!("/channels/1374364800817303632/messages/{id}")}))).send().await.unwrap().error_for_status().unwrap().json().await.unwrap());
+                    assert_eq!(read["content"], content);
+                    println!("{}", json!({"event":"shop_modes_bot_logs_proof","question":question,"url":format!("https://discord.com/channels/1289721245281292288/1374364800817303632/{id}"),"read_back":true}));
                 }
             }
         });
@@ -1963,6 +2239,7 @@ mod tests {
             .rest(
                 &context,
                 "item-stats",
+                GameMode::Normal,
                 1791331200,
                 1791417600,
                 &[("hero_id", 6), ("min_matches", 1)],
@@ -1978,6 +2255,7 @@ mod tests {
             .rest(
                 &context,
                 "hero-stats",
+                GameMode::Normal,
                 1791331200,
                 1791417600,
                 &[("include_item_ids", item)],
@@ -1989,21 +2267,24 @@ mod tests {
             .ranked(&context, 1791331200, 1791417600, &mut usage)
             .unwrap();
         assert!(!ranked.is_empty());
-        let builds = runtime
+        let before_build = usage.network_rounds;
+        assert!(runtime
             .rest(
                 &context,
                 "hero-build-stats/6",
+                GameMode::Normal,
                 1791331200,
                 1791417600,
                 &[("min_matches", 1)],
                 &mut usage,
             )
-            .unwrap();
-        assert!(!builds.is_empty());
+            .is_err());
+        assert_eq!(usage.network_rounds, before_build);
         let matchups = runtime
             .rest(
                 &context,
                 "hero-counter-stats",
+                GameMode::Normal,
                 1791331200,
                 1791417600,
                 &[("hero_id", 6), ("min_matches", 1)],
@@ -2016,7 +2297,7 @@ mod tests {
         ));
         println!(
             "{}",
-            json!({"items":items.len(),"item_winrates":winrates.len(),"ranked_heroes":ranked.len(),"builds":builds.len(),"matchups":matchups.len(),"network_rounds":usage.network_rounds})
+            json!({"items":items.len(),"item_winrates":winrates.len(),"ranked_heroes":ranked.len(),"builds":0,"matchups":matchups.len(),"network_rounds":usage.network_rounds})
         );
     }
 

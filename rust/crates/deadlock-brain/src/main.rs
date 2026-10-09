@@ -2995,6 +2995,9 @@ async fn publish_saved_http(
         .infisical_config
         .clone()
         .unwrap_or_else(|| config::repo_root().join("config/infisical.json"));
+    let pool = deadlock_brain_core::pg::pg_pool_from_config(&path, true).await?;
+    dbrain_reasoner::publish::validate_publish_items(&pool, &request.payload).await?;
+    pool.close().await;
     let values = tokio::time::timeout(
         Duration::from_secs(10),
         deadlock_brain_core::pg::infisical_environment(&path),
@@ -3051,6 +3054,11 @@ async fn run_publish_resume(args: &PublishResumeArgs) -> Result<()> {
 }
 
 async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool) -> Result<()> {
+    if brain_contracts::game_mode::GameMode::from_question(&args.query)
+        == brain_contracts::game_mode::GameMode::StreetBrawl
+    {
+        anyhow::bail!("Street-Brawl-Kaufpläne können derzeit nicht veröffentlicht werden. Es wird kein Standardmodus-Build als Ersatz erstellt.");
+    }
     let ask = dbrain_retrieval::ask_context(
         pool,
         &args.query,
