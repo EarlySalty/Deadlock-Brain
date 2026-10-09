@@ -18,6 +18,13 @@ pub struct BuildDataOrigin {
 }
 
 impl BuildDataOrigin {
+    pub(crate) fn snapshot_source(&self) -> Result<String> {
+        self.validate()?;
+        let origin = serde_json::to_string(self)
+            .map_err(|error| ReasonerError::Data(format!("Buildherkunft: {error}")))?;
+        Ok(format!("deadlock_assets_api/hero#build-data={origin}"))
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         let hash_valid =
             |hash: &str| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit());
