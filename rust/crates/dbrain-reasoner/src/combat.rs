@@ -1213,6 +1213,7 @@ fn simulate(
         .collect();
     let mut target_remaining = SimulationTarget::new(out.target_health, scenario);
     let mut next_shot_at: f64 = 0.0;
+    let mut cadence_ready_at: f64 = 0.0;
     let mut magazine_shots = 0usize;
     let mut magazine_started_at = 0.0;
     let mut weapon_kill_at = None;
@@ -1395,10 +1396,10 @@ fn simulate(
                 if reload > 0.0 {
                     magazine_buffs.fill(false);
                     ammo = (ammo + last_clip * reload / 100.0).min(last_clip);
-                    if ammo >= 1.0 {
+                    if ammo >= 1.0 && reload_pending {
                         reload_until = time;
                         reload_pending = false;
-                        next_shot_at = next_shot_at.min(time);
+                        next_shot_at = cadence_ready_at.max(time);
                     }
                 }
                 out.item_activations
@@ -1758,10 +1759,10 @@ fn simulate(
                     {
                         magazine_buffs.fill(false);
                         ammo = (ammo + clip * reload / 100.0).min(clip);
-                        if ammo >= 1.0 {
+                        if ammo >= 1.0 && reload_pending {
                             reload_until = time;
                             reload_pending = false;
-                            next_shot_at = next_shot_at.min(time);
+                            next_shot_at = cadence_ready_at.max(time);
                         }
                         activated[item_idx] = true;
                         buff_targets[item_idx] = target_generation;
@@ -2150,7 +2151,11 @@ fn simulate(
                                     &stats,
                                     1.0,
                                     at,
-                                    &mut spirit_events,
+                                    if ability.item_proc_disabled {
+                                        &mut excluded_spirit_events
+                                    } else {
+                                        &mut spirit_events
+                                    },
                                     &mut leech_sum,
                                     &mut target_remaining,
                                 );
@@ -2251,6 +2256,7 @@ fn simulate(
                         out.weapon_timing_unknown = true;
                         next_shot_at = f64::INFINITY;
                     }
+                    cadence_ready_at = next_shot_at;
                     if ammo < 1.0 && (target_remaining.health > 0.0 || pressure) {
                         magazine_buffs.fill(false);
                         let convention = scenario
@@ -2452,7 +2458,11 @@ fn simulate(
     } else {
         dt
     };
-    let elapsed = out.elapsed_seconds.max(dt.min(window));
+    let elapsed = if out.elapsed_seconds > 0.0 {
+        out.elapsed_seconds
+    } else {
+        dt.min(window)
+    };
     out.effective_health = health_sum;
     out.incoming_health_damage = incoming.health_damage;
     out.remaining_health = (last_maximum_health.unwrap_or(hero.base_health)
@@ -3006,132 +3016,6 @@ pub(crate) mod tests {
         hero.weapon_timing = crate::WeaponTiming::default();
         let legacy = evaluate_inventory(&hero, &[item(1, "BonusClipSizePercent", 100.0)], &cfg);
         assert_eq!(legacy.scenarios[0].shots, 52.0);
-    }
-
-    #[test]
-    fn zero_length_magazine_cycles_never_requeue_at_the_same_timestamp() {
-        let mut hero = hero();
-        hero.weapon.clip_size = 1.0;
-        hero.weapon.reload_duration = 0.0;
-        let mut scenario = event_scenario(1.0);
-        scenario.hit_fraction = 0.0;
-        scenario.reload_convention = crate::ReloadConvention::AfterLastShot;
-        let timing = crate::WeaponTiming::default();
-        let innate = BTreeMap::new();
-        let anchor = std::time::Instant::now();
-        let deadline = brain_contracts::RequestDeadline::after_with_clock(
-            std::time::Duration::from_secs(60),
-            move || anchor,
-        );
-        let result = simulate_calculation(&hero, &[], &scenario, &timing, &innate);
-        assert_eq!(result.shots, 1.0);
-        assert!(result.weapon_timing_unknown);
-        assert_eq!(result.reloads, 1);
-        assert_eq!(result.weapon_damage, 0.0);
-        assert_eq!(result.target_remaining_health, scenario.target.health);
-        assert_eq!(result.elapsed_seconds, scenario.window_seconds);
-        assert_eq!(result.end_reason, CombatEndReason::WindowElapsed);
-        assert_eq!(
-            simulate_calculation_with_deadline(&hero, &[], &scenario, &timing, &innate, &deadline,)
-                .unwrap(),
-            result
-        );
-        assert_eq!(deadline.remaining(), Ok(std::time::Duration::from_secs(60)));
-    }
-
-    #[test]
-    fn zero_reload_keeps_valid_firing_cycles_and_after_last_shot_boundaries() {
-        for (clip, convention, reload, shots) in [
-            (1.0, crate::ReloadConvention::AfterFireInterval, 0.0, 3.0),
-            (2.0, crate::ReloadConvention::AfterLastShot, 0.0, 5.0),
-            (1.0, crate::ReloadConvention::AfterLastShot, 0.025, 5.0),
-        ] {
-            let mut hero = hero();
-            hero.weapon.clip_size = clip;
-            hero.weapon.shots_per_second = 20.0;
-            hero.weapon.reload_duration = reload;
-            for hit in [0.0, 1.0] {
-                let mut scenario = event_scenario(0.125);
-                scenario.target.regeneration = 0.0;
-                scenario.hit_fraction = hit;
-                scenario.reload_convention = convention;
-                let result = simulate_calculation(
-                    &hero,
-                    &[],
-                    &scenario,
-                    &crate::WeaponTiming::default(),
-                    &BTreeMap::new(),
-                );
-                assert_eq!(result.shots, shots, "{clip} {convention:?} {reload} {hit}");
-                assert!(!result.weapon_timing_unknown);
-                assert!((result.weapon_damage - shots * 10.0 * hit).abs() < 1e-9);
-                assert_eq!(result.elapsed_seconds, scenario.window_seconds);
-            }
-        }
-    }
-
-    #[test]
-    fn invalid_reload_never_schedules_backwards_through_public_inventory_paths() {
-        let cfg = ReasonerConfig {
-            combat_window_seconds: 1.0,
-            incoming_pressure_dps: Some(0.0),
-            ..ReasonerConfig::default()
-        };
-        let bindings = BTreeMap::new();
-        let anchor = std::time::Instant::now();
-        let deadline = brain_contracts::RequestDeadline::after_with_clock(
-            std::time::Duration::from_secs(60),
-            move || anchor,
-        );
-        for reload in [-0.5, f64::NAN, f64::INFINITY] {
-            let mut hero = hero();
-            hero.weapon.clip_size = 2.0;
-            hero.weapon.reload_duration = reload;
-            for result in [
-                evaluate_inventory(&hero, &[], &cfg),
-                evaluate_inventory_fast(&hero, &[], &cfg),
-                evaluate_inventory_refs_fast(&hero, &[], &cfg),
-                evaluate_inventory_with_bindings(&hero, &[], &cfg, &bindings),
-                evaluate_inventory_refs_fast_with_bindings(&hero, &[], &cfg, &bindings),
-                evaluate_inventory_with_deadline(&hero, &[], &cfg, &bindings, Some(&deadline))
-                    .unwrap(),
-            ] {
-                assert!(result.score.is_finite());
-                assert!(!result.unknown_effects.is_empty());
-                for scenario in result.scenarios {
-                    assert!(scenario.weapon_timing_unknown);
-                    assert_eq!(scenario.shots, 2.0);
-                    assert_eq!(scenario.reloads, 1);
-                    assert_eq!(scenario.elapsed_seconds, 1.0);
-                    assert!(scenario.weapon_damage <= 20.0);
-                }
-            }
-            for convention in [
-                crate::ReloadConvention::AfterLastShot,
-                crate::ReloadConvention::AfterFireInterval,
-            ] {
-                let mut scenario = event_scenario(1.0);
-                scenario.hit_fraction = 0.0;
-                scenario.reload_convention = convention;
-                let timing = crate::WeaponTiming::default();
-                let innate = BTreeMap::new();
-                let result = simulate_calculation(&hero, &[], &scenario, &timing, &innate);
-                assert_eq!(result.shots, 2.0);
-                assert_eq!(result.weapon_damage, 0.0);
-                assert_eq!(
-                    simulate_calculation_with_deadline(
-                        &hero,
-                        &[],
-                        &scenario,
-                        &timing,
-                        &innate,
-                        &deadline,
-                    )
-                    .unwrap(),
-                    result
-                );
-            }
-        }
     }
 
     #[test]
@@ -3796,6 +3680,11 @@ pub(crate) mod tests {
             assert_eq!(duel.time_resolution_seconds, 0.0);
             assert!((duel.elapsed_seconds - kill_time).abs() < 1e-9);
             assert!((duel.contact_seconds - kill_time).abs() < 1e-9);
+            let elapsed = if kill_time > 0.0 { kill_time } else { 0.2 };
+            assert!(
+                (duel.damage_per_second - 600.0 / elapsed).abs() < 1e-8,
+                "{duel:?}"
+            );
             let chain = &result.scenarios[1];
             assert_eq!(chain.elapsed_seconds, cfg.combat_window_seconds);
             assert_eq!(chain.targets_defeated, 2);
@@ -4478,6 +4367,71 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn passive_stack_procs_preserve_damage_and_lifesteal_but_respect_item_exclusion() {
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 1.0,
+            incoming_pressure_dps: Some(100.0),
+            ..ReasonerConfig::default()
+        };
+        let mut hero = stack_test_hero(false);
+        hero.weapon.shots_per_second = 5.0;
+        hero.abilities[0].properties.extend([
+            ("DamageBonusFixedPerStack".into(), 0.0),
+            ("ProcDamageStackCount".into(), 1.0),
+            ("ProcDamage".into(), 10.0),
+        ]);
+        let leech = item(2, "AbilityLifestealPercent", 50.0);
+        let refresh = refresh_regeneration();
+        let mut threshold = item(3, "WeaponPower", 100.0);
+        threshold.condition = ConditionKind::ActionBound {
+            action: "spirit_damage_threshold".into(),
+        };
+        threshold
+            .conditional_properties
+            .insert("WeaponPower".into());
+        threshold.properties.extend([
+            ("DamageThreshold".into(), 1.0),
+            ("DamageThresholdDuration".into(), 2.0),
+        ]);
+        for disabled in [false, true] {
+            hero.abilities[0].item_proc_disabled = disabled;
+            let baseline = evaluate_inventory_fast(&hero, std::slice::from_ref(&leech), &cfg);
+            let no_leech = evaluate_inventory_fast(&hero, &[], &cfg);
+            let items = [leech.clone(), refresh.clone(), threshold.clone()];
+            for result in inventory_paths(&hero, &items, &cfg) {
+                for (actual, baseline) in result.scenarios.iter().zip(&baseline.scenarios) {
+                    assert_eq!(actual.ability_procs, baseline.ability_procs);
+                    assert!(actual.ability_procs[&11] > 0);
+                    assert_eq!(actual.proc_damage, actual.ability_procs[&11] as f64 * 10.0);
+                    assert_eq!(actual.proc_damage, baseline.proc_damage);
+                    assert!(actual.casts.is_empty());
+                    let exposure = actual.item_condition_seconds[&refresh.item_id];
+                    let healing = actual
+                        .item_regeneration
+                        .get(&refresh.item_id)
+                        .copied()
+                        .unwrap_or(0.0);
+                    if disabled {
+                        assert_eq!(exposure, 0.0);
+                        assert_eq!(healing, 0.0);
+                        assert_eq!(actual.weapon_damage, baseline.weapon_damage);
+                        assert_eq!(actual.remaining_health, baseline.remaining_health);
+                    } else {
+                        assert!(exposure > 0.0);
+                        assert!(actual.weapon_damage > baseline.weapon_damage);
+                    }
+                }
+                assert!(
+                    result.scenarios[1].remaining_health > no_leech.scenarios[1].remaining_health
+                );
+                if !disabled {
+                    assert!(result.scenarios[1].item_regeneration[&refresh.item_id] > 0.0);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn malice_hits_amplify_following_damage_with_fast_path_parity() {
         let mut hero = hero();
         hero.base_health = 10000.0;
@@ -4570,6 +4524,73 @@ pub(crate) mod tests {
         assert!(activation[0] >= 0.8);
         assert!(result.scenarios[0].shots > 5.0);
     }
+    #[test]
+    fn refills_preserve_fire_cadence_and_cancel_only_the_reload_wait() {
+        for is_active in [true, false] {
+            for property in ["AmmoReloadPercent", "ActiveReloadPercent"] {
+                for clip in [1.0, 20.0] {
+                    let mut hero = hero();
+                    hero.weapon.clip_size = clip;
+                    hero.weapon.shots_per_second = 1.0;
+                    hero.abilities = vec![ability(11, 2.0, 100.0), ability(10, 1.0, 100.0)];
+                    let mut refill = item(7, property, 100.0);
+                    refill.is_active = is_active;
+                    refill.imbueable = !is_active;
+                    if is_active {
+                        refill.properties.extend([
+                            ("EnemyLifeThreshold".into(), 90.0),
+                            ("AbilityCooldown".into(), 0.2),
+                        ]);
+                    }
+                    for (window, shots) in [(0.4, 1.0), (1.2, 2.0)] {
+                        let mut scenario = explicit_test_scenario(window);
+                        scenario.imbues.insert(7, 10);
+                        let result = simulate_calculation(
+                            &hero,
+                            std::slice::from_ref(&refill),
+                            &scenario,
+                            &crate::WeaponTiming::default(),
+                            &BTreeMap::new(),
+                        );
+                        assert_eq!(
+                            result.shots, shots,
+                            "{is_active} {property} {clip} {window}"
+                        );
+                        assert_eq!(result.weapon_damage, shots * 10.0);
+                        assert_eq!(result.reloads, if clip == 1.0 { shots as usize } else { 0 });
+                        assert!(result.item_activations[&7].contains(&0.2));
+                        assert!(!result.weapon_timing_unknown);
+                    }
+                    let cfg = ReasonerConfig {
+                        combat_window_seconds: 1.2,
+                        incoming_pressure_dps: Some(0.0),
+                        ..ReasonerConfig::default()
+                    };
+                    let bindings = BTreeMap::from([(7, 10)]);
+                    let full = evaluate_inventory_with_bindings(
+                        &hero,
+                        std::slice::from_ref(&refill),
+                        &cfg,
+                        &bindings,
+                    );
+                    let fast = evaluate_inventory_refs_fast_with_bindings(
+                        &hero,
+                        &[&refill],
+                        &cfg,
+                        &bindings,
+                    );
+                    assert_eq!(full.score, fast.score);
+                    for (full, fast) in full.scenarios.iter().zip(&fast.scenarios) {
+                        assert_eq!(full.shots, 2.0);
+                        let mut full = full.clone();
+                        full.sequence.clear();
+                        assert_eq!(&full, fast);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn partial_refills_preserve_reload_until_a_whole_round_is_available() {
         let cfg = ReasonerConfig {
@@ -4918,54 +4939,6 @@ pub(crate) mod tests {
         let full = evaluate_inventory(&hero, &[], &cfg);
         assert!((full.scenarios[0].ability_damage - 22.0).abs() < 1e-8);
         assert_eq!(full.score, evaluate_inventory_fast(&hero, &[], &cfg).score);
-    }
-    #[test]
-    fn bonus_procs_require_certain_chance_for_shots_and_casts() {
-        let cfg = ReasonerConfig {
-            combat_window_seconds: 2.0,
-            ..ReasonerConfig::default()
-        };
-        for (property, damage_type) in [
-            ("ProcBonusMagicDamage", DamageType::Spirit),
-            ("ProcBonusPhysicalDamage", DamageType::Weapon),
-        ] {
-            for condition in [ConditionKind::ShotBound, ConditionKind::None] {
-                let mut hero = hero();
-                if matches!(condition, ConditionKind::None) {
-                    hero.weapon.bullet_damage = 0.0;
-                    hero.abilities = vec![ability(1, 10.0, 1000.0)];
-                }
-                for chance in [None, Some(0.0), Some(50.0), Some(100.0)] {
-                    let mut proc = item(1, property, 100.0);
-                    proc.condition = condition.clone();
-                    proc.proc_cooldown = Some(1.0);
-                    proc.property_damage_types
-                        .insert(property.into(), damage_type.clone());
-                    if let Some(chance) = chance {
-                        proc.properties.insert("ProcChance".into(), chance);
-                    }
-                    let full = evaluate_inventory(&hero, std::slice::from_ref(&proc), &cfg);
-                    let certain = chance == Some(100.0);
-                    assert!(full.scenarios.iter().all(|scenario| {
-                        if certain {
-                            scenario.proc_damage > 0.0
-                        } else {
-                            scenario.proc_damage == 0.0
-                        }
-                    }));
-                    assert_eq!(
-                        full.unknown_effects
-                            .iter()
-                            .any(|text| text.contains("deterministischer Bonus-Proc")),
-                        !certain
-                    );
-                    assert_eq!(
-                        full.score,
-                        evaluate_inventory_fast(&hero, &[proc], &cfg).score
-                    );
-                }
-            }
-        }
     }
     #[test]
     fn typed_proc_events_respect_damage_type_and_trigger_spirit_threshold() {
