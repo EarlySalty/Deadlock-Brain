@@ -2567,6 +2567,102 @@ mod requested_build_tests {
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 3);
     }
 
+    fn review_saved_observation(run: i64) -> SavedPublication {
+        let regular = regular_saved_observation(run, 6000, 20.0);
+        let build = regular.regular_build().unwrap().unwrap();
+        let mut saved = SavedPublication::new(publish_request(&build, true).unwrap()).unwrap();
+        saved.build = regular.build;
+        saved
+    }
+
+    #[test]
+    fn identical_review_reuses_legacy_saved_request_without_build() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("publish.json");
+        let observed = review_saved_observation(10);
+        let mut legacy = observed.clone();
+        legacy.build = None;
+        legacy.persist(&path).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        assert!(serde_json::from_slice::<Value>(&bytes)
+            .unwrap()
+            .get("build")
+            .is_none());
+        let inode = fs::metadata(&path).unwrap().ino();
+        assert_eq!(observed.persist(&path).unwrap(), legacy);
+        assert_eq!(SavedPublication::read(&path).unwrap(), legacy);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o400
+        );
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn identical_review_reuses_exact_saved_request_despite_provenance_only_difference() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("publish.json");
+        let original = review_saved_observation(10);
+        let observed = review_saved_observation(20);
+        assert_eq!(observed.request, original.request);
+        assert_ne!(observed.build, original.build);
+        assert!(original.regular_build().unwrap().is_none());
+        assert!(observed.regular_build().unwrap().is_none());
+        original.persist(&path).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        let inode = fs::metadata(&path).unwrap().ino();
+        assert_eq!(observed.persist(&path).unwrap(), original);
+        let mut changed_request = observed.request.clone();
+        changed_request.payload["description"] = json!("Andere Review-Beschreibung");
+        let changed = SavedPublication::new(
+            brain_feeds::build_publish::deterministic_request(changed_request).unwrap(),
+        )
+        .unwrap();
+        assert!(changed.persist(&path).is_err());
+        assert_eq!(SavedPublication::read(&path).unwrap(), original);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn regular_publication_cannot_reuse_changed_game_values_with_mismatched_provenance() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("publish.json");
+        let original = regular_saved_observation(10, 6000, 20.0);
+        original.persist(&path).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        let inode = fs::metadata(&path).unwrap().ino();
+        for mut changed in [
+            regular_saved_observation(20, 6001, 20.0),
+            regular_saved_observation(20, 6000, 21.0),
+        ] {
+            assert!(changed.regular_build().unwrap().is_some());
+            assert_ne!(changed.request, original.request);
+            assert!(changed.persist(&path).is_err());
+            changed.request = original.request.clone();
+            changed.request_sha256 = original.request_sha256.clone();
+            changed.validate().unwrap();
+            assert!(changed.regular_build().is_err());
+            assert!(changed.persist(&path).is_err());
+            let mismatched_path = dir.path().join("mismatched.json");
+            changed.persist(&mismatched_path).unwrap();
+            let mismatched_bytes = fs::read(&mismatched_path).unwrap();
+            assert!(original.persist(&mismatched_path).is_err());
+            assert_eq!(fs::read(&mismatched_path).unwrap(), mismatched_bytes);
+            fs::remove_file(&mismatched_path).unwrap();
+        }
+        assert_eq!(SavedPublication::read(&path).unwrap(), original);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
     #[test]
     fn saved_publication_is_atomic_read_only_and_never_overwrites_an_existing_request() {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -2989,6 +3085,7 @@ impl SavedPublication {
                                         &first, &second,
                                     )?
                                 }
+                                (None, None) => true,
                                 _ => false,
                             }
                         } else {
