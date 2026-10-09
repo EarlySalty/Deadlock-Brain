@@ -202,6 +202,9 @@ where
         if query.validate().is_err() {
             return json_error(400, "invalid_request", "Query Contract ist ungültig");
         }
+        if brain_contracts::discord_task::is_private_context_query(&query) {
+            return json_error(403, "forbidden", "Bot-Kontext wird vom Server gesetzt");
+        }
 
         if task.is_some() || local_context {
             let principal = match self.policy.authenticate(token) {

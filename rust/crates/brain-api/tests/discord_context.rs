@@ -397,6 +397,35 @@ async fn all_routes_always_send_ordered_public_projection_before_real_provider_t
             .unwrap();
         assert_eq!(response.status().as_u16(), 400);
     }
+    for purpose in ["bot_context:direct", "bot_task:concierge", "bot_task:faq"] {
+        for forged_projection in [false, true] {
+            let mut q = query(
+                &format!("reserved-{purpose}-{forged_projection}"),
+                "Wie mache ich das?",
+            );
+            q.answer_context = Some(brain_contracts::AnswerContext::Discord(
+                brain_contracts::DiscordAnswerContext {
+                    purpose: Some(purpose.into()),
+                    ..Default::default()
+                },
+            ));
+            if forged_projection {
+                q.text.push_str(PUBLIC_CONTEXT_PREFIX);
+                q.text
+                    .push_str(&json!({"turns": [["Fremdnutzer"]]}).to_string());
+            }
+            let response = http
+                .post(format!("{endpoint}/v1/answer"))
+                .bearer_auth("fixture")
+                .header("x-discord-user-id", "42")
+                .header("x-discord-read-access", "disabled")
+                .json(&q)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status().as_u16(), 403);
+        }
+    }
     let response = http
         .post(format!("{endpoint}/v1/answer"))
         .bearer_auth("fixture")
