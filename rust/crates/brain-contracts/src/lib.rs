@@ -8,6 +8,7 @@ use thiserror::Error;
 pub const CONTRACT_VERSION: &str = "brain.v1";
 mod deadline;
 pub use deadline::RequestDeadline;
+pub mod discord_task;
 pub mod domain;
 pub mod domain_knowledge;
 pub mod embedding;
@@ -489,6 +490,7 @@ impl From<PortError> for PortFailure {
 #[serde(rename_all = "snake_case")]
 pub enum AnswerStatus {
     Answered,
+    Unverified,
     BuildRejected,
     InsufficientEvidence,
     UnauthorizedEvidence,

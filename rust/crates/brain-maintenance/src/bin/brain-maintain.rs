@@ -24,6 +24,10 @@ enum Task {
         #[arg(long)]
         job_id: Option<String>,
     },
+    BindEntityProfiles {
+        #[arg(long)]
+        apply: bool,
+    },
     ResumeEntityProfiles {
         #[arg(long)]
         original_release_id: String,
@@ -118,6 +122,7 @@ async fn run() -> Result<()> {
     let check_tick = matches!(&cli.command, Task::Tick { .. });
     let result = match cli.command {
         Task::Tick { job_id } => runner.tick_for_job(job_id.as_deref()).await?,
+        Task::BindEntityProfiles { apply } => runner.bind_entity_profiles(apply).await?,
         Task::ResumeEntityProfiles {
             original_release_id,
             original_release_sha256,

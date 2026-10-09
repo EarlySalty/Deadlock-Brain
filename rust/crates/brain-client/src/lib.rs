@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 //! One typed Brain transport contract, with synchronous and native async clients.
 //! No configuration discovery, provider fallback, deployment or message sending.
+pub use brain_contracts::discord_task::{DiscordAnswerCapability, DiscordAnswerTask};
 pub use brain_contracts::{
     AnswerContext, AnswerInputKind, AnswerProfile, AnswerStatus, DiscordAnswerContext,
     PublicAnswerResponse, PublicCitation, Query, TwitchAnswerContext, PUBLIC_API_VERSION,

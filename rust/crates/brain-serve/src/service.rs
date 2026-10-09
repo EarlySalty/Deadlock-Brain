@@ -259,6 +259,7 @@ impl Prepared {
                 &config.provider.model,
             ),
         };
+        provider_config.quality_filters = config.kernel.quality_filters;
         provider_config.timeout = Duration::from_millis(t.provider_ms);
         provider_config.retry_attempts = config.provider.retry_attempts;
         provider_config.retry_backoff = Duration::from_millis(config.provider.retry_backoff_ms);
@@ -473,7 +474,8 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     )
     .with_provider(&prepared.config.provider);
     let kernel = CachedKernel::new(
-        Kernel::new(retrieval, prepared.provider.clone()),
+        Kernel::new(retrieval, prepared.provider.clone())
+            .with_quality_filters(prepared.config.kernel.quality_filters),
         prepared.config.kernel.cache_entries,
         Duration::from_millis(prepared.config.kernel.cache_ttl_ms),
     );

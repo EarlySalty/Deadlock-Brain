@@ -1,0 +1,9 @@
+{
+  "socket_dir": "/run/deadlock-brain-postgresql",
+  "port": 5446,
+  "username": "brain_site",
+  "database": "brain",
+  "auth": "peer",
+  "password_env": null,
+  "max_connections": 4
+}

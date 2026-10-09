@@ -156,6 +156,8 @@ pub enum RetrievalKind {
 pub struct Kernel {
     pub cache_entries: usize,
     pub cache_ttl_ms: u64,
+    #[serde(default)]
+    pub quality_filters: bool,
 }
 
 #[derive(Clone, Deserialize)]
@@ -637,6 +639,27 @@ mod tests;
 
 #[cfg(test)]
 mod entity_profile_tests {
+    #[test]
+    fn quality_filters_default_off_and_can_be_enabled() {
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../../config/brain-serve.example.json"
+        ))
+        .unwrap();
+        assert!(
+            !super::Config::parse(&serde_json::to_vec(&value).unwrap())
+                .unwrap()
+                .kernel
+                .quality_filters
+        );
+        value["kernel"]["quality_filters"] = serde_json::json!(true);
+        assert!(
+            super::Config::parse(&serde_json::to_vec(&value).unwrap())
+                .unwrap()
+                .kernel
+                .quality_filters
+        );
+    }
+
     #[test]
     fn model_context_preserves_grants_and_requires_explicit_normal_consumer() {
         let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(

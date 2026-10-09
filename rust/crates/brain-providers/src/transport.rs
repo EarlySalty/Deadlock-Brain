@@ -32,7 +32,7 @@ impl OpenAiCompatibleProvider {
         };
         let (bytes, charge) =
             self.transport_json_with_accounting(route, &mut payload, context, true, accounting)?;
-        let parsed = if self.config.subscription {
+        let mut parsed = if self.config.subscription {
             subscription_response(&bytes)?
         } else {
             compatible_response(&bytes)?
@@ -53,7 +53,16 @@ impl OpenAiCompatibleProvider {
         {
             return Err(ProviderError::BudgetExceeded);
         }
-        if matches!(
+        let unverified_finish = !self.config.quality_filters
+            && parsed.finish_reason == ProviderFinishReason::MaxTokens
+            && !parsed
+                .blocks
+                .iter()
+                .any(|block| matches!(block, ModelBlock::ToolUse { .. }));
+        if unverified_finish {
+            self.report_category("answer_unverified_truncated".into());
+            parsed.finish_reason = ProviderFinishReason::EndTurn;
+        } else if matches!(
             parsed.finish_reason,
             ProviderFinishReason::MaxTokens | ProviderFinishReason::Refusal
         ) {
@@ -97,13 +106,41 @@ impl OpenAiCompatibleProvider {
                     ModelBlock::ToolUse { .. } => None,
                 })
                 .collect();
+            let answer = grounded_answer(
+                text.clone(),
+                usage.clone(),
+                evidence,
+                !tools.is_empty()
+                    || !conversation.messages.is_empty()
+                    || !self.config.quality_filters,
+            );
+            if matches!(&answer, Err(ProviderError::InvalidResponse(message)) if message == "grounded answer envelope missing")
+            {
+                let shape = if text.trim().starts_with("```") {
+                    "fenced"
+                } else {
+                    match parse_unique_json(text.as_bytes()) {
+                        Ok(Value::Object(_)) => "object_schema",
+                        Ok(_) => "non_object_json",
+                        Err(error) if error.is_eof() => "incomplete_json",
+                        Err(error) if error.is_data() => "duplicate_json_keys",
+                        Err(_) => "non_json",
+                    }
+                };
+                self.report_category(format!("grounded_envelope_{shape}"));
+            }
+            let answer = match answer {
+                Ok(_) if unverified_finish => unverified_answer(&text, usage, evidence)?,
+                Ok(answer) => answer,
+                Err(error @ ProviderError::InvalidResponse(_)) if !self.config.quality_filters => {
+                    self.report_failure(&error);
+                    self.report_category("answer_unverified".into());
+                    unverified_answer(&text, usage, evidence)?
+                }
+                Err(error) => return Err(error),
+            };
             ProviderTurn::Final {
-                answer: grounded_answer(
-                    text,
-                    usage,
-                    evidence,
-                    !tools.is_empty() || !conversation.messages.is_empty(),
-                )?,
+                answer,
                 finish_reason: parsed.finish_reason,
             }
         };
@@ -673,6 +710,73 @@ fn compatible_response(bytes: &[u8]) -> Result<ParsedTurn> {
         finish_reason: finish_reason(&choice.finish_reason, false)?,
         input_tokens: response.usage.prompt_tokens,
         output_tokens: response.usage.completion_tokens,
+    })
+}
+
+fn unverified_answer(raw: &str, usage: Usage, evidence: &[Evidence]) -> Result<ProviderAnswer> {
+    let raw = raw.trim();
+    let body = raw
+        .strip_prefix("```")
+        .and_then(|fenced| fenced.split_once('\n').map(|(_, body)| body))
+        .map(|body| body.strip_suffix("```").unwrap_or(body).trim())
+        .unwrap_or(raw);
+    let decoded = parse_unique_json(body.as_bytes()).ok();
+    let extracted = decoded.as_ref().and_then(|value| {
+        value
+            .as_str()
+            .or_else(|| value.get("text").and_then(Value::as_str))
+    });
+    let partial = if extracted.is_none() && body.starts_with('{') {
+        body.find("\"text\"").and_then(|start| {
+            let rest = &body[start + "\"text\"".len()..];
+            let rest = rest.trim_start().strip_prefix(':')?.trim_start();
+            match serde_json::Deserializer::from_str(rest)
+                .into_iter::<String>()
+                .next()?
+            {
+                Ok(text) => Some(text),
+                Err(error) if error.is_eof() && rest.starts_with('"') => {
+                    let mut completed = rest.to_owned();
+                    if completed
+                        .as_bytes()
+                        .iter()
+                        .rev()
+                        .take_while(|byte| **byte == b'\\')
+                        .count()
+                        % 2
+                        == 1
+                    {
+                        completed.pop();
+                    }
+                    completed.push('"');
+                    serde_json::from_str(&completed).ok()
+                }
+                Err(_) => None,
+            }
+        })
+    } else {
+        None
+    };
+    let answer_text = extracted.or(partial.as_deref());
+    if answer_text.is_none() && body.starts_with(['{', '[']) {
+        return Err(ProviderError::InvalidResponse(
+            "structured answer text missing".into(),
+        ));
+    }
+    let text = answer_text.unwrap_or(body);
+    let mut text = brain_contracts::provider_input::discord_display_text(text);
+    for item in evidence {
+        text = text.replace(&item.evidence_id, "");
+    }
+    if text.trim().is_empty() || text.len() > 64 * 1024 {
+        return Err(ProviderError::InvalidResponse(
+            "empty or oversized unverified answer".into(),
+        ));
+    }
+    Ok(ProviderAnswer {
+        text,
+        cited_evidence_ids: Vec::new(),
+        usage,
     })
 }
 

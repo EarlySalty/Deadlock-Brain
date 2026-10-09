@@ -294,6 +294,7 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -417,6 +418,7 @@ dependencies = [
  "chrono",
  "clap",
  "dbrain-normalize",
+ "dbrain-reasoner",
  "dbrain-retrieval",
  "dbrain-sources",
  "dl-token-secrets",
@@ -994,6 +996,7 @@ dependencies = [
  "libc",
  "postgres",
  "reqwest",
+ "rustix",
  "serde",
  "serde_json",
  "sha2 0.10.9",

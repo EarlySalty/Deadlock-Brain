@@ -38,6 +38,7 @@ sqlx.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 zeroize = "1"
 libc = "0.2"
+rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
 reqwest.workspace = true

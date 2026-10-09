@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use brain_contracts::provider_input::{grounded_turn_payload, ToolWireFormat};
+use brain_contracts::provider_input::{grounded_turn_payload_with_quality, ToolWireFormat};
 use brain_contracts::{
     Accounted, AnswerProviderPort, AuthorizedContext, Evidence, PortError, PortFailure,
     ProviderAnswer, ProviderTurn, Query, ToolConversation, ToolDefinition, Usage, UsageAccounting,
@@ -14,6 +14,7 @@ use thiserror::Error;
 pub struct ProviderConfig {
     api_key: String,
     subscription: bool,
+    pub quality_filters: bool,
     pub base_url: String,
     pub model: String,
     pub timeout: Duration,
@@ -58,6 +59,7 @@ impl ProviderConfig {
         Self {
             api_key: api_key.into(),
             subscription: false,
+            quality_filters: true,
             base_url: base_url.into(),
             model: model.into(),
             timeout: Duration::from_secs(20),
@@ -255,8 +257,15 @@ impl OpenAiCompatibleProvider {
         } else {
             ToolWireFormat::OpenAiCompatible
         };
-        let mut payload = grounded_turn_payload(query, evidence, tools, conversation, format)
-            .map_err(provider_contract_error)?;
+        let mut payload = grounded_turn_payload_with_quality(
+            query,
+            evidence,
+            tools,
+            conversation,
+            format,
+            self.config.quality_filters,
+        )
+        .map_err(provider_contract_error)?;
         payload["model"] = serde_json::json!(self.config.model);
         payload["max_tokens"] = serde_json::json!(context.budget.max_output_tokens);
         payload["stream"] = serde_json::json!(false);
@@ -356,6 +365,21 @@ impl AnswerProviderPort for OpenAiCompatibleProvider {
                 &mut accounting,
             )
         });
+        eprintln!(
+            "{}",
+            serde_json::json!({
+                "event": "brain_provider_usage",
+                "request_id": query.request_id,
+                "provider": accounting.observed.provider,
+                "model": accounting.observed.model,
+                "input_tokens": accounting.observed.input_tokens,
+                "output_tokens": accounting.observed.output_tokens,
+                "network_rounds": accounting.observed.network_rounds,
+                "unaccounted": accounting.unaccounted
+                    || accounting.reserved.output_tokens > 0,
+                "success": result.is_ok()
+            })
+        );
         match result {
             Ok(value) => Ok(Accounted { value, accounting }),
             Err(error) => {
@@ -460,6 +484,52 @@ mod tests {
             }
         }
         String::from_utf8_lossy(&data).into_owned()
+    }
+
+    #[test]
+    fn relaxed_quality_delivers_model_text_without_exposing_envelope_or_ids() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for text in [
+                "Pocket unter Druck setzen <@123456789012345678>.",
+                "```json\n{\"text\":\"Abstand halten\",\"cited_evidence_ids\":[\"unknown\"],\"extra\":\"nicht ausliefern\"}\n```",
+                "{\"text\":\"Deckung nutzen\",\"cited_evidence_ids\":[]}",
+                "Ohne passende Quellen trotzdem antworten.",
+                "{\"text\":\"Teilantwort <#123456789012345678>",
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = read_request(&mut stream);
+                let (_, body) = request.split_once("\r\n\r\n").unwrap();
+                let payload: serde_json::Value = serde_json::from_str(body).unwrap();
+                let system = payload["system"].as_str().unwrap();
+                assert!(system.contains("NEVER"));
+                assert!(system.contains("MUST NOT"));
+                assert!(!system.contains("gib exakt {\"text\":\"\""));
+                let stop_reason = if text.starts_with("Ohne passende") { "max_tokens" } else { "end_turn" };
+                let response = serde_json::json!({"model":"gpt-6-luna","stop_reason":stop_reason,"content":[{"type":"text","text":text}],"usage":{"input_tokens":12,"output_tokens":3}}).to_string();
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+            }
+        });
+        let mut config = ProviderConfig::codex_subscription(format!("http://{address}/v1"));
+        config.quality_filters = false;
+        let provider = CodexSubscriptionProvider::new(config).unwrap();
+        for expected in [
+            "Pocket unter Druck setzen .",
+            "Abstand halten",
+            "Deckung nutzen",
+            "Ohne passende Quellen trotzdem antworten.",
+            "Teilantwort ",
+        ] {
+            let response = provider
+                .answer_accounted(&query(), &context(), &[])
+                .unwrap();
+            assert_eq!(response.value.text, expected);
+            assert!(response.value.cited_evidence_ids.is_empty());
+            assert_eq!(response.accounting.observed.input_tokens, 12);
+            assert_eq!(response.accounting.observed.output_tokens, 3);
+        }
+        server.join().unwrap();
     }
 
     #[test]

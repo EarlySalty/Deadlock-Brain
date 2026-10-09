@@ -40,7 +40,7 @@ async fn provider(
     let answer =
         serde_json::json!({"text":"Abrams: belegte Fixture-Antwort.","cited_evidence_ids":[id]})
             .to_string();
-    (StatusCode::OK,[(header::CONTENT_TYPE,"application/json")],serde_json::json!({"model":"fixture-model","choices":[{"message":{"content":answer}}],"usage":{"prompt_tokens":16,"completion_tokens":10}}).to_string())
+    (StatusCode::OK,[(header::CONTENT_TYPE,"application/json")],serde_json::json!({"model":"fixture-model","choices":[{"message":{"role":"assistant","content":answer},"finish_reason":"stop"}],"usage":{"prompt_tokens":16,"completion_tokens":10}}).to_string())
 }
 fn query(id: &str) -> Query {
     Query {

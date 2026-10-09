@@ -298,9 +298,33 @@ async fn hybrid_fact_limit_cannot_hide_a_pinned_conflicting_value() {
 struct CountedStore {
     inner: MemoryRepository,
     snapshots: Arc<AtomicUsize>,
+    documents: Arc<AtomicUsize>,
+    manifests: Arc<AtomicUsize>,
     heads: Arc<AtomicUsize>,
 }
 impl brain_contracts::SnapshotReadPort for CountedStore {
+    fn read_manifest_until(
+        &self,
+        release: &str,
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<brain_contracts::ReleaseReadManifest, PortError> {
+        self.manifests.fetch_add(1, Ordering::SeqCst);
+        brain_contracts::SnapshotReadPort::read_manifest_until(&self.inner, release, deadline)
+    }
+    fn read_documents_until(
+        &self,
+        release: &str,
+        documents: &[brain_contracts::DocumentRevision],
+        deadline: Option<&brain_contracts::RequestDeadline>,
+    ) -> Result<Vec<SourceRecordV2>, PortError> {
+        self.documents.fetch_add(1, Ordering::SeqCst);
+        brain_contracts::SnapshotReadPort::read_documents_until(
+            &self.inner,
+            release,
+            documents,
+            deadline,
+        )
+    }
     fn read_snapshot(&self, release: &str) -> Result<brain_contracts::CorpusSnapshot, PortError> {
         self.snapshots.fetch_add(1, Ordering::SeqCst);
         brain_contracts::SnapshotReadPort::read_snapshot(&self.inner, release)
@@ -332,10 +356,14 @@ async fn fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads() {
     }
     publish(&store).await;
     let snapshots = Arc::new(AtomicUsize::new(0));
+    let documents = Arc::new(AtomicUsize::new(0));
+    let manifests = Arc::new(AtomicUsize::new(0));
     let heads = Arc::new(AtomicUsize::new(0));
     let counted = CountedStore {
         inner: store,
         snapshots: snapshots.clone(),
+        documents: documents.clone(),
+        manifests: manifests.clone(),
         heads: heads.clone(),
     };
     let cache = CachedKernel::new(
@@ -350,15 +378,25 @@ async fn fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads() {
     }
     assert_eq!(
         snapshots.load(Ordering::SeqCst),
+        0,
+        "targeted release reads must not load a full snapshot"
+    );
+    assert_eq!(
+        documents.load(Ordering::SeqCst),
         1,
         "do not reload or rebuild the immutable release per fact request"
+    );
+    assert_eq!(
+        manifests.load(Ordering::SeqCst),
+        128 * 2,
+        "selection and publication must recheck current release permissions"
     );
     assert_eq!(
         heads.load(Ordering::SeqCst),
         128 * 2,
         "a unique fact needs selection and final ACL head batches"
     );
-    println!("fact reuse: 128 requests, 256 pinned facts, 1 release snapshot, 256 bounded head batches, no providers, elapsed {:?}", started.elapsed());
+    println!("fact reuse: 128 requests, 256 pinned facts, 1 document batch, 256 permission manifests, 256 bounded head batches, no providers, elapsed {:?}", started.elapsed());
 }
 
 struct GatedFactRetrieval {

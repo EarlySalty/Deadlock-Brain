@@ -3,6 +3,8 @@ use crate::{AnswerStatus, PortError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 pub const PUBLIC_API_VERSION: &str = "brain.public.v1";
+pub const UNVERIFIED_PREFIX: &str = "Ungeprüft: ";
+pub const MAX_PUBLIC_ANSWER_TEXT_BYTES: usize = 64 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublicCitation {
@@ -45,7 +47,7 @@ impl PublicAnswerResponse {
         if self.contract_version != PUBLIC_API_VERSION
             || self.request_id != expected_request
             || self.knowledge_release.trim().is_empty()
-            || self.text.len() > 64 * 1024
+            || self.text.len() > MAX_PUBLIC_ANSWER_TEXT_BYTES
             || self.citations.len() > 100
             || ids.len() != self.citations.len()
             || self.citations.iter().any(|c| {
