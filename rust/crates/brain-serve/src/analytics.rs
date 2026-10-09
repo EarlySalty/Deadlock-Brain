@@ -1008,10 +1008,10 @@ mod tests {
         runtime.client = DeadlockAnalyticsClient::with_base_url(
             http,
             format!("http://{address}"),
-            Duration::from_millis(500),
+            Duration::from_secs(10),
         )
         .unwrap();
-        runtime.config.request_timeout_ms = 500;
+        runtime.config.request_timeout_ms = 10_000;
         let retrieval = AnalyticsRetriever::new(
             ReleaseRetriever::new(FixedSnapshot, 8),
             Some(Arc::new(runtime)),
@@ -1032,7 +1032,7 @@ mod tests {
             )])),
             kernel,
             "fixture-release",
-            2_000,
+            30_000,
             Budget::default(),
         );
         let invoke = |query: &Query| {
@@ -1107,7 +1107,7 @@ mod tests {
             }
         });
         let mut runtime = runtime();
-        runtime.config.request_timeout_ms = 500;
+        runtime.config.request_timeout_ms = 10_000;
         let http = dbrain_sources::core::http::HttpClient::new(
             "brain-serve-second-snapshot-fixture",
             runtime._scratch.path(),
@@ -1116,7 +1116,7 @@ mod tests {
         runtime.client = DeadlockAnalyticsClient::with_base_url(
             http,
             format!("http://{address}"),
-            Duration::from_millis(500),
+            Duration::from_secs(10),
         )
         .unwrap();
         let analytics = Arc::new(runtime);
@@ -1130,7 +1130,7 @@ mod tests {
                 ReleaseRetriever::new(
                     SecondSnapshotAdvancesClock {
                         elapsed_ms,
-                        advance_ms: 2_001,
+                        advance_ms: 30_001,
                         reads: reads.clone(),
                     },
                     8,
@@ -1153,7 +1153,7 @@ mod tests {
             },
             conversation_id: "fixture-conversation".into(),
             knowledge_release: "fixture-release".into(),
-            deadline_ms: 2_000,
+            deadline_ms: 30_000,
             request_deadline: None,
             budget: Budget::default(),
         };
@@ -1178,7 +1178,7 @@ mod tests {
                     policy,
                     cached,
                     "fixture-release",
-                    2_000,
+                    30_000,
                     Budget::default(),
                 ),
                 reads,

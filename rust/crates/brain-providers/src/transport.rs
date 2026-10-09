@@ -10,6 +10,13 @@ use brain_contracts::{
 use serde::Deserialize;
 use serde_json::Value;
 
+pub(super) struct ChatRequest<'a> {
+    pub query: &'a brain_contracts::Query,
+    pub evidence: &'a [Evidence],
+    pub tools: &'a [ToolDefinition],
+    pub conversation: &'a ToolConversation,
+}
+
 pub(super) struct Charge {
     input_per_round: u64,
     output_per_round: u64,
@@ -20,149 +27,251 @@ impl OpenAiCompatibleProvider {
         &self,
         mut payload: Value,
         context: &AuthorizedContext,
-        evidence: &[Evidence],
-        tools: &[ToolDefinition],
-        conversation: &ToolConversation,
+        request: ChatRequest<'_>,
         accounting: &mut UsageAccounting,
+        transport_failure: &mut Option<bool>,
     ) -> Result<ProviderTurn> {
+        let ChatRequest {
+            evidence,
+            tools,
+            conversation,
+            ..
+        } = &request;
         let route = if self.config.subscription {
             "messages"
         } else {
             "chat/completions"
         };
-        let (bytes, charge) =
-            self.transport_json_with_accounting(route, &mut payload, context, true, accounting)?;
-        let mut parsed = if self.config.subscription {
-            subscription_response(&bytes)?
-        } else {
-            compatible_response(&bytes)?
-        };
-        if parsed.model != self.config.model {
-            return Err(ProviderError::InvalidResponse(
-                "model or choice count mismatch".into(),
-            ));
-        }
-        let usage =
-            self.charged_usage(context, charge, parsed.input_tokens, parsed.output_tokens)?;
-        let charged = accounting.charged();
-        if accounting.unaccounted
-            || charged.input_tokens > u64::from(context.budget.max_input_tokens)
-            || charged.output_tokens > u64::from(context.budget.max_output_tokens)
-            || charged.network_rounds > context.budget.max_network_rounds
-            || charged.cost_micros > context.budget.max_cost_micros
-        {
-            return Err(ProviderError::BudgetExceeded);
-        }
-        let unverified_finish = !self.config.quality_filters
-            && parsed.finish_reason == ProviderFinishReason::MaxTokens
-            && !parsed
+        let (bytes, charge) = self.transport_json_with_accounting(
+            route,
+            &mut payload,
+            context,
+            Some(&request),
+            accounting,
+            transport_failure,
+        )?;
+        let mut failed_check = super::audit::check(
+            "chat_schema",
+            "response",
+            "valid JSON with model, usage and one complete assistant response",
+        );
+        let mut deviations = Vec::new();
+        let result = (|| {
+            let mut parsed = if self.config.subscription {
+                subscription_response(&bytes, &mut failed_check)?
+            } else {
+                compatible_response(&bytes, &mut failed_check)?
+            };
+            failed_check = super::audit::check("model_identity", "model", "the configured model");
+            if parsed.model != self.config.model {
+                return Err(ProviderError::InvalidResponse(
+                    "model or choice count mismatch".into(),
+                ));
+            }
+            failed_check = super::audit::check(
+                "usage_budget",
+                "usage",
+                "reported usage within the request budget",
+            );
+            let usage =
+                self.charged_usage(context, charge, parsed.input_tokens, parsed.output_tokens)?;
+            let charged = accounting.charged();
+            if accounting.unaccounted
+                || charged.input_tokens > u64::from(context.budget.max_input_tokens)
+                || charged.output_tokens > u64::from(context.budget.max_output_tokens)
+                || charged.network_rounds > context.budget.max_network_rounds
+                || charged.cost_micros > context.budget.max_cost_micros
+            {
+                return Err(ProviderError::BudgetExceeded);
+            }
+            failed_check = super::audit::check(
+                "finish_reason",
+                "finish_reason",
+                "complete end_turn or valid tool_use",
+            );
+            let unverified_finish = !self.config.quality_filters
+                && parsed.finish_reason == ProviderFinishReason::MaxTokens
+                && !parsed
+                    .blocks
+                    .iter()
+                    .any(|block| matches!(block, ModelBlock::ToolUse { .. }));
+            if unverified_finish {
+                deviations.push(failed_check.clone());
+                self.report_category(
+                    Some(&request.query.request_id),
+                    "answer_unverified_truncated".into(),
+                );
+                parsed.finish_reason = ProviderFinishReason::EndTurn;
+            } else if matches!(
+                parsed.finish_reason,
+                ProviderFinishReason::MaxTokens | ProviderFinishReason::Refusal
+            ) {
+                return Err(incomplete_turn(parsed.finish_reason));
+            }
+            let has_calls = parsed
                 .blocks
                 .iter()
                 .any(|block| matches!(block, ModelBlock::ToolUse { .. }));
-        if unverified_finish {
-            self.report_category("answer_unverified_truncated".into());
-            parsed.finish_reason = ProviderFinishReason::EndTurn;
-        } else if matches!(
-            parsed.finish_reason,
-            ProviderFinishReason::MaxTokens | ProviderFinishReason::Refusal
-        ) {
-            return Err(incomplete_turn(parsed.finish_reason));
-        }
-        let has_calls = parsed
-            .blocks
-            .iter()
-            .any(|block| matches!(block, ModelBlock::ToolUse { .. }));
-        let turn = if has_calls {
-            let seen: std::collections::BTreeSet<_> = conversation
-                .messages
-                .iter()
-                .filter_map(|message| match message {
-                    ToolMessage::Assistant { blocks } => Some(blocks),
-                    ToolMessage::ToolResults { .. } => None,
-                })
-                .flatten()
-                .filter_map(|block| match block {
-                    ModelBlock::ToolUse { call } => Some(call.id.as_str()),
-                    ModelBlock::Text { .. } => None,
-                })
-                .collect();
-            if parsed.blocks.iter().any(|block| matches!(block, ModelBlock::ToolUse { call } if seen.contains(call.id.as_str()))) {
-                return Err(ProviderError::InvalidResponse("duplicate tool call ID across turns".into()));
-            }
-            ProviderTurn::ToolCalls {
-                blocks: parsed.blocks,
-                finish_reason: parsed.finish_reason,
-                usage,
-            }
-        } else {
-            if parsed.finish_reason != ProviderFinishReason::EndTurn {
-                return Err(incomplete_turn(parsed.finish_reason));
-            }
-            let text: String = parsed
-                .blocks
-                .into_iter()
-                .filter_map(|block| match block {
-                    ModelBlock::Text { text } => Some(text),
-                    ModelBlock::ToolUse { .. } => None,
-                })
-                .collect();
-            let answer = grounded_answer(
-                text.clone(),
-                usage.clone(),
-                evidence,
-                !tools.is_empty()
-                    || !conversation.messages.is_empty()
-                    || !self.config.quality_filters,
-            );
-            if matches!(&answer, Err(ProviderError::InvalidResponse(message)) if message == "grounded answer envelope missing")
-            {
-                let shape = if text.trim().starts_with("```") {
-                    "fenced"
-                } else {
-                    match parse_unique_json(text.as_bytes()) {
-                        Ok(Value::Object(_)) => "object_schema",
-                        Ok(_) => "non_object_json",
-                        Err(error) if error.is_eof() => "incomplete_json",
-                        Err(error) if error.is_data() => "duplicate_json_keys",
-                        Err(_) => "non_json",
-                    }
-                };
-                self.report_category(format!("grounded_envelope_{shape}"));
-            }
-            let answer = match answer {
-                Ok(_) if unverified_finish => unverified_answer(&text, usage, evidence)?,
-                Ok(answer) => answer,
-                Err(error @ ProviderError::InvalidResponse(_)) if !self.config.quality_filters => {
-                    self.report_failure(&error);
-                    self.report_category("answer_unverified".into());
-                    unverified_answer(&text, usage, evidence)?
+            let turn = if has_calls {
+                let seen: std::collections::BTreeSet<_> = conversation
+                    .messages
+                    .iter()
+                    .filter_map(|message| match message {
+                        ToolMessage::Assistant { blocks } => Some(blocks),
+                        ToolMessage::ToolResults { .. } => None,
+                    })
+                    .flatten()
+                    .filter_map(|block| match block {
+                        ModelBlock::ToolUse { call } => Some(call.id.as_str()),
+                        ModelBlock::Text { .. } => None,
+                    })
+                    .collect();
+                failed_check = super::audit::check(
+                    "tool_call_history",
+                    "tool_calls.id",
+                    "tool call IDs not previously used in this conversation",
+                );
+                if parsed.blocks.iter().any(|block| {
+                    matches!(block, ModelBlock::ToolUse { call } if seen.contains(call.id.as_str()))
+                }) {
+                    return Err(ProviderError::InvalidResponse(
+                        "duplicate tool call ID across turns".into(),
+                    ));
                 }
-                Err(error) => return Err(error),
+                ProviderTurn::ToolCalls {
+                    blocks: parsed.blocks,
+                    finish_reason: parsed.finish_reason,
+                    usage,
+                }
+            } else {
+                if parsed.finish_reason != ProviderFinishReason::EndTurn {
+                    return Err(incomplete_turn(parsed.finish_reason));
+                }
+                let text: String = parsed
+                    .blocks
+                    .into_iter()
+                    .filter_map(|block| match block {
+                        ModelBlock::Text { text } => Some(text),
+                        ModelBlock::ToolUse { .. } => None,
+                    })
+                    .collect();
+                failed_check = super::audit::check("grounded_envelope", "message.content", "object with text and cited_evidence_ids; nonempty text requires known unique evidence IDs");
+                let answer = grounded_answer(
+                    text.clone(),
+                    usage.clone(),
+                    evidence,
+                    !tools.is_empty()
+                        || !conversation.messages.is_empty()
+                        || !self.config.quality_filters,
+                    &mut failed_check,
+                );
+                if matches!(&answer, Err(ProviderError::InvalidResponse(message)) if message == "grounded answer envelope missing")
+                {
+                    let shape = if text.trim().starts_with("```") {
+                        "fenced"
+                    } else {
+                        match parse_unique_json(text.as_bytes()) {
+                            Ok(Value::Object(_)) => "object_schema",
+                            Ok(_) => "non_object_json",
+                            Err(error) if error.is_eof() => "incomplete_json",
+                            Err(error) if error.is_data() => "duplicate_json_keys",
+                            Err(_) => "non_json",
+                        }
+                    };
+                    self.report_category(
+                        Some(&request.query.request_id),
+                        format!("grounded_envelope_{shape}"),
+                    );
+                }
+                let answer = match answer {
+                    Ok(_) if unverified_finish => {
+                        failed_check = super::audit::check(
+                            "unverified_answer",
+                            "message.content",
+                            "nonempty display-safe answer text",
+                        );
+                        unverified_answer(&text, usage, evidence)?
+                    }
+                    Ok(answer) => answer,
+                    Err(error @ ProviderError::InvalidResponse(_))
+                        if !self.config.quality_filters =>
+                    {
+                        deviations.push(failed_check.clone());
+                        self.report_failure(Some(&request.query.request_id), &error);
+                        self.report_category(
+                            Some(&request.query.request_id),
+                            "answer_unverified".into(),
+                        );
+                        failed_check = super::audit::check(
+                            "unverified_answer",
+                            "message.content",
+                            "nonempty display-safe answer text",
+                        );
+                        unverified_answer(&text, usage, evidence)?
+                    }
+                    Err(error) => return Err(error),
+                };
+                ProviderTurn::Final {
+                    answer,
+                    finish_reason: parsed.finish_reason,
+                }
             };
-            ProviderTurn::Final {
-                answer,
-                finish_reason: parsed.finish_reason,
-            }
+            failed_check = super::audit::check(
+                "tool_contract",
+                "assistant.blocks",
+                "valid complete turn and calls matching the supplied tool definitions",
+            );
+            turn.validate(tools).map_err(|error| {
+                failed_check.expected = format!("valid tool contract: {error}")
+                    .chars()
+                    .take(256)
+                    .collect();
+                provider_contract_error(error)
+            })?;
+            failed_check = super::audit::check(
+                "request_deadline",
+                "response",
+                "response completed within the original request deadline",
+            );
+            context
+                .check_deadline()
+                .map_err(|_| ProviderError::BudgetExceeded)?;
+            Ok(turn)
+        })();
+        if result.is_err() {
+            deviations.push(failed_check);
+        }
+        let disposition = if result.is_ok() {
+            brain_contracts::response_audit::ResponseDisposition::UncheckedReturned
+        } else {
+            brain_contracts::response_audit::ResponseDisposition::Rejected
         };
-        turn.validate(tools).map_err(provider_contract_error)?;
-        context
-            .check_deadline()
-            .map_err(|_| ProviderError::BudgetExceeded)?;
-        Ok(turn)
+        let outputs: Vec<_> = deviations
+            .into_iter()
+            .map(|check| super::OutputDeviation {
+                check,
+                raw_output: &bytes,
+                complete: true,
+                disposition,
+            })
+            .collect();
+        self.record_response_deviations(request.query, context, evidence, &outputs)?;
+        result
     }
     pub(super) fn transport_json(
         &self,
         route: &str,
         payload: &mut serde_json::Value,
         context: &AuthorizedContext,
-        chat: bool,
+        transport_failure: &mut Option<bool>,
     ) -> Result<(Vec<u8>, Charge)> {
         self.transport_json_with_accounting(
             route,
             payload,
             context,
-            chat,
+            None,
             &mut UsageAccounting::default(),
+            transport_failure,
         )
     }
 
@@ -171,9 +280,12 @@ impl OpenAiCompatibleProvider {
         route: &str,
         payload: &mut serde_json::Value,
         context: &AuthorizedContext,
-        chat: bool,
+        audit_request: Option<&ChatRequest<'_>>,
         accounting: &mut UsageAccounting,
+        transport_failure: &mut Option<bool>,
     ) -> Result<(Vec<u8>, Charge)> {
+        let chat = audit_request.is_some();
+        let request_id = audit_request.map(|request| request.query.request_id.as_str());
         let bound = context.with_request_deadline();
         let context = &bound;
         let lifetime = context
@@ -276,17 +388,88 @@ impl OpenAiCompatibleProvider {
                 unaccounted: false,
             });
             let result = request.timeout(self.config.timeout.min(remaining)).send();
+            *transport_failure = match &result {
+                Ok(response) => {
+                    let failed = response.status().is_server_error();
+                    if failed {
+                        self.report_event(
+                            "provider_transport_failure",
+                            request_id,
+                            format!("http_{}", response.status().as_u16()),
+                        );
+                    }
+                    Some(failed)
+                }
+                Err(error) if error.is_builder() || error.is_decode() => None,
+                Err(error) => {
+                    self.report_event(
+                        "provider_transport_failure",
+                        request_id,
+                        if error.is_timeout() {
+                            "transport_timeout"
+                        } else if error.is_connect() {
+                            "transport_connect"
+                        } else {
+                            "transport"
+                        }
+                        .into(),
+                    );
+                    Some(true)
+                }
+            };
             lifetime
                 .check()
                 .map_err(|_| ProviderError::BudgetExceeded)?;
             let mut requested_delay = Duration::ZERO;
             match result {
                 Ok(response) if response.status().is_success() => {
-                    let bytes = hardening::read_bounded(response, self.config.max_response_bytes)?;
+                    let (read, bytes) =
+                        hardening::read_bounded_observed(response, self.config.max_response_bytes);
+                    if let Err(error) = read {
+                        if matches!(&error, ProviderError::BodyTransport(_)) {
+                            *transport_failure = Some(true);
+                        }
+                        if let Some(request) = audit_request {
+                            self.record_response_deviation(request.query, context, request.evidence, super::OutputDeviation {
+                                check: super::audit::check(if matches!(&error, ProviderError::ResponseTooLarge) { "response_size" } else { "response_body_transport" }, "response", "complete response within the configured byte limit"),
+                                raw_output: &bytes,
+                                complete: false,
+                                disposition: brain_contracts::response_audit::ResponseDisposition::Rejected,
+                            })?;
+                        }
+                        return Err(error);
+                    }
                     if chat {
-                        self.observe_usage(&bytes, &reserved, accounting)?;
+                        if let Err(error) = self.observe_usage(&bytes, &reserved, accounting) {
+                            if let Some(request) = audit_request {
+                                self.record_response_deviation(request.query, context, request.evidence, super::OutputDeviation {
+                                    check: super::audit::check("usage_budget", "usage", "reported usage within the reserved request budget"),
+                                    raw_output: &bytes,
+                    complete: true,
+                                    disposition: brain_contracts::response_audit::ResponseDisposition::Rejected,
+                                })?;
+                            }
+                            return Err(error);
+                        }
                     }
                     if Instant::now() >= deadline || lifetime.check().is_err() {
+                        if let Some(request) = audit_request {
+                            self.record_response_deviation(
+                                request.query,
+                                context,
+                                request.evidence,
+                                super::OutputDeviation {
+                                    check: super::audit::check(
+                                        "request_deadline",
+                                        "response",
+                                        "response completed within the original request deadline",
+                                    ),
+                                    raw_output: &bytes,
+                                    complete: true,
+                                    disposition: brain_contracts::response_audit::ResponseDisposition::Rejected,
+                                },
+                            )?;
+                        }
                         return Err(ProviderError::BudgetExceeded);
                     }
                     return Ok((
@@ -307,7 +490,7 @@ impl OpenAiCompatibleProvider {
                     if chat {
                         match hardening::read_bounded(response, self.config.max_response_bytes) {
                             Ok(bytes) => self.observe_usage(&bytes, &reserved, accounting)?,
-                            Err(error) => self.report_failure(&error),
+                            Err(error) => self.report_failure(request_id, &error),
                         }
                     }
                 }
@@ -347,7 +530,10 @@ impl OpenAiCompatibleProvider {
                                 "inactive",
                             ] {
                                 if body.contains(indicator) {
-                                    self.report_category(format!("http_412_indicator_{indicator}"));
+                                    self.report_category(
+                                        request_id,
+                                        format!("http_412_indicator_{indicator}"),
+                                    );
                                 }
                             }
                         }
@@ -357,7 +543,7 @@ impl OpenAiCompatibleProvider {
                             .as_ref()
                             .map(|bytes| precondition_category(bytes))
                             .unwrap_or("unknown");
-                        self.report_category(format!("http_412_{category}"));
+                        self.report_category(request_id, format!("http_412_{category}"));
                     }
                     return Err(ProviderError::HttpStatus { status });
                 }
@@ -557,7 +743,58 @@ fn finish_reason(reason: &str, native: bool) -> Result<ProviderFinishReason> {
     }
 }
 
-fn subscription_response(bytes: &[u8]) -> Result<ParsedTurn> {
+fn checked_finish_reason(
+    reason: &str,
+    native: bool,
+    check: &mut brain_contracts::response_audit::ResponseCheck,
+) -> Result<ProviderFinishReason> {
+    finish_reason(reason, native).inspect_err(|_| {
+        *check = super::audit::check(
+            "finish_reason",
+            if native {
+                "stop_reason"
+            } else {
+                "choices[0].finish_reason"
+            },
+            "known end_turn, tool_use, truncation or refusal reason",
+        );
+    })
+}
+
+fn checked_response<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+    check: &mut brain_contracts::response_audit::ResponseCheck,
+) -> Result<T> {
+    let value = parse_unique_json(bytes).map_err(|error| {
+        *check = super::audit::check(
+            "chat_json",
+            "response",
+            &format!("unique valid JSON: {error}")
+                .chars()
+                .take(256)
+                .collect::<String>(),
+        );
+        invalid_schema()
+    })?;
+    serde_path_to_error::deserialize(value).map_err(|error| {
+        *check = super::audit::check(
+            "chat_schema",
+            &error.path().to_string(),
+            &error
+                .inner()
+                .to_string()
+                .chars()
+                .take(256)
+                .collect::<String>(),
+        );
+        invalid_schema()
+    })
+}
+
+fn subscription_response(
+    bytes: &[u8],
+    check: &mut brain_contracts::response_audit::ResponseCheck,
+) -> Result<ParsedTurn> {
     #[derive(Deserialize)]
     struct Response {
         model: String,
@@ -582,9 +819,7 @@ fn subscription_response(bytes: &[u8]) -> Result<ParsedTurn> {
             signature: Option<String>,
         },
     }
-    let response: Response =
-        serde_json::from_value(parse_unique_json(bytes).map_err(|_| invalid_schema())?)
-            .map_err(|_| invalid_schema())?;
+    let response: Response = checked_response(bytes, check)?;
     let mut blocks = Vec::new();
     for block in response.content {
         match block {
@@ -607,7 +842,7 @@ fn subscription_response(bytes: &[u8]) -> Result<ParsedTurn> {
     Ok(ParsedTurn {
         model: response.model,
         blocks,
-        finish_reason: finish_reason(&response.stop_reason, true)?,
+        finish_reason: checked_finish_reason(&response.stop_reason, true, check)?,
         input_tokens: response
             .usage
             .input_tokens
@@ -618,7 +853,10 @@ fn subscription_response(bytes: &[u8]) -> Result<ParsedTurn> {
     })
 }
 
-fn compatible_response(bytes: &[u8]) -> Result<ParsedTurn> {
+fn compatible_response(
+    bytes: &[u8],
+    check: &mut brain_contracts::response_audit::ResponseCheck,
+) -> Result<ParsedTurn> {
     #[derive(Deserialize)]
     struct Response {
         model: String,
@@ -658,10 +896,9 @@ fn compatible_response(bytes: &[u8]) -> Result<ParsedTurn> {
         name: ToolName,
         arguments: String,
     }
-    let response: Response =
-        serde_json::from_value(parse_unique_json(bytes).map_err(|_| invalid_schema())?)
-            .map_err(|_| invalid_schema())?;
+    let response: Response = checked_response(bytes, check)?;
     if response.choices.len() != 1 {
+        *check = super::audit::check("choice_count", "choices", "exactly one assistant choice");
         return Err(ProviderError::InvalidResponse(
             "model or choice count mismatch".into(),
         ));
@@ -677,6 +914,7 @@ fn compatible_response(bytes: &[u8]) -> Result<ParsedTurn> {
         .as_deref()
         .is_some_and(|role| role != "assistant")
     {
+        *check = super::audit::check("assistant_role", "choices[0].message.role", "assistant");
         return Err(invalid_schema());
     }
     if choice
@@ -684,6 +922,7 @@ fn compatible_response(bytes: &[u8]) -> Result<ParsedTurn> {
         .refusal
         .is_some_and(|refusal| !refusal.is_empty())
     {
+        *check = super::audit::check("refusal", "choices[0].message.refusal", "no model refusal");
         return Err(incomplete_turn(ProviderFinishReason::Refusal));
     }
     let mut blocks = Vec::new();
@@ -692,10 +931,20 @@ fn compatible_response(bytes: &[u8]) -> Result<ParsedTurn> {
     }
     for call in choice.message.tool_calls {
         if call.kind != "function" {
+            *check = super::audit::check("tool_call_type", "tool_calls.type", "function");
             return Err(invalid_schema());
         }
-        let arguments =
-            parse_unique_json(call.function.arguments.as_bytes()).map_err(|_| invalid_schema())?;
+        let arguments = parse_unique_json(call.function.arguments.as_bytes()).map_err(|error| {
+            *check = super::audit::check(
+                "tool_arguments",
+                "tool_calls.function.arguments",
+                &format!("unique valid JSON: {error}")
+                    .chars()
+                    .take(256)
+                    .collect::<String>(),
+            );
+            invalid_schema()
+        })?;
         blocks.push(ModelBlock::ToolUse {
             call: ToolCall {
                 id: call.id,
@@ -707,7 +956,7 @@ fn compatible_response(bytes: &[u8]) -> Result<ParsedTurn> {
     Ok(ParsedTurn {
         model: response.model,
         blocks,
-        finish_reason: finish_reason(&choice.finish_reason, false)?,
+        finish_reason: checked_finish_reason(&choice.finish_reason, false, check)?,
         input_tokens: response.usage.prompt_tokens,
         output_tokens: response.usage.completion_tokens,
     })
@@ -785,6 +1034,7 @@ fn grounded_answer(
     usage: Usage,
     evidence: &[Evidence],
     require_grounded: bool,
+    check: &mut brain_contracts::response_audit::ResponseCheck,
 ) -> Result<ProviderAnswer> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -808,10 +1058,11 @@ fn grounded_answer(
     } else {
         let envelope_error =
             || ProviderError::InvalidResponse("grounded answer envelope missing".into());
-        let grounded: Grounded = serde_json::from_value(
-            parse_unique_json(text.as_bytes()).map_err(|_| envelope_error())?,
-        )
-        .map_err(|_| envelope_error())?;
+        let grounded: Grounded = checked_response(text.as_bytes(), check).map_err(|_| {
+            check.check = "grounded_envelope".into();
+            check.field = format!("message.content.{}", check.field);
+            envelope_error()
+        })?;
         let unique: std::collections::BTreeSet<_> = grounded.cited_evidence_ids.iter().collect();
         let insufficient = grounded.text.is_empty() && unique.is_empty();
         if (!insufficient && (grounded.text.trim().is_empty() || unique.is_empty()))
@@ -820,6 +1071,11 @@ fn grounded_answer(
                 .iter()
                 .any(|id| !evidence.iter().any(|item| &item.evidence_id == *id))
         {
+            *check = super::audit::check(
+                "citation_invalid",
+                "cited_evidence_ids",
+                "nonempty unique IDs from the supplied evidence",
+            );
             return Err(ProviderError::InvalidResponse(
                 "unknown, duplicate or missing citation".into(),
             ));

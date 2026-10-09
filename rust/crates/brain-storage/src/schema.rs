@@ -5,6 +5,15 @@ use brain_contracts::{store::STORE_VERSION, CorpusRelease, PortError, SourceReco
 use sqlx::{PgConnection, Row};
 
 pub const CORE_SCHEMA_VERSION: i32 = 2;
+pub(crate) const RESPONSE_AUDIT_SHAPE_PROBE: &str = "SELECT count(*)=11 FROM (VALUES
+    ('audit_id','int8'),('recorded_at','timestamptz'),('request_id','text'),('model','text'),
+    ('check_json','jsonb'),('raw_output','bytea'),('raw_output_complete','bool'),
+    ('source_ids','jsonb'),('evidence_ids','jsonb'),('disposition','text'),('identifiers_redacted','bool')) expected(name,type)
+    JOIN pg_attribute a ON a.attrelid=to_regclass('brain.response_deviations_v1') AND a.attname=expected.name
+    WHERE a.atttypid=expected.type::regtype AND a.attnotnull AND NOT a.attisdropped";
+
+const RESPONSE_AUDIT: &str =
+    include_str!("../../../../scripts/migrations/2026-10-08-brain-response-audit-v1.sql");
 const V1: &str = include_str!("../../../../scripts/migrations/2026-09-24-brain-contract-v1.sql");
 const V2: &str = include_str!("../../../../scripts/migrations/2026-09-25-brain-core-jobs-v2.sql");
 const VERSION: &str =
@@ -145,7 +154,45 @@ async fn check_read_headers(connection: &mut PgConnection) -> Result<(), PortErr
     Ok(())
 }
 
+async fn check_response_audit(connection: &mut PgConnection) -> Result<(), PortError> {
+    sqlx::query("SELECT audit_id,recorded_at,request_id,model,check_json,raw_output,raw_output_complete,source_ids,evidence_ids,disposition,identifiers_redacted FROM brain.response_deviations_v1 LIMIT 0")
+        .fetch_all(&mut *connection).await.map_err(compatibility_error)?;
+    let valid: bool = sqlx::query_scalar(RESPONSE_AUDIT_SHAPE_PROBE)
+        .fetch_one(connection)
+        .await
+        .map_err(compatibility_error)?;
+    if !valid {
+        return Err(invalid("incompatible response audit schema"));
+    }
+    Ok(())
+}
+
 impl PgStore {
+    pub async fn check_response_audit_schema(&self) -> Result<(), PortError> {
+        let mut connection = self.pool.acquire().await.map_err(compatibility_error)?;
+        check_response_audit(&mut connection).await
+    }
+
+    pub async fn migrate_response_audit(&self) -> Result<(), PortError> {
+        self.check_core_schema().await?;
+        let mut tx = self.pool.begin().await.map_err(migration_error)?;
+        sqlx::raw_sql("SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='60000ms'; SELECT pg_advisory_xact_lock(742110026112::bigint)")
+            .execute(&mut *tx).await.map_err(migration_error)?;
+        let owner: bool = sqlx::query_scalar("SELECT pg_has_role(current_user,nspowner,'USAGE') FROM pg_namespace WHERE nspname='brain'")
+            .fetch_one(&mut *tx).await.map_err(migration_error)?;
+        if !owner {
+            return Err(PortError::PermissionDenied(
+                "response audit migration requires schema owner".into(),
+            ));
+        }
+        sqlx::raw_sql(body(RESPONSE_AUDIT)?)
+            .execute(&mut *tx)
+            .await
+            .map_err(migration_error)?;
+        check_response_audit(&mut tx).await?;
+        tx.commit().await.map_err(migration_error)
+    }
+
     pub async fn check_entity_profile_schema(&self) -> Result<(), PortError> {
         self.check_core_schema().await?;
         let mut tx = self.pool.begin().await.map_err(compatibility_error)?;
@@ -242,7 +289,7 @@ impl PgStore {
         if marked {
             check_version(&mut tx).await?;
         }
-        for migration in [V1, V2, READ_HEADERS, READ_HEADER_WRITER] {
+        for migration in [V1, V2, READ_HEADERS, READ_HEADER_WRITER, RESPONSE_AUDIT] {
             sqlx::raw_sql(body(migration)?)
                 .execute(&mut *tx)
                 .await
@@ -283,6 +330,7 @@ impl PgStore {
             .await
             .map_err(migration_error)?;
         check_read_headers(&mut tx).await?;
+        check_response_audit(&mut tx).await?;
         tx.commit().await.map_err(migration_error)
     }
 }

@@ -270,10 +270,16 @@ impl Prepared {
         });
         let provider = match config.provider.kind {
             ProviderKind::OpenaiCompatible => {
-                OpenAiCompatibleProvider::new(provider_config).map(AnswerProvider::OpenAi)
+                OpenAiCompatibleProvider::new(provider_config).map(|provider| {
+                    AnswerProvider::OpenAi(provider.with_response_audit(Arc::new(reader.clone())))
+                })
             }
             ProviderKind::CodexSubscription => {
-                CodexSubscriptionProvider::new(provider_config).map(AnswerProvider::Subscription)
+                CodexSubscriptionProvider::new(provider_config).map(|provider| {
+                    AnswerProvider::Subscription(
+                        provider.with_response_audit(Arc::new(reader.clone())),
+                    )
+                })
             }
         }
         .map_err(|_| Error::ProviderConfig)?;
@@ -341,6 +347,9 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
             _ => Error::DatabaseUnavailable,
         })?;
         reader.check_permissions().map_err(startup_database_error)?;
+        reader
+            .check_response_audit()
+            .map_err(startup_database_error)?;
         let snapshot = reader
             .read_manifest(&release_id)
             .map_err(|error| match error {
@@ -412,6 +421,23 @@ async fn reject_during_drain(
     next: Next,
 ) -> Response {
     if health.draining.load(Ordering::SeqCst) {
+        if let Some(route) = match request.uri().path() {
+            "/v1/answer" => Some("/v1/answer"),
+            "/v1/retrieve" => Some("/v1/retrieve"),
+            "/v1/operator/query" => Some("/v1/operator/query"),
+            _ => None,
+        } {
+            eprintln!(
+                "{}",
+                serde_json::json!({
+                    "event": "request_failure",
+                    "route": route,
+                    "request_id": null,
+                    "error_class": "draining",
+                    "http_status": 503,
+                })
+            );
+        }
         health::unavailable()
     } else {
         next.run(request).await

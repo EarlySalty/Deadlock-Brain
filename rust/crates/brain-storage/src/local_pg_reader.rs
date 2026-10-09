@@ -7,6 +7,7 @@ use brain_contracts::{
 };
 use postgres::Row;
 mod connection;
+mod response_audit;
 use connection::Client;
 #[cfg(test)]
 mod review_deadline;

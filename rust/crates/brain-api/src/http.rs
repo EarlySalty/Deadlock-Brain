@@ -1,5 +1,5 @@
 //! HTTP adapter only; binding sockets and runtime activation are explicit caller decisions.
-use super::{deadline_response, json_error, ApiResponse, ApiService};
+use super::{deadline_response, diagnostics::RequestTrace, json_error, ApiResponse, ApiService};
 use axum::{
     body::to_bytes,
     extract::{Request, State},
@@ -50,6 +50,21 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
     request: Request,
     retrieval: bool,
 ) -> Response {
+    let trace = Arc::new(RequestTrace::new(if retrieval {
+        "/v1/retrieve"
+    } else {
+        "/v1/answer"
+    }));
+    let result = dispatch_response(state, request, retrieval, trace.clone()).await;
+    trace.emit(&result);
+    respond(result)
+}
+async fn dispatch_response<K: AnswerKernelPort + 'static>(
+    state: Arc<HttpState<K>>,
+    request: Request,
+    retrieval: bool,
+    trace: Arc<RequestTrace>,
+) -> ApiResponse {
     // Request is not a body extractor: no body is polled before admission/authentication.
     let deadline = RequestDeadline::after(Duration::from_millis(
         state.service.deadline_ms.clamp(1, 60000),
@@ -57,22 +72,12 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
     let _cancel = CancelOnDrop(deadline.clone());
     let permit = match state.slots.clone().try_acquire_owned() {
         Ok(permit) => permit,
-        Err(_) => {
-            return respond(json_error(
-                429,
-                "overloaded",
-                "Anfragekapazität ausgeschöpft",
-            ))
-        }
+        Err(_) => return json_error(429, "overloaded", "Anfragekapazität ausgeschöpft"),
     };
     let (parts, body) = request.into_parts();
     let headers = parts.headers;
     if headers.get_all(header::AUTHORIZATION).iter().count() != 1 {
-        return respond(json_error(
-            401,
-            "unauthorized",
-            "Genau ein Bearer-Header erforderlich",
-        ));
+        return json_error(401, "unauthorized", "Genau ein Bearer-Header erforderlich");
     }
     if !headers
         .get(header::CONTENT_TYPE)
@@ -83,11 +88,11 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
                 .is_some_and(|m| m.trim().eq_ignore_ascii_case("application/json"))
         })
     {
-        return respond(json_error(
+        return json_error(
             415,
             "unsupported_media_type",
             "application/json erforderlich",
-        ));
+        );
     }
     let authorization = headers
         .get(header::AUTHORIZATION)
@@ -100,7 +105,7 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
         .filter(|id| *id != 0);
     let allow_discord_reads = match discord_read_access(&headers) {
         Ok(allowed) => allowed,
-        Err(error) => return respond(error),
+        Err(error) => return error,
     };
     let task = match headers.get_all("x-discord-answer-task").iter().count() {
         0 => None,
@@ -111,23 +116,15 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
                 serde_json::from_str::<brain_contracts::discord_task::DiscordAnswerTask>(value).ok()
             }) {
             Some(task) if task.valid() && !retrieval => Some(task),
-            _ => return respond(json_error(400, "invalid_request", "Ungültige Bot-Aufgabe")),
+            _ => return json_error(400, "invalid_request", "Ungültige Bot-Aufgabe"),
         },
-        _ => return respond(json_error(400, "invalid_request", "Ungültige Bot-Aufgabe")),
+        _ => return json_error(400, "invalid_request", "Ungültige Bot-Aufgabe"),
     };
     if task.is_some() && headers.get_all("x-discord-user-id").iter().count() != 1 {
-        return respond(json_error(
-            400,
-            "invalid_request",
-            "Ungültige Bot-Identität",
-        ));
+        return json_error(400, "invalid_request", "Ungültige Bot-Identität");
     }
     if !state.service.authenticate_header(authorization.as_deref()) {
-        return respond(json_error(
-            401,
-            "unauthorized",
-            "Zugangsdaten sind ungültig",
-        ));
+        return json_error(401, "unauthorized", "Zugangsdaten sind ungültig");
     }
     if headers
         .get(header::CONTENT_LENGTH)
@@ -135,7 +132,7 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
         .and_then(|v| v.parse::<u64>().ok())
         .is_some_and(|length| length > 64 * 1024)
     {
-        return respond(json_error(413, "payload_too_large", "Request ist zu groß"));
+        return json_error(413, "payload_too_large", "Request ist zu groß");
     }
     let expires_at = deadline.expires_at().into();
     let operation = async move {
@@ -147,6 +144,7 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
             Ok(body) => body,
             Err(_) => return json_error(413, "payload_too_large", "Request ist zu groß"),
         };
+        trace.bind(&body);
         if deadline.check().is_err() {
             return deadline_response();
         }
@@ -174,8 +172,8 @@ async fn dispatch<K: AnswerKernelPort + 'static>(
         }
     };
     match tokio::time::timeout_at(expires_at, operation).await {
-        Ok(result) => respond(result),
-        Err(_) => respond(deadline_response()),
+        Ok(result) => result,
+        Err(_) => deadline_response(),
     }
 }
 fn discord_read_access(headers: &axum::http::HeaderMap) -> Result<bool, ApiResponse> {
@@ -193,6 +191,18 @@ fn discord_read_access(headers: &axum::http::HeaderMap) -> Result<bool, ApiRespo
             "Ungültige Discord-Lesefreigabe",
         )),
     }
+}
+
+fn respond(result: ApiResponse) -> Response {
+    (
+        StatusCode::from_u16(result.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        [
+            (header::CONTENT_TYPE, result.content_type),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        result.body,
+    )
+        .into_response()
 }
 
 #[cfg(test)]
@@ -220,14 +230,85 @@ fn private_read_gate_header_kann_nur_einschraenken() {
     }
 }
 
-fn respond(result: ApiResponse) -> Response {
-    (
-        StatusCode::from_u16(result.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-        [
-            (header::CONTENT_TYPE, result.content_type),
-            (header::CACHE_CONTROL, "no-store"),
-        ],
-        result.body,
-    )
-        .into_response()
+#[cfg(test)]
+mod diagnostics_tests {
+    use super::*;
+    use brain_contracts::{AnswerResponse, AnswerStatus, AuthorizedContext, Budget, Query, Usage};
+    use brain_policy::{AuthGrant, CredentialRegistry, PolicyEngine};
+    use std::collections::BTreeSet;
+
+    struct FailingKernel(bool);
+
+    impl AnswerKernelPort for FailingKernel {
+        fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
+            AnswerResponse {
+                contract_version: if self.0 {
+                    "foreign-contract"
+                } else {
+                    brain_contracts::CONTRACT_VERSION
+                }
+                .into(),
+                request_id: query.request_id.clone(),
+                knowledge_release: context.knowledge_release.clone(),
+                status: AnswerStatus::Unavailable,
+                text: "private-answer".into(),
+                citations: Vec::new(),
+                usage: Usage::default(),
+            }
+        }
+
+        fn answer_for_publication(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+        ) -> AnswerResponse {
+            self.answer(query, context)
+        }
+    }
+
+    #[tokio::test]
+    async fn public_dispatch_binds_unavailable_and_contract_rejections_without_private_headers() {
+        for (invalid_contract, invalid_query, class, status) in [
+            (false, false, "unavailable", 200),
+            (true, false, "invalid_kernel_response", 502),
+            (false, true, "invalid_request", 400),
+        ] {
+            let service = ApiService::new(
+                PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
+                    "private-secret",
+                    "actor",
+                    "discord",
+                    BTreeSet::from(["bot.public".into()]),
+                    BTreeSet::from(["public".into()]),
+                )])),
+                FailingKernel(invalid_contract),
+                "release",
+                2000,
+                Budget::default(),
+            );
+            let state = Arc::new(HttpState {
+                service,
+                slots: Arc::new(Semaphore::new(64)),
+            });
+            let mut body = serde_json::json!({"request_id":"fixture-dispatch","conversation_id":"fixture-conversation","text":"private-question","requested_scopes":["bot.public"]});
+            if invalid_query {
+                body["unknown_field"] = serde_json::json!("private-content");
+            }
+            let request = Request::builder()
+                .method("POST")
+                .uri("/v1/answer")
+                .header(header::AUTHORIZATION, "Bearer private-secret")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-discord-user-id", "123456789012345678")
+                .body(axum::body::Body::from(body.to_string()))
+                .unwrap();
+            let trace = Arc::new(RequestTrace::new("/v1/answer"));
+            let response = dispatch_response(state, request, false, trace.clone()).await;
+            assert_eq!(response.status, status);
+            assert_eq!(
+                trace.event(&response).unwrap(),
+                serde_json::json!({"event":"request_failure","request_id":"fixture-dispatch","route":"/v1/answer","error_class":class,"http_status":status})
+            );
+        }
+    }
 }

@@ -41,10 +41,10 @@ impl EmbeddingProviderPort for OpenAiCompatibleProvider {
                 "embedding identity, input or egress denied".into(),
             ));
         }
-        let result=self.with_circuit(|| {
+        let result=self.with_circuit(|transport_failure| {
             hardening::validate_endpoint(&self.config)?;
             let mut payload=serde_json::json!({"model":identity.model,"input":inputs,"dimensions":identity.dimension,"encoding_format":"float"});
-            let (bytes,charge)=self.transport_json("embeddings",&mut payload,context,false)?;
+            let (bytes,charge)=self.transport_json("embeddings",&mut payload,context,transport_failure)?;
             let response:Response=serde_json::from_slice(&bytes).map_err(|_|ProviderError::InvalidResponse("invalid embedding response schema".into()))?;
             if response.model!=identity.model || response.data.len()!=inputs.len() {return Err(ProviderError::InvalidResponse("embedding model or count mismatch".into()));}
             let mut ordered=vec![None;inputs.len()];

@@ -6,7 +6,7 @@ use serde::Deserialize;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use std::{path::PathBuf, process::ExitCode, time::Duration};
 
-const USAGE: &str = "Aufruf: brain-migrate <check|up|check-entity-profiles|up-entity-profiles> --config <non-secret-local-postgres.json>";
+const USAGE: &str = "Aufruf: brain-migrate <check|up|check-entity-profiles|up-entity-profiles|check-response-audit|up-response-audit> --config <non-secret-local-postgres.json>";
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
@@ -38,16 +38,24 @@ async fn main() -> ExitCode {
     }
     if args.len() != 3
         || args[1] != "--config"
-        || !["check", "up", "check-entity-profiles", "up-entity-profiles"]
-            .iter()
-            .any(|command| args[0] == *command)
+        || ![
+            "check",
+            "up",
+            "check-entity-profiles",
+            "up-entity-profiles",
+            "check-response-audit",
+            "up-response-audit",
+        ]
+        .iter()
+        .any(|command| args[0] == *command)
     {
         eprintln!("{USAGE}");
         return ExitCode::FAILURE;
     }
     match run(
-        args[0] == "up" || args[0] == "up-entity-profiles",
+        args[0] == "up" || args[0] == "up-entity-profiles" || args[0] == "up-response-audit",
         args[0] == "check-entity-profiles" || args[0] == "up-entity-profiles",
+        args[0] == "check-response-audit" || args[0] == "up-response-audit",
         PathBuf::from(&args[2]),
     )
     .await
@@ -60,7 +68,12 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run(upgrade: bool, entity_profiles: bool, path: PathBuf) -> Result<(), String> {
+async fn run(
+    upgrade: bool,
+    entity_profiles: bool,
+    response_audit: bool,
+    path: PathBuf,
+) -> Result<(), String> {
     if std::env::var_os("PGOPTIONS").is_some() {
         return Err("ambient PGOPTIONS is not allowed; use the explicit local config".into());
     }
@@ -85,14 +98,26 @@ async fn run(upgrade: bool, entity_profiles: bool, path: PathBuf) -> Result<(), 
         .await
         .map_err(|_| "local PostgreSQL connection failed (check peer auth and role)")?;
     let store = PgStore::new(pool.clone());
-    let result = match (entity_profiles, upgrade) {
-        (true, true) => store.migrate_entity_profiles().await,
-        (true, false) => store.check_entity_profile_schema().await,
-        (false, true) => store.migrate_core().await,
-        (false, false) => store.check_core_schema().await,
+    let result = if response_audit {
+        if upgrade {
+            store.migrate_response_audit().await
+        } else {
+            store.check_response_audit_schema().await
+        }
+    } else {
+        match (entity_profiles, upgrade) {
+            (true, true) => store.migrate_entity_profiles().await,
+            (true, false) => store.check_entity_profile_schema().await,
+            (false, true) => store.migrate_core().await,
+            (false, false) => store.check_core_schema().await,
+        }
     };
     pool.close().await;
     result.map_err(|e| e.to_string())?;
+    if response_audit {
+        println!("Lokale Antwortdiagnostik: Prüfung bestanden");
+        return Ok(());
+    }
     if entity_profiles {
         println!(
             "Spielprofilschema: {}",

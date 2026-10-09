@@ -24,6 +24,7 @@ pub mod provider_input;
 pub mod public_api;
 pub mod read_manifest;
 pub mod replay;
+pub mod response_audit;
 pub mod retrieval;
 pub use read_manifest::{DocumentDescriptor, ReleaseReadManifest};
 pub mod source;

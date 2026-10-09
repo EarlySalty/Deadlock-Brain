@@ -1,5 +1,5 @@
 //! Dieser Router wird ausschließlich an den privaten Unixsocket gebunden.
-use crate::{bearer_token, deadline_response, json_error, ApiResponse};
+use crate::{bearer_token, deadline_response, diagnostics::RequestTrace, json_error, ApiResponse};
 use axum::{
     body::to_bytes,
     extract::{Request, State},
@@ -224,12 +224,23 @@ async fn dispatch(
     State(service): State<Arc<InternalApiService>>,
     request: Request,
 ) -> axum::response::Response {
+    let trace = Arc::new(RequestTrace::new("/v1/operator/query"));
+    let result = dispatch_response(service, request, trace.clone()).await;
+    trace.emit(&result);
+    respond(result)
+}
+
+async fn dispatch_response(
+    service: Arc<InternalApiService>,
+    request: Request,
+    trace: Arc<RequestTrace>,
+) -> ApiResponse {
     let deadline =
         RequestDeadline::after(Duration::from_millis(service.deadline_ms.clamp(1, 60_000)));
     let _cancel = CancelOnDrop(deadline.clone());
     let permit = match service.slots.clone().try_acquire_owned() {
         Ok(permit) => permit,
-        Err(_) => return respond(json_error(429, "overloaded", "Operatorweg ausgelastet")),
+        Err(_) => return json_error(429, "overloaded", "Operatorweg ausgelastet"),
     };
     let (parts, body) = request.into_parts();
     let authorization = parts
@@ -240,11 +251,7 @@ async fn dispatch(
     if parts.headers.get_all(header::AUTHORIZATION).iter().count() != 1
         || !bearer_token(authorization.as_deref()).is_some_and(|token| service.allowed(token))
     {
-        return respond(json_error(
-            403,
-            "forbidden",
-            "Keine interne Operatorfreigabe",
-        ));
+        return json_error(403, "forbidden", "Keine interne Operatorfreigabe");
     }
     if !parts
         .headers
@@ -256,11 +263,11 @@ async fn dispatch(
                 .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/json"))
         })
     {
-        return respond(json_error(
+        return json_error(
             415,
             "unsupported_media_type",
             "application/json erforderlich",
-        ));
+        );
     }
     let expires = deadline.expires_at().into();
     let operation = async move {
@@ -268,6 +275,7 @@ async fn dispatch(
             Ok(body) => body,
             Err(_) => return json_error(413, "payload_too_large", "Anfrage zu groß"),
         };
+        trace.bind(&body);
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
             service.handle_query(authorization.as_deref(), &body, deadline)
@@ -275,11 +283,9 @@ async fn dispatch(
         .await
         .unwrap_or_else(|_| json_error(503, "unavailable", "Operatorweg nicht verfügbar"))
     };
-    respond(
-        tokio::time::timeout_at(expires, operation)
-            .await
-            .unwrap_or_else(|_| deadline_response()),
-    )
+    tokio::time::timeout_at(expires, operation)
+        .await
+        .unwrap_or_else(|_| deadline_response())
 }
 
 fn respond(response: ApiResponse) -> axum::response::Response {
@@ -387,6 +393,33 @@ mod tests {
         );
         (service, revoked, reads)
     }
+    #[tokio::test]
+    async fn operator_dispatch_binds_contract_failure_before_the_worker() {
+        let (service, _, reads) = service(
+            "second-brain",
+            "internal",
+            &["second_brain.internal"],
+            "release",
+        );
+        let trace = Arc::new(RequestTrace::new("/v1/operator/query"));
+        let mut body = serde_json::to_value(query()).unwrap();
+        body["unknown_field"] = serde_json::json!("private-content");
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/operator/query")
+            .header(header::AUTHORIZATION, "Bearer fixture-token")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(axum::body::Body::from(body.to_string()))
+            .unwrap();
+        let response = dispatch_response(Arc::new(service), request, trace.clone()).await;
+        assert_eq!(response.status, 400);
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            trace.event(&response).unwrap(),
+            serde_json::json!({"event":"request_failure","route":"/v1/operator/query","request_id":query().request_id,"error_class":"invalid_request","http_status":400})
+        );
+    }
+
     fn call(service: &InternalApiService, query: &Query) -> ApiResponse {
         service.handle_query(
             Some("Bearer fixture-token"),
