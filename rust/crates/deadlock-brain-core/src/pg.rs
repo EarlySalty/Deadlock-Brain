@@ -49,10 +49,18 @@ pub const SCHEMA: &str = "brain";
 /// Das DSN kommt aus [`DSN_ENV`]. Weder das DSN noch die konkreten
 /// Verbindungsdetails werden im Fehlerfall ausgegeben.
 pub async fn pg_pool() -> Result<PgPool> {
+    pg_pool_with_limit(4).await
+}
+
+pub async fn pg_pool_with_limit(max_connections: u32) -> Result<PgPool> {
+    anyhow::ensure!(
+        max_connections > 0,
+        "Der Verbindungspool darf nicht leer sein."
+    );
     let dsn = std::env::var(DSN_ENV)
         .map_err(|_| anyhow!("{DSN_ENV} ist nicht gesetzt; DSN wird nicht ausgegeben."))?;
     PgPoolOptions::new()
-        .max_connections(4)
+        .max_connections(max_connections)
         .connect(&dsn)
         .await
         .map_err(|_| {

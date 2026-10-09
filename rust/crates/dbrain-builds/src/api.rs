@@ -119,7 +119,7 @@ impl DeadlockApiClient {
     }
 }
 
-fn analytics_url(endpoint: &str, start: i64, params: &[(&str, i64)]) -> String {
+pub fn analytics_url(endpoint: &str, start: i64, params: &[(&str, i64)]) -> String {
     let cutoff = if endpoint == "build-item-stats" {
         "min_last_updated_unix_timestamp"
     } else {

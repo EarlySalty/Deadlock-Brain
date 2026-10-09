@@ -291,13 +291,19 @@ pub fn grounded_turn_payload_with_quality(
                 }
             }
             ToolMessage::ToolResults { results } => {
+                let format = format!(
+                    "Gib die abschließende Antwort als genau ein JSON-Objekt mit text und cited_evidence_ids aus. Keine Prosa davor oder danach, kein Markdown-Codeblock. Verwende für genutzte Werkzeugdaten deren Beleg-IDs, keine leeren oder erfundenen IDs. Verfügbare Beleg-IDs: {}",
+                    json!(evidence.iter().map(|item| &item.evidence_id).collect::<Vec<_>>())
+                );
                 if native {
-                    let content: Vec<_> = results.iter().map(|result| json!({"type":"tool_result", "tool_use_id":result.call_id, "content":json!({"result":tool_display_result(result, evidence),"evidence_ids":result.evidence_ids}).to_string(), "is_error":result.is_error})).collect();
+                    let mut content: Vec<_> = results.iter().map(|result| json!({"type":"tool_result", "tool_use_id":result.call_id, "content":json!({"result":tool_display_result(result, evidence),"evidence_ids":result.evidence_ids}).to_string(), "is_error":result.is_error})).collect();
+                    content.push(json!({"type":"text", "text":format}));
                     messages.push(json!({"role":"user", "content":content}));
                 } else {
                     for result in results {
                         messages.push(json!({"role":"tool", "tool_call_id":result.call_id, "name":result.name, "content":json!({"result":tool_display_result(result, evidence),"evidence_ids":result.evidence_ids,"is_error":result.is_error}).to_string()}));
                     }
+                    messages.push(json!({"role":"user", "content":format}));
                 }
             }
         }
@@ -844,24 +850,44 @@ mod tests {
         };
         let original_evidence = evidence.clone();
         let original_conversation = conversation.clone();
-        for format in [ToolWireFormat::Native, ToolWireFormat::OpenAiCompatible] {
-            let payload = grounded_turn_payload(
+        for (format, quality_filters) in [
+            (ToolWireFormat::Native, true),
+            (ToolWireFormat::Native, false),
+            (ToolWireFormat::OpenAiCompatible, true),
+            (ToolWireFormat::OpenAiCompatible, false),
+        ] {
+            let payload = grounded_turn_payload_with_quality(
                 &query(),
                 &evidence,
                 std::slice::from_ref(&definition),
                 &conversation,
                 format,
+                quality_filters,
             )
             .unwrap();
             let serialized = payload.to_string();
             for raw in ["1494373349944459355", "<#", "<@"] {
                 assert!(!serialized.contains(raw));
             }
-            let last = payload["messages"].as_array().unwrap().last().unwrap();
+            let messages = payload["messages"].as_array().unwrap();
+            let last = messages.last().unwrap();
             let raw = if format == ToolWireFormat::Native {
+                assert!(last["content"][1]["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains(&evidence[0].evidence_id));
                 last["content"][0]["content"].as_str().unwrap()
             } else {
-                last["content"].as_str().unwrap()
+                assert!(last["content"]
+                    .as_str()
+                    .unwrap()
+                    .contains(&evidence[0].evidence_id));
+                messages
+                    .iter()
+                    .rfind(|message| message["role"] == "tool")
+                    .unwrap()["content"]
+                    .as_str()
+                    .unwrap()
             };
             let wire: Value = serde_json::from_str(raw).unwrap();
             assert_eq!(
@@ -873,12 +899,13 @@ mod tests {
             assert_eq!(wire["result"]["price"], 1250);
             assert_eq!(wire["evidence_ids"], json!(result.evidence_ids));
             assert_eq!(
-                grounded_turn_input_ceiling(
+                grounded_turn_input_ceiling_with_quality(
                     &query(),
                     &evidence,
                     std::slice::from_ref(&definition),
                     &conversation,
-                    format
+                    format,
+                    quality_filters,
                 )
                 .unwrap(),
                 transport_input_ceiling(&payload, true).unwrap()
