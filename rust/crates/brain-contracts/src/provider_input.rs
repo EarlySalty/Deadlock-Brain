@@ -113,6 +113,7 @@ fn public_steam_link_prefix(text: &str) -> usize {
         "https://store.steampowered.com/news/app/1422450/view/",
         "https://steamcommunity.com/games/1422450/announcements/detail/",
         "https://steamcommunity.com/app/1422450/announcements/detail/",
+        "https://steamcommunity.com/app/1422450/externalpost/steam_community_announcements/",
         "https://steamcommunity.com/app/1422450/event/",
     ] {
         let Some(head) = text.get(..prefix.len()) else {
@@ -708,6 +709,7 @@ mod tests {
             "https://store.steampowered.com/news/app/1422450/view/",
             "https://steamcommunity.com/games/1422450/announcements/detail/",
             "https://steamcommunity.com/app/1422450/announcements/detail/",
+            "https://steamcommunity.com/app/1422450/externalpost/steam_community_announcements/",
             "HTTPS://steamcommunity.com/app/1422450/event/",
         ] {
             let link = format!("{prefix}{event}?l=english#notes");

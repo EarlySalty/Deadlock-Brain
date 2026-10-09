@@ -998,6 +998,7 @@ dependencies = [
  "postgres",
  "reqwest",
  "rustix",
+ "scraper",
  "serde",
  "serde_json",
  "sha2 0.10.9",

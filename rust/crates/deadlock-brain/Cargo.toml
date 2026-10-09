@@ -31,6 +31,7 @@ dl-token-secrets = { path = "../../../../Deadlock-Bots/rust/crates/dl-token-secr
 hex.workspace = true
 postgres.workspace = true
 reqwest.workspace = true
+scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

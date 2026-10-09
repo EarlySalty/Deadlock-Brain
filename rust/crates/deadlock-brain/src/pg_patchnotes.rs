@@ -1677,7 +1677,7 @@ fn summary_json(
 ) -> Value {
     json!({
         "dry_run": dry_run,
-        "dry_run_contract": "Kein fachlicher Import; Datenbankzugriff und Steam-Abrufjournal bleiben aktiv.",
+        "dry_run_contract": "Kein fachlicher Import; Datenbankzugriff bleibt aktiv. Quellen können weiterhin gelesen werden.",
         "target": "postgres",
         "dsn_env": options.dsn_env,
         "source": SOURCE,

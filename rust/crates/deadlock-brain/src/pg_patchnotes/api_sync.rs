@@ -325,15 +325,71 @@ fn post_row(post: &ApiPatchPost, existing_id: Option<i64>) -> Result<PatchnoteRo
 
 fn has_complete_patch_content(raw: &str) -> bool {
     let content = cleanup_patch_content(raw);
+    let cleaned = clean_steam_content(&content);
+    if cleaned.is_empty() {
+        return false;
+    }
+    let fragment = scraper::Html::parse_fragment(&content);
+    let anchors = scraper::Selector::parse("a[href]").expect("Fester Linkselektor");
+    if fragment
+        .select(&anchors)
+        .any(|anchor| is_fulltext_reference(&anchor.text().collect::<String>()))
+    {
+        return false;
+    }
     let lower = content.to_ascii_lowercase();
-    let has_reference = ["http://", "https://", "www.", "[url=", "[url]"]
-        .iter()
-        .any(|marker| lower.contains(marker))
-        || lower
-            .split("href")
-            .skip(1)
-            .any(|suffix| suffix.trim_start().starts_with('='));
-    !has_reference && !clean_steam_content(&content).is_empty()
+    for (start, _) in lower.match_indices("[url") {
+        let tail = &lower[start + 4..];
+        if !(tail.starts_with(']') || tail.starts_with('=')) {
+            continue;
+        }
+        let Some(open_end) = tail.find(']') else {
+            continue;
+        };
+        let label_start = start + 4 + open_end + 1;
+        let Some(close_start) = lower[label_start..].find("[/url]") else {
+            continue;
+        };
+        if is_fulltext_reference(&clean_steam_content(
+            &content[label_start..label_start + close_start],
+        )) {
+            return false;
+        }
+    }
+    !cleaned.lines().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        ["http://", "https://", "www."].iter().any(|marker| {
+            lower.match_indices(marker).any(|(start, _)| {
+                is_fulltext_reference(line[..start].trim_end().trim_end_matches(':').trim())
+            })
+        })
+    })
+}
+
+fn is_fulltext_reference(label: &str) -> bool {
+    let label = label
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    let label = label.trim_end_matches(['.', ':', '!']);
+    let label = label
+        .strip_prefix("read ")
+        .or_else(|| label.strip_prefix("see "))
+        .unwrap_or(label);
+    let label = label.strip_prefix("the ").unwrap_or(label);
+    let label = label.strip_suffix(" here").unwrap_or(label);
+    matches!(
+        label,
+        "full patch"
+            | "full patch notes"
+            | "full update"
+            | "full changelog"
+            | "complete patch"
+            | "complete patch notes"
+            | "complete update"
+            | "complete changelog"
+    )
 }
 
 fn prepare_api_patch(
@@ -1061,7 +1117,6 @@ mod tests {
             "<a href=\"https://www.playdeadlock.com/cityneversleeps\">Full update</a>",
             "<a HREF = \"/full-patch\">Full patch notes</a>",
             "[url=https://forums.playdeadlock.com/threads/update.123/]Full patch[/url]",
-            "[url]https://forums.playdeadlock.com/threads/update.123/[/url]",
             "Full patch: HTTPS://store.steampowered.com/news/app/1422450/view/123",
             "Full patch: www.playdeadlock.com/cityneversleeps",
             "&lt;a href=&quot;https://www.playdeadlock.com/cityneversleeps&quot;&gt;Full update&lt;/a&gt;",
@@ -1074,6 +1129,50 @@ mod tests {
             }
         }
         assert!(has_complete_patch_content("No gameplay changes."));
+    }
+
+    #[test]
+    fn complete_patches_keep_images_and_incidental_source_references() {
+        for reference in [
+            "<img src=\"https://cdn.example.invalid/update.png\" alt=\"Update\">",
+            "[img]https://cdn.example.invalid/update.png[/img]",
+            "<a href=\"https://forums.playdeadlock.com/threads/update.123/\">Previous patch</a>",
+            "[url=https://forums.playdeadlock.com/threads/update.123/]Source[/url]",
+            "[url]https://forums.playdeadlock.com/threads/update.123/[/url]",
+            "Source: https://forums.playdeadlock.com/threads/update.123/",
+            "&lt;a href=&quot;https://example.invalid/details&quot;&gt;Details&lt;/a&gt;",
+        ] {
+            let original = format!("{}\n{reference}", post().content);
+            assert!(has_complete_patch_content(&original), "{reference}");
+            for source in ["steam", "forum"] {
+                let mut post = post();
+                post.source = source.into();
+                if source == "forum" {
+                    post.link = "https://forums.playdeadlock.com/threads/update.75046/".into();
+                }
+                let html = if source == "forum" {
+                    forum_html(&post, &original)
+                } else {
+                    steam_html(&post, &original)
+                };
+                let resolved = resolve_api_source(&post, |_| Ok(html.clone()))
+                    .unwrap()
+                    .unwrap();
+                assert!(has_complete_patch_content(&resolved.raw_content));
+                let row = post_row(&post, Some(17)).unwrap();
+                let baseline = prepare_patch(&row, &resolved, &patch_index()).unwrap();
+                let prepared = prepare_api_patch(&row, &resolved, &patch_index()).unwrap();
+                assert_eq!(prepared.raw_payload_text, baseline.raw_payload_text);
+                assert_eq!(prepared.raw_payload_hash, baseline.raw_payload_hash);
+                assert_eq!(
+                    prepared.snapshot_payload_hash,
+                    baseline.snapshot_payload_hash
+                );
+                assert!(is_patch_candidate(&prepared, &patch_index()));
+                assert_eq!(prepared.events.len(), 1, "{source}/{reference}");
+                assert_eq!(prepared.events[0].entity_name.as_deref(), Some("Rat King"));
+            }
+        }
     }
 
     #[test]
@@ -1813,15 +1912,29 @@ mod tests {
     }
 
     #[test]
-    fn incidental_image_link_in_original_still_fails_closed() {
+    fn incidental_image_link_preserves_the_bound_original_and_events() {
         let post = post();
         let body = format!(
             "{}<img src=\"https://cdn.steamstatic.com/patch.png\">",
             post.content
         );
-        assert!(resolve_api_source(&post, |_| Ok(steam_html(&post, &body)))
+        let resolved = resolve_api_source(&post, |_| Ok(steam_html(&post, &body)))
             .unwrap()
-            .is_none());
+            .unwrap();
+        assert_eq!(resolved.raw_content, body);
+        assert_eq!(resolved.source_url.as_deref(), Some(post.link.as_str()));
+        let row = post_row(&post, Some(17)).unwrap();
+        let prepared = prepare_api_patch(&row, &resolved, &patch_index()).unwrap();
+        let payload: Value = serde_json::from_str(&prepared.raw_payload_text).unwrap();
+        assert_eq!(payload["raw_content"], body);
+        assert_eq!(prepared.events.len(), 1);
+        assert_eq!(prepared.events[0].entity_name.as_deref(), Some("Rat King"));
+        let without_image = PatchSourceResolution {
+            raw_content: post.content,
+            ..resolved
+        };
+        let baseline = prepare_api_patch(&row, &without_image, &patch_index()).unwrap();
+        assert_eq!(prepared.events[0].event_hash, baseline.events[0].event_hash);
     }
 
     #[test]

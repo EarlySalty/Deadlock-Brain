@@ -154,8 +154,35 @@ impl<'a> SourceStore<'a> {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
             Err(error) => return Err(error.into()),
         };
-        self.write_raw(source, &external_id, &raw, "bin")?;
-        Ok(true)
+        let path = self.write_raw(source, &external_id, &raw, "bin")?;
+        self.repoint_original(id, source, &hash, &path).await
+    }
+
+    async fn repoint_original(
+        &self,
+        id: i64,
+        source: &str,
+        expected_hash: &str,
+        path: &Path,
+    ) -> Result<bool> {
+        if !fs::symlink_metadata(path)?.file_type().is_file()
+            || stable_hash_bytes(&fs::read(path)?) != expected_hash
+        {
+            return Err(SourcesError::invariant(
+                "replacement raw artifact failed integrity check",
+            ));
+        }
+        let result = sqlx::query(
+            "UPDATE brain.source_documents SET raw_path=$1 \
+             WHERE id=$2 AND source=$3 AND content_hash=$4",
+        )
+        .bind(path.to_string_lossy().as_ref())
+        .bind(id)
+        .bind(source)
+        .bind(expected_hash)
+        .execute(self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
     }
 
     pub(crate) async fn persist_ir(
@@ -243,8 +270,8 @@ impl<'a> SourceStore<'a> {
             return Ok(id);
         }
 
-        let existing = sqlx::query_as::<_, (i64, String)>(
-            "SELECT id, raw_path FROM brain.source_documents \
+        let existing = sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM brain.source_documents \
              WHERE source=$1 AND external_id=$2 AND content_hash=$3",
         )
         .bind(document.source)
@@ -253,12 +280,15 @@ impl<'a> SourceStore<'a> {
         .fetch_optional(self.pool)
         .await?;
 
-        let (id, existing_path) = existing.ok_or_else(|| {
+        let id = existing.ok_or_else(|| {
             SourcesError::invariant("source_documents row missing after INSERT ... ON CONFLICT")
         })?;
-        if stable_hash_bytes(&fs::read(existing_path)?) != content_hash {
+        if !self
+            .repoint_original(id, document.source, &content_hash, document.raw_path)
+            .await?
+        {
             return Err(SourcesError::invariant(
-                "existing raw artifact failed integrity check",
+                "source_documents row missing while relocating verified original",
             ));
         }
         Ok(id)
