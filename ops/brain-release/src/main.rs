@@ -37,10 +37,10 @@ fn privileged() -> Result<()> {
     Ok(())
 }
 
-fn operator_verify(source: &Path, bundle: &Path) -> Result<Manifest> {
+fn operator_manifest(verb: &str, source: &Path, bundle: &Path) -> Result<Manifest> {
     privileged()?;
     let mut command = source::command(TRUSTED_HELPER);
-    command.args(["verify"]).arg(source).arg(bundle);
+    command.arg(verb).arg(source).arg(bundle);
     command.stderr(std::process::Stdio::inherit());
     unsafe {
         command.pre_exec(|| {
@@ -64,6 +64,27 @@ fn operator_verify(source: &Path, bundle: &Path) -> Result<Manifest> {
     Ok(manifest)
 }
 
+fn operator_verify(source: &Path, bundle: &Path) -> Result<Manifest> {
+    operator_manifest("verify", source, bundle)
+}
+
+fn witnessed_build(source: &Path, bundle: &Path) -> Result<Manifest> {
+    privileged()?;
+    let installer = install::Installer::open(Path::new(install::ROOT), 0)?;
+    let manifest = operator_manifest("compile", source, bundle)?;
+    ensure!(
+        manifest.format == 3,
+        "Einmal-Build benötigt Manifestformat 3"
+    );
+    installer.stage(bundle, &manifest)?;
+    ensure!(
+        operator_verify(source, bundle)? == manifest,
+        "Bestätigter Build hat sich verändert"
+    );
+    eprintln!("Einmal-Build bestätigt; Releasezeiger unverändert");
+    Ok(manifest)
+}
+
 fn main_result() -> Result<()> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     let verb = args.first().and_then(|s| s.to_str()).unwrap_or("");
@@ -82,10 +103,22 @@ fn main_result() -> Result<()> {
             let state = source::inspect(&source)?;
             ensure!(state.sha == remote, "Quelle liegt nicht auf Remote-main");
             println!("{}", serde_json::to_string_pretty(&state)?);
-            println!("Buildargv: /home/nathanael/.cargo/bin/cargo {} --target-dir <neues Bundle>/target", source::BUILD_ARGS.join(" "));
+            println!("Buildargv: /home/nathanael/.cargo/bin/cargo {} --target-dir {} (frisch, exklusiv, danach entfernt)", source::BUILD_ARGS.join(" "), build::TARGET);
+            println!("RUSTFLAGS={} | sccache=/home/nathanael/.cache/sccache | Buildbeleg in root-eigenen Release-Layouts", build::RUSTFLAGS);
             Ok(())
         }
-        ("build", 3) => print_manifest(&build::compile(Path::new(&args[1]), Path::new(&args[2]))?),
+        ("build", 3) if uid() == OPERATOR => {
+            ensure!(std::env::var_os("CARGO_TARGET_DIR").is_none(), "Globales CARGO_TARGET_DIR ist nicht erlaubt");
+            let status = source::command("/usr/bin/sudo")
+                .args(["-n", "--", TRUSTED_HELPER, "build"])
+                .arg(&args[1])
+                .arg(&args[2])
+                .status()?;
+            ensure!(status.success(), "Bestätigter Releasebau fehlgeschlagen (Exit {:?})", status.code());
+            Ok(())
+        }
+        ("build", 3) => print_manifest(&witnessed_build(Path::new(&args[1]), Path::new(&args[2]))?),
+        ("compile", 3) => print_manifest(&build::compile(Path::new(&args[1]), Path::new(&args[2]))?),
         ("verify", 3) => print_manifest(&source::verify(Path::new(&args[1]), Path::new(&args[2]))?),
         ("install", 3) => {
             privileged()?;

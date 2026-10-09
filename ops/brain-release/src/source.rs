@@ -39,6 +39,12 @@ pub struct Source {
     pub git_pointer_sha256: String,
 }
 
+impl Source {
+    pub fn same_revision(&self, other: &Self) -> bool {
+        self.sha == other.sha && self.tree == other.tree && self.fingerprint == other.fingerprint
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Artifact {
@@ -282,7 +288,7 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<()> {
     fs_safe::sha(&manifest.source.sha)?;
     fs_safe::sha(&manifest.source.tree)?;
     ensure!(
-        manifest.format == 2
+        [2, 3].contains(&manifest.format)
             && manifest.origin == ORIGIN
             && !manifest.cargo_version.is_empty()
             && !manifest.rustc_version.is_empty(),
@@ -336,7 +342,7 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<()> {
 pub fn compare_artifacts(provided: &[Artifact], compiled: &[Artifact]) -> Result<()> {
     ensure!(
         provided == compiled,
-        "Bundlebytes stammen nicht aus dem frisch geprüften Sourcebuild"
+        "Bundlebytes weichen vom bestätigten Sourcebuild ab"
     );
     Ok(())
 }
@@ -350,14 +356,17 @@ pub fn verify(source: &Path, bundle: &Path) -> Result<Manifest> {
     )?)?;
     validate_manifest(&candidate)?;
     verify_unchanged(source, bundle, &candidate)?;
-    let scratch = tempfile::Builder::new()
-        .prefix("brain-release-verify-")
-        .tempdir_in("/home/nathanael/.cache")?;
-    let compiled = crate::build::compile(source, &scratch.path().join("bundle"))?;
+    ensure!(
+        candidate.format == 3,
+        "Altes Bundle ohne bestätigten Einmal-Build: build erneut ausführen"
+    );
+    let (compiled, _) =
+        crate::install::build_proof(Path::new(crate::install::ROOT), &candidate.source.sha, 0)?
+            .context("Root-eigener Buildbeleg fehlt: build ausführen")?;
     compare_artifacts(&candidate.artifacts, &compiled.artifacts)?;
     ensure!(
         candidate == compiled,
-        "Buildmanifest weicht vom tatsächlich ausgeführten Sourcebuild ab"
+        "Buildmanifest weicht vom root-eigenen Sourcebuild ab"
     );
     verify_unchanged(source, bundle, &compiled)?;
     Ok(compiled)
@@ -375,9 +384,10 @@ pub fn verify_unchanged(source: &Path, bundle: &Path, manifest: &Manifest) -> Re
         "Bundlemanifest während Prüfung geändert"
     );
     validate_manifest(manifest)?;
+    let source_state = inspect(source)?;
     ensure!(
-        inspect(source)? == manifest.source,
-        "Quelle verändert oder vertauscht"
+        source_state.same_revision(&manifest.source),
+        "Quelle gehört nicht zum bestätigten Quellbaum"
     );
     ensure!(
         inventory(source)?
@@ -389,7 +399,7 @@ pub fn verify_unchanged(source: &Path, bundle: &Path, manifest: &Manifest) -> Re
         "Binary-Inventar stimmt nicht mit dem integrierten Workspace überein"
     );
     ensure!(
-        inspect(source)? == manifest.source,
+        inspect(source)? == source_state,
         "Quelle während Inventarprüfung verändert"
     );
     for artifact in &manifest.artifacts {
@@ -404,7 +414,7 @@ pub fn verify_unchanged(source: &Path, bundle: &Path, manifest: &Manifest) -> Re
         "Remote-main hat sich geändert"
     );
     ensure!(
-        inspect(source)? == manifest.source,
+        inspect(source)? == source_state,
         "Quelle während Artefaktprüfung verändert"
     );
     ensure!(
@@ -412,4 +422,37 @@ pub fn verify_unchanged(source: &Path, bundle: &Path, manifest: &Manifest) -> Re
         "Remote-main hat sich geändert"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reuse_requires_the_complete_revision_not_the_old_worktree_path() {
+        let source = Source {
+            sha: "a".repeat(40),
+            tree: "b".repeat(40),
+            fingerprint: "c".repeat(64),
+            path: "/home/nathanael/.worktrees/first".into(),
+            worktree_dev: 1,
+            worktree_ino: 2,
+            git_pointer_sha256: "d".repeat(64),
+        };
+        let mut other = source.clone();
+        other.path = "/home/nathanael/.worktrees/second".into();
+        other.worktree_ino = 3;
+        other.git_pointer_sha256 = "e".repeat(64);
+        assert_ne!(source, other);
+        assert!(source.same_revision(&other));
+        for field in ["sha", "tree", "fingerprint"] {
+            let mut changed = other.clone();
+            match field {
+                "sha" => changed.sha = "f".repeat(40),
+                "tree" => changed.tree = "f".repeat(40),
+                _ => changed.fingerprint = "f".repeat(64),
+            }
+            assert!(!source.same_revision(&changed));
+        }
+    }
 }
