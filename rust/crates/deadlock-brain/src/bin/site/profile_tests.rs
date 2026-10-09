@@ -112,13 +112,13 @@ async fn public_profiles_use_the_isolated_role_and_recheck_source_grants() {
         .await
         .is_err());
     let root = fixtures();
-    let router = super::super::router_with_release(
-        root.path(),
-        pool.clone(),
-        Some(release.release_id.clone()),
-    )
-    .await
-    .unwrap();
+    let config_path = root.path().join("serve.json");
+    let config = serde_json::to_vec(&json!({"release":{"id":release.release_id}})).unwrap();
+    std::fs::write(&config_path, &config).unwrap();
+    let router =
+        super::super::router_with_config(root.path(), pool.clone(), Some(config_path.clone()))
+            .await
+            .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let handle = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
@@ -168,6 +168,58 @@ async fn public_profiles_use_the_isolated_role_and_recheck_source_grants() {
             .unwrap()
             .status(),
         StatusCode::NOT_FOUND
+    );
+    let empty_release = CorpusRelease {
+        release_id: "empty-profile-release".into(),
+        source_revisions: BTreeMap::new(),
+        ..release.clone()
+    };
+    sqlx::query("INSERT INTO brain.corpus_releases_v1(release_id,knowledge_version,patch,release_json) VALUES($1,$2,$3,$4)")
+        .bind(&empty_release.release_id).bind(&empty_release.knowledge_version).bind(&empty_release.patch).bind(serde_json::to_value(&empty_release).unwrap()).execute(&owner).await.unwrap();
+    let replacement = root.path().join("serve-next.json");
+    std::fs::write(
+        &replacement,
+        serde_json::to_vec(&json!({"release":{"id":empty_release.release_id}})).unwrap(),
+    )
+    .unwrap();
+    std::fs::rename(&replacement, &config_path).unwrap();
+    assert_eq!(
+        client
+            .get(format!("{url}{path}"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let index = client
+        .get(format!("{url}/site/steckbriefe"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(index.status(), StatusCode::OK);
+    assert!(!index.text().await.unwrap().contains("Testheld"));
+    std::fs::write(&config_path, b"invalid configuration").unwrap();
+    for request_path in [&path, "/site/steckbriefe"] {
+        assert_eq!(
+            client
+                .get(format!("{url}{request_path}"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+    std::fs::write(&config_path, &config).unwrap();
+    assert_eq!(
+        client
+            .get(format!("{url}{path}"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
     );
     let mut revoked = record.clone();
     revoked.revision = 2;

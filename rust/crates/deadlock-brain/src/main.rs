@@ -31,6 +31,12 @@ mod site;
 mod steam_web_api;
 mod wiki_refresh;
 
+#[derive(Debug, Args)]
+struct SiteMigrationArgs {
+    #[command(flatten)]
+    database: site::database::ConnectionArgs,
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "deadlock-brain")]
 struct Cli {
@@ -43,7 +49,7 @@ enum Commands {
     #[command(about = "Zeigt öffentliche Spielvergleiche und Steckbriefe auf der Brain-Site.")]
     Site(site::Args),
     #[command(about = "Richtet den begrenzten öffentlichen Steckbriefzugriff ein.")]
-    SiteMigrate(site::MigrationArgs),
+    SiteMigrate(SiteMigrationArgs),
     #[command(
         about = "Stellt eine Frage ausschließlich über den typisierten brain-serve/BrainClient-Pfad."
     )]
@@ -1626,11 +1632,20 @@ fn assets_storage_path(path: &std::path::Path) -> Result<PathBuf> {
     Ok(resolved)
 }
 
+async fn run_site_migrate(args: SiteMigrationArgs) -> Result<()> {
+    let pool = args.database.pool("brain_migrate").await?;
+    let store = brain_storage::PgStore::new(pool);
+    store.migrate_site_comments().await?;
+    store.migrate_compare_artifacts().await?;
+    store.migrate_site_profiles().await?;
+    Ok(())
+}
+
 async fn run(cli: Cli) -> Result<()> {
     let Cli { command } = cli;
     let command = match command {
         Commands::Site(args) => return site::serve(args).await,
-        Commands::SiteMigrate(args) => return site::migrate(args).await,
+        Commands::SiteMigrate(args) => return run_site_migrate(args).await,
         Commands::Pull {
             source: PullCommands::Forum(args),
         } => return run_forum_pull(args).await,
