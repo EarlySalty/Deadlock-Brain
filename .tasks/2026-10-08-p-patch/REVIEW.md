@@ -1,0 +1,24 @@
+# P: Befunde und regulärer Gate
+
+Historischer Bericht des Vorgängers P. In P2 ist das Kosmetikveto entfernt: Erkannte Patches behalten kosmetische und ungebundene Änderungszeilen.
+
+1. Bestätigt: first_post_html nimmt den ersten sichtbaren Beitrag ohne Originalbindung. API-Import akzeptiert bislang Folgeseiten und kann vorhandene Ereignisse ersetzen. Bindung wird vor dem vorhandenen Reader geprüft.
+2. Bestätigt: Kosmetikveto prüft die ganze Klausel einschließlich gebundenem Namen Metal Skin. Prüfung muss auf den Änderungsteil begrenzt werden; kosmetische Änderungen am selben Item bleiben ausgeschlossen.
+3. Im erhaltenen P-Stand bereits korrigiert: resolve_api_source ruft die Originalquelle immer ab, Feedauszüge dienen nicht als Volltextfallback. Vorhandene Regression unlinked_feed_teaser_never_replaces_original_events wird beibehalten.
+4. Bestätigt: section_heading erkennt kurze narrative Änderungen als Überschrift, expand_inline_bullets kann Sternchenzeilen als Text mit Sternchen normalisieren. Gameplayprojektion muss den vorhandenen Reader verwenden und kurze echte Änderungen vor der Überschriftenerkennung bewerten.
+
+Noch kein eigenes Gateurteil. Das historische ALLOW wird nicht wiederverwendet. Historischer Featurestand: 45 Patchtests bestanden, 1 DB-Scratchtest ignoriert; striktes Clippy und Formatcheck Exit 0. Die ausdrückliche Freigabe aus ENTSCHEIDUNG-WACHE-037.md Abschnitt 1 erlaubt jetzt ausschließlich den bestehenden 11-zeiligen Readerexport. Dieser ist im eigenen engen Mainlieferworktree integriert, ohne fremde Kommentarlöschungen. Gemeinsame Prüfung läuft separat.
+
+Scratch-Reimportregression verwendet echte import_prepared_patch-Transaktionen mit einem schema-only-Abzug der bestehenden Tabellen einschließlich Fremdschlüssel und Constraints. Fixturetexte bleiben synthetisch. Zwei vollständige Originaländerungen, verkürzte Feedauszüge, unveränderte Dokument-/Snapshotbindung, Patch- und Knowledgeereignisse sowie fremde Quellen und Abruffehler werden geprüft. Kein Produktionszustand wird manuell geändert.
+
+Die echte Reimportprüfung fand zwei zusätzliche Fehler im autorisierten Patchpfad: gemischte kompakte Abschnittszeilen und narrative Folgezeilen verloren das gebundene Item. patch_lines verwendet jetzt denselben vorhandenen Abschnittsreader auch je Einzelzeile. Anschließend scheiterte die echte SQL-Transaktion am untypisierten Parameter $20 des gemeinsamen Update-/Insertparametersatzes. Der Kandidaten-CTE bindet diesen insertseitigen Hash ausdrücklich als text, ohne Kandidatenauswahl oder Ereignishashes zu verändern. Beide Fehler wurden am realen Prüflauf beobachtet; keine unbelegte Altfehlerbehauptung.
+
+## Regulärer BLOCK und frischer Fixer, Runde 1
+
+Ausgangspunkt e7d90c3644a3a57c94ae52a21febec6e0df0eb83, Gatebasis 2e0de01f0da4bbb7f6630832b52b0694ea566c6f. Tatsächlicher BLOCK von gpt-6.1-sol, high, vollständig in /tmp/brain-p-delivery-gate-r1.log. Das Urteil wird nicht durch ein anderes Modell ersetzt.
+
+1. Bestätigt und korrigiert: akzeptierte Steam-Prefixe hatten keine zwingende Kennung. Der API-Guard akzeptiert jetzt exakt die bestehenden Event-/Announcementformen mit nichtleerer numerischer Kennung und optional einem abschließenden Slash. Der API-Reader erhält diese konkrete Kennung. Rootpfade, fremde Unterpfade und fehlende Kennungen scheitern vor dem Abruf. Regressionen prüfen auch fremde Ereignisse und beliebige /view/-Links im Original-HTML sowie unveränderte kanonische Zuordnung. Legacyimporte und HTTP-Verträge bleiben unverändert.
+2. Bestätigt und korrigiert: Abschnittsüberschriften banden folgende Gameplayklauseln nicht. Die Projektion verwendet patch_lines, section_heading, section_subject und die exakten EntityIndex-Aliase. Erkannte Hero-/Itemabschnitte liefern den Klauselbezug; neue ungebundene Überschriften setzen ihn zurück. Explizite Klauselsubjekte und die vorhandene Satzgrenze bleiben maßgeblich. Regressionen decken die gebundene Wortfamilie, nackte numerische Übergänge, Hero-/Itemnamen, Abschnittsaliase und kosmetische beziehungsweise ungebundene Gegenfälle ab. Die echte Scratch-Reimportregression verwendet nun eine Holliday-Überschrift mit folgendem Knockback-Bullet.
+3. Korrigiert: ausschließlich die dry_run-Hilfe von PgSyncPatchnotesArgs beschreibt jetzt Datenbankzugriff und HTTP-Abrufe ohne Steam-Abrufjournal. Keine weitere CLI- oder Readeränderung.
+
+Eigene Folgeprüfung abgeschlossen: Patchsuite 51 passed, 0 failed, 0 ignored mit beiden echten Scratch-Postgresfällen; vollständige CLI-Suite 121 passed, 0 failed, 3 ignored; Reader 5 passed, 0 failed, 1 ignored. Striktes Clippy und enger Formatcheck Exit 0. Tatsächliche Befehle, Protokolle und die abgelaufene erste CLI-Slotwartezeit stehen in PRUEFBEFEHLE.md. Das erneute reguläre Gate steht noch aus. Historische Prüfzahlen oben belegen diese Fixrunde nicht.

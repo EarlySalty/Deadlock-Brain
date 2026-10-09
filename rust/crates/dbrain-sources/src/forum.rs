@@ -476,6 +476,17 @@ fn parse_threads_from_sitemap(sitemap_url: &str, xml: &str) -> Result<Vec<Sitema
     Ok(threads)
 }
 
+pub fn first_post_html(html: &str) -> Result<String> {
+    let thread = parse_thread_html(html)?;
+    thread
+        .posts
+        .into_iter()
+        .next()
+        .map(|post| post.html)
+        .filter(|body| !body.trim().is_empty())
+        .ok_or_else(|| SourcesError::invalid_input("Forumoriginal ohne lesbaren ersten Beitrag."))
+}
+
 fn parse_thread_html(html: &str) -> Result<ParsedThread> {
     response_text_checked(html)?;
     let document = Html::parse_document(html);
