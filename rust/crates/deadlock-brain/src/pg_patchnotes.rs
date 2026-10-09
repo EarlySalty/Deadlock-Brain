@@ -2023,11 +2023,8 @@ fn expand_inline_bullets_with(raw_line: &str, changes_only: bool) -> Vec<String>
         return vec![raw_line.to_string()];
     }
 
-    let normalized = if let Some(rest) = stripped.strip_prefix("- ") {
-        rest.trim()
-    } else {
-        stripped
-    };
+    let bullet = bullet_body(stripped);
+    let normalized = bullet.as_deref().unwrap_or(stripped).trim();
 
     if split_subject(normalized).0.is_some() {
         let mut grouped = Vec::<String>::new();
@@ -3075,9 +3072,9 @@ mod tests {
         )
         .expect("flat");
         assert_eq!(lines.len(), 4);
-        assert_eq!(lines[0], "General Changes");
+        assert_eq!(lines[0], "[ General Changes ]");
         assert_eq!(lines[1], "- Added A");
-        assert_eq!(lines[2], "Gameplay Changes");
+        assert_eq!(lines[2], "[ Gameplay Changes ]");
         assert_eq!(lines[3], "- Abrams: Base Health increased from 550 to 600");
     }
 
