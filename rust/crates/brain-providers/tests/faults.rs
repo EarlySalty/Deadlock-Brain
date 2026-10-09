@@ -36,7 +36,7 @@ fn context() -> AuthorizedContext {
         },
         conversation_id: "fixture-conversation".into(),
         knowledge_release: "fixture-release".into(),
-        deadline_ms: 500,
+        deadline_ms: 5000,
         budget: Budget::default(),
     }
 }
@@ -142,7 +142,7 @@ fn fixture_requests<F: FnOnce(ProviderConfig) -> R, R>(
     );
     config.retry_attempts = 2;
     config.retry_backoff = Duration::from_millis(1);
-    config.timeout = Duration::from_millis(100);
+    config.timeout = Duration::from_millis(1000);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(config)));
     stop.store(true, Ordering::SeqCst);
     let server_result = server.join();
@@ -273,14 +273,19 @@ fn deduct(context: &AuthorizedContext, usage: &Usage) -> AuthorizedContext {
 }
 
 fn raw_tool_response(native: bool, arguments: &str) -> String {
+    raw_named_tool_response(native, ToolName::EntityFind, arguments)
+}
+
+fn raw_named_tool_response(native: bool, name: ToolName, arguments: &str) -> String {
+    let name = name.as_str();
     if native {
         format!(
-            r#"{{"model":"gpt-6-luna","stop_reason":"tool_use","content":[{{"type":"tool_use","id":"call-1","name":"entity_find","input":{arguments}}}],"usage":{{"input_tokens":10,"output_tokens":3}}}}"#
+            r#"{{"model":"gpt-6-luna","stop_reason":"tool_use","content":[{{"type":"tool_use","id":"call-1","name":"{name}","input":{arguments}}}],"usage":{{"input_tokens":10,"output_tokens":3}}}}"#
         )
     } else {
         let arguments = serde_json::json!(arguments);
         format!(
-            r#"{{"model":"fixture-model","choices":[{{"finish_reason":"tool_calls","message":{{"content":null,"tool_calls":[{{"id":"call-1","type":"function","function":{{"name":"entity_find","arguments":{arguments}}}}}]}}}}],"usage":{{"prompt_tokens":10,"completion_tokens":3}}}}"#
+            r#"{{"model":"fixture-model","choices":[{{"finish_reason":"tool_calls","message":{{"content":null,"tool_calls":[{{"id":"call-1","type":"function","function":{{"name":"{name}","arguments":{arguments}}}}}]}}}}],"usage":{{"prompt_tokens":10,"completion_tokens":3}}}}"#
         )
     }
 }
@@ -679,19 +684,19 @@ fn transiente_http_fehlerkoerper_timeout_respektiert_die_urspruengliche_frist() 
             let (result, calls, requests) = fixture_requests(
                 vec![
                     (
-                        Duration::from_millis(150),
+                        Duration::from_millis(1500),
                         json_response("503 Unavailable", "{}"),
                     ),
                     (Duration::ZERO, json_response("200 OK", &success)),
                 ],
                 |mut config| {
-                    config.timeout = Duration::from_millis(100);
+                    config.timeout = Duration::from_millis(1000);
                     let mut context = turn_context();
                     context.budget.max_output_tokens = 40;
                     if expires {
                         context.deadline_ms = 5000;
                         context.request_deadline =
-                            Some(RequestDeadline::after(Duration::from_millis(50)));
+                            Some(RequestDeadline::after(Duration::from_millis(500)));
                     }
                     let deadline = context.request_deadline.as_ref().unwrap().expires_at();
                     let result = turn_provider(native, config).answer_turn_accounted(
@@ -878,6 +883,110 @@ fn duplicate_raw_arguments_fail_closed_in_both_wire_forms_without_retry() {
                 "native={native}, case={case}"
             );
             assert_eq!(calls, 1);
+        }
+    }
+}
+
+#[test]
+fn nested_duplicate_raw_arguments_require_unique_keys_in_canonical_fields() {
+    let tools = vec![ToolDefinition {
+        name: ToolName::DamageCalculate,
+        description: "Schaden berechnen".into(),
+        input_schema: serde_json::json!({
+            "type":"object",
+            "properties":{
+                "hero_id":{"type":"integer","minimum":1},
+                "scenario":{
+                    "type":"object",
+                    "properties":{
+                        "progression":{
+                            "type":"object",
+                            "properties":{
+                                "kind":{"type":"string","enum":["boons"]},
+                                "value":{"type":"integer","minimum":0}
+                            },
+                            "required":["kind","value"],
+                            "additionalProperties":false
+                        },
+                        "ability_ranks":{
+                            "type":"array",
+                            "items":{
+                                "type":"object",
+                                "properties":{
+                                    "ability_id":{"type":"integer","minimum":1},
+                                    "rank":{"type":"integer","minimum":0}
+                                },
+                                "required":["ability_id","rank"],
+                                "additionalProperties":false
+                            }
+                        }
+                    },
+                    "required":["progression"],
+                    "additionalProperties":false
+                }
+            },
+            "required":["hero_id","scenario"],
+            "additionalProperties":false
+        }),
+    }];
+    let cases = [
+        (
+            r#"{"hero_id":1,"scenario":{"progression":{"kind":"boons","value":1,"value":2}}}"#,
+            r#"{"hero_id":1,"scenario":{"progression":{"kind":"boons","value":2}}}"#,
+        ),
+        (
+            r#"{"hero_id":1,"scenario":{"progression":{"kind":"boons","value":20},"ability_ranks":[{"ability_id":1,"rank":null,"rank":1}]}}"#,
+            r#"{"hero_id":1,"scenario":{"progression":{"kind":"boons","value":20},"ability_ranks":[{"ability_id":1,"rank":1}]}}"#,
+        ),
+        (
+            concat!(
+                r#"{"hero_id":1,"scenario":{"progression":{"kind":"boons","value":1,""#,
+                "\\u0076",
+                r#"alue":2}}}"#
+            ),
+            r#"{"hero_id":1,"scenario":{"progression":{"kind":"boons","value":2}}}"#,
+        ),
+    ];
+    for native in [false, true] {
+        for (case, (duplicate, control)) in cases.iter().enumerate() {
+            for (arguments, valid) in [(*control, true), (*duplicate, false)] {
+                let body = raw_named_tool_response(native, ToolName::DamageCalculate, arguments);
+                let (result, calls) = fixture(
+                    vec![(Duration::ZERO, json_response("200 OK", &body))],
+                    |config| {
+                        turn_provider(native, config).answer_turn(
+                            &query(),
+                            &turn_context(),
+                            &[],
+                            &tools,
+                            &ToolConversation::default(),
+                        )
+                    },
+                );
+                assert_eq!(calls, 1, "native={native}, case={case}, valid={valid}");
+                if valid {
+                    let ProviderTurn::ToolCalls { blocks, .. } = result.unwrap() else {
+                        panic!("expected valid canonical tool arguments")
+                    };
+                    assert_eq!(
+                        blocks,
+                        vec![ModelBlock::ToolUse {
+                            call: ToolCall {
+                                id: "call-1".into(),
+                                name: ToolName::DamageCalculate,
+                                arguments: serde_json::from_str(arguments).unwrap(),
+                            }
+                        }],
+                        "native={native}, case={case}"
+                    );
+                } else {
+                    assert_eq!(
+                        result,
+                        Err(PortError::InvalidResponse("invalid chat schema".into())),
+                        "native={native}, case={case}"
+                    );
+                }
+            }
         }
     }
 }
@@ -1944,7 +2053,7 @@ fn bounded_chunked_response_and_timeout_are_errors() {
     assert!(matches!(result, Err(PortError::InvalidResponse(_))));
     assert_eq!(calls, 1);
     let (result, _) = fixture(
-        vec![(Duration::from_millis(150), json_response("200 OK", CHAT))],
+        vec![(Duration::from_millis(1500), json_response("200 OK", CHAT))],
         |mut c| {
             c.retry_attempts = 1;
             OpenAiCompatibleProvider::new(c)
