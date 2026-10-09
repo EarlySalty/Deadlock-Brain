@@ -338,6 +338,7 @@ mod tests {
 
     fn build(ids: &[i64]) -> BuildObject {
         BuildObject {
+            provenance: None,
             family: None,
             variants: Vec::new(),
             family_discovery: None,

@@ -286,8 +286,15 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
     let pg = scratch_pg::ScratchPg::start();
     let runtime = test_runtime();
     let (_store, retrieval, pool) = runtime.block_on(setup(&pg, true));
+    let mirror = brain_storage::entity_profile::MirroredGameContextReader::new(
+        pool.clone(),
+        runtime.handle().clone(),
+        ToolLanguage::German,
+    )
+    .unwrap();
     let port = ReleaseToolExecutionPort::new(retrieval.clone())
-        .with_knowledge_retrieval(Knowledge(retrieval.clone()));
+        .with_knowledge_retrieval(Knowledge(retrieval.clone()))
+        .with_mirrored_entities(mirror);
     let kernel = Kernel::new(retrieval, Provider).with_tools(port, KnowledgeResolver, "fixture");
     let (query, mut context, _) = context();
     context.deadline_ms = 60000;
@@ -300,6 +307,70 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
     assert!(!outcome.accounting.unaccounted);
     assert!(!outcome.value.citations.is_empty());
     runtime.block_on(pool.close());
+}
+
+#[test]
+fn tool_definitions_follow_configured_capabilities_without_resolving_a_game_pin() {
+    let pg = scratch_pg::ScratchPg::start();
+    let runtime = test_runtime();
+    let (_store, retrieval, pool) = runtime.block_on(setup(&pg, true));
+    let unconfigured = ReleaseToolExecutionPort::new(retrieval.clone());
+    let mirror = brain_storage::entity_profile::MirroredGameContextReader::new(
+        pool.clone(),
+        runtime.handle().clone(),
+        ToolLanguage::German,
+    )
+    .unwrap();
+    let configured = ReleaseToolExecutionPort::new(retrieval).with_mirrored_entities(mirror);
+    runtime.block_on(pool.close());
+    let (mut query, context, _) = context();
+    let pin = brain_contracts::PinnedGameContext {
+        client_version: 6759,
+        language: ToolLanguage::English,
+        mechanic_revision: "unresolved-fixture-pin".into(),
+    };
+    for text in [
+        "Öffentliches Serverwissen",
+        "Unbekannter Begriff",
+        "What is this?",
+    ] {
+        query.text = text.into();
+        for game in [None, Some(&pin)] {
+            let definitions = unconfigured.definitions(&query, &context, game).unwrap();
+            assert_eq!(definitions.len(), 1);
+            assert_eq!(definitions[0].name, ToolName::ServerKnowledge);
+            let available = configured.definitions(&query, &context, game).unwrap();
+            assert_eq!(
+                available
+                    .iter()
+                    .map(|definition| definition.name)
+                    .collect::<Vec<_>>(),
+                vec![
+                    ToolName::ServerKnowledge,
+                    ToolName::EntityFind,
+                    ToolName::EntityProfile
+                ]
+            );
+            for call in [
+                ToolCall {
+                    id: "find".into(),
+                    name: ToolName::EntityFind,
+                    arguments: json!({"query":"Unbekannt","language":"english"}),
+                },
+                ToolCall {
+                    id: "profile".into(),
+                    name: ToolName::EntityProfile,
+                    arguments: json!({"entity":{"kind":"item","id":8},"fields":["zero"]}),
+                },
+            ] {
+                assert!(call.validate(&definitions).is_err());
+                let request = call.validate(&available).unwrap();
+                assert!(unconfigured
+                    .execute(&query, &context, game, &call.id, &request)
+                    .is_err());
+            }
+        }
+    }
 }
 
 #[test]
@@ -449,10 +520,16 @@ fn actual_port_preserves_request_receipt_and_current_purpose_permissions() {
     let pg = scratch_pg::ScratchPg::start();
     let runtime = test_runtime();
     let (store, retrieval, pool) = runtime.block_on(setup(&pg, true));
-    let port = ReleaseToolExecutionPort::new(retrieval);
+    let mirror = brain_storage::entity_profile::MirroredGameContextReader::new(
+        pool.clone(),
+        runtime.handle().clone(),
+        ToolLanguage::German,
+    )
+    .unwrap();
+    let port = ReleaseToolExecutionPort::new(retrieval).with_mirrored_entities(mirror);
     let (query, context, _) = context();
     let definitions = port.definitions(&query, &context, None).unwrap();
-    assert_eq!(definitions.len(), 1);
+    assert_eq!(definitions.len(), 3);
     assert_eq!(definitions[0].name, ToolName::ServerKnowledge);
     for purpose in [
         ToolValidationPurpose::Provider,
@@ -723,7 +800,11 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
         .with_mirrored_entities(reader.clone());
     let (query, context, clock) = context();
     let pin = reader.resolve(&query, &context).unwrap().unwrap();
-    let definitions = port.definitions(&query, &context, Some(&pin)).unwrap();
+    let definitions = port.definitions(&query, &context, None).unwrap();
+    assert_eq!(
+        definitions,
+        port.definitions(&query, &context, Some(&pin)).unwrap()
+    );
     assert_eq!(definitions.len(), 3);
     assert!(!definitions
         .iter()
@@ -734,14 +815,42 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
         .unwrap();
     assert_eq!(
         find_schema.input_schema["properties"]["language"]["enum"],
-        json!(["german"])
+        json!(["german", "english"])
     );
-    let foreign_language = ToolCall {
-        id: "foreign-language".into(),
+    let english = ToolCall {
+        id: "english-search".into(),
         name: ToolName::EntityFind,
         arguments: json!({"query":"Prüfdaten","kind":"hero","language":"english"}),
     };
-    assert!(foreign_language.validate(&definitions).is_err());
+    let english_request = english.validate(&definitions).unwrap();
+    let english_execution = port
+        .execute(&query, &context, None, &english.id, &english_request)
+        .unwrap();
+    english_execution
+        .validate_for(&english, &english_request, None)
+        .unwrap();
+    assert_eq!(
+        english_execution.dependencies[0].game_context.as_ref(),
+        Some(&pin)
+    );
+    assert!(english_execution.dependencies[0]
+        .evidence
+        .iter()
+        .any(|evidence| { evidence.logical_id.contains("heroes_all/english") }));
+    for purpose in [
+        ToolValidationPurpose::Provider,
+        ToolValidationPurpose::Cache,
+        ToolValidationPurpose::Publication,
+    ] {
+        port.validate_dependencies(
+            &query,
+            &context,
+            None,
+            &english_execution.dependencies,
+            purpose,
+        )
+        .unwrap();
+    }
     let mut saved = None;
     for (kind, id, name) in [
         ("hero", 7, "Prüfdaten"),
@@ -755,8 +864,10 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
         };
         let request = call.validate(&definitions).unwrap();
         let execution = port
-            .execute(&query, &context, Some(&pin), &call.id, &request)
+            .execute(&query, &context, None, &call.id, &request)
             .unwrap();
+        execution.validate_for(&call, &request, None).unwrap();
+        assert_eq!(execution.dependencies[0].game_context.as_ref(), Some(&pin));
         assert_eq!(
             execution.result.result["matches"],
             json!([{"kind":kind,"id":id,"name":name}])
