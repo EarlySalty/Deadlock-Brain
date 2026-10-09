@@ -169,6 +169,13 @@ impl Postgres {
 
 impl Drop for Postgres {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!(
+                "{}",
+                fs::read_to_string(self.directory.path().join("postgres.log"))
+                    .unwrap_or_else(|error| error.to_string())
+            );
+        }
         let result = Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
             .arg("-D")
             .arg(self.directory.path().join("data"))
@@ -463,6 +470,7 @@ async fn postgres_http_comments_survive_restart_and_roles_are_isolated() {
             .unwrap(),
         saved
     );
+    let mut connection = pool.acquire().await.unwrap();
     for statement in [
         "INSERT INTO brain.site_comments_v1(group_key,text,ts) VALUES ('test','test','')",
         "SELECT nextval('brain.site_comments_v1_id_seq')",
@@ -472,7 +480,10 @@ async fn postgres_http_comments_survive_restart_and_roles_are_isolated() {
         "CREATE TABLE brain.site_forbidden(id int)",
         "SELECT setval('brain.site_comments_v1_id_seq',1)",
     ] {
-        let error = sqlx::query(statement).execute(&pool).await.unwrap_err();
+        let error = sqlx::query(statement)
+            .execute(&mut *connection)
+            .await
+            .unwrap_err();
         assert_eq!(
             error
                 .as_database_error()
@@ -483,6 +494,7 @@ async fn postgres_http_comments_survive_restart_and_roles_are_isolated() {
             "{statement}"
         );
     }
+    drop(connection);
     sqlx::query("ALTER TABLE brain.site_comments_v1 RENAME TO site_comments_test_unavailable")
         .execute(&owner)
         .await

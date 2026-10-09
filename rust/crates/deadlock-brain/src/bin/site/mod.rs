@@ -1,7 +1,7 @@
 mod assets;
 mod comments;
 mod compare;
-mod database;
+pub(crate) mod database;
 mod profiles;
 
 use anyhow::{ensure, Context, Result};
@@ -18,21 +18,6 @@ use std::{
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
 };
-
-#[derive(Debug, clap::Args)]
-pub struct MigrationArgs {
-    #[command(flatten)]
-    pub database: database::ConnectionArgs,
-}
-
-pub async fn migrate(args: MigrationArgs) -> Result<()> {
-    let pool = args.database.pool("brain_migrate").await?;
-    let store = brain_storage::PgStore::new(pool);
-    store.migrate_site_comments().await?;
-    store.migrate_compare_artifacts().await?;
-    store.migrate_site_profiles().await?;
-    Ok(())
-}
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -52,12 +37,10 @@ pub async fn serve(args: Args) -> Result<()> {
         "Die Brain-Site darf nur auf Loopback lauschen."
     );
     let pool = args.database.pool("brain_site").await?;
-    let release = args
-        .serve_config
-        .as_deref()
-        .map(profiles::release_from_config)
-        .transpose()?;
-    let app = router_with_release(&args.corpus_root, pool, release).await?;
+    if let Some(config) = args.serve_config.as_deref() {
+        profiles::release_from_config(config).await?;
+    }
+    let app = router_with_config(&args.corpus_root, pool, args.serve_config).await?;
     let listener = tokio::net::TcpListener::bind(args.bind)
         .await
         .context("Der lokale Siteport ist nicht verfügbar.")?;
@@ -69,16 +52,21 @@ pub async fn serve(args: Args) -> Result<()> {
 #[derive(Clone)]
 struct Site {
     assets: Arc<assets::Assets>,
-    release: Option<String>,
+    serve_config: Option<PathBuf>,
     pool: PgPool,
     comments_available: Arc<AtomicBool>,
 }
 
+#[cfg(test)]
 pub async fn router(root: &Path, pool: PgPool) -> Result<Router> {
-    router_with_release(root, pool, None).await
+    router_with_config(root, pool, None).await
 }
 
-async fn router_with_release(root: &Path, pool: PgPool, release: Option<String>) -> Result<Router> {
+async fn router_with_config(
+    root: &Path,
+    pool: PgPool,
+    serve_config: Option<PathBuf>,
+) -> Result<Router> {
     comments::preflight(&pool).await?;
     let assets = assets::Assets::new(root)?;
     Ok(Router::new()
@@ -98,7 +86,7 @@ async fn router_with_release(root: &Path, pool: PgPool, release: Option<String>)
         .layer(axum::middleware::map_response(security_headers))
         .with_state(Site {
             assets: Arc::new(assets),
-            release,
+            serve_config,
             pool,
             comments_available: Arc::new(AtomicBool::new(true)),
         }))
