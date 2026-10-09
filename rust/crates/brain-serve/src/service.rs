@@ -193,6 +193,7 @@ pub struct Prepared {
     internal_credentials: CredentialRegistry,
     analytics: Option<Arc<AnalyticsRuntime>>,
     discord_live: Option<Arc<DiscordLive>>,
+    mirror_password: Option<String>,
     shutdown: Arc<Shutdown>,
     startup_deadline: Instant,
 }
@@ -218,6 +219,7 @@ impl Prepared {
             credentials,
             internal_credentials,
             discord_live_token,
+            mirror_password,
         } = secrets;
         let discord_live = discord_live_token
             .map(DiscordLive::new)
@@ -303,9 +305,15 @@ impl Prepared {
             internal_credentials,
             analytics,
             discord_live,
+            mirror_password,
             shutdown,
             startup_deadline: deadline,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn probe_components(&self) -> (LocalPgReader, impl AnswerProviderPort + Clone) {
+        (self.reader.clone(), self.provider.clone())
     }
 
     pub fn remaining_shutdown(&self) -> Duration {
@@ -499,9 +507,73 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         prepared.discord_live.clone(),
     )
     .with_provider(&prepared.config.provider);
+    let mut answer_kernel = Kernel::new(retrieval, prepared.provider.clone())
+        .with_quality_filters(prepared.config.kernel.quality_filters);
+    if let Some(config) = &prepared.config.deadlock_api {
+        let pg = &prepared.config.postgres;
+        let options = sqlx::postgres::PgConnectOptions::new()
+            .host(&pg.socket_dir.to_string_lossy())
+            .port(pg.port)
+            .username("brain_readonly")
+            .database(&pg.database)
+            .password(
+                prepared
+                    .mirror_password
+                    .as_deref()
+                    .ok_or(Error::SecretMissing("mirror"))?,
+            )
+            .options([
+                ("default_transaction_read_only", "on".to_owned()),
+                (
+                    "statement_timeout",
+                    config
+                        .request_timeout_ms
+                        .min(prepared.config.timeouts.request_ms)
+                        .to_string(),
+                ),
+            ]);
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_millis(
+                prepared.config.timeouts.postgres_connect_ms,
+            ))
+            .connect_lazy_with(options);
+        let mirror = brain_storage::entity_profile::MirroredGameContextReader::new(
+            pool,
+            tokio::runtime::Handle::current(),
+            brain_contracts::tools::ToolLanguage::German,
+        )
+        .map_err(|_| Error::ReaderConfig)?;
+        let config = config.clone();
+        let runtime =
+            tokio::task::spawn_blocking(move || crate::deadlock_data::Runtime::new(config, mirror))
+                .await
+                .map_err(|_| Error::ReaderUnavailable)??;
+        let resolver = crate::deadlock_data::Resolver(runtime.mirror.clone());
+        let knowledge = DiscordRetriever::new(
+            ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit),
+            prepared.discord_live.clone(),
+        )
+        .with_provider(&prepared.config.provider);
+        answer_kernel = answer_kernel.with_tools(
+            crate::deadlock_data::Tools {
+                knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(ReleaseRetriever::new(
+                    prepared.reader.clone(),
+                    prepared.config.retrieval.limit,
+                ))
+                .with_knowledge_retrieval(knowledge)
+                .with_mirrored_entities(runtime.mirror.clone()),
+                runtime: Arc::new(runtime),
+            },
+            resolver,
+            format!(
+                "{}:{}",
+                prepared.config.provider.base_url, prepared.config.provider.model
+            ),
+        );
+    }
     let kernel = CachedKernel::new(
-        Kernel::new(retrieval, prepared.provider.clone())
-            .with_quality_filters(prepared.config.kernel.quality_filters),
+        answer_kernel,
         prepared.config.kernel.cache_entries,
         Duration::from_millis(prepared.config.kernel.cache_ttl_ms),
     );

@@ -1016,6 +1016,7 @@ mod tests {
         cancel_build_validation_on: usize,
         build_is_error: bool,
         tool_reservation: Usage,
+        required_calls: Vec<brain_contracts::ToolCall>,
     }
 
     #[derive(Clone)]
@@ -1056,6 +1057,16 @@ mod tests {
         definitions: Vec<ToolDefinition>,
     }
     impl ToolExecutionPort for TestTools {
+        fn required_calls(
+            &self,
+            _query: &Query,
+            context: &AuthorizedContext,
+            _pin: Option<&PinnedGameContext>,
+        ) -> Result<Vec<brain_contracts::ToolCall>, PortError> {
+            context.check_deadline()?;
+            Ok(self.state.lock().unwrap().required_calls.clone())
+        }
+
         fn execute_accounted(
             &self,
             query: &Query,
@@ -2055,6 +2066,62 @@ mod tests {
         assert_eq!(state.calls, 0);
         assert_eq!(state.resolves, 0);
         assert!(state.build_checks.is_empty());
+    }
+
+    #[test]
+    fn required_tool_runs_before_model_and_retains_accounting_and_citation_checks() {
+        for cited in [false, true] {
+            let call = find_call("required");
+            let (kernel, state) = tool_kernel(
+                std::slice::from_ref(&call),
+                vec![final_turn(if cited { &["required-cited"] } else { &[] })],
+            );
+            {
+                let mut state = state.lock().unwrap();
+                state.required_calls = vec![call];
+                state.tool_usage.network_rounds = 1;
+            }
+            let answer = kernel
+                .with_quality_filters(false)
+                .answer_accounted(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+            assert_eq!(
+                answer.value.status,
+                if cited {
+                    AnswerStatus::Answered
+                } else {
+                    AnswerStatus::Unavailable
+                }
+            );
+            assert_eq!(answer.accounting.observed.network_rounds, 2);
+            let state = state.lock().unwrap();
+            assert_eq!(state.calls, 1);
+            assert_eq!(state.executions.len(), 1);
+            assert_eq!(state.observed[0].messages.len(), 2);
+            assert_eq!(state.contexts[0].budget.max_network_rounds, 3);
+        }
+    }
+
+    #[test]
+    fn required_tool_failure_stops_before_provider_and_keeps_observed_usage() {
+        let call = find_call("required");
+        let (kernel, state) = tool_kernel(std::slice::from_ref(&call), Vec::new());
+        {
+            let mut state = state.lock().unwrap();
+            state.required_calls = vec![call];
+            state.tool_fail_on = 1;
+            state.tool_failure = Some(PortFailure::accounted(
+                PortError::Unavailable("fixture".into()),
+                UsageAccounting::observed(Usage {
+                    network_rounds: 1,
+                    ..Usage::default()
+                }),
+            ));
+        }
+        let answer =
+            kernel.answer_accounted(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+        assert_eq!(answer.value.status, AnswerStatus::Unavailable);
+        assert_eq!(answer.accounting.observed.network_rounds, 1);
+        assert_eq!(state.lock().unwrap().calls, 0);
     }
 
     #[test]

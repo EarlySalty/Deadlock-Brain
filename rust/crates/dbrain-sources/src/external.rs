@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod strict_json;
-pub(crate) fn parse_json_strict(raw: &[u8]) -> std::result::Result<Value, serde_json::Error> {
+pub fn parse_json_strict(raw: &[u8]) -> std::result::Result<Value, serde_json::Error> {
     strict_json::parse(raw)
 }
 
@@ -198,6 +198,43 @@ impl SourceIr {
         ir.contract.refresh_field_provenance();
         Ok(ir)
     }
+    pub(crate) fn authorize_public_assets(&mut self) -> Result<()> {
+        let url = reqwest::Url::parse(&self.contract.provenance.locator)
+            .map_err(|_| SourcesError::invalid_input("invalid assets origin"))?;
+        let path = url.path();
+        if self.contract.provenance.source != crate::assets_api::SOURCE
+            || url.scheme() != "https"
+            || url.host_str() != Some("api.deadlock-api.com")
+            || !matches!(url.port(), None | Some(443))
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.fragment().is_some()
+            || !(path == "/v1/assets/steam-info"
+                || crate::assets_api::ENDPOINTS
+                    .iter()
+                    .any(|(_, endpoint)| endpoint.split('?').next() == Some(path)))
+            || url.query_pairs().any(|(key, value)| {
+                !matches!(
+                    (key.as_ref(), value.as_ref()),
+                    ("language", "english" | "german") | ("only_active", "true")
+                ) && !(key == "client_version"
+                    && value.parse::<i64>().is_ok_and(|version| version > 0))
+            })
+            || self.is_quarantined()
+            || self.contract.transport["status"] != 200
+        {
+            return Err(SourcesError::invalid_input(
+                "public assets authorization outside policy",
+            ));
+        }
+        self.contract.visibility = SourceVisibility::Public;
+        self.contract.allowed_scopes.clear();
+        self.contract.provenance.publication_authorized = true;
+        self.contract.provenance.provider_egress_authorized = true;
+        self.contract.refresh_field_provenance();
+        Ok(())
+    }
+
     pub fn contract(&self) -> Versioned<&ExternalSourceIr> {
         Versioned::new(&self.contract)
     }
@@ -372,6 +409,35 @@ mod tests {
         )
         .unwrap()
     }
+    #[test]
+    fn public_assets_authorization_is_exact_and_does_not_claim_a_license() {
+        let mut asset = ir(b"{}", "v1");
+        asset.contract.provenance.source = crate::assets_api::SOURCE.into();
+        asset.contract.provenance.locator =
+            "https://api.deadlock-api.com/v1/assets/items?client_version=6759&language=german"
+                .into();
+        asset.contract.transport = json!({"status":200});
+        asset.authorize_public_assets().unwrap();
+        assert_eq!(asset.contract.visibility, SourceVisibility::Public);
+        assert!(asset.contract.allowed_scopes.is_empty());
+        assert!(asset.contract.provenance.provider_egress_authorized);
+        assert!(asset.contract.provenance.publication_authorized);
+        assert!(matches!(asset.contract.license, Observed::Unknown { .. }));
+        for locator in [
+            "https://api.deadlock-api.com.evil.test/v1/assets/items",
+            "https://api.deadlock-api.com/v1/players",
+            "https://api.deadlock-api.com/v1/assets/items?account_id=123",
+            "https://api.deadlock-api.com/v1/assets/items?client_version=not-a-version",
+            "https://user:password@api.deadlock-api.com/v1/assets/items",
+        ] {
+            asset.contract.provenance.locator = locator.into();
+            assert!(asset.authorize_public_assets().is_err());
+        }
+        asset.contract.provenance.locator = "https://api.deadlock-api.com/v1/assets/items".into();
+        asset.quarantine("invalid_data");
+        assert!(asset.authorize_public_assets().is_err());
+    }
+
     #[test]
     fn raw_hash_is_not_normalized_hash() {
         let a = ir(b" {\"a\": 1}\n", "v1");
