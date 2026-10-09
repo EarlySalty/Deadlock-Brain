@@ -215,6 +215,8 @@ pub struct HeroModel {
     pub purchase_bonuses: PurchaseBonuses,
     pub scaling: Vec<ScalingStat>,
     pub weapon: WeaponProfile,
+    #[serde(default)]
+    pub weapon_timing: WeaponTiming,
     pub abilities: Vec<AbilityModel>,
     pub damage_plan: DamagePlan,
 }

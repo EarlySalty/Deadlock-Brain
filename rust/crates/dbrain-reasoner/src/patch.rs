@@ -434,6 +434,17 @@ fn apply_one(hero: &mut HeroModel, items: &mut [ItemModel], delta: &PatchDelta) 
             return true;
         }
     }
+    let single_reload = if matches!(delta.target, DeltaTarget::Hero(id) if id == hero.hero_id)
+        && app.field == "weapon.reload_duration"
+        && hero.weapon_timing.reload_single_bullets == Some(true)
+    {
+        Some((
+            hero.weapon.clip_size.floor(),
+            hero.weapon_timing.reload_single_bullets_initial_delay,
+        ))
+    } else {
+        None
+    };
     let value = match delta.target {
         DeltaTarget::Hero(id) if id == hero.hero_id => match app.field.as_str() {
             "weapon.bullet_damage" => Some(&mut hero.weapon.bullet_damage),
@@ -493,7 +504,22 @@ fn apply_one(hero: &mut HeroModel, items: &mut [ItemModel], delta: &PatchDelta) 
     {
         return false;
     }
+    let raw_reload = if let Some((clip, delay)) = single_reload {
+        let Some(delay) = delay.filter(|delay| delay.is_finite() && *delay >= 0.0) else {
+            return false;
+        };
+        let duration = (updated - delay) / clip;
+        if !clip.is_finite() || clip < 1.0 || !duration.is_finite() || duration < 0.0 {
+            return false;
+        }
+        Some(duration)
+    } else {
+        None
+    };
     *value = updated;
+    if let Some(duration) = raw_reload {
+        hero.weapon_timing.raw_reload_duration = Some(duration);
+    }
     if let DeltaTarget::Item(id) = delta.target {
         if let Some(name) = app.field.strip_prefix("properties.") {
             let item = items.iter_mut().find(|item| item.item_id == id).unwrap();
@@ -517,8 +543,15 @@ fn apply_one(hero: &mut HeroModel, items: &mut [ItemModel], delta: &PatchDelta) 
         }
     }
     if app.field.starts_with("weapon.") {
+        hero.weapon.reload_duration = crate::mechanics::weapon_reload_seconds(
+            hero.weapon.clip_size.floor(),
+            &hero.weapon,
+            Some(&hero.weapon_timing),
+            0.0,
+        );
         hero.weapon.sustained_dps = 0.0;
-        hero.weapon.sustained_dps = crate::mechanics::weapon_dps(&hero.weapon, 40.0);
+        hero.weapon.sustained_dps =
+            crate::mechanics::weapon_dps_with_timing(&hero.weapon, Some(&hero.weapon_timing), 40.0);
     }
     true
 }
