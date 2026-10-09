@@ -129,7 +129,9 @@ fn numeric_limits_and_pins_are_not_silently_clamped_or_defaulted() {
         ("budgets", "max_network_rounds", json!(0)),
         ("budgets", "max_cost_micros", json!(0)),
         ("timeouts", "startup_ms", json!(0)),
-        ("timeouts", "request_ms", json!(60001)),
+        ("timeouts", "request_ms", json!(600001)),
+        ("budgets", "max_network_rounds", json!(21)),
+        ("timeouts", "shutdown_ms", json!(600001)),
         ("timeouts", "provider_ms", json!(9000)),
         ("timeouts", "postgres_pool_wait_ms", json!(0)),
         ("timeouts", "postgres_pool_wait_ms", json!(8001)),
@@ -140,6 +142,21 @@ fn numeric_limits_and_pins_are_not_silently_clamped_or_defaulted() {
         value[section][field] = invalid;
         assert!(parse(&value).is_err(), "{section}.{field}");
     }
+}
+
+#[test]
+fn twenty_rounds_and_ten_minute_request_preserve_explicit_budgets() {
+    let mut value = example();
+    value["budgets"] = json!({"max_network_rounds":20,"max_input_tokens":20_000_000,"max_output_tokens":8192,"max_cost_micros":1_000_000});
+    value["timeouts"]["request_ms"] = json!(600_000);
+    value["timeouts"]["provider_ms"] = json!(600_000);
+    value["timeouts"]["shutdown_ms"] = json!(600_000);
+    let config = parse(&value).unwrap();
+    assert_eq!(config.budgets.max_network_rounds, 20);
+    assert_eq!(config.timeouts.request_ms, 600_000);
+    assert_eq!(config.timeouts.provider_ms, 600_000);
+    assert_eq!(config.budgets.max_input_tokens, 20_000_000);
+    assert_eq!(config.budgets.max_output_tokens, 8192);
 }
 
 #[test]
