@@ -282,7 +282,7 @@ pub async fn read_game_heads(
     sources: &[String],
 ) -> Result<Vec<SourceRecordV2>, String> {
     validate_sources(sources)?;
-    let rows: Vec<Value> = sqlx::query_scalar("SELECT record_json FROM brain.source_record_heads WHERE source_id=ANY($1) ORDER BY source_id,logical_id LIMIT 10001")
+    let rows: Vec<Value> = sqlx::query_scalar("SELECT record_json FROM brain.source_record_heads WHERE source_id=ANY($1) AND tombstone=false ORDER BY source_id,logical_id LIMIT 10001")
         .bind(sources).fetch_all(pool).await.map_err(|_| "Spielquellköpfe können nicht gelesen werden")?;
     if rows.len() > 10_000 {
         return Err("Spielquellmenge überschreitet 10.000 Dokumente".into());
@@ -348,7 +348,7 @@ pub async fn reauthorize_game_heads(
     if inconsistent {
         return Err("Kopfspalten oder Originalrevision widersprechen sich".into());
     }
-    let actual: Vec<Value> = sqlx::query_scalar("SELECT record_json FROM brain.source_record_heads WHERE source_id=ANY($1) ORDER BY source_id,logical_id FOR UPDATE")
+    let actual: Vec<Value> = sqlx::query_scalar("SELECT record_json FROM brain.source_record_heads WHERE source_id=ANY($1) AND tombstone=false ORDER BY source_id,logical_id FOR UPDATE")
         .bind(sources).fetch_all(&mut *tx).await.map_err(|_| "Aktuelle Quellköpfe können nicht geprüft werden")?;
     let actual: Vec<SourceRecordV2> = actual
         .into_iter()
@@ -878,7 +878,69 @@ mod tests {
                 .await
                 .is_err()
         );
-        let mut changed = promoted[1].clone();
+        let mut withdrawn = with_localization_heads
+            .iter()
+            .find(|record| record.logical_id == localization.document_id)
+            .unwrap()
+            .clone();
+        withdrawn.revision += 1;
+        withdrawn.tombstone = true;
+        store.apply(&withdrawn).await.unwrap();
+        let surviving = read_game_heads(&pool, &sources).await.unwrap();
+        assert_eq!(surviving, promoted);
+        assert!(reauthorize_game_heads(
+            &pool,
+            &sources,
+            &with_localization_heads,
+            "operator:surviving",
+            Some("operator:public-provider"),
+        )
+        .await
+        .is_err());
+        let mut expected_with_withdrawn = surviving.clone();
+        expected_with_withdrawn.push(withdrawn.clone());
+        assert!(reauthorize_game_heads(
+            &pool,
+            &sources,
+            &expected_with_withdrawn,
+            "operator:surviving",
+            Some("operator:public-provider"),
+        )
+        .await
+        .is_err());
+        assert_eq!(read_game_heads(&pool, &sources).await.unwrap(), surviving);
+        let report = reauthorize_game_heads(
+            &pool,
+            &sources,
+            &surviving,
+            "operator:surviving",
+            Some("operator:public-provider"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report["updated"], 2);
+        assert_eq!(report["unchanged"], 0);
+        let surviving = read_game_heads(&pool, &sources).await.unwrap();
+        assert_eq!(surviving.len(), 2);
+        assert!(surviving.iter().all(|record| record.revision == 3));
+        let report = reauthorize_game_heads(
+            &pool,
+            &sources,
+            &surviving,
+            "operator:surviving",
+            Some("operator:public-provider"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report["updated"], 0);
+        assert_eq!(report["unchanged"], 2);
+        let withdrawn_head: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_heads WHERE source_id=$1 AND logical_id=$2")
+            .bind(&withdrawn.source_id).bind(&withdrawn.logical_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(withdrawn_head, serde_json::to_value(&withdrawn).unwrap());
+        let withdrawn_revisions: i64 = sqlx::query_scalar("SELECT count(*) FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2")
+            .bind(&withdrawn.source_id).bind(&withdrawn.logical_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(withdrawn_revisions, 2);
+        let mut changed = surviving[1].clone();
         changed.revision += 1;
         let mut origin = origin_from_record(&changed).unwrap();
         origin.policy.raw_retention_allowed = false;
