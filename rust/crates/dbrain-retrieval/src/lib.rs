@@ -2424,9 +2424,12 @@ fn push_query_entity(
     }
 }
 
-fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> String {
+pub fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> String {
     let terms = intent_query_terms(query_lower);
     let item_entity = matches!(entity_type, "item" | "item_special");
+    if contains_any_intent_term(&terms, &["winrate", "siegquote", "siegquoten"]) {
+        return "meta_question".to_string();
+    }
     if item_entity && contains_any_intent_term(&terms, ASK_BUILD_INTENT_TERMS) {
         return "build_recommendation".to_string();
     }
@@ -2452,7 +2455,16 @@ fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> S
     }
     if contains_any_intent_term(
         &terms,
-        &["meta", "tier", "viable", "noch stark", "noch gut"],
+        &[
+            "meta",
+            "tier",
+            "viable",
+            "noch stark",
+            "noch gut",
+            "beliebteste",
+            "beliebtesten",
+            "popular",
+        ],
     ) {
         return "meta_question".to_string();
     }
@@ -2485,6 +2497,10 @@ fn classify_ask_intent(query_lower: &str, matched: bool, entity_type: &str) -> S
         return "item_question".to_string();
     }
     "hero_overview".to_string()
+}
+
+pub fn asks_for_hero_population(query: &str) -> bool {
+    asks_for_hero_group(&intent_query_terms(query))
 }
 
 fn asks_for_hero_group(terms: &[String]) -> bool {

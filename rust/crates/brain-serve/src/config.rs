@@ -19,6 +19,8 @@ pub struct Config {
     pub retrieval: Retrieval,
     pub kernel: Kernel,
     pub analytics: Option<Analytics>,
+    #[serde(default)]
+    pub deadlock_api: Option<DeadlockApi>,
     pub credentials: Vec<Credential>,
     pub internal_operator: Option<InternalOperator>,
     pub entity_profile_maintenance_config: Option<std::path::PathBuf>,
@@ -169,6 +171,38 @@ pub struct Analytics {
     pub max_rows: usize,
     pub request_timeout_ms: u64,
     pub schema_sha256: String,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DeadlockApi {
+    pub mirror_password_secret: String,
+    pub request_timeout_ms: u64,
+    pub max_response_bytes: usize,
+    pub max_result_bytes: usize,
+    pub max_rows: usize,
+    pub cache_entries: usize,
+    pub cache_ttl_ms: u64,
+    pub default_days: u32,
+    pub max_days: u32,
+    pub mechanical_items: usize,
+}
+
+impl Default for DeadlockApi {
+    fn default() -> Self {
+        Self {
+            mirror_password_secret: "BRAIN_PG_READONLY_PASSWORD".into(),
+            request_timeout_ms: 300_000,
+            max_response_bytes: 2 * 1024 * 1024,
+            max_result_bytes: 50 * 1024,
+            max_rows: 1024,
+            cache_entries: 64,
+            cache_ttl_ms: 60_000,
+            default_days: 3,
+            max_days: 31,
+            mechanical_items: 24,
+        }
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -361,6 +395,21 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), Error> {
+        if let Some(api) = &self.deadlock_api {
+            require(
+                api.mirror_password_secret == "BRAIN_PG_READONLY_PASSWORD"
+                    && (1..=3_600_000).contains(&api.request_timeout_ms)
+                    && (1..=16 * 1024 * 1024).contains(&api.max_response_bytes)
+                    && (1..=api.max_response_bytes).contains(&api.max_result_bytes)
+                    && (1..=1024).contains(&api.max_rows)
+                    && (1..=256).contains(&api.cache_entries)
+                    && (1..=300_000).contains(&api.cache_ttl_ms)
+                    && (1..=31).contains(&api.max_days)
+                    && (1..=api.max_days).contains(&api.default_days)
+                    && (1..=api.max_rows).contains(&api.mechanical_items),
+                "deadlock_api",
+            )?;
+        }
         require(
             self.entity_profile_maintenance_config
                 .as_ref()
@@ -639,6 +688,34 @@ mod tests;
 
 #[cfg(test)]
 mod entity_profile_tests {
+    #[test]
+    fn runtime_data_defaults_and_limits_are_strict_and_configurable() {
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../../config/brain-serve.example.json"
+        ))
+        .unwrap();
+        value["deadlock_api"] = serde_json::json!({});
+        let api = super::Config::parse(&serde_json::to_vec(&value).unwrap())
+            .unwrap()
+            .deadlock_api
+            .unwrap();
+        assert_eq!(api.request_timeout_ms, 300_000);
+        assert_eq!(api.max_rows, 1024);
+        for (field, invalid) in [
+            ("mirror_password_secret", serde_json::json!("OTHER_SECRET")),
+            ("request_timeout_ms", serde_json::json!(0)),
+            ("max_rows", serde_json::json!(1025)),
+            ("cache_entries", serde_json::json!(0)),
+            ("max_result_bytes", serde_json::json!(16_777_217)),
+            ("default_days", serde_json::json!(32)),
+            ("endpoint", serde_json::json!("https://example.com")),
+        ] {
+            let mut bad = value.clone();
+            bad["deadlock_api"][field] = invalid;
+            assert!(super::Config::parse(&serde_json::to_vec(&bad).unwrap()).is_err());
+        }
+    }
+
     #[test]
     fn quality_filters_default_off_and_can_be_enabled() {
         let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(

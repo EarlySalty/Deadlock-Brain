@@ -12,6 +12,7 @@ brain-policy = { path = "../brain-policy" }
 uplink-infisical-transport = { path = "../../vendor/uplink-infisical-transport" }
 brain-providers = { path = "../brain-providers" }
 brain-storage = { path = "../brain-storage" }
+dbrain-builds = { path = "../dbrain-builds" }
 dbrain-reasoner = { path = "../dbrain-reasoner" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }
 dbrain-sources = { path = "../dbrain-sources" }

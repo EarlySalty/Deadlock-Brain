@@ -471,6 +471,7 @@ dependencies = [
  "brain-policy",
  "brain-providers",
  "brain-storage",
+ "dbrain-builds",
  "dbrain-reasoner",
  "dbrain-retrieval",
  "dbrain-sources",
