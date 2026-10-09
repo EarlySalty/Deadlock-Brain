@@ -1,4 +1,3 @@
-//! HTTP adapter only; binding sockets and runtime activation are explicit caller decisions.
 use super::{deadline_response, diagnostics::RequestTrace, json_error, ApiResponse, ApiService};
 use axum::{
     body::to_bytes,
@@ -23,7 +22,6 @@ pub fn router<K: AnswerKernelPort + 'static>(service: ApiService<K>) -> Router {
         .fallback(|| async { respond(json_error(404, "not_found", "Route nicht verfügbar")) })
         .with_state(Arc::new(HttpState {
             service,
-            // The same permit bounds body readers, queued workers and active workers.
             slots: Arc::new(Semaphore::new(64)),
         }))
 }
@@ -65,7 +63,6 @@ async fn dispatch_response<K: AnswerKernelPort + 'static>(
     retrieval: bool,
     trace: Arc<RequestTrace>,
 ) -> ApiResponse {
-    // Request is not a body extractor: no body is polled before admission/authentication.
     let deadline = RequestDeadline::after(Duration::from_millis(
         state.service.deadline_ms.clamp(1, 60000),
     ));
@@ -120,7 +117,8 @@ async fn dispatch_response<K: AnswerKernelPort + 'static>(
         },
         _ => return json_error(400, "invalid_request", "Ungültige Bot-Aufgabe"),
     };
-    if task.is_some() && headers.get_all("x-discord-user-id").iter().count() != 1 {
+    let identity_headers = headers.get_all("x-discord-user-id").iter().count();
+    if identity_headers > 1 || (task.is_some() && identity_headers != 1) {
         return json_error(400, "invalid_request", "Ungültige Bot-Identität");
     }
     if !state.service.authenticate_header(authorization.as_deref()) {
@@ -139,7 +137,6 @@ async fn dispatch_response<K: AnswerKernelPort + 'static>(
         if deadline.check().is_err() {
             return deadline_response();
         }
-        // Enforce the same byte limit for Content-Length and streamed/chunked requests.
         let body = match to_bytes(body, 64 * 1024).await {
             Ok(body) => body,
             Err(_) => return json_error(413, "payload_too_large", "Request ist zu groß"),
@@ -149,7 +146,6 @@ async fn dispatch_response<K: AnswerKernelPort + 'static>(
             return deadline_response();
         }
         let worker = tokio::task::spawn_blocking(move || {
-            // A client timeout/drop cannot release an executing or queued worker's permit.
             let _permit = permit;
             if retrieval {
                 state

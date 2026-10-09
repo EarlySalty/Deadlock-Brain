@@ -183,38 +183,32 @@ where
             return json_error(401, "unauthorized", "Bearer Token fehlt oder ist ungültig");
         };
 
-        let (mut query, user_questions): (Query, Vec<String>) = if task.is_some() {
+        let (mut query, user_questions, local_context): (Query, Vec<String>, bool) =
             match serde_json::from_slice::<brain_contracts::discord_task::DiscordTaskRequest>(body)
             {
                 Ok(request) if request.validate().is_ok() => {
-                    (request.query, request.user_questions)
+                    (request.query, request.user_questions, true)
                 }
                 Ok(_) => {
                     return json_error(400, "invalid_request", "Gesprächskontext ist ungültig")
                 }
                 Err(_) => match serde_json::from_slice(body) {
-                    Ok(query) => (query, Vec::new()),
+                    Ok(query) => (query, Vec::new(), false),
                     Err(_) => {
                         return json_error(400, "invalid_request", "Query Contract ist ungültig")
                     }
                 },
-            }
-        } else {
-            match serde_json::from_slice(body) {
-                Ok(query) => (query, Vec::new()),
-                Err(_) => return json_error(400, "invalid_request", "Query Contract ist ungültig"),
-            }
-        };
+            };
         if query.validate().is_err() {
             return json_error(400, "invalid_request", "Query Contract ist ungültig");
         }
 
-        if let Some(task) = &task {
+        if task.is_some() || local_context {
             let principal = match self.policy.authenticate(token) {
                 Ok(principal) => principal,
                 Err(_) => return json_error(401, "unauthorized", "Zugangsdaten sind ungültig"),
             };
-            if !task.valid()
+            if task.as_ref().is_some_and(|task| !task.valid())
                 || claimed_user.is_none_or(|id| id == 0)
                 || allow_discord_reads
                 || !self
@@ -233,11 +227,12 @@ where
             if query.text.trim().is_empty() {
                 return json_error(400, "invalid_request", "Die Frage enthält keinen Sachtext");
             }
-            let purpose = match task.capability {
-                brain_contracts::discord_task::DiscordAnswerCapability::Concierge => {
+            let purpose = match task.as_ref().map(|task| task.capability) {
+                Some(brain_contracts::discord_task::DiscordAnswerCapability::Concierge) => {
                     "bot_task:concierge"
                 }
-                brain_contracts::discord_task::DiscordAnswerCapability::Faq => "bot_task:faq",
+                Some(brain_contracts::discord_task::DiscordAnswerCapability::Faq) => "bot_task:faq",
+                None => "bot_context:direct",
             };
             query.answer_context = Some(brain_contracts::AnswerContext::Discord(
                 brain_contracts::DiscordAnswerContext {
@@ -284,14 +279,14 @@ where
         if deadline.check().is_err() {
             return deadline_response();
         }
-        if task.is_some() {
+        if task.is_some() || local_context {
             context.principal.scopes = std::collections::BTreeSet::from(["bot.public".into()]);
             context
                 .principal
                 .provider_egress
                 .retain(|scope| scope == "public");
         }
-        if context.principal.scopes.contains("bot.public") && task.is_none() {
+        if context.principal.scopes.contains("bot.public") && task.is_none() && !local_context {
             use std::io::Read;
             let mut nonce = [0u8; 32];
             if std::fs::File::open("/dev/urandom")
@@ -324,7 +319,9 @@ where
                 allow_discord_reads,
             });
         }
-        if task.is_some() && brain_contracts::discord_task::needs_reference(&query.text) {
+        if (task.is_some() && brain_contracts::discord_task::needs_reference(&query.text))
+            || (local_context && task.is_none())
+        {
             use brain_contracts::discord_task::DiscordReference;
             let reference = match &self.discord_context {
                 Some(resolver) => match resolver.resolve(&query, &context, &user_questions) {

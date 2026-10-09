@@ -63,6 +63,17 @@ async fn store() -> MemoryRepository {
     ] {
         store.apply_record(record).unwrap();
     }
+    let mut hero = record(
+        "asset/hero/1/summary",
+        "Hero: Abrams\nAbrams kann Spirit-Builds mit öffentlichen Items spielen.",
+        false,
+    );
+    hero.source_id = "deadlock-assets-heroes".into();
+    hero.metadata = BTreeMap::from([
+        ("name".into(), "Abrams".into()),
+        ("kind".into(), "fact".into()),
+    ]);
+    store.apply_record(hero).unwrap();
     let release = store
         .release_from_heads("context-release", "v1", "p1")
         .unwrap();
@@ -134,10 +145,22 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
     let recorded = requests.clone();
     let provider_server = std::thread::spawn(move || {
         for (subject, question) in [
-            ("Paten", "Wie mache ich das? "),
-            ("Coaching", "Wie mache ich das? "),
-            ("Sprachkanäle", "Wie mache ich das? "),
-            ("Paten", "Wie kann ich das verbessern?"),
+            ("Paten", "Wie mache ich das? \nGesprächsthema: Paten"),
+            ("Coaching", "Wie mache ich das? \nGesprächsthema: Coaching"),
+            (
+                "Sprachkanäle",
+                "Wie mache ich das? \nGesprächsthema: Sprachkanäle",
+            ),
+            (
+                "Paten",
+                "Wie kann ich das verbessern?\nGesprächsthema: Paten",
+            ),
+            ("Abrams", "Welche Items passen zu Abrams?"),
+            (
+                "Abrams",
+                "Okay ja ne Idee für ein Spirit build\nGesprächsthema: Abrams",
+            ),
+            ("Abrams", "Abrams\nGesprächsthema: Abrams Spirit-Build"),
         ] {
             let (mut stream, _) = listener.accept().unwrap();
             let request = read_request(&mut stream);
@@ -146,10 +169,7 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
                 serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap();
             let model_input: Value =
                 serde_json::from_str(data["messages"][0]["content"].as_str().unwrap()).unwrap();
-            assert_eq!(
-                model_input["query"],
-                format!("{question}\nGesprächsthema: {subject}")
-            );
+            assert_eq!(model_input["query"], question);
             for forbidden in [
                 "PRIVATE_CANARY_äöüß",
                 "76561197960265839",
@@ -259,6 +279,47 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
         .await
         .unwrap();
     assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
+    let first = "Welche Items passen zu Abrams?";
+    let second = "Okay ja ne Idee für ein Spirit build";
+    for (id, text, history) in [
+        ("direct-first", first, vec![]),
+        (
+            "direct-second",
+            second,
+            vec![format!("{first} PRIVATE_CANARY_äöüß <@76561197960265839>")],
+        ),
+        (
+            "direct-third",
+            "Abrams",
+            vec![
+                format!("{first} PRIVATE_CANARY_äöüß <@76561197960265839>"),
+                second.to_owned(),
+            ],
+        ),
+    ] {
+        let response = client
+            .answer_for_discord_with_history(&query(id, text), 42, &history)
+            .await
+            .unwrap();
+        assert_eq!(response.status, AnswerStatus::Answered, "{}", response.text);
+    }
+    for history in [
+        vec![first, "Und wie spiele ich PRIVATE_CANARY_äöüß?"],
+        vec![first, "Und wie bekomme ich Rollen?"],
+        vec!["Paten?"],
+        vec![],
+    ] {
+        let response = client
+            .answer_for_discord_with_history(
+                &query("direct-unknown", second),
+                42,
+                &history.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status, AnswerStatus::InsufficientEvidence);
+        assert!(response.citations.is_empty());
+    }
     for (id, history) in [
         ("missing", vec![]),
         ("unknown", vec!["PRIVATE_CANARY_äöüß".into()]),
@@ -339,7 +400,7 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
         .await
         .unwrap();
     assert_eq!(response.status().as_u16(), 413);
-    assert_eq!(requests.lock().unwrap().len(), 4);
+    assert_eq!(requests.lock().unwrap().len(), 7);
     provider_server.join().unwrap();
     server.abort();
 }
@@ -424,6 +485,70 @@ async fn local_reference_reuses_public_hero_names_without_numeric_identifiers() 
 }
 
 #[tokio::test]
+async fn direct_build_reference_rechecks_public_hero_and_rejects_private_intents() {
+    let store = store().await;
+    let retrieval = ReleaseRetriever::new(store.clone(), 8);
+    let mut q = query("direct-hero", "Abrams");
+    q.answer_context = Some(brain_contracts::AnswerContext::Discord(
+        brain_contracts::DiscordAnswerContext {
+            purpose: Some("bot_context:direct".into()),
+            ..Default::default()
+        },
+    ));
+    let history = [
+        "Welche Items passen zu Abrams?",
+        "Okay ja ne Idee für ein Spirit build",
+    ]
+    .map(str::to_owned);
+    assert_eq!(
+        retrieval.resolve(&q, &context(&q), &history).unwrap(),
+        DiscordReference::Subject("Abrams Spirit-Build".into())
+    );
+    assert_eq!(
+        retrieval
+            .resolve(
+                &q,
+                &context(&q),
+                &["Spirit build PRIVATE_CANARY_äöüß".into()]
+            )
+            .unwrap(),
+        DiscordReference::Independent
+    );
+    q.text = "Unbekannt".into();
+    assert_eq!(
+        retrieval.resolve(&q, &context(&q), &history).unwrap(),
+        DiscordReference::Clarification
+    );
+    for tombstone in [false, true] {
+        let mut revoked = record(
+            "asset/hero/1/summary",
+            "Hero: Abrams\nAbrams kann Spirit-Builds mit öffentlichen Items spielen.",
+            !tombstone,
+        );
+        revoked.source_id = "deadlock-assets-heroes".into();
+        revoked.revision = if tombstone { 3 } else { 2 };
+        revoked.tombstone = tombstone;
+        revoked.metadata = BTreeMap::from([
+            ("name".into(), "Abrams".into()),
+            ("kind".into(), "fact".into()),
+        ]);
+        store.apply_record(revoked).unwrap();
+        q.text = "Abrams".into();
+        assert_eq!(
+            retrieval.resolve(&q, &context(&q), &history).unwrap(),
+            DiscordReference::Clarification
+        );
+        q.text = "Okay ja ne Idee für ein Spirit build".into();
+        assert_eq!(
+            retrieval
+                .resolve(&q, &context(&q), &[history[0].clone()])
+                .unwrap(),
+            DiscordReference::Clarification
+        );
+    }
+}
+
+#[tokio::test]
 async fn private_history_transport_is_loopback_only_and_bounds_unicode() {
     let task = DiscordAnswerTask {
         capability: DiscordAnswerCapability::Faq,
@@ -441,6 +566,16 @@ async fn private_history_transport_is_loopback_only_and_bounds_unicode() {
                     &query("nonlocal", "Frage"),
                     42,
                     &task,
+                    &["Privat".into()]
+                )
+                .await,
+            Err(brain_client::ClientError::InvalidBaseUrl)
+        ));
+        assert!(matches!(
+            client
+                .answer_for_discord_with_history(
+                    &query("nonlocal-direct", "Frage"),
+                    42,
                     &["Privat".into()]
                 )
                 .await,
@@ -469,6 +604,10 @@ async fn private_history_transport_is_loopback_only_and_bounds_unicode() {
     ] {
         assert!(client
             .answer_discord_task_with_history(&query("invalid", "Frage"), 42, &task, &history)
+            .await
+            .is_err());
+        assert!(client
+            .answer_for_discord_with_history(&query("invalid-direct", "Frage"), 42, &history)
             .await
             .is_err());
     }
@@ -680,6 +819,88 @@ async fn invalid_projection_and_missing_local_release_fail_without_kernel_fallba
         }
         server.abort();
     }
+}
+
+#[tokio::test]
+async fn direct_history_requires_trusted_identity_and_server_owned_projection() {
+    let api = ApiService::new(
+        PolicyEngine::new(CredentialRegistry::new(vec![
+            AuthGrant::from_secret(
+                "fixture",
+                "bot",
+                "discord",
+                BTreeSet::from(["bot.public".into()]),
+                BTreeSet::from(["public".into()]),
+            ),
+            AuthGrant::from_secret(
+                "outsider",
+                "other",
+                "web",
+                BTreeSet::from(["bot.public".into()]),
+                BTreeSet::from(["public".into()]),
+            ),
+        ])),
+        NeverKernel,
+        "context-release",
+        5000,
+        Budget::default(),
+    )
+    .with_discord_consumers(BTreeSet::from([("bot".into(), "discord".into())]));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, router(api)).await.unwrap() });
+    let http = reqwest::Client::builder().no_proxy().build().unwrap();
+    for (token, identity, reads, injected) in [
+        ("outsider", "42", "disabled", false),
+        ("fixture", "0", "disabled", false),
+        ("fixture", "42", "enabled", false),
+        ("fixture", "42", "disabled", true),
+    ] {
+        let mut q = query("direct-forbidden", "Abrams");
+        if injected {
+            q.answer_context = Some(brain_contracts::AnswerContext::Discord(
+                brain_contracts::DiscordAnswerContext {
+                    purpose: Some("bot_context:direct".into()),
+                    ..Default::default()
+                },
+            ));
+        }
+        let response = http
+            .post(format!("{endpoint}/v1/answer"))
+            .bearer_auth(token)
+            .header("x-discord-user-id", identity)
+            .header("x-discord-read-access", reads)
+            .json(&json!({"query": q, "user_questions": ["PRIVATE_CANARY_äöüß"]}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status().as_u16(),
+            if reads == "enabled" { 400 } else { 403 }
+        );
+        assert!(!response
+            .text()
+            .await
+            .unwrap()
+            .contains("PRIVATE_CANARY_äöüß"));
+    }
+    let response = http.post(format!("{endpoint}/v1/answer")).bearer_auth("fixture")
+        .header("x-discord-read-access", "disabled")
+        .json(&json!({"query": query("missing-identity", "Abrams"), "user_questions": ["PRIVATE_CANARY_äöüß"]})).send().await.unwrap();
+    assert_eq!(response.status().as_u16(), 403);
+    let response = http.post(format!("{endpoint}/v1/answer")).bearer_auth("fixture")
+        .header("x-discord-user-id", "42")
+        .json(&json!({"query": query("missing-read-restriction", "Abrams"), "user_questions": ["PRIVATE_CANARY_äöüß"]})).send().await.unwrap();
+    assert_eq!(response.status().as_u16(), 403);
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.append("x-discord-user-id", "42".parse().unwrap());
+    headers.append("x-discord-user-id", "43".parse().unwrap());
+    let response = http.post(format!("{endpoint}/v1/answer")).bearer_auth("fixture")
+        .headers(headers)
+        .header("x-discord-read-access", "disabled")
+        .json(&json!({"query": query("duplicate-identity", "Abrams"), "user_questions": ["PRIVATE_CANARY_äöüß"]})).send().await.unwrap();
+    assert_eq!(response.status().as_u16(), 400);
+    server.abort();
 }
 
 #[tokio::test]

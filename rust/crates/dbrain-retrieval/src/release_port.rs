@@ -305,7 +305,9 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
         let bound = context.with_request_deadline();
         let context = &bound;
         check_context(query, context)?;
-        if !needs_reference(&query.text) {
+        let direct = matches!(&query.answer_context, Some(brain_contracts::AnswerContext::Discord(context))
+            if context.purpose.as_deref() == Some("bot_context:direct"));
+        if !needs_reference(&query.text) && !direct {
             return Ok(DiscordReference::Independent);
         }
         if user_questions.len() > 4
@@ -358,6 +360,7 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
         }
         let heads = self.heads(&documents.into_values().collect::<Vec<_>>(), context)?;
         let mut vocabulary: BTreeMap<String, Vec<Vec<String>>> = BTreeMap::new();
+        let mut hero_subjects = BTreeSet::new();
         for record in &index.records {
             if record.visibility != SourceVisibility::Public {
                 continue;
@@ -373,6 +376,13 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
                 {
                     for (subject, names) in public_context_names(record) {
                         if matches.contains_key(&subject) {
+                            let canonical = record
+                                .metadata
+                                .get("name")
+                                .or_else(|| record.metadata.get("canonical_name"));
+                            if is_hero_record(record) && canonical == Some(&subject) {
+                                hero_subjects.insert(subject.clone());
+                            }
                             vocabulary.entry(subject).or_default().extend(names);
                         }
                     }
@@ -386,25 +396,108 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
                 .map(|(subject, _)| subject.clone())
                 .collect()
         };
-        if !subjects(&current).is_empty() {
+        let current_subjects = subjects(&current);
+        if direct && current_subjects.len() == 1 {
+            let subject = current_subjects.first().expect("Ein öffentlicher Bezug");
+            let subject_only = vocabulary[subject].contains(&current);
+            if subject_only && hero_subjects.contains(subject) {
+                if let Some(intent) = user_questions.last().and_then(|text| build_reference(text)) {
+                    return Ok(DiscordReference::Subject(format!("{subject} {intent}")));
+                }
+            }
+        }
+        if direct
+            && user_questions
+                .last()
+                .and_then(|text| build_reference(text))
+                .is_some()
+            && current_subjects.len() != 1
+        {
+            return Ok(DiscordReference::Clarification);
+        }
+        if !current_subjects.is_empty() {
             return Ok(DiscordReference::Independent);
         }
-        if !reference_only(&query.text) {
+        let build = direct && build_reference(&query.text).is_some();
+        if direct && !build && !needs_reference(&query.text) {
+            return Ok(DiscordReference::Independent);
+        }
+        if !reference_only(&query.text) && !build {
             return Ok(DiscordReference::Clarification);
         }
         for (text, words) in user_questions.iter().zip(&history).rev() {
             let mut found = subjects(words);
             if found.len() == 1 {
-                return Ok(DiscordReference::Subject(
-                    found.pop_first().expect("Ein öffentlicher Bezug"),
-                ));
+                let subject = found.pop_first().expect("Ein öffentlicher Bezug");
+                if build && !hero_subjects.contains(&subject) {
+                    return Ok(DiscordReference::Clarification);
+                }
+                return Ok(DiscordReference::Subject(subject));
             }
-            if !found.is_empty() || !reference_only(text) {
+            if !found.is_empty()
+                || !(reference_only(text) || (direct && build_reference(text).is_some()))
+            {
                 break;
             }
         }
         Ok(DiscordReference::Clarification)
     }
+}
+
+fn build_reference(text: &str) -> Option<&'static str> {
+    let words = brain_contracts::lexical::terms(text);
+    if words.is_empty()
+        || !words
+            .iter()
+            .any(|word| matches!(word.as_str(), "build" | "spiritbuild"))
+        || !words.iter().all(|word| {
+            matches!(
+                word.as_str(),
+                "okay"
+                    | "ok"
+                    | "ja"
+                    | "ne"
+                    | "eine"
+                    | "einen"
+                    | "ein"
+                    | "idee"
+                    | "fuer"
+                    | "spirit"
+                    | "spiritbuild"
+                    | "build"
+                    | "bitte"
+                    | "gib"
+                    | "mir"
+                    | "kannst"
+                    | "du"
+                    | "hast"
+                    | "noch"
+                    | "und"
+                    | "auch"
+                    | "ich"
+                    | "moechte"
+                    | "will"
+                    | "haette"
+            )
+        })
+    {
+        return None;
+    }
+    Some(
+        if words
+            .iter()
+            .any(|word| matches!(word.as_str(), "spirit" | "spiritbuild"))
+        {
+            "Spirit-Build"
+        } else {
+            "Build"
+        },
+    )
+}
+
+fn is_hero_record(record: &SourceRecordV2) -> bool {
+    (record.source_id == "deadlock-assets-heroes" && record.logical_id.starts_with("asset/hero/"))
+        || (record.source_id == "legacy-entities" && record.logical_id.starts_with("entity/hero/"))
 }
 
 fn reference_only(text: &str) -> bool {
@@ -532,10 +625,7 @@ fn public_context_names(record: &SourceRecordV2) -> Vec<(String, Vec<Vec<String>
             result.push((subject.to_owned(), names));
         }
     }
-    let hero = (record.source_id == "deadlock-assets-heroes"
-        && record.logical_id.starts_with("asset/hero/"))
-        || (record.source_id == "legacy-entities" && record.logical_id.starts_with("entity/hero/"));
-    if hero {
+    if is_hero_record(record) {
         let canonical = record
             .metadata
             .get("name")

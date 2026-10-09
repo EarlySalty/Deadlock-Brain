@@ -106,6 +106,17 @@ fn display_context(value: &mut Value) {
     match value {
         Value::String(text) => *text = discord_display_text(text),
         Value::Object(fields) => fields.values_mut().for_each(display_context),
+        Value::Array(values) => values.iter_mut().for_each(display_context),
+        Value::Number(number)
+            if number
+                .as_u64()
+                .is_some_and(|number| number >= 100_000_000_000_000)
+                || number
+                    .as_i64()
+                    .is_some_and(|number| number <= -100_000_000_000_000) =>
+        {
+            *value = Value::Null;
+        }
         _ => {}
     }
 }
@@ -123,8 +134,11 @@ fn evidence_display_content(item: &Evidence) -> String {
     }
 }
 
-fn tool_display_result(result: &ToolResult, evidence: &[Evidence]) -> Value {
+fn tool_display_result(result: &ToolResult, evidence: &[Evidence], query: &Query) -> Value {
     let mut value = result.result.clone();
+    if crate::discord_task::is_private_context_query(query) {
+        display_context(&mut value);
+    }
     if result.name == ToolName::ServerKnowledge {
         if let Some(matches) = value.get_mut("matches").and_then(Value::as_array_mut) {
             for found in matches {
@@ -165,7 +179,7 @@ pub fn grounded_messages(query: &Query, evidence: &[Evidence]) -> Vec<ChatMessag
                     item.citation.as_str()
                 };
                 let content = evidence_display_content(item);
-                let (citation, content) = if crate::discord_task::is_task_query(query) {
+                let (citation, content) = if crate::discord_task::is_private_context_query(query) {
                     (
                         discord_display_text(citation),
                         discord_display_text(&content),
@@ -292,11 +306,11 @@ pub fn grounded_turn_payload_with_quality(
             }
             ToolMessage::ToolResults { results } => {
                 if native {
-                    let content: Vec<_> = results.iter().map(|result| json!({"type":"tool_result", "tool_use_id":result.call_id, "content":json!({"result":tool_display_result(result, evidence),"evidence_ids":result.evidence_ids}).to_string(), "is_error":result.is_error})).collect();
+                    let content: Vec<_> = results.iter().map(|result| json!({"type":"tool_result", "tool_use_id":result.call_id, "content":json!({"result":tool_display_result(result, evidence, query),"evidence_ids":result.evidence_ids}).to_string(), "is_error":result.is_error})).collect();
                     messages.push(json!({"role":"user", "content":content}));
                 } else {
                     for result in results {
-                        messages.push(json!({"role":"tool", "tool_call_id":result.call_id, "name":result.name, "content":json!({"result":tool_display_result(result, evidence),"evidence_ids":result.evidence_ids,"is_error":result.is_error}).to_string()}));
+                        messages.push(json!({"role":"tool", "tool_call_id":result.call_id, "name":result.name, "content":json!({"result":tool_display_result(result, evidence, query),"evidence_ids":result.evidence_ids,"is_error":result.is_error}).to_string()}));
                     }
                 }
             }
@@ -871,6 +885,38 @@ mod tests {
             assert_eq!(wire["result"]["matches"][1]["content"], evidence[1].content);
             assert_eq!(wire["result"]["item_id"], result.result["item_id"]);
             assert_eq!(wire["result"]["price"], 1250);
+            let mut direct = query();
+            direct.answer_context =
+                Some(crate::AnswerContext::Discord(crate::DiscordAnswerContext {
+                    purpose: Some("bot_context:direct".into()),
+                    ..Default::default()
+                }));
+            let direct_payload = grounded_turn_payload(
+                &direct,
+                &evidence,
+                std::slice::from_ref(&definition),
+                &conversation,
+                format,
+            )
+            .unwrap();
+            let serialized = direct_payload.to_string();
+            for raw in ["1494373349944459355", "998877665544332211", "<#", "<@"] {
+                assert!(!serialized.contains(raw));
+            }
+            assert!(serialized.contains("1250"));
+            let last = direct_payload["messages"]
+                .as_array()
+                .unwrap()
+                .last()
+                .unwrap();
+            let raw = if format == ToolWireFormat::Native {
+                last["content"][0]["content"].as_str().unwrap()
+            } else {
+                last["content"].as_str().unwrap()
+            };
+            let direct_wire: Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(direct_wire["result"]["item_id"], Value::Null);
+            assert_eq!(direct_wire["result"]["price"], 1250);
             assert_eq!(wire["evidence_ids"], json!(result.evidence_ids));
             assert_eq!(
                 grounded_turn_input_ceiling(
@@ -890,7 +936,10 @@ mod tests {
             name: ToolName::EntityProfile,
             ..result
         };
-        assert_eq!(tool_display_result(&unrelated, &evidence), unrelated.result);
+        assert_eq!(
+            tool_display_result(&unrelated, &evidence, &query()),
+            unrelated.result
+        );
         for (source, visibility) in [
             ("docs.public", crate::SourceVisibility::RequestScoped),
             ("discord.public-live.v1", crate::SourceVisibility::Public),

@@ -25,6 +25,12 @@ pub fn is_task_query(query: &crate::Query) -> bool {
         if matches!(context.purpose.as_deref(), Some("bot_task:concierge" | "bot_task:faq")))
 }
 
+pub fn is_private_context_query(query: &crate::Query) -> bool {
+    is_task_query(query)
+        || matches!(&query.answer_context, Some(crate::AnswerContext::Discord(context))
+            if context.purpose.as_deref() == Some("bot_context:direct"))
+}
+
 pub use crate::provider_input::discord_display_text as without_platform_ids;
 
 #[derive(Clone, Serialize, Deserialize)]
