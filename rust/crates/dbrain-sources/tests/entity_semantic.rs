@@ -303,9 +303,7 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
         .unwrap();
     let store = brain_storage::PgStore::new(pool.clone());
     store.migrate_core().await.unwrap();
-    for migration in [include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"),include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profile-binding-identity-v1.sql"),include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-semantic-projection-v1.sql"),include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-derived-receipts-v1.sql")] {
-        sqlx::raw_sql(migration).execute(&pool).await.unwrap();
-    }
+    store.migrate_entity_profiles().await.unwrap();
     let catalog: Vec<_> = [
         (EntityKind::Hero, "hero_inferno", "Infernus"),
         (
