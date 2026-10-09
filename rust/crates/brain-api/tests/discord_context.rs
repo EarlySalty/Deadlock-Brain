@@ -59,6 +59,11 @@ async fn store() -> MemoryRepository {
             "Sprachkanäle werden über den Sprachkanal-Button geöffnet.",
             false,
         ),
+        record(
+            "seelen",
+            "Mehr Seelen bekommst du durch das Besiegen von Troopern und das Sichern ihrer Seelen.",
+            false,
+        ),
         record("private", "Rollen PRIVATE_SOURCE_CANARY", true),
     ] {
         store.apply_record(record).unwrap();
@@ -161,6 +166,8 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
                 "Okay ja ne Idee für ein Spirit build\nGesprächsthema: Abrams",
             ),
             ("Abrams", "Abrams\nGesprächsthema: Abrams Spirit-Build"),
+            ("Seelen", "Wie bekomme ich mehr Seelen?"),
+            ("Abrams", "Warum?\nGesprächsthema: Abrams"),
         ] {
             let (mut stream, _) = listener.accept().unwrap();
             let request = read_request(&mut stream);
@@ -296,6 +303,22 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
                 second.to_owned(),
             ],
         ),
+        (
+            "direct-independent-after-build",
+            "Wie bekomme ich mehr Seelen?",
+            vec![
+                format!("{first} PRIVATE_CANARY_äöüß <@76561197960265839>"),
+                second.to_owned(),
+            ],
+        ),
+        (
+            "direct-followup-after-build",
+            "Warum?",
+            vec![
+                format!("{first} PRIVATE_CANARY_äöüß <@76561197960265839>"),
+                second.to_owned(),
+            ],
+        ),
     ] {
         let response = client
             .answer_for_discord_with_history(&query(id, text), 42, &history)
@@ -400,7 +423,7 @@ async fn both_routes_resolve_only_public_subjects_before_real_provider_transport
         .await
         .unwrap();
     assert_eq!(response.status().as_u16(), 413);
-    assert_eq!(requests.lock().unwrap().len(), 7);
+    assert_eq!(requests.lock().unwrap().len(), 9);
     provider_server.join().unwrap();
     server.abort();
 }
@@ -485,6 +508,76 @@ async fn local_reference_reuses_public_hero_names_without_numeric_identifiers() 
 }
 
 #[tokio::test]
+async fn direct_build_history_preserves_independent_questions_and_safe_followups() {
+    let retrieval = ReleaseRetriever::new(store().await, 8);
+    let history = [
+        "Welche Items passen zu Abrams?",
+        "Okay ja ne Idee für ein Spirit build",
+    ]
+    .map(str::to_owned);
+    for (text, expected) in [
+        (
+            "Wie bekomme ich mehr Seelen?",
+            DiscordReference::Independent,
+        ),
+        ("Wie bekomme ich mehr Seelen", DiscordReference::Independent),
+        (
+            "Gibt es mehr Seelen im Dschungel?",
+            DiscordReference::Independent,
+        ),
+        (
+            "Kann ich mehr Seelen farmen?",
+            DiscordReference::Independent,
+        ),
+        ("Warum?", DiscordReference::Subject("Abrams".into())),
+        ("Und seine Ult?", DiscordReference::Subject("Abrams".into())),
+        (
+            "Okay ja ne Idee für ein Spirit build",
+            DiscordReference::Subject("Abrams".into()),
+        ),
+        ("Unbekannt", DiscordReference::Clarification),
+        ("Unbekannter Held", DiscordReference::Clarification),
+        ("PRIVATE_CANARY_äöüß", DiscordReference::Clarification),
+        (
+            "Und wie bekomme ich Rollen?",
+            DiscordReference::Clarification,
+        ),
+        (
+            "Wie kann ich das verbessern mit Privatproblem?",
+            DiscordReference::Clarification,
+        ),
+    ] {
+        let mut q = query("direct-after-build", text);
+        q.answer_context = Some(brain_contracts::AnswerContext::Discord(
+            brain_contracts::DiscordAnswerContext {
+                purpose: Some("bot_context:direct".into()),
+                ..Default::default()
+            },
+        ));
+        assert_eq!(
+            retrieval.resolve(&q, &context(&q), &history).unwrap(),
+            expected,
+            "{text}",
+        );
+        if text == "Warum?" {
+            for barrier in ["Und wie bekomme ich Rollen?", "Unbekannter Held"] {
+                assert_eq!(
+                    retrieval
+                        .resolve(
+                            &q,
+                            &context(&q),
+                            &[history[0].clone(), barrier.into(), history[1].clone()],
+                        )
+                        .unwrap(),
+                    DiscordReference::Clarification,
+                    "{barrier}",
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn direct_build_reference_rechecks_public_hero_and_rejects_private_intents() {
     let store = store().await;
     let retrieval = ReleaseRetriever::new(store.clone(), 8);
@@ -533,10 +626,18 @@ async fn direct_build_reference_rechecks_public_hero_and_rejects_private_intents
             ("kind".into(), "fact".into()),
         ]);
         store.apply_record(revoked).unwrap();
-        q.text = "Abrams".into();
+        for text in ["Abrams", "Warum?", "Und seine Ult?"] {
+            q.text = text.into();
+            assert_eq!(
+                retrieval.resolve(&q, &context(&q), &history).unwrap(),
+                DiscordReference::Clarification,
+                "{text}, tombstone={tombstone}",
+            );
+        }
+        q.text = "Wie bekomme ich mehr Seelen?".into();
         assert_eq!(
             retrieval.resolve(&q, &context(&q), &history).unwrap(),
-            DiscordReference::Clarification
+            DiscordReference::Independent,
         );
         q.text = "Okay ja ne Idee für ein Spirit build".into();
         assert_eq!(

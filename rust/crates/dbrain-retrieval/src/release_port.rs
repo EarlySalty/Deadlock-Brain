@@ -406,19 +406,56 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
                 }
             }
         }
+        let build = direct && build_reference(&query.text).is_some();
         if direct
             && user_questions
                 .last()
                 .and_then(|text| build_reference(text))
                 .is_some()
             && current_subjects.len() != 1
+            && !build
+            && !needs_reference(&query.text)
+            && !current.first().is_some_and(|word| {
+                matches!(
+                    word.as_str(),
+                    "wie"
+                        | "wo"
+                        | "was"
+                        | "wer"
+                        | "wen"
+                        | "wem"
+                        | "wessen"
+                        | "wann"
+                        | "warum"
+                        | "wieso"
+                        | "weshalb"
+                        | "wozu"
+                        | "welche"
+                        | "welcher"
+                        | "welches"
+                        | "welchen"
+                        | "welchem"
+                        | "gibt"
+                        | "ist"
+                        | "sind"
+                        | "kann"
+                        | "koennen"
+                        | "hat"
+                        | "haben"
+                        | "darf"
+                        | "duerfen"
+                        | "soll"
+                        | "sollen"
+                        | "muss"
+                        | "muessen"
+                )
+            })
         {
             return Ok(DiscordReference::Clarification);
         }
         if !current_subjects.is_empty() {
             return Ok(DiscordReference::Independent);
         }
-        let build = direct && build_reference(&query.text).is_some();
         if direct && !build && !needs_reference(&query.text) {
             return Ok(DiscordReference::Independent);
         }
