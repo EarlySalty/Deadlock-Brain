@@ -994,13 +994,14 @@ fn build_hero(
     find: impl Fn(&[String]) -> Result<std::collections::BTreeSet<i64>, PortError>,
 ) -> Result<Option<i64>, PortError> {
     let all = find(terms)?;
-    if all.len() <= 1 {
+    let opponent = |term: &String| matches!(term.as_str(), "gegen" | "vs" | "versus" | "against");
+    let first_opponent = terms.iter().position(opponent);
+    if all.len() <= 1 && first_opponent.is_none() {
         return Ok(all.into_iter().next());
     }
-    let opponent = |term: &String| matches!(term.as_str(), "gegen" | "vs" | "versus" | "against");
     let mut targets = std::collections::BTreeSet::new();
     for (index, term) in terms.iter().enumerate() {
-        let span = if opponent(term) {
+        let span = if Some(index) == first_opponent {
             &terms[..index]
         } else if matches!(term.as_str(), "fuer" | "zu" | "for" | "on" | "als" | "as") {
             let rest = &terms[index + 1..];
@@ -1245,6 +1246,10 @@ mod tests {
             "Items on Abrams against Pocket",
             "Abrams vs Pocket items",
             "Build for Abrams versus Pocket",
+            "Abrams gegen Pocket",
+            "Gegen Pocket: Build für Abrams",
+            "Build für Abrams gegen Abrams",
+            "Build für Abrams gegen Pocket versus Haze",
         ] {
             assert_eq!(
                 build_hero(&brain_contracts::lexical::terms(text), find).unwrap(),
@@ -1258,6 +1263,13 @@ mod tests {
             "Abrams gegen Pocket, Build für Haze",
             "Abrams oder Pocket items",
             "Welche Items passen?",
+            "Build gegen Pocket",
+            "Items gegen Pocket",
+            "Items against Pocket",
+            "Build vs Pocket",
+            "Build versus Pocket",
+            "Build gegen Pocket versus Haze",
+            "Items gegen Pocket und Haze",
         ] {
             assert_eq!(
                 build_hero(&brain_contracts::lexical::terms(text), find).unwrap(),
@@ -1537,7 +1549,7 @@ mod tests {
             ..Default::default()
         };
         let deadline_ms = 60_000;
-        let runtime = Runtime::new(config, mirror).unwrap();
+        let runtime = Arc::new(Runtime::new(config, mirror).unwrap());
         let authorization = AuthorizedContext {
             principal: brain_contracts::Principal {
                 actor_id: "synthetic-mechanics-probe".into(),
@@ -1569,6 +1581,67 @@ mod tests {
             json!({"event":"mirror_resolution_probe","elapsed_ms":resolving.elapsed().as_millis(),"resolved":resolved.is_ok()})
         );
         let pin = resolved.unwrap().unwrap();
+        let reader =
+            brain_storage::LocalPgReader::new(&socket, 55439, "brain_core_test", "postgres")
+                .unwrap();
+        let tools = Tools {
+            knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(
+                dbrain_retrieval::ReleaseRetriever::new(reader, 10),
+            ),
+            runtime: runtime.clone(),
+        };
+        for profile in [
+            brain_contracts::AnswerProfile::Explain,
+            brain_contracts::AnswerProfile::Build,
+        ] {
+            let mut routing_query = query.clone();
+            routing_query.profile = profile.clone();
+            for text in [
+                "Welche Items passen zu Abrams?",
+                "Welche Items passen zu Abrams gegen Pocket?",
+                "Gegen Pocket: Build für Abrams",
+                "Build für Abrams gegen Abrams",
+                "Items on Abrams against Pocket",
+                "Build für Abrams gegen Pocket versus Haze",
+            ] {
+                routing_query.text = text.into();
+                let calls = tools
+                    .required_calls(&routing_query, &context, Some(&pin))
+                    .unwrap();
+                assert_eq!(calls.len(), 1, "{profile:?}: {text}");
+                assert_eq!(calls[0].name, ToolName::DeadlockData);
+                assert_eq!(calls[0].arguments["hero"], "6", "{profile:?}: {text}");
+                assert_eq!(
+                    calls[0].arguments["operation"],
+                    json!(if profile == brain_contracts::AnswerProfile::Build {
+                        Operation::Builds
+                    } else {
+                        Operation::Items
+                    }),
+                    "{profile:?}: {text}"
+                );
+            }
+            for text in [
+                "Build gegen Pocket",
+                "Items gegen Pocket",
+                "Items against Pocket",
+                "Build vs Pocket",
+                "Build versus Pocket",
+                "Build gegen Pocket versus Haze",
+                "Welche Items passen zu Abrams oder Pocket?",
+                "Build für Abrams und Haze gegen Pocket",
+                "Abrams gegen Pocket, Build für Haze",
+            ] {
+                routing_query.text = text.into();
+                assert!(
+                    matches!(
+                        tools.required_calls(&routing_query, &context, Some(&pin)),
+                        Err(PortError::Unavailable(_))
+                    ),
+                    "{profile:?}: {text}"
+                );
+            }
+        }
         let call = ToolCall {
             id: "mechanics-api-probe".into(),
             name: ToolName::DeadlockData,
@@ -1626,7 +1699,7 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .to_owned();
-            live_provider_acceptance(&executor, Arc::new(runtime), &item);
+            live_provider_acceptance(&executor, runtime, &item);
         }
         executor.block_on(pool.close());
     }
