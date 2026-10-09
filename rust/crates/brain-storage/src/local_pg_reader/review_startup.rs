@@ -63,9 +63,10 @@ fn stalled_peer(stage: Stall, request_budget: bool, cancel: bool) {
             assert!((4..4096).contains(&query_length));
             let mut query = vec![0; query_length - 4];
             stream.read_exact(&mut query).unwrap();
+            assert!(String::from_utf8_lossy(&query).contains("SET TIME ZONE 'UTC'"));
             if matches!(stage, Stall::Query) {
                 stream
-                    .write_all(b"C\0\0\0\x08SET\0C\0\0\0\x08SET\0Z\0\0\0\x05I")
+                    .write_all(b"C\0\0\0\x08SET\0C\0\0\0\x08SET\0C\0\0\0\x08SET\0Z\0\0\0\x05I")
                     .unwrap();
                 // The query uses extended protocol. Prove it actually reached this
                 // peer before expiring/cancelling, then deliberately never answer it.

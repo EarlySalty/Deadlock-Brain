@@ -361,7 +361,12 @@ async fn large_utf8_source_keeps_tail_and_facts_retrievable() {
     let projection = project_knowledge(&original).unwrap().unwrap();
     assert_eq!(&projection.text[..projection.raw_byte_end], content);
     let retriever = ReleaseRetriever::new(published(original).await, 6);
-    let c = context();
+    let mut c = context();
+    let now = std::time::Instant::now();
+    c.request_deadline = Some(RequestDeadline::after_with_clock(
+        std::time::Duration::from_millis(c.deadline_ms),
+        move || now,
+    ));
     for term in ["LetzterOriginalmarker", "cooldown 12.5"] {
         let q = query(term);
         let hits = retriever.retrieve(&q, &c).unwrap();
@@ -478,18 +483,7 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         .unwrap();
     let store = PgStore::new(pool.clone());
     store.migrate_core().await.unwrap();
-    sqlx::raw_sql(include_str!(
-        "../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"
-    ))
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::raw_sql(include_str!(
-        "../../../../scripts/migrations/2026-10-04-brain-entity-profile-binding-identity-v1.sql"
-    ))
-    .execute(&pool)
-    .await
-    .unwrap();
+    store.migrate_entity_profiles().await.unwrap();
     sqlx::raw_sql("CREATE TABLE brain.entities(entity_type text); INSERT INTO brain.entities VALUES('hero'); CREATE TABLE brain.patch_changes(patch_date text,entity_type text,entity_name text,ability_name text,stat_name text,old_value text,new_value text,change_type text,confidence double precision,raw_line text); INSERT INTO brain.patch_changes VALUES('2026-09-16','hero','Wächter',NULL,'cooldown','18','12.5','decrease',1,'Gesperrter Originaltext'),('2025-09-16','item','Wächter',NULL,'Fremde Änderung','777','778','increase',1,'Gesperrter Originaltext'),('2024-09-16','hero','Anderer Held','Wächter','Fremde Änderung','777','778','increase',1,'Gesperrter Originaltext')")
         .execute(&pool).await.unwrap();
     sqlx::raw_sql("ALTER TABLE brain.patch_changes ADD COLUMN unit text, ADD COLUMN level text, ADD COLUMN variant text, ADD COLUMN condition text; UPDATE brain.patch_changes SET unit='Sekunden',level='3',variant='geladen',condition='bei Treffer'").execute(&pool).await.unwrap();
@@ -639,6 +633,7 @@ async fn normal_texts_read_live_entity_facts_counts_and_patch_history() {
         ("Welche Lebenspunkte hat Wächter in Version 1.2.3?", "830"),
         ("Welche Lebenspunkte hat Wächter in Version 6.0.1?", "830"),
         ("Was macht das Item Extended Magazine?", "22"),
+        ("Was macht das Item Extended-Magazine?", "22"),
         ("Was änderte sich bei Wächter im Patch vom 16.09.?", "18"),
     ] {
         let mut query = query(text);
@@ -853,12 +848,7 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         .unwrap();
     let store = PgStore::new(pool.clone());
     store.migrate_core().await.unwrap();
-    for migration in [
-        include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"),
-        include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-profile-binding-identity-v1.sql"),
-        include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-semantic-projection-v1.sql"),
-        include_str!("../../../../scripts/migrations/2026-10-04-brain-entity-derived-receipts-v1.sql"),
-    ] { sqlx::raw_sql(migration).execute(&pool).await.unwrap(); }
+    store.migrate_entity_profiles().await.unwrap();
     sqlx::raw_sql("CREATE TABLE brain.patch_changes(patch_date text,entity_type text,entity_name text,ability_name text,stat_name text,old_value text,new_value text,change_type text,confidence double precision,raw_line text); INSERT INTO brain.patch_changes VALUES('2026-09-16','hero','hero_test',NULL,'MaxHealth','800','830','increase',1,'Gesperrte Originalzeile'),('2025-09-16','item','Wächter',NULL,'Fremdes Feld','777','778','increase',1,'Gesperrte Originalzeile')")
         .execute(&pool).await.unwrap();
     sqlx::query("INSERT INTO brain.patch_changes VALUES('2026-09-01','hero','hero_test',NULL,'MaxHealth','780','800','increase',1,'Gesperrte Originalzeile')")
@@ -1223,6 +1213,7 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         ("Wie viele Lebenspunkte hat der Held Wächter?", "830"),
         ("How much health does the hero Wächter have?", "830"),
         ("Was macht Extended Magazine?", "30"),
+        ("Was macht Extended-Magazine?", "30"),
     ] {
         let mut query = query(text);
         query.patch = None;
@@ -1291,6 +1282,17 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         )
         .is_err());
     }
+    let mut combined = query("Was macht Extended Magazine für Wächter?");
+    combined.patch = None;
+    let evidence = tokio::task::block_in_place(|| retriever.retrieve(&combined, &context)).unwrap();
+    assert_eq!(evidence.len(), 2);
+    assert!(evidence.iter().all(|item| documents
+        .iter()
+        .any(|document| document.content == item.content)));
+    tokio::task::block_in_place(|| {
+        retriever.validate_evidence(&combined, &context, &evidence, true)
+    })
+    .unwrap();
     let mut partial = query("Was ist Wächterinnen?");
     partial.patch = None;
     assert_eq!(

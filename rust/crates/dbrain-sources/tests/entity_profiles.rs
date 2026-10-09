@@ -507,18 +507,9 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .unwrap();
     let store = brain_storage::PgStore::new(pool.clone());
     store.migrate_core().await.unwrap();
-    sqlx::raw_sql(include_str!(
-        "../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"
-    ))
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::raw_sql(include_str!(
-        "../../../../scripts/migrations/2026-10-04-brain-entity-profile-binding-identity-v1.sql"
-    ))
-    .execute(&pool)
-    .await
-    .unwrap();
+    store.migrate_entity_profiles().await.unwrap();
+    store.migrate_entity_profiles().await.unwrap();
+    store.check_entity_profile_schema().await.unwrap();
     let mut record = record();
     let mut origin = brain_contracts::source::origin_from_record(&record).unwrap();
     record.allowed_scopes.insert("fixture:read".into());
@@ -554,6 +545,11 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
         .await
         .unwrap();
     assert_eq!(count, 0);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM brain.entity_profile_entities_v1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
     assert_eq!(
         store
             .store_entity_fact_bindings(&entity, &record, &["health".into()])
@@ -568,6 +564,16 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
             .unwrap(),
         0
     );
+    let names: Vec<String> = sqlx::query_scalar(
+        "SELECT lookup_names FROM brain.entity_profile_entities_v1 WHERE entity_key=$1",
+    )
+    .bind(&entity.entity_key)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let mut expected = vec![entity.name.clone(), entity.aliases[0].clone()];
+    expected.sort();
+    assert_eq!(names, expected);
     let stored: String = sqlx::query_scalar("SELECT fact_json FROM brain.entity_profile_facts_v1")
         .fetch_one(&pool)
         .await
@@ -895,12 +901,7 @@ async fn original_alias_bindings_drive_history_without_consumer_leaks(
         semantic::{project_semantic_fact, semantic_projection},
     };
     use dbrain_sources::entity_binding::{bind_document, bind_stored_document, CatalogEntity};
-    sqlx::raw_sql(include_str!(
-        "../../../../scripts/migrations/2026-10-04-brain-entity-semantic-projection-v1.sql"
-    ))
-    .execute(pool)
-    .await
-    .unwrap();
+    store.migrate_entity_profiles().await.unwrap();
     let document = extracted_game_document_from_source(
         "alias-original",
         "json",
@@ -1155,12 +1156,7 @@ async fn private_einheiten_bleiben_bei_gespeicherter_neuableitung_in_den_origina
     };
     use dbrain_sources::entity_binding::{bind_stored_document, CatalogEntity};
 
-    sqlx::raw_sql(include_str!(
-        "../../../../scripts/migrations/2026-10-04-brain-entity-derived-receipts-v1.sql"
-    ))
-    .execute(pool)
-    .await
-    .unwrap();
+    store.migrate_entity_profiles().await.unwrap();
     for (index, unit) in [
         "/private/health.json",
         "private/health.json",

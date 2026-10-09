@@ -536,6 +536,13 @@ mod tests {
                 "{\"text\":\"Deckung nutzen\",\"cited_evidence_ids\":[]}",
                 "Ohne passende Quellen trotzdem antworten.",
                 "{\"text\":\"Teilantwort <#123456789012345678>",
+                "Deckung nutzen [[ev-657479902dd7919055375b33f82b0d5c926c3837a917be14]] [[]]",
+                "Teilantwort [[ev-unvollständig",
+                "Deckung nutzen. {\"text\":\"Deckung nutzen.\",\"cited_evidence_ids\":[\"discord-live-unbekannt\"]}",
+                "Abstand halten.\",\"cited_evidence_ids\":[\"unbekannt\"]}",
+                "Deckung nutzen. \u{e200}cite\u{e202}unbekannt\u{e201}",
+                "Abstand halten. { \"cited_evidence_ids\": [\"unbekannt\"]}",
+                "Deckung nutzen.\n`cited_evidence_ids`: `[\"unbekannt\"]`",
             ] {
                 let (mut stream, _) = listener.accept().unwrap();
                 let request = read_request(&mut stream);
@@ -559,6 +566,13 @@ mod tests {
             "Deckung nutzen",
             "Ohne passende Quellen trotzdem antworten.",
             "Teilantwort ",
+            "Deckung nutzen  ",
+            "Teilantwort ",
+            "Deckung nutzen.",
+            "Abstand halten.",
+            "Deckung nutzen. ",
+            "Abstand halten.",
+            "Deckung nutzen.",
         ] {
             let response = provider
                 .answer_accounted(&query(), &context(), &[])
