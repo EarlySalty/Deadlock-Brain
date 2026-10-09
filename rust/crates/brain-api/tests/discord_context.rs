@@ -310,6 +310,7 @@ async fn all_routes_always_send_ordered_public_projection_before_real_provider_t
                 json!({"text":"Hier ist die Antwort auf deine Frage.", "cited_evidence_ids":ids})
                     .to_string();
             let response = json!({"model":"gpt-6-luna", "stop_reason":"end_turn", "content":[{"type":"text","text":answer}], "usage":{"input_tokens":12,"output_tokens":3}}).to_string();
+            recorded.lock().unwrap().push(request);
             write!(
                 stream,
                 "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -317,7 +318,6 @@ async fn all_routes_always_send_ordered_public_projection_before_real_provider_t
                 response
             )
             .unwrap();
-            recorded.lock().unwrap().push(request);
         }
     });
     let service = tokio::task::spawn_blocking(move || {
