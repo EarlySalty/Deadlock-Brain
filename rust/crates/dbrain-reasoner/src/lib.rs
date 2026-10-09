@@ -48,6 +48,8 @@ pub mod publish;
 mod types;
 
 #[cfg(test)]
+mod calculation_coverage_tests;
+#[cfg(test)]
 mod calculation_tests;
 #[cfg(test)]
 mod fix_tests;
