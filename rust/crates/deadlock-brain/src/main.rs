@@ -1471,11 +1471,16 @@ impl AnswerClientConfig {
     }
 }
 
+fn brain_answer_deadline(timeout_ms: u64) -> Result<std::time::Instant> {
+    anyhow::ensure!(
+        (1..=600_000).contains(&timeout_ms),
+        "Client-Timeout ist ungültig"
+    );
+    Ok(std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms))
+}
+
 async fn run_brain_answer(args: &BrainAnswerArgs) -> Result<()> {
-    if !(1..=60_000).contains(&args.timeout_ms) {
-        anyhow::bail!("Client-Timeout ist ungültig");
-    }
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(args.timeout_ms);
+    let deadline = brain_answer_deadline(args.timeout_ms)?;
     let config = AnswerClientConfig::load(&args.client_config)?;
     let endpoint = args.endpoint.as_deref().unwrap_or(&config.endpoint);
     // Validate the transport before retrieving a credential; this does not send a request.
@@ -1535,6 +1540,18 @@ async fn run_brain_answer(args: &BrainAnswerArgs) -> Result<()> {
     }
     .context("brain-serve Anfrage fehlgeschlagen")?;
     print_json(&response)
+}
+
+#[cfg(test)]
+mod answer_deadline_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_answer_timeout_accepts_ten_minutes_before_loading_config() {
+        for (timeout_ms, valid) in [(1, true), (600_000, true), (600_001, false), (0, false)] {
+            assert_eq!(brain_answer_deadline(timeout_ms).is_ok(), valid);
+        }
+    }
 }
 
 fn command_is_read_only(command: &Commands) -> bool {

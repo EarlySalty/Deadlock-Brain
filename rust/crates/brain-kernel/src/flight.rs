@@ -300,7 +300,7 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
         let start = Instant::now();
         if query.validate().is_err()
             || query.conversation_id != context.conversation_id
-            || !(1..=60000).contains(&context.deadline_ms)
+            || !(1..=600_000).contains(&context.deadline_ms)
             || context.knowledge_release.trim().is_empty()
             || !query.requested_scopes.is_subset(&context.principal.scopes)
         {

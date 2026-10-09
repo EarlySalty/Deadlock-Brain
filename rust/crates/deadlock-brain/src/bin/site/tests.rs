@@ -435,11 +435,30 @@ async fn postgres_http_comments_survive_restart_and_roles_are_isolated() {
         .await
         .unwrap();
     assert_eq!(saved["parallel"].as_array().unwrap().len(), 16);
+    drop(client);
     handle.abort();
     let _ = handle.await;
     pool.close().await;
+    drop(pool);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let connected: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity WHERE usename='brain_site'",
+            )
+            .fetch_one(&owner)
+            .await
+            .unwrap();
+            if connected == 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     let pool = pg.pool("brain_site").await;
     let (url, handle) = server(root.path(), pool.clone()).await;
+    let client = Client::new();
     assert_eq!(
         client
             .get(format!("{url}/api/comments?unused=1"))

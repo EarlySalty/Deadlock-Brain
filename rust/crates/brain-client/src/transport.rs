@@ -30,7 +30,7 @@ pub(crate) fn endpoint(
         || parsed.query().is_some()
         || parsed.fragment().is_some()
         || timeout.is_zero()
-        || timeout > Duration::from_millis(65_000)
+        || timeout > Duration::from_millis(605_000)
     {
         return Err(ClientError::InvalidBaseUrl);
     }
@@ -117,8 +117,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn timeout_erlaubt_65000_und_verweigert_65001_sowie_null() {
-        for (timeout, accepted) in [(1, true), (65_000, true), (65_001, false), (0, false)] {
+    fn timeout_erlaubt_605000_und_verweigert_605001_sowie_null() {
+        for (timeout, accepted) in [
+            (1, true),
+            (65_000, true),
+            (600_000, true),
+            (605_000, true),
+            (605_001, false),
+            (0, false),
+        ] {
             assert_eq!(
                 endpoint(
                     "http://127.0.0.1:8788",

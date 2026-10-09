@@ -13,7 +13,7 @@ impl<K: AnswerKernelPort> ApiService<K> {
             authorization,
             body,
             RequestDeadline::after(std::time::Duration::from_millis(
-                self.deadline_ms.clamp(1, 60000),
+                self.deadline_ms.clamp(1, 600_000),
             )),
         )
     }
@@ -32,7 +32,7 @@ impl<K: AnswerKernelPort> ApiService<K> {
         }
         if self.knowledge_release.trim().is_empty()
             || self.knowledge_release == "current"
-            || !(1..=60000).contains(&self.deadline_ms)
+            || !(1..=600_000).contains(&self.deadline_ms)
         {
             return json_error(503, "not_ready", "Kein gültiger Wissensstand konfiguriert");
         }
