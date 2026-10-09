@@ -63,6 +63,7 @@ impl Runtime {
             .user_agent("brain-deadlock-data-v1")
             .build()
             .map_err(|_| Error::ConfigInvalid("deadlock_api_http"))?;
+        let mirror = mirror.with_cache_ttl(Duration::from_millis(config.cache_ttl_ms));
         Ok(Self {
             config,
             mirror,
@@ -263,7 +264,7 @@ impl Runtime {
         let mut url = dbrain_builds::analytics_url(endpoint, start, params);
         url.push_str(&format!(
             "&max_unix_timestamp={}&min_match_id=0&bucket=no_bucket",
-            end - 3600
+            end - 1
         ));
         let response = self
             .client
@@ -282,7 +283,14 @@ impl Runtime {
                     .retain(|row| row["hero_id"].as_i64() == Some(*hero));
             }
         }
-        normalize_rows(&value, endpoint, self.config.max_rows)
+        normalize_rows(&value, endpoint, self.config.max_rows).inspect_err(|_| {
+            eprintln!(
+                "{}",
+                json!({"event":"deadlock_data_aggregate_invalid",
+                "endpoint":endpoint,"from_unix":start,"to_unix_exclusive":end,
+                "rows":value.as_array().map(Vec::len),"maximum":self.config.max_rows})
+            );
+        })
     }
 
     fn lookup(
@@ -307,7 +315,7 @@ impl Runtime {
             return Err(invalid());
         };
         let days = data.days.unwrap_or(self.config.default_days);
-        let limit = data.limit.unwrap_or(10);
+        let limit = data.limit.unwrap_or(10.min(self.config.max_rows));
         if days > self.config.max_days || limit > self.config.max_rows {
             return Err(invalid());
         }
@@ -397,20 +405,43 @@ impl Runtime {
             }
         }
         let mut builds = Vec::new();
+        let mut build_api_status = "not_requested";
         if data.operation == Operation::Builds && api_status == "available" {
             let path = format!("hero-build-stats/{}", hero_id.ok_or_else(invalid)?);
-            builds = self.rest(context, &path, start, end, &[("min_matches", 1)], usage)?;
-            builds.truncate(limit);
+            match self.rest(context, &path, start, end, &[("min_matches", 1)], usage) {
+                Ok(rows) => {
+                    builds = rows;
+                    builds.truncate(limit);
+                    build_api_status = "available";
+                }
+                Err(PortError::Unavailable(_)) => {
+                    context.check_deadline()?;
+                    build_api_status = "unavailable";
+                    eprintln!(
+                        "{}",
+                        json!({"event":"deadlock_data_countercheck_unavailable","request_id":query.request_id,"operation":data.operation,"endpoint":"hero-build-stats"})
+                    );
+                }
+                Err(error) => return Err(error),
+            }
+        } else if data.operation == Operation::Builds {
+            build_api_status = "unavailable";
         }
         let result = json!({"source":"Deadlock-API","operation":data.operation,
             "hero_id":hero_id,"item_id":item_id,"from_unix":start,"to_unix_exclusive":end,
-            "population":"Ranked, Normal","api_status":api_status,"mechanical":mechanical,"observations":rows,"build_observations":builds,
+            "population":"Ranked, Normal","api_status":api_status,"build_api_status":build_api_status,"mechanical":mechanical,"observations":rows,"build_observations":builds,
             "interpretation":"Spielwerte bestimmen, was mechanisch passt. Matchdaten sind eine Gegenprobe, keine Vorschrift. Siegquoten sind kein Beweis, dass ein Item den Sieg verursacht. Keine zusätzliche Mindestzahl an Matches. In der Antwort Datenbasis und Zeitraum kurz nennen.",
             "build_limit":"Einzelitemvergleich aus dem Build-Reasoner, kein vollständiger geprüfter Kaufplan.",
             "build_observation_basis":"Build-Statistik zählt den zu Matchbeginn ausgewählten Guide, nicht einen nachgewiesenen Kaufplan. Ranked; der Upstream bietet hier keinen Spielmodusfilter.",
             "matchup_observation_basis":"Gegner in derselben Lane nach dem Standardfilter der Deadlock-API."});
         let content = result.to_string();
         if content.len() > self.config.max_result_bytes {
+            eprintln!(
+                "{}",
+                json!({"event":"deadlock_data_result_too_large",
+                "request_id":query.request_id,"operation":data.operation,
+                "bytes":content.len(),"maximum":self.config.max_result_bytes})
+            );
             return Err(invalid());
         }
         let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
@@ -670,8 +701,22 @@ fn mechanical_items(
         &source(heroes),
         &source(items),
     )
-    .map_err(|_| invalid())?;
-    let hero = models.heroes.get(&hero_id).ok_or_else(invalid)?;
+    .map_err(|error| {
+        eprintln!(
+            "{}",
+            json!({"event":"deadlock_data_mechanics_failed",
+            "hero_id":hero_id,"stage":"calculation_models","error":error.to_string()})
+        );
+        invalid()
+    })?;
+    let hero = models.heroes.get(&hero_id).ok_or_else(|| {
+        eprintln!(
+            "{}",
+            json!({"event":"deadlock_data_mechanics_failed",
+            "hero_id":hero_id,"stage":"hero_model"})
+        );
+        invalid()
+    })?;
     let config = dbrain_reasoner::ReasonerConfig {
         use_ai: false,
         min_matches: 0,
@@ -705,22 +750,26 @@ fn mechanical_items(
                 &config,
             );
             json!({"item_id":scored.item.item_id,"name":scored.item.name,"cost":scored.item.cost,"tier":scored.item.tier,
-            "score":scored.score,"reasons":scored.sources,"combat":combat_summary(&evaluation)})
+            "score":scored.score,"reasons":scored.sources,"combat":combat_summary(&evaluation, &baseline.unknown_effects)})
         })
         .collect();
     Ok(
         json!({"engine":"dbrain-reasoner","hero_id":hero_id,"hero_name":hero.model.name,
         "client_version":models.client_version,"model_source":hero.source,"unknowns":hero.unknowns,
-        "scenario":"Einzelitem am Basishelden; Simulation mit den bestehenden Standardannahmen des Reasoners. Kein vollständiger Build und keine behauptete Patchzuordnung der Matchdaten.",
-        "baseline":combat_summary(&baseline),"assumptions":baseline.assumptions,"simulation_seconds":config.combat_window_seconds,"items":ranked}),
+        "scenario":"Einzelitem am Basishelden; Simulation mit den bestehenden Standardannahmen des Reasoners. Kein vollständiger Build und keine behauptete Patchzuordnung der Matchdaten. baseline.unknown_effects gelten auch für jedes Item; combat.unknown_effects ergänzt die itemspezifischen Grenzen.",
+        "baseline":combat_summary(&baseline, &[]),"assumptions":baseline.assumptions,"simulation_seconds":config.combat_window_seconds,"items":ranked}),
     )
 }
 
-fn combat_summary(evaluation: &dbrain_reasoner::combat::InventoryEvaluation) -> Value {
+fn combat_summary(
+    evaluation: &dbrain_reasoner::combat::InventoryEvaluation,
+    shared_unknown_effects: &[String],
+) -> Value {
     json!({"score":evaluation.score,"weapon_damage":evaluation.weapon_damage,
         "ability_damage":evaluation.ability_damage,"proc_damage":evaluation.proc_damage,
         "effective_health":evaluation.effective_health,"utility":evaluation.utility,
-        "unknown_effects":evaluation.unknown_effects})
+        "unknown_effects":evaluation.unknown_effects.iter()
+            .filter(|effect| !shared_unknown_effects.contains(effect)).collect::<Vec<_>>()})
 }
 
 fn intent(query: &Query) -> String {
@@ -958,6 +1007,19 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
             .map_err(|error| PortFailure::accounted(error, accounting))
     }
 
+    fn validate_build_plan(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        pin: &PinnedGameContext,
+        request: &brain_contracts::tools::BuildPlanRequest,
+        execution: &ToolExecution,
+        purpose: brain_contracts::store::AnswerPurpose,
+    ) -> Result<(), PortError> {
+        self.knowledge
+            .validate_build_plan(query, context, pin, request, execution, purpose)
+    }
+
     fn validate_dependencies(
         &self,
         query: &Query,
@@ -1080,9 +1142,9 @@ mod tests {
         )
         .unwrap();
         let config = config::DeadlockApi::default();
-        let deadline_ms = config.request_timeout_ms;
+        let deadline_ms = 60_000;
         let runtime = Runtime::new(config, mirror).unwrap();
-        let context = AuthorizedContext {
+        let authorization = AuthorizedContext {
             principal: brain_contracts::Principal {
                 actor_id: "synthetic-mechanics-probe".into(),
                 channel: "test".into(),
@@ -1099,22 +1161,20 @@ mod tests {
                 ..Default::default()
             },
         };
-        let context = context.with_request_deadline();
+        let context = authorization.with_request_deadline();
         let query: Query = serde_json::from_value(json!({
             "request_id":"mechanics-api-probe", "conversation_id":context.conversation_id,
             "text":"Welche Items passen zu Abrams?", "profile":"explain"
         }))
         .unwrap();
         let resolver = Resolver(runtime.mirror.clone());
-        let pin = resolver.resolve(&query, &context).unwrap().unwrap();
-        for text in [
-            "Wie baue ich einen Discord-Server?",
-            "Wie viel Lebenspunkte hat Abrams?",
-        ] {
-            let mut ordinary = query.clone();
-            ordinary.text = text.into();
-            assert!(resolver.resolve(&ordinary, &context).unwrap().is_none());
-        }
+        let resolving = Instant::now();
+        let resolved = resolver.resolve(&query, &context);
+        println!(
+            "{}",
+            json!({"event":"mirror_resolution_probe","elapsed_ms":resolving.elapsed().as_millis(),"resolved":resolved.is_ok()})
+        );
+        let pin = resolved.unwrap().unwrap();
         let call = ToolCall {
             id: "mechanics-api-probe".into(),
             name: ToolName::DeadlockData,
@@ -1151,10 +1211,166 @@ mod tests {
         println!(
             "{}",
             json!({"client_version":pin.client_version,"mechanical_items":items.len(),
+            "elapsed_ms":resolving.elapsed().as_millis(),"deadline_ms":deadline_ms,
             "result_bytes":entry.evidence[0].content.len(),"items":items.iter().take(4)
                 .map(|item|item["name"].clone()).collect::<Vec<_>>(),"network_rounds":usage.network_rounds})
         );
+        for text in [
+            "Wie baue ich einen Discord-Server?",
+            "Wie viel Lebenspunkte hat Abrams?",
+        ] {
+            let mut ordinary = query.clone();
+            ordinary.text = text.into();
+            let ordinary_context = authorization.with_request_deadline();
+            assert!(resolver
+                .resolve(&ordinary, &ordinary_context)
+                .unwrap()
+                .is_none());
+        }
+        if std::env::var("BRAIN_API_PROVIDER_PROBE").as_deref() == Ok("1") {
+            let item = entry.result["observations"][0]["item_name"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            live_provider_acceptance(&executor, Arc::new(runtime), &item);
+        }
         executor.block_on(pool.close());
+    }
+
+    struct ProbeProvider<P>(P);
+
+    impl<P: brain_contracts::AnswerProviderPort> brain_contracts::AnswerProviderPort
+        for ProbeProvider<P>
+    {
+        fn answer(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+            evidence: &[Evidence],
+        ) -> Result<brain_contracts::ProviderAnswer, PortError> {
+            self.0.answer(query, context, evidence)
+        }
+
+        fn answer_turn_accounted(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+            evidence: &[Evidence],
+            tools: &[ToolDefinition],
+            conversation: &brain_contracts::ToolConversation,
+        ) -> Result<Accounted<brain_contracts::ProviderTurn>, PortFailure> {
+            let result =
+                self.0
+                    .answer_turn_accounted(query, context, evidence, tools, conversation);
+            if let Ok(turn) = &result {
+                if let brain_contracts::ProviderTurn::Final { answer, .. } = &turn.value {
+                    println!(
+                        "{}",
+                        json!({"event":"deadlock_api_provider_raw_answer", "text":answer.text, "citations":answer.cited_evidence_ids})
+                    );
+                }
+            }
+            result
+        }
+    }
+
+    fn live_provider_acceptance(
+        executor: &tokio::runtime::Runtime,
+        runtime: Arc<Runtime>,
+        item: &str,
+    ) {
+        use brain_kernel::AnswerKernelPort;
+        let config = crate::Config::parse(
+            &std::fs::read("/home/nathanael/.config/deadlock-brain/brain-serve.json").unwrap(),
+        )
+        .unwrap();
+        let secrets = executor
+            .block_on(crate::Secrets::from_infisical(
+                &config,
+                std::path::Path::new("/etc/deadlock-brain/infisical.json"),
+            ))
+            .unwrap();
+        let prepared = crate::service::Prepared::new(config, secrets).unwrap();
+        let (reader, provider) = prepared.probe_components();
+        let credential = prepared
+            .config
+            .credentials
+            .iter()
+            .find(|credential| credential.actor_id == "dl-bot" && credential.channel == "discord")
+            .unwrap();
+        let authorization = AuthorizedContext {
+            principal: brain_contracts::Principal {
+                actor_id: credential.actor_id.clone(),
+                channel: credential.channel.clone(),
+                scopes: credential.scopes.clone(),
+                provider_egress: credential.provider_egress.clone(),
+            },
+            conversation_id: "synthetic-deadlock-api-acceptance".into(),
+            knowledge_release: credential
+                .release
+                .as_ref()
+                .unwrap_or(&prepared.config.release)
+                .id
+                .clone(),
+            deadline_ms: prepared.config.timeouts.request_ms,
+            request_deadline: None,
+            discord: None,
+            budget: (&prepared.config.budgets).into(),
+        };
+        let retrieval = dbrain_retrieval::ReleaseRetriever::new(
+            reader.clone(),
+            prepared.config.retrieval.limit,
+        );
+        let tools = Tools {
+            knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(retrieval.clone())
+                .with_knowledge_retrieval(retrieval.clone())
+                .with_mirrored_entities(runtime.mirror.clone()),
+            runtime: runtime.clone(),
+        };
+        let kernel = brain_kernel::Kernel::new(retrieval, ProbeProvider(provider))
+            .with_quality_filters(prepared.config.kernel.quality_filters)
+            .with_tools(
+                tools,
+                Resolver(runtime.mirror.clone()),
+                format!(
+                    "{}:{}",
+                    prepared.config.provider.base_url, prepared.config.provider.model
+                ),
+            );
+        for (index, text) in [
+            "Welche Items passen zu Abrams?".to_owned(),
+            format!("Wie ist die Siegquote von Abrams mit {item}?"),
+            "Welche Helden sind in Ranked am beliebtesten?".to_owned(),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let query: Query = serde_json::from_value(json!({
+                "request_id":format!("synthetic-deadlock-api-acceptance-{index}"),
+                "conversation_id":authorization.conversation_id,
+                "text":text,"profile":"explain","requested_scopes":["bot.public"]
+            }))
+            .unwrap();
+            let context = authorization.with_request_deadline();
+            let started = Instant::now();
+            let answer = kernel.answer_for_publication_accounted(&query, &context);
+            println!(
+                "{}",
+                json!({"event":"deadlock_api_provider_acceptance",
+                "question":query.text,"status":answer.value.status,
+                "elapsed_ms":started.elapsed().as_millis(),"text":answer.value.text,
+                "model":answer.value.usage.model,"network_rounds":answer.value.usage.network_rounds,
+                "citations":answer.value.citations.iter().map(|evidence| &evidence.citation).collect::<Vec<_>>()})
+            );
+            assert_eq!(answer.value.status, brain_contracts::AnswerStatus::Answered);
+            assert!(!answer.value.text.trim().is_empty());
+            assert!(answer
+                .value
+                .citations
+                .iter()
+                .any(|evidence| evidence.source_id == SOURCE));
+            assert!(!answer.accounting.unaccounted);
+        }
     }
 
     #[test]
@@ -1256,6 +1472,25 @@ mod tests {
             "{}",
             json!({"items":items.len(),"item_winrates":winrates.len(),"ranked_heroes":ranked.len(),"builds":builds.len(),"matchups":matchups.len(),"network_rounds":usage.network_rounds})
         );
+    }
+
+    #[test]
+    fn combat_summary_shares_hero_limits_without_dropping_item_limits() {
+        let baseline = dbrain_reasoner::combat::InventoryEvaluation {
+            unknown_effects: vec!["hero limit".into()],
+            score: 3.0,
+            ..Default::default()
+        };
+        let item = dbrain_reasoner::combat::InventoryEvaluation {
+            unknown_effects: vec!["hero limit".into(), "item limit".into()],
+            score: 4.0,
+            ..Default::default()
+        };
+        let baseline_summary = combat_summary(&baseline, &[]);
+        let item_summary = combat_summary(&item, &baseline.unknown_effects);
+        assert_eq!(baseline_summary["unknown_effects"], json!(["hero limit"]));
+        assert_eq!(item_summary["unknown_effects"], json!(["item limit"]));
+        assert_eq!(item_summary["score"], 4.0);
     }
 
     #[test]

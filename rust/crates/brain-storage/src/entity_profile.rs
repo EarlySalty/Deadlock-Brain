@@ -9,7 +9,11 @@ use brain_contracts::{
     SourceRecordV2,
 };
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 #[path = "entity_semantic.rs"]
 pub mod semantic;
@@ -348,9 +352,10 @@ pub fn consumer_entity_identity(identity: &EntityIdentity) -> EntityIdentity {
     }
 }
 
+#[derive(Clone)]
 pub struct PinnedMirrorBundle {
     game_context: brain_contracts::PinnedGameContext,
-    assets: BTreeMap<String, crate::asset_mirror::MirroredAssets>,
+    assets: Arc<BTreeMap<String, crate::asset_mirror::MirroredAssets>>,
 }
 
 impl PinnedMirrorBundle {
@@ -371,11 +376,21 @@ impl PinnedMirrorBundle {
     }
 }
 
+type MirrorGeneration = Vec<(String, i64, String)>;
+
+struct CachedMirror {
+    expires: Instant,
+    generation: MirrorGeneration,
+    bundle: PinnedMirrorBundle,
+}
+
 #[derive(Clone)]
 pub struct MirroredGameContextReader {
     pool: sqlx::PgPool,
     runtime: tokio::runtime::Handle,
     language: brain_contracts::tools::ToolLanguage,
+    cache_ttl: Duration,
+    cache: Arc<Mutex<Option<CachedMirror>>>,
 }
 
 fn mirror_error(message: &str) -> brain_contracts::PortError {
@@ -397,24 +412,80 @@ impl MirroredGameContextReader {
             pool,
             runtime,
             language,
+            cache_ttl: Duration::ZERO,
+            cache: Arc::new(Mutex::new(None)),
         })
+    }
+
+    pub fn with_cache_ttl(mut self, ttl: Duration) -> Self {
+        self.cache_ttl = ttl;
+        self
+    }
+
+    async fn generation(&self) -> anyhow::Result<MirrorGeneration> {
+        sqlx::query_as(
+            "SELECT 'run'::text, id, xmin::text FROM brain.source_runs WHERE source='assets' \
+            UNION ALL SELECT 'document'::text, id, xmin::text FROM brain.source_documents \
+                WHERE source='deadlock_assets_api' \
+            UNION ALL SELECT 'server'::text, oid::bigint, \
+                extract(epoch FROM pg_postmaster_start_time())::text FROM pg_database \
+                WHERE datname=current_database() ORDER BY 1, 2",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    fn cached(
+        &self,
+        generation: &MirrorGeneration,
+    ) -> std::result::Result<Option<PinnedMirrorBundle>, brain_contracts::PortError> {
+        let mut cache = self
+            .cache
+            .lock()
+            .map_err(|_| mirror_error("Spiegelcache konnte nicht bestätigt werden"))?;
+        if cache
+            .as_ref()
+            .is_some_and(|entry| entry.expires <= Instant::now() || &entry.generation != generation)
+        {
+            *cache = None;
+        }
+        Ok(cache.as_ref().map(|entry| entry.bundle.clone()))
     }
 
     pub fn read_latest(
         &self,
         context: &brain_contracts::AuthorizedContext,
     ) -> std::result::Result<PinnedMirrorBundle, brain_contracts::PortError> {
-        self.drive(context, async {
-            let version = crate::asset_mirror::latest_mirrored_client_version(&self.pool).await?;
-            let anchor = crate::asset_mirror::load_mirrored_assets_with_receipt(
-                &self.pool,
-                version,
-                "heroes_all",
-                Some("english"),
-            )
-            .await?;
-            self.read_run(version, anchor.receipt.source_run_id).await
-        })
+        let generation = if self.cache_ttl.is_zero() {
+            None
+        } else {
+            let generation = self.drive(context, self.generation())?;
+            if let Some(bundle) = self.cached(&generation)? {
+                context.check_deadline()?;
+                return Ok(bundle);
+            }
+            Some(generation)
+        };
+        let bundle = self.drive(context, async {
+            let (version, run) = crate::asset_mirror::latest_mirrored_run(&self.pool).await?;
+            self.read_run(version, run).await
+        })?;
+        if let Some(generation) = generation {
+            if self.drive(context, self.generation())? == generation {
+                *self
+                    .cache
+                    .lock()
+                    .map_err(|_| mirror_error("Spiegelcache konnte nicht bestätigt werden"))? =
+                    Some(CachedMirror {
+                        expires: Instant::now() + self.cache_ttl,
+                        generation,
+                        bundle: bundle.clone(),
+                    });
+            }
+        }
+        context.check_deadline()?;
+        Ok(bundle)
     }
 
     pub fn read_pinned(
@@ -438,6 +509,16 @@ impl MirroredGameContextReader {
             _ => None,
         }
         .ok_or_else(|| mirror_error("Gebundener Spiegellauf fehlt"))?;
+        if !self.cache_ttl.is_zero() {
+            let generation = self.drive(context, self.generation())?;
+            if let Some(bundle) = self
+                .cached(&generation)?
+                .filter(|bundle| bundle.game_context() == pin)
+            {
+                context.check_deadline()?;
+                return Ok(bundle);
+            }
+        }
         let bundle = self.drive(context, self.read_run(pin.client_version, run))?;
         if bundle.game_context() != pin {
             return Err(mirror_error(
@@ -484,41 +565,29 @@ impl MirroredGameContextReader {
 
     async fn read_run(&self, version: i64, run: i64) -> anyhow::Result<PinnedMirrorBundle> {
         use sha2::{Digest, Sha256};
-        let mut assets = BTreeMap::new();
-        let mut anchor: Option<crate::asset_mirror::AssetMirrorReceipt> = None;
-        for kind in crate::asset_mirror::MIRRORED_ASSET_KINDS {
-            for language in crate::asset_mirror::mirrored_asset_languages(kind)
-                .ok_or_else(|| anyhow::anyhow!("Unbekannte Spiegelart"))?
-            {
-                let language = (!language.is_empty()).then_some(*language);
-                let asset = crate::asset_mirror::load_mirrored_assets_for_run(
-                    &self.pool, run, version, kind, language,
-                )
+        let assets =
+            crate::asset_mirror::load_mirrored_asset_bundle_for_run(&self.pool, run, version)
                 .await?;
-                let receipt = &asset.receipt;
+        let mut anchor: Option<&crate::asset_mirror::AssetMirrorReceipt> = None;
+        for asset in assets.values() {
+            let receipt = &asset.receipt;
+            anyhow::ensure!(
+                receipt.source_run_id == run && receipt.client_version == version,
+                "Spiegellauf weicht ab"
+            );
+            if let Some(anchor) = &anchor {
                 anyhow::ensure!(
-                    receipt.source_run_id == run && receipt.client_version == version,
-                    "Spiegellauf weicht ab"
+                    receipt.parser_revision == anchor.parser_revision
+                        && receipt.run_started_at == anchor.run_started_at
+                        && receipt.run_finished_at == anchor.run_finished_at
+                        && receipt.mirrored_at == anchor.mirrored_at
+                        && receipt.checked_at == anchor.checked_at
+                        && serde_json::to_value(&receipt.manifest)?
+                            == serde_json::to_value(&anchor.manifest)?,
+                    "Spiegelendpunkte gehören nicht zu demselben vollständigen Lauf"
                 );
-                if let Some(anchor) = &anchor {
-                    anyhow::ensure!(
-                        receipt.parser_revision == anchor.parser_revision
-                            && receipt.run_started_at == anchor.run_started_at
-                            && receipt.run_finished_at == anchor.run_finished_at
-                            && receipt.mirrored_at == anchor.mirrored_at
-                            && receipt.checked_at == anchor.checked_at
-                            && serde_json::to_value(&receipt.manifest)?
-                                == serde_json::to_value(&anchor.manifest)?,
-                        "Spiegelendpunkte gehören nicht zu demselben vollständigen Lauf"
-                    );
-                } else {
-                    anchor = Some(receipt.clone());
-                }
-                let key = crate::asset_mirror::mirrored_asset_key(kind, language)?;
-                anyhow::ensure!(
-                    assets.insert(key, asset).is_none(),
-                    "Doppelter Spiegelendpunkt"
-                );
+            } else {
+                anchor = Some(receipt);
             }
         }
         anyhow::ensure!(anchor.is_some(), "Spiegelbelege fehlen");
@@ -533,7 +602,7 @@ impl MirroredGameContextReader {
             .map_err(|_| anyhow::anyhow!("Ungültige Spiegelbindung"))?;
         Ok(PinnedMirrorBundle {
             game_context,
-            assets,
+            assets: Arc::new(assets),
         })
     }
 }

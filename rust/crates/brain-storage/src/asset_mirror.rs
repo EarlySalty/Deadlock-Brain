@@ -90,9 +90,12 @@ const COMPLETE_MIRROR_FILTER: &str = "sr.source='assets' AND sr.status='ok' \
         SELECT 1 FROM (VALUES ('items','english'), ('items','german'), ('heroes','english'), \
             ('heroes','german'), ('heroes_all','english'), ('heroes_all','german')) \
             AS required(kind, language) \
-        LEFT JOIN brain.source_documents required_sd \
-            ON required_sd.id=(sr.summary->'endpoints'->(required.kind || '/' || required.language)->>'source_document_id')::bigint \
-            AND required_sd.source='deadlock_assets_api' \
+        LEFT JOIN LATERAL ( \
+            SELECT required_document.id, MIRROR_METADATA AS metadata \
+            FROM brain.source_documents required_document \
+            WHERE required_document.id=(sr.summary->'endpoints'->(required.kind || '/' || required.language)->>'source_document_id')::bigint \
+                AND required_document.source='deadlock_assets_api' OFFSET 0 \
+        ) required_sd ON true \
         WHERE NOT COALESCE( \
             jsonb_typeof(required_sd.metadata #> '{contract,data,payload,value}')='array' \
             AND required_sd.metadata #> '{contract,data,payload,value}' <> '[]'::jsonb \
@@ -101,25 +104,54 @@ const COMPLETE_MIRROR_FILTER: &str = "sr.source='assets' AND sr.status='ok' \
             AND required_sd.metadata #>> '{adapter,language}'=required.language \
             AND required_sd.metadata #>> '{validation,state}'='validated', false))";
 
+fn mirror_metadata_sql(alias: &str) -> String {
+    format!(
+        "CASE WHEN jsonb_typeof({alias}.metadata #> '{{contract,data,field_provenance}}')='object' \
+        THEN jsonb_set({alias}.metadata, '{{contract,data,field_provenance}}', \
+            COALESCE((SELECT jsonb_object_agg(records.id::text, records.value) FROM ( \
+                SELECT row_number() OVER () AS id, value FROM ( \
+                    SELECT DISTINCT CASE WHEN jsonb_typeof(fields.value->'locator')='string' \
+                        THEN jsonb_set(fields.value, '{{locator}}', '\"\"'::jsonb, false) \
+                        ELSE fields.value END AS value \
+                    FROM jsonb_each({alias}.metadata #> '{{contract,data,field_provenance}}') fields \
+                ) variants \
+            ) records), '{{}}'::jsonb), false) \
+        ELSE {alias}.metadata END"
+    )
+}
+
+fn complete_mirror_filter() -> String {
+    COMPLETE_MIRROR_FILTER.replace(
+        "MIRROR_METADATA",
+        "required_document.metadata #- '{contract,data,field_provenance}'",
+    )
+}
+
 pub async fn latest_mirrored_client_version(pool: &PgPool) -> Result<i64> {
+    Ok(latest_mirrored_run(pool).await?.0)
+}
+
+pub(crate) async fn latest_mirrored_run(pool: &PgPool) -> Result<(i64, i64)> {
+    let filter = complete_mirror_filter();
     let sql = format!(
-        "SELECT sr.summary->>'client_version' FROM brain.source_runs sr \
-        WHERE {COMPLETE_MIRROR_FILTER} \
+        "SELECT (sr.summary->>'client_version')::bigint, sr.id FROM brain.source_runs sr \
+        WHERE {filter} \
         ORDER BY (sr.summary->>'client_version')::bigint DESC, sr.id DESC LIMIT 1"
     );
-    let version = sqlx::query_scalar::<_, String>(&sql)
+    let (version, run) = sqlx::query_as::<_, (i64, i64)>(&sql)
         .fetch_optional(pool)
         .await?
         .ok_or_else(|| anyhow!("Kein vollständiger lokaler Assets-Spiegel vorhanden"))?;
-    let version: i64 = version
-        .parse()
-        .context("Ungültige gespiegelte Clientversion")?;
-    ensure!(version > 0, "Ungültige gespiegelte Clientversion");
-    Ok(version)
+    ensure!(
+        version > 0 && run > 0,
+        "Ungültige gespiegelte Clientversion oder Assets-Lauf"
+    );
+    Ok((version, run))
 }
 
 #[derive(sqlx::FromRow)]
 struct MirrorRow {
+    asset_key: String,
     source_run_id: i64,
     run_summary: String,
     run_started_at: String,
@@ -149,26 +181,103 @@ async fn load_mirror_row(
         "Ungültiger Assets-Lauf"
     );
     let key = mirrored_asset_key(kind, language)?;
-    let sql = format!("SELECT sr.id AS source_run_id, sr.summary::text AS run_summary, \
+    load_mirror_rows(
+        pool,
+        client_version,
+        std::slice::from_ref(&key),
+        source_run_id,
+    )
+    .await?
+    .into_iter()
+    .next()
+    .ok_or_else(|| anyhow!("Lokale Assets fehlen: {client_version}/{key}"))
+}
+
+async fn load_mirror_rows(
+    pool: &PgPool,
+    client_version: i64,
+    keys: &[String],
+    source_run_id: Option<i64>,
+) -> Result<Vec<MirrorRow>> {
+    ensure!(client_version > 0, "Ungültige Clientversion");
+    ensure!(
+        source_run_id.is_none_or(|id| id > 0),
+        "Ungültiger Assets-Lauf"
+    );
+    let filter = complete_mirror_filter();
+    let endpoint_metadata = mirror_metadata_sql("sd");
+    let manifest_metadata = mirror_metadata_sql("md");
+    let run_summary = "jsonb_build_object( \
+        'parser_revision', sr.summary->'parser_revision', \
+        'mirrored_at', sr.summary->'mirrored_at', 'checked_at', sr.summary->'checked_at', \
+        'endpoints', jsonb_build_object(requested.key, jsonb_build_object( \
+            'raw_sha256', sr.summary->'endpoints'->requested.key->'raw_sha256'))) \
+        || CASE WHEN sr.summary ? 'manifest_raw_sha256' THEN jsonb_build_object( \
+            'manifest_raw_sha256', sr.summary->'manifest_raw_sha256') ELSE '{}'::jsonb END";
+    let sql = format!("WITH chosen_run AS MATERIALIZED ( \
+        SELECT sr.* FROM brain.source_runs sr \
+        WHERE {filter} AND sr.summary->>'client_version'=$1 \
+            AND ($3::bigint IS NULL OR sr.id=$3) \
+            AND NOT EXISTS (SELECT 1 FROM unnest($2::text[]) requested(key) \
+                LEFT JOIN brain.source_documents document \
+                    ON document.id=(sr.summary->'endpoints'->requested.key->>'source_document_id')::bigint \
+                    AND document.source='deadlock_assets_api' WHERE document.id IS NULL) \
+        ORDER BY sr.id DESC LIMIT 1 \
+        ) SELECT requested.key AS asset_key, sr.id AS source_run_id, ({run_summary})::text AS run_summary, \
         sr.started_at::text AS run_started_at, sr.finished_at::text AS run_finished_at, \
         sd.id AS endpoint_id, sd.url AS endpoint_url, sd.content_hash AS endpoint_hash, \
-        sd.fetched_at::text AS endpoint_fetched_at, sd.metadata::text AS endpoint_metadata, \
+        sd.fetched_at::text AS endpoint_fetched_at, ({endpoint_metadata})::text AS endpoint_metadata, \
         md.id AS manifest_id, md.url AS manifest_url, md.content_hash AS manifest_hash, \
-        md.fetched_at::text AS manifest_fetched_at, md.metadata::text AS manifest_metadata \
-        FROM brain.source_runs sr \
-        JOIN brain.source_documents sd ON sd.id=(sr.summary->'endpoints'->$2->>'source_document_id')::bigint \
-            AND sd.source='deadlock_assets_api' \
-        LEFT JOIN brain.source_documents md ON md.id=(sr.summary->>'manifest_document_id')::bigint \
-            AND md.source='deadlock_assets_api' \
-        WHERE {COMPLETE_MIRROR_FILTER} AND sr.summary->>'client_version'=$1 \
-            AND ($3::bigint IS NULL OR sr.id=$3) ORDER BY sr.id DESC LIMIT 1");
+        md.fetched_at::text AS manifest_fetched_at, ({manifest_metadata})::text AS manifest_metadata \
+        FROM chosen_run sr CROSS JOIN unnest($2::text[]) requested(key) \
+        JOIN LATERAL (SELECT document.* FROM brain.source_documents document \
+            WHERE document.id=(sr.summary->'endpoints'->requested.key->>'source_document_id')::bigint \
+                AND document.source='deadlock_assets_api' OFFSET 0) sd ON true \
+        LEFT JOIN LATERAL (SELECT document.* FROM brain.source_documents document \
+            WHERE document.id=(sr.summary->>'manifest_document_id')::bigint \
+                AND document.source='deadlock_assets_api' OFFSET 0) md ON true");
     sqlx::query_as::<_, MirrorRow>(&sql)
         .bind(client_version.to_string())
-        .bind(&key)
+        .bind(keys)
         .bind(source_run_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| anyhow!("Lokale Assets fehlen: {client_version}/{key}"))
+        .fetch_all(pool)
+        .await
+        .map_err(Into::into)
+}
+
+pub(crate) async fn load_mirrored_asset_bundle_for_run(
+    pool: &PgPool,
+    source_run_id: i64,
+    client_version: i64,
+) -> Result<std::collections::BTreeMap<String, MirroredAssets>> {
+    let mut endpoints = std::collections::BTreeMap::new();
+    for kind in MIRRORED_ASSET_KINDS {
+        for language in
+            mirrored_asset_languages(kind).ok_or_else(|| anyhow!("Unbekannte Assets-Art"))?
+        {
+            let language = (!language.is_empty()).then_some(*language);
+            endpoints.insert(mirrored_asset_key(kind, language)?, (*kind, language));
+        }
+    }
+    let keys: Vec<_> = endpoints.keys().cloned().collect();
+    let rows = load_mirror_rows(pool, client_version, &keys, Some(source_run_id)).await?;
+    ensure!(
+        rows.len() == endpoints.len(),
+        "Unvollständiger gebundener Assets-Spiegel"
+    );
+    let mut assets = std::collections::BTreeMap::new();
+    for row in rows {
+        let key = row.asset_key.clone();
+        let (kind, language) = endpoints
+            .get(&key)
+            .ok_or_else(|| anyhow!("Unbekannter Spiegelendpunkt"))?;
+        let asset = bound_mirror(row, client_version, kind, *language)?;
+        ensure!(
+            assets.insert(key, asset).is_none(),
+            "Doppelter Spiegelendpunkt"
+        );
+    }
+    Ok(assets)
 }
 
 pub async fn load_mirrored_assets(

@@ -311,6 +311,11 @@ impl Prepared {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn probe_components(&self) -> (LocalPgReader, impl AnswerProviderPort + Clone) {
+        (self.reader.clone(), self.provider.clone())
+    }
+
     pub fn remaining_shutdown(&self) -> Duration {
         self.shutdown.remaining()
     }
@@ -521,7 +526,10 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                 ("default_transaction_read_only", "on".to_owned()),
                 (
                     "statement_timeout",
-                    prepared.config.timeouts.postgres_statement_ms.to_string(),
+                    config
+                        .request_timeout_ms
+                        .min(prepared.config.timeouts.request_ms)
+                        .to_string(),
                 ),
             ]);
         let pool = sqlx::postgres::PgPoolOptions::new()
@@ -536,12 +544,12 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             brain_contracts::tools::ToolLanguage::German,
         )
         .map_err(|_| Error::ReaderConfig)?;
-        let resolver = crate::deadlock_data::Resolver(mirror.clone());
         let config = config.clone();
         let runtime =
             tokio::task::spawn_blocking(move || crate::deadlock_data::Runtime::new(config, mirror))
                 .await
                 .map_err(|_| Error::ReaderUnavailable)??;
+        let resolver = crate::deadlock_data::Resolver(runtime.mirror.clone());
         let knowledge = DiscordRetriever::new(
             ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit),
             prepared.discord_live.clone(),
