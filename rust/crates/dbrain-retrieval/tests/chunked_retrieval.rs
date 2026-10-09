@@ -586,7 +586,12 @@ async fn four_thousand_documents_concurrent_queries_build_once_and_read_only_can
             std::thread::spawn(move || {
                 for _ in 0..10 {
                     let q = query("UniqueNeedleAbrams");
-                    let c = context();
+                    let mut c = context();
+                    let now = std::time::Instant::now();
+                    c.request_deadline = Some(RequestDeadline::after_with_clock(
+                        std::time::Duration::from_millis(c.deadline_ms),
+                        move || now,
+                    ));
                     let hits = retriever.retrieve(&q, &c).unwrap();
                     assert_eq!(hits.len(), 1);
                     assert_eq!(hits[0].logical_id, "target");
