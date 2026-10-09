@@ -1008,7 +1008,7 @@ mod tests {
                 delta: -1,
             },
         ];
-        let mut items = vec![item(1, 100.0, 1.0), item(2, 20.0, 1.0)];
+        let mut items = vec![item(1, 100.0, 1.0), item(2, 100.0, 1.0)];
         items[0].item.cost = 100;
         items[0].item.imbueable = true;
         items[1].item.cost = 1000;
@@ -1048,9 +1048,10 @@ mod tests {
                 population: None,
             },
         );
-        assert_eq!(plan.steps.len(), 2);
+        assert_eq!(plan.steps.len(), 2, "{plan:#?}");
         assert_eq!(plan.steps[0].progression.earned_souls, 100);
         assert_eq!(plan.steps[0].imbue_targets.get(&1), Some(&10));
+        assert!(plan.steps[1].marginal_value > 0.0);
         assert!(plan.steps[1].progression.ability_ranks.contains_key(&20));
         assert_eq!(plan.steps[1].imbue_targets.get(&1), Some(&10));
         let (later, _) = at_souls(&hero, &order, 1600, &cfg);

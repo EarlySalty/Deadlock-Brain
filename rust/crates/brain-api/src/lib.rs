@@ -352,10 +352,7 @@ fn answer_response(answer: &AnswerResponse) -> ApiResponse {
             .citations
             .iter()
             .enumerate()
-            .map(|(index, item)| brain_contracts::PublicCitation {
-                citation_id: format!("cite-{:x}", Sha256::digest(item.evidence_id.as_bytes())),
-                label: format!("Beleg {}", index + 1),
-            })
+            .map(|(index, item)| brain_contracts::PublicCitation::from_evidence(item, index))
             .collect(),
     };
     if public.validate(&answer.request_id).is_err() {
