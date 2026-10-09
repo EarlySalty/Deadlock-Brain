@@ -1,5 +1,79 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BuildDataOrigin {
+    pub client_version: i64,
+    pub source_run_id: i64,
+    pub mirrored_at: i64,
+    pub parser_revision: String,
+    pub manifest_document_id: i64,
+    pub manifest_sha256: String,
+    pub heroes_document_id: i64,
+    pub heroes_sha256: String,
+    pub items_document_id: i64,
+    pub items_sha256: String,
+}
+
+impl BuildDataOrigin {
+    pub(crate) fn validate(&self) -> Result<()> {
+        let hash_valid =
+            |hash: &str| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit());
+        if self.client_version <= 0
+            || self.source_run_id <= 0
+            || self.mirrored_at <= 0
+            || self.parser_revision.trim().is_empty()
+            || self.manifest_document_id <= 0
+            || self.heroes_document_id <= 0
+            || self.items_document_id <= 0
+            || !hash_valid(&self.manifest_sha256)
+            || !hash_valid(&self.heroes_sha256)
+            || !hash_valid(&self.items_sha256)
+        {
+            return Err(ReasonerError::Data(
+                "Originalspieldaten sind nicht vollständig belegt.".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn from_receipts(
+        heroes: &brain_storage::asset_mirror::AssetMirrorReceipt,
+        items: &brain_storage::asset_mirror::AssetMirrorReceipt,
+    ) -> Result<Self> {
+        if heroes.client_version != items.client_version
+            || heroes.source_run_id != items.source_run_id
+            || heroes.mirrored_at != items.mirrored_at
+            || heroes.parser_revision != items.parser_revision
+            || heroes.manifest.source_document_id != items.manifest.source_document_id
+            || heroes.manifest.raw_sha256 != items.manifest.raw_sha256
+            || heroes.kind != "heroes"
+            || items.kind != "items"
+            || heroes.language.as_deref() != Some("english")
+            || items.language != heroes.language
+        {
+            return Err(ReasonerError::Data(
+                "Originalspieldaten gehören nicht zum selben API-Abgleich.".into(),
+            ));
+        }
+        let origin = Self {
+            client_version: heroes.client_version,
+            source_run_id: heroes.source_run_id,
+            mirrored_at: heroes.mirrored_at,
+            parser_revision: heroes.parser_revision.clone(),
+            manifest_document_id: heroes.manifest.source_document_id,
+            manifest_sha256: heroes.manifest.raw_sha256.clone(),
+            heroes_document_id: heroes.endpoint.source_document_id,
+            heroes_sha256: heroes.endpoint.raw_sha256.clone(),
+            items_document_id: items.endpoint.source_document_id,
+            items_sha256: items.endpoint.raw_sha256.clone(),
+        };
+        origin.validate()?;
+        Ok(origin)
+    }
+}
 
 use crate::{
     BuildItem, BuildObject, EvidenceKind, ReasonerError, Result, SituationBlock, SituationKind,

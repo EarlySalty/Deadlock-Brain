@@ -261,7 +261,11 @@ pub fn spirit_fire_rate_value(
     let dps = |item_spirit: f64| {
         let mut weapon = mechanics::weapon_with_spirit(hero, hero.base_spirit_power + item_spirit);
         weapon.sustained_dps = 0.0;
-        mechanics::weapon_dps(&weapon, cfg.combat_window_seconds)
+        mechanics::weapon_dps_with_timing(
+            &weapon,
+            Some(&hero.weapon_timing),
+            cfg.combat_window_seconds,
+        )
     };
     let factor = mechanics::condition_factor_for_hero(item, hero, cfg);
     let passive_dps = dps(passive_spirit) - dps(0.0);
@@ -613,6 +617,7 @@ mod tests {
             standard_upgrade_levels: Default::default(),
             level_rewards: Default::default(),
             cost_bonuses: Default::default(),
+            weapon_timing: Default::default(),
             hero_id: 25,
             name: "Warden".to_string(),
             archetype: "brawler".to_string(),

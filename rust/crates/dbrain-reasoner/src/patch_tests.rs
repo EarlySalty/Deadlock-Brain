@@ -202,6 +202,7 @@ fn hero() -> HeroModel {
         standard_upgrade_levels: Default::default(),
         level_rewards: Default::default(),
         cost_bonuses: Default::default(),
+        weapon_timing: Default::default(),
         hero_id: 25,
         name: "Warden".to_string(),
         archetype: "brawler".to_string(),
@@ -231,6 +232,36 @@ fn hero() -> HeroModel {
             primary_axis: DamageType::Weapon,
         },
     }
+}
+
+#[test]
+fn weapon_patches_keep_single_bullet_timing_and_magazine_reload_consistent() {
+    let mut hero = crate::combat::tests::recorded_hero(6);
+    let mut clip_snapshot = snapshot(DeltaTarget::Hero(6), "weapon.clip_size", 9.0, 100.0);
+    clip_snapshot.name = hero.name.clone();
+    let mut clip_event = event("Ammo capacity increased from 9 to 18", 101.0);
+    clip_event["entity_name"] = Value::from(hero.name.clone());
+    let deltas = compute_patch_delta_with_snapshots(&hero, &[clip_event], &[clip_snapshot]);
+    apply_patch_delta(&mut hero, &mut [], &deltas);
+    assert_eq!(hero.weapon.clip_size, 18.0);
+    assert_eq!(hero.weapon_timing.raw_reload_duration, Some(0.3525));
+    let full_reload = 0.705 + 18.0 * 0.3525;
+    assert!((hero.weapon.reload_duration - full_reload).abs() < 1e-9);
+    let mut reload_snapshot = snapshot(
+        DeltaTarget::Hero(6),
+        "weapon.reload_duration",
+        full_reload,
+        100.0,
+    );
+    reload_snapshot.name = hero.name.clone();
+    let mut reload_event = event("Reload time reduced from 7.05 to 5.64", 102.0);
+    reload_event["entity_name"] = Value::from(hero.name.clone());
+    let deltas = compute_patch_delta_with_snapshots(&hero, &[reload_event], &[reload_snapshot]);
+    apply_patch_delta(&mut hero, &mut [], &deltas);
+    assert!((hero.weapon.reload_duration - 5.64).abs() < 1e-9);
+    assert!((hero.weapon_timing.raw_reload_duration.unwrap() - (5.64 - 0.705) / 18.0).abs() < 1e-9);
+    let expected = hero.weapon.bullet_damage * 18.0 / (18.0 * 0.63 + 5.64);
+    assert!((hero.weapon.sustained_dps - expected).abs() < 1e-9);
 }
 
 #[test]

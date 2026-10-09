@@ -23,6 +23,7 @@ fn hero() -> HeroModel {
         standard_upgrade_levels: BTreeSet::new(),
         level_rewards: BTreeMap::new(),
         cost_bonuses: BTreeMap::new(),
+        weapon_timing: Default::default(),
         hero_id: 25,
         name: "Warden".into(),
         archetype: "brawler".into(),
