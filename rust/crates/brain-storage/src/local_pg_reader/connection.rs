@@ -143,7 +143,7 @@ impl Client {
         // pays every subsequent operation from the original request budget, avoiding
         // extra SET round trips on every checkout and every query.
         client.batch_execute(&format!(
-            "SET statement_timeout='{}ms'; SET lock_timeout='{}ms'",
+            "SET TIME ZONE 'UTC'; SET statement_timeout='{}ms'; SET lock_timeout='{}ms'",
             config.statement_timeout.as_millis(),
             config.lock_timeout.as_millis()
         ))?;

@@ -1277,6 +1277,17 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         )
         .is_err());
     }
+    let mut combined = query("Was macht Extended Magazine für Wächter?");
+    combined.patch = None;
+    let evidence = tokio::task::block_in_place(|| retriever.retrieve(&combined, &context)).unwrap();
+    assert_eq!(evidence.len(), 2);
+    assert!(evidence.iter().all(|item| documents
+        .iter()
+        .any(|document| document.content == item.content)));
+    tokio::task::block_in_place(|| {
+        retriever.validate_evidence(&combined, &context, &evidence, true)
+    })
+    .unwrap();
     let mut partial = query("Was ist Wächterinnen?");
     partial.patch = None;
     assert_eq!(

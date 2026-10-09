@@ -1431,7 +1431,8 @@ impl LocalPgReader {
         let mut snapshots = BTreeMap::new();
         let mut evidence = Vec::new();
         let mut names = BTreeSet::new();
-        let mut matched = 0usize;
+        let mut matched = BTreeSet::new();
+        let mut ambiguous = false;
         let mut recognized = false;
         for row in rows {
             request_check(deadline)?;
@@ -1605,7 +1606,9 @@ impl LocalPgReader {
             if name.is_empty() || !words.windows(name.len()).any(|part| part == name) {
                 continue;
             }
-            matched += 1;
+            if !matched.insert(name) {
+                ambiguous = true;
+            }
             if let Some(date) = patch_date {
                 let dates: BTreeSet<_> = profile
                     .patch_story
@@ -1699,7 +1702,7 @@ impl LocalPgReader {
                 kind: EvidenceKind::Fact,content: format!("Gespeicherter Steckbriefbestand: {} Helden. Quellenstand: {}; keine belegte aktuelle Patchzahl.",names.len(),release.release_id),
                 citation: format!("git-game-facts-derived:{}",release.release_id),visibility: brain_contracts::SourceVisibility::Public,allowed_scopes: Default::default(),score: 1.0,patch: None,provenance: None,
             });
-        } else if matched != 1 {
+        } else if ambiguous || matched.is_empty() {
             evidence.clear();
         }
         Ok(if hero_count || recognized {

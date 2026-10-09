@@ -969,6 +969,15 @@ fn unverified_answer(raw: &str, usage: Usage, evidence: &[Evidence]) -> Result<P
         .and_then(|fenced| fenced.split_once('\n').map(|(_, body)| body))
         .map(|body| body.strip_suffix("```").unwrap_or(body).trim())
         .unwrap_or(raw);
+    let body = body
+        .split_once('{')
+        .filter(|(prefix, suffix)| {
+            !prefix.trim().is_empty()
+                && (suffix.trim_start().starts_with("\"text\"")
+                    || suffix.trim_start().starts_with("\"cited_evidence_ids\""))
+        })
+        .map(|(prefix, _)| prefix.trim_end())
+        .unwrap_or(body);
     let decoded = parse_unique_json(body.as_bytes()).ok();
     let extracted = decoded.as_ref().and_then(|value| {
         value
@@ -1013,22 +1022,30 @@ fn unverified_answer(raw: &str, usage: Usage, evidence: &[Evidence]) -> Result<P
         ));
     }
     let text = answer_text.unwrap_or(body);
-    let mut text = brain_contracts::provider_input::discord_display_text(text);
-    text = text
-        .split("[[ev-")
-        .enumerate()
-        .filter_map(|(index, part)| {
-            if index == 0 {
-                Some(part)
-            } else {
-                part.split_once("]]").map(|(_, rest)| rest)
-            }
+    let text = text
+        .find("cited_evidence_ids")
+        .map(|end| {
+            text[..end].trim_end_matches([' ', '\n', '\r', '\t', '"', '\\', ',', '`', '*', '{'])
         })
-        .collect();
+        .unwrap_or(text);
+    let mut text = brain_contracts::provider_input::discord_display_text(text);
+    for (start, end) in [("[[ev-", "]]"), ("\u{e200}cite\u{e202}", "\u{e201}")] {
+        text = text
+            .split(start)
+            .enumerate()
+            .filter_map(|(index, part)| {
+                if index == 0 {
+                    Some(part)
+                } else {
+                    part.split_once(end).map(|(_, rest)| rest)
+                }
+            })
+            .collect();
+    }
     for item in evidence {
         text = text.replace(&item.evidence_id, "");
     }
-    text = text.replace("[[]]", "");
+    text = text.replace("[[]]", "").replace("【】", "");
     if text.trim().is_empty() || text.len() > 64 * 1024 {
         return Err(ProviderError::InvalidResponse(
             "empty or oversized unverified answer".into(),
