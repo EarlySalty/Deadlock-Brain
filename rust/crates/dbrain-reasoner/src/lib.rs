@@ -6,6 +6,11 @@ use sqlx::Row;
 pub mod ability_interactions;
 mod ai_roles;
 pub mod backtest;
+pub mod calculation;
+pub use calculation::{
+    calculate_hero, calculate_hero_with_deadline, compare_hero_curves, compare_sheet_scenarios,
+    damage_breakdown, hero_growth, project_hero, rank_heroes, validate_calculation_scenario,
+};
 pub mod combat;
 pub mod composer;
 pub mod core_rules;
@@ -42,6 +47,8 @@ pub mod progression;
 pub mod publish;
 mod types;
 
+#[cfg(test)]
+mod calculation_tests;
 #[cfg(test)]
 mod fix_tests;
 
@@ -376,9 +383,10 @@ pub async fn reason_patch_impact_with_options(
     options: ReasonerOptions<'_>,
 ) -> Result<PatchImpactReport> {
     let ctx = effective_context(ctx).await?;
-    let (hero_model, mut snapshots) = data::load_hero_model_with_snapshots(&ctx, hero).await?;
-    let (before_items, item_snapshots) = data::load_item_models_with_snapshots(&ctx).await?;
-    snapshots.extend(item_snapshots);
+    let mirrored = data::load_models_from_mirror(&ctx, hero).await?;
+    let hero_model = mirrored.hero;
+    let before_items = mirrored.items;
+    let snapshots = mirrored.snapshots;
     let events =
         data::load_patch_events_for_snapshots(&ctx, hero_model.hero_id, &snapshots).await?;
     let mut deltas = patch::compute_patch_delta_with_snapshots(&hero_model, &events, &snapshots);
@@ -711,20 +719,16 @@ pub async fn load_reasoning_inputs(
     meta::MetaIndexWithSources,
     Vec<PatchSnapshot>,
 )> {
-    let (hero_model, mut snapshots) = data::load_hero_model_with_snapshots(ctx, hero).await?;
-    let (items, item_snapshots) = data::load_item_models_with_snapshots(ctx).await?;
-    snapshots.extend(item_snapshots);
-    let items = items
+    let mirrored = data::load_models_from_mirror(ctx, hero).await?;
+    let hero_model = mirrored.hero;
+    let snapshots = mirrored.snapshots;
+    let items = mirrored
+        .items
         .iter()
         .map(item::build_item_model)
         .collect::<Result<Vec<_>>>()?;
     let mut core_layouts = data::load_core_layouts(ctx).await?;
-    let slot_snapshot: Option<Value> = sqlx::query_scalar("SELECT payload FROM brain.entity_snapshots WHERE source='deadlock_assets_api' AND entity_type='hero' AND payload->>'id'=$1 ORDER BY fetched_at DESC, id DESC LIMIT 1")
-        .bind(hero_model.hero_id.to_string())
-        .fetch_optional(&ctx.pool)
-        .await
-        .map_err(ReasonerError::Db)?;
-    if let Some(flex_slots) = slot_snapshot.as_ref().and_then(meta::snapshot_flex_slots) {
+    if let Some(flex_slots) = mirrored.flex_slots {
         let mut layout = core_layouts.for_hero(hero_model.hero_id).clone();
         layout.flex_slots = flex_slots;
         core_layouts.by_hero.insert(hero_model.hero_id, layout);
