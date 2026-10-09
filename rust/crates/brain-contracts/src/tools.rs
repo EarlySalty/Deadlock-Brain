@@ -220,7 +220,7 @@ pub struct ToolAnalyticsSelection {
 }
 
 impl ToolAnalyticsSelection {
-    fn validate(&self) -> Result<(), PortError> {
+    pub fn validate(&self) -> Result<(), PortError> {
         if self
             .min_average_badge
             .into_iter()
@@ -1299,4 +1299,636 @@ fn validate_arguments(value: &Value, schema: &Value) -> Result<(), PortError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    pub(super) fn definition() -> ToolDefinition {
+        ToolDefinition {
+            name: ToolName::EntityFind,
+            description: "Entität suchen".into(),
+            input_schema: json!({"type":"object","properties":{"query":{"type":"string","minLength":1},"language":{"type":"string","enum":["german","english"]}},"required":["query","language"],"additionalProperties":false}),
+        }
+    }
+
+    fn call() -> ToolCall {
+        ToolCall {
+            id: "call-1".into(),
+            name: ToolName::EntityFind,
+            arguments: json!({"query":"Warden","language":"german"}),
+        }
+    }
+
+    fn closed_schema(value: &Value) -> Value {
+        match value {
+            Value::Object(fields) => {
+                let properties: serde_json::Map<_, _> = fields
+                    .iter()
+                    .map(|(name, value)| (name.clone(), closed_schema(value)))
+                    .collect();
+                json!({"type":"object", "properties":properties, "required":fields.keys().collect::<Vec<_>>(), "additionalProperties":false})
+            }
+            Value::Array(values) => {
+                json!({"type":"array", "items":closed_schema(&values[0])})
+            }
+            Value::String(_) => json!({"type":"string"}),
+            Value::Number(number) if number.is_i64() || number.is_u64() => {
+                json!({"type":"integer"})
+            }
+            Value::Number(_) => json!({"type":"number"}),
+            Value::Bool(_) => json!({"type":"boolean"}),
+            Value::Null => json!({"type":"null"}),
+        }
+    }
+
+    fn evidence() -> Evidence {
+        Evidence {
+            evidence_id: "e1".into(),
+            source_id: "assets".into(),
+            logical_id: "hero/warden".into(),
+            revision: 1,
+            kind: crate::EvidenceKind::Fact,
+            content: "Warden".into(),
+            citation: "assets:hero/warden".into(),
+            visibility: crate::SourceVisibility::Public,
+            allowed_scopes: BTreeSet::new(),
+            score: 1.0,
+            provenance: None,
+            patch: None,
+        }
+    }
+
+    #[test]
+    fn sieben_typisierte_unteranfragen_aus_validierten_aufrufen() {
+        let scenario = json!({"progression":{"kind":"boons","value":35},"total_spirit":38.0});
+        for (name, arguments) in [
+            (
+                ToolName::EntityFind,
+                json!({"query":"Warden","language":"german"}),
+            ),
+            (
+                ToolName::EntityProfile,
+                json!({"entity":{"kind":"hero","id":1},"fields":["weapon_dps"],"scenario":scenario}),
+            ),
+            (
+                ToolName::HeroCompare,
+                json!({"hero_ids":[1,2],"metrics":["weapon_dps"],"scenario":scenario,"ranking_population":"active_heroes"}),
+            ),
+            (
+                ToolName::DamageCalculate,
+                json!({"hero_id":1,"scenario":scenario}),
+            ),
+            (
+                ToolName::PatchHistory,
+                json!({"entity":{"kind":"ability","id":2},"historical_client_versions":[6758,6759]}),
+            ),
+            (
+                ToolName::BuildPlan,
+                json!({"hero_id":1,"playstyle":"weapon","budget":10000,"imbues":[{"item_id":3,"ability_id":2}]}),
+            ),
+            (
+                ToolName::ServerKnowledge,
+                json!({"question":"Welche Lanes sind offen?","public_channel_id":4}),
+            ),
+        ] {
+            let definition = ToolDefinition {
+                name,
+                description: name.as_str().into(),
+                input_schema: closed_schema(&arguments),
+            };
+            let call = ToolCall {
+                id: "typed-call".into(),
+                name,
+                arguments,
+            };
+            let request = call.validate(&[definition]).unwrap();
+            assert_eq!(request.name(), name);
+            assert_eq!(request.arguments(), &call.arguments);
+            match (name, request.subrequest()) {
+                (ToolName::EntityFind, ToolSubrequest::EntityFind(request)) => {
+                    assert_eq!(request.language, ToolLanguage::German);
+                }
+                (ToolName::EntityProfile, ToolSubrequest::EntityProfile(request)) => {
+                    assert_eq!(request.entity.id, 1);
+                }
+                (ToolName::HeroCompare, ToolSubrequest::HeroCompare(request)) => {
+                    assert_eq!(request.hero_ids, [1, 2]);
+                }
+                (ToolName::DamageCalculate, ToolSubrequest::DamageCalculate(request)) => {
+                    assert_eq!(request.scenario.progression, ToolProgression::Boons(35));
+                }
+                (ToolName::PatchHistory, ToolSubrequest::PatchHistory(request)) => {
+                    assert_eq!(request.historical_client_versions, [6758, 6759]);
+                }
+                (ToolName::BuildPlan, ToolSubrequest::BuildPlan(request)) => {
+                    assert_eq!(request.playstyle.as_str(), "weapon");
+                }
+                (ToolName::ServerKnowledge, ToolSubrequest::ServerKnowledge(request)) => {
+                    assert_eq!(request.public_channel_id, Some(4));
+                }
+                _ => panic!("Unteranfrage passt nicht zum Werkzeugnamen"),
+            }
+        }
+    }
+
+    #[test]
+    fn typisierte_argumente_verwerfen_unbekannte_felder_und_ungueltige_szenarien() {
+        let scenario = json!({"progression":{"kind":"boons","value":35}});
+        let mut scenarios = Vec::new();
+        for (field, value) in [
+            ("level", json!(0)),
+            ("total_spirit", json!(-1.0)),
+            ("horizon_seconds", json!(0.0)),
+            ("item_ids", json!([1, 1])),
+            ("item_ids", json!([0])),
+            (
+                "ability_ranks",
+                json!([{"ability_id":2,"rank":1},{"ability_id":2,"rank":2}]),
+            ),
+            (
+                "imbues",
+                json!([{"item_id":1,"ability_id":2},{"item_id":1,"ability_id":3}]),
+            ),
+            (
+                "item_transitions",
+                json!([{"kind":"upgrade","from_item_id":1,"to_item_id":1}]),
+            ),
+            ("target", json!({"kind":"player","values":{"health":-1.0}})),
+            (
+                "target",
+                json!({"kind":"player","values":{},"hit_chance":1.1}),
+            ),
+            (
+                "target",
+                json!({"kind":"player","values":{},"states":[{"at_seconds":1.0,"values":{}},{"at_seconds":1.0,"values":{}}]}),
+            ),
+            ("unknown", json!(1)),
+        ] {
+            let mut invalid = scenario.clone();
+            invalid[field] = value;
+            scenarios.push(invalid);
+        }
+        let mut outside_horizon = scenario.clone();
+        outside_horizon["horizon_seconds"] = json!(1.0);
+        outside_horizon["target"] =
+            json!({"kind":"player","values":{},"states":[{"at_seconds":2.0,"values":{}}]});
+        scenarios.push(outside_horizon);
+        for scenario in scenarios {
+            let arguments = json!({"hero_id":1,"scenario":scenario});
+            let definition = ToolDefinition {
+                name: ToolName::DamageCalculate,
+                description: "Schaden berechnen".into(),
+                input_schema: closed_schema(&arguments),
+            };
+            let call = ToolCall {
+                id: "invalid-call".into(),
+                name: definition.name,
+                arguments,
+            };
+            assert!(call.validate(&[definition]).is_err());
+        }
+        for (name, arguments) in [
+            (
+                ToolName::EntityFind,
+                json!({"query":" ","language":"german"}),
+            ),
+            (
+                ToolName::EntityFind,
+                json!({"query":"Warden","language":"german","unknown":true}),
+            ),
+            (
+                ToolName::EntityProfile,
+                json!({"entity":{"kind":"hero","id":0},"fields":["weapon_dps"]}),
+            ),
+            (
+                ToolName::HeroCompare,
+                json!({"hero_ids":[1,1],"metrics":["weapon_dps"],"scenario":scenario}),
+            ),
+            (
+                ToolName::HeroCompare,
+                json!({"hero_ids":[1],"metrics":["weapon_dps"],"scenario":scenario}),
+            ),
+            (
+                ToolName::HeroCompare,
+                json!({"hero_ids":[1,2],"metrics":["weapon_dps","weapon_dps"],"scenario":scenario}),
+            ),
+            (
+                ToolName::BuildPlan,
+                json!({"hero_id":1,"playstyle":"weapon","budget":0}),
+            ),
+            (
+                ToolName::BuildPlan,
+                json!({"hero_id":1,"playstyle":"unknown"}),
+            ),
+            (
+                ToolName::PatchHistory,
+                json!({"entity":{"kind":"hero","id":1},"historical_client_versions":[0]}),
+            ),
+            (
+                ToolName::PatchHistory,
+                json!({"entity":{"kind":"hero","id":1},"historical_client_versions":[6759,6759]}),
+            ),
+            (
+                ToolName::ServerKnowledge,
+                json!({"question":"Lanes","public_channel_id":0}),
+            ),
+        ] {
+            let definition = ToolDefinition {
+                name,
+                description: name.as_str().into(),
+                input_schema: closed_schema(&arguments),
+            };
+            let call = ToolCall {
+                id: "invalid-call".into(),
+                name,
+                arguments,
+            };
+            assert!(call.validate(&[definition]).is_err());
+        }
+    }
+
+    #[test]
+    fn werkzeugausfuehrung_bindet_ergebnis_und_alle_belege_an_die_unteranfrage() {
+        let call = call();
+        let request = call.validate(&[definition()]).unwrap();
+        let game = PinnedGameContext {
+            client_version: 6759,
+            language: ToolLanguage::German,
+            mechanic_revision: "mechanic-v1".into(),
+        };
+        let execution = ToolExecution {
+            result: ToolResult {
+                call_id: call.id.clone(),
+                name: call.name,
+                result: json!({"id":1}),
+                evidence_ids: vec!["e1".into()],
+                is_error: false,
+            },
+            dependencies: vec![ToolEvidenceDependency {
+                request: request.clone(),
+                game_context: Some(game.clone()),
+                evidence: vec![evidence()],
+            }],
+            usage: Usage::default(),
+        };
+        assert!(execution.validate_for(&call, &request, Some(&game)).is_ok());
+        assert!(execution.validate_for(&call, &request, None).is_err());
+        let mut invalid_game = game.clone();
+        invalid_game.client_version = 0;
+        assert!(execution
+            .validate_for(&call, &request, Some(&invalid_game))
+            .is_err());
+        let mut alternate_call = call.clone();
+        alternate_call.arguments["query"] = json!("Haze");
+        let alternate_request = alternate_call.validate(&[definition()]).unwrap();
+        assert!(execution
+            .validate_for(&alternate_call, &request, Some(&game))
+            .is_err());
+        assert!(execution
+            .validate_for(&call, &alternate_request, Some(&game))
+            .is_err());
+        let mut invalid_executions = Vec::new();
+        let mut invalid = execution.clone();
+        invalid.result.call_id = "other".into();
+        invalid_executions.push(invalid);
+        let mut invalid = execution.clone();
+        invalid.result.name = ToolName::BuildPlan;
+        invalid_executions.push(invalid);
+        let mut invalid = execution.clone();
+        invalid.result.evidence_ids.push("missing".into());
+        invalid_executions.push(invalid);
+        let mut invalid = execution.clone();
+        invalid.result.evidence_ids.push("e1".into());
+        invalid_executions.push(invalid);
+        let mut invalid = execution.clone();
+        invalid.dependencies[0].request = alternate_request;
+        invalid_executions.push(invalid);
+        let mut invalid = execution.clone();
+        invalid.dependencies[0]
+            .game_context
+            .as_mut()
+            .unwrap()
+            .client_version += 1;
+        invalid_executions.push(invalid);
+        let mut invalid = execution.clone();
+        invalid.dependencies[0].evidence[0].revision = 0;
+        invalid_executions.push(invalid);
+        let mut invalid = execution.clone();
+        invalid.dependencies[0].evidence.push(evidence());
+        invalid_executions.push(invalid);
+        let mut invalid = execution.clone();
+        invalid.dependencies.clear();
+        invalid_executions.push(invalid);
+        for invalid in invalid_executions {
+            assert!(invalid.validate_for(&call, &request, Some(&game)).is_err());
+        }
+        let mut full = execution.clone();
+        let mut extra = evidence();
+        extra.evidence_id = "uncited".into();
+        full.dependencies[0].evidence.push(extra);
+        assert!(full.validate_for(&call, &request, Some(&game)).is_ok());
+        let mut error = execution;
+        error.result.is_error = true;
+        error.result.evidence_ids.clear();
+        error.dependencies.clear();
+        assert!(error.validate_for(&call, &request, Some(&game)).is_ok());
+    }
+
+    #[test]
+    fn regeln_verwerfen_nichtendliche_spielzeit_und_szenariowerte() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let request = ToolSubrequest::GameRules(GameRulesRequest {
+                topic: ToolGameRuleTopic::ResistStacking,
+                entity: None,
+                game_time_seconds: Some(value),
+                scenario: None,
+            });
+            assert!(request.validate().is_err());
+            let scenario: ToolScenario = serde_json::from_value(json!({
+                "progression":{"kind":"boons","value":0},
+                "target":{"kind":"player","values":{}}
+            }))
+            .unwrap();
+            let mut scenario = scenario;
+            scenario.target.as_mut().unwrap().values.bullet_resist = Some(value);
+            let request = ToolSubrequest::GameRules(GameRulesRequest {
+                topic: ToolGameRuleTopic::ResistStacking,
+                entity: None,
+                game_time_seconds: Some(0.0),
+                scenario: Some(scenario),
+            });
+            assert!(request.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn geschlossene_namen_und_bloecke() {
+        let names = [
+            ToolName::EntityFind,
+            ToolName::EntityProfile,
+            ToolName::HeroCompare,
+            ToolName::DamageCalculate,
+            ToolName::PatchHistory,
+            ToolName::BuildPlan,
+            ToolName::ServerKnowledge,
+        ];
+        for name in names {
+            assert_eq!(serde_json::to_value(name).unwrap(), name.as_str());
+        }
+        assert!(serde_json::from_value::<ToolName>(json!("sql_execute")).is_err());
+        assert!(
+            serde_json::from_value::<ModelBlock>(json!({"type":"thinking","text":"hidden"}))
+                .is_err()
+        );
+        assert!(serde_json::from_value::<ToolCall>(
+            json!({"id":"x","name":"entity_find","arguments":{},"actor_id":"other"})
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn schemapruefung_und_serverbindungen() {
+        let definition = definition();
+        let request = call().validate(std::slice::from_ref(&definition)).unwrap();
+        assert_eq!(request.name(), ToolName::EntityFind);
+        assert_eq!(request.arguments()["query"], "Warden");
+        for arguments in [
+            json!({}),
+            json!({"query":1,"language":"german"}),
+            json!({"query":"x","language":"french"}),
+            json!({"query":"x","language":"german","actor_id":"other"}),
+        ] {
+            let mut call = call();
+            call.arguments = arguments;
+            assert!(call.validate(std::slice::from_ref(&definition)).is_err());
+        }
+        for field in [
+            "actor_id",
+            "scopes",
+            "knowledge_release",
+            "url",
+            "sql",
+            "expression",
+            "request_deadline",
+        ] {
+            let mut definition = definition.clone();
+            definition.input_schema["properties"][field] = json!({"type":"string"});
+            assert!(definition.validate().is_err());
+        }
+        let mut unsupported = definition.clone();
+        unsupported.input_schema["$ref"] = json!("other");
+        assert!(unsupported.validate().is_err());
+        assert!(call().validate(&[]).is_err());
+        assert!(validate_definitions(&[definition.clone(), definition.clone()]).is_err());
+        for schema in [
+            json!({"type":"object","properties":{},"additionalProperties":true}),
+            json!({"type":"object","properties":{},"required":["missing"],"additionalProperties":false}),
+            json!({"type":"object","properties":{"query":{"type":"string"}},"required":["query","query"],"additionalProperties":false}),
+            json!({"type":"object","properties":{"query":{"type":"string","enum":["same","same"]}},"additionalProperties":false}),
+            json!({"type":"object","properties":{"query":{"type":"string","enum":[1]}},"additionalProperties":false}),
+            json!({"type":"object","properties":{"query":{"type":"string","minLength":2,"maxLength":1}},"additionalProperties":false}),
+            json!({"type":"object","properties":{"nested":{"type":"object","properties":{"client_version":{"type":"integer"}},"additionalProperties":false}},"additionalProperties":false}),
+        ] {
+            assert!(ToolDefinition {
+                input_schema: schema,
+                ..definition.clone()
+            }
+            .validate()
+            .is_err());
+        }
+        let schema =
+            json!({"type":"integer", "minimum":9007199254740993u64, "maximum":9007199254740995u64});
+        assert!(validate_schema(&schema).is_ok());
+        assert!(validate_arguments(&json!(9007199254740992u64), &schema).is_err());
+        assert!(validate_arguments(&json!(9007199254740993u64), &schema).is_ok());
+        assert!(validate_arguments(&json!(9007199254740996u64), &schema).is_err());
+    }
+
+    #[test]
+    fn ergebniszuordnung_und_wiederholte_ids() {
+        let assistant = ToolMessage::Assistant {
+            blocks: vec![ModelBlock::ToolUse { call: call() }],
+        };
+        let result = ToolResult {
+            call_id: "call-1".into(),
+            name: ToolName::EntityFind,
+            result: json!({"entities":[]}),
+            evidence_ids: vec!["e1".into()],
+            is_error: false,
+        };
+        let conversation = ToolConversation {
+            messages: vec![
+                assistant.clone(),
+                ToolMessage::ToolResults {
+                    results: vec![result.clone()],
+                },
+            ],
+        };
+        assert!(conversation.validate(&[definition()]).is_ok());
+        for results in [
+            vec![],
+            vec![result.clone(), result.clone()],
+            vec![ToolResult {
+                call_id: "other".into(),
+                ..result.clone()
+            }],
+            vec![ToolResult {
+                name: ToolName::BuildPlan,
+                ..result.clone()
+            }],
+        ] {
+            assert!(ToolConversation {
+                messages: vec![assistant.clone(), ToolMessage::ToolResults { results }]
+            }
+            .validate(&[definition()])
+            .is_err());
+        }
+        assert!(ToolConversation {
+            messages: vec![assistant.clone()]
+        }
+        .validate(&[definition()])
+        .is_err());
+        let mut repeated = conversation.clone();
+        repeated.messages.extend(conversation.messages);
+        assert!(repeated.validate(&[definition()]).is_err());
+        assert!(ToolConversation {
+            messages: vec![ToolMessage::Assistant {
+                blocks: vec![
+                    ModelBlock::ToolUse { call: call() },
+                    ModelBlock::ToolUse { call: call() }
+                ]
+            }]
+        }
+        .validate(&[definition()])
+        .is_err());
+    }
+
+    #[test]
+    fn werkzeugturn_ist_keine_finale_antwort() {
+        let turn = ProviderTurn::ToolCalls {
+            blocks: vec![ModelBlock::ToolUse { call: call() }],
+            finish_reason: ProviderFinishReason::ToolUse,
+            usage: Usage {
+                input_tokens: 100,
+                ..Usage::default()
+            },
+        };
+        assert_eq!(turn.usage().input_tokens, 100);
+        assert!(turn.validate(&[definition()]).is_ok());
+        assert_eq!(
+            serde_json::from_value::<ProviderTurn>(serde_json::to_value(&turn).unwrap()).unwrap(),
+            turn
+        );
+        for finish_reason in [
+            ProviderFinishReason::EndTurn,
+            ProviderFinishReason::MaxTokens,
+            ProviderFinishReason::Refusal,
+        ] {
+            assert!(ProviderTurn::ToolCalls {
+                blocks: vec![ModelBlock::ToolUse { call: call() }],
+                finish_reason,
+                usage: Usage::default()
+            }
+            .validate(&[definition()])
+            .is_err());
+        }
+        assert!(ProviderTurn::ToolCalls {
+            blocks: vec![ModelBlock::Text {
+                text: "noch keine Antwort".into()
+            }],
+            finish_reason: ProviderFinishReason::ToolUse,
+            usage: Usage::default()
+        }
+        .validate(&[definition()])
+        .is_err());
+        assert!(turn.into_answer().is_err());
+        let answer = ProviderAnswer {
+            text: "Antwort".into(),
+            cited_evidence_ids: vec!["e1".into()],
+            usage: Usage::default(),
+        };
+        assert_eq!(
+            ProviderTurn::Final {
+                answer: answer.clone(),
+                finish_reason: ProviderFinishReason::EndTurn
+            }
+            .into_answer()
+            .unwrap(),
+            answer
+        );
+        assert!(ProviderTurn::from(ProviderAnswer {
+            cited_evidence_ids: vec!["e1".into(), "e1".into()],
+            ..answer.clone()
+        })
+        .validate(&[])
+        .is_err());
+        assert_eq!(ProviderTurn::from(answer.clone()).usage(), &answer.usage);
+        for finish_reason in [
+            ProviderFinishReason::ToolUse,
+            ProviderFinishReason::MaxTokens,
+            ProviderFinishReason::Refusal,
+        ] {
+            let turn = ProviderTurn::Final {
+                answer: answer.clone(),
+                finish_reason,
+            };
+            assert!(turn.validate(&[]).is_err());
+            assert!(turn.into_answer().is_err());
+        }
+    }
+
+    #[test]
+    fn unimplementierte_abhaengigkeitspruefung_schliesst_sicher() {
+        struct NoValidation;
+        impl ToolExecutionPort for NoValidation {
+            fn execute(
+                &self,
+                _query: &Query,
+                _context: &AuthorizedContext,
+                _game_context: Option<&PinnedGameContext>,
+                _call_id: &str,
+                _request: &ToolRequest,
+            ) -> Result<ToolExecution, PortError> {
+                Err(PortError::Unavailable("fehlt".into()))
+            }
+        }
+        let query = Query {
+            request_id: "r".into(),
+            conversation_id: "c".into(),
+            text: "Frage".into(),
+            answer_context: None,
+            domain: None,
+            requested_scopes: BTreeSet::new(),
+            profile: Default::default(),
+            patch: None,
+            mode: None,
+        };
+        let context = AuthorizedContext {
+            discord: None,
+            principal: crate::Principal {
+                actor_id: "a".into(),
+                channel: "test".into(),
+                scopes: BTreeSet::new(),
+                provider_egress: BTreeSet::new(),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "r1".into(),
+            deadline_ms: 1000,
+            budget: Default::default(),
+            request_deadline: None,
+        };
+        for purpose in [
+            ToolValidationPurpose::Provider,
+            ToolValidationPurpose::Publication,
+            ToolValidationPurpose::Cache,
+        ] {
+            assert!(NoValidation
+                .validate_dependencies(&query, &context, None, &[], purpose)
+                .is_err());
+        }
+        assert!(NoValidation.definitions(&query, &context, None).is_err());
+    }
 }
