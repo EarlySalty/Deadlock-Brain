@@ -8,6 +8,52 @@ use crate::inventory::{Inventory, InventoryRules, PurchaseTransition};
 use crate::progression::{at_souls, ProgressionEvidence};
 use crate::{AbilityStep, CoreLayoutStats, HeroModel, ItemModel, ReasonerConfig, ScoredItem};
 
+#[derive(Default)]
+pub struct PlanningConstraints<'a> {
+    pub budget: Option<i64>,
+    pub imbues: BTreeMap<i64, i64>,
+    pub deadline: Option<&'a brain_contracts::RequestDeadline>,
+}
+
+impl PlanningConstraints<'_> {
+    pub fn check(&self) -> crate::Result<()> {
+        if let Some(deadline) = self.deadline {
+            deadline.check().map_err(|_| {
+                crate::ReasonerError::Data(
+                    "Buildplanung abgebrochen oder Zeitbudget abgelaufen.".into(),
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    fn validate(&self, hero: &HeroModel, catalog: &[ScoredItem]) -> crate::Result<()> {
+        self.check()?;
+        if self.budget.is_some_and(|budget| budget <= 0) {
+            return Err(crate::ReasonerError::Data(
+                "Buildbudget muss positiv sein.".into(),
+            ));
+        }
+        for (item_id, ability_id) in &self.imbues {
+            if !catalog.iter().any(|candidate| {
+                candidate.item.item_id == *item_id
+                    && candidate.item.imbueable
+                    && candidate.item.shopable
+                    && !candidate.item.disabled
+            }) || !hero
+                .abilities
+                .iter()
+                .any(|ability| ability.ability_id == *ability_id && *ability_id > 0)
+            {
+                return Err(crate::ReasonerError::Data(
+                    "Ungültige Itembindung für diesen Helden.".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 const BEAM_WIDTH: usize = 4;
 type EvaluationKey = (i64, Vec<i64>, Vec<(i64, i64)>);
 
@@ -47,7 +93,7 @@ pub struct PlanningContext<'a> {
     pub population: Option<&'a crate::PopulationPrior>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct PurchaseStep {
     pub transition: PurchaseTransition,
     pub evaluation: InventoryEvaluation,
@@ -56,14 +102,14 @@ pub struct PurchaseStep {
     pub imbue_targets: BTreeMap<i64, i64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct SavingDecision {
     pub earned_souls: i64,
     pub available_souls: i64,
     pub reason: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct PurchasePlan {
     pub steps: Vec<PurchaseStep>,
     pub final_evaluation: InventoryEvaluation,
@@ -81,11 +127,11 @@ struct Search<'a> {
     rules: &'a InventoryRules,
     combinations: &'a BTreeMap<(i64, i64), crate::meta::CombinationSupport>,
     population: Option<&'a crate::PopulationPrior>,
-    prior_slot: BTreeMap<i64, f64>,
     cache: BTreeMap<EvaluationKey, Option<InventoryEvaluation>>,
     invalid_metrics: BTreeSet<String>,
     choices_cache: BTreeMap<ChoiceKey, Vec<PurchaseStep>>,
     progression_cache: BTreeMap<i64, (HeroModel, ProgressionEvidence)>,
+    constraints: Option<&'a PlanningConstraints<'a>>,
 }
 
 impl Search<'_> {
@@ -108,22 +154,12 @@ impl Search<'_> {
         let mechanic = step.marginal_value + step.marginal_value.abs() * observed;
         let population = self.population.map_or(0.0, |prior| {
             if prior.is_staple(id) {
-                prior.support(id, self.prior_slot.get(&id).copied().unwrap_or(0.0))
+                prior.support(id, step.marginal_value)
             } else {
                 0.0
             }
         });
         mechanic + population
-    }
-
-    fn is_priority_staple(&self, item_id: i64) -> bool {
-        self.population
-            .is_some_and(|prior| prior.is_staple(item_id))
-            && self.prior_slot.get(&item_id).copied().unwrap_or(0.0) > 0.0
-    }
-
-    fn is_priority_staple_step(&self, step: &PurchaseStep) -> bool {
-        self.is_priority_staple(step.transition.purchased_id) && step.marginal_value >= 0.0
     }
 
     fn evaluate(
@@ -132,6 +168,12 @@ impl Search<'_> {
         earned: i64,
         bindings: &BTreeMap<i64, i64>,
     ) -> Option<InventoryEvaluation> {
+        if self
+            .constraints
+            .is_some_and(|constraints| constraints.check().is_err())
+        {
+            return None;
+        }
         let (hero, progression) = self
             .progression_cache
             .entry(earned)
@@ -152,8 +194,22 @@ impl Search<'_> {
             .iter()
             .map(|id| self.catalog.iter().find(|item| item.item_id == *id))
             .collect::<Option<Vec<_>>>()?;
-        let evaluation =
-            evaluate_inventory_refs_fast_with_bindings(hero, &held, self.cfg, bindings);
+        let evaluation = if let Some(deadline) = self
+            .constraints
+            .and_then(|constraints| constraints.deadline)
+        {
+            let held = held.into_iter().cloned().collect::<Vec<_>>();
+            crate::combat::evaluate_inventory_with_deadline(
+                hero,
+                &held,
+                self.cfg,
+                bindings,
+                Some(deadline),
+            )
+            .ok()?
+        } else {
+            evaluate_inventory_refs_fast_with_bindings(hero, &held, self.cfg, bindings)
+        };
         let invalid = !evaluation.score.is_finite()
             || !evaluation.utility.is_finite()
             || !evaluation.effective_health.is_finite()
@@ -183,6 +239,12 @@ impl Search<'_> {
         before: f64,
         bindings: &BTreeMap<i64, i64>,
     ) -> Vec<PurchaseStep> {
+        if self
+            .constraints
+            .is_some_and(|constraints| constraints.check().is_err())
+        {
+            return Vec::new();
+        }
         let key = ChoiceKey {
             earned,
             spent: inventory.spent_souls,
@@ -209,8 +271,13 @@ impl Search<'_> {
             .collect::<Vec<_>>();
         let mut choices = Vec::new();
         for candidate in candidates {
+            if self
+                .constraints
+                .is_some_and(|constraints| constraints.check().is_err())
+            {
+                return Vec::new();
+            }
             let item = &candidate.item;
-            let forced = self.is_priority_staple(item.item_id);
             let mut transitions = Vec::new();
             let direct = inventory.preview_purchase(item, &self.catalog, self.rules, &[]);
             if let Some(transition) = direct
@@ -250,9 +317,20 @@ impl Search<'_> {
                                 .iter()
                                 .any(|ability| ability.ability_id == *target)
                         });
-                    if let Some(target) =
-                        observed.or_else(|| crate::mechanics::imbue_target(item, hero, self.cfg))
-                    {
+                    let requested = self
+                        .constraints
+                        .and_then(|constraints| constraints.imbues.get(&item.item_id).copied());
+                    if requested.is_some_and(|target| {
+                        !hero
+                            .abilities
+                            .iter()
+                            .any(|ability| ability.ability_id == target)
+                    }) {
+                        continue;
+                    }
+                    if let Some(target) = requested.or_else(|| {
+                        crate::mechanics::imbue_target(item, hero, self.cfg).or(observed)
+                    }) {
                         next_bindings.insert(item.item_id, target);
                     }
                 }
@@ -261,8 +339,7 @@ impl Search<'_> {
                     continue;
                 };
                 let marginal_value = evaluation.score - before;
-                let staple_rescue = forced && marginal_value >= 0.0;
-                if marginal_value <= before.abs().max(1.0) * 1e-9 && !staple_rescue {
+                if marginal_value <= before.abs().max(1.0) * 1e-9 {
                     continue;
                 }
                 let step = PurchaseStep {
@@ -283,14 +360,8 @@ impl Search<'_> {
             }
         }
         choices.sort_by(|left, right| {
-            let left_staple = self.is_priority_staple_step(left);
-            let right_staple = self.is_priority_staple_step(right);
-            right_staple
-                .cmp(&left_staple)
-                .then_with(|| {
-                    self.supported_value(right)
-                        .total_cmp(&self.supported_value(left))
-                })
+            self.supported_value(right)
+                .total_cmp(&self.supported_value(left))
                 .then_with(|| {
                     left.transition
                         .purchased_id
@@ -335,6 +406,42 @@ pub fn plan_with_economy(
     cfg: &ReasonerConfig,
     context: PlanningContext<'_>,
 ) -> PurchasePlan {
+    plan_with_economy_inner(hero, catalog, candidates, cfg, context, None)
+}
+
+pub fn plan_with_constraints(
+    hero: &HeroModel,
+    catalog: &[ScoredItem],
+    candidates: &[&ScoredItem],
+    cfg: &ReasonerConfig,
+    context: PlanningContext<'_>,
+    constraints: &PlanningConstraints<'_>,
+) -> crate::Result<PurchasePlan> {
+    constraints.validate(hero, catalog)?;
+    let mut economy = context.economy.clone();
+    if let Some(budget) = constraints.budget {
+        economy.checkpoints.retain(|point| *point <= budget);
+        if economy.checkpoints.last().copied() != Some(budget) {
+            economy.checkpoints.push(budget);
+        }
+    }
+    let context = PlanningContext {
+        economy: &economy,
+        ..context
+    };
+    let plan = plan_with_economy_inner(hero, catalog, candidates, cfg, context, Some(constraints));
+    constraints.check()?;
+    Ok(plan)
+}
+
+fn plan_with_economy_inner(
+    hero: &HeroModel,
+    catalog: &[ScoredItem],
+    candidates: &[&ScoredItem],
+    cfg: &ReasonerConfig,
+    context: PlanningContext<'_>,
+    constraints: Option<&PlanningConstraints<'_>>,
+) -> PurchasePlan {
     let PlanningContext {
         layout,
         rules,
@@ -343,14 +450,6 @@ pub fn plan_with_economy(
         economy,
         population,
     } = context;
-    let prior_slot = population
-        .map(|_| {
-            catalog
-                .iter()
-                .map(|item| (item.item.item_id, item.score.per_slot_value))
-                .collect::<BTreeMap<_, _>>()
-        })
-        .unwrap_or_default();
     let mut search = Search {
         hero,
         cfg,
@@ -360,18 +459,33 @@ pub fn plan_with_economy(
         rules,
         combinations,
         population,
-        prior_slot,
         cache: BTreeMap::new(),
         invalid_metrics: BTreeSet::new(),
         choices_cache: BTreeMap::new(),
         progression_cache: BTreeMap::new(),
+        constraints,
     };
-    let mut plan=PurchasePlan { steps:Vec::new(), final_evaluation:evaluate_inventory(hero,&[],cfg), ability_order:order.to_vec(),saving_decisions:Vec::new(), assumptions:vec![
+    let mut plan=PurchasePlan { steps:Vec::new(), final_evaluation:InventoryEvaluation::default(), ability_order:order.to_vec(),saving_decisions:Vec::new(), assumptions:vec![
         "Feste globale Seelen-Checkpoints, unabhängig von Kandidatenpreisen. Kostenbänder erzwingen keine Käufe; ausschließlich die zugelassenen Identitätskäufe konkurrieren um das vorhandene Geld. Sparen bleibt eine bewertete Alternative.".into(),
         "Begrenzte Zweischrittsuche mit vier Kandidaten: aktueller Mehrwert zählt zur Hälfte, der Zustand am nächsten Checkpoint voll. Das ist eine gesetzte Planungspräferenz, kein gemessener Spielverlauf und kein globales Optimum.".into(),
         "Budget und Levelkurve verwenden dieselben verdienten Szenarioseelen. Anfangsgeld, Einnahmetempo, Zeitverluste und zusätzliche AP aus Spielereignissen werden nicht erfunden. Verkäufe verändern nur Ausgaben, nicht den Fortschritt.".into(),
         format!("Inventarregel: {} universelle Plätze und höchstens vier aktive Items; Verkaufserlös {:.0}%. Freischaltzeitpunkte von Inventarplätzen und Kulanz-Erstattungen bleiben unmodelliert.",rules.max_slots,rules.resale_fraction*100.0),
     ]};
+    plan.final_evaluation =
+        if let Some(deadline) = constraints.and_then(|constraints| constraints.deadline) {
+            match crate::combat::evaluate_inventory_with_deadline(
+                hero,
+                &[],
+                cfg,
+                &BTreeMap::new(),
+                Some(deadline),
+            ) {
+                Ok(evaluation) => evaluation,
+                Err(_) => return plan,
+            }
+        } else {
+            evaluate_inventory(hero, &[], cfg)
+        };
     if economy.checkpoints.is_empty()
         || economy.checkpoints.iter().any(|point| *point < 0)
         || economy
@@ -386,9 +500,6 @@ pub fn plan_with_economy(
     let mut inventory = Inventory::default();
     let mut bindings = BTreeMap::new();
     let mut used = BTreeSet::new();
-    // Production supplies an empirical context, even when it is empty. Its
-    // historic layout is never a quota. Explicit low-level layout callers keep
-    // their requested upper bounds for diagnostics/backwards compatibility.
     let mut remaining = if population.is_some() {
         let mut counts = BTreeMap::new();
         for candidate in candidates {
@@ -405,6 +516,9 @@ pub fn plan_with_economy(
             .collect()
     };
     for (index, earned) in economy.checkpoints.iter().copied().enumerate() {
+        if constraints.is_some_and(|constraints| constraints.check().is_err()) {
+            return plan;
+        }
         if remaining.values().all(|count| *count == 0) {
             break;
         }
@@ -480,23 +594,16 @@ pub fn plan_with_economy(
                 beam.push((step, horizon));
             }
             beam.sort_by(|(left, l), (right, r)| {
-                let left_staple = search.is_priority_staple_step(left);
-                let right_staple = search.is_priority_staple_step(right);
-                right_staple
-                    .cmp(&left_staple)
-                    .then_with(|| r.total_cmp(l))
-                    .then_with(|| {
-                        left.transition
-                            .purchased_id
-                            .cmp(&right.transition.purchased_id)
-                    })
+                r.total_cmp(l).then_with(|| {
+                    left.transition
+                        .purchased_id
+                        .cmp(&right.transition.purchased_id)
+                })
             });
             let Some((mut step, buy_value)) = beam.into_iter().next() else {
                 plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Kein bezahlbarer Kauf mit positivem gemeinsamen Mehrwert; Geld bleibt verfügbar.".into() });
                 break;
             };
-            // Population support is already part of both horizons. It must not
-            // override the same-state comparison by bypassing the saving option.
             if save_value > buy_value + before.score.abs().max(1.0) * 1e-9 {
                 plan.saving_decisions.push(SavingDecision { earned_souls:earned,available_souls:earned-inventory.spent_souls,reason:"Sparen ermöglicht am nächsten Checkpoint den stärkeren gemeinsamen Zustand als Kauf plus Folgeentscheidung.".into() });
                 break;
@@ -517,7 +624,20 @@ pub fn plan_with_economy(
                 }
             };
             step.evaluation =
-                evaluate_inventory_with_bindings(&progressed, &held, cfg, &step.imbue_targets);
+                if let Some(deadline) = constraints.and_then(|constraints| constraints.deadline) {
+                    match crate::combat::evaluate_inventory_with_deadline(
+                        &progressed,
+                        &held,
+                        cfg,
+                        &step.imbue_targets,
+                        Some(deadline),
+                    ) {
+                        Ok(evaluation) => evaluation,
+                        Err(_) => return plan,
+                    }
+                } else {
+                    evaluate_inventory_with_bindings(&progressed, &held, cfg, &step.imbue_targets)
+                };
             bindings = step.imbue_targets.clone();
             step.progression = evidence;
             used.insert(step.transition.purchased_id);
@@ -544,7 +664,21 @@ pub fn plan_with_economy(
             .extend(last.progression.unknown_effects.iter().cloned());
     } else if let Some(earned) = economy.checkpoints.last() {
         let (progressed, evidence) = at_souls(hero, order, *earned, cfg);
-        plan.final_evaluation = evaluate_inventory_with_bindings(&progressed, &[], cfg, &bindings);
+        plan.final_evaluation =
+            if let Some(deadline) = constraints.and_then(|constraints| constraints.deadline) {
+                match crate::combat::evaluate_inventory_with_deadline(
+                    &progressed,
+                    &[],
+                    cfg,
+                    &bindings,
+                    Some(deadline),
+                ) {
+                    Ok(evaluation) => evaluation,
+                    Err(_) => return plan,
+                }
+            } else {
+                evaluate_inventory_with_bindings(&progressed, &[], cfg, &bindings)
+            };
         plan.assumptions.extend(evidence.assumptions);
         plan.assumptions.extend(evidence.unknown_effects);
     }
@@ -620,6 +754,44 @@ mod tests {
         assert_eq!(plan.steps[0].transition.after.spent_souls, 800);
         assert!(plan.steps[0].marginal_value > 0.0);
         assert_eq!(plan.final_evaluation, plan.steps[0].evaluation);
+    }
+
+    #[test]
+    fn stronger_unplayed_mechanic_wins_over_population_staple() {
+        let hero = hero();
+        let items = vec![item(1, 5.0, 10000.0), item(2, 50.0, -10000.0)];
+        let candidates = items.iter().collect::<Vec<_>>();
+        let rules = InventoryRules::from_catalog(
+            &items
+                .iter()
+                .map(|item| item.item.clone())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let population = crate::PopulationPrior::from_items([crate::PopulationItem {
+            item_id: 1,
+            prevalence: 1.0,
+            median_position: Some(1.0),
+            is_staple: true,
+        }]);
+        let plan = plan_with_economy(
+            &hero,
+            &items,
+            &candidates,
+            &ReasonerConfig::default(),
+            PlanningContext {
+                layout: &CoreLayoutStats::default(),
+                rules: &rules,
+                combinations: &BTreeMap::new(),
+                order: &[],
+                economy: &EconomyPolicy {
+                    checkpoints: vec![800],
+                },
+                population: Some(&population),
+            },
+        );
+        assert_eq!(plan.steps.len(), 1);
+        assert_eq!(plan.steps[0].transition.purchased_id, 2);
     }
 
     #[test]
@@ -851,11 +1023,11 @@ mod tests {
             rules: &rules,
             combinations: &combinations,
             population: None,
-            prior_slot: BTreeMap::new(),
             cache: BTreeMap::new(),
             invalid_metrics: BTreeSet::new(),
             choices_cache: BTreeMap::new(),
             progression_cache: BTreeMap::new(),
+            constraints: None,
         };
         let before = search.evaluate(&inventory, 3200, &bindings).unwrap();
         let choices = search.choices(
@@ -947,11 +1119,11 @@ mod tests {
             rules: &rules,
             combinations: &combinations,
             population: None,
-            prior_slot: BTreeMap::new(),
             cache: BTreeMap::new(),
             invalid_metrics: BTreeSet::new(),
             choices_cache: BTreeMap::new(),
             progression_cache: BTreeMap::new(),
+            constraints: None,
         };
         let choices = search.choices(
             &before,

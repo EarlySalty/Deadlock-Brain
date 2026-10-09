@@ -184,27 +184,13 @@ fn author_evidence(hero_id: i64, sources: &[crate::meta::AuthorBuildSource]) -> 
 
 fn core_candidates<'a>(
     ordered: &[&'a ScoredItem],
-    authors: &AuthorEvidence,
-    population: Option<&crate::PopulationPrior>,
+    _authors: &AuthorEvidence,
+    _population: Option<&crate::PopulationPrior>,
 ) -> Vec<&'a ScoredItem> {
     ordered
         .iter()
         .copied()
-        .filter(|item| {
-            let id = item.item.item_id;
-            if let Some(population) = population {
-                // Population-backed planning admits identity items, not all items
-                // with a positive score. Flex candidates are displayed separately.
-                if !population.is_empty() {
-                    return population.is_staple(id)
-                        && (!is_situation_item(item) || authors.core.contains(&id));
-                }
-                return authors.core.contains(&id);
-            }
-            // Explicit model-only callers have no empirical identity. Situational
-            // effects still cannot become core just by having a large scalar score.
-            !is_situation_item(item) || authors.core.contains(&id)
-        })
+        .filter(|item| !is_situation_item(item))
         .collect()
 }
 
@@ -346,6 +332,24 @@ pub fn compose_build(
     compose_build_with_blocklist(hero, scored, deltas, cfg, &[])
 }
 
+fn planning_order(
+    meta: &crate::meta::MetaIndexWithSources,
+    hero: &HeroModel,
+    cfg: &ReasonerConfig,
+    constraints: &crate::planner::PlanningConstraints<'_>,
+) -> crate::Result<(Vec<crate::AbilityStep>, Evidence, Vec<String>)> {
+    constraints.check()?;
+    let (mut order, mut source, notes) = meta.coherent_ability_order(hero);
+    if order.is_empty() {
+        order = crate::progression::mechanic_order_with_deadline(hero, cfg, constraints.deadline)?;
+        if !order.is_empty() {
+            source = Evidence { kind: EvidenceKind::Mechanic, detail: "Skillfolge aus den aktuellen Fähigkeiten: Freischaltungen nach Kampfnutzen, Upgrades nach zusätzlichem Kampfnutzen je Fähigkeitspunkt. Keine Matchfolge erforderlich.".into() };
+        }
+    }
+    constraints.check()?;
+    Ok((order, source, notes))
+}
+
 pub fn compose_build_with_sources(
     hero: &HeroModel,
     scored: &[ScoredItem],
@@ -354,11 +358,33 @@ pub fn compose_build_with_sources(
     blocked: &[String],
     meta: &crate::meta::MetaIndexWithSources,
 ) -> crate::Result<BuildObject> {
+    compose_build_with_sources_and_constraints(
+        hero,
+        scored,
+        deltas,
+        cfg,
+        blocked,
+        meta,
+        &Default::default(),
+    )
+    .map(|(build, _)| build)
+}
+
+pub fn compose_build_with_sources_and_constraints(
+    hero: &HeroModel,
+    scored: &[ScoredItem],
+    deltas: &[PatchDelta],
+    cfg: &ReasonerConfig,
+    blocked: &[String],
+    meta: &crate::meta::MetaIndexWithSources,
+    constraints: &crate::planner::PlanningConstraints<'_>,
+) -> crate::Result<(BuildObject, crate::planner::PurchasePlan)> {
+    constraints.check()?;
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
-    let (order, source, notes) = meta.coherent_ability_order(hero);
+    let (order, source, notes) = planning_order(meta, hero, cfg, constraints)?;
     authors.skill_notes = notes;
     authors.ability_order = order.clone();
-    let mut build = compose_build_with_author_evidence(
+    let (mut build, plan) = compose_build_with_author_evidence_and_constraints(
         hero,
         scored,
         deltas,
@@ -370,6 +396,7 @@ pub fn compose_build_with_sources(
             &authors,
             Some(&meta.population),
         ),
+        constraints,
     )?;
     build.ability_order = order;
     build.rationale = format!(
@@ -395,7 +422,6 @@ pub fn compose_build_with_sources(
             .map(|item| item.item_id)
             .collect::<Vec<_>>();
         if let Some(note) = meta.population.thin_coverage_note(&core_ids) {
-            build.confidence = Confidence::Low;
             build.rationale = if build.rationale.trim().is_empty() {
                 note
             } else {
@@ -403,7 +429,8 @@ pub fn compose_build_with_sources(
             };
         }
     }
-    Ok(build)
+    constraints.check()?;
+    Ok((build, plan))
 }
 
 pub fn purchase_plan_with_sources(
@@ -413,7 +440,7 @@ pub fn purchase_plan_with_sources(
     meta: &crate::meta::MetaIndexWithSources,
 ) -> crate::Result<crate::planner::PurchasePlan> {
     let mut authors = author_evidence(hero.hero_id, &meta.author_builds);
-    let (order, _, notes) = meta.coherent_ability_order(hero);
+    let (order, _, notes) = planning_order(meta, hero, cfg, &Default::default())?;
     authors.ability_order = order;
     authors.skill_notes = notes;
     plan_core(
@@ -437,6 +464,17 @@ fn plan_core(
     blocked: &[String],
     context: PlanContext<'_>,
 ) -> crate::Result<crate::planner::PurchasePlan> {
+    plan_core_with_constraints(hero, scored, cfg, blocked, context, &Default::default())
+}
+
+fn plan_core_with_constraints(
+    hero: &HeroModel,
+    scored: &[ScoredItem],
+    cfg: &ReasonerConfig,
+    blocked: &[String],
+    context: PlanContext<'_>,
+    constraints: &crate::planner::PlanningConstraints<'_>,
+) -> crate::Result<crate::planner::PurchasePlan> {
     let (layout, combinations, authors, population) = context;
     let catalog = scored
         .iter()
@@ -444,7 +482,7 @@ fn plan_core(
         .collect::<Vec<_>>();
     let rules = crate::inventory::InventoryRules::from_catalog(&catalog)?;
     let ordered = item_order(scored, blocked);
-    let mut plan = crate::planner::plan_with_economy(
+    let mut plan = crate::planner::plan_with_constraints(
         hero,
         scored,
         &core_candidates(&ordered, authors, population),
@@ -457,7 +495,8 @@ fn plan_core(
             economy: &crate::planner::EconomyPolicy::default(),
             population,
         },
-    );
+        constraints,
+    )?;
     plan.assumptions.extend(authors.skill_notes.iter().cloned());
     Ok(plan)
 }
@@ -525,9 +564,30 @@ fn compose_build_with_author_evidence(
     blocked: &[String],
     context: PlanContext<'_>,
 ) -> crate::Result<BuildObject> {
+    compose_build_with_author_evidence_and_constraints(
+        hero,
+        scored,
+        deltas,
+        cfg,
+        blocked,
+        context,
+        &Default::default(),
+    )
+    .map(|(build, _)| build)
+}
+
+fn compose_build_with_author_evidence_and_constraints(
+    hero: &HeroModel,
+    scored: &[ScoredItem],
+    deltas: &[PatchDelta],
+    cfg: &ReasonerConfig,
+    blocked: &[String],
+    context: PlanContext<'_>,
+    constraints: &crate::planner::PlanningConstraints<'_>,
+) -> crate::Result<(BuildObject, crate::planner::PurchasePlan)> {
     let (_layout, combinations, authors, population) = context;
     let ordered = item_order(scored, blocked);
-    let plan = plan_core(hero, scored, cfg, blocked, context)?;
+    let plan = plan_core_with_constraints(hero, scored, cfg, blocked, context, constraints)?;
     let selected = plan
         .steps
         .iter()
@@ -604,7 +664,7 @@ fn compose_build_with_author_evidence(
                     .median_position(item.item.item_id)
                     .map(|value| format!("{value:.0}"))
                     .unwrap_or_else(|| "unbekannt".to_string());
-                let detail = format!("Populations-Stütze: {:.0}% Kaufanteil bei echten Spielern dieses Helden, Median-Kaufposition {position}. Mechanik-Slotwert {:+.1}; die Kaufkurve folgt der Mechanik, der Kaufanteil hebt nur Staples mit positivem Solo-Mechanikwert, die im aktuellen Build keinen negativen Marginalwert haben.", population.prevalence(item.item.item_id) * 100.0, item.score.per_slot_value);
+                let detail = format!("Populations-Stütze: {:.0}% Kaufanteil bei echten Spielern dieses Helden, Median-Kaufposition {position}. Mechanik-Slotwert {:+.1}; der Kaufanteil ergänzt nur den positiven gemeinsamen Mehrwert. Keine Pflichtkäufe und kein pauschaler Vorrang vor mechanisch stärkeren Kandidaten.", population.prevalence(item.item.item_id) * 100.0, item.score.per_slot_value);
                 built.why.push(' ');
                 built.why.push_str(&detail);
                 built.sources.push(Evidence { kind: EvidenceKind::Meta, detail });
@@ -634,21 +694,26 @@ fn compose_build_with_author_evidence(
     let mut counters = Vec::new();
     let mut optional = Vec::new();
     for item in ordered {
+        constraints.check()?;
         if selected_ids.contains(&item.item.item_id) {
             continue;
         }
+        let mut built = build_item(item, hero, cfg, patch_sources(item, deltas));
+        if let Some(target) = constraints.imbues.get(&item.item.item_id) {
+            built.imbue_target = Some(*target);
+        }
         if is_shield(item) {
-            shields.push(build_item(item, hero, cfg, patch_sources(item, deltas)));
+            shields.push(built);
         } else if is_can_buy_one(item) {
-            can_buy.push(build_item(item, hero, cfg, patch_sources(item, deltas)));
+            can_buy.push(built);
         } else if is_tryhard(item) {
-            tryhard.push(build_item(item, hero, cfg, patch_sources(item, deltas)));
+            tryhard.push(built);
         } else if is_optional(item) {
-            optional.push(build_item(item, hero, cfg, patch_sources(item, deltas)));
+            optional.push(built);
         } else if is_counter(item) {
-            counters.push(build_item(item, hero, cfg, patch_sources(item, deltas)));
+            counters.push(built);
         } else {
-            optional.push(build_item(item, hero, cfg, patch_sources(item, deltas)));
+            optional.push(built);
         }
     }
     can_buy.truncate(6);
@@ -694,8 +759,6 @@ fn compose_build_with_author_evidence(
             items: counters,
         });
     }
-    // Retain unknown effects across the entire purchase curve, including an
-    // early item sold later. Strong statistical support cannot hide these.
     let unknown_effects = plan
         .steps
         .iter()
@@ -703,14 +766,14 @@ fn compose_build_with_author_evidence(
         .chain(&plan.final_evaluation.unknown_effects)
         .cloned()
         .collect::<std::collections::BTreeSet<_>>();
-    // Optional unbought counters do not invalidate the core. Unknown effects in
-    // an actually purchased state do cap overall confidence, not unrelated items.
     let build_confidence = if unknown_effects.is_empty() {
         confidence(&core)
     } else {
         Confidence::Low
     };
-    Ok(BuildObject {
+    constraints.check()?;
+    Ok((BuildObject {
+        provenance: None,
         family: None,
         variants: Vec::new(),
         family_discovery: None,
@@ -726,11 +789,181 @@ fn compose_build_with_author_evidence(
             .chain(unknown_effects.iter()).cloned()
             .chain(plan.final_evaluation.scenarios.iter().map(|scenario| format!("Ablauf {}: {}. {:.0} Schüsse, {} Nachladungen, {:.1} Sekunden Kanalzeit; Fähigkeiten {:?}.", scenario.name, scenario.sequence.join(" → "), scenario.shots, scenario.reloads, scenario.channel_seconds, scenario.casts)))
             .collect::<Vec<_>>().join(" "),
-    })
+    }, plan))
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn tool_budget_and_imbues_are_applied_to_the_single_purchase_plan() {
+        use brain_contracts::tools::{BuildPlanRequest, ToolImbue, ToolPlaystyle};
+        let mut hero = skill_validation_hero();
+        hero.abilities[0].base_effect = 20.0;
+        hero.abilities[1].base_effect = 200.0;
+        let mut first = item(1, "Gebundenes Item", 50.0, false, &[]);
+        first.item.cost = 800;
+        first.item.imbueable = true;
+        first
+            .item
+            .properties
+            .insert("CooldownReduction".into(), 50.0);
+        let mut second = item(2, "Weiterer Kauf", 20.0, false, &[]);
+        second.item.cost = 800;
+        let items = vec![first.item, second.item];
+        let meta = population_context();
+        let config = ReasonerConfig::default();
+        let now = std::time::Instant::now();
+        let deadline = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || now,
+        );
+        let request = BuildPlanRequest {
+            hero_id: hero.hero_id as u64,
+            playstyle: ToolPlaystyle::Weapon,
+            budget: Some(800),
+            imbues: vec![ToolImbue {
+                item_id: 1,
+                ability_id: 101,
+            }],
+        };
+        let origin = crate::publish::BuildDataOrigin {
+            client_version: 6000,
+            source_run_id: 10,
+            mirrored_at: 2000,
+            parser_revision: "fixture-parser".into(),
+            manifest_document_id: 11,
+            manifest_sha256: "1".repeat(64),
+            heroes_document_id: 12,
+            heroes_sha256: "2".repeat(64),
+            items_document_id: 13,
+            items_sha256: "3".repeat(64),
+        };
+        let snapshots = vec![crate::PatchSnapshot {
+            target: crate::DeltaTarget::Hero(hero.hero_id),
+            name: hero.name.clone(),
+            fields: std::collections::BTreeMap::from([(
+                "value".into(),
+                crate::SnapshotField {
+                    value: 10.0,
+                    fetched_at: Some(2000.0),
+                    source: origin.snapshot_source().unwrap(),
+                    label: "Spielwert".into(),
+                },
+            )]),
+        }];
+        let planned = crate::plan_build_with_request(
+            &hero,
+            &items,
+            &meta,
+            &[],
+            &snapshots,
+            &config,
+            crate::BuildRequestContext {
+                request: &request,
+                deadline: &deadline,
+            },
+        )
+        .unwrap();
+        assert_eq!(planned.build.core.len(), 1);
+        assert_eq!(planned.build.core[0].item_id, 1);
+        assert_eq!(planned.build.core[0].imbue_target, Some(101));
+        assert_eq!(planned.purchase_plan.steps.len(), 1);
+        let step = &planned.purchase_plan.steps[0];
+        assert_eq!(step.transition.after.spent_souls, 800);
+        assert_eq!(step.imbue_targets.get(&1), Some(&101));
+        assert_eq!(planned.purchase_plan.final_evaluation, step.evaluation);
+        let structured = serde_json::to_value(&planned.purchase_plan).unwrap();
+        assert_eq!(structured["steps"][0]["transition"]["purchased_id"], 1);
+        assert!(structured["final_evaluation"]["score"].is_number());
+        let mut low_budget = request.clone();
+        low_budget.budget = Some(799);
+        let low = crate::plan_build_with_request(
+            &hero,
+            &items,
+            &meta,
+            &[],
+            &snapshots,
+            &config,
+            crate::BuildRequestContext {
+                request: &low_budget,
+                deadline: &deadline,
+            },
+        )
+        .unwrap();
+        assert!(low.build.core.is_empty());
+        assert!(low.purchase_plan.steps.is_empty());
+        let restored: BuildObject =
+            serde_json::from_value(serde_json::to_value(&low.build).unwrap()).unwrap();
+        let provenance = crate::publish::validate_build_provenance(&restored).unwrap();
+        assert_eq!(provenance.origin, origin);
+        assert_eq!(provenance.purchase_plan.as_ref(), Some(&low.purchase_plan));
+        assert!(crate::publish::validate_publish_input(&restored).is_err());
+        let optional = low
+            .build
+            .situations
+            .iter()
+            .flat_map(|block| &block.items)
+            .find(|item| item.item_id == 1)
+            .unwrap();
+        assert_eq!(optional.imbue_target, Some(101));
+        let checks = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let clock_checks = checks.clone();
+        let expiring = brain_contracts::RequestDeadline::after_with_clock(
+            std::time::Duration::from_secs(60),
+            move || {
+                if clock_checks.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= 50 {
+                    now + std::time::Duration::from_secs(61)
+                } else {
+                    now
+                }
+            },
+        );
+        assert!(crate::plan_build_with_request(
+            &hero,
+            &items,
+            &meta,
+            &[],
+            &[],
+            &config,
+            crate::BuildRequestContext {
+                request: &request,
+                deadline: &expiring
+            },
+        )
+        .is_err());
+        assert!(checks.load(std::sync::atomic::Ordering::SeqCst) > 50);
+        assert!(expiring.check().is_err());
+        let mut invalid = request.clone();
+        invalid.imbues[0].ability_id = 999;
+        assert!(crate::plan_build_with_request(
+            &hero,
+            &items,
+            &meta,
+            &[],
+            &[],
+            &config,
+            crate::BuildRequestContext {
+                request: &invalid,
+                deadline: &deadline
+            }
+        )
+        .is_err());
+        deadline.cancel();
+        assert!(crate::plan_build_with_request(
+            &hero,
+            &items,
+            &meta,
+            &[],
+            &[],
+            &config,
+            crate::BuildRequestContext {
+                request: &request,
+                deadline: &deadline
+            }
+        )
+        .is_err());
+    }
+
     fn skill_validation_hero() -> HeroModel {
         let mut hero = hero();
         hero.hero_id = 700;
@@ -946,7 +1179,7 @@ mod tests {
     }
 
     #[test]
-    fn population_core_is_not_padded_to_eighteen_layout_entries() {
+    fn population_does_not_exclude_unplayed_mechanic_candidates() {
         let items = [
             item(1, "Identity", 10.0, false, &[]),
             item(2, "Very large isolated score", 1_000_000.0, false, &[]),
@@ -960,19 +1193,8 @@ mod tests {
             &population_context(),
         )
         .unwrap();
-        assert_eq!(
-            build
-                .core
-                .iter()
-                .map(|item| item.item_id)
-                .collect::<Vec<_>>(),
-            vec![1]
-        );
-        assert!(build
-            .situations
-            .iter()
-            .flat_map(|block| &block.items)
-            .any(|item| item.item_id == 2));
+        assert!(build.core.iter().any(|item| item.item_id == 2));
+        assert!(build.core.len() <= 12);
     }
 
     #[test]
@@ -1099,7 +1321,7 @@ mod tests {
     }
 
     #[test]
-    fn author_identity_overrides_context_classification_only_for_the_same_hero() {
+    fn author_category_labels_do_not_override_mechanic_classification() {
         let source = |hero_id, name: &str| crate::meta::AuthorBuildSource {
             hero_id,
             author: name.to_string(),
@@ -1131,8 +1353,8 @@ mod tests {
             (&layout, &Default::default(), &same_hero, None),
         )
         .unwrap();
-        assert_eq!(build.core[0].item_id, 1);
-        assert!(build.core[0].why.contains("überwiegend im Kern"));
+        assert_eq!(build.core[0].item_id, 2);
+        assert_eq!(build.core, baseline.core);
     }
 
     #[test]
@@ -1646,8 +1868,6 @@ mod tests {
             &layout(&[(1, 3), (2, 6), (3, 2), (4, 8)], 7),
         )
         .unwrap();
-        // Category names in a source are not truth. The same numeric mechanics
-        // must produce exactly the same purchases/categories after renaming.
         let mut renamed = scored.clone();
         for item in &mut renamed {
             item.item.name = format!("neutral {}", item.item.item_id);
