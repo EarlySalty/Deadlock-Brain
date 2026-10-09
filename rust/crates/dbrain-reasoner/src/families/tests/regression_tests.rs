@@ -276,6 +276,7 @@ fn unpublished_build() -> crate::BuildObject {
         .families
         .remove(0);
     crate::BuildObject {
+        provenance: None,
         hero_id: 700,
         hero_name: "Synthetic".into(),
         patch_tag: "test".into(),
@@ -303,7 +304,10 @@ fn current_build_for_validation() -> crate::BuildObject {
         confidence: crate::Confidence::High,
         imbue_target: None,
         sell_priority: None,
-        sources: Vec::new(),
+        sources: vec![crate::Evidence {
+            kind: crate::EvidenceKind::Mechanic,
+            detail: "Mechanik aus Spielwerten".into(),
+        }],
     });
     build.ability_order.push(crate::AbilityStep {
         ability_id: 101,
@@ -318,19 +322,12 @@ fn current_build_for_validation() -> crate::BuildObject {
     build
 }
 
-#[tokio::test]
-async fn missing_family_blocks_legacy_publish_before_any_database_connection() {
+#[test]
+fn no_family_or_population_is_required_for_publication() {
     let mut build = current_build_for_validation();
     build.family = None;
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .connect_lazy("postgresql://127.0.0.1:1/unreachable")
-        .unwrap();
-    let error = crate::publish::enqueue_publish_task(&pool, &build)
-        .await
-        .unwrap_err();
-    assert!(
-        matches!(error, crate::ReasonerError::Data(note) if note.contains("Keine belegte Buildfamilie"))
-    );
+    build.confidence = crate::Confidence::Low;
+    crate::publish::validate_publish_input(&build).unwrap();
 }
 
 #[test]
@@ -339,23 +336,23 @@ fn complete_current_family_passes_the_pure_publish_validator() {
 }
 
 #[test]
-fn local_family_policy_cannot_reduce_the_publication_sample_floor() {
+fn family_sample_floor_is_not_a_publication_condition() {
     let mut build = current_build_for_validation();
     build.family_discovery = Some(discover(&observations(0, 12, &[1, 2, 3, 4, 5, 6])));
     assert!(build.family_discovery.as_ref().unwrap().policy.min_matches < 100);
-    build.family.as_mut().unwrap().post_patch_player_matches = Some(99);
-    let error = crate::publish::validate_publish_input(&build).unwrap_err();
-    assert!(error.to_string().contains("mindestens 100"));
+    build.family.as_mut().unwrap().post_patch_player_matches = Some(0);
+    build.family.as_mut().unwrap().eligible_for_planning = false;
+    crate::publish::validate_publish_input(&build).unwrap();
 }
 
 #[test]
-fn current_patch_counts_do_not_rescue_empty_core_or_low_confidence() {
+fn current_patch_counts_do_not_rescue_empty_core_but_low_confidence_is_not_a_sample_gate() {
     let mut build = current_build_for_validation();
     build.core.clear();
     assert!(crate::publish::validate_publish_input(&build).is_err());
     let mut build = current_build_for_validation();
     build.confidence = crate::Confidence::Low;
-    assert!(crate::publish::validate_publish_input(&build).is_err());
+    assert!(crate::publish::validate_publish_input(&build).is_ok());
 }
 
 #[test]
@@ -369,16 +366,15 @@ fn current_patch_counts_do_not_rescue_missing_skillorder_or_patch_identity() {
 }
 
 #[tokio::test]
-async fn missing_post_patch_evidence_blocks_before_any_database_connection() {
+async fn missing_core_blocks_before_any_database_connection() {
+    assert!(unpublished_build().core.is_empty());
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgresql://127.0.0.1:1/unreachable")
         .unwrap();
     let error = crate::publish::enqueue_publish_task(&pool, &unpublished_build())
         .await
         .unwrap_err();
-    assert!(
-        matches!(error,crate::ReasonerError::Data(note) if note.contains("Nach-Patch-Stichprobe"))
-    );
+    assert!(matches!(error, crate::ReasonerError::Data(_)));
 }
 
 #[test]

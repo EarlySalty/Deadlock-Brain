@@ -22,18 +22,26 @@ struct ReleaseBinding {
     id: String,
 }
 
-pub(super) fn release_from_config(path: &FilePath) -> Result<String> {
+pub(super) async fn release_from_config(path: &FilePath) -> Result<String> {
     ensure!(
         path.is_absolute(),
         "Die Dienstkonfiguration muss absolut sein."
     );
-    let config: ServeBinding = serde_json::from_slice(&std::fs::read(path)?)
+    let config: ServeBinding = serde_json::from_slice(&tokio::fs::read(path).await?)
         .context("Der Quellenstand der Brain-Site fehlt.")?;
     ensure!(
         !config.release.id.is_empty() && config.release.id.len() <= 160,
         "Der Quellenstand ist ungültig."
     );
     Ok(config.release.id)
+}
+
+async fn current_release(site: &Site) -> Result<String> {
+    let path = site
+        .serve_config
+        .as_deref()
+        .context("Der Quellenstand der Brain-Site fehlt.")?;
+    release_from_config(path).await
 }
 
 fn kind(value: EntityKind) -> &'static str {
@@ -99,7 +107,7 @@ pub(super) async fn page(
             method,
         );
     }
-    let Some(release) = site.release else {
+    let Ok(release) = current_release(&site).await else {
         return unavailable(method);
     };
     let store = PgStore::new(site.pool);
@@ -139,7 +147,7 @@ fn decode_id(id: &str) -> Option<String> {
 }
 
 pub(super) async fn index(State(site): State<Site>, method: Method) -> Response {
-    let Some(release) = site.release else {
+    let Ok(release) = current_release(&site).await else {
         return unavailable(method);
     };
     let result: Result<String> = async {
