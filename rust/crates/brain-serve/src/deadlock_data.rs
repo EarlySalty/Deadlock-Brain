@@ -381,8 +381,7 @@ impl Runtime {
         params: &[(&str, i64)],
         usage: &mut Usage,
     ) -> Result<Vec<Value>, PortError> {
-        let start = window.start;
-        let end = window.end;
+        let std::ops::Range { start, end } = window;
         let mut url = analytics_url(endpoint, mode, start, params)?;
         Self::charge(context, usage)?;
         url.push_str(&format!(

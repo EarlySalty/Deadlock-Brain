@@ -15,6 +15,7 @@ pub struct ReleaseRetriever<S> {
     store: S,
     limit: usize,
     indexes: IndexCache,
+    context_mirror: Option<brain_storage::entity_profile::MirroredGameContextReader>,
 }
 impl<S: SnapshotReadPort> ReleaseRetriever<S> {
     pub fn new(store: S, limit: usize) -> Self {
@@ -22,7 +23,77 @@ impl<S: SnapshotReadPort> ReleaseRetriever<S> {
             store,
             limit: limit.clamp(1, 100),
             indexes: Arc::new(Mutex::new(BTreeMap::new())),
+            context_mirror: None,
         }
+    }
+    pub fn with_context_mirror(
+        mut self,
+        reader: brain_storage::entity_profile::MirroredGameContextReader,
+    ) -> Self {
+        self.context_mirror = Some(reader);
+        self
+    }
+    fn mirrored_context_names(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> Result<BTreeMap<String, Vec<Vec<String>>>, PortError> {
+        use brain_contracts::tools::{GameContextResolver, ToolValidationPurpose};
+        let Some(reader) = &self.context_mirror else {
+            return Ok(BTreeMap::new());
+        };
+        let bundle = reader.read_latest(context)?;
+        let pin = bundle.game_context();
+        reader.validate(query, context, Some(pin))?;
+        for language in ["english", "german"] {
+            let asset = bundle.asset("heroes_all", Some(language))?;
+            for receipt in [&asset.receipt.manifest, &asset.receipt.endpoint] {
+                for purpose in [
+                    ToolValidationPurpose::Provider,
+                    ToolValidationPurpose::Publication,
+                ] {
+                    if !crate::mirror_grants::receipt_allowed(receipt, context, purpose) {
+                        return Err(denied("Öffentliche Gesprächsnamen sind nicht freigegeben"));
+                    }
+                }
+            }
+        }
+        let mut names = BTreeMap::<String, Vec<Vec<String>>>::new();
+        let mut ids = BTreeSet::new();
+        for row in bundle
+            .asset("heroes_all", Some("english"))?
+            .payload
+            .as_array()
+            .ok_or_else(|| invalid("Heldensatz ist kein Array"))?
+        {
+            context.check_deadline()?;
+            let id = row["id"]
+                .as_i64()
+                .filter(|id| *id > 0)
+                .ok_or_else(|| invalid("Heldensymbol ist nicht gebunden"))?;
+            if !ids.insert(id) {
+                return Err(invalid("Heldensymbol ist doppelt gebunden"));
+            }
+            let localized = bundle.localized_names("heroes_all", id)?;
+            let Some(name) = localized["english"]
+                .as_str()
+                .filter(|name| public_label(name))
+            else {
+                continue;
+            };
+            let aliases = names.entry(name.to_owned()).or_default();
+            for language in ["english", "german"] {
+                if let Some(alias) = localized[language]
+                    .as_str()
+                    .filter(|name| public_label(name))
+                {
+                    aliases.push(brain_contracts::lexical::terms(alias));
+                }
+            }
+        }
+        reader.validate(query, context, Some(pin))?;
+        context.check_deadline()?;
+        Ok(names)
     }
     pub fn snapshot(
         &self,
@@ -363,6 +434,16 @@ impl<S: SnapshotReadPort> brain_contracts::discord_task::DiscordContextResolver
                 }
             }
         }
+        match self.mirrored_context_names(query, context) {
+            Ok(names) => {
+                for (subject, aliases) in names {
+                    vocabulary.entry(subject).or_default().extend(aliases);
+                }
+            }
+            Err(PortError::BudgetExceeded) => return Err(PortError::BudgetExceeded),
+            Err(_) => eprintln!("{{\"event\":\"discord_context_mirror_unavailable\"}}"),
+        }
+        context.check_deadline()?;
         let projection = DiscordContextProjection {
             turns: history
                 .iter()
@@ -392,6 +473,14 @@ fn contains_terms(words: &[String], name: &[String]) -> bool {
     !name.is_empty() && words.windows(name.len()).any(|window| window == name)
 }
 
+fn public_label(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().count() <= 80
+        && name
+            .chars()
+            .all(|c| c.is_alphabetic() || matches!(c, ' ' | '-' | '\''))
+}
+
 fn public_context_names(record: &SourceRecordV2) -> Vec<(String, Vec<Vec<String>>)> {
     use brain_contracts::lexical::{fact_names, terms};
     let mut result = Vec::new();
@@ -419,7 +508,12 @@ fn public_context_names(record: &SourceRecordV2) -> Vec<(String, Vec<Vec<String>
         ),
     ] {
         let names: Vec<_> = aliases.iter().map(|name| terms(name)).collect();
-        if names.iter().any(|name| contains_terms(&words, name)) {
+        if names.iter().any(|name| contains_terms(&words, name))
+            || (subject == "Spirit-Build"
+                && ["Build", "Builds"]
+                    .iter()
+                    .any(|name| contains_terms(&words, &terms(name))))
+        {
             result.push((subject.to_owned(), names));
         }
     }
@@ -428,13 +522,7 @@ fn public_context_names(record: &SourceRecordV2) -> Vec<(String, Vec<Vec<String>
             .metadata
             .get("name")
             .or_else(|| record.metadata.get("canonical_name"));
-        if let Some(name) = canonical.filter(|name| {
-            !name.is_empty()
-                && name.chars().count() <= 80
-                && name
-                    .chars()
-                    .all(|c| c.is_alphabetic() || matches!(c, ' ' | '-' | '\''))
-        }) {
+        if let Some(name) = canonical.filter(|name| public_label(name)) {
             result.push((
                 name.clone(),
                 fact_names("", &record.content, &record.metadata)

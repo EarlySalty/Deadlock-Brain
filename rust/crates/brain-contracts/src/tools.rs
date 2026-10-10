@@ -868,6 +868,24 @@ impl ToolExecution {
         request: &ToolRequest,
         game_context: Option<&PinnedGameContext>,
     ) -> Result<(), PortError> {
+        if self.result.call_id != call.id
+            || self.result.name != call.name
+            || request.name != call.name
+            || request.arguments != call.arguments
+        {
+            return Err(invalid("Werkzeugausführung gehört nicht zur Unteranfrage"));
+        }
+        validate_id(&self.result.call_id)?;
+        validate_ids(&self.result.evidence_ids)?;
+        if self.result.is_error
+            && self.dependencies.is_empty()
+            && self.result.evidence_ids.is_empty()
+        {
+            if let Some(game) = game_context {
+                game.validate()?;
+            }
+            return Ok(());
+        }
         let expected_game = if request.name() == ToolName::ServerKnowledge {
             None
         } else {
@@ -893,15 +911,6 @@ impl ToolExecution {
             game.validate()?;
             Some(game)
         };
-        if self.result.call_id != call.id
-            || self.result.name != call.name
-            || request.name != call.name
-            || request.arguments != call.arguments
-        {
-            return Err(invalid("Werkzeugausführung gehört nicht zur Unteranfrage"));
-        }
-        validate_id(&self.result.call_id)?;
-        validate_ids(&self.result.evidence_ids)?;
         let mut ids = BTreeSet::new();
         for dependency in &self.dependencies {
             if &dependency.request != request || dependency.game_context.as_ref() != expected_game {
@@ -1666,6 +1675,90 @@ mod tests {
         error.result.evidence_ids.clear();
         error.dependencies.clear();
         assert!(error.validate_for(&call, &request, Some(&game)).is_ok());
+    }
+
+    #[test]
+    fn evidence_free_tool_errors_without_a_pin_still_require_the_exact_call_and_request() {
+        let call = call();
+        let request = call.validate(&[definition()]).unwrap();
+        let execution = ToolExecution {
+            result: ToolResult {
+                call_id: call.id.clone(),
+                name: call.name,
+                result: json!({"error":"no_authorized_data"}),
+                evidence_ids: Vec::new(),
+                is_error: true,
+            },
+            dependencies: Vec::new(),
+            usage: Usage::default(),
+        };
+        execution.validate_for(&call, &request, None).unwrap();
+        let invalid_pin = PinnedGameContext {
+            client_version: 0,
+            language: ToolLanguage::German,
+            mechanic_revision: "invalid".into(),
+        };
+        assert!(execution
+            .validate_for(&call, &request, Some(&invalid_pin))
+            .is_err());
+        let mut other_call = call.clone();
+        other_call.arguments["query"] = json!("Haze");
+        let other_request = other_call.validate(&[definition()]).unwrap();
+        assert!(execution.validate_for(&other_call, &request, None).is_err());
+        assert!(execution.validate_for(&call, &other_request, None).is_err());
+        for invalid in [
+            ToolExecution {
+                result: ToolResult {
+                    call_id: "foreign".into(),
+                    ..execution.result.clone()
+                },
+                ..execution.clone()
+            },
+            ToolExecution {
+                result: ToolResult {
+                    name: ToolName::ServerKnowledge,
+                    ..execution.result.clone()
+                },
+                ..execution.clone()
+            },
+            ToolExecution {
+                result: ToolResult {
+                    evidence_ids: vec!["e1".into()],
+                    ..execution.result.clone()
+                },
+                ..execution.clone()
+            },
+            ToolExecution {
+                dependencies: vec![ToolEvidenceDependency {
+                    request: request.clone(),
+                    game_context: None,
+                    evidence: Vec::new(),
+                }],
+                ..execution.clone()
+            },
+            ToolExecution {
+                dependencies: vec![ToolEvidenceDependency {
+                    request: request.clone(),
+                    game_context: None,
+                    evidence: vec![evidence()],
+                }],
+                ..execution.clone()
+            },
+            ToolExecution {
+                result: ToolResult {
+                    is_error: false,
+                    ..execution.result.clone()
+                },
+                ..execution.clone()
+            },
+        ] {
+            assert!(invalid.validate_for(&call, &request, None).is_err());
+        }
+        let mut invalid_call = call;
+        invalid_call.id.clear();
+        let mut invalid = execution;
+        invalid.result.call_id.clear();
+        assert!(invalid.validate_for(&invalid_call, &request, None).is_err());
     }
 
     #[test]

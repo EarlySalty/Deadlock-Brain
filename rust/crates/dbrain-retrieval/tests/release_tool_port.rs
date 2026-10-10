@@ -190,7 +190,10 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
         }
     }
 
-    struct Provider;
+    struct Provider {
+        optional_failure: bool,
+        unverified: bool,
+    }
     impl AnswerProviderPort for Provider {
         fn answer(
             &self,
@@ -217,15 +220,71 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
             };
             if conversation.messages.is_empty() {
                 assert!(evidence.is_empty());
-                call().validate(tools)?;
+                let calls = if self.optional_failure {
+                    vec![
+                        ToolCall {
+                            id: "optional-mirror".into(),
+                            name: ToolName::EntityFind,
+                            arguments: json!({"query":"Prüfdaten","kind":"hero","language":"german"}),
+                        },
+                        ToolCall {
+                            id: "optional-knowledge".into(),
+                            name: ToolName::ServerKnowledge,
+                            arguments: json!({"question":"missingfixtureword"}),
+                        },
+                    ]
+                } else {
+                    vec![call()]
+                };
+                for call in &calls {
+                    call.validate(tools)?;
+                }
+                return Ok(ProviderTurn::ToolCalls {
+                    blocks: calls
+                        .into_iter()
+                        .map(|call| ModelBlock::ToolUse { call })
+                        .collect(),
+                    finish_reason: ProviderFinishReason::ToolUse,
+                    usage,
+                });
+            }
+            if self.optional_failure && conversation.messages.len() == 2 {
+                assert!(evidence.is_empty());
+                let brain_contracts::ToolMessage::ToolResults { results } =
+                    &conversation.messages[1]
+                else {
+                    panic!("Werkzeugergebnisse fehlen")
+                };
+                assert_eq!(results.len(), 2);
+                assert!(results
+                    .iter()
+                    .all(|result| result.is_error && result.evidence_ids.is_empty()));
+                assert_eq!(results[0].result, results[1].result);
+                let serialized = serde_json::to_string(conversation).unwrap();
+                assert!(!serialized.contains("restricted-fixture-canary"));
+                assert!(!serialized.contains("source_document_id"));
+                if self.unverified {
+                    return Ok(ProviderAnswer {
+                        text: "Eine mögliche Antwort ohne bestätigte Daten.".into(),
+                        cited_evidence_ids: Vec::new(),
+                        usage,
+                    }
+                    .into());
+                }
                 return Ok(ProviderTurn::ToolCalls {
                     blocks: vec![ModelBlock::ToolUse { call: call() }],
                     finish_reason: ProviderFinishReason::ToolUse,
                     usage,
                 });
             }
-            assert_eq!(conversation.messages.len(), 2);
+            assert_eq!(
+                conversation.messages.len(),
+                if self.optional_failure { 4 } else { 2 }
+            );
             assert!(!evidence.is_empty());
+            assert!(evidence
+                .iter()
+                .all(|item| item.source_id == "fixture-server"));
             Ok(ProviderAnswer {
                 text: "Die Sprechstunde ist am Freitag.".into(),
                 cited_evidence_ids: evidence
@@ -285,6 +344,7 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
 
     let pg = scratch_pg::ScratchPg::start();
     let runtime = test_runtime();
+    let mirror_pool = runtime.block_on(mirror_fixture::pool(&pg));
     let (_store, retrieval, pool) = runtime.block_on(setup(&pg, true));
     let mirror = brain_storage::entity_profile::MirroredGameContextReader::new(
         pool.clone(),
@@ -292,21 +352,63 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
         ToolLanguage::German,
     )
     .unwrap();
-    let port = ReleaseToolExecutionPort::new(retrieval.clone())
-        .with_knowledge_retrieval(Knowledge(retrieval.clone()))
-        .with_mirrored_entities(mirror);
-    let kernel = Kernel::new(retrieval, Provider).with_tools(port, KnowledgeResolver, "fixture");
-    let (query, mut context, _) = context();
-    context.deadline_ms = 60000;
-    let outcome = kernel.answer_for_publication_accounted(&query, &context);
-    assert_eq!(
-        outcome.value.status,
-        brain_contracts::AnswerStatus::Answered
-    );
-    assert_eq!(outcome.accounting.observed.network_rounds, 3);
-    assert!(!outcome.accounting.unaccounted);
-    assert!(!outcome.value.citations.is_empty());
+    for (optional_failure, unverified, mirrored) in [
+        (false, false, false),
+        (true, false, true),
+        (true, true, true),
+    ] {
+        if mirrored {
+            runtime.block_on(mirror_fixture::seed_with_grants(
+                &pool,
+                "restricted-fixture-canary",
+                true,
+            ));
+        }
+        let port = ReleaseToolExecutionPort::new(retrieval.clone())
+            .with_knowledge_retrieval(Knowledge(retrieval.clone()))
+            .with_mirrored_entities(mirror.clone());
+        let kernel = Kernel::new(
+            retrieval.clone(),
+            Provider {
+                optional_failure,
+                unverified,
+            },
+        )
+        .with_tools(port, KnowledgeResolver, "fixture")
+        .with_quality_filters(!unverified);
+        let (query, mut context, _) = context();
+        context.deadline_ms = 60000;
+        context.budget.max_network_rounds = 5;
+        let outcome = kernel.answer_for_publication_accounted(&query, &context);
+        assert_eq!(
+            outcome.value.status,
+            if unverified {
+                brain_contracts::AnswerStatus::Unverified
+            } else {
+                brain_contracts::AnswerStatus::Answered
+            }
+        );
+        assert_eq!(
+            outcome.accounting.observed.network_rounds,
+            if optional_failure && !unverified {
+                5
+            } else {
+                3
+            }
+        );
+        assert_eq!(
+            outcome.accounting.observed.input_tokens,
+            if optional_failure && !unverified {
+                84
+            } else {
+                52
+            }
+        );
+        assert!(!outcome.accounting.unaccounted);
+        assert_eq!(outcome.value.citations.is_empty(), unverified);
+    }
     runtime.block_on(pool.close());
+    runtime.block_on(mirror_pool.close());
 }
 
 #[test]
@@ -381,6 +483,7 @@ fn charged_knowledge_usage_survives_every_post_retrieval_rejection() {
     enum KnowledgeResultCase {
         Success,
         Empty,
+        EmptyDeadline,
         Private,
         Validation,
         Deadline,
@@ -412,6 +515,10 @@ fn charged_knowledge_usage_survives_every_post_retrieval_rejection() {
             assert!(!evidence.is_empty());
             match self.mode {
                 KnowledgeResultCase::Empty => evidence.clear(),
+                KnowledgeResultCase::EmptyDeadline => {
+                    evidence.clear();
+                    *self.clock.lock().unwrap() += Duration::from_secs(3601);
+                }
                 KnowledgeResultCase::Private => evidence[0].visibility = SourceVisibility::Private,
                 KnowledgeResultCase::UnreportedFailure => {
                     return Err(PortError::Unavailable(
@@ -468,6 +575,7 @@ fn charged_knowledge_usage_survives_every_post_retrieval_rejection() {
     for mode in [
         KnowledgeResultCase::Success,
         KnowledgeResultCase::Empty,
+        KnowledgeResultCase::EmptyDeadline,
         KnowledgeResultCase::Private,
         KnowledgeResultCase::Validation,
         KnowledgeResultCase::Deadline,
@@ -496,10 +604,22 @@ fn charged_knowledge_usage_survives_every_post_retrieval_rejection() {
             Some(&UsageAccounting::default())
         );
         let result = port.execute_accounted(&query, &context, None, &call.id, &request);
-        if mode == KnowledgeResultCase::Success {
+        if matches!(
+            mode,
+            KnowledgeResultCase::Success | KnowledgeResultCase::Empty
+        ) {
             let success = result.unwrap();
             assert_eq!(success.accounting, expected);
             assert_eq!(success.value.usage, expected.observed);
+            assert_eq!(
+                success.value.result.is_error,
+                mode == KnowledgeResultCase::Empty
+            );
+            if mode == KnowledgeResultCase::Empty {
+                assert!(success.value.result.evidence_ids.is_empty());
+                assert!(success.value.dependencies.is_empty());
+                success.value.validate_for(&call, &request, None).unwrap();
+            }
         } else {
             let failure = result.unwrap_err();
             if mode == KnowledgeResultCase::UnreportedFailure {
@@ -507,7 +627,10 @@ fn charged_knowledge_usage_survives_every_post_retrieval_rejection() {
             } else {
                 assert_eq!(failure.accounting.as_deref(), Some(&expected));
             }
-            if mode == KnowledgeResultCase::Deadline {
+            if matches!(
+                mode,
+                KnowledgeResultCase::Deadline | KnowledgeResultCase::EmptyDeadline
+            ) {
                 assert_eq!(failure.error, PortError::BudgetExceeded);
             }
         }
@@ -638,9 +761,12 @@ fn actual_port_preserves_request_receipt_and_current_purpose_permissions() {
             .validate_dependencies(&query, &context, None, &execution.dependencies, purpose)
             .is_err());
     }
-    assert!(port
+    let unavailable = port
         .execute(&query, &context, None, &call.id, &request)
-        .is_err());
+        .unwrap();
+    assert!(unavailable.result.is_error);
+    assert!(unavailable.result.evidence_ids.is_empty());
+    assert!(unavailable.dependencies.is_empty());
     runtime.block_on(pool.close());
 }
 
@@ -1063,9 +1189,12 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
             .validate_dependencies(&query, &context, Some(&pin), &saved.dependencies, purpose)
             .is_err());
     }
-    assert!(port
+    let unavailable = port
         .execute(&query, &context, Some(&pin), &profile.id, &request)
-        .is_err());
+        .unwrap();
+    assert!(unavailable.result.is_error);
+    assert!(unavailable.result.evidence_ids.is_empty());
+    assert!(unavailable.dependencies.is_empty());
     *clock.lock().unwrap() += Duration::from_secs(3601);
     assert_eq!(
         port.validate_dependencies(
@@ -1079,6 +1208,253 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
         PortError::BudgetExceeded
     );
     runtime.block_on(pool.close());
+}
+
+#[test]
+fn canonical_ambiguity_and_malformed_originals_stay_fatal_even_when_another_original_is_missing() {
+    use brain_contracts::tools::GameContextResolver;
+    use brain_storage::entity_profile::MirroredGameContextReader;
+    let pg = scratch_pg::ScratchPg::start();
+    let runtime = test_runtime();
+    let pool = runtime.block_on(mirror_fixture::pool(&pg));
+    runtime.block_on(mirror_fixture::seed_with_grants(&pool, "bound", true));
+    let store = PgStore::new(pool.clone());
+    runtime.block_on(store.migrate_core()).unwrap();
+    let records = runtime.block_on(mirror_records(&store, &pool));
+    let canonical = LocalPgReader::new(
+        pg.directory.join("socket"),
+        55439,
+        "brain_core_test",
+        "postgres",
+    )
+    .unwrap();
+    let reader = MirroredGameContextReader::new(
+        pool.clone(),
+        runtime.handle().clone(),
+        ToolLanguage::German,
+    )
+    .unwrap();
+    let port = ReleaseToolExecutionPort::new(ReleaseRetriever::new(canonical, 6))
+        .with_mirrored_entities(reader.clone());
+    let (query, mut context, _) = context();
+    let pin = reader.resolve(&query, &context).unwrap().unwrap();
+    let call = ToolCall {
+        id: "profile".into(),
+        name: ToolName::EntityProfile,
+        arguments: json!({"entity":{"kind":"item","id":8},"fields":["observation"]}),
+    };
+    let request = call
+        .validate(&port.definitions(&query, &context, None).unwrap())
+        .unwrap();
+    let saved = port
+        .execute(&query, &context, None, &call.id, &request)
+        .unwrap();
+    let endpoint = records
+        .iter()
+        .find(|record| record.logical_id.contains("items/german"))
+        .unwrap();
+    let mut duplicate = endpoint.clone();
+    duplicate.logical_id = "ambiguous-canonical-items".into();
+    let mut origin = brain_contracts::source::origin_from_record(endpoint).unwrap();
+    origin.identity.logical_id.clone_from(&duplicate.logical_id);
+    origin.bind_record(&mut duplicate).unwrap();
+    runtime.block_on(store.apply(&duplicate)).unwrap();
+    for (release_id, selected) in [
+        ("ambiguous", vec![endpoint.clone(), duplicate.clone()]),
+        ("malformed", {
+            duplicate.revision += 1;
+            duplicate.content = "kein JSON".into();
+            runtime.block_on(store.apply(&duplicate)).unwrap();
+            vec![duplicate.clone()]
+        }),
+        ("falsified", {
+            duplicate.revision += 1;
+            duplicate.content =
+                json!([{"id":8,"name":"Erfundene Karte","type":"upgrade"}]).to_string();
+            runtime.block_on(store.apply(&duplicate)).unwrap();
+            vec![duplicate.clone()]
+        }),
+    ] {
+        let mut pins = BTreeMap::<String, BTreeMap<String, u64>>::new();
+        for record in selected {
+            pins.entry(record.source_id)
+                .or_default()
+                .insert(record.logical_id, record.revision);
+        }
+        runtime
+            .block_on(store.publish_release(&CorpusRelease {
+                release_id: release_id.into(),
+                knowledge_version: "fixture-v1".into(),
+                patch: "fixture-patch".into(),
+                created_at_epoch: 1,
+                source_revisions: pins,
+            }))
+            .unwrap();
+        context.knowledge_release = release_id.into();
+        assert!(matches!(
+            port.execute(&query, &context, Some(&pin), &call.id, &request),
+            Err(PortError::PermissionDenied(_))
+        ));
+        for purpose in [
+            ToolValidationPurpose::Provider,
+            ToolValidationPurpose::Cache,
+            ToolValidationPurpose::Publication,
+        ] {
+            assert!(matches!(
+                port.validate_dependencies(
+                    &query,
+                    &context,
+                    Some(&pin),
+                    &saved.dependencies,
+                    purpose
+                ),
+                Err(PortError::PermissionDenied(_))
+            ));
+        }
+    }
+    runtime.block_on(pool.close());
+}
+
+#[test]
+fn retired_hero_corpus_keeps_ordered_context_from_authorized_mirror_names() {
+    use brain_contracts::discord_task::{DiscordContextProjection, DiscordContextResolver};
+    use brain_storage::entity_profile::MirroredGameContextReader;
+    let pg = scratch_pg::ScratchPg::start();
+    let runtime = test_runtime();
+    let mirror_pool = runtime.block_on(mirror_fixture::pool(&pg));
+    runtime.block_on(mirror_fixture::seed_with_grants(
+        &mirror_pool,
+        "private-payload-canary",
+        true,
+    ));
+    let (store, retrieval, pool) = runtime.block_on(setup(&pg, true));
+    let mut build = record(1, true, true, false);
+    let mut origin = brain_contracts::source::origin_from_record(&build).unwrap();
+    build.logical_id = "build-guide".into();
+    build.content = "Öffentliche Builds mit Items.".into();
+    build.content_hash = format!("{:x}", Sha256::digest(build.content.as_bytes()));
+    origin.identity.logical_id = build.logical_id.clone();
+    origin.raw_sha256 = build.content_hash.clone();
+    origin.bind_record(&mut build).unwrap();
+    runtime.block_on(store.apply(&build)).unwrap();
+    runtime
+        .block_on(store.publish_release(&CorpusRelease {
+            release_id: "context-mirror".into(),
+            knowledge_version: "fixture-v1".into(),
+            patch: "fixture-patch".into(),
+            created_at_epoch: 1,
+            source_revisions: BTreeMap::from([(
+                build.source_id.clone(),
+                BTreeMap::from([(build.logical_id.clone(), 1)]),
+            )]),
+        }))
+        .unwrap();
+    let mirror = MirroredGameContextReader::new(
+        pool.clone(),
+        runtime.handle().clone(),
+        ToolLanguage::German,
+    )
+    .unwrap()
+    .with_cache_ttl(Duration::from_secs(60));
+    let resolver = retrieval.with_context_mirror(mirror);
+    let (query, mut context, clock) = context();
+    context.knowledge_release = "context-mirror".into();
+    let history = vec![
+        "Welche Items passen zu Prüfdaten? <@123456789012345678> private-history-canary".into(),
+        "Danke private-person-canary".into(),
+        "Okay ja eine Idee für ein Spirit build".into(),
+    ];
+    let expected = DiscordContextProjection {
+        turns: vec![
+            vec!["Prüfdaten".into()],
+            vec![],
+            vec!["Build".into(), "Spirit-Build".into()],
+        ],
+    };
+    assert_eq!(
+        resolver.resolve(&query, &context, &history).unwrap(),
+        expected
+    );
+    let serialized = serde_json::to_string(&expected).unwrap();
+    for forbidden in [
+        "canary",
+        "123456789012345678",
+        "source_document_id",
+        "observation",
+        "\"id\"",
+    ] {
+        assert!(!serialized.contains(forbidden));
+    }
+    let mut without_hero = expected.clone();
+    without_hero.turns[0].clear();
+    let mut no_egress = context.clone();
+    no_egress.principal.provider_egress.clear();
+    assert_eq!(
+        resolver.resolve(&query, &no_egress, &history).unwrap(),
+        DiscordContextProjection::empty(history.len())
+    );
+    let snapshot = resolver.snapshot(&query, &context).unwrap();
+    assert_eq!(snapshot.revisions.len(), 1);
+    assert_eq!(snapshot.revisions[0].logical_id, build.logical_id);
+    assert!(!snapshot.revisions[0].content.contains("Spirit-Build"));
+    let id: i64 = runtime.block_on(sqlx::query_scalar("SELECT id FROM brain.source_documents WHERE metadata->'adapter'->>'kind'='heroes_all' AND metadata->'adapter'->>'language'='english'").fetch_one(&pool)).unwrap();
+    let metadata: serde_json::Value = runtime
+        .block_on(
+            sqlx::query_scalar("SELECT metadata FROM brain.source_documents WHERE id=$1")
+                .bind(id)
+                .fetch_one(&pool),
+        )
+        .unwrap();
+    for (path, value) in [
+        (
+            vec!["provenance", "provider_egress_authorized"],
+            json!(false),
+        ),
+        (vec!["provenance", "publication_authorized"], json!(false)),
+        (vec!["visibility"], json!("private")),
+        (vec!["allowed_scopes"], json!(["restricted"])),
+    ] {
+        let mut denied = metadata.clone();
+        let mut target = &mut denied["contract"]["data"];
+        for key in &path {
+            target = &mut target[*key];
+        }
+        *target = value.clone();
+        if path[0] == "provenance" {
+            denied["provenance"][path[1]] = value;
+        }
+        runtime
+            .block_on(
+                sqlx::query("UPDATE brain.source_documents SET metadata=$1 WHERE id=$2")
+                    .bind(denied)
+                    .bind(id)
+                    .execute(&pool),
+            )
+            .unwrap();
+        assert_eq!(
+            resolver.resolve(&query, &context, &history).unwrap(),
+            without_hero
+        );
+        runtime
+            .block_on(
+                sqlx::query("UPDATE brain.source_documents SET metadata=$1 WHERE id=$2")
+                    .bind(&metadata)
+                    .bind(id)
+                    .execute(&pool),
+            )
+            .unwrap();
+        assert_eq!(
+            resolver.resolve(&query, &context, &history).unwrap(),
+            expected
+        );
+    }
+    *clock.lock().unwrap() += Duration::from_secs(3601);
+    assert_eq!(
+        resolver.resolve(&query, &context, &history).unwrap_err(),
+        PortError::BudgetExceeded
+    );
+    runtime.block_on(pool.close());
+    runtime.block_on(mirror_pool.close());
 }
 
 #[test]
@@ -1134,9 +1510,59 @@ fn public_mirror_originals_without_canonical_registration_are_not_tool_grants() 
     let request = call
         .validate(&port.definitions(&query, &context, Some(&pin)).unwrap())
         .unwrap();
-    assert!(matches!(
-        port.execute(&query, &context, Some(&pin), &call.id, &request),
-        Err(PortError::PermissionDenied(_))
+    for game in [None, Some(&pin)] {
+        let unavailable = port
+            .execute_accounted(&query, &context, game, &call.id, &request)
+            .unwrap();
+        assert_eq!(
+            unavailable.accounting,
+            brain_contracts::UsageAccounting::default()
+        );
+        unavailable
+            .value
+            .validate_for(&call, &request, game)
+            .unwrap();
+        assert!(unavailable.value.result.is_error);
+        assert!(unavailable.value.result.evidence_ids.is_empty());
+        assert!(unavailable.value.dependencies.is_empty());
+        assert!(!serde_json::to_string(&unavailable.value)
+            .unwrap()
+            .contains("unregistered"));
+    }
+    let fabricated = brain_contracts::tools::ToolEvidenceDependency {
+        request,
+        game_context: Some(pin),
+        evidence: Vec::new(),
+    };
+    for purpose in [
+        ToolValidationPurpose::Provider,
+        ToolValidationPurpose::Cache,
+        ToolValidationPurpose::Publication,
+    ] {
+        assert!(matches!(
+            port.validate_dependencies(
+                &query,
+                &context,
+                None,
+                std::slice::from_ref(&fabricated),
+                purpose
+            ),
+            Err(PortError::PermissionDenied(_))
+        ));
+    }
+    runtime.block_on(mirror_fixture::seed_with_grants(
+        &pool,
+        "denied-receipt",
+        false,
     ));
+    let unavailable = port
+        .execute_accounted(&query, &context, None, &call.id, &fabricated.request)
+        .unwrap();
+    assert!(unavailable.value.result.is_error);
+    assert!(unavailable.value.result.evidence_ids.is_empty());
+    assert!(unavailable.value.dependencies.is_empty());
+    assert!(!serde_json::to_string(&unavailable.value)
+        .unwrap()
+        .contains("denied-receipt"));
     runtime.block_on(pool.close());
 }

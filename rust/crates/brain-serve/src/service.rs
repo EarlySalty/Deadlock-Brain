@@ -499,7 +499,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit)
         }
     };
-    let discord_context = retrieval.clone();
+    let mut discord_context = retrieval.clone();
     let retrieval = AnalyticsRetriever::new(retrieval, prepared.analytics.clone());
     let retrieval = DiscordRetriever::new(retrieval, prepared.discord_live.clone())
         .with_provider(&prepared.config.provider);
@@ -550,6 +550,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             tokio::task::spawn_blocking(move || crate::deadlock_data::Runtime::new(config, mirror))
                 .await
                 .map_err(|_| Error::ReaderUnavailable)??;
+        discord_context = discord_context.with_context_mirror(runtime.mirror.clone());
         let resolver = crate::deadlock_data::Resolver(runtime.mirror.clone());
         let knowledge = DiscordRetriever::new(
             ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit),

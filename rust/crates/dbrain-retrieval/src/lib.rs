@@ -29,6 +29,7 @@ mod game_wiki;
 pub mod html_projection;
 mod hybrid_port;
 pub mod knowledge_projection;
+mod mirror_grants;
 mod release_port;
 
 pub use chunk_index::{preflight_release_index, ReleaseIndexProof};
@@ -45,6 +46,11 @@ pub struct ReleaseToolExecutionPort<S> {
     retrieval: ReleaseRetriever<S>,
     knowledge: Option<std::sync::Arc<dyn brain_contracts::RetrievalPort>>,
     mirror: Option<brain_storage::entity_profile::MirroredGameContextReader>,
+}
+
+enum MirroredToolOutcome {
+    Available(JsonValue, Vec<brain_contracts::Evidence>),
+    NoAuthorizedOriginal,
 }
 
 impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
@@ -102,9 +108,8 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
         pin: &brain_contracts::PinnedGameContext,
         request: &brain_contracts::tools::ToolRequest,
         purpose: brain_contracts::tools::ToolValidationPurpose,
-    ) -> std::result::Result<(JsonValue, Vec<brain_contracts::Evidence>), brain_contracts::PortError>
-    {
-        use brain_contracts::{entity_profile::EntityKind, source::origin_from_record, tools::*};
+    ) -> std::result::Result<MirroredToolOutcome, brain_contracts::PortError> {
+        use brain_contracts::{entity_profile::EntityKind, tools::*};
         Self::check_request(query, context)?;
         let reader = self.mirror.as_ref().ok_or_else(|| {
             brain_contracts::PortError::Unavailable("Gebundener Spielprofilanschluss fehlt".into())
@@ -140,95 +145,13 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
             }
         };
         let snapshot = self.retrieval.snapshot(query, context)?;
-        let canonical = match purpose {
-            ToolValidationPurpose::Provider | ToolValidationPurpose::Cache => {
-                snapshot.authorized(&context.principal, true)?
-            }
-            ToolValidationPurpose::Publication => {
-                snapshot.authorized_for_publication(&context.principal)?
-            }
+        let Some(originals) =
+            mirror_grants::originals(&snapshot, context, &bundle, kinds, purpose)?
+        else {
+            reader.validate(query, context, Some(pin))?;
+            Self::check_request(query, context)?;
+            return Ok(MirroredToolOutcome::NoAuthorizedOriginal);
         };
-        let mut originals = BTreeMap::new();
-        for (kind, original_language) in kinds
-            .iter()
-            .flat_map(|kind| ["english", "german"].map(|language| (kind, language)))
-        {
-            let asset = bundle.asset(kind, Some(original_language))?;
-            for (receipt, expected_payload) in [
-                (&asset.receipt.manifest, None),
-                (&asset.receipt.endpoint, Some(&asset.payload)),
-            ] {
-                let granted = match purpose {
-                    ToolValidationPurpose::Provider | ToolValidationPurpose::Cache => {
-                        receipt.provenance.provider_egress_authorized
-                    }
-                    ToolValidationPurpose::Publication => receipt.provenance.publication_authorized,
-                };
-                if !granted || receipt.visibility != brain_contracts::SourceVisibility::Public {
-                    return Err(brain_contracts::PortError::PermissionDenied(
-                        "Spiegeloriginal ist für diesen Zweck nicht freigegeben".into(),
-                    ));
-                }
-                let matching: Vec<_> = canonical
-                    .iter()
-                    .filter(|record| {
-                        origin_from_record(record).is_ok_and(|origin| {
-                            origin.identity.source_id == receipt.provenance.source
-                                && origin.locator == receipt.url
-                                && origin.raw_sha256 == receipt.raw_sha256
-                                && origin.source_revision == receipt.provenance.source_revision
-                                && origin.parser_revision == receipt.provenance.parser_revision
-                                && origin.parser_family == receipt.provenance.parser_family
-                                && origin.retrieved_at
-                                    == brain_contracts::value::Observed::known(
-                                        brain_contracts::source::SourceTimestamp::UnixSeconds(
-                                            receipt.provenance.observed_at,
-                                        ),
-                                    )
-                                && origin.origin_artifacts == receipt.provenance.origin_artifacts
-                                && origin.derivation_family
-                                    == brain_contracts::source::observed_option(
-                                        receipt.provenance.derivation_family.clone(),
-                                    )
-                                && origin.schema_version == receipt.schema_version
-                                && origin.policy.visibility == receipt.visibility
-                                && origin.policy.allowed_scopes == receipt.allowed_scopes
-                                && origin.policy.license == receipt.license
-                        })
-                    })
-                    .collect();
-                if matching.len() != 1 {
-                    return Err(brain_contracts::PortError::PermissionDenied(
-                        "Eindeutige kanonische Freigabe des Spiegeloriginals fehlt".into(),
-                    ));
-                }
-                let record = matching[0];
-                let original: JsonValue = serde_json::from_str(&record.content).map_err(|_| {
-                    brain_contracts::PortError::PermissionDenied(
-                        "Kanonische Originaldaten fehlen".into(),
-                    )
-                })?;
-                if format!("{:x}", Sha256::digest(record.content.as_bytes())) != receipt.raw_sha256
-                    || !expected_payload.map_or_else(
-                        || original["client_version"].as_i64() == Some(pin.client_version),
-                        |payload| original == *payload,
-                    )
-                {
-                    return Err(brain_contracts::PortError::PermissionDenied(
-                        "Spiegeldaten widersprechen dem kanonischen Original".into(),
-                    ));
-                }
-                if record.visibility != brain_contracts::SourceVisibility::Public {
-                    return Err(brain_contracts::PortError::PermissionDenied(
-                        "Spiegeloriginal hat eine eingeschränkte aktuelle Sichtbarkeit".into(),
-                    ));
-                }
-                originals.insert(
-                    (record.source_id.clone(), record.logical_id.clone()),
-                    record,
-                );
-            }
-        }
         let mut entities = BTreeMap::new();
         for kind in kinds {
             let asset = bundle.asset(kind, Some(language))?;
@@ -396,7 +319,43 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
             .collect();
         reader.validate(query, context, Some(pin))?;
         Self::check_request(query, context)?;
-        Ok((result, evidence))
+        Ok(MirroredToolOutcome::Available(result, evidence))
+    }
+
+    fn no_data_execution(
+        query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+        game_context: Option<&brain_contracts::PinnedGameContext>,
+        call: &brain_contracts::tools::ToolCall,
+        request: &brain_contracts::tools::ToolRequest,
+        usage: brain_contracts::Usage,
+        reason: &'static str,
+    ) -> std::result::Result<brain_contracts::tools::ToolExecution, brain_contracts::PortError>
+    {
+        Self::check_request(query, context)?;
+        let execution = brain_contracts::tools::ToolExecution {
+            result: brain_contracts::tools::ToolResult {
+                call_id: call.id.clone(),
+                name: request.name(),
+                result: json!({"error":"no_authorized_data"}),
+                evidence_ids: Vec::new(),
+                is_error: true,
+            },
+            dependencies: Vec::new(),
+            usage,
+        };
+        execution.validate_for(call, request, game_context)?;
+        eprintln!(
+            "{}",
+            json!({
+                "event":"brain_tool_no_data",
+                "request_id":query.request_id,
+                "tool":call.name.as_str(),
+                "call_id":call.id,
+                "reason":reason,
+            })
+        );
+        Ok(execution)
     }
 
     fn knowledge_query(
@@ -528,13 +487,26 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
                         &resolved
                     }
                 };
-                let (result, evidence) = self.mirrored_entities(
+                let (result, evidence) = match self.mirrored_entities(
                     query,
                     context,
                     pin,
                     request,
                     ToolValidationPurpose::Provider,
-                )?;
+                )? {
+                    MirroredToolOutcome::Available(result, evidence) => (result, evidence),
+                    MirroredToolOutcome::NoAuthorizedOriginal => {
+                        return Self::no_data_execution(
+                            query,
+                            context,
+                            Some(pin),
+                            &call,
+                            request,
+                            brain_contracts::Usage::default(),
+                            "no_authorized_original",
+                        );
+                    }
+                };
                 let execution = ToolExecution {
                     result: ToolResult {
                         call_id: call_id.into(),
@@ -561,9 +533,15 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
             let (evidence, usage) = self.knowledge().retrieve_with_usage(&subquery, context)?;
             accounting = Some(brain_contracts::UsageAccounting::observed(usage.clone()));
             if evidence.is_empty() {
-                return Err(brain_contracts::PortError::Unavailable(
-                    "Keine freigegebenen Belege gefunden".into(),
-                ));
+                return Self::no_data_execution(
+                    query,
+                    context,
+                    game_context,
+                    &call,
+                    request,
+                    usage,
+                    "no_search_hit",
+                );
             }
             if evidence.iter().any(|item| {
                 !matches!(
@@ -646,8 +624,20 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
                             "Spielbeleg hat eine fremde Spiegelbindung".into(),
                         )
                     })?;
-                let (_, expected) =
-                    self.mirrored_entities(query, context, pin, &dependency.request, purpose)?;
+                let expected = match self.mirrored_entities(
+                    query,
+                    context,
+                    pin,
+                    &dependency.request,
+                    purpose,
+                )? {
+                    MirroredToolOutcome::Available(_, evidence) => evidence,
+                    MirroredToolOutcome::NoAuthorizedOriginal => {
+                        return Err(brain_contracts::PortError::PermissionDenied(
+                            "Kanonische Freigabe des Spielbelegs fehlt".into(),
+                        ));
+                    }
+                };
                 if dependency.evidence != expected {
                     return Err(brain_contracts::PortError::PermissionDenied(
                         "Spielbeleg widerspricht der kanonischen Unteranfrage".into(),
