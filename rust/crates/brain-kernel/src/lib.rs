@@ -2339,12 +2339,64 @@ mod tests {
             ],
         );
         let request = query(AnswerProfile::Explain);
-        let answer = kernel.answer_with_purpose(
+        let mut context = context(&[], &["public"])
+            .with_request_deadline()
+            .into_owned();
+        let session = kernel.prepare_tools(&request, &context).unwrap().unwrap();
+        let projected = TestTools {
+            state: Arc::new(std::sync::Mutex::new(ToolState::default())),
+            definitions: session.definitions.clone(),
+        }
+        .execute(
             &request,
-            &context(&[], &["public"]),
-            AnswerPurpose::InternalRead,
-        );
+            &context,
+            session.game_context.as_ref(),
+            &call.id,
+            &call.validate(&session.definitions).unwrap(),
+        )
+        .unwrap();
+        let evidence: Vec<_> = projected
+            .dependencies
+            .iter()
+            .flat_map(|dependency| dependency.evidence.iter().cloned())
+            .collect();
+        let conversation = brain_contracts::ToolConversation {
+            messages: vec![
+                brain_contracts::ToolMessage::Assistant {
+                    blocks: vec![brain_contracts::ModelBlock::ToolUse { call: call.clone() }],
+                },
+                brain_contracts::ToolMessage::ToolResults {
+                    results: vec![projected.result],
+                },
+            ],
+        };
+        let input = |evidence: &[Evidence], conversation: &brain_contracts::ToolConversation| {
+            [
+                brain_contracts::provider_input::ToolWireFormat::Native,
+                brain_contracts::provider_input::ToolWireFormat::OpenAiCompatible,
+            ]
+            .into_iter()
+            .map(|format| {
+                brain_contracts::provider_input::grounded_turn_input_ceiling(
+                    &request,
+                    evidence,
+                    &session.definitions,
+                    conversation,
+                    format,
+                )
+                .unwrap()
+            })
+            .max()
+            .unwrap()
+        };
+        context.budget.max_input_tokens = u32::try_from(
+            input(&[], &brain_contracts::ToolConversation::default())
+                + input(&evidence, &conversation),
+        )
+        .unwrap();
+        let answer = kernel.answer_with_purpose(&request, &context, AnswerPurpose::InternalRead);
         assert_eq!(answer.answer.status, AnswerStatus::Answered);
+        assert_eq!(state.lock().unwrap().executions.len(), 1);
         let brain_contracts::ToolSubrequest::HeroCompare(compare) =
             answer.tool_dependencies[0].request.subrequest()
         else {

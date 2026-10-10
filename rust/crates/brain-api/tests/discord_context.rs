@@ -129,6 +129,10 @@ fn projection(turns: &[&[&str]]) -> DiscordContextProjection {
 }
 
 fn api<K: AnswerKernelPort>(kernel: K) -> ApiService<K> {
+    api_with_budget(kernel, Budget::default())
+}
+
+fn api_with_budget<K: AnswerKernelPort>(kernel: K, budget: Budget) -> ApiService<K> {
     ApiService::new(
         PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
             "fixture",
@@ -140,7 +144,7 @@ fn api<K: AnswerKernelPort>(kernel: K) -> ApiService<K> {
         kernel,
         "context-release",
         5000,
-        Budget::default(),
+        budget,
     )
     .with_discord_consumers(BTreeSet::from([("bot".into(), "discord".into())]))
 }
@@ -328,13 +332,19 @@ async fn all_routes_always_send_ordered_public_projection_before_real_provider_t
     });
     let service = tokio::task::spawn_blocking(move || {
         let retrieval = ReleaseRetriever::new(store, 8);
-        api(Kernel::new(
-            retrieval.clone(),
-            CodexSubscriptionProvider::new(ProviderConfig::codex_subscription(format!(
-                "http://{address}/v1"
-            )))
-            .unwrap(),
-        ))
+        api_with_budget(
+            Kernel::new(
+                retrieval.clone(),
+                CodexSubscriptionProvider::new(ProviderConfig::codex_subscription(format!(
+                    "http://{address}/v1"
+                )))
+                .unwrap(),
+            ),
+            Budget {
+                max_input_tokens: 32_000,
+                ..Budget::default()
+            },
+        )
         .with_discord_context_resolver(retrieval)
     })
     .await
@@ -443,27 +453,6 @@ async fn all_routes_always_send_ordered_public_projection_before_real_provider_t
                 json!({"capability": capability, "channel_id": 10}).to_string(),
             )
             .json(&query(
-                &format!("unicode-budget-{capability}"),
-                &format!("Coaching?{}", "🦀".repeat(3991)),
-            ))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(response.status().as_u16(), 200);
-        let response: brain_contracts::PublicAnswerResponse = response.json().await.unwrap();
-        assert_eq!(response.status, AnswerStatus::BudgetExceeded);
-    }
-    for capability in ["concierge", "faq"] {
-        let response = http
-            .post(format!("{endpoint}/v1/answer"))
-            .bearer_auth("fixture")
-            .header("x-discord-user-id", "42")
-            .header("x-discord-read-access", "disabled")
-            .header(
-                "x-discord-answer-task",
-                json!({"capability": capability, "channel_id": 10}).to_string(),
-            )
-            .json(&query(
                 &format!("projection-overflow-{capability}"),
                 &"ä".repeat(16384),
             ))
@@ -489,6 +478,60 @@ async fn all_routes_always_send_ordered_public_projection_before_real_provider_t
     assert_eq!(response.status().as_u16(), 413);
     assert_eq!(requests.lock().unwrap().len(), expected_count);
     provider_server.join().unwrap();
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn four_byte_unicode_keeps_default_budget_without_provider_transport() {
+    let store = store().await;
+    let provider_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = provider_listener.local_addr().unwrap();
+    let service = tokio::task::spawn_blocking(move || {
+        let retrieval = ReleaseRetriever::new(store, 8);
+        api(Kernel::new(
+            retrieval.clone(),
+            CodexSubscriptionProvider::new(ProviderConfig::codex_subscription(format!(
+                "http://{address}/v1"
+            )))
+            .unwrap(),
+        ))
+        .with_discord_context_resolver(retrieval)
+    })
+    .await
+    .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, router(service)).await.unwrap() });
+    let client = AsyncBrainClient::new_local(&endpoint, "fixture", Duration::from_secs(5)).unwrap();
+    for capability in [
+        Some(DiscordAnswerCapability::Concierge),
+        Some(DiscordAnswerCapability::Faq),
+        None,
+    ] {
+        let q = query("unicode-budget", &format!("Coaching?{}", "🦀".repeat(3991)));
+        let response = match capability {
+            Some(capability) => {
+                client
+                    .answer_discord_task(
+                        &q,
+                        42,
+                        &DiscordAnswerTask {
+                            capability,
+                            channel_id: 10,
+                        },
+                    )
+                    .await
+            }
+            None => client.answer_for_discord_with_history(&q, 42, &[]).await,
+        }
+        .unwrap();
+        assert_eq!(response.status, AnswerStatus::BudgetExceeded);
+    }
+    provider_listener.set_nonblocking(true).unwrap();
+    assert!(matches!(
+        provider_listener.accept(),
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+    ));
     server.abort();
 }
 
