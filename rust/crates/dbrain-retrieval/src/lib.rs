@@ -149,8 +149,11 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
             }
         };
         let mut originals = BTreeMap::new();
-        for kind in kinds {
-            let asset = bundle.asset(kind, Some(language))?;
+        for (kind, original_language) in kinds
+            .iter()
+            .flat_map(|kind| ["english", "german"].map(|language| (kind, language)))
+        {
+            let asset = bundle.asset(kind, Some(original_language))?;
             for (receipt, expected_payload) in [
                 (&asset.receipt.manifest, None),
                 (&asset.receipt.endpoint, Some(&asset.payload)),
@@ -290,8 +293,18 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
                                 .iter()
                                 .all(|term| brain_contracts::lexical::terms(name).contains(term))
                     })
-                    .map(|(kind, id, name, _)| json!({"kind":kind,"id":id,"name":name}))
-                    .collect();
+                    .map(|(kind, id, name, _)| {
+                        let names = bundle.localized_names(
+                            if *kind == EntityKind::Hero {
+                                "heroes_all"
+                            } else {
+                                "items"
+                            },
+                            *id as i64,
+                        )?;
+                        Ok(json!({"kind":kind,"id":id,"name":name,"names":names}))
+                    })
+                    .collect::<std::result::Result<_, brain_contracts::PortError>>()?;
                 json!({"matches":matches})
             }
             ToolSubrequest::EntityProfile(profile) => {
@@ -316,7 +329,15 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
                         (field.clone(), value)
                     })
                     .collect();
-                json!({"entity":profile.entity,"name":name,"fields":fields})
+                let names = bundle.localized_names(
+                    if profile.entity.kind == EntityKind::Hero {
+                        "heroes_all"
+                    } else {
+                        "items"
+                    },
+                    profile.entity.id as i64,
+                )?;
+                json!({"entity":profile.entity,"name":name,"names":names,"fields":fields})
             }
             _ => {
                 return Err(brain_contracts::PortError::Unavailable(
