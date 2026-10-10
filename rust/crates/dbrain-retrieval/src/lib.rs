@@ -47,6 +47,11 @@ pub struct ReleaseToolExecutionPort<S> {
     mirror: Option<brain_storage::entity_profile::MirroredGameContextReader>,
 }
 
+enum MirroredToolOutcome {
+    Available(JsonValue, Vec<brain_contracts::Evidence>),
+    NoAuthorizedOriginal,
+}
+
 impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
     pub fn new(retrieval: ReleaseRetriever<S>) -> Self {
         Self {
@@ -102,8 +107,7 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
         pin: &brain_contracts::PinnedGameContext,
         request: &brain_contracts::tools::ToolRequest,
         purpose: brain_contracts::tools::ToolValidationPurpose,
-    ) -> std::result::Result<(JsonValue, Vec<brain_contracts::Evidence>), brain_contracts::PortError>
-    {
+    ) -> std::result::Result<MirroredToolOutcome, brain_contracts::PortError> {
         use brain_contracts::{entity_profile::EntityKind, source::origin_from_record, tools::*};
         Self::check_request(query, context)?;
         let reader = self.mirror.as_ref().ok_or_else(|| {
@@ -149,6 +153,7 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
             }
         };
         let mut originals = BTreeMap::new();
+        let mut missing_original = false;
         for kind in kinds {
             let asset = bundle.asset(kind, Some(language))?;
             for (receipt, expected_payload) in [
@@ -162,9 +167,7 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
                     ToolValidationPurpose::Publication => receipt.provenance.publication_authorized,
                 };
                 if !granted || receipt.visibility != brain_contracts::SourceVisibility::Public {
-                    return Err(brain_contracts::PortError::PermissionDenied(
-                        "Spiegeloriginal ist für diesen Zweck nicht freigegeben".into(),
-                    ));
+                    missing_original = true;
                 }
                 let matching: Vec<_> = canonical
                     .iter()
@@ -194,6 +197,10 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
                         })
                     })
                     .collect();
+                if matching.is_empty() {
+                    missing_original = true;
+                    continue;
+                }
                 if matching.len() != 1 {
                     return Err(brain_contracts::PortError::PermissionDenied(
                         "Eindeutige kanonische Freigabe des Spiegeloriginals fehlt".into(),
@@ -225,6 +232,11 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
                     record,
                 );
             }
+        }
+        if missing_original {
+            reader.validate(query, context, Some(pin))?;
+            Self::check_request(query, context)?;
+            return Ok(MirroredToolOutcome::NoAuthorizedOriginal);
         }
         let mut entities = BTreeMap::new();
         for kind in kinds {
@@ -370,7 +382,43 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
             .collect();
         reader.validate(query, context, Some(pin))?;
         Self::check_request(query, context)?;
-        Ok((result, evidence))
+        Ok(MirroredToolOutcome::Available(result, evidence))
+    }
+
+    fn no_data_execution(
+        query: &brain_contracts::Query,
+        context: &brain_contracts::AuthorizedContext,
+        game_context: Option<&brain_contracts::PinnedGameContext>,
+        call: &brain_contracts::tools::ToolCall,
+        request: &brain_contracts::tools::ToolRequest,
+        usage: brain_contracts::Usage,
+        reason: &'static str,
+    ) -> std::result::Result<brain_contracts::tools::ToolExecution, brain_contracts::PortError>
+    {
+        Self::check_request(query, context)?;
+        let execution = brain_contracts::tools::ToolExecution {
+            result: brain_contracts::tools::ToolResult {
+                call_id: call.id.clone(),
+                name: request.name(),
+                result: json!({"error":"no_authorized_data"}),
+                evidence_ids: Vec::new(),
+                is_error: true,
+            },
+            dependencies: Vec::new(),
+            usage,
+        };
+        execution.validate_for(call, request, game_context)?;
+        eprintln!(
+            "{}",
+            json!({
+                "event":"brain_tool_no_data",
+                "request_id":query.request_id,
+                "tool":call.name.as_str(),
+                "call_id":call.id,
+                "reason":reason,
+            })
+        );
+        Ok(execution)
     }
 
     fn knowledge_query(
@@ -502,13 +550,26 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
                         &resolved
                     }
                 };
-                let (result, evidence) = self.mirrored_entities(
+                let (result, evidence) = match self.mirrored_entities(
                     query,
                     context,
                     pin,
                     request,
                     ToolValidationPurpose::Provider,
-                )?;
+                )? {
+                    MirroredToolOutcome::Available(result, evidence) => (result, evidence),
+                    MirroredToolOutcome::NoAuthorizedOriginal => {
+                        return Self::no_data_execution(
+                            query,
+                            context,
+                            Some(pin),
+                            &call,
+                            request,
+                            brain_contracts::Usage::default(),
+                            "no_authorized_original",
+                        );
+                    }
+                };
                 let execution = ToolExecution {
                     result: ToolResult {
                         call_id: call_id.into(),
@@ -535,9 +596,15 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
             let (evidence, usage) = self.knowledge().retrieve_with_usage(&subquery, context)?;
             accounting = Some(brain_contracts::UsageAccounting::observed(usage.clone()));
             if evidence.is_empty() {
-                return Err(brain_contracts::PortError::Unavailable(
-                    "Keine freigegebenen Belege gefunden".into(),
-                ));
+                return Self::no_data_execution(
+                    query,
+                    context,
+                    game_context,
+                    &call,
+                    request,
+                    usage,
+                    "no_search_hit",
+                );
             }
             if evidence.iter().any(|item| {
                 !matches!(
@@ -620,8 +687,20 @@ impl<S: brain_contracts::SnapshotReadPort> brain_contracts::tools::ToolExecution
                             "Spielbeleg hat eine fremde Spiegelbindung".into(),
                         )
                     })?;
-                let (_, expected) =
-                    self.mirrored_entities(query, context, pin, &dependency.request, purpose)?;
+                let expected = match self.mirrored_entities(
+                    query,
+                    context,
+                    pin,
+                    &dependency.request,
+                    purpose,
+                )? {
+                    MirroredToolOutcome::Available(_, evidence) => evidence,
+                    MirroredToolOutcome::NoAuthorizedOriginal => {
+                        return Err(brain_contracts::PortError::PermissionDenied(
+                            "Kanonische Freigabe des Spielbelegs fehlt".into(),
+                        ));
+                    }
+                };
                 if dependency.evidence != expected {
                     return Err(brain_contracts::PortError::PermissionDenied(
                         "Spielbeleg widerspricht der kanonischen Unteranfrage".into(),
