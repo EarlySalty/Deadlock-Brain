@@ -2247,6 +2247,7 @@ pub fn enrich_frozen_models(
 #[cfg(test)]
 mod tests {
     include!("mirror_freshness_tests.rs");
+    include!("publish_recorded_tests.rs");
 
     #[test]
     fn recorded_e_probe_keeps_mirrored_and_calculation_base_models_equal() {

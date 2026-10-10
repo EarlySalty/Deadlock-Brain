@@ -339,6 +339,16 @@ pub fn at_souls(
     (hero, evidence)
 }
 
+pub(crate) fn is_separate_melee_level_diagnostic(hero: &HeroModel, effect: &str) -> bool {
+    let name = "MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL";
+    hero.standard_level_up_upgrades
+        .get(name)
+        .filter(|value| value.is_finite() && **value != 0.0)
+        .is_some_and(|value| {
+            effect == format!("Levelbonus {name} ({value} je Boon) nicht quantifiziert.")
+        })
+}
+
 fn number(value: &Value) -> Option<f64> {
     value
         .as_f64()

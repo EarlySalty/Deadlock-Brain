@@ -540,6 +540,82 @@ fn evaluate_core(
     evaluate_core_with_deadline(hero, items, cfg, detailed, bindings, None)
 }
 
+pub(crate) fn publication_combat_blockers<'a>(
+    hero: &HeroModel,
+    items: &[ItemModel],
+    evaluation: &'a InventoryEvaluation,
+) -> Vec<&'a str> {
+    let mut scenario_diagnostics = BTreeSet::new();
+    for ability in &hero.abilities {
+        for key in [
+            "ForwardVelocity",
+            "ProjectileLifetime",
+            "Radius",
+            "AdditionalTargetRadius",
+            "ConeAngle",
+            "StaminaReduction",
+        ] {
+            if ability
+                .properties
+                .get(key)
+                .is_some_and(|value| value.is_finite())
+            {
+                scenario_diagnostics.insert(format!(
+                    "Fähigkeit {}: {key} nicht quantifiziert",
+                    ability.class_name
+                ));
+            }
+        }
+        if ability.class_name == "ability_warden_riot_protocol" {
+            for key in ["HealthStealPct", "PulseInterval"] {
+                if ability
+                    .properties
+                    .get(key)
+                    .is_some_and(|value| value.is_finite())
+                    && (key == "HealthStealPct"
+                        || ability
+                            .tick_rate
+                            .is_some_and(|rate| rate.is_finite() && rate > 0.0))
+                {
+                    scenario_diagnostics.insert(format!(
+                        "Fähigkeit {}: {key} nicht quantifiziert",
+                        ability.class_name
+                    ));
+                }
+            }
+        }
+        let item_lifesteal = items.iter().any(|item| {
+            item.properties
+                .iter()
+                .chain(&item.passive_properties)
+                .any(|(key, value)| {
+                    matches!(
+                        key.as_str(),
+                        "AbilityLifestealPercent" | "AbilityLifestealPercentHero"
+                    ) && *value != 0.0
+                })
+        });
+        if !item_lifesteal {
+            scenario_diagnostics.insert(format!("Fähigkeit {}: zusätzliches Item-Lifesteal neben eigener Heilung ist eine unbestätigte Annahme", ability.class_name));
+        }
+    }
+    for item in items {
+        if item
+            .properties
+            .get("Radius")
+            .is_some_and(|value| value.is_finite())
+        {
+            scenario_diagnostics.insert(format!("{}: Radius nicht quantifiziert", item.name));
+        }
+    }
+    evaluation
+        .unknown_effects
+        .iter()
+        .filter(|effect| !scenario_diagnostics.contains(*effect))
+        .map(String::as_str)
+        .collect()
+}
+
 fn normalized_items<'a>(items: &[&'a ItemModel]) -> Vec<&'a ItemModel> {
     let mut seen = BTreeSet::new();
     let mut held: Vec<_> = items

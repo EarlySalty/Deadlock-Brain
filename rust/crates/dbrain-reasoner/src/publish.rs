@@ -543,7 +543,7 @@ pub async fn validate_publish_current(pool: &PgPool, build: &BuildObject) -> Res
     validate_publish_current_models(build, &calculated, &mirrored, start)
 }
 
-fn validate_publish_current_models(
+pub(crate) fn validate_publish_current_models(
     build: &BuildObject,
     calculated: &crate::data::MirroredModels,
     mirrored: &crate::data::MirroredModels,
@@ -665,7 +665,10 @@ fn validate_publish_models_with_plan(
         .unwrap_or(0);
     let (fully_progressed, full_progression) =
         crate::progression::at_souls(hero, &order, full_souls, cfg);
-    if !full_progression.unknown_effects.is_empty()
+    if full_progression
+        .unknown_effects
+        .iter()
+        .any(|effect| !crate::progression::is_separate_melee_level_diagnostic(hero, effect))
         || (order.iter().any(|step| step.currency_type == 1)
             && full_progression.applied_order_steps != order.len())
     {
@@ -682,19 +685,12 @@ fn validate_publish_models_with_plan(
     let mut inventory = crate::inventory::Inventory::default();
     let mut bindings = std::collections::BTreeMap::new();
     let mut earned_souls = 0;
-    let meta = crate::MetaIndex {
-        by_item: Default::default(),
-        sample_ok: Default::default(),
-    };
     for (purchase, step) in build.core.iter().zip(&plan.steps) {
         let item = items
             .iter()
             .find(|item| item.item_id == purchase.item_id)
             .ok_or_else(|| error("Kern-Item fehlt im API-Spiegel."))?;
-        if purchase.tier != item.tier
-            || crate::item::score_item(item, hero, &meta, &[], cfg).confidence
-                == crate::Confidence::Low
-        {
+        if purchase.tier != item.tier || !item.shopable || item.disabled {
             return Err(error("Kernmechanik oder Item-Kategorie ist nicht belegt."));
         }
         if let Some(target) = purchase.imbue_target {
@@ -742,7 +738,12 @@ fn validate_publish_models_with_plan(
         earned_souls = step.progression.earned_souls;
         let (progressed, progression) =
             crate::progression::at_souls(hero, &order, earned_souls, cfg);
-        if progression != step.progression || !progression.unknown_effects.is_empty() {
+        if progression != step.progression
+            || progression
+                .unknown_effects
+                .iter()
+                .any(|effect| !crate::progression::is_separate_melee_level_diagnostic(hero, effect))
+        {
             return Err(error(
                 "Kaufkurve enthält nicht belegte Fortschrittsmechanik.",
             ));
@@ -750,10 +751,11 @@ fn validate_publish_models_with_plan(
         let held = inventory.held_items(items)?;
         let evaluation =
             crate::combat::evaluate_inventory_with_bindings(&progressed, &held, cfg, &bindings);
-        if !evaluation.score.is_finite() || !evaluation.unknown_effects.is_empty() {
+        let blockers = crate::combat::publication_combat_blockers(&progressed, &held, &evaluation);
+        if !evaluation.score.is_finite() || !blockers.is_empty() {
             return Err(ReasonerError::Data(format!(
                 "Kaufkurve enthält nicht belegte Kampfmechanik: {}",
-                evaluation.unknown_effects.join("; ")
+                blockers.join("; ")
             )));
         }
     }
@@ -764,13 +766,20 @@ fn validate_publish_models_with_plan(
     let baseline = crate::combat::evaluate_inventory(&progressed, &[], cfg);
     if !evaluation.score.is_finite()
         || evaluation.score <= baseline.score
-        || !evaluation.unknown_effects.is_empty()
+        || !crate::combat::publication_combat_blockers(&progressed, &held, &evaluation).is_empty()
     {
         return Err(error("Kern enthält nicht belegte Kampfmechanik."));
     }
     let published_evaluation =
         crate::combat::evaluate_inventory_with_bindings(&fully_progressed, &held, cfg, &bindings);
-    if !published_evaluation.score.is_finite() || !published_evaluation.unknown_effects.is_empty() {
+    if !published_evaluation.score.is_finite()
+        || !crate::combat::publication_combat_blockers(
+            &fully_progressed,
+            &held,
+            &published_evaluation,
+        )
+        .is_empty()
+    {
         return Err(error(
             "Veröffentlichter Kern enthält nicht belegte Kampfmechanik der Skillfolge.",
         ));
@@ -804,11 +813,16 @@ fn validate_publish_models_with_plan(
             cfg,
             &bindings,
         );
-        if !evaluation.score.is_finite() || !evaluation.unknown_effects.is_empty() {
+        let blockers = crate::combat::publication_combat_blockers(
+            &fully_progressed,
+            std::slice::from_ref(item),
+            &evaluation,
+        );
+        if !evaluation.score.is_finite() || !blockers.is_empty() {
             return Err(ReasonerError::Data(format!(
                 "Situations-Item {} enthält nicht belegte Kampfmechanik: {}",
                 candidate.item_id,
-                evaluation.unknown_effects.join("; ")
+                blockers.join("; ")
             )));
         }
     }
@@ -1197,6 +1211,139 @@ mod tests {
         let mut forged = build.clone();
         forged.provenance.as_mut().unwrap().origin.source_run_id += 1;
         assert!(validate_current_game_values(&forged, &original, &current).is_err());
+    }
+
+    #[test]
+    fn full_guard_separates_melee_diagnostics_without_erasing_or_rebinding_them() {
+        let (mut build, mut models) = bound_fixture(origin_fixture());
+        models.hero.level_curve = vec![crate::LevelPoint {
+            level: 1,
+            required_souls: 0,
+        }];
+        models
+            .hero
+            .level_rewards
+            .insert(1, vec!["EAbilityUnlocks".into()]);
+        models.hero.standard_upgrade_levels.insert(1);
+        models
+            .hero
+            .standard_level_up_upgrades
+            .insert("MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL".into(), 3.0);
+        let cfg = build.provenance.as_ref().unwrap().config.clone();
+        let rebind = |build: &mut BuildObject, models: &crate::data::MirroredModels| {
+            let plan = fixture_plan(build, &models.hero, &models.items, &cfg).unwrap();
+            let provenance =
+                calculation_provenance(&models.hero, &models.items, &models.snapshots, &cfg)
+                    .unwrap()
+                    .unwrap();
+            bind_calculated_build(build, provenance, &plan).unwrap();
+        };
+        rebind(&mut build, &models);
+        validate_publish_current_models(&build, &models, &models, 1000).unwrap();
+        assert_eq!(build.confidence, crate::Confidence::Low);
+        let plan = build
+            .provenance
+            .as_ref()
+            .unwrap()
+            .purchase_plan
+            .as_ref()
+            .unwrap();
+        assert_eq!(plan.steps[0].progression.unknown_effects.len(), 1);
+        let json = serde_json::to_value(&build).unwrap();
+        let restored = serde_json::from_value(json.clone()).unwrap();
+        validate_publish_current_models(&restored, &models, &models, 1000).unwrap();
+        assert_eq!(serde_json::to_value(&restored).unwrap(), json);
+        let mut tampered = restored.clone();
+        tampered
+            .provenance
+            .as_mut()
+            .unwrap()
+            .purchase_plan
+            .as_mut()
+            .unwrap()
+            .steps[0]
+            .progression
+            .unknown_effects
+            .clear();
+        assert!(validate_publish_current_models(&tampered, &models, &models, 1000).is_err());
+        let mut changed = models.hero.clone();
+        changed
+            .standard_level_up_upgrades
+            .insert("MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL".into(), 4.0);
+        let changed_models = crate::data::MirroredModels {
+            hero: changed,
+            items: models.items.clone(),
+            snapshots: models.snapshots.clone(),
+            provenance: models.provenance.clone(),
+            flex_slots: None,
+        };
+        assert!(validate_publish_current_models(&build, &models, &changed_models, 1000).is_err());
+        for modifier in [
+            "UNSUPPORTED_DAMAGE",
+            "MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL_EXTRA",
+        ] {
+            models
+                .hero
+                .standard_level_up_upgrades
+                .insert(modifier.into(), 2.0);
+            rebind(&mut build, &models);
+            assert!(validate_publish_current_models(&build, &models, &models, 1000).is_err());
+            models.hero.standard_level_up_upgrades.remove(modifier);
+        }
+        models
+            .hero
+            .level_rewards
+            .get_mut(&1)
+            .unwrap()
+            .push("UnsupportedReward".into());
+        rebind(&mut build, &models);
+        assert!(validate_publish_current_models(&build, &models, &models, 1000).is_err());
+    }
+
+    #[test]
+    fn publication_diagnostics_do_not_hide_damage_or_native_healing_interactions() {
+        let (_, hero, mut items, _) = model_fixture();
+        let ability = &hero.abilities[0];
+        let diagnostic = format!("Fähigkeit {}: zusätzliches Item-Lifesteal neben eigener Heilung ist eine unbestätigte Annahme", ability.class_name);
+        let mut evaluation = crate::combat::InventoryEvaluation {
+            unknown_effects: vec![diagnostic.clone()],
+            ..Default::default()
+        };
+        assert!(
+            crate::combat::publication_combat_blockers(&hero, &items[..1], &evaluation).is_empty()
+        );
+        items[0]
+            .properties
+            .insert("AbilityLifestealPercent".into(), 20.0);
+        assert_eq!(
+            crate::combat::publication_combat_blockers(&hero, &items[..1], &evaluation),
+            vec![diagnostic.as_str()]
+        );
+        evaluation.unknown_effects = vec![
+            "Unsupported damage".into(),
+            format!(
+                "Fähigkeit {}: Radius nicht quantifiziert",
+                ability.class_name
+            ),
+        ];
+        assert_eq!(
+            crate::combat::publication_combat_blockers(&hero, &items[..1], &evaluation).len(),
+            2
+        );
+        let mut hero = hero;
+        hero.abilities[0]
+            .properties
+            .insert("Radius".into(), f64::NAN);
+        assert_eq!(
+            crate::combat::publication_combat_blockers(&hero, &items[..1], &evaluation).len(),
+            2
+        );
+        hero.abilities[0].properties.insert("Radius".into(), 10.0);
+        assert_eq!(
+            crate::combat::publication_combat_blockers(&hero, &items[..1], &evaluation),
+            vec!["Unsupported damage"]
+        );
+        assert_eq!(evaluation.unknown_effects.len(), 2);
     }
 
     #[test]

@@ -996,7 +996,7 @@ fn calculate_inner(
     }
     let mut unknowns = progression.unknown_effects.clone();
     let mut combat_uncertain = progression.unknown_effects.iter().any(|effect| {
-        !effect.contains("MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL")
+        !crate::progression::is_separate_melee_level_diagnostic(&base, effect)
             && !effect.contains("MODIFIER_VALUE_OUT_OF_COMBAT_HEALTH_REGEN")
     });
     if spirit.is_none()
