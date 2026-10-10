@@ -586,10 +586,7 @@ pub fn item_model_from_payload(payload: &Value) -> Result<ItemModel> {
         tier: integer(payload.get("item_tier")),
         cost: integer(payload.get("cost")),
         is_active,
-        shopable: payload
-            .get("shopable")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        shopable: brain_contracts::game_mode::GameMode::Normal.allows_item(payload),
         disabled: payload
             .get("disabled")
             .and_then(Value::as_bool)
@@ -738,6 +735,22 @@ pub fn calculation_models_from_payloads(
     hero_source: &crate::ModelSource,
     item_source: &crate::ModelSource,
 ) -> Result<crate::CalculationModels> {
+    calculation_models_for_mode(
+        heroes,
+        items,
+        hero_source,
+        item_source,
+        brain_contracts::game_mode::GameMode::Normal,
+    )
+}
+
+pub fn calculation_models_for_mode(
+    heroes: &Value,
+    items: &Value,
+    hero_source: &crate::ModelSource,
+    item_source: &crate::ModelSource,
+    mode: brain_contracts::game_mode::GameMode,
+) -> Result<crate::CalculationModels> {
     if hero_source.client_version <= 0
         || hero_source.client_version != item_source.client_version
         || hero_source.language != item_source.language
@@ -797,8 +810,10 @@ pub fn calculation_models_from_payloads(
                 },
             );
         }
-        if raw.get("type").and_then(Value::as_str) == Some("upgrade") {
-            output.items.push(item_model_from_payload(raw)?);
+        if mode.allows_item(raw) {
+            let mut item = item_model_from_payload(raw)?;
+            item.shopable = true;
+            output.items.push(item);
         }
     }
     for (index, raw) in hero_rows.iter().enumerate() {
@@ -1597,14 +1612,13 @@ fn item_models_from_mirror(
         {
             continue;
         }
+        if !brain_contracts::game_mode::GameMode::Normal.allows_item(payload) {
+            continue;
+        }
         let classification = dbrain_builds::classify::classify_item(payload);
         let mut model = item_model_from_payload(payload)?;
         model.damage_axis = damage_type(&classification.damage_axis);
         model.defense_kind = classification.defense_kind;
-        model.shopable = payload
-            .get("shopable")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
         let mut fields = BTreeMap::new();
         for (name, value) in &model.properties {
             fields.insert(
@@ -1654,21 +1668,27 @@ fn item_models_from_mirror(
 }
 
 pub async fn load_meta_rows(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<MetaRow>> {
-    let rows = sqlx::query("SELECT item_id, patch_tag, prevalence_builds, wins, losses, matches, avg_buy_time_relative, lift_pp FROM brain.hero_item_stats WHERE hero_id=$1 AND bracket=$2 AND patch_tag=$3 ORDER BY item_id")
+    let assets = mirrored_assets(ctx).await?;
+    let allowed: BTreeSet<_> = assets
+        .items
+        .iter()
+        .filter(|raw| brain_contracts::game_mode::GameMode::Normal.allows_item(raw))
+        .filter_map(|raw| raw["id"].as_i64())
+        .collect();
+    let rows = sqlx::query("SELECT item_id, patch_tag, wins, losses, matches, avg_buy_time_relative, lift_pp FROM brain.hero_item_stats WHERE hero_id=$1 AND bracket=$2 AND patch_tag=$3 ORDER BY item_id")
         .bind(hero_id)
         .bind(&ctx.config.bracket)
         .bind(&ctx.config.patch_tag)
         .fetch_all(&ctx.pool)
         .await
         .map_err(ReasonerError::Db)?;
-    rows.into_iter()
+    let rows = rows
+        .into_iter()
         .map(|row| {
             Ok(MetaRow {
                 item_id: row.try_get("item_id").map_err(ReasonerError::Db)?,
                 patch_tag: row.try_get("patch_tag").map_err(ReasonerError::Db)?,
-                prevalence_builds: row
-                    .try_get("prevalence_builds")
-                    .map_err(ReasonerError::Db)?,
+                prevalence_builds: 0,
                 wins: row.try_get("wins").map_err(ReasonerError::Db)?,
                 losses: row.try_get("losses").map_err(ReasonerError::Db)?,
                 matches: row.try_get("matches").map_err(ReasonerError::Db)?,
@@ -1678,7 +1698,11 @@ pub async fn load_meta_rows(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<MetaR
                 lift_pp: row.try_get("lift_pp").map_err(ReasonerError::Db)?,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    Ok(rows
+        .into_iter()
+        .filter(|row| allowed.contains(&row.item_id))
+        .collect())
 }
 
 pub async fn load_patch_events(ctx: &ReasonerCtx, hero_id: i64) -> Result<Vec<Value>> {
@@ -1805,21 +1829,13 @@ pub async fn load_author_source_rows(
 }
 
 pub(crate) async fn load_core_layouts(ctx: &ReasonerCtx) -> Result<crate::CoreLayoutIndex> {
-    let catalog_rows =
-        sqlx::query("SELECT item_id, tier FROM brain.item_catalog WHERE tier IS NOT NULL")
-            .fetch_all(&ctx.pool)
-            .await
-            .map_err(ReasonerError::Db)?;
-    let item_tiers = catalog_rows
-        .into_iter()
-        .map(|row| {
-            Ok((
-                row.try_get::<i64, _>("item_id")
-                    .map_err(ReasonerError::Db)?,
-                row.try_get::<i64, _>("tier").map_err(ReasonerError::Db)?,
-            ))
-        })
-        .collect::<Result<BTreeMap<_, _>>>()?;
+    let assets = mirrored_assets(ctx).await?;
+    let item_tiers = assets
+        .items
+        .iter()
+        .filter(|raw| brain_contracts::game_mode::GameMode::Normal.allows_item(raw))
+        .filter_map(|raw| Some((raw["id"].as_i64()?, raw["item_tier"].as_i64()?)))
+        .collect::<BTreeMap<_, _>>();
     let rows = load_author_source_rows(ctx, None).await?;
     let mut sources = Vec::new();
     for value in rows {
@@ -2392,8 +2408,20 @@ mod tests {
             snapshots[0].fields["properties.TechPower"].fetched_at,
             Some(2000.0)
         );
-        assets.items[0]["item_slot_type"] = serde_json::json!("unknown");
-        assert!(super::item_models_from_mirror(&assets).is_err());
+        for (field, value) in [
+            ("item_slot_type", serde_json::json!("unknown")),
+            ("item_tier", serde_json::json!(5)),
+            ("shopable", serde_json::json!(false)),
+            ("disabled", serde_json::json!(true)),
+            ("cost", serde_json::json!(0)),
+        ] {
+            let original = assets.items[0][field].clone();
+            assets.items[0][field] = value;
+            let (models, snapshots) = super::item_models_from_mirror(&assets).unwrap();
+            assert!(models.is_empty(), "{field}");
+            assert!(snapshots.is_empty(), "{field}");
+            assets.items[0][field] = original;
+        }
     }
 
     #[test]

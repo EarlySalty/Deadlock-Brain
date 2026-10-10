@@ -29,14 +29,6 @@ impl DeadlockApiClient {
         })
     }
 
-    pub(crate) fn build_item_stats(&self, hero_id: i64) -> Result<serde_json::Value> {
-        self.get_json(&analytics_url(
-            "build-item-stats",
-            self.min_unix_timestamp,
-            &[("hero_id", hero_id)],
-        ))
-    }
-
     pub(crate) fn item_stats(
         &self,
         hero_id: i64,

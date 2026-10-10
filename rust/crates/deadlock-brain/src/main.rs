@@ -2126,7 +2126,7 @@ async fn run_build_eval(pool: &PgPool, settings: &Settings, args: BuildEvalArgs)
     let request = build_narration::build_narration_request(&build_context, client.config())?;
     let response = client.chat(&request)?;
     let narration = extract_ai_text(&response);
-    let known_item_names = load_known_item_names(pool).await?;
+    let known_item_names = load_known_item_names(pool, None).await?;
     let validation =
         build_narration::validate_narration(&narration, &build_context, &known_item_names);
     print_json(&json!({
@@ -2157,7 +2157,8 @@ async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs)
         Err(error) => return Err(error.into()),
     };
 
-    let known_item_names = load_known_item_names(pool).await?;
+    let known_item_names =
+        load_known_item_names(pool, Some(brain_contracts::game_mode::GameMode::Normal)).await?;
     let candidates =
         dbrain_builds::spec::build_candidate_set(&build_context, &corpus, &known_item_names);
     let client = AiClient::from_settings(settings)?;
@@ -2194,6 +2195,8 @@ async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs)
         &candidates.name_to_id,
         ability_order.as_deref(),
     );
+    let payload = serde_json::to_value(&assembled.payload)?;
+    dbrain_reasoner::publish::validate_publish_items(pool, &payload).await?;
     warnings.append(&mut assembled.warnings);
     eprintln!(
         "build-spec: item_count={} understanding_found={} skill_order_found={}",
@@ -2207,20 +2210,30 @@ async fn run_build_spec(pool: &PgPool, settings: &Settings, args: BuildSpecArgs)
     print_json(&assembled.payload)
 }
 
-async fn load_known_item_names(pool: &PgPool) -> Result<BTreeSet<String>> {
-    let names = sqlx::query_scalar::<_, String>(
-        "SELECT name FROM brain.item_catalog WHERE name IS NOT NULL AND name <> ''",
+async fn load_known_item_names(
+    pool: &PgPool,
+    mode: Option<brain_contracts::game_mode::GameMode>,
+) -> Result<BTreeSet<String>> {
+    let version = brain_storage::asset_mirror::latest_mirrored_client_version(pool).await?;
+    let catalog = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
+        pool,
+        version,
+        "items",
+        Some("english"),
     )
-    .fetch_all(pool)
     .await?;
-    let mut set = BTreeSet::new();
-    for name in names {
-        let trimmed = name.trim();
-        if !trimmed.is_empty() {
-            set.insert(trimmed.to_string());
-        }
-    }
-    Ok(set)
+    let rows = catalog
+        .payload
+        .as_array()
+        .context("Aktueller Item-Katalog fehlt.")?;
+    Ok(rows
+        .iter()
+        .filter(|raw| raw["type"] == "upgrade" && mode.is_none_or(|mode| mode.allows_item(raw)))
+        .filter_map(|raw| raw["name"].as_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .collect())
 }
 
 async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
@@ -3334,6 +3347,9 @@ async fn publish_saved_http(
         .infisical_config
         .clone()
         .unwrap_or_else(|| config::repo_root().join("config/infisical.json"));
+    let pool = deadlock_brain_core::pg::pg_pool_from_config(&path, true).await?;
+    dbrain_reasoner::publish::validate_publish_items(&pool, &request.payload).await?;
+    pool.close().await;
     let values = tokio::time::timeout(
         Duration::from_secs(10),
         deadlock_brain_core::pg::infisical_environment(&path),
@@ -3391,6 +3407,11 @@ async fn run_publish_resume(args: &PublishResumeArgs) -> Result<()> {
 }
 
 async fn run_requested_build(pool: &PgPool, args: ReviewBuildArgs, review: bool) -> Result<()> {
+    if brain_contracts::game_mode::GameMode::from_question(&args.query)
+        == brain_contracts::game_mode::GameMode::StreetBrawl
+    {
+        anyhow::bail!("Street-Brawl-Kaufpläne können derzeit nicht veröffentlicht werden. Es wird kein Standardmodus-Build als Ersatz erstellt.");
+    }
     let ask = dbrain_retrieval::ask_context(
         pool,
         &args.query,
