@@ -86,6 +86,39 @@ fn recorded_warden_full_publication_guard_preserves_unknown_melee_and_low_confid
     )
     .unwrap();
     let build = planned.build;
+    let raw: serde_json::Value =
+        serde_json::from_str(include_str!("../testdata/calculation/sheet-6759.json")).unwrap();
+    let standard = raw["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| brain_contracts::game_mode::GameMode::Normal.allows_item(item))
+        .map(|item| item["id"].as_i64().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(models
+        .items
+        .iter()
+        .all(|item| standard.contains(&item.item_id)));
+    assert!(build
+        .core
+        .iter()
+        .chain(build.situations.iter().flat_map(|block| &block.items))
+        .all(|item| standard.contains(&item.item_id)));
+    let payload = crate::publish::publish_task_payload(&build);
+    crate::publish::validate_publish_catalog(&payload, &raw["items"]).unwrap();
+    let mut nonstandard = raw["items"].clone();
+    let selected_id = build.core[0].item_id;
+    let unavailable = nonstandard
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|item| item["id"] == selected_id)
+        .unwrap();
+    assert_eq!(unavailable["shopable"], true);
+    unavailable["item_tier"] = serde_json::json!(5);
+    assert!(brain_contracts::game_mode::GameMode::StreetBrawl.allows_item(unavailable));
+    assert!(!brain_contracts::game_mode::GameMode::Normal.allows_item(unavailable));
+    assert!(crate::publish::validate_publish_catalog(&payload, &nonstandard).is_err());
     assert_eq!(build.hero_id, 25);
     assert_eq!(build.confidence, crate::Confidence::Low);
     assert!(build.family.is_none());
@@ -151,30 +184,71 @@ fn recorded_warden_full_publication_guard_preserves_unknown_melee_and_low_confid
     let sourced = &calculation.heroes[&25];
     assert_eq!(
         projected.metrics["starting.light_melee_damage"].value(),
-        Some(sourced.starting_stats["light_melee_damage"]
-            + evidence.standard_boons as f64
-                * models.hero.standard_level_up_upgrades
-                    ["MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL"])
+        Some(
+            sourced.starting_stats["light_melee_damage"]
+                + evidence.standard_boons as f64
+                    * models.hero.standard_level_up_upgrades
+                        ["MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL"]
+        )
     );
-    assert!(projected.metrics["starting.heavy_melee_damage"].value().is_none());
-    let catalog = models.items.iter().map(crate::item::build_item_model).collect::<crate::Result<Vec<_>>>().unwrap();
-    let held = planned.purchase_plan.steps.last().unwrap().transition.after.held_items(&catalog).unwrap();
-    let full = crate::combat::evaluate_inventory_with_bindings(&progressed, &held, &cfg, &planned.purchase_plan.steps.last().unwrap().imbue_targets);
+    assert!(projected.metrics["starting.heavy_melee_damage"]
+        .value()
+        .is_none());
+    let catalog = models
+        .items
+        .iter()
+        .map(crate::item::build_item_model)
+        .collect::<crate::Result<Vec<_>>>()
+        .unwrap();
+    let held = planned
+        .purchase_plan
+        .steps
+        .last()
+        .unwrap()
+        .transition
+        .after
+        .held_items(&catalog)
+        .unwrap();
+    let full = crate::combat::evaluate_inventory_with_bindings(
+        &progressed,
+        &held,
+        &cfg,
+        &planned.purchase_plan.steps.last().unwrap().imbue_targets,
+    );
     let blockers = crate::combat::publication_combat_blockers(&progressed, &held, &full);
     assert!(!blockers.is_empty());
-    assert!(blockers.iter().any(|effect| effect.ends_with("FireRateSlow nicht quantifiziert")));
-    assert!(blockers.iter().any(|effect| effect.ends_with("MoveSpeedBonusPct nicht quantifiziert")));
-    assert!(crate::publish::validate_publish_current_models(&build, &models, &models, 1000).is_err());
+    assert!(blockers
+        .iter()
+        .any(|effect| effect.ends_with("FireRateSlow nicht quantifiziert")));
+    assert!(blockers
+        .iter()
+        .any(|effect| effect.ends_with("MoveSpeedBonusPct nicht quantifiziert")));
+    assert!(
+        crate::publish::validate_publish_current_models(&build, &models, &models, 1000).is_err()
+    );
 
     let mut geometric = progressed.clone();
     for ability in &mut geometric.abilities {
-        for key in ["ForwardVelocity", "ProjectileLifetime", "Radius", "AdditionalTargetRadius", "ConeAngle", "StaminaReduction", "HealthStealPct"] {
+        for key in [
+            "ForwardVelocity",
+            "ProjectileLifetime",
+            "Radius",
+            "AdditionalTargetRadius",
+            "ConeAngle",
+            "StaminaReduction",
+            "HealthStealPct",
+        ] {
             if let Some(value) = ability.properties.get_mut(key) {
                 *value += 100.0;
             }
         }
     }
-    let geometric_evaluation = crate::combat::evaluate_inventory_with_bindings(&geometric, &held, &cfg, &planned.purchase_plan.steps.last().unwrap().imbue_targets);
+    let geometric_evaluation = crate::combat::evaluate_inventory_with_bindings(
+        &geometric,
+        &held,
+        &cfg,
+        &planned.purchase_plan.steps.last().unwrap().imbue_targets,
+    );
     assert_eq!(full.score, geometric_evaluation.score);
     assert_eq!(full.weapon_damage, geometric_evaluation.weapon_damage);
     assert_eq!(full.ability_damage, geometric_evaluation.ability_damage);
@@ -182,6 +256,8 @@ fn recorded_warden_full_publication_guard_preserves_unknown_melee_and_low_confid
     assert_eq!(full.utility, geometric_evaluation.utility);
     let serialized = serde_json::to_value(&build).unwrap();
     let restored = serde_json::from_value(serialized.clone()).unwrap();
-    assert!(crate::publish::validate_publish_current_models(&restored, &models, &models, 1000).is_err());
+    assert!(
+        crate::publish::validate_publish_current_models(&restored, &models, &models, 1000).is_err()
+    );
     assert_eq!(serde_json::to_value(&restored).unwrap(), serialized);
 }
