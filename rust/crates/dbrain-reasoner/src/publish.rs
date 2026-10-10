@@ -1422,6 +1422,41 @@ mod tests {
     }
 
     #[test]
+    fn low_confidence_purchase_mechanics_still_have_blocking_coverage() {
+        let (build, hero, models, snapshots) = model_fixture();
+        let cfg = crate::ReasonerConfig::default();
+        let meta = crate::MetaIndex {
+            by_item: Default::default(),
+            sample_ok: Default::default(),
+        };
+        for property in [
+            "OnKillEffect",
+            "ParrySuccessEffect",
+            "HealAmpReceivePenalty",
+            "HealAmpRegenPenalty",
+        ] {
+            let mut items = models.clone();
+            items[0].properties.insert(property.into(), 5.0);
+            let normalized = crate::item::build_item_model(&items[0]).unwrap();
+            assert_eq!(
+                crate::item::score_item(&normalized, &hero, &meta, &[], &cfg).confidence,
+                crate::Confidence::Low
+            );
+            let evaluation =
+                crate::combat::evaluate_inventory(&hero, std::slice::from_ref(&normalized), &cfg);
+            assert!(!crate::combat::publication_combat_blockers(
+                &hero,
+                std::slice::from_ref(&normalized),
+                &evaluation
+            )
+            .is_empty());
+            assert!(
+                validate_publish_models(&build, &hero, &items, &snapshots, 2000.0, &cfg).is_err()
+            );
+        }
+    }
+
+    #[test]
     fn guard_checks_published_upgrades_even_after_the_last_purchase() {
         let (mut build, mut hero, models, snapshots) = model_fixture();
         hero.level_curve = vec![

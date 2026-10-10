@@ -299,6 +299,54 @@ fn recorded_warden_full_publication_guard_preserves_unknown_melee_and_low_confid
     assert_eq!(full.ability_damage, geometric_evaluation.ability_damage);
     assert_eq!(full.effective_health, geometric_evaluation.effective_health);
     assert_eq!(full.utility, geometric_evaluation.utility);
+    let mut supported = build.clone();
+    supported.ability_order = vec![build.ability_order[0].clone()];
+    assert_eq!(supported.ability_order[0].currency_type, 2);
+    let mut supported_plan = planned.purchase_plan.clone();
+    supported_plan.ability_order = supported.ability_order.clone();
+    for step in &mut supported_plan.steps {
+        let (hero, progression) = crate::progression::at_souls(
+            &models.hero,
+            &supported.ability_order,
+            step.progression.earned_souls,
+            &cfg,
+        );
+        let held = step.transition.after.held_items(&catalog).unwrap();
+        step.progression = progression;
+        step.evaluation = crate::combat::evaluate_inventory_with_bindings(
+            &hero,
+            &held,
+            &cfg,
+            &step.imbue_targets,
+        );
+        assert!(!step.evaluation.unknown_effects.is_empty());
+    }
+    supported_plan.final_evaluation = supported_plan.steps.last().unwrap().evaluation.clone();
+    crate::publish::bind_calculated_build(
+        &mut supported,
+        build.provenance.as_ref().unwrap().as_ref().clone(),
+        &supported_plan,
+    )
+    .unwrap();
+    crate::publish::validate_publish_current_models(&supported, &models, &models, 1000).unwrap();
+    crate::publish::validate_publish_catalog(
+        &crate::publish::publish_task_payload(&supported),
+        &raw["items"],
+    )
+    .unwrap();
+    assert_eq!(supported.confidence, crate::Confidence::Low);
+    assert_eq!(
+        supported.provenance.as_ref().unwrap().input_sha256,
+        build.provenance.as_ref().unwrap().input_sha256
+    );
+    assert_eq!(
+        supported_plan.steps[0].transition,
+        planned.purchase_plan.steps[0].transition
+    );
+    assert_eq!(
+        supported_plan.steps[0].progression.unknown_effects,
+        planned.purchase_plan.steps[0].progression.unknown_effects
+    );
     let serialized = serde_json::to_value(&build).unwrap();
     let restored = serde_json::from_value(serialized.clone()).unwrap();
     assert!(
