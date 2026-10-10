@@ -135,6 +135,51 @@ fn recorded_warden_full_publication_guard_preserves_unknown_melee_and_low_confid
     let (progressed, evidence) =
         crate::progression::at_souls(&models.hero, &build.ability_order, souls, &cfg);
     assert_eq!(evidence.applied_order_steps, build.ability_order.len());
+    let pulse_ability = progressed
+        .abilities
+        .iter()
+        .find(|ability| ability.class_name == "ability_warden_riot_protocol")
+        .unwrap();
+    assert_eq!(
+        pulse_ability.tick_rate,
+        pulse_ability.properties.get("PulseInterval").copied()
+    );
+    let pulse_diagnostic = crate::combat::InventoryEvaluation {
+        unknown_effects: vec![format!(
+            "Fähigkeit {}: PulseInterval nicht quantifiziert",
+            pulse_ability.class_name
+        )],
+        ..Default::default()
+    };
+    assert!(
+        crate::combat::publication_combat_blockers(&progressed, &[], &pulse_diagnostic).is_empty()
+    );
+    let mut pulse_changed = models.hero.clone();
+    *pulse_changed
+        .abilities
+        .iter_mut()
+        .find(|ability| ability.class_name == "ability_warden_riot_protocol")
+        .unwrap()
+        .properties
+        .get_mut("PulseInterval")
+        .unwrap() *= 2.0;
+    let (mut pulse_changed, _) =
+        crate::progression::at_souls(&pulse_changed, &build.ability_order, souls, &cfg);
+    let updated = pulse_changed
+        .abilities
+        .iter_mut()
+        .find(|ability| ability.class_name == "ability_warden_riot_protocol")
+        .unwrap();
+    assert_eq!(
+        updated.tick_rate,
+        updated.properties.get("PulseInterval").copied()
+    );
+    assert_ne!(updated.tick_rate, pulse_ability.tick_rate);
+    updated.tick_rate = pulse_ability.tick_rate;
+    assert_eq!(
+        crate::combat::publication_combat_blockers(&pulse_changed, &[], &pulse_diagnostic).len(),
+        1
+    );
     let mut changed = models.hero.clone();
     *changed
         .standard_level_up_upgrades

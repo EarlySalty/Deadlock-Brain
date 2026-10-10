@@ -573,9 +573,11 @@ pub(crate) fn publication_combat_blockers<'a>(
                     .get(key)
                     .is_some_and(|value| value.is_finite())
                     && (key == "HealthStealPct"
-                        || ability
-                            .tick_rate
-                            .is_some_and(|rate| rate.is_finite() && rate > 0.0))
+                        || ability.tick_rate.is_some_and(|rate| {
+                            rate.is_finite()
+                                && rate > 0.0
+                                && ability.properties.get("PulseInterval") == Some(&rate)
+                        }))
                 {
                     scenario_diagnostics.insert(format!(
                         "Fähigkeit {}: {key} nicht quantifiziert",
