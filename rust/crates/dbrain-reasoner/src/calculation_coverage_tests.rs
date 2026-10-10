@@ -312,6 +312,7 @@ fn spirit_scaled_item_procs_without_spirit_never_receive_confirmed_metrics_or_ra
     let mut item = crate::item_model_from_payload(&json!({
         "id": 1, "class_name": "spirit_proc_contract", "name": "Prüfgegenstand",
         "cost": 800, "item_slot_type": "vitality", "shopable": true,
+        "type": "upgrade", "item_tier": 1,
         "properties": {"ProcDamage": {"value": 20.0}, "ProcCooldown": {"value": 1.0}, "ProcChance": {"value": 100.0}}
     }))
     .unwrap();
@@ -844,6 +845,7 @@ fn unconditional_inventory_shred_matches_scalar_and_real_shot_damage() {
     let item = crate::item_model_from_payload(&json!({
         "id": 1, "class_name": "scalar_shred_contract", "name": "Prüfgegenstand",
         "cost": 800, "item_slot_type": "vitality", "shopable": true,
+        "type": "upgrade", "item_tier": 1,
         "properties": {"BulletResistReduction": {"value": 20.0}}
     }))
     .unwrap();
@@ -1206,6 +1208,7 @@ fn real_skill_upgrades_charged_spirit_and_zero_scaling_use_shared_projection() {
     let charged = crate::item_model_from_payload(&json!({
         "id": 1, "class_name": "projection_contract_item", "name": "Prüfgegenstand",
         "cost": 800, "item_slot_type": "spirit", "shopable": true,
+        "type": "upgrade", "item_tier": 1,
         "properties": {"BonusAbilityCharges":{"value":1}, "BonusSpiritForChargedAbilities":{"value":10},
             "CooldownReduction":{"value":20}, "CooldownReductionOnChargedAbilities":{"value":25},
             "CooldownBetweenChargeReduction":{"value":40}}

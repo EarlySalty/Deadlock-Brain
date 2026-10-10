@@ -22,6 +22,11 @@ pub(crate) async fn build_context(
     hero_query: &str,
     playstyle: Option<&str>,
 ) -> Result<BuildContext> {
+    anyhow::ensure!(
+        brain_contracts::game_mode::GameMode::from_question(hero_query)
+            == brain_contracts::game_mode::GameMode::Normal,
+        "Street-Brawl-Kaufpläne sind hier noch nicht verfügbar. Es wird kein Standardmodus-Build als Ersatz berechnet."
+    );
     let requested_playstyle = normalize_playstyle(playstyle)?;
     let hero_id = resolve_hero_id(pool, hero_query).await?;
     let hero = load_hero(pool, hero_id).await?;
@@ -228,12 +233,6 @@ struct ItemRow {
 #[derive(sqlx::FromRow)]
 struct ItemDbRow {
     item_id: i64,
-    name: String,
-    slot_type: String,
-    tier: i64,
-    defense_kind_json: String,
-    damage_axis: String,
-    prevalence_builds: i64,
     wins: i64,
     losses: i64,
     matches: i64,
@@ -241,18 +240,51 @@ struct ItemDbRow {
     lift_pp: Option<f64>,
 }
 
+fn item_row_from_catalog(row: ItemDbRow, raw: &serde_json::Value) -> Option<ItemRow> {
+    if !brain_contracts::game_mode::GameMode::Normal.allows_item(raw)
+        || raw["id"].as_i64() != Some(row.item_id)
+    {
+        return None;
+    }
+    let classification = crate::classify::classify_item(raw);
+    Some(ItemRow {
+        item_id: row.item_id,
+        name: raw["name"].as_str()?.to_owned(),
+        slot_type: raw["item_slot_type"].as_str()?.to_owned(),
+        tier: raw["item_tier"].as_i64()?,
+        defense_kind: classification.defense_kind,
+        damage_axis: classification.damage_axis,
+        prevalence_builds: 0,
+        wins: row.wins,
+        losses: row.losses,
+        matches: row.matches,
+        avg_buy_time_relative: row.avg_buy_time_relative,
+        lift_pp: row.lift_pp,
+    })
+}
+
 async fn load_item_rows(pool: &PgPool, hero_id: i64) -> Result<Vec<ItemRow>> {
+    let version = brain_storage::asset_mirror::latest_mirrored_client_version(pool).await?;
+    let catalog = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
+        pool,
+        version,
+        "items",
+        Some("english"),
+    )
+    .await?;
+    let items: HashMap<_, _> = catalog
+        .payload
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("Aktueller Item-Katalog fehlt."))?
+        .iter()
+        .filter_map(|raw| Some((raw["id"].as_i64()?, raw)))
+        .collect();
     let rows = sqlx::query_as::<_, ItemDbRow>(
         r#"
-        SELECT
-          i.item_id, i.name, i.slot_type, i.tier,
-          i.defense_kind::text AS defense_kind_json, i.damage_axis,
-          s.prevalence_builds, s.wins, s.losses, s.matches,
-          s.avg_buy_time_relative, s.lift_pp
-        FROM brain.hero_item_stats s
-        JOIN brain.item_catalog i ON i.item_id=s.item_id
-        WHERE s.hero_id=$1 AND s.bracket=$2 AND s.patch_tag=$3
-        ORDER BY s.prevalence_builds DESC, s.matches DESC, i.item_id ASC
+        SELECT item_id, wins, losses, matches, avg_buy_time_relative, lift_pp
+        FROM brain.hero_item_stats
+        WHERE hero_id=$1 AND bracket=$2 AND patch_tag=$3
+        ORDER BY matches DESC, item_id ASC
         "#,
     )
     .bind(hero_id)
@@ -260,28 +292,13 @@ async fn load_item_rows(pool: &PgPool, hero_id: i64) -> Result<Vec<ItemRow>> {
     .bind(PATCH_TAG_CURRENT)
     .fetch_all(pool)
     .await?;
-    let rows = rows
+    Ok(rows
         .into_iter()
-        .map(|row| {
-            let defense_kind =
-                serde_json::from_str::<Vec<String>>(&row.defense_kind_json).unwrap_or_default();
-            ItemRow {
-                item_id: row.item_id,
-                name: row.name,
-                slot_type: row.slot_type,
-                tier: row.tier,
-                defense_kind,
-                damage_axis: row.damage_axis,
-                prevalence_builds: row.prevalence_builds,
-                wins: row.wins,
-                losses: row.losses,
-                matches: row.matches,
-                avg_buy_time_relative: row.avg_buy_time_relative,
-                lift_pp: row.lift_pp,
-            }
+        .filter_map(|row| {
+            let raw = items.get(&row.item_id)?;
+            item_row_from_catalog(row, raw)
         })
-        .collect();
-    Ok(rows)
+        .collect())
 }
 
 #[derive(Debug, Clone)]
@@ -326,7 +343,9 @@ fn env_i64(name: &str, default: i64) -> i64 {
 }
 
 fn confidence(row: &ItemRow, gates: &SampleGates) -> &'static str {
-    if row.matches < gates.min_matches || row.prevalence_builds < gates.min_prevalence_builds {
+    if row.matches < gates.min_matches
+        || (row.prevalence_builds > 0 && row.prevalence_builds < gates.min_prevalence_builds)
+    {
         "low"
     } else if row.matches < gates.min_matches * 4
         || row.prevalence_builds < gates.min_prevalence_builds * 4
@@ -581,6 +600,49 @@ fn phase_fallback_time(row: &ItemRow) -> f64 {
 mod tests {
     use super::*;
 
+    #[test]
+    fn legacy_candidates_use_current_shop_fields_and_ignore_unseparated_guide_counts() {
+        let stats = || ItemDbRow {
+            item_id: 91,
+            wins: 330,
+            losses: 270,
+            matches: 600,
+            avg_buy_time_relative: Some(25.0),
+            lift_pp: Some(3.0),
+        };
+        let raw = serde_json::json!({"id":91,"name":"Mirrored item","type":"upgrade",
+            "item_slot_type":"spirit","item_tier":2,"cost":1600,"shopable":true,
+            "properties":{"TechPower":{"value":"37","provided_property_type":"MODIFIER_VALUE_TECH_POWER"}}});
+        let mut row = item_row_from_catalog(stats(), &raw).unwrap();
+        assert_eq!(row.name, raw["name"].as_str().unwrap());
+        assert_eq!(row.slot_type, raw["item_slot_type"].as_str().unwrap());
+        assert_eq!(row.tier, 2);
+        assert_eq!(row.prevalence_builds, 0);
+        let gates = SampleGates {
+            min_matches: 500,
+            min_prevalence_builds: 30,
+        };
+        assert_eq!(confidence(&row, &gates), "medium");
+        row.matches = 499;
+        assert_eq!(confidence(&row, &gates), "low");
+        for (field, value) in [
+            ("id", serde_json::json!(92)),
+            ("type", serde_json::json!("ability")),
+            ("item_slot_type", serde_json::json!("unknown")),
+            ("item_tier", serde_json::json!(5)),
+            ("shopable", serde_json::json!(false)),
+            ("disabled", serde_json::json!(true)),
+            ("cost", serde_json::json!(0)),
+        ] {
+            let mut unavailable = raw.clone();
+            unavailable[field] = value;
+            assert!(
+                item_row_from_catalog(stats(), &unavailable).is_none(),
+                "{field}"
+            );
+        }
+    }
+
     // Bekannter Held in der Scratch-Postgres: hero_id 18 = "Mo & Krill" (tank),
     // 156 hero_item_stats-Zeilen (bracket badge80, patch current).
     const MO_HERO_ID: i64 = 18;
@@ -615,7 +677,7 @@ mod tests {
             assert!(!item.slot_type.trim().is_empty());
             assert!(!item.damage_axis.trim().is_empty());
             assert!(matches!(item.confidence.as_str(), "medium" | "high"));
-            assert!(item.prevalence_builds >= 30);
+            assert_eq!(item.prevalence_builds, 0);
             assert!(item.sample_matches >= 500);
         }
 
@@ -652,25 +714,44 @@ mod tests {
         );
     }
 
-    // Paritaets-Nachweis: load_item_rows liefert exakt so viele Evidenz-Zeilen wie
-    // der direkte SQL-Join (hero_item_stats JOIN item_catalog) fuer denselben Held.
     #[tokio::test]
     #[ignore = "benoetigt Scratch-Postgres via DEADLOCK_CENTRAL_DSN"]
-    async fn load_item_rows_matches_direct_sql_count() {
+    async fn load_item_rows_matches_current_shop_intersection() {
         let Some(pool) = crate::util::test_pool().await else {
             return;
         };
         let rows = load_item_rows(&pool, MO_HERO_ID).await.expect("load rows");
-        let direct: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM brain.hero_item_stats s \
-             JOIN brain.item_catalog i ON i.item_id=s.item_id \
-             WHERE s.hero_id=$1 AND s.bracket='badge80' AND s.patch_tag='current'",
+        let ids: Vec<i64> = sqlx::query_scalar(
+            "SELECT item_id FROM brain.hero_item_stats \
+             WHERE hero_id=$1 AND bracket='badge80' AND patch_tag='current'",
         )
         .bind(MO_HERO_ID)
-        .fetch_one(&pool)
+        .fetch_all(&pool)
         .await
-        .expect("direct count");
-        assert_eq!(rows.len() as i64, direct);
-        assert_eq!(direct, 156);
+        .expect("statistic ids");
+        let version = brain_storage::asset_mirror::latest_mirrored_client_version(&pool)
+            .await
+            .unwrap();
+        let catalog = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
+            &pool,
+            version,
+            "items",
+            Some("english"),
+        )
+        .await
+        .unwrap();
+        let expected: std::collections::BTreeSet<_> = catalog
+            .payload
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|raw| brain_contracts::game_mode::GameMode::Normal.allows_item(raw))
+            .filter_map(|raw| raw["id"].as_i64())
+            .filter(|id| ids.contains(id))
+            .collect();
+        let actual: std::collections::BTreeSet<_> = rows.iter().map(|row| row.item_id).collect();
+        assert!(!expected.is_empty());
+        assert_eq!(actual, expected);
+        assert!(rows.iter().all(|row| row.prevalence_builds == 0));
     }
 }

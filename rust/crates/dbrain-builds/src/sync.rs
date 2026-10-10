@@ -101,7 +101,7 @@ pub async fn sync_build_data(
     let summary = BuildDataSyncSummary {
         client_version,
         analytics_window: window,
-        build_prevalence_time_basis: "build_last_updated; kein Matchzeitbeleg".into(),
+        build_prevalence_time_basis: "unavailable_mode_filter".into(),
         item_catalog_rows,
         hero_catalog_rows,
         heroes: hero_summaries,
@@ -124,8 +124,6 @@ async fn sync_one_hero(
     patch_tag: &str,
 ) -> Result<HeroBuildDataSyncSummary> {
     let hero_name = hero_name(pool, hero_id).await?;
-    let prevalence_payload = api.build_item_stats(hero_id)?;
-    analytics_pause(options);
     let item_stats_payload = api.item_stats(hero_id, options.min_average_badge)?;
     analytics_pause(options);
     let baseline_payload = api.hero_stats(options.min_average_badge)?;
@@ -135,7 +133,7 @@ async fn sync_one_hero(
     let baseline_wr = baseline
         .winrate()
         .ok_or(BuildEngineError::MissingHeroStats(hero_id))?;
-    let prevalence = parse_prevalence(&prevalence_payload)?;
+    let prevalence = BTreeMap::new();
     let item_stats = parse_item_stats(&item_stats_payload)?;
     let catalog_ids = item_catalog_ids(pool).await?;
     let lift_ids = lift_candidate_ids(
@@ -397,19 +395,6 @@ fn stat_line_from_value(value: &Value) -> Result<StatLine> {
     })
 }
 
-fn parse_prevalence(payload: &Value) -> Result<BTreeMap<i64, i64>> {
-    let rows = payload
-        .as_array()
-        .ok_or_else(|| anyhow!("Build-Item-Stats sind kein JSON-Array"))?;
-    let mut map = BTreeMap::new();
-    for row in rows {
-        if let Some(item_id) = value_i64(row, "item_id") {
-            map.insert(item_id, value_i64(row, "builds").unwrap_or(0));
-        }
-    }
-    Ok(map)
-}
-
 fn parse_item_stats(payload: &Value) -> Result<BTreeMap<i64, ItemStatLine>> {
     let rows = payload
         .as_array()
@@ -433,10 +418,23 @@ fn parse_item_stats(payload: &Value) -> Result<BTreeMap<i64, ItemStatLine>> {
 }
 
 async fn item_catalog_ids(pool: &PgPool) -> Result<BTreeSet<i64>> {
-    let ids = sqlx::query_scalar::<_, i64>("SELECT item_id FROM brain.item_catalog")
-        .fetch_all(pool)
-        .await?;
-    Ok(ids.into_iter().collect())
+    let version = brain_storage::asset_mirror::latest_mirrored_client_version(pool).await?;
+    let catalog = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
+        pool,
+        version,
+        "items",
+        Some("english"),
+    )
+    .await?;
+    let rows = catalog
+        .payload
+        .as_array()
+        .ok_or_else(|| anyhow!("Itemsatz ist kein Array"))?;
+    Ok(rows
+        .iter()
+        .filter(|raw| brain_contracts::game_mode::GameMode::Normal.allows_item(raw))
+        .filter_map(|raw| raw["id"].as_i64())
+        .collect())
 }
 
 fn lift_candidate_ids(
@@ -458,7 +456,8 @@ fn lift_candidate_ids(
                 .get(&item_id)
                 .map(|line| line.matches)
                 .unwrap_or(0);
-            (builds >= 30 && matches >= 500).then_some((item_id, builds, matches))
+            (matches >= 500 && (prevalence.is_empty() || builds >= 30))
+                .then_some((item_id, builds, matches))
         })
         .collect::<Vec<_>>();
     scored.sort_by(|left, right| {
@@ -653,6 +652,31 @@ fn analytics_pause(options: &BuildDataSyncOptions) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn missing_mode_filtered_guide_counts_use_only_eligible_match_candidates() {
+        let stats = [1, 2]
+            .into_iter()
+            .map(|id| {
+                (
+                    id,
+                    ItemStatLine {
+                        wins: 600,
+                        losses: 400,
+                        matches: 1000,
+                        players: 1000,
+                        avg_buy_time_relative: None,
+                    },
+                )
+            })
+            .collect();
+        let allowed = BTreeSet::from([2]);
+        assert_eq!(
+            lift_candidate_ids(&BTreeMap::new(), &stats, &allowed, 16),
+            vec![2]
+        );
+        assert!(lift_candidate_ids(&BTreeMap::from([(2, 29)]), &stats, &allowed, 16).is_empty());
+    }
 
     // Schreib-/Lese-Roundtrip gegen die Scratch-Postgres. Synthetische Hoch-IDs,
     // die nicht mit echten Daten kollidieren, plus Aufraeumen am Anfang und Ende.

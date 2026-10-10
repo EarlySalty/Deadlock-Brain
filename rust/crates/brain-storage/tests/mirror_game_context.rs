@@ -142,7 +142,8 @@ pub(crate) async fn seed_with_grants(pool: &PgPool, marker: &str, granted: bool)
             let payload = if *kind == "generic_data" {
                 json!({"observation":marker,"zero":0})
             } else if *kind == "items" && granted {
-                json!([{"id":8,"name":"Prüfitem","type":"upgrade","observation":marker,"zero":0},
+                json!([{"id":8,"name":"Prüfitem","type":"upgrade","shopable":true,"disabled":false,
+                    "item_slot_type":"spirit","item_tier":1,"cost":800,"observation":marker,"zero":0},
                     {"id":9,"name":"Prüffähigkeit","type":"ability","observation":marker}])
             } else {
                 json!([{"id":7,"name":"Prüfdaten","observation":marker}])
