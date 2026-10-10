@@ -815,9 +815,83 @@ fn validate_publish_models_with_plan(
     Ok(())
 }
 
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn publication_checks_actual_current_shop_entries_before_queue_or_http() {
+        let payload = json!({"mod_categories":[{"mods":[{"ability_id":1}]}]});
+        let catalog = json!([{"id":1,"name":"Any name","type":"upgrade","item_slot_type":"weapon","item_tier":1,"cost":800,"shopable":true}]);
+        assert!(validate_publish_catalog(&payload, &catalog).is_ok());
+        for (field, value) in [
+            ("id", json!(2)),
+            ("shopable", json!(false)),
+            ("disabled", json!(true)),
+            ("item_tier", json!(5)),
+            ("cost", json!(0)),
+            ("type", json!("ability")),
+        ] {
+            let mut changed = catalog.clone();
+            changed[0][field] = value;
+            assert!(
+                validate_publish_catalog(&payload, &changed).is_err(),
+                "{field}"
+            );
+        }
+        assert!(validate_publish_catalog(&payload, &json!([])).is_err());
+        assert!(validate_publish_catalog(&json!({"mod_categories":[{}]}), &catalog).is_err());
+    }
+}
+
+pub fn validate_publish_catalog(payload: &Value, items: &Value) -> Result<()> {
+    let rows = items
+        .as_array()
+        .ok_or_else(|| ReasonerError::Data("Aktueller Item-Katalog fehlt.".into()))?;
+    let allowed: std::collections::BTreeSet<_> = rows
+        .iter()
+        .filter(|item| brain_contracts::game_mode::GameMode::Normal.allows_item(item))
+        .filter_map(|item| item["id"].as_i64())
+        .collect();
+    let categories = payload["mod_categories"]
+        .as_array()
+        .ok_or_else(|| ReasonerError::Data("Item-Kategorien fehlen.".into()))?;
+    for category in categories {
+        let mods = category["mods"]
+            .as_array()
+            .ok_or_else(|| ReasonerError::Data("Item-Liste fehlt.".into()))?;
+        for item in mods {
+            if item["ability_id"]
+                .as_i64()
+                .is_none_or(|id| !allowed.contains(&id))
+            {
+                return Err(ReasonerError::Data("Build enthält ein Item, das aktuell nicht im Standardmodus kaufbar ist. Es wurde nichts veröffentlicht.".into()));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn validate_publish_items(pool: &PgPool, payload: &Value) -> Result<()> {
+    let version = brain_storage::asset_mirror::latest_mirrored_client_version(pool)
+        .await
+        .map_err(|error| ReasonerError::Data(format!("API-Spiegel: {error}")))?;
+    let items = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
+        pool,
+        version,
+        "items",
+        Some("english"),
+    )
+    .await
+    .map_err(|error| ReasonerError::Data(format!("API-Items: {error}")))?;
+    validate_publish_catalog(payload, &items.payload)
+}
+
 pub async fn enqueue_publish_task(pool: &PgPool, build: &BuildObject) -> Result<i64> {
     validate_publish_current(pool, build).await?;
     let payload = publish_task_payload(build);
+    validate_publish_items(pool, &payload).await?;
     sqlx::query_scalar::<_, i64>("INSERT INTO steam.steam_tasks(type, payload, status) VALUES('BUILD_PUBLISH_ORIGINAL', $1, 'PENDING') RETURNING id")
         .bind(payload)
         .fetch_one(pool)
@@ -863,6 +937,7 @@ pub fn review_publish_task_payload(build: &BuildObject) -> Result<Value> {
 
 pub async fn enqueue_review_publish_task(pool: &PgPool, build: &BuildObject) -> Result<i64> {
     let payload = review_publish_task_payload(build)?;
+    validate_publish_items(pool, &payload).await?;
     sqlx::query_scalar::<_, i64>("INSERT INTO steam.steam_tasks(type, payload, status) VALUES('BUILD_PUBLISH_ORIGINAL', $1, 'PENDING') RETURNING id")
         .bind(payload)
         .fetch_one(pool)

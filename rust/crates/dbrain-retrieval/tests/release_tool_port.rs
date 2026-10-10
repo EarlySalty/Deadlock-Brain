@@ -996,9 +996,9 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
         assert_eq!(execution.dependencies[0].game_context.as_ref(), Some(&pin));
         assert_eq!(
             execution.result.result["matches"],
-            json!([{"kind":kind,"id":id,"name":name}])
+            json!([{"kind":kind,"id":id,"name":name,"names":{"english":name,"german":name}}])
         );
-        assert_eq!(execution.dependencies[0].evidence.len(), 2);
+        assert_eq!(execution.dependencies[0].evidence.len(), 3);
         for purpose in [
             ToolValidationPurpose::Provider,
             ToolValidationPurpose::Cache,
@@ -1024,6 +1024,13 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
     let execution = port
         .execute(&query, &context, Some(&pin), &profile.id, &request)
         .unwrap();
+    let names = reader
+        .read_pinned(&context, &pin)
+        .unwrap()
+        .localized_names("items", 8)
+        .unwrap();
+    assert_eq!(execution.result.result["names"], names);
+    assert_eq!(names.as_object().unwrap().len(), 2);
     assert_eq!(
         execution.result.result["fields"]["zero"],
         json!({"state":"known","value":0})
@@ -1081,7 +1088,7 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
         )
         .unwrap();
     assert_eq!(absent.result.result["matches"], json!([]));
-    assert_eq!(absent.dependencies[0].evidence.len(), 3);
+    assert_eq!(absent.dependencies[0].evidence.len(), 5);
     let document_id = reader
         .read_pinned(&context, &pin)
         .unwrap()

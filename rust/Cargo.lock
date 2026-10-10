@@ -815,6 +815,7 @@ name = "dbrain-builds"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "brain-contracts",
  "brain-storage",
  "reqwest",
  "serde",
@@ -844,6 +845,8 @@ dependencies = [
 name = "dbrain-learn"
 version = "0.1.0"
 dependencies = [
+ "brain-contracts",
+ "brain-storage",
  "deadlock-brain-core",
  "regex",
  "serde_json",

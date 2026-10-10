@@ -8,6 +8,8 @@ name = "dbrain_learn"
 path = "src/lib.rs"
 
 [dependencies]
+brain-contracts = { path = "../brain-contracts" }
+brain-storage = { path = "../brain-storage" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 regex.workspace = true
 serde_json.workspace = true

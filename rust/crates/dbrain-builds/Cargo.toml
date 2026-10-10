@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+brain-contracts = { path = "../brain-contracts" }
 brain-storage = { path = "../brain-storage" }
 anyhow.workspace = true
 reqwest.workspace = true

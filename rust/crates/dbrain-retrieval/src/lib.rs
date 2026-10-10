@@ -154,8 +154,11 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
         };
         let mut originals = BTreeMap::new();
         let mut missing_original = false;
-        for kind in kinds {
-            let asset = bundle.asset(kind, Some(language))?;
+        for (kind, original_language) in kinds
+            .iter()
+            .flat_map(|kind| ["english", "german"].map(|language| (kind, language)))
+        {
+            let asset = bundle.asset(kind, Some(original_language))?;
             for (receipt, expected_payload) in [
                 (&asset.receipt.manifest, None),
                 (&asset.receipt.endpoint, Some(&asset.payload)),
@@ -249,7 +252,12 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
                     EntityKind::Hero
                 } else {
                     match row["type"].as_str() {
-                        Some("upgrade") => EntityKind::Item,
+                        Some("upgrade")
+                            if brain_contracts::game_mode::GameMode::from_question(&query.text)
+                                .allows_item(row) =>
+                        {
+                            EntityKind::Item
+                        }
                         Some("ability") => EntityKind::Ability,
                         _ => continue,
                     }
@@ -297,8 +305,18 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
                                 .iter()
                                 .all(|term| brain_contracts::lexical::terms(name).contains(term))
                     })
-                    .map(|(kind, id, name, _)| json!({"kind":kind,"id":id,"name":name}))
-                    .collect();
+                    .map(|(kind, id, name, _)| {
+                        let names = bundle.localized_names(
+                            if *kind == EntityKind::Hero {
+                                "heroes_all"
+                            } else {
+                                "items"
+                            },
+                            *id as i64,
+                        )?;
+                        Ok(json!({"kind":kind,"id":id,"name":name,"names":names}))
+                    })
+                    .collect::<std::result::Result<_, brain_contracts::PortError>>()?;
                 json!({"matches":matches})
             }
             ToolSubrequest::EntityProfile(profile) => {
@@ -323,7 +341,15 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
                         (field.clone(), value)
                     })
                     .collect();
-                json!({"entity":profile.entity,"name":name,"fields":fields})
+                let names = bundle.localized_names(
+                    if profile.entity.kind == EntityKind::Hero {
+                        "heroes_all"
+                    } else {
+                        "items"
+                    },
+                    profile.entity.id as i64,
+                )?;
+                json!({"entity":profile.entity,"name":name,"names":names,"fields":fields})
             }
             _ => {
                 return Err(brain_contracts::PortError::Unavailable(
@@ -2009,6 +2035,11 @@ async fn ask_build_context(
     plan: &QueryPlan,
     opts: &AskContextOptions,
 ) -> Result<JsonValue> {
+    if brain_contracts::game_mode::GameMode::from_question(query)
+        == brain_contracts::game_mode::GameMode::StreetBrawl
+    {
+        return Err(RetrievalError::Invalid("Street-Brawl-Kaufpläne sind hier noch nicht verfügbar. Es wird kein Standardmodus-Build als Ersatz berechnet.".into()));
+    }
     let hero_query = resolved_plan_entity_name(plan).unwrap_or_else(|| query.trim().to_string());
     let playstyle = detect_build_playstyle(query);
     let ctx = ReasonerCtx {
@@ -2303,15 +2334,54 @@ pub async fn item(pool: &PgPool, query: &str) -> Result<JsonValue> {
 }
 
 pub async fn build_item_context(pool: &PgPool, query: &str) -> Result<JsonValue> {
-    let payload = match load_entity_payload(pool, query, "item").await? {
-        Some(found) => Some(found),
-        None => load_entity_payload(pool, query, "item_special")
-            .await
-            .ok()
-            .flatten(),
-    }
-    .ok_or_else(|| RetrievalError::Invalid(format!("Kein Item-Payload fuer {query} gefunden.")))?;
-    Ok(JsonValue::Object(item_summary(&payload)))
+    let version = brain_storage::asset_mirror::latest_mirrored_client_version(pool)
+        .await
+        .map_err(|error| RetrievalError::Invalid(format!("API-Spiegel: {error}")))?;
+    let items = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
+        pool,
+        version,
+        "items",
+        Some("english"),
+    )
+    .await
+    .map_err(|error| RetrievalError::Invalid(format!("API-Items: {error}")))?;
+    let mode = brain_contracts::game_mode::GameMode::from_question(query);
+    let terms = brain_contracts::lexical::terms(query);
+    let resolved = match load_entity_payload(pool, query, "item").await? {
+        Some(item) => Some(item),
+        None => load_entity_payload(pool, query, "item_special").await?,
+    };
+    let resolved_id = resolved
+        .as_ref()
+        .and_then(|row| row.get("id"))
+        .and_then(JsonValue::as_i64);
+    let matches: Vec<_> = items
+        .payload
+        .as_array()
+        .ok_or_else(|| RetrievalError::Invalid("Itemsatz ist kein Array.".into()))?
+        .iter()
+        .filter(|item| mode.allows_item(item))
+        .filter(|item| {
+            item["id"]
+                .as_i64()
+                .is_some_and(|id| resolved_id == Some(id) || id.to_string() == query.trim())
+                || item["class_name"].as_str() == Some(query.trim())
+                || item["name"].as_str().is_some_and(|name| {
+                    let name_terms = brain_contracts::lexical::terms(name);
+                    !name_terms.is_empty() && name_terms.iter().all(|term| terms.contains(term))
+                })
+        })
+        .collect();
+    let [payload] = matches.as_slice() else {
+        return Err(RetrievalError::Invalid(
+            "Kein eindeutig kaufbares Item im angefragten Spielmodus gefunden.".into(),
+        ));
+    };
+    Ok(JsonValue::Object(item_summary(
+        payload
+            .as_object()
+            .ok_or_else(|| RetrievalError::Invalid("Itemdaten fehlen.".into()))?,
+    )))
 }
 
 pub fn summarize_item_payload(payload: &JsonValue) -> JsonValue {

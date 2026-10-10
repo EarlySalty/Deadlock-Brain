@@ -202,6 +202,11 @@ pub async fn build_hero_build_context(
     vs_heroes: &[String],
     limit_events: usize,
 ) -> Result<Value> {
+    if brain_contracts::game_mode::GameMode::from_question(query)
+        == brain_contracts::game_mode::GameMode::StreetBrawl
+    {
+        return Err(LearnError::InvalidInput("Street-Brawl-Kaufpläne sind hier noch nicht verfügbar. Es wird kein Standardmodus-Build als Ersatz berechnet.".into()));
+    }
     let review_context = build_review_context(pool, query, limit_events).await?;
     let entity = get(&review_context, "entity_summary")
         .and_then(as_object)
@@ -1541,44 +1546,26 @@ fn compact_properties(properties: Option<&Value>) -> Value {
 }
 
 async fn load_public_items(pool: &PgPool) -> Result<Vec<Value>> {
-    let rows = query_json_rows(
+    let version = brain_storage::asset_mirror::latest_mirrored_client_version(pool)
+        .await
+        .map_err(|error| LearnError::InvalidInput(format!("API-Spiegel: {error}")))?;
+    let catalog = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
         pool,
-        r#"
-        SELECT payload::text AS payload_json
-        FROM brain.entity_snapshots
-        WHERE source='deadlock_assets_api'
-          AND entity_type='item_or_ability'
-        "#,
-        &[],
+        version,
+        "items",
+        Some("english"),
     )
-    .await?;
-    let mut items = Vec::new();
-    let mut seen = BTreeSet::new();
-    for row in rows {
-        let payload = json_loads(get(&row, "payload_json").and_then(Value::as_str), json!({}));
-        let class_name = get_string(&payload, "class_name").unwrap_or_default();
-        if class_name.is_empty() || !seen.insert(class_name) {
-            continue;
-        }
-        if !bool_value(get(&payload, "shopable")) {
-            continue;
-        }
-        if bool_value(get(&payload, "disabled")) {
-            continue;
-        }
-        let slot = get_string(&payload, "item_slot_type").unwrap_or_default();
-        if !PUBLIC_ITEM_SLOTS.contains(&slot.as_str()) {
-            continue;
-        }
-        let Some(cost) = known_payload_cost(&payload) else {
-            continue;
-        };
-        if cost <= 0 {
-            continue;
-        }
-        items.push(payload);
-    }
-    Ok(items)
+    .await
+    .map_err(|error| LearnError::InvalidInput(format!("API-Items: {error}")))?;
+    let rows = catalog
+        .payload
+        .as_array()
+        .ok_or_else(|| LearnError::InvalidInput("Itemsatz ist kein Array.".into()))?;
+    Ok(rows
+        .iter()
+        .filter(|raw| brain_contracts::game_mode::GameMode::Normal.allows_item(raw))
+        .cloned()
+        .collect())
 }
 
 async fn load_hero_abilities(pool: &PgPool, hero_payload: &Value) -> Result<Vec<Value>> {
