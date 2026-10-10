@@ -2320,6 +2320,8 @@ mod tests {
 
     #[test]
     fn boonkurven_analytics_und_regeln_erhalten_die_tatsaechliche_erweiterte_unteranfrage() {
+        use brain_contracts::provider_input::{grounded_turn_input_ceiling, ToolWireFormat};
+
         let call = tool_call(
             "compare",
             brain_contracts::ToolName::HeroCompare,
@@ -2339,12 +2341,69 @@ mod tests {
             ],
         );
         let request = query(AnswerProfile::Explain);
-        let answer = kernel.answer_with_purpose(
-            &request,
-            &context(&[], &["public"]),
-            AnswerPurpose::InternalRead,
-        );
+        let mut context = context(&[], &["public"])
+            .with_request_deadline()
+            .into_owned();
+        let session = kernel.prepare_tools(&request, &context).unwrap().unwrap();
+        let fixture = TestTools {
+            state: Default::default(),
+            definitions: session.definitions.clone(),
+        };
+        let subrequest = call.validate(&session.definitions).unwrap();
+        let execution = fixture
+            .execute(
+                &request,
+                &context,
+                session.game_context.as_ref(),
+                &call.id,
+                &subrequest,
+            )
+            .unwrap();
+        execution
+            .validate_for(&call, &subrequest, session.game_context.as_ref())
+            .unwrap();
+        let evidence: Vec<_> = execution
+            .dependencies
+            .iter()
+            .flat_map(|dependency| &dependency.evidence)
+            .cloned()
+            .collect();
+        let conversation = brain_contracts::ToolConversation {
+            messages: vec![
+                brain_contracts::ToolMessage::Assistant {
+                    blocks: vec![brain_contracts::ModelBlock::ToolUse { call }],
+                },
+                brain_contracts::ToolMessage::ToolResults {
+                    results: vec![execution.result],
+                },
+            ],
+        };
+        let input_budget: u64 = [
+            (&[][..], brain_contracts::ToolConversation::default()),
+            (evidence.as_slice(), conversation),
+        ]
+        .into_iter()
+        .map(|(evidence, conversation)| {
+            [ToolWireFormat::Native, ToolWireFormat::OpenAiCompatible]
+                .into_iter()
+                .map(|format| {
+                    grounded_turn_input_ceiling(
+                        &request,
+                        evidence,
+                        &session.definitions,
+                        &conversation,
+                        format,
+                    )
+                    .unwrap()
+                })
+                .max()
+                .unwrap()
+        })
+        .sum();
+        context.budget.max_input_tokens = u32::try_from(input_budget).unwrap();
+        let answer = kernel.answer_with_purpose(&request, &context, AnswerPurpose::InternalRead);
         assert_eq!(answer.answer.status, AnswerStatus::Answered);
+        assert_eq!(answer.accounting.charged().input_tokens, input_budget);
         let brain_contracts::ToolSubrequest::HeroCompare(compare) =
             answer.tool_dependencies[0].request.subrequest()
         else {

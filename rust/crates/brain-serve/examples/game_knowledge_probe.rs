@@ -12,12 +12,26 @@ use std::{
 
 type Result<T> = std::result::Result<T, &'static str>;
 
-async fn run(args: &[String]) -> Result<()> {
-    if args.len() != 5 {
-        return Err(
-            "usage_input_jsonl_new_output_jsonl_serve_config_infisical_config_expected_release",
-        );
+fn question_count(args: &[String]) -> Result<usize> {
+    match args.len() {
+        5 => Ok(20),
+        6 if args[5] == "--single" => Ok(1),
+        _ => Err("usage_input_jsonl_new_output_jsonl_serve_config_infisical_config_expected_release_optional_single"),
     }
+}
+
+fn validate_question_count(actual: usize, expected: usize) -> Result<()> {
+    if actual == expected {
+        Ok(())
+    } else if expected == 1 {
+        Err("exactly_one_question_required")
+    } else {
+        Err("exactly_twenty_questions_required")
+    }
+}
+
+async fn run(args: &[String]) -> Result<()> {
+    let expected_count = question_count(args)?;
     for path in &args[..4] {
         if !Path::new(path).is_absolute() {
             return Err("absolute_paths_required");
@@ -37,9 +51,8 @@ async fn run(args: &[String]) -> Result<()> {
             .ok_or("question_missing")?;
         questions.push(question.to_owned());
     }
-    if questions.len() != 20 {
-        return Err("exactly_twenty_questions_required");
-    }
+    validate_question_count(questions.len(), expected_count)?;
+    let cases = questions.len();
     let config = Config::parse(&fs::read(&args[2]).map_err(|_| "serve_config_unavailable")?)
         .map_err(|_| "serve_config_invalid")?;
     if !config.bind.ip().is_loopback() {
@@ -119,11 +132,35 @@ async fn run(args: &[String]) -> Result<()> {
     }
     println!(
         "{}",
-        json!({"cases": 20, "answered": answered, "cited": cited,
+        json!({"cases": cases, "answered": answered, "cited": cited,
         "transport_errors": transport_errors, "synthetic_requests": true, "discord_reads": false,
         "semantic_validation_required": true, "output": args[1]})
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_question_mode_is_explicit_and_keeps_the_twenty_question_default() {
+        let mut args = vec!["fixture".to_owned(); 5];
+        assert_eq!(question_count(&args), Ok(20));
+        assert!(validate_question_count(20, 20).is_ok());
+        assert!(validate_question_count(1, 20).is_err());
+        args.push("--single".into());
+        assert_eq!(question_count(&args), Ok(1));
+        assert!(validate_question_count(1, 1).is_ok());
+        for count in [0, 2, 20] {
+            assert!(validate_question_count(count, 1).is_err());
+        }
+        args[5] = "--other".into();
+        assert!(question_count(&args).is_err());
+        args.push("--single".into());
+        assert!(question_count(&args).is_err());
+        assert!(question_count(&args[..4]).is_err());
+    }
 }
 
 #[tokio::main]

@@ -377,11 +377,11 @@ impl Runtime {
         context: &AuthorizedContext,
         endpoint: &str,
         mode: GameMode,
-        start: i64,
-        end: i64,
+        window: std::ops::Range<i64>,
         params: &[(&str, i64)],
         usage: &mut Usage,
     ) -> Result<Vec<Value>, PortError> {
+        let std::ops::Range { start, end } = window;
         let mut url = analytics_url(endpoint, mode, start, params)?;
         Self::charge(context, usage)?;
         url.push_str(&format!(
@@ -477,13 +477,13 @@ impl Runtime {
                     "mcp/execute_query",
                 ),
                 Operation::RankedHeroes => (
-                    self.rest(context, "hero-stats", mode, start, end, &params, usage)?,
+                    self.rest(context, "hero-stats", mode, start..end, &params, usage)?,
                     "analytics/hero-stats",
                 ),
                 Operation::Items | Operation::Builds => {
                     params.push(("min_matches", 1));
                     (
-                        self.rest(context, "item-stats", mode, start, end, &params, usage)?,
+                        self.rest(context, "item-stats", mode, start..end, &params, usage)?,
                         "analytics/item-stats",
                     )
                 }
@@ -491,7 +491,7 @@ impl Runtime {
                     params.clear();
                     params.push(("include_item_ids", item_id.ok_or_else(invalid)?));
                     let mut rows =
-                        self.rest(context, "hero-stats", mode, start, end, &params, usage)?;
+                        self.rest(context, "hero-stats", mode, start..end, &params, usage)?;
                     rows.retain(|row| row["hero_id"].as_i64() == hero_id);
                     (rows, "analytics/hero-stats")
                 }
@@ -502,8 +502,7 @@ impl Runtime {
                             context,
                             "hero-counter-stats",
                             mode,
-                            start,
-                            end,
+                            start..end,
                             &params,
                             usage,
                         )?,
@@ -2146,8 +2145,7 @@ mod tests {
                 &context,
                 "item-stats",
                 GameMode::Normal,
-                1791331200,
-                1791417600,
+                1791331200..1791417600,
                 &[("hero_id", 6), ("min_matches", 1)],
                 &mut usage,
             )
@@ -2162,8 +2160,7 @@ mod tests {
                 &context,
                 "hero-stats",
                 GameMode::Normal,
-                1791331200,
-                1791417600,
+                1791331200..1791417600,
                 &[("include_item_ids", item)],
                 &mut usage,
             )
@@ -2179,8 +2176,7 @@ mod tests {
                 &context,
                 "hero-build-stats/6",
                 GameMode::Normal,
-                1791331200,
-                1791417600,
+                1791331200..1791417600,
                 &[("min_matches", 1)],
                 &mut usage,
             )
@@ -2191,8 +2187,7 @@ mod tests {
                 &context,
                 "hero-counter-stats",
                 GameMode::Normal,
-                1791331200,
-                1791417600,
+                1791331200..1791417600,
                 &[("hero_id", 6), ("min_matches", 1)],
                 &mut usage,
             )
