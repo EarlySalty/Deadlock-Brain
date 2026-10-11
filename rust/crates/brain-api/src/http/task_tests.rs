@@ -253,6 +253,34 @@ async fn discord_answer_task_reuses_the_header_path_exactly() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn header_path_enforces_task_capability_grants() {
+    let state = state(service(RecordingKernel::default()));
+    for (capability, expected) in [("concierge", 403), ("faq", 200)] {
+        let request_id = format!("legacy-{capability}");
+        let task_header = json!({"capability": capability, "channel_id": 10}).to_string();
+        let (response, _) = send(
+            &state,
+            Route::Answer,
+            "other-token",
+            json!({
+                "request_id": request_id,
+                "conversation_id": request_id,
+                "text": "Wo finde ich die Serverregeln?",
+                "requested_scopes": ["bot.public"],
+            })
+            .to_string(),
+            &[
+                ("x-discord-user-id", "42"),
+                ("x-discord-read-access", "disabled"),
+                ("x-discord-answer-task", &task_header),
+            ],
+        )
+        .await;
+        assert_eq!(response.status, expected, "{capability}: {}", response.body);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn rights_identity_and_bounds_fail_with_typed_statuses() {
     let kernel = RecordingKernel::default();
     let state = state(service(kernel.clone()));

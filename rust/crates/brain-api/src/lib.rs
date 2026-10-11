@@ -257,12 +257,16 @@ where
                 Ok(principal) => principal,
                 Err(_) => return json_error(401, "unauthorized", "Zugangsdaten sind ungültig"),
             };
-            if task.as_ref().is_some_and(|task| !task.valid())
-                || claimed_user.is_none_or(|id| id == 0)
+            let consumer = (principal.actor_id, principal.channel);
+            if task.as_ref().is_some_and(|task| {
+                !task.valid()
+                    || !self
+                        .bot_task_consumers
+                        .get(&consumer)
+                        .is_some_and(|capabilities| capabilities.contains(&task.capability.into()))
+            }) || claimed_user.is_none_or(|id| id == 0)
                 || allow_discord_reads
-                || !self
-                    .discord_consumers
-                    .contains(&(principal.actor_id, principal.channel))
+                || !self.discord_consumers.contains(&consumer)
                 || query.requested_scopes != std::collections::BTreeSet::from(["bot.public".into()])
                 || query.domain.is_some()
                 || query.answer_context.is_some()
