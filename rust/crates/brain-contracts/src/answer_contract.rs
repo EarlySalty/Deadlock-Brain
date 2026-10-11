@@ -13,12 +13,66 @@ pub enum Original {
     Number(String),
 }
 
+const SEQUENCE_WORDS: &[&str] = &[
+    "minute",
+    "minuten",
+    "min",
+    "sekunde",
+    "sekunden",
+    "sek",
+    "sec",
+    "second",
+    "seconds",
+    "stunde",
+    "stunden",
+    "hour",
+    "stufe",
+    "level",
+    "lvl",
+    "rang",
+    "rank",
+    "platz",
+    "welle",
+    "wave",
+    "runde",
+    "round",
+    "patch",
+    "tag",
+    "day",
+    "woche",
+    "week",
+    "monat",
+    "month",
+    "januar",
+    "january",
+    "februar",
+    "february",
+    "märz",
+    "march",
+    "april",
+    "mai",
+    "may",
+    "juni",
+    "june",
+    "juli",
+    "july",
+    "august",
+    "september",
+    "oktober",
+    "october",
+    "november",
+    "dezember",
+    "december",
+];
+
 struct Number {
     text: String,
+    raw: String,
     sign: Option<char>,
     mantissa: String,
     exponent: i64,
     typed: bool,
+    marker: Option<(u64, bool)>,
 }
 
 pub fn unbound_provider_values(
@@ -40,12 +94,14 @@ pub fn unbound_values(answer: &str, originals: &[Original]) -> Vec<String> {
         })
         .flat_map(|number| authorized_keys(&number))
         .collect();
-    numbers(answer, false, true)
+    without_list_markers(numbers(answer, false, true))
         .into_iter()
         .filter(|number| {
-            !values(number).iter().any(|(integer, fraction)| {
-                authorized.contains(&signed(number.sign, &canonical(integer, fraction)))
-            })
+            !values(number)
+                .iter()
+                .map(|(integer, fraction)| canonical(integer, fraction))
+                .chain([raw_key(number)])
+                .any(|value| authorized.contains(&signed(number.sign, &value)))
         })
         .map(|number| number.text)
         .collect()
@@ -58,7 +114,48 @@ fn authorized_keys(number: &Number) -> Vec<String> {
         .flat_map(|(integer, fraction)| {
             (0..=fraction.len()).map(|precision| rounded(integer, fraction, precision))
         })
+        .chain([raw_key(number)])
         .flat_map(|value| [signed(Some(explicit), &value), value])
+        .collect()
+}
+
+fn raw_key(number: &Number) -> String {
+    format!("raw:{}", number.raw)
+}
+
+fn without_list_markers(numbers: Vec<Number>) -> Vec<Number> {
+    let mut structural = vec![false; numbers.len()];
+    let mut run: Vec<usize> = Vec::new();
+    let mut close = |run: &mut Vec<usize>| {
+        if run.len() >= 2
+            && run
+                .iter()
+                .all(|&index| numbers[index].marker.is_some_and(|(_, unit)| !unit))
+        {
+            run.iter().for_each(|&index| structural[index] = true);
+        }
+        run.clear();
+    };
+    for (index, number) in numbers.iter().enumerate() {
+        let Some((value, _)) = number.marker else {
+            continue;
+        };
+        let continues = run
+            .last()
+            .and_then(|&last| numbers[last].marker)
+            .is_some_and(|(previous, _)| value == previous + 1);
+        if !continues {
+            close(&mut run);
+        }
+        if continues || value == 1 {
+            run.push(index);
+        }
+    }
+    close(&mut run);
+    numbers
+        .into_iter()
+        .zip(structural)
+        .filter_map(|(number, structural)| (!structural).then_some(number))
         .collect()
 }
 
@@ -80,7 +177,6 @@ fn word_char(character: char) -> bool {
 fn numbers(text: &str, typed: bool, skip_list_markers: bool) -> Vec<Number> {
     let chars: Vec<char> = text.chars().collect();
     let mut found = Vec::new();
-    let mut next_marker = 1;
     let mut index = 0;
     while index < chars.len() {
         if !chars[index].is_ascii_digit() || (index > 0 && word_char(chars[index - 1])) {
@@ -121,18 +217,16 @@ fn numbers(text: &str, typed: bool, skip_list_markers: bool) -> Vec<Number> {
             && list_marker(&chars, start, end))
         .then(|| mantissa.parse::<u64>().ok())
         .flatten()
-        .filter(|value| *value == 1 || *value == next_marker);
-        if let Some(value) = marker {
-            next_marker = value + 1;
-        } else {
-            found.push(Number {
-                text: chars[text_start..end].iter().collect(),
-                sign,
-                mantissa,
-                exponent,
-                typed,
-            });
-        }
+        .map(|value| (value, sequence_word(&chars, end + 1)));
+        found.push(Number {
+            text: chars[text_start..end].iter().collect(),
+            raw: chars[start..end].iter().collect(),
+            sign,
+            mantissa,
+            exponent,
+            typed,
+            marker,
+        });
         index = end;
     }
     found
@@ -165,12 +259,22 @@ fn list_marker(chars: &[char], start: usize, end: usize) -> bool {
         .map_or(chars.len(), |offset| end + offset);
     chars[line_start..start]
         .iter()
-        .all(|character| character.is_whitespace() || matches!(character, '*' | '#' | '>'))
+        .all(|character| character.is_whitespace())
         && matches!(chars.get(end), Some('.' | ')'))
         && chars.get(end + 1).is_some_and(|next| next.is_whitespace())
         && chars[(end + 1).min(line_end)..line_end]
             .iter()
             .any(|character| !character.is_whitespace())
+}
+
+fn sequence_word(chars: &[char], from: usize) -> bool {
+    let word: String = chars[from.min(chars.len())..]
+        .iter()
+        .skip_while(|character| character.is_whitespace())
+        .take_while(|character| character.is_alphabetic())
+        .flat_map(|character| character.to_lowercase())
+        .collect();
+    SEQUENCE_WORDS.contains(&word.as_str())
 }
 
 fn readings(mantissa: &str, typed: bool) -> Vec<(String, String)> {
@@ -350,19 +454,37 @@ mod tests {
         assert!(unbound_values("Wert 1.500 oder 1500", &typed(&["1.5e3"])).is_empty());
         assert!(unbound_values("Wert 0,0000001", &typed(&["1e-7"])).is_empty());
         for huge in ["1e999", "1e-9223372036854775808", "1e99999999999999999999"] {
-            assert_eq!(unbound_values(huge, &typed(&[huge])), [huge]);
+            assert_eq!(unbound_values(huge, &typed(&["1"])), [huge]);
+            assert!(unbound_values(huge, &typed(&[huge])).is_empty());
         }
+        assert!(unbound_values("Patch vom 02.10.2026", &text(&["02.10.2026"])).is_empty());
+        assert!(unbound_values("Version 1.2.3", &text(&["v1.2.3", "1.2.3"])).is_empty());
+        assert_eq!(
+            unbound_values("Patch vom 03.10.2026", &text(&["02.10.2026"])),
+            ["03.10.2026"]
+        );
     }
 
     #[test]
     fn only_real_list_markers_hide_a_number() {
         assert_eq!(unbound_values("6200.", &[]), ["6200"]);
         assert_eq!(unbound_values("1.", &[]), ["1"]);
+        assert_eq!(unbound_values("1. Minute: Urne", &[]), ["1"]);
         assert_eq!(
             unbound_values("1. Erst kaufen\n30. Minute: Urne", &[]),
-            ["30"]
+            ["1", "30"]
         );
+        assert_eq!(
+            unbound_values("1. Minute: Urne\n2. Minute: Rift", &[]),
+            ["1", "2"]
+        );
+        assert_eq!(unbound_values("# 1. Kauf\n# 2. Dann", &[]), ["1", "2"]);
         assert!(unbound_values("1. Erst\n2. Dann\n3) Zuletzt", &[]).is_empty());
+        assert!(unbound_values(
+            "1. Erst für 800\n2. Dann\n\n1. Neu\n2. Fertig",
+            &text(&["800"])
+        )
+        .is_empty());
     }
 
     #[test]
@@ -379,7 +501,7 @@ mod tests {
                     name: crate::tools::ToolName::DeadlockData,
                     result: serde_json::json!({"timers":[{"objective":"urn",
                         "first_spawn_seconds":600,"first_spawn_clock":"10:00",
-                        "respawn_interval_seconds":300}]}),
+                        "respawn_interval_seconds":300,"cooldown_milliseconds":60000}]}),
                     evidence_ids: Vec::new(),
                     is_error: false,
                 }],
@@ -394,12 +516,12 @@ mod tests {
         .is_empty());
         assert_eq!(
             unbound_provider_values(
-                "Ja, alle 7 Minuten, und sie kostet 6200 Seelen.",
+                "Ja, alle 7 Minuten, und sie kostet 6200 Seelen bei 1000 Abklingzeit.",
                 &query,
                 &[],
                 &conversation
             ),
-            ["7", "6200"]
+            ["7", "6200", "1000"]
         );
     }
 }

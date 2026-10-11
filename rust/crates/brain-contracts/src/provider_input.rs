@@ -319,7 +319,10 @@ fn data_leaves(value: &Value, texts: &mut Vec<Original>) {
         Value::Array(values) => values.iter().for_each(|value| data_leaves(value, texts)),
         Value::Object(fields) => fields.iter().for_each(|(key, value)| {
             texts.push(Original::Text(key.clone()));
-            if let Some(seconds) = value.as_f64().filter(|_| key.contains("seconds")) {
+            if let Some(seconds) = value
+                .as_f64()
+                .filter(|_| key.split('_').any(|part| part == "seconds"))
+            {
                 texts.push(Original::Number((seconds / 60.0).to_string()));
             }
             data_leaves(value, texts);
