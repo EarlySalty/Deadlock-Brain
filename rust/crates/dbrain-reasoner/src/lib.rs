@@ -168,6 +168,7 @@ pub fn plan_build_with_request(
             family_policy: &families::FamilyPolicy::for_patch(events, config),
             playstyle: Playstyle::parse(Some(request.playstyle.as_str()))?,
             constraints: &constraints,
+            publish: false,
         },
     )
 }
@@ -203,6 +204,7 @@ pub fn plan_build_with_playstyle(
             family_policy: &families::FamilyPolicy::for_patch(events, config),
             playstyle: Playstyle::parse(requested_playstyle)?,
             constraints: &Default::default(),
+            publish: false,
         },
     )
 }
@@ -211,6 +213,7 @@ struct PlanningOptions<'a> {
     family_policy: &'a families::FamilyPolicy,
     playstyle: Option<Playstyle>,
     constraints: &'a planner::PlanningConstraints<'a>,
+    publish: bool,
 }
 
 fn plan_build_with_family_policy(
@@ -254,9 +257,18 @@ fn plan_build_with_family_policy(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    let excluded = if options.publish {
+        publish::unpublishable_items(&hero, &items, config)
+    } else {
+        Vec::new()
+    };
+    let blocked = blocked
+        .into_iter()
+        .chain(excluded.iter().map(|item| item.item_id.to_string()))
+        .collect::<Vec<_>>();
     finish_scores(&mut scored);
     options.constraints.check()?;
-    let (mut build, purchase_plan) = composer::compose_build_with_sources_and_constraints(
+    let (mut build, mut purchase_plan) = composer::compose_build_with_sources_and_constraints(
         &hero,
         &scored,
         &deltas,
@@ -275,6 +287,10 @@ fn plan_build_with_family_policy(
     }
     build.family_discovery = discovery;
     if let Some(provenance) = provenance {
+        if options.publish {
+            publish::record_publish_exclusions(&mut purchase_plan, &excluded, &meta.population);
+            publish::record_tolerated_unknowns(&build, &hero, &items, &mut purchase_plan, config);
+        }
         publish::bind_calculated_build(&mut build, provenance, &purchase_plan)?;
     }
     options.constraints.check()?;
@@ -311,6 +327,24 @@ pub async fn reason_build_for_playstyle_with_options(
     requested_playstyle: Option<&str>,
     options: ReasonerOptions<'_>,
 ) -> Result<BuildObject> {
+    reason_build_planned(ctx, hero, requested_playstyle, options, false).await
+}
+
+pub async fn reason_build_for_publish_with_options(
+    ctx: &ReasonerCtx,
+    hero: &str,
+    options: ReasonerOptions<'_>,
+) -> Result<BuildObject> {
+    reason_build_planned(ctx, hero, None, options, true).await
+}
+
+async fn reason_build_planned(
+    ctx: &ReasonerCtx,
+    hero: &str,
+    requested_playstyle: Option<&str>,
+    options: ReasonerOptions<'_>,
+    publish: bool,
+) -> Result<BuildObject> {
     let playstyle = Playstyle::parse(requested_playstyle)?;
     let seed_path = options.seed_path;
     let ctx = effective_context(ctx).await?;
@@ -337,6 +371,7 @@ pub async fn reason_build_for_playstyle_with_options(
                 family_policy: &family_policy,
                 playstyle,
                 constraints: &Default::default(),
+                publish,
             },
         )?;
         let PlannedBuild {
