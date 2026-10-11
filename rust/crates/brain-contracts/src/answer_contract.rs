@@ -164,4 +164,36 @@ mod tests {
             ["52,4", "53"]
         );
     }
+
+    #[test]
+    fn timer_seconds_also_back_their_minute_reading() {
+        let query: Query = serde_json::from_value(
+            serde_json::json!({"request_id":"r","conversation_id":"c","text":"Wann kommt die Urne?"}),
+        )
+        .expect("query");
+        let conversation = ToolConversation {
+            messages: vec![crate::tools::ToolMessage::ToolResults {
+                results: vec![crate::tools::ToolResult {
+                    call_id: "timer-call".into(),
+                    name: crate::tools::ToolName::DeadlockData,
+                    result: serde_json::json!({"timers":[{"objective":"urn",
+                        "first_spawn_seconds":600,"first_spawn_clock":"10:00",
+                        "respawn_interval_seconds":300}]}),
+                    evidence_ids: Vec::new(),
+                    is_error: false,
+                }],
+            }],
+        };
+        assert!(unbound_provider_values(
+            "Die Urne kommt bei 10:00 und danach alle 5 Minuten, also alle 300 s.",
+            &query,
+            &[],
+            &conversation,
+        )
+        .is_empty());
+        assert_eq!(
+            unbound_provider_values("Die Urne kommt alle 4 Minuten.", &query, &[], &conversation),
+            ["4"]
+        );
+    }
 }
