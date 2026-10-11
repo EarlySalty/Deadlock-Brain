@@ -835,15 +835,19 @@ const UTILITY_MARKERS: [&str; 9] = [
     "AirControl",
 ];
 
-const GEOMETRY_SUFFIXES: [&str; 6] = ["Radius", "Range", "Angle", "Height", "Scale", "Tolerance"];
-
-const UTILITY_SUFFIXES: [&str; 6] = [
+const UTILITY_SUFFIXES: [&str; 12] = [
     "Duration",
     "Lifetime",
     "Delay",
     "ChargeUpTime",
     "Velocity",
     "Speed",
+    "Radius",
+    "Range",
+    "Angle",
+    "Height",
+    "Scale",
+    "Tolerance",
 ];
 
 const COMBAT_TOKENS: [&str; 26] = [
@@ -908,7 +912,6 @@ fn unquantified_property(effect: &str) -> Option<&str> {
 
 fn utility_property(key: &str) -> bool {
     UTILITY_MARKERS.iter().any(|marker| key.contains(marker))
-        || GEOMETRY_SUFFIXES.iter().any(|suffix| key.ends_with(suffix))
         || (!COMBAT_TOKENS.iter().any(|token| key.contains(token))
             && (UTILITY_SUFFIXES.iter().any(|suffix| key.ends_with(suffix))
                 || UTILITY_TOKENS.iter().any(|token| key.contains(token))))
@@ -1197,6 +1200,7 @@ mod tests {
         assert_eq!(
             blocking_unknown_effects(&held, &baseline),
             [
+                "Item A: ProcRadius nicht quantifiziert",
                 "Item B: BonusHeavyMeleeDamage nicht quantifiziert",
                 "Item C: FireRateSlow nicht quantifiziert",
                 "Item C: ReloadSpeed nicht quantifiziert",

@@ -3309,7 +3309,12 @@ impl SavedPublication {
                 .and_then(|directory| directory.sync_all())
                 .is_err()
             {
-                if *linked && fs::remove_file(path).is_ok() {
+                if *linked
+                    && fs::remove_file(path).is_ok()
+                    && fs::File::open(parent)
+                        .and_then(|directory| directory.sync_all())
+                        .is_ok()
+                {
                     *linked = false;
                 }
                 anyhow::bail!(
