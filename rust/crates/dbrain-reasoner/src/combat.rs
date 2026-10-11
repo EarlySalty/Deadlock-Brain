@@ -5041,10 +5041,20 @@ pub(crate) mod tests {
         let stats = aggregate_stats(&hero, std::slice::from_ref(&bonus));
         assert_eq!(stats.spirit_leech, 10.0);
         assert_eq!(stats.bullet_leech, 0.0);
-        assert_eq!(
-            crate::mechanics::passive_value(&bonus, &hero, &ReasonerConfig::default()),
-            10.0
-        );
+        for alias in [
+            "BonusSpiritLifesteal",
+            "AbilityLifestealPercent",
+            "AbilityLifestealPercentHero",
+        ] {
+            assert_eq!(
+                crate::mechanics::passive_value(
+                    &item(2, alias, 10.0),
+                    &hero,
+                    &ReasonerConfig::default()
+                ),
+                10.0
+            );
+        }
         let mut target = 40.0;
         let mut events = Vec::new();
         let mut healing = 0.0;
