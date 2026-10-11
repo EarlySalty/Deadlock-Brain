@@ -1,6 +1,7 @@
 use brain_api::{router, ApiService};
 use brain_client::AsyncBrainClient;
 use brain_contracts::{
+    bot_tasks::BotCapability,
     discord_task::{
         DiscordAnswerCapability, DiscordAnswerTask, DiscordContextProjection,
         DiscordContextResolver, PUBLIC_CONTEXT_PREFIX,
@@ -147,6 +148,10 @@ fn api_with_budget<K: AnswerKernelPort>(kernel: K, budget: Budget) -> ApiService
         budget,
     )
     .with_discord_consumers(BTreeSet::from([("bot".into(), "discord".into())]))
+    .with_bot_task_consumers(BTreeMap::from([(
+        ("bot".into(), "discord".into()),
+        BTreeSet::from([BotCapability::DiscordConcierge, BotCapability::DiscordFaq]),
+    )]))
 }
 
 fn read_request(stream: &mut std::net::TcpStream) -> String {
@@ -1240,8 +1245,9 @@ async fn private_history_never_follows_redirects() {
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         let request = read_request(&mut stream);
+        assert!(request.starts_with("POST /v1/task HTTP/1.1\r\n"));
         assert!(request.contains("PRIVATE_CANARY_äöüß"));
-        assert!(request.contains("x-discord-read-access: disabled"));
+        assert!(!request.to_ascii_lowercase().contains("x-discord-"));
         write!(stream, "HTTP/1.1 307 Temporary Redirect\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
     });
     let client = AsyncBrainClient::new_local(&endpoint, "fixture", Duration::from_secs(2)).unwrap();

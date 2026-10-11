@@ -1,4 +1,3 @@
-//! Shared wire validation for both transports. Never a model or retrieval fallback.
 use crate::{ClientError, Result};
 use brain_contracts::{PublicAnswerResponse, Query};
 use reqwest::{
@@ -74,12 +73,22 @@ pub(crate) fn decode_response(
     bytes: &[u8],
     request_id: &str,
 ) -> Result<PublicAnswerResponse> {
+    accepted_status(status, bytes)?;
+    if !is_json {
+        return Err(ClientError::InvalidResponse);
+    }
+    let answer: PublicAnswerResponse = serde_json::from_slice(bytes)?;
+    answer
+        .validate(request_id)
+        .map_err(|_| ClientError::InvalidResponse)?;
+    Ok(answer)
+}
+
+pub(crate) fn accepted_status(status: StatusCode, bytes: &[u8]) -> Result<()> {
     if bytes.len() > MAX_RESPONSE_BYTES {
         return Err(ClientError::ResponseTooLarge);
     }
     if status != StatusCode::OK {
-        // A syntactically valid arbitrary error code could itself contain a secret.
-        // Only known protocol codes, never upstream messages, cross this boundary.
         let code = serde_json::from_slice::<brain_contracts::ApiErrorEnvelope>(bytes)
             .ok()
             .map(|e| e.error.code)
@@ -102,14 +111,7 @@ pub(crate) fn decode_response(
             .unwrap_or_else(|| "http_error".into());
         return Err(ClientError::HttpStatus { status, body: code });
     }
-    if !is_json {
-        return Err(ClientError::InvalidResponse);
-    }
-    let answer: PublicAnswerResponse = serde_json::from_slice(bytes)?;
-    answer
-        .validate(request_id)
-        .map_err(|_| ClientError::InvalidResponse)?;
-    Ok(answer)
+    Ok(())
 }
 
 #[cfg(test)]

@@ -285,6 +285,7 @@ dependencies = [
  "brain-policy",
  "brain-providers",
  "brain-storage",
+ "chrono",
  "dbrain-reasoner",
  "dbrain-retrieval",
  "reqwest",
@@ -450,11 +451,14 @@ name = "brain-providers"
 version = "0.1.0"
 dependencies = [
  "brain-contracts",
+ "chrono",
  "httpdate",
+ "libc",
  "reqwest",
  "serde",
  "serde_json",
  "serde_path_to_error",
+ "tempfile",
  "thiserror 1.0.69",
 ]
 

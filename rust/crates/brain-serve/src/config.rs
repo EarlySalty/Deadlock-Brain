@@ -1,10 +1,8 @@
-//! Strict, non-secret configuration. Unknown fields and incomplete sections are errors.
 use crate::Error;
 use brain_contracts::Budget;
 use serde::Deserialize;
 use std::{collections::BTreeSet, fs::File, io::Read, net::SocketAddr, path::Path};
 
-// Interne Readinessbindung, kein zusätzlicher Autorisierungsscope.
 pub(crate) const DOCS_ENTITY_PROFILE_BINDING: &str = "docs.public/entity_profiles";
 
 #[derive(Clone, Deserialize)]
@@ -28,6 +26,37 @@ pub struct Config {
     pub trusted_discord_consumers: Vec<DiscordConsumer>,
     #[serde(default)]
     pub discord_live: Option<DiscordLiveConfig>,
+    #[serde(default)]
+    pub bot_task_consumers: Vec<BotTaskConsumer>,
+    #[serde(default)]
+    pub task_providers: Option<TaskProviders>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BotTaskConsumer {
+    pub actor_id: String,
+    pub channel: String,
+    pub capabilities: BTreeSet<brain_contracts::bot_tasks::BotCapability>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TaskProviders {
+    #[serde(default)]
+    pub twitch_title: Option<TwitchTitleProvider>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TwitchTitleProvider {
+    pub base_url: String,
+    pub api_key_env: String,
+    pub model_selection_path: std::path::PathBuf,
+    pub timeout_ms: u64,
+    pub retry_attempts_on_429: u32,
+    pub max_output_tokens: u32,
+    pub max_response_bytes: usize,
 }
 
 #[derive(Clone, Deserialize)]
@@ -45,7 +74,6 @@ pub struct DiscordLiveConfig {
 
 impl std::fmt::Debug for Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Even invalid input can contain a mistakenly pasted secret in a non-secret field.
         f.debug_struct("Config").finish_non_exhaustive()
     }
 }
@@ -58,7 +86,6 @@ pub struct Postgres {
     pub username: String,
     pub database: String,
     pub auth: DatabaseAuth,
-    /// Historical JSON key; the value is an Infisical secret name, never an ENV lookup.
     pub password_env: Option<String>,
     pub max_connections: u32,
 }
@@ -83,7 +110,6 @@ pub struct Provider {
     pub kind: ProviderKind,
     pub base_url: String,
     pub model: String,
-    /// Historical JSON key; the value names the explicit Infisical snapshot entry.
     #[serde(default)]
     pub api_key_env: String,
     pub retry_attempts: usize,
@@ -208,7 +234,6 @@ impl Default for DeadlockApi {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Credential {
-    /// Historical JSON key retained for config compatibility; names an Infisical secret.
     pub token_env: String,
     pub actor_id: String,
     pub channel: String,
@@ -216,7 +241,6 @@ pub struct Credential {
     pub provider_egress: BTreeSet<String>,
     #[serde(default)]
     pub entity_profile_model_context: bool,
-    /// Optionaler fester Wissensstand; ohne Override bleibt das bisherige Release.
     pub release: Option<Release>,
 }
 
@@ -388,7 +412,6 @@ impl Config {
 
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
         require(bytes.len() <= 64 * 1024, "size")?;
-        // Never expose serde's error: it can include input values.
         let config: Self = serde_json::from_slice(bytes).map_err(|_| Error::ConfigSyntax)?;
         config.validate()?;
         Ok(config)
@@ -665,6 +688,7 @@ impl Config {
                 "credentials",
             )?;
         }
+        self.validate_bot_tasks(&names)?;
         if let Some(internal) = &self.internal_operator {
             require(
                 internal_count == 1
@@ -680,6 +704,62 @@ impl Config {
             )?;
         }
         Ok(())
+    }
+
+    fn validate_bot_tasks(&self, secret_names: &BTreeSet<&str>) -> Result<(), Error> {
+        let mut consumers = BTreeSet::new();
+        for consumer in &self.bot_task_consumers {
+            require(
+                consumers.insert((&consumer.actor_id, &consumer.channel))
+                    && !consumer.capabilities.is_empty()
+                    && consumer
+                        .capabilities
+                        .iter()
+                        .all(|capability| capability.platform().channel() == consumer.channel)
+                    && self.credentials.iter().any(|credential| {
+                        credential.actor_id == consumer.actor_id
+                            && credential.channel == consumer.channel
+                    }),
+                "bot_task_consumers",
+            )?;
+        }
+        let Some(title) = self
+            .task_providers
+            .as_ref()
+            .and_then(|providers| providers.twitch_title.as_ref())
+        else {
+            return Ok(());
+        };
+        let endpoint = reqwest::Url::parse(&title.base_url)
+            .map_err(|_| Error::ConfigInvalid("task_providers"))?;
+        let loopback = endpoint.host_str().is_some_and(|host| {
+            host == "localhost"
+                || host
+                    .trim_matches(['[', ']'])
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        });
+        require(
+            endpoint.has_host()
+                && endpoint.username().is_empty()
+                && endpoint.password().is_none()
+                && endpoint.query().is_none()
+                && endpoint.fragment().is_none()
+                && (endpoint.scheme() == "https" || (endpoint.scheme() == "http" && loopback))
+                && secret_name(&title.api_key_env)
+                && (title.api_key_env == self.provider.api_key_env
+                    || !secret_names.contains(title.api_key_env.as_str()))
+                && title.model_selection_path.is_absolute()
+                && title
+                    .model_selection_path
+                    .to_str()
+                    .is_some_and(|path| !path.chars().any(char::is_control))
+                && (1..=600_000).contains(&title.timeout_ms)
+                && title.retry_attempts_on_429 <= 8
+                && title.max_output_tokens > 0
+                && (128..=8 * 1024 * 1024).contains(&title.max_response_bytes),
+            "task_providers",
+        )
     }
 }
 

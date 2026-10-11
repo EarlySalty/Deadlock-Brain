@@ -9,6 +9,7 @@ mod http;
 pub mod internal;
 mod public_text;
 mod retrieval;
+mod task;
 pub use http::router;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +30,17 @@ pub struct ApiService<K> {
     discord_consumers: std::collections::BTreeSet<(String, String)>,
     discord_context:
         Option<std::sync::Arc<dyn brain_contracts::discord_task::DiscordContextResolver>>,
+    bot_task_consumers: task::TaskConsumers,
+    twitch_title: Option<std::sync::Arc<dyn brain_contracts::bot_tasks::TwitchTitlePort>>,
+}
+
+struct AnswerInput {
+    query: Query,
+    user_questions: Vec<String>,
+    local_context: bool,
+    claimed_user: Option<u64>,
+    allow_discord_reads: bool,
+    task: Option<brain_contracts::discord_task::DiscordAnswerTask>,
 }
 
 impl<K> ApiService<K>
@@ -52,6 +64,8 @@ where
             release_bindings: std::collections::BTreeMap::new(),
             discord_consumers: std::collections::BTreeSet::new(),
             discord_context: None,
+            bot_task_consumers: task::TaskConsumers::new(),
+            twitch_title: None,
         }
     }
 
@@ -173,17 +187,14 @@ where
         if body.len() > 64 * 1024 {
             return json_error(413, "payload_too_large", "Request ist zu groß");
         }
-        if self.knowledge_release.trim().is_empty()
-            || self.knowledge_release == "current"
-            || !(1..=600_000).contains(&self.deadline_ms)
-        {
-            return json_error(503, "not_ready", "Kein gültiger Core-Kontext konfiguriert");
+        if let Some(response) = self.core_not_ready() {
+            return response;
         }
         let Some(token) = bearer_token(authorization) else {
             return json_error(401, "unauthorized", "Bearer Token fehlt oder ist ungültig");
         };
 
-        let (mut query, user_questions, local_context): (Query, Vec<String>, bool) =
+        let (query, user_questions, local_context): (Query, Vec<String>, bool) =
             match serde_json::from_slice::<brain_contracts::discord_task::DiscordTaskRequest>(body)
             {
                 Ok(request) if request.validate().is_ok() => {
@@ -199,6 +210,41 @@ where
                     }
                 },
             };
+        self.answer_input(
+            token,
+            AnswerInput {
+                query,
+                user_questions,
+                local_context,
+                claimed_user,
+                allow_discord_reads,
+                task,
+            },
+            deadline,
+        )
+    }
+
+    fn core_not_ready(&self) -> Option<ApiResponse> {
+        (self.knowledge_release.trim().is_empty()
+            || self.knowledge_release == "current"
+            || !(1..=600_000).contains(&self.deadline_ms))
+        .then(|| json_error(503, "not_ready", "Kein gültiger Core-Kontext konfiguriert"))
+    }
+
+    fn answer_input(
+        &self,
+        token: &str,
+        input: AnswerInput,
+        deadline: brain_contracts::RequestDeadline,
+    ) -> ApiResponse {
+        let AnswerInput {
+            mut query,
+            user_questions,
+            local_context,
+            claimed_user,
+            allow_discord_reads,
+            task,
+        } = input;
         if query.validate().is_err() {
             return json_error(400, "invalid_request", "Query Contract ist ungültig");
         }
@@ -504,7 +550,11 @@ mod tests {
             2000,
             Budget::default(),
         )
-        .with_discord_consumers(BTreeSet::from([("discord-bot".into(), "discord".into())]));
+        .with_discord_consumers(BTreeSet::from([("discord-bot".into(), "discord".into())]))
+        .with_bot_task_consumers(std::collections::BTreeMap::from([(
+            ("discord-bot".into(), "discord".into()),
+            BTreeSet::from([brain_contracts::bot_tasks::BotCapability::DiscordConcierge]),
+        )]));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let server =

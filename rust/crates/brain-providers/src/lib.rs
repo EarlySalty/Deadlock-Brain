@@ -34,8 +34,17 @@ mod audit;
 pub use audit::OutputDeviation;
 mod circuit;
 mod embeddings;
+mod generation;
 mod hardening;
+mod model_selection;
 mod transport;
+mod twitch_title;
+pub use generation::{
+    GeneratedText, GenerationEndpoint, GenerationError, GenerationMessage, TextGenerationProvider,
+    TextGenerationRequest,
+};
+pub use model_selection::{selected_model, SelectionError};
+pub use twitch_title::TwitchTitleGenerator;
 
 impl std::fmt::Debug for ProviderConfig {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

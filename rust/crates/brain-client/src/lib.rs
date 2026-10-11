@@ -1,4 +1,9 @@
 #![forbid(unsafe_code)]
+pub use brain_contracts::bot_tasks::{
+    BotCapability, BotIdentity, BotTask, BotTaskError, BotTaskRequest, BotTaskResponse,
+    BotTaskResult, CapabilityAvailability, TaskFailure, TaskUsage, TwitchTitlePurpose,
+    BOT_TASK_VERSION,
+};
 pub use brain_contracts::discord_task::{
     bounded_user_questions, DiscordAnswerCapability, DiscordAnswerTask,
 };

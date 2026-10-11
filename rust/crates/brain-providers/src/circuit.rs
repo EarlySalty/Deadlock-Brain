@@ -111,30 +111,36 @@ impl OpenAiCompatibleProvider {
         clock: impl Fn() -> Instant,
         operation: impl FnOnce(&mut Option<bool>) -> Result<T>,
     ) -> Result<T> {
-        let now = clock();
-        let ticket = self
-            .circuit
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .enter(now)?;
-        let mut permit = Permit {
-            circuit: &self.circuit,
-            ticket,
-            completed: false,
-        };
-        let mut transport_failure = None;
-        let result = operation(&mut transport_failure);
-        self.circuit
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .observe(
-                clock(),
-                transport_failure.or_else(|| observation(&result)),
-                ticket,
-            );
-        permit.completed = true;
-        result
+        guarded(&self.circuit, clock, operation)
     }
+}
+pub(super) fn guarded<T>(
+    circuit: &Mutex<Circuit>,
+    clock: impl Fn() -> Instant,
+    operation: impl FnOnce(&mut Option<bool>) -> Result<T>,
+) -> Result<T> {
+    let now = clock();
+    let ticket = circuit
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .enter(now)?;
+    let mut permit = Permit {
+        circuit,
+        ticket,
+        completed: false,
+    };
+    let mut transport_failure = None;
+    let result = operation(&mut transport_failure);
+    circuit
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .observe(
+            clock(),
+            transport_failure.or_else(|| observation(&result)),
+            ticket,
+        );
+    permit.completed = true;
+    result
 }
 #[cfg(test)]
 mod tests {

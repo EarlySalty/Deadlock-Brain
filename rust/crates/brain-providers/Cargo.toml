@@ -15,5 +15,8 @@ serde_json.workspace = true
 serde_path_to_error = "0.1"
 thiserror.workspace = true
 httpdate = "1"
+chrono.workspace = true
+libc = "0.2"
 
 [dev-dependencies]
+tempfile.workspace = true

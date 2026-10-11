@@ -375,3 +375,96 @@ fn maintenance_docs_require_exact_public_scope_and_matching_standard_pin() {
         .authenticate("synthetic-BRAIN_SERVE_SECOND_BRAIN_TOKEN")
         .is_err());
 }
+
+fn bot_task_config() -> Value {
+    let mut value = example();
+    value["credentials"]
+        .as_array_mut()
+        .unwrap()
+        .extend([
+            json!({"token_env":"DISCORD_BOT_TOKEN","actor_id":"dl-bot","channel":"discord","scopes":["bot.public"],"provider_egress":["public"]}),
+            json!({"token_env":"TWITCH_BOT_TOKEN","actor_id":"twitch-bot","channel":"twitch","scopes":["bot.public"],"provider_egress":["public"]}),
+        ]);
+    value["trusted_discord_consumers"] = json!([{"actor_id":"dl-bot","channel":"discord"}]);
+    value["bot_task_consumers"] = json!([
+        {"actor_id":"dl-bot","channel":"discord","capabilities":["discord_concierge","discord_faq"]},
+        {"actor_id":"twitch-bot","channel":"twitch","capabilities":["twitch_title"]}
+    ]);
+    value["task_providers"] = json!({"twitch_title":{
+        "base_url":"https://api.fireworks.ai/inference/v1",
+        "api_key_env":"FIREWORK_API_KEY",
+        "model_selection_path":"/var/lib/deadlock/llm-model-selection.json",
+        "timeout_ms":30000,
+        "retry_attempts_on_429":2,
+        "max_output_tokens":512,
+        "max_response_bytes":262144
+    }});
+    value
+}
+
+#[test]
+fn bot_task_sections_are_optional_and_strict() {
+    let config = Config::parse(EXAMPLE).unwrap();
+    assert!(config.bot_task_consumers.is_empty());
+    assert!(config.task_providers.is_none());
+    let config = parse(&bot_task_config()).unwrap();
+    assert_eq!(config.bot_task_consumers.len(), 2);
+    let title = config.task_providers.unwrap().twitch_title.unwrap();
+    assert_eq!(title.api_key_env, "FIREWORK_API_KEY");
+    assert_eq!(title.max_output_tokens, 512);
+    let mut empty = bot_task_config();
+    empty["task_providers"] = json!({});
+    assert!(parse(&empty)
+        .unwrap()
+        .task_providers
+        .unwrap()
+        .twitch_title
+        .is_none());
+    for field in [
+        "base_url",
+        "api_key_env",
+        "model_selection_path",
+        "timeout_ms",
+        "retry_attempts_on_429",
+        "max_output_tokens",
+        "max_response_bytes",
+    ] {
+        let mut value = bot_task_config();
+        value["task_providers"]["twitch_title"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(parse(&value).is_err(), "{field}");
+    }
+    for (field, invalid) in [
+        ("base_url", json!("http://api.fireworks.ai/inference/v1")),
+        ("api_key_env", json!("DISCORD_BOT_TOKEN")),
+        ("api_key_env", json!("firework-key")),
+        ("model_selection_path", json!("relative.json")),
+        ("timeout_ms", json!(0)),
+        ("timeout_ms", json!(600_001)),
+        ("retry_attempts_on_429", json!(9)),
+        ("max_output_tokens", json!(0)),
+        ("max_response_bytes", json!(127)),
+        ("model", json!("override")),
+    ] {
+        let mut value = bot_task_config();
+        value["task_providers"]["twitch_title"][field] = invalid;
+        assert!(parse(&value).is_err(), "{field}");
+    }
+    for consumers in [
+        json!([{"actor_id":"twitch-bot","channel":"twitch","capabilities":["discord_faq"]}]),
+        json!([{"actor_id":"dl-bot","channel":"discord","capabilities":["twitch_title"]}]),
+        json!([{"actor_id":"dl-bot","channel":"discord","capabilities":[]}]),
+        json!([{"actor_id":"unknown","channel":"twitch","capabilities":["twitch_title"]}]),
+        json!([{"actor_id":"dl-bot","channel":"discord","capabilities":["admin"]}]),
+        json!([
+            {"actor_id":"dl-bot","channel":"discord","capabilities":["discord_faq"]},
+            {"actor_id":"dl-bot","channel":"discord","capabilities":["discord_concierge"]}
+        ]),
+    ] {
+        let mut value = bot_task_config();
+        value["bot_task_consumers"] = consumers;
+        assert!(parse(&value).is_err());
+    }
+}

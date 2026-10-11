@@ -1,640 +1,348 @@
-use std::collections::BTreeSet;
-
-pub use brain_contracts::{AnswerProfile, Principal, PublicAnswerResponse, Query};
-use brain_contracts::{AnswerStatus, PublicCitation, PUBLIC_API_VERSION};
+use brain_contracts::bot_tasks::*;
+use brain_contracts::discord_task::DiscordAnswerCapability;
+use brain_contracts::{AnswerStatus, PublicAnswerResponse, PublicCitation, PUBLIC_API_VERSION};
 use serde_json::{json, Value};
 
-#[path = "../src/bot_tasks.rs"]
-mod bot_tasks;
-
-use bot_tasks::*;
-
-fn request() -> BotTaskRequest {
+fn discord_request() -> BotTaskRequest {
     BotTaskRequest {
         contract_version: BOT_TASK_VERSION.into(),
-        request_id: "guide-42".into(),
-        platform: BotPlatform::Discord,
-        audience: BotAudience::PublicDiscord {
-            guild_id: 123,
-            channel_id: 456,
+        request_id: "task-42".into(),
+        identity: BotIdentity::Discord {
+            guild_id: Some(1),
+            channel_id: 2,
+            user_id: 3,
         },
-        task: BotTask::PublicGuide {
+        task: BotTask::DiscordAnswer {
+            capability: DiscordAnswerCapability::Faq,
             question: "Wie finde ich die Serverregeln?".into(),
+            user_questions: vec!["Hallo".into()],
         },
     }
 }
 
-fn principal() -> Principal {
-    Principal {
-        actor_id: "discord-guide".into(),
-        channel: "discord".into(),
-        scopes: BTreeSet::from(["public-guide".into()]),
-        provider_egress: BTreeSet::from(["public-guide".into()]),
-    }
-}
-
-fn consumer() -> RegisteredBotConsumer {
-    RegisteredBotConsumer {
-        actor_id: "discord-guide".into(),
-        principal_channel: "discord".into(),
-        platform: BotPlatform::Discord,
-        allowed_audiences: BTreeSet::from([request().audience]),
-        capabilities: BTreeSet::from([BotCapability::PublicGuideEndAnswer]),
-        guide_scope: "public-guide".into(),
-    }
-}
-
-fn context<'a>(
-    principal: &'a Principal,
-    consumer: &'a RegisteredBotConsumer,
-    request: &'a BotTaskRequest,
-) -> TrustedBotTaskContext<'a> {
-    TrustedBotTaskContext {
-        principal,
-        consumer,
-        request_id: &request.request_id,
-        audience: &request.audience,
-        conversation_id: "public-channel-456",
-        input_provenance: VerifiedInputProvenance::ApprovedPublic,
-        processing: ActualProcessing::RemoteInference,
-        request_allowed: true,
-        delivery_allowed: true,
-        guide_implementation: GuideImplementation::Approved,
-    }
-}
-
-fn response() -> BotTaskResponse {
-    let request = request();
-    BotTaskResponse {
+fn twitch_request() -> BotTaskRequest {
+    BotTaskRequest {
         contract_version: BOT_TASK_VERSION.into(),
-        request_id: request.request_id.clone(),
-        platform: request.platform,
-        audience: request.audience,
-        result: BotTaskResult::PublicGuide {
-            answer: PublicAnswerResponse {
-                contract_version: PUBLIC_API_VERSION.into(),
-                request_id: request.request_id,
-                knowledge_release: "public-release-7".into(),
-                status: AnswerStatus::Answered,
-                text: "Die Regeln stehen im Regelkanal.".into(),
-                citations: vec![PublicCitation {
-                    citation_id: "rules-7".into(),
-                    label: "Serverregeln".into(),
-                }],
-            },
+        request_id: "title-7".into(),
+        identity: BotIdentity::Twitch {
+            broadcaster_id: "123456".into(),
+        },
+        task: BotTask::TwitchTitle {
+            purpose: TwitchTitlePurpose::Title,
+            prompt: "Schreibe einen Titel".into(),
+            temperature: 0.7,
+            max_tokens: 64,
         },
     }
 }
 
-fn wire_request() -> Value {
-    serde_json::to_value(request()).unwrap()
+fn answer(request_id: &str) -> PublicAnswerResponse {
+    PublicAnswerResponse {
+        contract_version: PUBLIC_API_VERSION.into(),
+        request_id: request_id.into(),
+        knowledge_release: "release".into(),
+        status: AnswerStatus::Answered,
+        text: "Antwort".into(),
+        citations: vec![PublicCitation {
+            citation_id: "cite-1".into(),
+            label: "Beleg 1".into(),
+        }],
+    }
 }
 
 #[test]
-fn public_guide_wire_roundtrip_preserves_discriminants() {
-    let wire = wire_request();
-    assert_eq!(wire["task"]["kind"], "public_guide");
-    assert_eq!(wire["audience"]["kind"], "public_discord");
-    let decoded: BotTaskRequest = serde_json::from_value(wire).unwrap();
-    assert_eq!(decoded, request());
-    assert_eq!(decoded.validate(), Ok(()));
-    let response = response();
-    let wire = serde_json::to_value(&response).unwrap();
-    assert_eq!(wire["result"]["kind"], "public_guide");
+fn wire_roundtrip_uses_kind_tags_and_numbers() {
+    let wire = json!({
+        "contract_version": BOT_TASK_VERSION,
+        "request_id": "title-7",
+        "identity": {"kind": "twitch", "broadcaster_id": "123456"},
+        "task": {"kind": "twitch_title", "purpose": "title", "prompt": "Schreibe einen Titel", "temperature": 0.7, "max_tokens": 64}
+    });
+    let parsed: BotTaskRequest = serde_json::from_value(wire.clone()).unwrap();
+    assert_eq!(parsed, twitch_request());
+    parsed.validate().unwrap();
+    let discord: BotTaskRequest = serde_json::from_value(json!({
+        "contract_version": BOT_TASK_VERSION,
+        "request_id": "task-42",
+        "identity": {"kind": "discord", "guild_id": 1, "channel_id": 2, "user_id": 3},
+        "task": {"kind": "discord_answer", "capability": "faq", "question": "Wie finde ich die Serverregeln?", "user_questions": ["Hallo"]}
+    }))
+    .unwrap();
+    assert_eq!(discord, discord_request());
+    let encoded = serde_json::to_value(discord_request()).unwrap();
+    assert_eq!(encoded["identity"]["kind"], "discord");
+    assert_eq!(encoded["task"]["kind"], "discord_answer");
+    let status: Value = serde_json::to_value(BotTask::CapabilityStatus {
+        capability: BotCapability::TwitchTitle,
+    })
+    .unwrap();
     assert_eq!(
-        serde_json::from_value::<BotTaskResponse>(wire).unwrap(),
-        response
+        status,
+        json!({"kind": "capability_status", "capability": "twitch_title"})
     );
-    assert_eq!(response.validate_for(&decoded), Ok(()));
 }
 
 #[test]
-fn wire_never_accepts_authority_or_provider_overrides() {
-    for field in [
-        "principal",
-        "consumer",
-        "scopes",
-        "model",
-        "provider",
-        "endpoint",
-        "address",
-        "credential",
-        "api_key",
-        "processing",
-        "input_provenance",
-        "request_allowed",
-    ] {
-        let mut wire = wire_request();
-        wire[field] = json!(true);
-        assert!(
-            serde_json::from_value::<BotTaskRequest>(wire).is_err(),
-            "{field}"
-        );
-    }
-}
-
-#[test]
-fn guide_input_never_accepts_history_profiles_or_provider_overrides() {
-    for field in [
-        "history",
-        "profile",
-        "user_id",
-        "dm",
-        "context",
-        "query",
-        "domain",
-        "model",
-        "provider",
-        "endpoint",
-        "credential",
-        "requested_scopes",
-    ] {
-        let mut wire = wire_request();
-        wire["task"][field] = json!(true);
-        assert!(
-            serde_json::from_value::<BotTaskRequest>(wire).is_err(),
-            "{field}"
-        );
-    }
-}
-
-#[test]
-fn nested_audience_and_result_reject_unknown_fields() {
-    let mut wire = wire_request();
-    wire["audience"]["user_id"] = json!(123);
+fn unknown_fields_and_kinds_are_rejected() {
+    let mut wire = serde_json::to_value(twitch_request()).unwrap();
+    wire["task"]["model"] = json!("override");
     assert!(serde_json::from_value::<BotTaskRequest>(wire).is_err());
-    for target in ["result", "answer"] {
-        let mut wire = serde_json::to_value(response()).unwrap();
-        if target == "result" {
-            wire["result"]["model"] = json!(true);
-        } else {
-            wire["result"]["answer"]["history"] = json!(true);
-        }
-        assert!(serde_json::from_value::<BotTaskResponse>(wire).is_err());
-    }
+    let mut wire = serde_json::to_value(twitch_request()).unwrap();
+    wire["identity"]["actor_id"] = json!("admin");
+    assert!(serde_json::from_value::<BotTaskRequest>(wire).is_err());
+    let mut wire = serde_json::to_value(twitch_request()).unwrap();
+    wire["principal"] = json!({"actor_id": "admin"});
+    assert!(serde_json::from_value::<BotTaskRequest>(wire).is_err());
+    let mut wire = serde_json::to_value(twitch_request()).unwrap();
+    wire["task"]["kind"] = json!("public_guide");
+    assert!(serde_json::from_value::<BotTaskRequest>(wire).is_err());
 }
 
 #[test]
-fn unknown_missing_and_reduced_title_tasks_are_rejected() {
-    for kind in [
-        "twitch_title",
-        "personal_help",
-        "public_guide_draft",
-        "unknown",
+fn identity_must_match_task_platform() {
+    let mut request = discord_request();
+    request.identity = BotIdentity::Twitch {
+        broadcaster_id: "1".into(),
+    };
+    assert_eq!(request.validate(), Err(BotTaskError::InvalidBinding));
+    let mut request = twitch_request();
+    request.identity = BotIdentity::Discord {
+        guild_id: None,
+        channel_id: 1,
+        user_id: 1,
+    };
+    assert_eq!(request.validate(), Err(BotTaskError::InvalidBinding));
+    request.task = BotTask::CapabilityStatus {
+        capability: BotCapability::TwitchTitle,
+    };
+    assert_eq!(request.validate(), Err(BotTaskError::InvalidBinding));
+    request.task = BotTask::CapabilityStatus {
+        capability: BotCapability::DiscordConcierge,
+    };
+    request.validate().unwrap();
+}
+
+#[test]
+fn identities_are_strict() {
+    for identity in [
+        BotIdentity::Discord {
+            guild_id: Some(0),
+            channel_id: 1,
+            user_id: 1,
+        },
+        BotIdentity::Discord {
+            guild_id: None,
+            channel_id: 0,
+            user_id: 1,
+        },
+        BotIdentity::Discord {
+            guild_id: None,
+            channel_id: 1,
+            user_id: 0,
+        },
     ] {
-        let mut wire = wire_request();
-        wire["task"]["kind"] = json!(kind);
-        assert!(serde_json::from_value::<BotTaskRequest>(wire).is_err());
+        let mut request = discord_request();
+        request.identity = identity;
+        assert_eq!(request.validate(), Err(BotTaskError::InvalidBinding));
     }
-    let mut wire = wire_request();
-    wire["task"].as_object_mut().unwrap().remove("kind");
-    assert!(serde_json::from_value::<BotTaskRequest>(wire).is_err());
-    let mut wire = serde_json::to_value(response()).unwrap();
-    wire["result"]["kind"] = json!("twitch_title");
-    assert!(serde_json::from_value::<BotTaskResponse>(wire).is_err());
+    for broadcaster_id in ["", "0123", "12a", "123456789012345678901", " 12"] {
+        let mut request = twitch_request();
+        request.identity = BotIdentity::Twitch {
+            broadcaster_id: broadcaster_id.into(),
+        };
+        assert_eq!(request.validate(), Err(BotTaskError::InvalidBinding));
+    }
+    let mut request = twitch_request();
+    request.identity = BotIdentity::Twitch {
+        broadcaster_id: "12345678901234567890".into(),
+    };
+    request.validate().unwrap();
 }
 
 #[test]
 fn versions_and_request_ids_fail_closed() {
-    let mut request = request();
+    let mut request = twitch_request();
     request.contract_version = "brain.bot_tasks.v2".into();
     assert_eq!(request.validate(), Err(BotTaskError::VersionMismatch));
-    request.contract_version = BOT_TASK_VERSION.into();
-    for id in ["", " ", " guide-42", "guide-42 ", "guide\n42"] {
+    for id in ["", " id", "id\n", &"x".repeat(513)] {
+        let mut request = twitch_request();
         request.request_id = id.into();
         assert_eq!(request.validate(), Err(BotTaskError::InvalidRequestId));
     }
-    request.request_id = "x".repeat(513);
-    assert_eq!(request.validate(), Err(BotTaskError::InvalidRequestId));
 }
 
 #[test]
-fn platforms_and_stable_audiences_must_match() {
-    let mut request = request();
-    request.platform = BotPlatform::Twitch;
-    assert_eq!(request.validate(), Err(BotTaskError::InvalidBinding));
-    request.platform = BotPlatform::Discord;
-    request.audience = BotAudience::PublicDiscord {
-        guild_id: 0,
-        channel_id: 456,
-    };
-    assert_eq!(request.validate(), Err(BotTaskError::InvalidBinding));
-    request.audience = BotAudience::PublicDiscord {
-        guild_id: 123,
-        channel_id: 0,
-    };
-    assert_eq!(request.validate(), Err(BotTaskError::InvalidBinding));
-    request.platform = BotPlatform::Twitch;
-    request.task = BotTask::CapabilityStatus {
-        capability: BotCapability::TwitchTitleDraft,
-    };
-    for id in ["", "0", "0123", "name", "18446744073709551616"] {
-        request.audience = BotAudience::PublicTwitch {
-            channel_id: id.into(),
+fn discord_questions_keep_existing_limits() {
+    let set = |question: String, user_questions: Vec<String>| {
+        let mut request = discord_request();
+        request.task = BotTask::DiscordAnswer {
+            capability: DiscordAnswerCapability::Concierge,
+            question,
+            user_questions,
         };
-        assert_eq!(request.validate(), Err(BotTaskError::InvalidBinding));
-    }
-    request.audience = BotAudience::PublicTwitch {
-        channel_id: "123".into(),
+        request.validate()
     };
-    assert_eq!(request.validate(), Ok(()));
-    request.task = BotTask::PublicGuide {
-        question: "Regeln?".into(),
-    };
-    assert_eq!(request.validate(), Err(BotTaskError::InvalidBinding));
-}
-
-#[test]
-fn empty_and_oversized_public_questions_are_rejected() {
-    let mut request = request();
-    for question in ["".into(), " \n".into(), "x".repeat(32_769)] {
-        request.task = BotTask::PublicGuide { question };
-        assert_eq!(request.validate(), Err(BotTaskError::InvalidQuestion));
-    }
-}
-
-#[test]
-fn trusted_binding_produces_existing_query_without_control_protocol() {
-    let request = request();
-    let principal = principal();
-    let consumer = consumer();
-    let authorized =
-        authorize_public_guide(&request, &context(&principal, &consumer, &request)).unwrap();
-    let BotTask::PublicGuide { question } = &request.task else {
-        panic!()
-    };
-    assert_eq!(authorized.query().text, *question);
-    assert_eq!(authorized.query().request_id, request.request_id);
-    assert_eq!(authorized.query().conversation_id, "public-channel-456");
-    assert_eq!(
-        authorized.query().requested_scopes,
-        BTreeSet::from([consumer.guide_scope])
-    );
-    assert_eq!(authorized.query().profile, AnswerProfile::Explain);
-    assert!(authorized.query().domain.is_none());
-    assert!(authorized.query().patch.is_none());
-    assert!(authorized.query().mode.is_none());
-    assert_eq!(authorized.audience(), &request.audience);
-    assert_eq!(authorized.processing(), ActualProcessing::RemoteInference);
-    assert_eq!(
-        request.task.capability(),
-        BotCapability::PublicGuideEndAnswer
-    );
-}
-
-#[test]
-fn public_label_never_proves_provenance_even_for_local_processing() {
-    let request = request();
-    let principal = principal();
-    let consumer = consumer();
-    for processing in [
-        ActualProcessing::LocalInference,
-        ActualProcessing::RemoteInference,
-        ActualProcessing::LoopbackRemoteProxy,
+    assert!(set("ä".repeat(4000), vec![]).is_ok());
+    assert!(set("ä".repeat(2000), vec!["ö".repeat(4000)]).is_ok());
+    for (question, history) in [
+        (" ".to_string(), vec![]),
+        ("ä".repeat(4001), vec![]),
+        ("Frage".into(), vec!["a".into(); 5]),
+        ("Frage".into(), vec!["ö".repeat(2001), "ö".repeat(2000)]),
+        ("Frage".into(), vec![" ".into()]),
     ] {
-        for provenance in [
-            VerifiedInputProvenance::Private,
-            VerifiedInputProvenance::Unknown,
-        ] {
-            let mut context = context(&principal, &consumer, &request);
-            context.processing = processing;
-            context.input_provenance = provenance;
-            assert_eq!(
-                authorize_public_guide(&request, &context).unwrap_err(),
-                BotTaskError::UnapprovedInput
-            );
-        }
+        assert_eq!(set(question, history), Err(BotTaskError::InvalidQuestion));
     }
 }
 
 #[test]
-fn loopback_proxy_requires_remote_egress_permission() {
-    let request = request();
-    let mut principal = principal();
-    principal.provider_egress.clear();
-    let consumer = consumer();
-    for processing in [
-        ActualProcessing::RemoteInference,
-        ActualProcessing::LoopbackRemoteProxy,
-    ] {
-        let mut context = context(&principal, &consumer, &request);
-        context.processing = processing;
-        assert_eq!(
-            authorize_public_guide(&request, &context).unwrap_err(),
-            BotTaskError::PermissionDenied
-        );
-    }
-    let mut context = context(&principal, &consumer, &request);
-    context.processing = ActualProcessing::LocalInference;
-    assert!(authorize_public_guide(&request, &context).is_ok());
-    context.processing = ActualProcessing::Unknown;
-    assert_eq!(
-        authorize_public_guide(&request, &context).unwrap_err(),
-        BotTaskError::ProcessingUnverified
-    );
-}
-
-#[test]
-fn mismatched_principal_registration_scope_and_capability_are_denied() {
-    let request = request();
-    for case in 0..8 {
-        let mut principal = principal();
-        let mut consumer = consumer();
-        match case {
-            0 => principal.actor_id = "other-service".into(),
-            1 => principal.channel = "twitch".into(),
-            2 => principal.scopes.clear(),
-            3 => consumer.allowed_audiences.clear(),
-            4 => consumer.capabilities.clear(),
-            5 => consumer.platform = BotPlatform::Twitch,
-            6 => consumer.guide_scope = " ".into(),
-            7 => consumer.actor_id.clear(),
-            _ => unreachable!(),
-        }
-        assert_eq!(
-            authorize_public_guide(&request, &context(&principal, &consumer, &request))
-                .unwrap_err(),
-            BotTaskError::PermissionDenied
-        );
-    }
-}
-
-#[test]
-fn request_and_delivery_rights_are_bound_and_rechecked() {
-    let request = request();
-    let principal = principal();
-    let consumer = consumer();
-    for case in 0..5 {
-        let other_audience = BotAudience::PublicDiscord {
-            guild_id: 123,
-            channel_id: 789,
+fn twitch_prompt_and_generation_parameters_are_bounded() {
+    let set = |prompt: String, temperature: f32, max_tokens: u32| {
+        let mut request = twitch_request();
+        request.task = BotTask::TwitchTitle {
+            purpose: TwitchTitlePurpose::Insight,
+            prompt,
+            temperature,
+            max_tokens,
         };
-        let mut context = context(&principal, &consumer, &request);
-        match case {
-            0 => context.request_allowed = false,
-            1 => context.delivery_allowed = false,
-            2 => context.request_id = "another-request",
-            3 => context.audience = &other_audience,
-            4 => context.conversation_id = "",
-            _ => unreachable!(),
-        }
-        let expected = if case == 4 {
-            BotTaskError::InvalidBinding
-        } else {
-            BotTaskError::PermissionDenied
-        };
-        assert_eq!(
-            authorize_public_guide(&request, &context).unwrap_err(),
-            expected
-        );
-    }
-    let mut context = context(&principal, &consumer, &request);
-    assert!(authorize_public_guide(&request, &context).is_ok());
-    context.delivery_allowed = false;
-    assert_eq!(
-        authorize_public_guide(&request, &context).unwrap_err(),
-        BotTaskError::PermissionDenied
-    );
-}
-
-#[test]
-fn unapproved_implementation_is_explicitly_unavailable() {
-    let request = request();
-    let principal = principal();
-    let consumer = consumer();
-    let mut context = context(&principal, &consumer, &request);
-    context.guide_implementation = GuideImplementation::default();
-    assert_eq!(
-        authorize_public_guide(&request, &context).unwrap_err(),
-        BotTaskError::Unavailable
-    );
-    assert_eq!(
-        capability_availability(
-            BotCapability::PublicGuideEndAnswer,
-            BotPlatform::Discord,
-            GuideImplementation::default()
-        ),
-        CapabilityAvailability::Unavailable
-    );
-    assert_eq!(
-        capability_availability(
-            BotCapability::PublicGuideEndAnswer,
-            BotPlatform::Discord,
-            GuideImplementation::Approved
-        ),
-        CapabilityAvailability::Available
-    );
-    for capability in [BotCapability::TwitchTitleDraft, BotCapability::PersonalHelp] {
-        assert_eq!(
-            capability_availability(
-                capability,
-                BotPlatform::Discord,
-                GuideImplementation::Approved
-            ),
-            CapabilityAvailability::Unavailable
-        );
-    }
-}
-
-#[test]
-fn capability_availability_requires_discord_and_approved_guide() {
-    for platform in [BotPlatform::Discord, BotPlatform::Twitch] {
-        for guide in [
-            GuideImplementation::NotApproved,
-            GuideImplementation::Approved,
-        ] {
-            for capability in [
-                BotCapability::PublicGuideEndAnswer,
-                BotCapability::TwitchTitleDraft,
-                BotCapability::PersonalHelp,
-            ] {
-                let expected = match (platform, guide, capability) {
-                    (
-                        BotPlatform::Discord,
-                        GuideImplementation::Approved,
-                        BotCapability::PublicGuideEndAnswer,
-                    ) => CapabilityAvailability::Available,
-                    _ => CapabilityAvailability::Unavailable,
-                };
-                assert_eq!(
-                    capability_availability(capability, platform, guide),
-                    expected,
-                    "{platform:?} {guide:?} {capability:?}"
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn capability_status_responses_reject_available_outside_discord_guide() {
-    for platform in [BotPlatform::Discord, BotPlatform::Twitch] {
-        for capability in [
-            BotCapability::PublicGuideEndAnswer,
-            BotCapability::TwitchTitleDraft,
-            BotCapability::PersonalHelp,
-        ] {
-            let mut request = request();
-            request.platform = platform;
-            request.audience = match platform {
-                BotPlatform::Discord => request.audience,
-                BotPlatform::Twitch => BotAudience::PublicTwitch {
-                    channel_id: "123".into(),
-                },
-            };
-            request.task = BotTask::CapabilityStatus { capability };
-            assert_eq!(request.validate(), Ok(()));
-            for availability in [
-                CapabilityAvailability::Available,
-                CapabilityAvailability::Unavailable,
-            ] {
-                let response = BotTaskResponse {
-                    contract_version: request.contract_version.clone(),
-                    request_id: request.request_id.clone(),
-                    platform,
-                    audience: request.audience.clone(),
-                    result: BotTaskResult::CapabilityStatus {
-                        capability,
-                        availability,
-                    },
-                };
-                let wire = serde_json::to_value(&response).unwrap();
-                let response: BotTaskResponse = serde_json::from_value(wire).unwrap();
-                let expected = if availability == CapabilityAvailability::Unavailable
-                    || (platform == BotPlatform::Discord
-                        && capability == BotCapability::PublicGuideEndAnswer)
-                {
-                    Ok(())
-                } else {
-                    Err(BotTaskError::ResultMismatch)
-                };
-                assert_eq!(
-                    response.validate_for(&request),
-                    expected,
-                    "{platform:?} {capability:?} {availability:?}"
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn result_envelope_and_nested_answer_are_strictly_bound() {
-    let request = request();
-    for case in 0..7 {
-        let mut response = response();
-        let expected = match case {
-            0 => {
-                response.contract_version = "brain.bot_tasks.v2".into();
-                BotTaskError::VersionMismatch
-            }
-            1 => {
-                response.request_id = "other-request".into();
-                BotTaskError::InvalidRequestId
-            }
-            2 => {
-                response.platform = BotPlatform::Twitch;
-                BotTaskError::InvalidBinding
-            }
-            3 => {
-                response.audience = BotAudience::PublicDiscord {
-                    guild_id: 123,
-                    channel_id: 789,
-                };
-                BotTaskError::InvalidBinding
-            }
-            4..=6 => {
-                let BotTaskResult::PublicGuide { answer } = &mut response.result else {
-                    panic!()
-                };
-                match case {
-                    4 => answer.request_id = "other-request".into(),
-                    5 => answer.contract_version = "brain.public.v2".into(),
-                    6 => answer.citations.clear(),
-                    _ => unreachable!(),
-                }
-                BotTaskError::InvalidAnswer
-            }
-            _ => unreachable!(),
-        };
-        assert_eq!(response.validate_for(&request), Err(expected));
-    }
-}
-
-#[test]
-fn result_kind_cannot_impersonate_success_or_another_capability() {
-    let request = request();
-    let mut response = response();
-    response.result = BotTaskResult::CapabilityStatus {
-        capability: BotCapability::PublicGuideEndAnswer,
-        availability: CapabilityAvailability::Available,
+        request.validate()
     };
+    assert!(set("ä".repeat(32_000), 0.0, 1).is_ok());
+    assert!(set("Titel".into(), 2.0, u32::MAX).is_ok());
+    assert_eq!(set("\n ".into(), 1.0, 1), Err(BotTaskError::InvalidPrompt));
     assert_eq!(
-        response.validate_for(&request),
+        set("ä".repeat(32_001), 1.0, 1),
+        Err(BotTaskError::InvalidPrompt)
+    );
+    for (temperature, max_tokens) in [
+        (-0.1, 10),
+        (2.01, 10),
+        (f32::NAN, 10),
+        (f32::INFINITY, 10),
+        (1.0, 0),
+    ] {
+        assert_eq!(
+            set("Titel".into(), temperature, max_tokens),
+            Err(BotTaskError::InvalidGeneration)
+        );
+    }
+}
+
+#[test]
+fn responses_are_bound_to_request_and_task_kind() {
+    let discord = discord_request();
+    let ok = BotTaskResponse::new(
+        &discord,
+        BotTaskResult::DiscordAnswer {
+            answer: answer("task-42"),
+        },
+    );
+    ok.validate_for(&discord).unwrap();
+    let mut foreign = ok.clone();
+    foreign.request_id = "other".into();
+    assert_eq!(
+        foreign.validate_for(&discord),
+        Err(BotTaskError::InvalidRequestId)
+    );
+    let mut version = ok.clone();
+    version.contract_version = "brain.v1".into();
+    assert_eq!(
+        version.validate_for(&discord),
+        Err(BotTaskError::VersionMismatch)
+    );
+    let nested = BotTaskResponse::new(
+        &discord,
+        BotTaskResult::DiscordAnswer {
+            answer: answer("other"),
+        },
+    );
+    assert_eq!(
+        nested.validate_for(&discord),
+        Err(BotTaskError::InvalidAnswer)
+    );
+    let twitch = twitch_request();
+    let title = BotTaskResponse::new(
+        &twitch,
+        BotTaskResult::TwitchTitle {
+            text: "Titel".into(),
+            model: "fixture-model".into(),
+            usage: TaskUsage {
+                input_tokens: Some(1),
+                output_tokens: None,
+            },
+        },
+    );
+    title.validate_for(&twitch).unwrap();
+    assert_eq!(
+        title.validate_for(&discord),
+        Err(BotTaskError::InvalidRequestId)
+    );
+    let mut swapped = title.clone();
+    swapped.request_id = discord.request_id.clone();
+    assert_eq!(
+        swapped.validate_for(&discord),
         Err(BotTaskError::ResultMismatch)
     );
-    response.result = BotTaskResult::Unavailable {
-        capability: BotCapability::TwitchTitleDraft,
-        reason: TaskUnavailableReason::ImplementationNotApproved,
-    };
+    let failed = BotTaskResponse::new(
+        &twitch,
+        BotTaskResult::Failed {
+            capability: BotCapability::TwitchTitle,
+            failure: TaskFailure::ProviderRateLimited,
+        },
+    );
+    failed.validate_for(&twitch).unwrap();
+    let wrong_failure = BotTaskResponse::new(
+        &twitch,
+        BotTaskResult::Failed {
+            capability: BotCapability::DiscordFaq,
+            failure: TaskFailure::Timeout,
+        },
+    );
     assert_eq!(
-        response.validate_for(&request),
+        wrong_failure.validate_for(&twitch),
         Err(BotTaskError::ResultMismatch)
     );
-    for reason in [
-        TaskUnavailableReason::ImplementationNotApproved,
-        TaskUnavailableReason::ProviderUnavailable,
-    ] {
-        response.result = BotTaskResult::Unavailable {
-            capability: BotCapability::PublicGuideEndAnswer,
-            reason,
-        };
-        assert_eq!(response.validate_for(&request), Ok(()));
-    }
-}
-
-#[test]
-fn reserved_capabilities_have_status_but_no_success_schema() {
-    for capability in [BotCapability::TwitchTitleDraft, BotCapability::PersonalHelp] {
-        let mut request = request();
-        request.task = BotTask::CapabilityStatus { capability };
-        assert_eq!(request.task.capability(), capability);
-        let answer = match response().result {
-            BotTaskResult::PublicGuide { answer } => answer,
-            _ => panic!(),
-        };
-        let mut response = response();
-        response.result = BotTaskResult::CapabilityStatus {
-            capability,
+    let empty = BotTaskResponse::new(
+        &twitch,
+        BotTaskResult::TwitchTitle {
+            text: " ".into(),
+            model: "fixture-model".into(),
+            usage: TaskUsage::default(),
+        },
+    );
+    assert_eq!(
+        empty.validate_for(&twitch),
+        Err(BotTaskError::ResultMismatch)
+    );
+    let mut status_request = twitch_request();
+    status_request.task = BotTask::CapabilityStatus {
+        capability: BotCapability::TwitchTitle,
+    };
+    BotTaskResponse::new(
+        &status_request,
+        BotTaskResult::CapabilityStatus {
+            capability: BotCapability::TwitchTitle,
             availability: CapabilityAvailability::Unavailable,
-        };
-        assert_eq!(response.validate_for(&request), Ok(()));
-        response.result = BotTaskResult::CapabilityStatus {
-            capability,
-            availability: CapabilityAvailability::Available,
-        };
-        assert_eq!(
-            response.validate_for(&request),
-            Err(BotTaskError::ResultMismatch)
-        );
-        response.result = BotTaskResult::PublicGuide { answer };
-        assert_eq!(
-            response.validate_for(&request),
-            Err(BotTaskError::ResultMismatch)
-        );
-    }
+        },
+    )
+    .validate_for(&status_request)
+    .unwrap();
 }
 
 #[test]
-fn status_request_is_not_a_model_task() {
-    let mut request = request();
-    request.task = BotTask::CapabilityStatus {
-        capability: BotCapability::PublicGuideEndAnswer,
-    };
-    let principal = principal();
-    let consumer = consumer();
-    assert_eq!(
-        authorize_public_guide(&request, &context(&principal, &consumer, &request)).unwrap_err(),
-        BotTaskError::ResultMismatch
-    );
+fn result_wire_rejects_unknown_fields() {
+    let wire = json!({
+        "contract_version": BOT_TASK_VERSION,
+        "request_id": "title-7",
+        "result": {"kind": "twitch_title", "text": "Titel", "model": "m", "usage": {"input_tokens": 3, "output_tokens": null}}
+    });
+    let parsed: BotTaskResponse = serde_json::from_value(wire.clone()).unwrap();
+    parsed.validate_for(&twitch_request()).unwrap();
+    let mut extra = wire.clone();
+    extra["result"]["reasoning"] = json!("hidden");
+    assert!(serde_json::from_value::<BotTaskResponse>(extra).is_err());
+    let mut failure = wire;
+    failure["result"] =
+        json!({"kind": "failed", "capability": "twitch_title", "failure": "approved"});
+    assert!(serde_json::from_value::<BotTaskResponse>(failure).is_err());
 }

@@ -23,6 +23,7 @@ serde.workspace = true
 brain-ingestion = { path = "../brain-ingestion" }
 brain-providers = { path = "../brain-providers" }
 tempfile.workspace = true
+chrono.workspace = true
 brain-client = { path = "../brain-client" }
 brain-storage = { path = "../brain-storage" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }

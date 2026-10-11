@@ -11,6 +11,21 @@ use brain_contracts::RequestDeadline;
 use brain_kernel::AnswerKernelPort;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Route {
+    Answer,
+    Retrieve,
+    Task,
+}
+impl Route {
+    fn path(self) -> &'static str {
+        match self {
+            Self::Answer => "/v1/answer",
+            Self::Retrieve => "/v1/retrieve",
+            Self::Task => "/v1/task",
+        }
+    }
+}
 struct HttpState<K> {
     service: ApiService<K>,
     slots: Arc<Semaphore>,
@@ -19,6 +34,7 @@ pub fn router<K: AnswerKernelPort + 'static>(service: ApiService<K>) -> Router {
     Router::new()
         .route("/v1/answer", post(answer::<K>))
         .route("/v1/retrieve", post(retrieve::<K>))
+        .route("/v1/task", post(task::<K>))
         .fallback(|| async { respond(json_error(404, "not_found", "Route nicht verfügbar")) })
         .with_state(Arc::new(HttpState {
             service,
@@ -35,32 +51,34 @@ async fn answer<K: AnswerKernelPort + 'static>(
     State(state): State<Arc<HttpState<K>>>,
     request: Request,
 ) -> Response {
-    dispatch(state, request, false).await
+    dispatch(state, request, Route::Answer).await
 }
 async fn retrieve<K: AnswerKernelPort + 'static>(
     State(state): State<Arc<HttpState<K>>>,
     request: Request,
 ) -> Response {
-    dispatch(state, request, true).await
+    dispatch(state, request, Route::Retrieve).await
+}
+async fn task<K: AnswerKernelPort + 'static>(
+    State(state): State<Arc<HttpState<K>>>,
+    request: Request,
+) -> Response {
+    dispatch(state, request, Route::Task).await
 }
 async fn dispatch<K: AnswerKernelPort + 'static>(
     state: Arc<HttpState<K>>,
     request: Request,
-    retrieval: bool,
+    route: Route,
 ) -> Response {
-    let trace = Arc::new(RequestTrace::new(if retrieval {
-        "/v1/retrieve"
-    } else {
-        "/v1/answer"
-    }));
-    let result = dispatch_response(state, request, retrieval, trace.clone()).await;
+    let trace = Arc::new(RequestTrace::new(route.path()));
+    let result = dispatch_response(state, request, route, trace.clone()).await;
     trace.emit(&result);
     respond(result)
 }
 async fn dispatch_response<K: AnswerKernelPort + 'static>(
     state: Arc<HttpState<K>>,
     request: Request,
-    retrieval: bool,
+    route: Route,
     trace: Arc<RequestTrace>,
 ) -> ApiResponse {
     let deadline = RequestDeadline::after(Duration::from_millis(
@@ -91,6 +109,13 @@ async fn dispatch_response<K: AnswerKernelPort + 'static>(
             "application/json erforderlich",
         );
     }
+    if route == Route::Task
+        && headers
+            .keys()
+            .any(|name| name.as_str().starts_with("x-discord-"))
+    {
+        return json_error(400, "invalid_request", "Ungültige Bot-Aufgabe");
+    }
     let authorization = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -112,7 +137,7 @@ async fn dispatch_response<K: AnswerKernelPort + 'static>(
             .and_then(|value| {
                 serde_json::from_str::<brain_contracts::discord_task::DiscordAnswerTask>(value).ok()
             }) {
-            Some(task) if task.valid() && !retrieval => Some(task),
+            Some(task) if task.valid() && route == Route::Answer => Some(task),
             _ => return json_error(400, "invalid_request", "Ungültige Bot-Aufgabe"),
         },
         _ => return json_error(400, "invalid_request", "Ungültige Bot-Aufgabe"),
@@ -147,19 +172,30 @@ async fn dispatch_response<K: AnswerKernelPort + 'static>(
         }
         let worker = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            if retrieval {
-                state
-                    .service
-                    .handle_retrieve_until(authorization.as_deref(), &body, deadline)
-            } else {
-                state.service.handle_answer_with_task(
+            match route {
+                Route::Retrieve => {
+                    state
+                        .service
+                        .handle_retrieve_until(authorization.as_deref(), &body, deadline)
+                }
+                Route::Answer => state.service.handle_answer_with_task(
                     authorization.as_deref(),
                     &body,
                     deadline,
                     discord_user,
                     allow_discord_reads,
                     task,
-                )
+                ),
+                Route::Task => {
+                    let (response, event) =
+                        state
+                            .service
+                            .handle_task(authorization.as_deref(), &body, deadline);
+                    if let Some(event) = event {
+                        trace.record(event);
+                    }
+                    response
+                }
             }
         });
         match worker.await {
@@ -299,7 +335,7 @@ mod diagnostics_tests {
                 .body(axum::body::Body::from(body.to_string()))
                 .unwrap();
             let trace = Arc::new(RequestTrace::new("/v1/answer"));
-            let response = dispatch_response(state, request, false, trace.clone()).await;
+            let response = dispatch_response(state, request, Route::Answer, trace.clone()).await;
             assert_eq!(response.status, status);
             assert_eq!(
                 trace.event(&response).unwrap(),
@@ -308,3 +344,6 @@ mod diagnostics_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod task_tests;

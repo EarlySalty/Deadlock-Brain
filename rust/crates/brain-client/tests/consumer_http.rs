@@ -1,4 +1,3 @@
-//! Real loopback HTTP, authored fixtures only. No provider, bot or production DSN.
 use brain_client::{AsyncBrainClient, ClientError, MAX_RESPONSE_BYTES};
 use brain_contracts::{AnswerProfile, AnswerStatus, Query};
 use serde_json::{json, Value};
@@ -66,7 +65,6 @@ fn fixture(
         thread::sleep(delay);
         let reply =
             format!("HTTP/1.1 {status} Fixture\r\n{headers}Connection: close\r\n\r\n{body}");
-        // Oversize/timeout/cancellation tests intentionally close the socket early.
         let _ = stream.write_all(reply.as_bytes());
         String::from_utf8(request).unwrap()
     });
@@ -259,4 +257,141 @@ fn synthetic_contract_throughput_reports_measurements_not_production_slos() {
         "{}",
         json!({"benchmark":"synthetic_contract_decode_validate", "production_slo":null, "network_included":false, "iterations":iterations, "fixture_bytes":fixture.len(), "elapsed_ns":started.elapsed().as_nanos(), "profile":if cfg!(debug_assertions) {"debug"} else {"release"}})
     );
+}
+
+fn json_reply(body: &Value) -> (String, thread::JoinHandle<String>) {
+    let body = body.to_string();
+    fixture(
+        200,
+        format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            body.len()
+        ),
+        body,
+        Duration::ZERO,
+    )
+}
+
+fn wire(request: &str) -> Value {
+    serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap()
+}
+
+fn title_request() -> brain_client::BotTaskRequest {
+    brain_client::BotTaskRequest {
+        contract_version: brain_client::BOT_TASK_VERSION.into(),
+        request_id: "title-request".into(),
+        identity: brain_client::BotIdentity::Twitch {
+            broadcaster_id: "123456".into(),
+        },
+        task: brain_client::BotTask::TwitchTitle {
+            purpose: brain_client::TwitchTitlePurpose::Insight,
+            prompt: "Privater Streamkontext äöü".into(),
+            temperature: 0.5,
+            max_tokens: 64,
+        },
+    }
+}
+
+#[tokio::test]
+async fn typed_task_round_trip_is_bound_to_request_and_kind() {
+    let reply = json!({"contract_version":"brain.bot_tasks.v1","request_id":"title-request","result":{"kind":"twitch_title","text":"Neuer Titel","model":"fixture-model","usage":{"input_tokens":9,"output_tokens":null}}});
+    let (endpoint, worker) = json_reply(&reply);
+    let client = AsyncBrainClient::new(&endpoint, "fixture-token", Duration::from_secs(3)).unwrap();
+    let response = client.task(&title_request()).await.unwrap();
+    let request = worker.join().unwrap();
+    assert!(request.starts_with("POST /v1/task HTTP/1.1\r\n"));
+    assert!(request
+        .lines()
+        .any(|l| l.eq_ignore_ascii_case("authorization: Bearer fixture-token")));
+    assert_eq!(
+        wire(&request),
+        serde_json::to_value(title_request()).unwrap()
+    );
+    assert_eq!(
+        response.result,
+        brain_client::BotTaskResult::TwitchTitle {
+            text: "Neuer Titel".into(),
+            model: "fixture-model".into(),
+            usage: brain_client::TaskUsage {
+                input_tokens: Some(9),
+                output_tokens: None,
+            },
+        }
+    );
+    for drift in [
+        json!({"contract_version":"brain.bot_tasks.v1","request_id":"other","result":{"kind":"failed","capability":"twitch_title","failure":"timeout"}}),
+        json!({"contract_version":"brain.bot_tasks.v1","request_id":"title-request","result":{"kind":"failed","capability":"discord_faq","failure":"timeout"}}),
+        json!({"contract_version":"brain.bot_tasks.v1","request_id":"title-request","result":{"kind":"capability_status","capability":"twitch_title","availability":"available"}}),
+    ] {
+        let (endpoint, worker) = json_reply(&drift);
+        let client =
+            AsyncBrainClient::new(&endpoint, "fixture-token", Duration::from_secs(3)).unwrap();
+        assert!(matches!(
+            client.task(&title_request()).await,
+            Err(ClientError::InvalidResponse)
+        ));
+        worker.join().unwrap();
+    }
+    let remote = AsyncBrainClient::new(
+        "https://brain.example.invalid",
+        "fixture-token",
+        Duration::from_secs(3),
+    )
+    .unwrap();
+    assert!(matches!(
+        remote.task(&title_request()).await,
+        Err(ClientError::InvalidBaseUrl)
+    ));
+}
+
+#[tokio::test]
+async fn legacy_discord_task_calls_use_the_typed_task_route() {
+    let task = brain_client::DiscordAnswerTask {
+        capability: brain_client::DiscordAnswerCapability::Faq,
+        channel_id: 77,
+    };
+    let mut public = query();
+    public.requested_scopes = BTreeSet::from(["bot.public".into()]);
+    for history in [Vec::new(), vec!["Vorige Frage".to_owned()]] {
+        let reply = json!({"contract_version":"brain.bot_tasks.v1","request_id":"fixture-request","result":{"kind":"discord_answer","answer":answer()}});
+        let (endpoint, worker) = json_reply(&reply);
+        let client =
+            AsyncBrainClient::new_local(&endpoint, "fixture-token", Duration::from_secs(3))
+                .unwrap();
+        let response = if history.is_empty() {
+            client.answer_discord_task(&public, 42, &task).await
+        } else {
+            client
+                .answer_discord_task_with_history(&public, 42, &task, &history)
+                .await
+        }
+        .unwrap();
+        assert_eq!(response.status, AnswerStatus::Answered);
+        let request = worker.join().unwrap();
+        assert!(request.starts_with("POST /v1/task HTTP/1.1\r\n"));
+        assert!(!request.to_ascii_lowercase().contains("x-discord-"));
+        assert_eq!(
+            wire(&request),
+            json!({
+                "contract_version": "brain.bot_tasks.v1",
+                "request_id": "fixture-request",
+                "identity": {"kind": "discord", "channel_id": 77, "user_id": 42},
+                "task": {"kind": "discord_answer", "capability": "faq", "question": "Abrams äöü 🧪", "user_questions": history}
+            })
+        );
+    }
+    let client = AsyncBrainClient::new(
+        "http://127.0.0.1:9",
+        "fixture-token",
+        Duration::from_secs(1),
+    )
+    .unwrap();
+    assert!(matches!(
+        client.answer_discord_task(&query(), 42, &task).await,
+        Err(ClientError::InvalidQuery(_))
+    ));
+    assert!(matches!(
+        client.answer_discord_task(&public, 0, &task).await,
+        Err(ClientError::InvalidResponse)
+    ));
 }

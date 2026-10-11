@@ -5,6 +5,7 @@ use std::{io::Write, sync::OnceLock};
 pub(crate) struct RequestTrace {
     route: &'static str,
     request_id: OnceLock<String>,
+    task_event: OnceLock<Value>,
 }
 
 impl RequestTrace {
@@ -12,7 +13,12 @@ impl RequestTrace {
         Self {
             route,
             request_id: OnceLock::new(),
+            task_event: OnceLock::new(),
         }
+    }
+
+    pub(crate) fn record(&self, event: Value) {
+        let _ = self.task_event.set(event);
     }
 
     pub(crate) fn bind(&self, body: &[u8]) {
@@ -50,6 +56,7 @@ impl RequestTrace {
                 "forbidden" => "forbidden",
                 "invalid_request" => "invalid_request",
                 "invalid_kernel_response" => "invalid_kernel_response",
+                "invalid_task_response" => "invalid_task_response",
                 "invalid_retrieval_response" => "invalid_retrieval_response",
                 "invalid_internal_evidence" => "invalid_internal_evidence",
                 "invalid_internal_response" => "invalid_internal_response",
@@ -66,6 +73,8 @@ impl RequestTrace {
                 "not_found" => "not_found",
                 _ => "http_error",
             }
+        } else if self.route == "/v1/task" {
+            return None;
         } else {
             match body
                 .as_ref()
@@ -90,8 +99,18 @@ impl RequestTrace {
         }))
     }
 
-    fn write(&self, response: &ApiResponse, writer: &mut impl Write) -> std::io::Result<()> {
-        if let Some(event) = self.event(response) {
+    pub(crate) fn write(
+        &self,
+        response: &ApiResponse,
+        writer: &mut impl Write,
+    ) -> std::io::Result<()> {
+        for event in self
+            .task_event
+            .get()
+            .cloned()
+            .into_iter()
+            .chain(self.event(response))
+        {
             serde_json::to_writer(&mut *writer, &event)?;
             writeln!(writer)?;
         }

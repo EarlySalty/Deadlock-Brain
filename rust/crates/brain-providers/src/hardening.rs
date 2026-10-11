@@ -2,8 +2,8 @@ use super::{PriceCeiling, ProviderConfig, ProviderError, Result};
 use brain_contracts::{AuthorizedContext, Evidence, Query, SourceVisibility};
 use std::{io::Read, net::IpAddr, time::Duration};
 
-pub(super) fn validate_endpoint(config: &ProviderConfig) -> Result<()> {
-    let url = reqwest::Url::parse(&config.base_url).map_err(|_| ProviderError::InvalidConfig)?;
+pub(super) fn endpoint_loopback(base_url: &str) -> Result<bool> {
+    let url = reqwest::Url::parse(base_url).map_err(|_| ProviderError::InvalidConfig)?;
     let loopback = url.host_str().is_some_and(|host| {
         host == "localhost"
             || host
@@ -16,7 +16,14 @@ pub(super) fn validate_endpoint(config: &ProviderConfig) -> Result<()> {
         || url.query().is_some()
         || url.fragment().is_some()
         || !(url.scheme() == "https" || (url.scheme() == "http" && loopback))
-        || (!loopback && config.pricing.is_none())
+    {
+        return Err(ProviderError::InvalidConfig);
+    }
+    Ok(loopback)
+}
+pub(super) fn validate_endpoint(config: &ProviderConfig) -> Result<()> {
+    let loopback = endpoint_loopback(&config.base_url)?;
+    if (!loopback && config.pricing.is_none())
         || config.timeout.is_zero()
         || config.timeout > Duration::from_secs(600)
         || !(1..=8).contains(&config.retry_attempts)

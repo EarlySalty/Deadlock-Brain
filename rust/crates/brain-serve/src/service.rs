@@ -17,7 +17,8 @@ use brain_contracts::{
 use brain_kernel::{CachedKernel, Kernel};
 use brain_policy::{CredentialRegistry, PolicyEngine};
 use brain_providers::{
-    CodexSubscriptionProvider, OpenAiCompatibleProvider, PriceCeiling, ProviderConfig,
+    CodexSubscriptionProvider, GenerationEndpoint, OpenAiCompatibleProvider, PriceCeiling,
+    ProviderConfig, TextGenerationProvider, TwitchTitleGenerator,
 };
 use brain_storage::{LocalPgPoolStats, LocalPgReader};
 use dbrain_retrieval::ReleaseRetriever;
@@ -194,6 +195,7 @@ pub struct Prepared {
     analytics: Option<Arc<AnalyticsRuntime>>,
     discord_live: Option<Arc<DiscordLive>>,
     mirror_password: Option<String>,
+    twitch_title: Option<Arc<TwitchTitleGenerator>>,
     shutdown: Arc<Shutdown>,
     startup_deadline: Instant,
 }
@@ -220,7 +222,9 @@ impl Prepared {
             internal_credentials,
             discord_live_token,
             mirror_password,
+            twitch_title_key,
         } = secrets;
+        let twitch_title = twitch_title_generator(&config, twitch_title_key)?;
         let discord_live = discord_live_token
             .map(DiscordLive::new)
             .transpose()?
@@ -306,6 +310,7 @@ impl Prepared {
             analytics,
             discord_live,
             mirror_password,
+            twitch_title,
             shutdown,
             startup_deadline: deadline,
         })
@@ -319,6 +324,36 @@ impl Prepared {
     pub fn remaining_shutdown(&self) -> Duration {
         self.shutdown.remaining()
     }
+}
+
+fn twitch_title_generator(
+    config: &Config,
+    key: Option<String>,
+) -> Result<Option<Arc<TwitchTitleGenerator>>, Error> {
+    let Some(title) = config
+        .task_providers
+        .as_ref()
+        .and_then(|providers| providers.twitch_title.as_ref())
+    else {
+        return Ok(None);
+    };
+    let Some(key) = key else {
+        log_event("twitch_title_key_missing");
+        return Ok(None);
+    };
+    let provider = TextGenerationProvider::new(GenerationEndpoint::new(
+        key,
+        &title.base_url,
+        Duration::from_millis(title.timeout_ms),
+        title.retry_attempts_on_429,
+        title.max_response_bytes,
+    ))
+    .map_err(|_| Error::ProviderConfig)?;
+    Ok(Some(Arc::new(TwitchTitleGenerator::new(
+        provider,
+        title.model_selection_path.clone(),
+        title.max_output_tokens,
+    ))))
 }
 
 fn startup_database_error(error: PortError) -> Error {
@@ -617,7 +652,24 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                 )
             })
             .collect(),
+    )
+    .with_bot_task_consumers(
+        prepared
+            .config
+            .bot_task_consumers
+            .iter()
+            .map(|consumer| {
+                (
+                    (consumer.actor_id.clone(), consumer.channel.clone()),
+                    consumer.capabilities.clone(),
+                )
+            })
+            .collect(),
     );
+    let api = match &prepared.twitch_title {
+        Some(generator) => api.with_twitch_title(generator.clone()),
+        None => api,
+    };
     let mut router = brain_api::router(api)
         .layer(middleware::from_fn_with_state(
             health.clone(),

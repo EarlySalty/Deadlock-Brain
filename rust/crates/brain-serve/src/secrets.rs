@@ -1,4 +1,3 @@
-//! One explicit Infisical snapshot supplies the configured secret references.
 use crate::{config::DatabaseAuth, Config, Error};
 use brain_policy::{AuthGrant, CredentialRegistry};
 use std::{
@@ -15,6 +14,7 @@ pub struct Secrets {
     pub(crate) internal_credentials: CredentialRegistry,
     pub(crate) discord_live_token: Option<String>,
     pub(crate) mirror_password: Option<String>,
+    pub(crate) twitch_title_key: Option<String>,
 }
 
 impl std::fmt::Debug for Secrets {
@@ -41,8 +41,6 @@ fn required(
 }
 
 impl Secrets {
-    /// The shared loader can synchronously poll a private pipe. Isolate startup
-    /// loading from the caller's absolute deadline without a runtime shutdown join.
     pub fn load_until(config: &Config, path: &Path, deadline: Instant) -> Result<Self, Error> {
         config.validate()?;
         if Instant::now() >= deadline {
@@ -59,8 +57,6 @@ impl Secrets {
                     .build()
                     .map_err(|_| Error::Runtime)
                     .and_then(|runtime| runtime.block_on(Self::from_infisical(&config, &path)));
-                // An expired caller closes the receiver; dropping this result then
-                // disposes of the snapshot instead of logging or retaining it.
                 let _ = sender.send(result);
             })
             .map_err(|_| Error::Runtime)?;
@@ -88,7 +84,6 @@ impl Secrets {
         })
     }
 
-    /// Injectable lookup uses the same validation for runtime snapshots and synthetic tests.
     pub fn load(config: &Config, lookup: impl Fn(&str) -> Option<String>) -> Result<Self, Error> {
         config.validate()?;
         let discord_live_token = config
@@ -159,6 +154,19 @@ impl Secrets {
                 grants.push(auth);
             }
         }
+        let twitch_title_key = config
+            .task_providers
+            .as_ref()
+            .and_then(|providers| providers.twitch_title.as_ref())
+            .filter(|title| lookup(&title.api_key_env).is_some())
+            .map(|title| required(&lookup, &title.api_key_env, "twitch_title", true))
+            .transpose()?;
+        if twitch_title_key
+            .as_ref()
+            .is_some_and(|key| *key != provider_key && tokens.contains(key))
+        {
+            return Err(Error::SecretInvalid("duplicate"));
+        }
         Ok(Self {
             provider_key,
             postgres_password,
@@ -166,6 +174,7 @@ impl Secrets {
             internal_credentials: CredentialRegistry::new(internal_grants),
             discord_live_token,
             mirror_password,
+            twitch_title_key,
         })
     }
 }
@@ -344,6 +353,47 @@ mod tests {
         config.credentials.push(second);
         assert!(matches!(
             Secrets::load(&config, |name| if name == "SECOND_CLIENT_TOKEN" {
+                fixture("BRAIN_SERVE_API_TOKEN")
+            } else {
+                fixture(name)
+            }),
+            Err(Error::SecretInvalid("duplicate"))
+        ));
+    }
+
+    #[test]
+    fn twitch_title_key_is_optional_and_never_a_client_credential() {
+        let mut config = Config::parse(CONFIG).unwrap();
+        config.task_providers = Some(crate::config::TaskProviders {
+            twitch_title: Some(crate::config::TwitchTitleProvider {
+                base_url: "https://api.fireworks.ai/inference/v1".into(),
+                api_key_env: "FIREWORK_API_KEY".into(),
+                model_selection_path: "/var/lib/deadlock/llm-model-selection.json".into(),
+                timeout_ms: 30_000,
+                retry_attempts_on_429: 2,
+                max_output_tokens: 512,
+                max_response_bytes: 262_144,
+            }),
+        });
+        assert!(Secrets::load(&config, fixture)
+            .unwrap()
+            .twitch_title_key
+            .is_none());
+        let secrets = Secrets::load(&config, |name| {
+            if name == "FIREWORK_API_KEY" {
+                Some("synthetic-title-key".into())
+            } else {
+                fixture(name)
+            }
+        })
+        .unwrap();
+        assert_eq!(
+            secrets.twitch_title_key.as_deref(),
+            Some("synthetic-title-key")
+        );
+        assert!(!format!("{secrets:?}").contains("synthetic-title-key"));
+        assert!(matches!(
+            Secrets::load(&config, |name| if name == "FIREWORK_API_KEY" {
                 fixture("BRAIN_SERVE_API_TOKEN")
             } else {
                 fixture(name)
