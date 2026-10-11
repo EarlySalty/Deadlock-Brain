@@ -1,0 +1,11 @@
+8ca3b514ac2fd4fc0301193114f381560db1322de851ffcb2f7c842f23e45fac  /home/nathanael/.worktrees/brain-wiki-spielwissen-b/rust/crates/dbrain-sources/src/game_files.rs
+e6bd4e5221d8806e85f043dc90a116db87848f38a45bad57dd37047858e09474  /home/nathanael/.worktrees/brain-wiki-spielwissen-b/rust/crates/dbrain-sources/src/game_files/anchored.rs
+d18572db271be846a57462fd0232054c0a4c8e9d23d24fb89047f0b75c20ea66  /home/nathanael/.worktrees/brain-wiki-spielwissen-b/rust/crates/dbrain-sources/src/game_files/budget.rs
+83ed6b1fea173e1a630563d56f271111da51dfe8c5715db8a4c700becf2a8d5b  /home/nathanael/.worktrees/brain-wiki-spielwissen-b/rust/crates/dbrain-sources/src/game_files/json_text.rs
+8fa75c5a183d89c6fda516e87c418ca3eb33c242f0c9ca8d8bae8398eeca9aaf  /home/nathanael/.worktrees/brain-wiki-spielwissen-b/rust/crates/dbrain-sources/src/game_files/kv.rs
+33f8535652b6b48d1c3a3510ef0cc0deee3ef453eefd8034c111df9b08efbf82  /home/nathanael/.worktrees/brain-wiki-spielwissen-b/rust/crates/dbrain-sources/src/game_files/kv3.rs
+feeec228eea64e008ba09dd70032245c32e366bcb7c4c2e891c3466310f9f368  /home/nathanael/.worktrees/brain-wiki-spielwissen-b/rust/crates/dbrain-sources/src/game_files/vpk.rs
+e264280262af7cd0f89d29d76c695ef2a2e20eff377a8e0b0fb9488fecf6ee62  /home/nathanael/.worktrees/brain-wiki-spielwissen-b/.tasks/2026-10-03-wiki-spielwissen/pruefharness-b/Cargo.toml
+36ffe9a5f0be2fe5127870ec4b19498ea195168c3ef61181258a0b593e2ea6e7  /home/nathanael/.worktrees/brain-wiki-spielwissen-b/.tasks/2026-10-03-wiki-spielwissen/pruefharness-b/src/main.rs
+d582549e53fac75e7bb96715eab8c34bd434ad77730ee0e5081d0aa51ee17966  /home/nathanael/.worktrees/brain-wiki-spielwissen-b/.tasks/2026-10-03-wiki-spielwissen/pruefharness-b/src/bin/validate-jsonl.rs
+d6343f770d39ce67f3e6e7840c51f957d8cd7727d8368392bd6ec2cd27b2b835  /home/nathanael/.worktrees/brain-wiki-spielwissen-b/.tasks/2026-10-03-wiki-spielwissen/pruefharness-b/check-round2.sh
