@@ -16,6 +16,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[path = "brain-knowledge-import/asset_mirror.rs"]
+mod asset_mirror;
 #[path = "brain-knowledge-import/public_game.rs"]
 mod public_game;
 #[path = "brain-knowledge-import/runtime.rs"]
@@ -47,6 +49,7 @@ impl Arguments {
                 | "reauthorize-game"
                 | "extract-game"
                 | "export-legacy-game"
+                | "register-asset-mirror"
         ) {
             return Err("Unbekannter Unterbefehl".into());
         }
@@ -117,6 +120,9 @@ impl Arguments {
                     "--runtime-config",
                 ]
                 .as_slice(),
+                "register-asset-mirror" => {
+                    ["--report", "--runtime-config", "--infisical-config"].as_slice()
+                }
                 _ => unreachable!(),
             };
             if !allowed.contains(&key.as_str()) {
@@ -186,11 +192,17 @@ impl Arguments {
                         .map_err(|_| "Vollständiger Git-Commit erforderlich")?;
                 }
             }
+            "register-asset-mirror" => {}
             _ => unreachable!(),
         }
         if matches!(
             parsed.mode.as_str(),
-            "import" | "publish" | "inspect-game" | "reauthorize-game" | "export-legacy-game"
+            "import"
+                | "publish"
+                | "inspect-game"
+                | "reauthorize-game"
+                | "export-legacy-game"
+                | "register-asset-mirror"
         ) {
             parsed.path("--runtime-config")?;
             if parsed.values.contains_key("--infisical-config") {
@@ -763,6 +775,23 @@ async fn execute(args: Arguments) -> Result<bool, String> {
         );
         return Ok(true);
     }
+    if args.mode == "register-asset-mirror" {
+        let pool = pool(&args).await?;
+        let store = PgStore::new(pool.clone());
+        store
+            .check_core_schema()
+            .await
+            .map_err(|_| "Bestehendes Core-Schema ist nicht kompatibel")?;
+        let value = asset_mirror::register(&pool, &store).await?;
+        write_report(&report, &value)?;
+        pool.close().await;
+        println!(
+            "{}",
+            json!({"complete": true, "records": value["records"].as_array().map_or(0, Vec::len),
+            "report": report, "published": false, "activated": false})
+        );
+        return Ok(true);
+    }
     if matches!(args.mode.as_str(), "inspect-game" | "reauthorize-game") {
         let pool = pool(&args).await?;
         let store = PgStore::new(pool.clone());
@@ -846,7 +875,7 @@ async fn main() -> ExitCode {
     match Arguments::parse(std::env::args().skip(1)) {
         Ok(None) => {
             println!(
-                "brain-knowledge-import extract-game --source <git-spielquelle> --revision <vollständiger-commit> --runtime-config /etc/deadlock-brain/maintenance-runtime.json --output /pfad/neue-spieldaten.jsonl --report /pfad/neuer-bericht.json\nbrain-knowledge-import export-legacy-game --source <legacy-entities|legacy-patchnotes> --runtime-config /etc/deadlock-brain/maintenance-runtime.json --output /pfad/neue-legacy-daten.jsonl --report /pfad/neuer-bericht.json\nbrain-knowledge-import inspect-game --source <spielquelle> [--source <weitere-spielquelle>] --runtime-config /etc/deadlock-brain/maintenance-runtime.json --report /pfad/neuer-bericht.json\nbrain-knowledge-import reauthorize-game --source <spielquelle> [--source <weitere-spielquelle>] --authorization-ref <ausdrücklicher-freigabenachweis> [--provider-egress-ref <gesonderter-weitergabenachweis>] --runtime-config /etc/deadlock-brain/maintenance-runtime.json --report /pfad/neuer-bericht.json\n\nSpielquellenfreigaben gelten ausschließlich für öffentliche sachliche Spieldaten mit geprüftem Ursprung. Ursprüngliche Lizenzerklärungen bleiben erhalten; daraus entsteht keine Lizenz zur Weitergabe von Rohassets. Die Freigabe schreibt nur monotone Rechteversionen für genau benannte Quellen. Ohne gesonderten Nachweis bleibt die Weitergabe an Modellanbieter gesperrt. Veröffentlichung und Aktivierung bleiben getrennte Schritte. Extraktion liest ausschließlich gepinnte Git-Objekte mit geprüfter Repository-Herkunft. Der Legacy-Export übernimmt nur vorhandene Spielentitäten, deutsche und englische Lokalisierungen sowie offizielle Patchnotes, keine Community- oder Nutzerdaten."
+                "brain-knowledge-import extract-game --source <git-spielquelle> --revision <vollständiger-commit> --runtime-config /etc/deadlock-brain/maintenance-runtime.json --output /pfad/neue-spieldaten.jsonl --report /pfad/neuer-bericht.json\nbrain-knowledge-import export-legacy-game --source <legacy-entities|legacy-patchnotes> --runtime-config /etc/deadlock-brain/maintenance-runtime.json --output /pfad/neue-legacy-daten.jsonl --report /pfad/neuer-bericht.json\nbrain-knowledge-import inspect-game --source <spielquelle> [--source <weitere-spielquelle>] --runtime-config /etc/deadlock-brain/maintenance-runtime.json --report /pfad/neuer-bericht.json\nbrain-knowledge-import reauthorize-game --source <spielquelle> [--source <weitere-spielquelle>] --authorization-ref <ausdrücklicher-freigabenachweis> [--provider-egress-ref <gesonderter-weitergabenachweis>] --runtime-config /etc/deadlock-brain/maintenance-runtime.json --report /pfad/neuer-bericht.json\nbrain-knowledge-import register-asset-mirror --runtime-config /etc/deadlock-brain/maintenance-runtime.json --report /pfad/neuer-bericht.json\n\nSpielquellenfreigaben gelten ausschließlich für öffentliche sachliche Spieldaten mit geprüftem Ursprung. Ursprüngliche Lizenzerklärungen bleiben erhalten; daraus entsteht keine Lizenz zur Weitergabe von Rohassets. Die Freigabe schreibt nur monotone Rechteversionen für genau benannte Quellen. Ohne gesonderten Nachweis bleibt die Weitergabe an Modellanbieter gesperrt. Veröffentlichung und Aktivierung bleiben getrennte Schritte. Extraktion liest ausschließlich gepinnte Git-Objekte mit geprüfter Repository-Herkunft. Der Legacy-Export übernimmt nur vorhandene Spielentitäten, deutsche und englische Lokalisierungen sowie offizielle Patchnotes, keine Community- oder Nutzerdaten."
             );
             println!(
                 "brain-knowledge-import partition --input /pfad/daten.jsonl --output-dir /pfad/neue-partitionen --report /pfad/neuer-bericht.json\nbrain-knowledge-import validate --input /pfad/daten.jsonl --policy /pfad/rechte.json --parser-revision <stand> --report /pfad/neuer-bericht.json [--authorization-ref <freigabenachweis>]\nbrain-knowledge-import import <dieselben Optionen> --runtime-config /etc/deadlock-brain/maintenance-runtime.json\nbrain-knowledge-import publish --base-release <id> --release-id <neue-id> --knowledge-version <stand> --source <quelle> [--source <weitere-quelle>] --runtime-config /etc/deadlock-brain/maintenance-runtime.json --report /pfad/neuer-bericht.json\n\nPartitionierung prüft die gesamte Eingabe vor der Ausgabe und erhält ihre exakten Bytes. Ausgabeordner müssen neu sein, ihre Elternordner bereits vorhanden. Der Bericht darf direkt im neuen Ausgabeordner liegen, sonst muss sein Elternordner vorhanden sein. Normale Partitionen umfassen höchstens 1.000 Dokumentzeilen und 64 MiB. Größere Einzeldokumente bis 128 MiB erhalten eine eigene Partition. Jede Eingabe ist auf 100.000 historische Dokumentzeilen, 2 GiB Sicherungsbytes und einen 64-MiB-Identitätsindex begrenzt; der Release bleibt getrennt auf 10.000 aktive Pins, 256 MiB Indextext und 500.000 Chunks begrenzt. Import und Validate lesen höchstens 128 MiB je Eingabe. Validate misst mit --authorization-ref zusätzlich die öffentlichen Faktenprojektionen im Speicher und meldet deren genaue UTF-8-Bytes; ohne diese Option bleibt die zusätzliche Probe aus. Diese Probe ändert keine gespeicherten Rechte oder Daten. Import und Veröffentlichung verwenden ausschließlich das dedizierte Ziel und den Infisical-Verweis der normalen Runtime-Konfiguration. Jede Datenbankverbindung bestätigt Rolle, Datenbank, lokalen Socket und Port vor der Verarbeitung. Ein optionaler --infisical-config-Pfad muss mit der Runtime übereinstimmen. Partitionierung importiert, veröffentlicht und aktiviert keine Daten und benötigt weder Importrechte noch Infisical. Import und Veröffentlichung aktivieren keinen Dienst. Bestehende Berichte werden nicht überschrieben. Geheimnisse bleiben im vorhandenen Infisical-Verfahren."
@@ -909,6 +938,34 @@ mod tests {
         assert!(args(&export).is_err());
         export[2] = "legacy-entities";
         assert!(args(&export).is_ok());
+    }
+
+    #[test]
+    fn asset_mirror_registration_requires_runtime_and_absolute_report() {
+        let mut register = vec!["register-asset-mirror", "--report", "/report"];
+        assert!(args(&register).is_err());
+        register.extend(["--runtime-config", "/runtime"]);
+        assert!(args(&register).is_ok());
+        register.extend(["--infisical-config", "/infisical"]);
+        assert!(args(&register).is_ok());
+        assert!(args(&[
+            "register-asset-mirror",
+            "--report",
+            "report",
+            "--runtime-config",
+            "/runtime"
+        ])
+        .is_err());
+        assert!(args(&[
+            "register-asset-mirror",
+            "--report",
+            "/report",
+            "--runtime-config",
+            "/runtime",
+            "--source",
+            "deadlock_assets_api"
+        ])
+        .is_err());
     }
 
     #[test]
