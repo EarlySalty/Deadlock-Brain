@@ -5,6 +5,7 @@ mod analytics;
 pub mod config;
 mod deadlock_data;
 mod discord_live;
+pub mod game_tools;
 mod health;
 mod operator_socket;
 mod secrets;

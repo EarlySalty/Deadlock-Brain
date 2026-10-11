@@ -557,6 +557,29 @@ impl MirroredGameContextReader {
         Ok(bundle)
     }
 
+    pub fn read_source_head(
+        &self,
+        context: &brain_contracts::AuthorizedContext,
+        source_id: &str,
+        logical_id: &str,
+    ) -> std::result::Result<Option<SourceRecordV2>, brain_contracts::PortError> {
+        let record: Option<Value> = self.drive(context, async {
+            sqlx::query_scalar(
+                "SELECT record_json FROM brain.source_record_heads \
+                WHERE source_id=$1 AND logical_id=$2 AND NOT tombstone",
+            )
+            .bind(source_id)
+            .bind(logical_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
+        })?;
+        record
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|_| mirror_error("Spieldatenkopf ist ungültig"))
+    }
+
     fn drive<T>(
         &self,
         context: &brain_contracts::AuthorizedContext,

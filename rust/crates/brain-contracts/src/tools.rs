@@ -368,6 +368,8 @@ pub enum DeadlockDataOperation {
     ItemWinrate,
     RankedHeroes,
     Matchups,
+    Timers,
+    Counters,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -495,13 +497,22 @@ impl ToolSubrequest {
                         return Err(invalid("Ungültiger Spielname"));
                     }
                 }
-                if request.days == Some(0)
-                    || request.limit == Some(0)
-                    || (request.operation != DeadlockDataOperation::RankedHeroes
-                        && request.hero.is_none())
-                    || (request.operation == DeadlockDataOperation::ItemWinrate
-                        && request.item.is_none())
-                {
+                let target_invalid = match request.operation {
+                    DeadlockDataOperation::RankedHeroes => false,
+                    DeadlockDataOperation::Timers => {
+                        request.hero.is_some() || request.item.is_some()
+                    }
+                    DeadlockDataOperation::Counters => {
+                        request.hero.is_some() == request.item.is_some()
+                    }
+                    DeadlockDataOperation::ItemWinrate => {
+                        request.hero.is_none() || request.item.is_none()
+                    }
+                    DeadlockDataOperation::Items
+                    | DeadlockDataOperation::Builds
+                    | DeadlockDataOperation::Matchups => request.hero.is_none(),
+                };
+                if request.days == Some(0) || request.limit == Some(0) || target_invalid {
                     return Err(invalid("Spielauswahl fehlt"));
                 }
                 Ok(())

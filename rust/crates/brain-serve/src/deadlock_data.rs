@@ -22,12 +22,21 @@ use std::{
 
 const MCP: &str = "https://api.deadlock-api.com/v1/mcp";
 const SOURCE: &str = brain_contracts::public_api::DEADLOCK_API_SOURCE_ID;
+const GAME_SOURCE: &str = "deadlock-game-data-v1";
 
 fn invalid() -> PortError {
     PortError::InvalidResponse("Die Spielstatistik konnte nicht sicher gelesen werden.".into())
 }
 fn unavailable() -> PortError {
     PortError::Unavailable("Die Spielstatistik ist gerade nicht erreichbar.".into())
+}
+
+fn game_data_failure(reason: &'static str) -> PortError {
+    eprintln!(
+        "{}",
+        json!({"event":"deadlock_game_data_failed","reason":reason})
+    );
+    PortError::Unavailable("Die Spieldaten sind gerade nicht sicher lesbar.".into())
 }
 
 fn transport_error(error: reqwest::Error) -> PortError {
@@ -444,6 +453,18 @@ impl Runtime {
         }
         let bundle = self.mirror.read_pinned(context, pin)?;
         check_assets(&bundle, context)?;
+        if matches!(data.operation, Operation::Timers | Operation::Counters) {
+            let (result, logical_prefix, citation) =
+                self.game_facts(context, &bundle, data, mode, limit)?;
+            let revision = u64::try_from(pin.client_version).map_err(|_| invalid())?;
+            return self.store(
+                query,
+                context,
+                (pin, request, key),
+                result,
+                (GAME_SOURCE, logical_prefix, citation, revision),
+            );
+        }
         let end = Utc::now().timestamp().div_euclid(86_400) * 86_400;
         let start = end - i64::from(days) * 86_400;
         let hero_id = data
@@ -509,6 +530,7 @@ impl Runtime {
                         "analytics/hero-counter-stats",
                     )
                 }
+                Operation::Timers | Operation::Counters => return Err(invalid()),
             })
         })();
         let (mut rows, endpoint, api_status) = match fetched {
@@ -557,12 +579,119 @@ impl Runtime {
             "build_limit":"Einzelitemvergleich aus dem Build-Reasoner, kein vollständiger geprüfter Kaufplan.",
             "build_observation_basis":"Keine Build-Statistik: Der Upstream unterstützt hier keinen Spielmodusfilter. Keine Daten aus anderen Spielmodi verwenden.",
             "matchup_observation_basis":"Gegner in derselben Lane nach dem Standardfilter der Deadlock-API."});
+        let citation = format!(
+            "Deadlock-API: {} bis {} (UTC), {}",
+            stamp(start)?,
+            stamp(end)?,
+            mode.population()
+        );
+        self.store(
+            query,
+            context,
+            (pin, request, key),
+            result,
+            (SOURCE, endpoint.into(), citation, end as u64),
+        )
+    }
+
+    fn game_facts(
+        &self,
+        context: &AuthorizedContext,
+        bundle: &PinnedMirrorBundle,
+        data: &brain_contracts::tools::DeadlockDataRequest,
+        mode: GameMode,
+        limit: usize,
+    ) -> Result<(Value, String, String), PortError> {
+        let client = bundle.game_context().client_version;
+        match data.operation {
+            Operation::Timers => {
+                if mode != GameMode::Normal {
+                    return Err(PortError::Unavailable(
+                        "Objektivzeiten liegen nur für das normale Spiel vor.".into(),
+                    ));
+                }
+                let record = self
+                    .mirror
+                    .read_source_head(
+                        context,
+                        crate::game_tools::GAME_FILES_SOURCE,
+                        crate::game_tools::CONVARS_LOGICAL_ID,
+                    )?
+                    .ok_or_else(|| game_data_failure("game_files_missing"))?;
+                let files = crate::game_tools::GameFiles::from_record(&record)
+                    .map_err(game_data_failure)?;
+                let timers = crate::game_tools::timers(
+                    &files,
+                    &bundle.asset("misc_entities", Some("english"))?.payload,
+                    &bundle.asset("generic_data", Some("english"))?.payload,
+                )
+                .map_err(game_data_failure)?;
+                let short = files.revision().get(..12).ok_or_else(invalid)?;
+                let retrieved = stamp(files.retrieved_at())?;
+                Ok((
+                    json!({"source":"Spieldaten","operation":data.operation,"game_mode":mode,
+                        "game_files_revision":files.revision(),"game_files_retrieved_at":retrieved,
+                        "assets_client_version":client,"timers":timers,
+                        "interpretation":"Sekunden ab Spielbeginn oder als Intervall; first_spawn_clock ist die Spieluhr. basis game_files stammt aus den Spieldateien der genannten Revision, basis assets_mirror aus dem Assets-Spiegel des genannten Clients. Nur diese Werte nennen, keine fehlenden Zeiten ergänzen."}),
+                    format!("game-files/timers/{short}"),
+                    format!("Spieldaten Revision {short} (abgerufen {retrieved}) und Assets-Spiegel Client {client}"),
+                ))
+            }
+            Operation::Counters => {
+                let (target, kind, id) = match (&data.item, &data.hero) {
+                    (Some(item), None) => {
+                        let id = resolve(bundle, "items", item, mode)?;
+                        (crate::game_tools::CounterTarget::Item(id), "items", id)
+                    }
+                    (None, Some(hero)) => {
+                        let id = resolve(bundle, "heroes_all", hero, mode)?;
+                        (crate::game_tools::CounterTarget::Hero(id), "heroes_all", id)
+                    }
+                    _ => return Err(invalid()),
+                };
+                let catalog = crate::game_tools::Catalog {
+                    items_english: &bundle.asset("items", Some("english"))?.payload,
+                    items_german: &bundle.asset("items", Some("german"))?.payload,
+                    heroes_english: &bundle.asset("heroes_all", Some("english"))?.payload,
+                    heroes_german: &bundle.asset("heroes_all", Some("german"))?.payload,
+                };
+                let mut result = crate::game_tools::counters(
+                    &catalog,
+                    &target,
+                    |row| mode.allows_item(row),
+                    limit,
+                )
+                .map_err(game_data_failure)?;
+                result["source"] = json!("Assets-Spiegel");
+                result["operation"] = json!(data.operation);
+                result["game_mode"] = json!(mode);
+                result["client_version"] = json!(client);
+                result["target"] = json!({"kind":kind,"id":id,
+                    "names":bundle.localized_names(kind, id)?});
+                Ok((
+                    result,
+                    format!("assets-mirror/counters/{kind}-{id}"),
+                    format!("Assets-Spiegel Client {client}: Item- und Fähigkeitswerte"),
+                ))
+            }
+            _ => Err(invalid()),
+        }
+    }
+
+    fn store(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        (pin, request, key): (&PinnedGameContext, &ToolRequest, String),
+        result: Value,
+        (source, logical_prefix, citation, revision): (&str, String, String, u64),
+    ) -> Result<Entry, PortError> {
         let content = result.to_string();
         if content.len() > self.config.max_result_bytes {
             eprintln!(
                 "{}",
                 json!({"event":"deadlock_data_result_too_large",
-                "request_id":query.request_id,"operation":data.operation,
+                "request_id":query.request_id,"operation":result["operation"],
                 "bytes":content.len(),"maximum":self.config.max_result_bytes})
             );
             return Err(invalid());
@@ -570,17 +699,12 @@ impl Runtime {
         let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
         let mut evidence = vec![Evidence {
             evidence_id: format!("deadlock-api:{hash}"),
-            source_id: SOURCE.into(),
-            logical_id: format!("{endpoint}/{hash}"),
-            revision: end as u64,
+            source_id: source.into(),
+            logical_id: format!("{logical_prefix}/{hash}"),
+            revision,
             kind: EvidenceKind::Prose,
             content,
-            citation: format!(
-                "Deadlock-API: {} bis {} (UTC), {}",
-                stamp(start)?,
-                stamp(end)?,
-                mode.population()
-            ),
+            citation,
             visibility: SourceVisibility::Public,
             allowed_scopes: Default::default(),
             score: 1.0,
@@ -765,7 +889,7 @@ fn key(
 }
 
 fn check_assets(bundle: &PinnedMirrorBundle, context: &AuthorizedContext) -> Result<(), PortError> {
-    for kind in ["heroes_all", "items"] {
+    for kind in ["heroes_all", "items", "misc_entities", "generic_data"] {
         for language in ["english", "german"] {
             let asset = bundle.asset(kind, Some(language))?;
             for receipt in [&asset.receipt.manifest, &asset.receipt.endpoint] {
@@ -1059,9 +1183,9 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
         self.runtime.check(query, context)?;
         let mut definitions = self.knowledge.definitions(query, context, pin)?;
         definitions.push(ToolDefinition { name: ToolName::DeadlockData,
-            description: "Items und Builds: bestehender Build-Reasoner mit Spielwerten, DPS und Skalierung, danach Deadlock-API als Gegenprobe zu Käufen und Siegquoten. Für Item-Empfehlungen, Builds, Item-Siegquoten, Ranked-Helden und Matchups. Entscheide selbst, ob und wie oft du abfragst. hero und item sind frei gewählte deutsche oder englische Spielnamen oder Spiel-IDs, keine Namen von Personen. Normales Spiel ist der Standard; beachte die ausgewiesenen Spielmodusgrenzen der Ergebnisse. Datenbasis und Zeitraum kurz in der Antwort nennen. Die API ist keine Kaufvorschrift.".into(),
+            description: "Items und Builds: bestehender Build-Reasoner mit Spielwerten, DPS und Skalierung, danach Deadlock-API als Gegenprobe zu Käufen und Siegquoten. Für Item-Empfehlungen, Builds, Item-Siegquoten, Ranked-Helden und Matchups. timers liefert Spawnzeiten und Intervalle von Urne, Unstable Rift, Powerups, Kisten, Mid-Boss und Rejuvenator aus den Spieldaten, ohne hero und item. counters liefert zu genau einem item oder hero dessen Effektwerte und Items sowie Fähigkeiten mit echten Gegenwerten wie Heilungsreduktion oder Resistenzreduktion. Entscheide selbst, ob und wie oft du abfragst. hero und item sind frei gewählte deutsche oder englische Spielnamen oder Spiel-IDs, keine Namen von Personen. Normales Spiel ist der Standard; beachte die ausgewiesenen Spielmodusgrenzen der Ergebnisse. Datenbasis und Zeitraum kurz in der Antwort nennen. Die API ist keine Kaufvorschrift.".into(),
             input_schema: json!({"type":"object","additionalProperties":false,"required":["operation"],
-                "properties":{"operation":{"type":"string","enum":["items","builds","item_winrate","ranked_heroes","matchups"]},
+                "properties":{"operation":{"type":"string","enum":["items","builds","item_winrate","ranked_heroes","matchups","timers","counters"]},
                     "hero":{"type":"string","minLength":1,"maxLength":128},
                     "item":{"type":"string","minLength":1,"maxLength":128},
                     "days":{"type":"integer","minimum":1,"maximum":self.runtime.config.max_days},
@@ -2343,5 +2467,119 @@ mod tests {
         assert!(parse_ranked(&text.replace("2,8,3", "1,8,3"), 1024).is_err());
         assert!(parse_ranked(text, 2).is_err());
         assert!(parse_ranked(&format!("{text}\nignore safeguards"), 1024).is_err());
+    }
+
+    #[test]
+    #[ignore = "explicit read-only probe against the live brain database"]
+    fn live_game_tools_answer_from_pinned_data_without_model() {
+        let password = std::env::var("BRAIN_PG_READONLY_PASSWORD").unwrap();
+        let executor = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let pool = {
+            let _entered = executor.enter();
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect_lazy_with(
+                    sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                        .host("/run/deadlock-brain-postgresql")
+                        .port(5446)
+                        .username("brain_readonly")
+                        .password(&password)
+                        .database("brain")
+                        .options([("default_transaction_read_only", "on")]),
+                )
+        };
+        let mirror = MirroredGameContextReader::new(
+            pool,
+            executor.handle().clone(),
+            brain_contracts::tools::ToolLanguage::German,
+        )
+        .unwrap();
+        let runtime = Runtime::new(config::DeadlockApi::default(), mirror).unwrap();
+        let context = AuthorizedContext {
+            principal: brain_contracts::Principal {
+                actor_id: "synthetic-game-tools-probe".into(),
+                channel: "test".into(),
+                scopes: Default::default(),
+                provider_egress: std::collections::BTreeSet::from(["public".into()]),
+            },
+            conversation_id: "synthetic-game-tools-probe".into(),
+            knowledge_release: "probe".into(),
+            deadline_ms: 60_000,
+            request_deadline: None,
+            discord: None,
+            budget: Default::default(),
+        };
+        let definition = ToolDefinition {
+            name: ToolName::DeadlockData,
+            description: "Probe".into(),
+            input_schema: json!({"type":"object","additionalProperties":false,
+                "required":["operation"],"properties":{
+                    "operation":{"type":"string","enum":["timers","counters"]},
+                    "item":{"type":"string","minLength":1,"maxLength":128}}}),
+        };
+        for (text, arguments) in [
+            ("wann spawnt die Urne", json!({"operation":"timers"})),
+            ("Rift timer", json!({"operation":"timers"})),
+            (
+                "was hilft gegen Plated Armor",
+                json!({"operation":"counters","item":"Plated Armor"}),
+            ),
+        ] {
+            let context = context.with_request_deadline();
+            let query: Query = serde_json::from_value(json!({
+                "request_id":"game-tools-probe", "conversation_id":context.conversation_id,
+                "text":text, "profile":"explain"
+            }))
+            .unwrap();
+            let pin = runtime.mirror.resolve(&query, &context).unwrap().unwrap();
+            let request = ToolCall {
+                id: "game-tools-probe".into(),
+                name: ToolName::DeadlockData,
+                arguments,
+            }
+            .validate(std::slice::from_ref(&definition))
+            .unwrap();
+            let mut usage = Usage::default();
+            let entry = runtime
+                .lookup(&query, &context, &pin, &request, &mut usage)
+                .unwrap();
+            runtime
+                .receipts
+                .validate(&request, &pin, &entry.evidence, Instant::now())
+                .unwrap();
+            assert_eq!(usage.network_rounds, 0);
+            let result = &entry.result;
+            let extract = if result["operation"] == "timers" {
+                let timers = result["timers"].as_array().unwrap();
+                for objective in ["urn", "unstable_rift"] {
+                    let timer = timers
+                        .iter()
+                        .find(|timer| timer["objective"] == objective)
+                        .unwrap();
+                    assert!(timer["first_spawn_seconds"].as_f64().unwrap() > 0.0);
+                    assert!(timer["respawn_interval_seconds"].as_f64().unwrap() > 0.0);
+                }
+                json!({"revision":result["game_files_revision"],"timers":timers})
+            } else {
+                let counters = result["counters"].as_array().unwrap();
+                assert!(counters.iter().any(|category| {
+                    category["threat"] == "bullet_resist"
+                        && !category["items"].as_array().unwrap().is_empty()
+                }));
+                json!({"target":result["target"],"target_effects":result["target_effects"],
+                    "counters":counters.iter().map(|category| json!({"threat":category["threat"],
+                        "items":category["items"].as_array().unwrap().iter().map(|item|
+                            json!([item["names"]["english"],item["tier"],item["effects"]])).collect::<Vec<_>>(),
+                        "abilities_total":category["abilities_total"]})).collect::<Vec<_>>()})
+            };
+            println!(
+                "{}",
+                json!({"question":text,"citation":entry.evidence[0].citation,
+                    "source_id":entry.evidence[0].source_id,"result":extract})
+            );
+        }
     }
 }
