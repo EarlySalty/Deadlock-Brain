@@ -7,7 +7,7 @@ use brain_contracts::{
 use brain_storage::{ApplyOutcome, PgStore};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -226,6 +226,63 @@ async fn current_head(
     .transpose()
 }
 
+async fn live_heads(pool: &sqlx::PgPool) -> Result<Vec<SourceRecordV2>, String> {
+    let rows: Vec<String> = sqlx::query_scalar(
+        "SELECT record_json::text FROM brain.source_record_heads \
+         WHERE source_id=$1 AND NOT tombstone ORDER BY logical_id",
+    )
+    .bind(SOURCE)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| "Quellköpfe des Spiegels können nicht gelesen werden")?;
+    rows.iter()
+        .map(|json| {
+            serde_json::from_str(json)
+                .map_err(|_| "Gespeicherter Quellkopf ist ungültig".to_owned())
+        })
+        .collect()
+}
+
+fn withdrawn(
+    head: &SourceRecordV2,
+    current: &BTreeSet<String>,
+) -> Result<Option<SourceRecordV2>, String> {
+    if head.tombstone || current.contains(&head.logical_id) {
+        return Ok(None);
+    }
+    let mut record = head.clone();
+    record.revision = head
+        .revision
+        .checked_add(1)
+        .ok_or("Speicherrevision ist zu groß")?;
+    record.tombstone = true;
+    Ok(Some(record))
+}
+
+async fn retire_stale(
+    pool: &sqlx::PgPool,
+    store: &PgStore,
+    current: &BTreeSet<String>,
+) -> Result<Vec<Value>, String> {
+    let mut retired = Vec::new();
+    for head in live_heads(pool).await? {
+        let Some(record) = withdrawn(&head, current)? else {
+            continue;
+        };
+        match store.apply(&record).await {
+            Ok(ApplyOutcome::Tombstoned) => {}
+            _ => return Err("Veralteter Spiegelkopf konnte nicht zurückgezogen werden".into()),
+        }
+        retired.push(json!({
+            "logical_id": record.logical_id,
+            "previous_revision": head.revision,
+            "revision": record.revision,
+            "outcome": "tombstoned",
+        }));
+    }
+    Ok(retired)
+}
+
 pub(super) async fn register(pool: &sqlx::PgPool, store: &PgStore) -> Result<Value, String> {
     let mut prepared = Vec::new();
     for (document, raw_path) in latest_documents(pool).await? {
@@ -260,10 +317,16 @@ pub(super) async fn register(pool: &sqlx::PgPool, store: &PgStore) -> Result<Val
             "outcome": outcome,
         }));
     }
+    let current = records
+        .iter()
+        .filter_map(|record| record["logical_id"].as_str().map(str::to_owned))
+        .collect::<BTreeSet<_>>();
+    let tombstoned = retire_stale(pool, store, &current).await?;
     Ok(json!({
         "complete": true,
         "source": SOURCE,
         "records": records,
+        "tombstoned": tombstoned,
         "published": false,
         "activated": false,
         "next_step": "publish --source deadlock_assets_api",
@@ -371,5 +434,21 @@ mod tests {
         assert_eq!(next_revision(&record, Some(&record)).unwrap(), 1);
         assert!(mirror_record(&fixture(raw, false), raw.to_vec()).is_err());
         assert!(mirror_record(&document, br#"[{"id":2}]"#.to_vec()).is_err());
+    }
+
+    #[test]
+    fn heads_of_older_client_versions_are_withdrawn() {
+        let raw = br#"[{"id":1}]"#;
+        let mut stale = mirror_record(&fixture(raw, true), raw.to_vec()).unwrap();
+        stale.revision = 3;
+        let current = BTreeSet::from([format!("{}-new", stale.logical_id)]);
+        let withdrawn_head = withdrawn(&stale, &current).unwrap().unwrap();
+        assert!(withdrawn_head.tombstone);
+        assert_eq!(withdrawn_head.revision, 4);
+        assert_eq!(withdrawn_head.logical_id, stale.logical_id);
+        assert!(withdrawn_head.validate().is_ok());
+        let kept = BTreeSet::from([stale.logical_id.clone()]);
+        assert!(withdrawn(&stale, &kept).unwrap().is_none());
+        assert!(withdrawn(&withdrawn_head, &current).unwrap().is_none());
     }
 }
