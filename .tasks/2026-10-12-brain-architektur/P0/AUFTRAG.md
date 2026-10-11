@@ -35,6 +35,10 @@ The shared-release alias change and memory-capped unit templates are prepared. R
 
 The approved normal credential-path configuration and direct serve unit are now prepared together. The previous serve base unit and ExecStart drop-in are retained at `/home/nathanael/.local/state/brain-p0-rollback-20261012`. A fresh independent Opus reviewer accepted the static package after an isolated fixer corrected one stale journal-recovery test assertion; that auxiliary worktree and branch were removed after importing the exact fix. Formatting and systemd unit syntax checks pass. Production remains unchanged. Relevant helper tests, Clippy and the production helper build are queued sequentially through cargo-slot with central artifacts at `/home/nathanael/.cache/rust-build/brain-release-p0-20261012`; occupied shared slots and an unrelated release build delay execution. This checkpoint does not claim build, test, gate, merge or deployment completion.
 
+## Memory-enforcement waiver
+
+On 2026-10-12 the main orchestrator confirmed that this host is OpenVZ with cgroup v1. MemoryMax in systemctl --user units is recorded, not enforced; MemoryPeak remains unset. P1's independent probe configured 8 MiB, touched 32 MiB, reached 44,416 KiB RSS and exited successfully. Its evidence is `/home/nathanael/.worktrees/Deadlock-Brain-p1-baba-pg/.tasks/2026-10-12-brain-architektur/P1/MEMORY-PROOF.md`. P0 must finish the approved unit configuration and live answer proof without claiming memory enforcement. P0b, a separate package after this merge, moves services to system units with User=nathanael. P0 must not change unit scope, controllers or host virtualization.
+
 ## Deferred removal inventory
 
 - Historical maintenance-releases directories and old releases beyond retained rollback versions.
