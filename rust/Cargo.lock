@@ -363,6 +363,7 @@ dependencies = [
 name = "brain-jev"
 version = "0.1.0"
 dependencies = [
+ "brain-contracts",
  "reqwest",
  "serde",
  "serde_json",
