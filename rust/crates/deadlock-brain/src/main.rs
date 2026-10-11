@@ -3232,8 +3232,9 @@ impl SavedPublication {
             }
             None => (None, None),
         };
-        let selected = self.write_request(path, parent, build_sha256);
-        if !matches!(&selected, Ok(selected) if selected.build == self.build) {
+        let mut linked = false;
+        let selected = self.write_request(path, parent, build_sha256, &mut linked);
+        if !linked && !matches!(&selected, Ok(selected) if selected.build == self.build) {
             discard_saved_build(created.as_deref());
         }
         selected
@@ -3265,6 +3266,7 @@ impl SavedPublication {
         path: &std::path::Path,
         parent: &std::path::Path,
         build_sha256: Option<String>,
+        linked: &mut bool,
     ) -> Result<Self> {
         use std::io::Write;
         let stored = StoredPublication {
@@ -3291,10 +3293,13 @@ impl SavedPublication {
                 .map_err(|_| {
                     anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden.")
                 })?;
-            let (selected, linked) = match fs::hard_link(&temporary, path) {
-                Ok(()) => (self.clone(), true),
+            let selected = match fs::hard_link(&temporary, path) {
+                Ok(()) => {
+                    *linked = true;
+                    self.clone()
+                }
                 Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                    (self.reuse_existing(path)?, false)
+                    self.reuse_existing(path)?
                 }
                 Err(_) => {
                     anyhow::bail!("Veröffentlichungsanfrage konnte nicht gespeichert werden.")
@@ -3304,8 +3309,8 @@ impl SavedPublication {
                 .and_then(|directory| directory.sync_all())
                 .is_err()
             {
-                if linked {
-                    let _ = fs::remove_file(path);
+                if *linked && fs::remove_file(path).is_ok() {
+                    *linked = false;
                 }
                 anyhow::bail!(
                     "Veröffentlichungsanfrage konnte nicht dauerhaft gespeichert werden."
