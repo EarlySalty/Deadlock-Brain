@@ -1,0 +1,83 @@
+{
+  "input_captures": 12,
+  "original_revisions": 12,
+  "documents": 12,
+  "exact_original_revision_byte_matches": 12,
+  "missing_original_versions": 0,
+  "source_identity_checked": true,
+  "method": "exact decoded original API revision UTF-8 equality; JSONL content_sha256 independently checked by actual Rust harness",
+  "matches": [
+    {
+      "document_id": "wiki:deadlock-wiki:page:1446",
+      "revision": "66275",
+      "exact_original_utf8_content_equal": true,
+      "content_sha256": "cb4d5f81ec8cbfa10368bb4342fd314dd7a45418c5b97216676c79130347121e"
+    },
+    {
+      "document_id": "wiki:deadlock-wiki:page:904",
+      "revision": "65911",
+      "exact_original_utf8_content_equal": true,
+      "content_sha256": "55bbbb475a952694a93965c381746eadee39372d6522971b81699c5d3d9d6c37"
+    },
+    {
+      "document_id": "wiki:deadlock-wiki:page:922",
+      "revision": "65375",
+      "exact_original_utf8_content_equal": true,
+      "content_sha256": "e3092d882f0b40fd6ff1dbd809d0275d904c2625cf56a0e5561a50640e5052a2"
+    },
+    {
+      "document_id": "wiki:deadlock-wiki:page:379",
+      "revision": "67038",
+      "exact_original_utf8_content_equal": true,
+      "content_sha256": "424ab5b26a1e48449976016ab82e9e5882e8cdf04750067667750364c71f58d2"
+    },
+    {
+      "document_id": "wiki:deadlock-wiki:page:799",
+      "revision": "67377",
+      "exact_original_utf8_content_equal": true,
+      "content_sha256": "1804c217bfd2b9f7c4b91f30bbbb0ff93dd228d17f5ef2dbcf0985756a9c1254"
+    },
+    {
+      "document_id": "wiki:deadlock-wiki:page:546",
+      "revision": "66541",
+      "exact_original_utf8_content_equal": true,
+      "content_sha256": "4b617f9950b4ef66b492f3d0f073cfc0631a8fc52d679671b6ad9957ec034666"
+    },
+    {
+      "document_id": "wiki:deadlock-wiki:page:83",
+      "revision": "67291",
+      "exact_original_utf8_content_equal": true,
+      "content_sha256": "4aafccbbcc8929f176191d86a25d25f5f041b4059ba342019cec01ef19ad5cbd"
+    },
+    {
+      "document_id": "wiki:deadlock-wiki:page:368",
+      "revision": "65184",
+      "exact_original_utf8_content_equal": true,
+      "content_sha256": "5d578c393637f68839cd1a3c695aab9c84efd932cb47020accdfb559a1b22f6c"
+    },
+    {
+      "document_id": "wiki:deadlock-wiki:page:947",
+      "revision": "66280",
+      "exact_original_utf8_content_equal": true,
+      "content_sha256": "e47eab0deafc942c05ee3a4a5c441f239319bc11578ae95d228a58af4fe3e878"
+    },
+    {
+      "document_id": "wiki:deadlock-wiki:page:943",
+      "revision": "64024",
+      "exact_original_utf8_content_equal": true,
+      "content_sha256": "7a50a631bc21fc2302b0579768d06a0e83ae360ad398aea2a3bbec6bb8d02e1c"
+    },
+    {
+      "document_id": "wiki:deadlock-wiki:page:502",
+      "revision": "66710",
+      "exact_original_utf8_content_equal": true,
+      "content_sha256": "c0679382b9537caaac0f097b3fadc0cae81290cd4c7d790896431e5d347e5d46"
+    },
+    {
+      "document_id": "wiki:deadlock-wiki:page:850",
+      "revision": "67060",
+      "exact_original_utf8_content_equal": true,
+      "content_sha256": "168c6565a8d3a7a69d5ccc51bb610591f6314f8e9deba4dc0e4a77908c78a6a5"
+    }
+  ]
+}

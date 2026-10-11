@@ -1,0 +1,27 @@
+--- /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/bereiche/a/fix6-before/wiki_inventory.rs	2026-10-03 13:31:47.526110577 +0200
++++ /home/nathanael/.worktrees/brain-wiki-spielwissen-a/rust/crates/dbrain-sources/src/wiki_inventory.rs	2026-10-03 14:39:47.098363243 +0200
+@@ -452,17 +452,16 @@
+             "Offline-Aufzeichnungen benötigen ein getrenntes Inventarverzeichnis",
+         ));
+     }
+-    if state.context.is_some() || !state.pages.is_empty() {
+-        if state.source_id != context.source_id()?
++    if (state.context.is_some() || !state.pages.is_empty())
++        && (state.source_id != context.source_id()?
+             || state
+                 .context
+                 .as_ref()
+-                .is_some_and(|previous| previous.source_origin != context.source_origin)
+-        {
+-            return Err(SourcesError::invalid_input(
+-                "Verschiedene Wiki-Quellen benötigen getrennte Inventarverzeichnisse",
+-            ));
+-        }
++                .is_some_and(|previous| previous.source_origin != context.source_origin))
++    {
++        return Err(SourcesError::invalid_input(
++            "Verschiedene Wiki-Quellen benötigen getrennte Inventarverzeichnisse",
++        ));
+     }
+     check_page_limit(&state, &normalization, options.max_pages)?;
+     store.bind_source(&mut state, Some(&context.source_origin))?;

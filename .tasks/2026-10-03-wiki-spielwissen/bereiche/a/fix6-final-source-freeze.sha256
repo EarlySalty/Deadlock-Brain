@@ -1,0 +1,14 @@
+2d4e7653f26a194f5ecf5a0b65ddf2b886b1aae8882903a5cc621794a7c99697  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/rust/crates/dbrain-sources/src/wiki_inventory.rs
+f79cead38dd7912973512d0c19721aceacef784e0621ee38376133ed5cdec059  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/rust/crates/dbrain-sources/src/wiki_inventory/normalize.rs
+edd384e621d9a0df11d1a36ad6cac44678285e342f68d4c363db42f1646bd7ea  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/rust/crates/dbrain-sources/src/wiki_inventory/storage.rs
+e26f97b9f3a9d666889cefff3445d17a8e07511c7fd527591c12e172356e3f18  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/rust/crates/dbrain-sources/src/wiki_inventory/tests.rs
+8a4928ba4d837b0022de2d9098c99fae549bd2828531d9a58d24425b1994cecb  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/pruefharness-a/src/main.rs
+a961318d7b5a00472ccf375fe0b467fcf5c9bb0e861e452828ecb2838a5ae3f9  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/pruefharness-a/Cargo.toml
+ab2a866b93478823752eaafed59164faf06bcd214335257c597ecc4f8e7d2c6a  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/pruefharness-a/Cargo.lock
+ab2a866b93478823752eaafed59164faf06bcd214335257c597ecc4f8e7d2c6a  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/bereiche/a/fix6-before/Cargo.lock
+9ad50a0515c37ecd19a87406dafb2bf3c6c6164b3c905d60cffb0649f7e05620  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/bereiche/a/fix6-before/Cargo.toml
+d358ec15a692aeb57cbbd7f05e62be4eaa85217c3b5eaf59db4a63fc23f201fd  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/bereiche/a/fix6-before/main.rs
+27e63412a7a57c956dc82e602df4f93683adb3eb06866b22381157f85b96dcdc  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/bereiche/a/fix6-before/normalize.rs
+edd384e621d9a0df11d1a36ad6cac44678285e342f68d4c363db42f1646bd7ea  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/bereiche/a/fix6-before/storage.rs
+e26f97b9f3a9d666889cefff3445d17a8e07511c7fd527591c12e172356e3f18  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/bereiche/a/fix6-before/tests.rs
+2507c127aaf8e366f7bb7cf22564074adbaa546b344328d6fdbd593e5b38ef80  /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/bereiche/a/fix6-before/wiki_inventory.rs

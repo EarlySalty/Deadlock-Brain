@@ -1,0 +1,42 @@
+{
+  "documents": 45,
+  "max_line_utf8_bytes_excluding_lf": 4277,
+  "path": "/home/nathanael/.local/share/deadlock-brain/wiki-spielwissen/2026-10-03/a/normalized/deadlock.miraheze.org_w-20240616-history/documents.jsonl",
+  "file_bytes": 115457,
+  "max_line_utf8_bytes_including_lf": 4278
+}
+{
+  "documents": 22742,
+  "max_line_utf8_bytes_excluding_lf": 4763003,
+  "path": "/home/nathanael/.local/share/deadlock-brain/wiki-spielwissen/2026-10-03/a/normalized/deadlock.wiki-20250415-history/documents.jsonl",
+  "file_bytes": 722950493,
+  "max_line_utf8_bytes_including_lf": 4763004
+}
+{
+  "documents": 13301,
+  "max_line_utf8_bytes_excluding_lf": 1195741,
+  "path": "/home/nathanael/.local/share/deadlock-brain/wiki-spielwissen/2026-10-03/a/normalized/deadlocked.wiki-20241107-history/documents.jsonl",
+  "file_bytes": 116951094,
+  "max_line_utf8_bytes_including_lf": 1195742
+}
+{
+  "documents": 1,
+  "max_line_utf8_bytes_excluding_lf": 3860,
+  "path": "/home/nathanael/.local/share/deadlock-brain/wiki-spielwissen/2026-10-03/a/normalized/deadlockwiki.miraheze.org_w-20231203-history/documents.jsonl",
+  "file_bytes": 3861,
+  "max_line_utf8_bytes_including_lf": 3861
+}
+{
+  "documents": 2172,
+  "max_line_utf8_bytes_excluding_lf": 32798,
+  "path": "/home/nathanael/.local/share/deadlock-brain/wiki-spielwissen/2026-10-03/a/normalized/deadlockwiki.org_mw-20260130-history/documents.jsonl",
+  "file_bytes": 10881968,
+  "max_line_utf8_bytes_including_lf": 32799
+}
+{
+  "documents": 12,
+  "max_line_utf8_bytes_excluding_lf": 41801,
+  "path": "/home/nathanael/.local/share/deadlock-brain/wiki-spielwissen/2026-10-03/a/normalized/legacy-2026-captures/documents.jsonl",
+  "file_bytes": 222935,
+  "max_line_utf8_bytes_including_lf": 41802
+}

@@ -1,0 +1,21 @@
+--- /home/nathanael/.worktrees/brain-wiki-spielwissen-a/.tasks/2026-10-03-wiki-spielwissen/bereiche/a/fix6-scope-before/wiki_inventory.rs	2026-10-03 13:42:34.785150664 +0200
++++ /home/nathanael/.worktrees/brain-wiki-spielwissen-a/rust/crates/dbrain-sources/src/wiki_inventory.rs	2026-10-03 14:39:47.098363243 +0200
+@@ -93,14 +93,18 @@
+     pub namespace_id: Option<i64>,
+     pub title: String,
+     pub document_id: String,
++    /// Latest known source revision, even when its text is unavailable.
+     pub revision: Option<String>,
+     pub page_kind: String,
++    /// Whether text for `revision` is available, not merely an older text.
+     pub content_available: bool,
++    /// Highest known readable revision, or an explicitly unknown content version.
+     #[serde(default)]
+     pub available_revision: Option<String>,
+ }
+ 
+ fn merge_inventory_page(current: &mut WikiInventoryPage, mut incoming: WikiInventoryPage) {
++    // Old checkpoints did not carry the separate readable revision.
+     if current.available_revision.is_none() && current.content_available {
+         current.available_revision = current.revision.clone();
+     }

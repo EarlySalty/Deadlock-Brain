@@ -1,0 +1,31 @@
+{
+  "documents": 38273,
+  "facts": 1109153,
+  "sources": {
+    "deadlock-wiki": {
+      "documents": 22754,
+      "facts": 1109153
+    },
+    "deadlocked-wiki": {
+      "documents": 13301,
+      "facts": 0
+    },
+    "deadlockwiki-org": {
+      "documents": 2172,
+      "facts": 0
+    },
+    "deadlock-miraheze-org": {
+      "documents": 45,
+      "facts": 0
+    },
+    "deadlockwiki-miraheze-org": {
+      "documents": 1,
+      "facts": 0
+    }
+  },
+  "all_document_and_fact_required_fields_and_types_valid": true,
+  "cross_input_duplicate_document_revisions": 0,
+  "redistribution_allowed_false_everywhere": true,
+  "actual_batch_observation_checked": true,
+  "scope": "all six complete JSONL outputs; SHA256 content equality separately verified by actual Rust harness"
+}

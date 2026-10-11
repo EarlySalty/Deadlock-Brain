@@ -1,0 +1,20 @@
+{
+  "start_utc": "2026-10-03T15:47:14Z",
+  "end_utc": "2026-10-03T15:47:18Z",
+  "method": "Vorhandenes perl -ne liest fertige JSONL byteweise ohne Unicode-Decodierung: length($_), genau ein abschließendes LF für Zeilenmaximum abgezogen, Zeilen und Dateibytes summiert. Keine JSON-Interpretation, Normalisierung oder Ausgabeänderung.",
+  "command_expression": "BEGIN {$max=0;$n=0;$bytes=0} $n++; $bytes+=length($_); $l=length($_); $l-- if substr($_,-1) eq \"\\n\"; $max=$l if $l>$max; END {print \"lines=$n bytes=$bytes max_without_lf=$max max_with_lf=\",$max+1,\"\\n\"}",
+  "root": "/home/nathanael/.local/share/deadlock-brain/wiki-spielwissen/2026-10-03/a/normalized-fix6/",
+  "files": [
+    {"relative_path":"deadlock.wiki-20250415-history/documents.jsonl","documents":22742,"bytes":722951818,"max_utf8_line_without_lf":4762643,"max_utf8_line_with_lf":4762644,"exit":0},
+    {"relative_path":"deadlocked.wiki-20241107-history/documents.jsonl","documents":13301,"bytes":116951094,"max_utf8_line_without_lf":1195741,"max_utf8_line_with_lf":1195742,"exit":0},
+    {"relative_path":"deadlockwiki.org_mw-20260130-history/documents.jsonl","documents":2172,"bytes":10881968,"max_utf8_line_without_lf":32798,"max_utf8_line_with_lf":32799,"exit":0},
+    {"relative_path":"deadlock.miraheze.org_w-20240616-history/documents.jsonl","documents":45,"bytes":115457,"max_utf8_line_without_lf":4277,"max_utf8_line_with_lf":4278,"exit":0},
+    {"relative_path":"deadlockwiki.miraheze.org_w-20231203-history/documents.jsonl","documents":1,"bytes":3861,"max_utf8_line_without_lf":3860,"max_utf8_line_with_lf":3861,"exit":0},
+    {"relative_path":"legacy-2026-captures/documents.jsonl","documents":12,"bytes":222935,"max_utf8_line_without_lf":41801,"max_utf8_line_with_lf":41802,"exit":0}
+  ],
+  "documents_total":38273,
+  "bytes_total":851127133,
+  "max_utf8_line_without_lf":4762643,
+  "max_utf8_line_with_lf":4762644,
+  "preserved_diagnostic": "data-fix6-wc-displaywidth-proof.jsonl bleibt unverändert. Dessen erste Zeilengröße 4.415.434 ist ein wc-Längenbefund, kein belastbares UTF-8-Bytemaximum. Auch LC_ALL=C wc -L liefert hier 4.415.434 und darf nicht als Bytezählung verwendet werden. Der echte byteweise Endcheck bestätigt den übergebenen korrigierten Wert 4.762.643. Frühere höhere Rohtext-/UTF-8-Befunde sind ebenfalls kein Datenfehlerbeweis; data-fix6-admin-tool-diagnosis.log und alle Rohtextdiagnosen erhalten."
+}

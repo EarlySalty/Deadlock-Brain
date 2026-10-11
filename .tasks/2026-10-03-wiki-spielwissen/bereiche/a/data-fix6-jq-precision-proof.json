@@ -1,0 +1,14 @@
+{
+  "precision_sentinels": [
+    false,
+    false,
+    false,
+    true,
+    true
+  ],
+  "literal_preservation": [
+    "20.000010800000002",
+    "55.555555555555564",
+    "9007199254740993"
+  ]
+}
