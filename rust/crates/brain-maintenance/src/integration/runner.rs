@@ -84,7 +84,7 @@ pub struct Runner {
     pool: sqlx::PgPool,
     artifacts: Artifacts,
     jev: Zeroizing<String>,
-    patch_feed: Option<Zeroizing<String>>,
+    patch_feed: Option<(Zeroizing<String>, Zeroizing<String>)>,
     pub(super) owner: String,
 }
 
@@ -306,12 +306,16 @@ impl Runner {
             .cloned()
             .context("jev_secret_missing")?;
         let patch_feed = match &runtime.patch_feed_secret {
-            Some(name) => Some(
+            Some(name) => Some((
                 snapshot
                     .get(name)
                     .cloned()
                     .context("patch_feed_secret_missing")?,
-            ),
+                snapshot
+                    .get("BRAIN_FEED_API_KEY")
+                    .cloned()
+                    .context("patchnotes_feed_key_missing")?,
+            )),
             None => None,
         };
         let pg = &runtime.postgres;
@@ -685,9 +689,17 @@ impl Runner {
             }
         }
         let mut status = self.status().await?;
-        if let Some(source_dsn) = &self.patch_feed {
+        if let Some((source_dsn, key)) = &self.patch_feed {
             match super::patch_feed::mirror_changelog_posts(source_dsn, &self.pool).await {
-                Ok(mirrored) => status["patch_feed"] = mirrored,
+                Ok(mirrored) => {
+                    status["patch_feed"] = mirrored;
+                    match self.ingest_patchnotes_feed(key).await {
+                        Ok(ingested) => status["patchnotes_feed"] = ingested,
+                        Err(_) => {
+                            isolated_errors.push(json!({"code":"PATCHNOTES_FEED_INGEST_FAILED"}))
+                        }
+                    }
+                }
                 Err(_) => isolated_errors.push(json!({"code":"PATCH_FEED_MIRROR_FAILED"})),
             }
         }
@@ -702,6 +714,13 @@ impl Runner {
         status["isolated_errors"] = json!(isolated_errors);
         self.write_status(&status)?;
         Ok(status)
+    }
+
+    async fn ingest_patchnotes_feed(&self, key: &str) -> Result<serde_json::Value> {
+        let artifacts = self.artifacts.clone();
+        let _publication_lock =
+            tokio::task::spawn_blocking(move || artifacts.publication_lock()).await??;
+        super::patch_feed::ingest_canonical_feed(&self.store, key, &self.owner).await
     }
 
     async fn refresh_entity_profiles(
