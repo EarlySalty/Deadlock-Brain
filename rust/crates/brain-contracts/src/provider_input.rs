@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::answer_contract::Original;
 use crate::tools::{
     invalid, validate_id, ModelBlock, ToolCall, ToolConversation, ToolDefinition, ToolMessage,
     ToolName, ToolResult,
@@ -293,7 +294,7 @@ pub fn provider_data_texts(
     query: &Query,
     evidence: &[Evidence],
     conversation: &ToolConversation,
-) -> Vec<String> {
+) -> Vec<Original> {
     let mut texts = Vec::new();
     if let Some(data) = grounded_messages(query, evidence)
         .last()
@@ -311,15 +312,15 @@ pub fn provider_data_texts(
     texts
 }
 
-fn data_leaves(value: &Value, texts: &mut Vec<String>) {
+fn data_leaves(value: &Value, texts: &mut Vec<Original>) {
     match value {
-        Value::String(text) => texts.push(text.clone()),
-        Value::Number(number) => texts.push(number.to_string()),
+        Value::String(text) => texts.push(Original::Text(text.clone())),
+        Value::Number(number) => texts.push(Original::Number(number.to_string())),
         Value::Array(values) => values.iter().for_each(|value| data_leaves(value, texts)),
         Value::Object(fields) => fields.iter().for_each(|(key, value)| {
-            texts.push(key.clone());
+            texts.push(Original::Text(key.clone()));
             if let Some(seconds) = value.as_f64().filter(|_| key.contains("seconds")) {
-                texts.push((seconds / 60.0).to_string());
+                texts.push(Original::Number((seconds / 60.0).to_string()));
             }
             data_leaves(value, texts);
         }),
