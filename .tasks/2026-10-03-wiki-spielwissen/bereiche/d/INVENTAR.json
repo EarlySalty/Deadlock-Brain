@@ -1,0 +1,20 @@
+{
+  "observed_at": "2026-10-03T04:47:21.427Z",
+  "raw_root": "/home/nathanael/.local/share/deadlock-brain/wiki-spielwissen/2026-10-03/d",
+  "evidence_files": [
+    {"relative_path": "health-before.json", "size_bytes": 535, "sha256": "65d55437821870a1e33eb266ceb6e64796164531536b652704a83149d7bb5bc9", "kind": "operational_evidence_not_game_file"},
+    {"relative_path": "license-task-4931460.json", "size_bytes": 696, "sha256": "bd282da08eeb9ed6cf6fc78e6c3ed7e16ad658c7f76b60f73a595e1caa6be377", "kind": "operational_evidence_not_game_file"}
+  ],
+  "app_id": 1422450,
+  "app_grant_proven": true,
+  "game_file_count": 0,
+  "game_bytes": 0,
+  "steam_build_id": null,
+  "depot_ids": null,
+  "manifest_ids": null,
+  "depot_entitlement_measured": false,
+  "game_download_complete": false,
+  "download": "not_started_no_existing_session_preserving_route_proven",
+  "redistribution_allowed": false,
+  "note": "Diese Inventardatei zählt nur die zuvor vorhandenen Betriebsbelege. Keine Spieldateien geladen; unbekannte Depot-/Manifest-/Buildstände nicht aus Clientversionen oder Appgrant abgeleitet."
+}
