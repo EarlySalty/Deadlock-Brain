@@ -601,6 +601,15 @@ fn transiente_http_fehlerkoerper_erhalten_fruehere_gemessene_usage() {
                 });
                 let mut context = turn_context();
                 context.budget.max_output_tokens = 39;
+                let input = brain_contracts::provider_input::grounded_turn_input_ceiling(
+                    &query(),
+                    &[],
+                    &definitions(),
+                    &ToolConversation::default(),
+                    brain_contracts::provider_input::ToolWireFormat::OpenAiCompatible,
+                )
+                .unwrap();
+                context.budget.max_input_tokens = u32::try_from(3 * input).unwrap();
                 OpenAiCompatibleProvider::new(config)
                     .unwrap()
                     .answer_turn_accounted(

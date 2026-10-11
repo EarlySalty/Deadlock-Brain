@@ -6,10 +6,6 @@ pub use mode::{JevMode, ShadowObservation};
 
 use std::collections::BTreeSet;
 
-use serde::{
-    de::{self, MapAccess, SeqAccess, Visitor},
-    Deserialize, Deserializer,
-};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
@@ -33,13 +29,8 @@ pub fn validate_json(request_raw: &str, response_raw: &str) -> Result<Value> {
 }
 
 pub fn parse_strict(raw: &str) -> Result<Value> {
-    let mut deserializer = serde_json::Deserializer::from_str(raw);
-    let StrictValue(value) = StrictValue::deserialize(&mut deserializer)
-        .map_err(|error| JevError::Json(error.to_string()))?;
-    deserializer
-        .end()
-        .map_err(|error| JevError::Json(error.to_string()))?;
-    Ok(value)
+    brain_contracts::provider_input::parse_unique_json(raw.as_bytes())
+        .map_err(|error| JevError::Json(error.to_string()))
 }
 
 pub fn validate_response(request: &Value, response: &Value) -> Result<()> {
@@ -329,98 +320,6 @@ fn contract(message: impl Into<String>) -> JevError {
     JevError::Contract(message.into())
 }
 
-struct StrictValue(Value);
-
-impl<'de> Deserialize<'de> for StrictValue {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_any(StrictValueVisitor)
-    }
-}
-
-struct StrictValueVisitor;
-
-impl<'de> Visitor<'de> for StrictValueVisitor {
-    type Value = StrictValue;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("valid JSON without duplicate object keys")
-    }
-
-    fn visit_bool<E>(self, value: bool) -> std::result::Result<Self::Value, E> {
-        Ok(StrictValue(Value::Bool(value)))
-    }
-
-    fn visit_i64<E>(self, value: i64) -> std::result::Result<Self::Value, E> {
-        Ok(StrictValue(Value::Number(value.into())))
-    }
-
-    fn visit_u64<E>(self, value: u64) -> std::result::Result<Self::Value, E> {
-        Ok(StrictValue(Value::Number(value.into())))
-    }
-
-    fn visit_f64<E>(self, value: f64) -> std::result::Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        serde_json::Number::from_f64(value)
-            .map(Value::Number)
-            .map(StrictValue)
-            .ok_or_else(|| E::custom("non finite number"))
-    }
-
-    fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E> {
-        Ok(StrictValue(Value::String(value.to_string())))
-    }
-
-    fn visit_string<E>(self, value: String) -> std::result::Result<Self::Value, E> {
-        Ok(StrictValue(Value::String(value)))
-    }
-
-    fn visit_none<E>(self) -> std::result::Result<Self::Value, E> {
-        Ok(StrictValue(Value::Null))
-    }
-
-    fn visit_unit<E>(self) -> std::result::Result<Self::Value, E> {
-        Ok(StrictValue(Value::Null))
-    }
-
-    fn visit_some<D>(self, deserializer: D) -> std::result::Result<Self::Value, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        StrictValue::deserialize(deserializer)
-    }
-
-    fn visit_seq<A>(self, mut sequence: A) -> std::result::Result<Self::Value, A::Error>
-    where
-        A: SeqAccess<'de>,
-    {
-        let mut values = Vec::new();
-        while let Some(StrictValue(value)) = sequence.next_element::<StrictValue>()? {
-            values.push(value);
-        }
-        Ok(StrictValue(Value::Array(values)))
-    }
-
-    fn visit_map<A>(self, mut map: A) -> std::result::Result<Self::Value, A::Error>
-    where
-        A: MapAccess<'de>,
-    {
-        let mut values = Map::new();
-        while let Some(key) = map.next_key::<String>()? {
-            if values.contains_key(&key) {
-                return Err(de::Error::custom(format!("duplicate key {key}")));
-            }
-            let StrictValue(value) = map.next_value::<StrictValue>()?;
-            values.insert(key, value);
-        }
-        Ok(StrictValue(Value::Object(values)))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{fs, path::PathBuf};
@@ -473,8 +372,32 @@ mod tests {
     }
 
     #[test]
+    fn strict_parser_preserves_fractional_and_arbitrary_precision_numbers() {
+        for raw in ["0.0", "0.5", "1.5", "-0.25", "1e30", "18446744073709551616"] {
+            let parsed = parse_strict(raw).unwrap();
+            assert!(parsed.is_number(), "{raw}: {parsed:?}");
+            assert_eq!(parsed, serde_json::from_str::<Value>(raw).unwrap());
+            let nested = parse_strict(&format!(r#"{{"values":[{raw}]}}"#)).unwrap();
+            assert_eq!(nested["values"][0], parsed);
+        }
+        assert_eq!(parse_strict("1.5").unwrap().as_f64(), Some(1.5));
+    }
+
+    #[test]
     fn duplicate_keys_are_rejected_recursively() {
-        let raw = r#"{"a":{"b":1,"b":2}}"#;
-        assert!(matches!(parse_strict(raw), Err(JevError::Json(_))));
+        for raw in [
+            r#"{"a":{"b":1,"b":2}}"#,
+            r#"{"a":[{"b":0.5,"b":1.5}]}"#,
+            r#"{"a":{"b":0.5,"b":1.5}}"#,
+        ] {
+            assert!(matches!(parse_strict(raw), Err(JevError::Json(_))));
+        }
+    }
+
+    #[test]
+    fn strict_parser_rejects_malformed_numbers_and_trailing_json() {
+        for raw in ["NaN", "Infinity", "0.5 1.5", "1.5 trailing", "[0.5,]"] {
+            assert!(matches!(parse_strict(raw), Err(JevError::Json(_))));
+        }
     }
 }

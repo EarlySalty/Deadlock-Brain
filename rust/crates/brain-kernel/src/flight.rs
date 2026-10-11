@@ -54,10 +54,14 @@ impl Coordinator {
     #[cfg(test)]
     pub(super) fn wait_for_waiter(&self, key: &str) {
         let flight = self.flights.lock().unwrap().get(key).unwrap().clone();
-        let mut state = flight.state.lock().unwrap();
-        while state.waiters == 0 {
-            state = flight.ready.wait(state).unwrap();
-        }
+        let state = flight.state.lock().unwrap();
+        let (state, _) = flight
+            .ready
+            .wait_timeout_while(state, Duration::from_secs(2), |state| {
+                state.waiters == 0 && !state.done
+            })
+            .unwrap();
+        assert!(state.waiters > 0, "single-flight follower did not join");
     }
 
     fn run(

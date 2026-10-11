@@ -577,7 +577,10 @@ mod tests {
             conversation_id: "c1".into(),
             knowledge_release: "k1".into(),
             deadline_ms: 1_000,
-            budget: Budget::default(),
+            budget: Budget {
+                max_input_tokens: 24_000,
+                ..Budget::default()
+            },
         }
     }
 
@@ -982,6 +985,52 @@ mod tests {
         purpose: AnswerPurpose,
     }
 
+    struct FinalTurnGate {
+        ready: std::sync::mpsc::Sender<()>,
+        release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl FinalTurnGate {
+        fn wait(&self) -> Result<(), PortError> {
+            self.ready
+                .send(())
+                .map_err(|_| PortError::Unavailable("Fixture observer closed".into()))?;
+            self.release
+                .lock()
+                .unwrap()
+                .recv()
+                .map_err(|_| PortError::Unavailable("Fixture controller closed".into()))
+        }
+    }
+
+    fn block_final_turn(
+        state: &Arc<std::sync::Mutex<ToolState>>,
+    ) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        state.lock().unwrap().block_final = Some(Arc::new(FinalTurnGate {
+            ready: ready_tx,
+            release: std::sync::Mutex::new(release_rx),
+        }));
+        (ready_rx, release_tx)
+    }
+
+    #[test]
+    fn final_turn_fixture_unblocks_when_controller_is_dropped() {
+        let state = Arc::new(std::sync::Mutex::new(ToolState::default()));
+        let (ready, release) = block_final_turn(&state);
+        let gate = state.lock().unwrap().block_final.clone().unwrap();
+        let worker = std::thread::spawn(move || gate.wait());
+        ready
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        drop(release);
+        assert_eq!(
+            worker.join().unwrap(),
+            Err(PortError::Unavailable("Fixture controller closed".into()))
+        );
+    }
+
     #[derive(Default)]
     struct ToolState {
         version: i64,
@@ -990,7 +1039,7 @@ mod tests {
         executions: Vec<(String, brain_contracts::ToolRequest, AuthorizedContext)>,
         invalid_source: bool,
         revoke_cache: bool,
-        block_final: Option<Arc<std::sync::Barrier>>,
+        block_final: Option<Arc<FinalTurnGate>>,
         deny_publication: bool,
         deny_provider: bool,
         revoke_provider_on_cache: bool,
@@ -1353,14 +1402,13 @@ mod tests {
                     mutate(&mut state);
                 }
             }
-            let barrier = state
+            let gate = state
                 .block_final
                 .clone()
                 .filter(|_| matches!(turn, brain_contracts::ProviderTurn::Final { .. }));
             drop(state);
-            if let Some(barrier) = barrier {
-                barrier.wait();
-                barrier.wait();
+            if let Some(gate) = gate {
+                gate.wait()?;
             }
             Ok(turn)
         }
@@ -1939,11 +1987,10 @@ mod tests {
                 Some(&session),
             )
             .unwrap();
-            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let (ready, release) = block_final_turn(&state);
             {
                 let mut state = state.lock().unwrap();
                 state.approve_build = true;
-                state.block_final = Some(barrier.clone());
                 if refuse {
                     state.build_failure_on = 3;
                     state.build_failure =
@@ -1961,7 +2008,9 @@ mod tests {
             let leader = std::thread::spawn(move || {
                 leader_cache.answer_accounted(&leader_request, &leader_context)
             });
-            barrier.wait();
+            ready
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap();
             let follower_cache = cache.clone();
             let mut follower_request = request;
             follower_request.request_id = "flight-build".into();
@@ -1969,7 +2018,7 @@ mod tests {
                 follower_cache.answer_accounted(&follower_request, &context)
             });
             cache.flights.wait_for_waiter(&key);
-            barrier.wait();
+            release.send(()).unwrap();
             let leader = leader.join().unwrap();
             assert_eq!(leader.value.status, AnswerStatus::Answered);
             assert_eq!(leader.accounting.observed.network_rounds, 2);
@@ -2724,10 +2773,9 @@ mod tests {
             Some(&session),
         )
         .unwrap();
-        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let (ready, release) = block_final_turn(&state);
         {
             let mut state = state.lock().unwrap();
-            state.block_final = Some(barrier.clone());
             state.revoke_cache = true;
         }
         let cache = Arc::new(CachedKernel::new(
@@ -2741,7 +2789,9 @@ mod tests {
         let leader = std::thread::spawn(move || {
             leader_cache.answer_for_publication(&leader_request, &leader_context)
         });
-        barrier.wait();
+        ready
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
         let follower_cache = cache.clone();
         let mut follower_request = request.clone();
         follower_request.request_id = "follower".into();
@@ -2750,7 +2800,7 @@ mod tests {
             follower_cache.answer_for_publication(&follower_request, &follower_context)
         });
         cache.flights.wait_for_waiter(&key);
-        barrier.wait();
+        release.send(()).unwrap();
         assert_eq!(leader.join().unwrap().status, AnswerStatus::Answered);
         let follower = follower.join().unwrap();
         assert_eq!(follower.status, AnswerStatus::UnauthorizedEvidence);
@@ -3021,12 +3071,11 @@ mod tests {
                 )
                 .unwrap()
             );
-            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let (ready, release) = block_final_turn(&state);
             {
                 let mut state = state.lock().unwrap();
                 state.internal_input = true;
                 state.deny_publication = true;
-                state.block_final = Some(barrier.clone());
                 state.revoke_provider_on_cache = revoke;
             }
             let cache = Arc::new(CachedKernel::new(
@@ -3040,7 +3089,9 @@ mod tests {
             let leader = std::thread::spawn(move || {
                 leader_cache.answer_accounted(&leader_request, &leader_context)
             });
-            barrier.wait();
+            ready
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .unwrap();
             let follower_cache = cache.clone();
             let mut follower_request = request.clone();
             follower_request.request_id = "internal-follower".into();
@@ -3048,7 +3099,7 @@ mod tests {
                 follower_cache.answer_accounted(&follower_request, &context)
             });
             cache.flights.wait_for_waiter(&key);
-            barrier.wait();
+            release.send(()).unwrap();
             let leader = leader.join().unwrap();
             assert_eq!(leader.value.status, AnswerStatus::Answered);
             assert_eq!(leader.accounting.observed.network_rounds, 2);
@@ -3230,8 +3281,9 @@ mod tests {
             state.tool_fail_on = 2;
             state.tool_failure = Some(PortError::Unavailable("fixture".into()).into());
         }
-        let result =
-            kernel.answer_accounted(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+        let mut context = context(&[], &["public"]);
+        context.budget = Budget::default();
+        let result = kernel.answer_accounted(&query(AnswerProfile::Explain), &context);
         assert_eq!(result.value.status, AnswerStatus::Unavailable);
         assert!(result.accounting.unaccounted);
         assert_eq!(result.accounting.observed.network_rounds, 1);
