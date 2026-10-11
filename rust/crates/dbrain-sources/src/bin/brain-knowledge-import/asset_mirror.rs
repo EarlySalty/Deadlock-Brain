@@ -132,6 +132,41 @@ fn authorization_ref(document: &MirrorDocument) -> String {
     )
 }
 
+fn same_number(left: &serde_json::Number, right: &serde_json::Number) -> bool {
+    let (left, right) = (left.to_string(), right.to_string());
+    if left == right {
+        return true;
+    }
+    let fractional = |text: &str| text.contains(['.', 'e', 'E']);
+    if !fractional(&left) || !fractional(&right) {
+        return false;
+    }
+    matches!(
+        (left.parse::<f64>(), right.parse::<f64>()),
+        (Ok(left), Ok(right)) if left.is_finite() && left == right
+    )
+}
+
+fn same_json(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Number(left), Value::Number(right)) => same_number(left, right),
+        (Value::Array(left), Value::Array(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right)
+                    .all(|(left, right)| same_json(left, right))
+        }
+        (Value::Object(left), Value::Object(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .all(|(key, left)| right.get(key).is_some_and(|right| same_json(left, right)))
+        }
+        _ => left == right,
+    }
+}
+
 pub(super) fn mirror_record(
     document: &MirrorDocument,
     raw: Vec<u8>,
@@ -153,7 +188,7 @@ pub(super) fn mirror_record(
         serde_json::from_str(&content).map_err(|_| "Spiegeloriginal ist kein JSON")?;
     let payload_matches = match (&ir.payload, document.slot.as_str()) {
         (_, "manifest") => original["client_version"].as_i64() == Some(document.client_version),
-        (Observed::Known { value }, _) => *value == original,
+        (Observed::Known { value }, _) => same_json(value, &original),
         _ => false,
     };
     if provenance.source != SOURCE
@@ -434,6 +469,22 @@ mod tests {
         assert_eq!(next_revision(&record, Some(&record)).unwrap(), 1);
         assert!(mirror_record(&fixture(raw, false), raw.to_vec()).is_err());
         assert!(mirror_record(&document, br#"[{"id":2}]"#.to_vec()).is_err());
+    }
+
+    #[test]
+    fn stored_payload_numbers_match_by_value_not_spelling() {
+        let parse = |text: &str| serde_json::from_str::<Value>(text).unwrap();
+        assert!(same_json(
+            &parse(r#"{"a":[0.0,1.50,2]}"#),
+            &parse(r#"{"a":[-0.0,1.5,2]}"#)
+        ));
+        assert!(!same_json(&parse(r#"{"a":2}"#), &parse(r#"{"a":2.0}"#)));
+        assert!(!same_json(&parse(r#"{"a":0.5}"#), &parse(r#"{"a":0.25}"#)));
+        assert!(!same_json(
+            &parse("9007199254740993"),
+            &parse("9007199254740992")
+        ));
+        assert!(!same_json(&parse(r#"{"a":1}"#), &parse(r#"{"b":1}"#)));
     }
 
     #[test]
