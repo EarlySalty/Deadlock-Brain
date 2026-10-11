@@ -7,7 +7,7 @@ AS $function$
     SELECT a.artifact_id
     FROM brain.compare_artifacts_v1 a
     WHERE a.publication_receipt IS NOT NULL
-      AND a.body_json->>'mechanism_version' = 'dbrain-reasoner/hero-curve-health-v1'
+      AND a.body_json->>'mechanism_version' IN ('dbrain-reasoner/hero-curve-health-v1', 'dbrain-reasoner/hero-curve-health-v2')
       AND a.body_json->'release'->>'release_id' = requested_release
       AND a.body_json->'calculation'->>'metric' = 'health'
       AND a.body_json->'calculation'->>'client_version' = client_version::text

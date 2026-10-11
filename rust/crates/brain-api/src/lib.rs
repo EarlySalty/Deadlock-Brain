@@ -87,6 +87,7 @@ where
         &self,
         answer: &AnswerResponse,
         principal: &brain_contracts::Principal,
+        deadline: &brain_contracts::RequestDeadline,
     ) -> Vec<brain_contracts::PublicArtifact> {
         let Some(port) = self.artifacts.as_ref() else {
             return Vec::new();
@@ -98,7 +99,7 @@ where
         {
             return Vec::new();
         }
-        match port.artifacts(&answer.knowledge_release, &answer.citations) {
+        match port.artifacts(&answer.knowledge_release, &answer.citations, deadline) {
             Ok(mut artifacts) => {
                 artifacts.retain(|artifact| artifact.validate().is_ok());
                 artifacts.truncate(brain_contracts::public_api::MAX_PUBLIC_ARTIFACTS);
@@ -462,7 +463,10 @@ where
         if let Some(task) = task {
             tracing::info!(capability = ?task.capability, request_id = %query.request_id, status = ?answer.status, "Discord-Bot-Aufgabe abgeschlossen");
         }
-        let artifacts = self.answer_artifacts(&answer, &context.principal);
+        let artifacts = self.answer_artifacts(&answer, &context.principal, &deadline);
+        if deadline.check().is_err() {
+            return deadline_response();
+        }
         public_answer_response(&answer, artifacts)
     }
 }
@@ -923,8 +927,10 @@ mod tests {
                 &self,
                 release: &str,
                 citations: &[brain_contracts::Evidence],
+                deadline: &brain_contracts::RequestDeadline,
             ) -> Result<Vec<brain_contracts::PublicArtifact>, brain_contracts::PortError>
             {
+                deadline.check()?;
                 self.0.fetch_add(1, Ordering::SeqCst);
                 assert_eq!(release, "release-1");
                 assert_eq!(citations[0].evidence_id, "fixture-evidence");

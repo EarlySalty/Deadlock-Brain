@@ -2642,8 +2642,13 @@ mod tests {
         let artifacts = {
             let port =
                 crate::answer_artifacts::CompareArtifacts::new(pool, executor.handle().clone());
-            brain_contracts::AnswerArtifactPort::artifacts(&port, &release, &entry.evidence)
-                .unwrap()
+            brain_contracts::AnswerArtifactPort::artifacts(
+                &port,
+                &release,
+                &entry.evidence,
+                &brain_contracts::RequestDeadline::after(std::time::Duration::from_secs(10)),
+            )
+            .unwrap()
         };
         assert_eq!(artifacts.len(), 1);
         println!(

@@ -1,9 +1,12 @@
 use brain_contracts::{
     public_api::MAX_PUBLIC_ARTIFACTS, AnswerArtifactPort, Evidence, PortError, PublicArtifact,
-    SourceVisibility,
+    RequestDeadline, SourceVisibility,
 };
 use serde_json::Value;
-use std::{collections::BTreeSet, time::Duration};
+use std::{
+    collections::BTreeSet,
+    time::{Duration, Instant},
+};
 
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -54,7 +57,12 @@ impl CompareArtifacts {
         Self { pool, runtime }
     }
 
-    fn lookup(&self, release: &str, pair: &HeroPair) -> Result<Option<String>, PortError> {
+    fn lookup(
+        &self,
+        release: &str,
+        pair: &HeroPair,
+        budget: Duration,
+    ) -> Result<Option<String>, PortError> {
         if tokio::runtime::Handle::try_current().is_ok_and(|handle| {
             handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::CurrentThread
         }) {
@@ -65,7 +73,7 @@ impl CompareArtifacts {
         let store = brain_storage::PgStore::new(self.pool.clone());
         let read = store.find_published_hero_compare(release, pair.heroes, pair.client_version);
         let bounded = async {
-            tokio::time::timeout(LOOKUP_TIMEOUT, read)
+            tokio::time::timeout(budget, read)
                 .await
                 .map_err(|_| PortError::Unavailable("Grafiksuche hat zu lange gedauert".into()))?
         };
@@ -82,12 +90,23 @@ impl AnswerArtifactPort for CompareArtifacts {
         &self,
         knowledge_release: &str,
         citations: &[Evidence],
+        deadline: &RequestDeadline,
     ) -> Result<Vec<PublicArtifact>, PortError> {
         let pairs: BTreeSet<_> = citations.iter().filter_map(hero_pair).collect();
+        if pairs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let stop = Instant::now() + deadline.remaining()?.min(LOOKUP_TIMEOUT);
         let mut artifacts = Vec::new();
         let mut seen = BTreeSet::new();
         for pair in pairs.iter().take(MAX_PUBLIC_ARTIFACTS) {
-            if let Some(id) = self.lookup(knowledge_release, pair)? {
+            let budget = stop.saturating_duration_since(Instant::now());
+            if budget.is_zero() {
+                return Err(PortError::Unavailable(
+                    "Grafiksuche hat zu lange gedauert".into(),
+                ));
+            }
+            if let Some(id) = self.lookup(knowledge_release, pair, budget)? {
                 if seen.insert(id.clone()) {
                     artifacts.push(PublicArtifact::hero_compare(&id, &pair.title)?);
                 }

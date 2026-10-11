@@ -125,6 +125,7 @@ pub trait AnswerArtifactPort: Send + Sync {
         &self,
         knowledge_release: &str,
         citations: &[crate::Evidence],
+        deadline: &crate::RequestDeadline,
     ) -> Result<Vec<PublicArtifact>, PortError>;
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

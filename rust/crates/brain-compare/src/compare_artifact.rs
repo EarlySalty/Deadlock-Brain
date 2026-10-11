@@ -70,6 +70,7 @@ impl RenderModel {
                 CompareMetric::BaseDps => "base_dps",
                 CompareMetric::MagazineDamage => "magazine_damage",
                 CompareMetric::Hp => "hp",
+                CompareMetric::Health => "health",
             }
             .into(),
             boons: input.valid_boon_states.clone(),
@@ -90,6 +91,7 @@ impl RenderModel {
             "base_dps" => CompareMetric::BaseDps,
             "magazine_damage" => CompareMetric::MagazineDamage,
             "hp" => CompareMetric::Hp,
+            "health" => CompareMetric::Health,
             _ => anyhow::bail!("Unbekannte Vergleichskennzahl"),
         };
         let binding = CompareBinding {

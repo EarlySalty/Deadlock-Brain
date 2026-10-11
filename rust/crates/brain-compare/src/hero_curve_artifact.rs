@@ -15,6 +15,9 @@ use crate::{
     },
 };
 
+pub const LEGACY_HERO_CURVE_MECHANISM: &str = "dbrain-reasoner/hero-curve-health-v1";
+pub const HERO_CURVE_MECHANISM: &str = "dbrain-reasoner/hero-curve-health-v2";
+
 fn revision_label(revision: &SourceRevision) -> String {
     match revision {
         SourceRevision::Http {
@@ -38,6 +41,16 @@ pub fn prepare_hero_curve_artifact(
     documents: &[DocumentRevision],
     mechanism_version: &str,
 ) -> Result<CompareArtifact> {
+    let legacy = match mechanism_version {
+        LEGACY_HERO_CURVE_MECHANISM => true,
+        HERO_CURVE_MECHANISM => false,
+        _ => anyhow::bail!("Unbekannte Vergleichsmechanik"),
+    };
+    let metric = if legacy {
+        CompareMetric::Hp
+    } else {
+        CompareMetric::Health
+    };
     ensure!(
         comparison.metric == GrowthMetric::Health,
         "Diese Ansicht benötigt die belegte HP-Kennzahl"
@@ -94,11 +107,18 @@ pub fn prepare_hero_curve_artifact(
             let origin = origin_from_record(record).map_err(anyhow::Error::msg)?;
             Ok(CompareSource {
                 source_id: format!("{}/{}", record.source_id, record.logical_id),
-                evidence: format!(
-                    "{}; Prüfsumme {}",
-                    revision_label(&origin.source_revision),
-                    origin.raw_sha256
-                ),
+                evidence: if legacy {
+                    format!(
+                        "Originalrevision {:?}; Prüfsumme {}",
+                        origin.source_revision, origin.raw_sha256
+                    )
+                } else {
+                    format!(
+                        "{}; Prüfsumme {}",
+                        revision_label(&origin.source_revision),
+                        origin.raw_sha256
+                    )
+                },
                 version: version.clone(),
                 publication: PublicationStatus::PublicApproved,
             })
@@ -185,7 +205,7 @@ pub fn prepare_hero_curve_artifact(
             hero_name: hero.model.name.clone(),
             publication: PublicationStatus::PublicApproved,
             binding: binding.clone(),
-            metric: CompareMetric::Hp,
+            metric,
             source_ids: source_ids.into_iter().collect(),
             values,
         })
@@ -193,7 +213,7 @@ pub fn prepare_hero_curve_artifact(
     let input = HeroCompareInput {
         binding: binding.clone(),
         publication: PublicationStatus::PublicApproved,
-        metric: CompareMetric::Hp,
+        metric,
         valid_boon_states: boons.clone(),
         sources,
         heroes: [series(left)?, series(right)?],
