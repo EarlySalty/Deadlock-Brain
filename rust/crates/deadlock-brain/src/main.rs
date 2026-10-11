@@ -2433,6 +2433,13 @@ mod requested_build_tests {
         args
     }
 
+    fn saved_request_files(dir: &std::path::Path) -> usize {
+        fs::read_dir(dir)
+            .unwrap()
+            .filter(|entry| entry.as_ref().unwrap().file_type().unwrap().is_file())
+            .count()
+    }
+
     #[test]
     fn saved_regular_publication_requires_matching_build_provenance() {
         assert!(SavedPublication::new(saved_request())
@@ -2541,7 +2548,7 @@ mod requested_build_tests {
 
     #[tokio::test]
     async fn unchanged_observation_reuses_exact_saved_request_and_provenance_for_resume() {
-        use std::os::unix::fs::MetadataExt;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("publish.json");
         let original = regular_saved_observation(10, 6000, 20.0);
@@ -2584,7 +2591,18 @@ mod requested_build_tests {
             assert_eq!(SavedPublication::read(&new_path).unwrap(), changed);
         }
         assert_eq!(fs::read(&path).unwrap(), bytes);
-        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 3);
+        assert_eq!(saved_request_files(dir.path()), 3);
+        let stored: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(stored.get("build").is_none());
+        let build_path = dir
+            .path()
+            .join("builds")
+            .join(format!("{}.json", stored["build_sha256"].as_str().unwrap()));
+        let mut tampered = fs::read(&build_path).unwrap();
+        tampered[0] = b' ';
+        fs::set_permissions(&build_path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&build_path, tampered).unwrap();
+        assert!(SavedPublication::read(&path).is_err());
     }
 
     fn review_saved_observation(run: i64) -> SavedPublication {
@@ -2618,7 +2636,7 @@ mod requested_build_tests {
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             0o400
         );
-        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        assert_eq!(saved_request_files(dir.path()), 1);
     }
 
     #[test]
@@ -2646,7 +2664,7 @@ mod requested_build_tests {
         assert_eq!(SavedPublication::read(&path).unwrap(), original);
         assert_eq!(fs::read(&path).unwrap(), bytes);
         assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
-        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        assert_eq!(saved_request_files(dir.path()), 1);
     }
 
     #[test]
@@ -2680,7 +2698,7 @@ mod requested_build_tests {
         assert_eq!(SavedPublication::read(&path).unwrap(), original);
         assert_eq!(fs::read(&path).unwrap(), bytes);
         assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
-        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        assert_eq!(saved_request_files(dir.path()), 1);
     }
 
     #[test]
@@ -2716,7 +2734,7 @@ mod requested_build_tests {
         .unwrap();
         assert!(changed.persist(&path).is_err());
         assert_eq!(fs::read(&path).unwrap(), bytes);
-        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        assert_eq!(saved_request_files(dir.path()), 1);
     }
 
     #[test]
@@ -2731,7 +2749,7 @@ mod requested_build_tests {
             second.join().unwrap().unwrap();
         });
         assert_eq!(SavedPublication::read(&path).unwrap(), saved);
-        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        assert_eq!(saved_request_files(dir.path()), 1);
     }
 
     #[test]
@@ -2972,6 +2990,108 @@ mod requested_build_tests {
 }
 
 const MAX_PUBLISH_STATE_BYTES: u64 = 300 * 1024;
+const MAX_PUBLISH_BUILD_BYTES: u64 = 16 * 1024 * 1024;
+
+#[derive(Debug, serde::Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredPublication {
+    request_sha256: String,
+    request: brain_contracts::feeds::BuildPublishRequest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    build: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    build_sha256: Option<String>,
+}
+
+fn temporary_publish_path(parent: &std::path::Path) -> Result<PathBuf> {
+    static TEMP_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden."))?
+        .as_nanos();
+    let sequence = TEMP_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    Ok(parent.join(format!(
+        ".brain-publish-{}-{nonce}-{sequence}.tmp",
+        process::id()
+    )))
+}
+
+fn saved_build_path(parent: &std::path::Path, sha256: &str) -> Result<PathBuf> {
+    if sha256.len() != 64
+        || !sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        anyhow::bail!("Gespeicherte Build-Provenienz ist ungültig.");
+    }
+    Ok(parent.join("builds").join(format!("{sha256}.json")))
+}
+
+fn read_saved_build(parent: &std::path::Path, sha256: &str) -> Result<Value> {
+    use sha2::Digest;
+    let unreadable = || anyhow!("Gespeicherte Build-Provenienz ist nicht lesbar.");
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(saved_build_path(parent, sha256)?)
+        .map_err(|_| unreadable())?;
+    let metadata = file.metadata().map_err(|_| unreadable())?;
+    if !metadata.is_file() || metadata.len() > MAX_PUBLISH_BUILD_BYTES {
+        anyhow::bail!("Gespeicherte Build-Provenienz muss eine begrenzte normale Datei sein.");
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_PUBLISH_BUILD_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| unreadable())?;
+    if bytes.len() as u64 > MAX_PUBLISH_BUILD_BYTES
+        || hex::encode(sha2::Sha256::digest(&bytes)) != sha256
+    {
+        anyhow::bail!("Gespeicherte Build-Provenienz ist ungültig oder verändert.");
+    }
+    serde_json::from_slice(&bytes)
+        .map_err(|_| anyhow!("Gespeicherte Build-Provenienz ist ungültig."))
+}
+
+fn persist_saved_build(parent: &std::path::Path, build: &Value) -> Result<String> {
+    use sha2::Digest;
+    use std::io::Write;
+    let failed = || anyhow!("Build-Provenienz konnte nicht gespeichert werden.");
+    let bytes = serde_json::to_vec(build).map_err(|_| failed())?;
+    if bytes.len() as u64 > MAX_PUBLISH_BUILD_BYTES {
+        anyhow::bail!("Build-Provenienz ist zu groß zum Speichern.");
+    }
+    let sha256 = hex::encode(sha2::Sha256::digest(&bytes));
+    let path = saved_build_path(parent, &sha256)?;
+    let directory = parent.join("builds");
+    fs::create_dir_all(&directory).map_err(|_| failed())?;
+    let temporary = temporary_publish_path(&directory)?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o400)
+        .open(&temporary)
+        .map_err(|_| failed())?;
+    let result = (|| {
+        file.write_all(&bytes)
+            .and_then(|_| file.sync_all())
+            .map_err(|_| failed())?;
+        match fs::hard_link(&temporary, &path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                read_saved_build(parent, &sha256)?;
+            }
+            Err(_) => return Err(failed()),
+        }
+        fs::File::open(&directory)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|_| failed())
+    })();
+    drop(file);
+    let removed = fs::remove_file(temporary).map_err(|_| failed());
+    result?;
+    removed?;
+    Ok(sha256)
+}
 
 #[derive(Debug, Clone, serde::Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -3049,8 +3169,26 @@ impl SavedPublication {
         if bytes.len() as u64 > MAX_PUBLISH_STATE_BYTES {
             anyhow::bail!("Gespeicherte Veröffentlichungsanfrage ist zu groß.");
         }
-        let saved: Self = serde_json::from_slice(&bytes)
+        let stored: StoredPublication = serde_json::from_slice(&bytes)
             .map_err(|_| anyhow!("Gespeicherte Veröffentlichungsanfrage ist ungültig."))?;
+        let build = match (stored.build, stored.build_sha256) {
+            (build, None) => build,
+            (None, Some(sha256)) => {
+                let parent = path
+                    .parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                    .unwrap_or_else(|| std::path::Path::new("."));
+                Some(read_saved_build(parent, &sha256)?)
+            }
+            (Some(_), Some(_)) => {
+                anyhow::bail!("Gespeicherte Veröffentlichungsanfrage ist ungültig.")
+            }
+        };
+        let saved = Self {
+            request_sha256: stored.request_sha256,
+            request: stored.request,
+            build,
+        };
         saved.validate()?;
         Ok(saved)
     }
@@ -3058,11 +3196,6 @@ impl SavedPublication {
     fn persist(&self, path: &std::path::Path) -> Result<Self> {
         use std::io::Write;
         self.validate()?;
-        let bytes = serde_json::to_vec(self)
-            .map_err(|_| anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden."))?;
-        if bytes.len() as u64 > MAX_PUBLISH_STATE_BYTES {
-            anyhow::bail!("Veröffentlichungsanfrage ist zu groß zum Speichern.");
-        }
         let parent = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -3070,16 +3203,22 @@ impl SavedPublication {
         fs::create_dir_all(parent).map_err(|_| {
             anyhow!("Verzeichnis für Veröffentlichungsanfragen ist nicht verfügbar.")
         })?;
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|_| anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden."))?
-            .as_nanos();
-        static TEMP_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let sequence = TEMP_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let temporary = parent.join(format!(
-            ".brain-publish-{}-{nonce}-{sequence}.tmp",
-            process::id()
-        ));
+        let stored = StoredPublication {
+            request_sha256: self.request_sha256.clone(),
+            request: self.request.clone(),
+            build: None,
+            build_sha256: self
+                .build
+                .as_ref()
+                .map(|build| persist_saved_build(parent, build))
+                .transpose()?,
+        };
+        let bytes = serde_json::to_vec(&stored)
+            .map_err(|_| anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden."))?;
+        if bytes.len() as u64 > MAX_PUBLISH_STATE_BYTES {
+            anyhow::bail!("Veröffentlichungsanfrage ist zu groß zum Speichern.");
+        }
+        let temporary = temporary_publish_path(parent)?;
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -3523,15 +3662,16 @@ async fn run_reason(pool: &PgPool, settings: &Settings, target: ReasonCommands) 
                         .join(".tasks/2026-09-12-build-reasoner/referenz"),
                 )
             });
-            let build = dbrain_reasoner::reason_build_with_options(
-                &ctx,
-                &args.hero,
-                dbrain_reasoner::ReasonerOptions {
-                    seed_path: Some(&seed_path),
-                    persist: !args.no_persist,
-                },
-            )
-            .await?;
+            let options = dbrain_reasoner::ReasonerOptions {
+                seed_path: Some(&seed_path),
+                persist: !args.no_persist,
+            };
+            let build = if args.publish {
+                dbrain_reasoner::reason_build_for_publish_with_options(&ctx, &args.hero, options)
+                    .await?
+            } else {
+                dbrain_reasoner::reason_build_with_options(&ctx, &args.hero, options).await?
+            };
             let publication = if args.publish {
                 Some(
                     publish_build_http(
