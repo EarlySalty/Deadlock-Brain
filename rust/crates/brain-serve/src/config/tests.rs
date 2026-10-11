@@ -467,4 +467,7 @@ fn bot_task_sections_are_optional_and_strict() {
         value["bot_task_consumers"] = consumers;
         assert!(parse(&value).is_err());
     }
+    let mut value = bot_task_config();
+    value["trusted_discord_consumers"] = json!([]);
+    assert!(parse(&value).is_err());
 }

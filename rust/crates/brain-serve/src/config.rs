@@ -719,7 +719,12 @@ impl Config {
                     && self.credentials.iter().any(|credential| {
                         credential.actor_id == consumer.actor_id
                             && credential.channel == consumer.channel
-                    }),
+                    })
+                    && (consumer.channel != "discord"
+                        || self.trusted_discord_consumers.iter().any(|trusted| {
+                            trusted.actor_id == consumer.actor_id
+                                && trusted.channel == consumer.channel
+                        })),
                 "bot_task_consumers",
             )?;
         }

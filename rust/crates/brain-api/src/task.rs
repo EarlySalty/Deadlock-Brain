@@ -135,8 +135,10 @@ where
                 .bot_task_consumers
                 .get(&key)
                 .is_some_and(|capabilities| capabilities.contains(&capability))
-            && (capability.platform() != BotPlatform::Discord
-                || self.discord_consumers.contains(&key))
+            && match capability.platform() {
+                BotPlatform::Discord => self.discord_consumers.contains(&key),
+                BotPlatform::Twitch => principal.provider_egress.contains("public"),
+            }
     }
 
     fn capability_ready(&self, capability: BotCapability) -> bool {

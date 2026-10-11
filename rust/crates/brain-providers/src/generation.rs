@@ -93,7 +93,6 @@ impl std::fmt::Debug for TextGenerationProvider {
 
 #[derive(Deserialize)]
 struct Completion {
-    model: Option<String>,
     choices: Vec<Choice>,
     usage: Option<CompletionUsage>,
 }
@@ -225,13 +224,9 @@ fn completion(bytes: &[u8], requested_model: &str) -> Result<GeneratedText> {
         .map(str::trim)
         .filter(|content| !content.is_empty())
         .ok_or_else(invalid)?;
-    let model = completion
-        .model
-        .filter(|model| !model.trim().is_empty())
-        .unwrap_or_else(|| requested_model.to_owned());
     Ok(GeneratedText {
         content: content.to_owned(),
-        model,
+        model: requested_model.to_owned(),
         prompt_tokens: completion.usage.as_ref().and_then(|u| u.prompt_tokens),
         completion_tokens: completion.usage.as_ref().and_then(|u| u.completion_tokens),
     })
@@ -243,12 +238,21 @@ fn classify(error: &ProviderError) -> GenerationError {
             GenerationError::RateLimited
         }
         ProviderError::Http(error) if error.is_timeout() => GenerationError::Timeout,
+        ProviderError::BodyTransport(error) if body_timed_out(error) => GenerationError::Timeout,
         ProviderError::BudgetExceeded => GenerationError::Timeout,
         ProviderError::InvalidResponse(_) | ProviderError::ResponseTooLarge => {
             GenerationError::InvalidOutput
         }
         _ => GenerationError::Unavailable,
     }
+}
+
+fn body_timed_out(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::TimedOut
+        || error
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<reqwest::Error>())
+            .is_some_and(reqwest::Error::is_timeout)
 }
 
 #[cfg(test)]
@@ -347,7 +351,7 @@ mod tests {
                 &mut stream,
                 "200 OK",
                 "",
-                r#"{"model":"fixture-model","choices":[{"message":{"content":"  Titel  ","reasoning_content":"geheim"}}],"usage":{"prompt_tokens":7,"completion_tokens":2}}"#,
+                r#"{"model":"Vorgabe-Echo","choices":[{"message":{"content":"  Titel  ","reasoning_content":"geheim"}}],"usage":{"prompt_tokens":7,"completion_tokens":2}}"#,
             );
         });
         let generated = generate(&provider(address, 1)).unwrap();
@@ -391,6 +395,28 @@ mod tests {
             assert_eq!(generate(&provider(address, 0)), Err(expected));
             server.join().unwrap();
         }
+    }
+
+    #[test]
+    fn stalled_body_is_a_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            request_body(&mut stream);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{{"
+            )
+            .unwrap();
+            stream.flush().unwrap();
+            thread::sleep(Duration::from_secs(3));
+        });
+        assert_eq!(
+            generate(&provider(address, 0)),
+            Err(GenerationError::Timeout)
+        );
+        server.join().unwrap();
     }
 
     #[test]
