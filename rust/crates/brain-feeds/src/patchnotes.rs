@@ -1,6 +1,6 @@
 use crate::{clean, configuration, FeedError, FeedPolicy, Result};
 use brain_contracts::{
-    feeds::{PatchnotesFeedV1, PATCHNOTES_FEED_VERSION},
+    feeds::{PatchnotesFeedV1, PatchnotesPostV1, PATCHNOTES_FEED_VERSION},
     source::{
         GameValidity, OriginArtifact, SourceIdentity, SourcePolicy, SourceRevision, SourceTimestamp,
     },
@@ -13,6 +13,31 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const SOURCE: &str = "patchnotes-feed";
 pub const PARSER_REVISION: &str = "brain-feeds-patchnotes.v1";
 pub const MAX_FEED_BYTES: usize = 64 * 1024 * 1024;
+pub const OFFICIAL_FACTUAL_AUTHORIZATION: &str = "orchestrator:829d42f1-18eb-4f1d-9a14-a409c57242a5:2026-10-11:official-patch-factual-publication-and-egress:P2-8cb38338:P3-e782a46a";
+
+fn official_post(feed: &PatchnotesFeedV1, post: &PatchnotesPostV1) -> bool {
+    let Ok(url) = reqwest::Url::parse(&post.url) else {
+        return false;
+    };
+    feed.provider == "deadlock-patchnotes-bot"
+        && post.post_id.starts_with("changelog-")
+        && post.source_revision.starts_with("changelog-posts/")
+        && post.raw_sha256 == crate::sha256_hex(post.raw_text.as_bytes())
+        && url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+        && match url.host_str() {
+            Some("forums.playdeadlock.com") => {
+                url.path().starts_with("/threads/") || url.path().starts_with("/posts/")
+            }
+            Some("store.steampowered.com") => url.path().starts_with("/news/app/1422450/"),
+            Some("steamcommunity.com") => url
+                .path()
+                .starts_with("/games/1422450/announcements/detail/"),
+            _ => false,
+        }
+}
 
 pub fn parse_feed(bytes: &[u8]) -> Result<PatchnotesFeedV1> {
     if bytes.len() > MAX_FEED_BYTES {
@@ -27,6 +52,13 @@ pub fn documents(feed: &PatchnotesFeedV1, policy: &FeedPolicy) -> Result<Vec<Cor
     feed.validate().map_err(FeedError::Invalid)?;
     let mut out = Vec::with_capacity(feed.posts.len());
     for post in &feed.posts {
+        let official = official_post(feed, post);
+        if (policy.publication_allowed || policy.provider_egress_allowed) && !official {
+            return Err(FeedError::Invalid(
+                "Für öffentliche Antworten fehlt ein geprüftes offizielles Patchnotes-Original"
+                    .into(),
+            ));
+        }
         let logical_id = format!("post/{}", clean(&post.post_id));
         let content = format!(
             "Patch: {}\nURL: {}\n\n{}\n",
@@ -76,7 +108,11 @@ pub fn documents(feed: &PatchnotesFeedV1, policy: &FeedPolicy) -> Result<Vec<Cor
                 policy: SourcePolicy {
                     visibility: policy.visibility,
                     allowed_scopes: policy.allowed_scopes.clone(),
-                    authorization_ref: Observed::unknown(UnknownReason::NotPresent),
+                    authorization_ref: if official {
+                        Observed::known(OFFICIAL_FACTUAL_AUTHORIZATION.into())
+                    } else {
+                        Observed::unknown(UnknownReason::NotPresent)
+                    },
                     license: Observed::unknown(UnknownReason::NotPresent),
                     publication_allowed: policy.publication_allowed,
                     provider_egress_allowed: policy.provider_egress_allowed,
@@ -191,6 +227,85 @@ mod tests {
         value["database_dsn"] = serde_json::json!("postgres://");
         assert!(parse_feed(&serde_json::to_vec(&value).unwrap()).is_err());
         assert!(parse_feed(&feed(Vec::new())).is_err());
+    }
+
+    #[test]
+    fn official_originals_bind_approved_rights_across_refreshes() {
+        let feed = parse_feed(include_bytes!("../tests/fixtures/patchnotes_feed.json")).unwrap();
+        let restricted = prepare_batch(&feed, &policy(), None).unwrap();
+        let mut public = policy();
+        public.allowed_scopes = BTreeSet::from(["bot.public".into()]);
+        public.publication_allowed = true;
+        public.provider_egress_allowed = true;
+        let approved = prepare_batch(&feed, &public, Some(&restricted.checkpoint)).unwrap();
+        assert_eq!(approved.records.len(), feed.posts.len());
+        for (old, new) in restricted.records.iter().zip(&approved.records) {
+            let origin = origin_from_record(new).unwrap();
+            assert_eq!(new.content, old.content);
+            assert_eq!(new.content_hash, old.content_hash);
+            assert_eq!(new.revision, old.revision + 1);
+            assert_eq!(
+                origin.policy.authorization_ref,
+                Observed::known(OFFICIAL_FACTUAL_AUTHORIZATION.into())
+            );
+            assert!(origin.policy.publication_allowed && origin.policy.provider_egress_allowed);
+            assert_eq!(
+                origin.policy.license,
+                Observed::unknown(UnknownReason::NotPresent)
+            );
+        }
+        assert!(prepare_batch(&feed, &public, Some(&approved.checkpoint))
+            .unwrap()
+            .records
+            .is_empty());
+        let mut refreshed = feed.clone();
+        let mut new_post = refreshed.posts[0].clone();
+        new_post.post_id = "changelog-99".into();
+        new_post.url = "https://forums.playdeadlock.com/posts/322289/".into();
+        new_post.source_revision = "changelog-posts/99@next".into();
+        refreshed.posts.push(new_post);
+        let next = prepare_batch(&refreshed, &public, Some(&approved.checkpoint)).unwrap();
+        assert_eq!(next.records.len(), 1);
+        assert_eq!(
+            origin_from_record(&next.records[0])
+                .unwrap()
+                .policy
+                .authorization_ref,
+            Observed::known(OFFICIAL_FACTUAL_AUTHORIZATION.into())
+        );
+    }
+
+    #[test]
+    fn answer_rights_reject_unofficial_or_corrupt_originals() {
+        let feed = parse_feed(include_bytes!("../tests/fixtures/patchnotes_feed.json")).unwrap();
+        let mut public = policy();
+        public.publication_allowed = true;
+        public.provider_egress_allowed = true;
+        for url in [
+            "https://forums.playdeadlock.com.evil.invalid/threads/update",
+            "https://steamcommunity.com/games/440/announcements/detail/1",
+            "https://steamcommunity.com/profiles/1",
+            "http://forums.playdeadlock.com/threads/update",
+            "https://user@forums.playdeadlock.com/threads/update",
+        ] {
+            let mut changed = feed.clone();
+            changed.posts[0].url = url.into();
+            assert!(prepare_batch(&changed, &public, None).is_err());
+            let retained = prepare_batch(&changed, &policy(), None).unwrap();
+            assert_eq!(
+                origin_from_record(&retained.records[0])
+                    .unwrap()
+                    .policy
+                    .authorization_ref,
+                Observed::unknown(UnknownReason::NotPresent)
+            );
+        }
+        let mut foreign = feed.clone();
+        foreign.provider = "foreign-provider".into();
+        assert!(prepare_batch(&foreign, &public, None).is_err());
+        let mut corrupted = feed;
+        corrupted.posts[0].raw_sha256 = "a".repeat(64);
+        assert!(prepare_batch(&corrupted, &public, None).is_err());
     }
 
     #[test]
