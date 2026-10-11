@@ -1,4 +1,19 @@
-status: aktiv, Clippy/U1/U2/PG1 aufc5951b6 tatsächlich grün, Slots zurück; PG2 und produktive Läufe nicht zugeteilt
+status: aktiv, PG2-Startfehler Exit127 vor Runner; Slot zurück, isolierter Snapshotzusatz weiter in Quellarbeit
+Datum: 2026-09-30
+
+## PG2-Zuteilung und Startfehler16:53UTC
+
+Nutzer hat PG2 ausdrücklich zugeteilt, Integrator meldete16:51:44UTC13,14GiB verfügbar, eigenen Clip-/STT-Lauf beendet und keinen Cargo/rustc. Bestehende natürliche Produktlast bleibt unberührt. c5951b6 sauber/exakt vor Start geprüft. Harnessbly8n47g2/PID1928865 ab16:53:07UTC: tatsächlicher Exit127 vor Runnerstart wegen von dieser Session vorgeschaltetem, fehlendem /usr/bin/time. Kein Cargo, PG, Serve oder Lasttest ausgeführt. Slot sofort vor Diagnose zurück, kein automatischer Folgelauf. BelegSLOT-J-PG2-STARTFEHLER.md. Korrigierter Bedarf: direkter bestehender Runner ohne Zusatzprogramm bei neuer konkreter Zuteilung.
+
+## Maßgeblicher aktueller Stand
+
+Clippy/U1/U2/PG1 auf c5951b610aa2545d2c0b43b33b5fe1906198b292 tatsächlich grün, Slots zurück. PG2 bleibt auf diesem unveränderten Kopf vorbereitet, nicht gestartet. Laut letzter Nutzermeldung Twitch-Cutover erfolgreich: vier b9b-ELFs, 161 Migrationen ohne Fehler, frische 7/7 einschließlich Engine. Nun echter Clip-Sprach-/Lernlauf beim Integrator. Daraus keine Brain-Laufzuteilung ableiten: kein PG2, Last, Medien, Produktzugriff oder unzugeteilter Compiler.
+
+Derselbe Autor66adf9ee mit unverändertem gpt-6-sol bearbeitet seit Dispatch1183588/16:34:43UTC ausschließlich READONLY-SNAPSHOT-AUFTRAG.md im neuen ausdrücklich erlaubten isolierten Worktree /home/nathanael/.worktrees/brain-g5-readonly-snapshot-20260930, Branch fix/g5-readonly-snapshot-20260930, Basis c5951b6. Worktree gesperrt, kein neuer Cache. Alter PG2-Worktree bleibt eingefroren. Letzte Threadlesung running ohne neue Abgabe; kein Ergebnis vorweggenommen. Nach tatsächlicher Abgabe enges Review durch bestehenden52c34332, keine neue Gesamtprüfung. Keine neue Wache.
+
+QUELLENNUTZUNG-CONSUMER.md ordnet den bereits geltenden internen Übernahmeauftrag und die Quellenrechte zu. B2-Vorlage: Entities public/game.public, Patchnotes private/brain.legacy.review, beide Publikation/Egress false. Aktueller Twitch-Explain-Pfad kann daraus keinen positiven öffentlichen Providerantwortbeleg liefern. Tatsächliche Quellen-/Release-/Consumerbindung und Answered mit überprüfbarer Evidenz erforderlich; Health200 und Ablehnung genügen nicht. Keine Rechte oder Policies geändert.
+
+Nachfolgende Abschnitte dokumentieren frühere Stände. Bei Widerspruch gilt dieser Kopf, insbesondere keine inzwischen erledigten Läufe erneut anfordern.
 
 PG1 zusätzlich abgeschlossen: b77f29612/PID1761901 ab16:26:57UTC, tatsächlicher Exit0,1 bestanden/0 Fehler. Echter isolierter Upgrade-/Restore-/Minimalrollenfall; Log0600/1142Bytes/SHA256716de6827349f368f3ff416afe2ae021a27c10228ce5d5f4042b5ca919fa5b9b. server stopped geloggt, RunnerPID weg, kein eigenes brain-c11.*-Verzeichnis verblieben. Slot sofort zurück, keine Folgeaktion. DetailsSLOT-I-PG1-NACHWEIS.md. PG2 bleibt genau vorhandener siebenstufiger Serve-/Cutover-/Lastwrapper und braucht seine eigene Zuteilung.
 
@@ -45,19 +60,20 @@ Vorgängerregister: .tasks/2026-09-29-technical-closeout/REGISTER.md
 | Zweck | Worktree | Branch | Stand |
 | --- | --- | --- | --- |
 | Koordination | /home/nathanael/.worktrees/brain-technical-closeout-20260929 | integration/technical-closeout-20260929 | Eigene Akte und synchronisierte zentrale Buildanfrage |
-| Quelle | /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930 | fix/g5-replay-deferred-20260930 | B2e878530/CI0c56f85/Test8949198 enthalten; mechanischer Auto-Deref-Fixd35a11c gepusht, noch kein wiederholter Compilerlauf |
+| Eingefrorene PG2-Quelle | /home/nathanael/.worktrees/brain-g5-replay-deferred-20260930 | fix/g5-replay-deferred-20260930 | c5951b6, Clippy/U1/U2/PG1 grün, PG2 offen |
+| Read-only-Snapshotzusatz | /home/nathanael/.worktrees/brain-g5-readonly-snapshot-20260930 | fix/g5-readonly-snapshot-20260930 | Basis c5951b6, Dispatch1183588, ausschließlich Quellarbeit |
 | Reviewbericht | /home/nathanael/.worktrees/brain-pre-g5-core-review-20260929 | review/pre-g5-core-abnahme-20260929 | dcfee1d gelesen, sauber/gepusht; enger R1-Synchronisationsrest statisch GO,0 Befunde |
 
 ## Thread-Register (T3)
 
 | Paket | Thread-ID | Modell | Stand |
 | --- | --- | --- | --- |
-| Autor B2 und B1-R1 | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Zweistellenfixd35a11c um15:41:39UTC, Berichtc809b629 um15:43:15UTC gepusht, sauber. Zwei mechanische Auto-Deref-Stellen, Bericht gelesen, kein weiterer Cargo-Aufruf |
+| Autor B2 und Snapshotzusatz | 66adf9ee-bc03-4ff3-91da-73cd8efc5e72 | bestehender Sol, gpt-6-sol | Importfix efb56023 und Bericht c5951b6 abgeschlossen; Dispatch1183588 für reinen Quellzusatz in brain-g5-readonly-snapshot-20260930, keine neue Abgabe |
 | Unabhängige Abnahme | 52c34332-8cdf-4772-9e1f-42aba432c6cf | bestehender Astra | Enger Zweistellenreview1179269 abgeschlossen: GO9070ba94d0730c94ed1ce63c6e0b3be6fb597aac gelesen/gepusht,0 Befunde, sauber. Gesettelt1179862. Verbindung/Transaktion/Sperrwirkung unverändert, keine Compiler-/Runtimeaktion |
 | Finale Compiler-/Prozessprüfung | 6b53c923-e4da-498a-b08e-254407b452ff | Sol | Nicht wiederaufgenommen; historische Teilaufgabe |
 | Consumerabnahme | 533115bf-554f-4457-86b4-2944fef19c63 | Astra | Nicht wiederaufgenommen |
 
-Keine neuen Threads, Modelle, Arbeitskopien oder Hintergrundwachen. Autor und Reviewer unabhängig. Kein Reset, Main-Merge, Import, Deploy oder Dienstwechsel.
+Keine neuen Threads, Modelle oder Hintergrundwachen. Ein zusätzlicher isolierter Arbeitsbaum für den Snapshotzusatz wurde ausdrücklich beauftragt, ohne den PG2-Prüfkopf zu verändern. Autor und Reviewer unabhängig. Kein Reset, Main-Merge, Import, Deploy oder Dienstwechsel.
 
 ## Aktuelle Befunde und gemeinsame Fixabgabe
 

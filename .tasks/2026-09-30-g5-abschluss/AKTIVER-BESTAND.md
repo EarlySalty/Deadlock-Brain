@@ -1,4 +1,6 @@
-status: aktiv, vier vorhandene Arbeitsbäume mechanisch gegen Git-Cleanup gesperrt
+status: aktiv, fünf Arbeitsbäume für G5 erhalten
+
+Ergänzung 30.09.2026: ausdrücklich erlaubter isolierter Snapshotzusatz im Worktree /home/nathanael/.worktrees/brain-g5-readonly-snapshot-20260930, Branch fix/g5-readonly-snapshot-20260930, Basis c5951b610aa2545d2c0b43b33b5fe1906198b292. Ebenfalls per git worktree lock geschützt. Kein neuer Cache. Bestehender Autor66adf9ee, Dispatch1183588. Alter Quellworktree brain-g5-replay-deferred-20260930 bleibt eingefrorenes PG2-Prüfziel. Diesen fünften Pfad ebenfalls vom Cleanup ausnehmen. Die folgende Viereraufnahme bleibt historischer Sperrbeleg.
 Datum: 2026-09-30
 
 # Aktiven G5-Bestand erhalten
