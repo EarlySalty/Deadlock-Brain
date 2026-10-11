@@ -1,0 +1,22 @@
+[Unit]
+Description=Freigabewächter für lokale Datenimporte
+After=graphical-session.target
+
+[Service]
+Type=simple
+LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
+ExecStart=/opt/deadlock-brain/current/bin/brain-browser-consent --config /opt/deadlock-brain/browser-consent/brain-browser-consent.json
+MemoryAccounting=yes
+MemoryMax=64M
+Restart=on-failure
+RestartSec=10
+KillMode=control-group
+NoNewPrivileges=true
+PrivateUsers=no
+PrivateTmp=no
+ProtectSystem=no
+ProtectHome=no
+ProtectProc=default
+
+[Install]
+WantedBy=default.target
