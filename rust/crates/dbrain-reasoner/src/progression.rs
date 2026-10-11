@@ -264,6 +264,10 @@ pub fn at_souls(
             "MODIFIER_VALUE_BASE_HEALTH_FROM_LEVEL" => hero.base_health += boons * value,
             "MODIFIER_VALUE_TECH_POWER" => hero.base_spirit_power += boons * value,
             "MODIFIER_VALUE_BOON_COUNT" => {}
+            "MODIFIER_VALUE_BASE_MELEE_DAMAGE_FROM_LEVEL"
+            | "MODIFIER_VALUE_OUT_OF_COMBAT_HEALTH_REGEN" => evidence.assumptions.push(format!(
+                "Levelbonus {name} ({value} je Boon) betrifft Nahkampf oder Regeneration außerhalb des Kampfes und gehört nicht zur Kampfbewertung."
+            )),
             _ => evidence.unknown_effects.push(format!(
                 "Levelbonus {name} ({value} je Boon) nicht quantifiziert."
             )),
