@@ -14,21 +14,19 @@ pub enum Original {
 }
 
 const SEQUENCE_WORDS: &[&str] = &[
+    "min", "mins", "sek", "sec", "secs", "s", "h", "std", "lvl", "tag", "tage", "day", "days",
+    "mai", "may", "jan", "feb", "mär", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "okt",
+    "oct", "nov", "dez", "dec",
+];
+
+const SEQUENCE_STEMS: &[&str] = &[
     "minute",
-    "minuten",
-    "min",
     "sekunde",
-    "sekunden",
-    "sek",
-    "sec",
     "second",
-    "seconds",
     "stunde",
-    "stunden",
     "hour",
     "stufe",
     "level",
-    "lvl",
     "rang",
     "rank",
     "platz",
@@ -37,8 +35,6 @@ const SEQUENCE_WORDS: &[&str] = &[
     "runde",
     "round",
     "patch",
-    "tag",
-    "day",
     "woche",
     "week",
     "monat",
@@ -50,8 +46,6 @@ const SEQUENCE_WORDS: &[&str] = &[
     "märz",
     "march",
     "april",
-    "mai",
-    "may",
     "juni",
     "june",
     "juli",
@@ -270,11 +264,12 @@ fn list_marker(chars: &[char], start: usize, end: usize) -> bool {
 fn sequence_word(chars: &[char], from: usize) -> bool {
     let word: String = chars[from.min(chars.len())..]
         .iter()
-        .skip_while(|character| character.is_whitespace())
+        .take_while(|character| **character != '\n')
+        .skip_while(|character| !character.is_alphanumeric())
         .take_while(|character| character.is_alphabetic())
         .flat_map(|character| character.to_lowercase())
         .collect();
-    SEQUENCE_WORDS.contains(&word.as_str())
+    SEQUENCE_WORDS.contains(&word.as_str()) || SEQUENCE_STEMS.iter().any(|stem| word.contains(stem))
 }
 
 fn readings(mantissa: &str, typed: bool) -> Vec<(String, String)> {
@@ -479,6 +474,11 @@ mod tests {
             ["1", "2"]
         );
         assert_eq!(unbound_values("# 1. Kauf\n# 2. Dann", &[]), ["1", "2"]);
+        assert_eq!(
+            unbound_values("1. **Minute**: Urne\n2. _Spielminute_: Rift", &[]),
+            ["1", "2"]
+        );
+        assert!(unbound_values("1. **Kauf** zuerst\n2. _Dann_ weiter", &[]).is_empty());
         assert!(unbound_values("1. Erst\n2. Dann\n3) Zuletzt", &[]).is_empty());
         assert!(unbound_values(
             "1. Erst für 800\n2. Dann\n\n1. Neu\n2. Fertig",
