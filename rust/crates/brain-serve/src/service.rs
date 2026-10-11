@@ -543,6 +543,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         prepared.discord_live.clone(),
     )
     .with_provider(&prepared.config.provider);
+    let mut answer_artifacts = None;
     let mut answer_kernel = Kernel::new(retrieval, prepared.provider.clone())
         .with_quality_filters(prepared.config.kernel.quality_filters);
     if let Some(config) = &prepared.config.deadlock_api {
@@ -574,6 +575,10 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                 prepared.config.timeouts.postgres_connect_ms,
             ))
             .connect_lazy_with(options);
+        answer_artifacts = Some(crate::answer_artifacts::CompareArtifacts::new(
+            pool.clone(),
+            tokio::runtime::Handle::current(),
+        ));
         let mirror = brain_storage::entity_profile::MirroredGameContextReader::new(
             pool,
             tokio::runtime::Handle::current(),
@@ -666,10 +671,21 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             })
             .collect(),
     );
-    let api = match &prepared.twitch_title {
+    let mut api = match &prepared.twitch_title {
         Some(generator) => api.with_twitch_title(generator.clone()),
         None => api,
     };
+    if let Some(port) = answer_artifacts {
+        api = api.with_answer_artifacts(
+            port,
+            prepared
+                .config
+                .answer_artifact_consumers
+                .iter()
+                .map(|consumer| (consumer.actor_id.clone(), consumer.channel.clone()))
+                .collect(),
+        );
+    }
     let mut router = brain_api::router(api)
         .layer(middleware::from_fn_with_state(
             health.clone(),

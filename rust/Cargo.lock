@@ -311,6 +311,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "brain-compare"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "brain-contracts",
+ "brain-storage",
+ "dbrain-reasoner",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "brain-contracts"
 version = "0.1.0"
 dependencies = [
@@ -412,6 +424,7 @@ name = "brain-maintenance"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "brain-compare",
  "brain-contracts",
  "brain-feeds",
  "brain-ingestion",
@@ -471,6 +484,7 @@ dependencies = [
  "axum",
  "brain-api",
  "brain-client",
+ "brain-compare",
  "brain-contracts",
  "brain-ingestion",
  "brain-kernel",

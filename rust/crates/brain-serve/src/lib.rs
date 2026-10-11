@@ -2,6 +2,7 @@
 //! Composition root for the integrated Rust core. No legacy transports or schema writes.
 
 mod analytics;
+mod answer_artifacts;
 pub mod config;
 mod deadlock_data;
 mod discord_live;

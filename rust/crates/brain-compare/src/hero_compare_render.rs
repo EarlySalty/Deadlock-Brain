@@ -13,7 +13,7 @@ impl CompareMetric {
         match self {
             Self::BaseDps => "Grund-DPS",
             Self::MagazineDamage => "Magazinschaden",
-            Self::Hp => "HP",
+            Self::Hp => "Lebenspunkte",
         }
     }
 

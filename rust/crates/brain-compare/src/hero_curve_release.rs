@@ -183,19 +183,13 @@ fn empty_scenario() -> CalculationScenario {
     }
 }
 
-fn curve_artifact(
-    reader: &dyn SnapshotReadPort,
-    principal: &Principal,
-    release_id: &str,
-    heroes: [i64; 2],
-) -> Result<CompareArtifact> {
-    let release = release_models(reader, release_id)?;
-    let max_boons = boon_limit(&release.models, heroes[0])?
-        .min(boon_limit(&release.models, heroes[1])?)
+pub fn health_curve(models: &CalculationModels, heroes: [i64; 2]) -> Result<HeroCurveComparison> {
+    let max_boons = boon_limit(models, heroes[0])?
+        .min(boon_limit(models, heroes[1])?)
         .min(100);
     ensure!(max_boons > 0, "Boonstände fehlen im Quellenstand");
-    let comparison = dbrain_reasoner::compare_hero_curves(
-        &release.models,
+    Ok(dbrain_reasoner::compare_hero_curves(
+        models,
         heroes,
         &empty_scenario(),
         BoonRange {
@@ -204,7 +198,17 @@ fn curve_artifact(
         },
         GrowthMetric::Health,
         &RequestDeadline::after(Duration::from_secs(30)),
-    )?;
+    )?)
+}
+
+fn curve_artifact(
+    reader: &dyn SnapshotReadPort,
+    principal: &Principal,
+    release_id: &str,
+    heroes: [i64; 2],
+) -> Result<CompareArtifact> {
+    let release = release_models(reader, release_id)?;
+    let comparison = health_curve(&release.models, heroes)?;
     prepare_hero_curve_artifact(
         reader,
         principal,

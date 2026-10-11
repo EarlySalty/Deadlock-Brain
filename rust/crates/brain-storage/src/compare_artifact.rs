@@ -12,6 +12,8 @@ const MIGRATION: &str =
     include_str!("../../../../scripts/migrations/2026-10-07-brain-compare-artifacts-v1.sql");
 const PREVIEW_MIGRATION: &str =
     include_str!("../../../../scripts/migrations/2026-10-11-brain-compare-preview-v1.sql");
+const LOOKUP_MIGRATION: &str =
+    include_str!("../../../../scripts/migrations/2026-10-11-brain-compare-lookup-v1.sql");
 const MAX_BYTES: usize = 2_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -306,7 +308,27 @@ impl PgStore {
                 .await
                 .map_err(unavailable)?;
         }
+        let lookup: bool = sqlx::query_scalar(
+            "SELECT to_regprocedure('brain.find_published_hero_compare_v1(text,bigint,bigint,bigint)') IS NOT NULL",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if !lookup {
+            let body = LOOKUP_MIGRATION
+                .strip_prefix("BEGIN;\n")
+                .and_then(|sql| sql.trim_end().strip_suffix("COMMIT;"))
+                .ok_or_else(invalid)?;
+            sqlx::raw_sql(body)
+                .execute(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+        }
         sqlx::query("SELECT brain.read_compare_artifact_v2(NULL)")
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        sqlx::query("SELECT brain.find_published_hero_compare_v1(NULL,NULL,NULL,NULL)")
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
@@ -377,6 +399,34 @@ impl PgStore {
             .await?
             .filter(|(_, stage)| *stage == CompareStage::Published)
             .map(|(artifact, _)| artifact))
+    }
+
+    pub async fn find_published_hero_compare(
+        &self,
+        release_id: &str,
+        heroes: [i64; 2],
+        client_version: i64,
+    ) -> Result<Option<String>, PortError> {
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        sqlx::query("SET LOCAL statement_timeout='2000ms'")
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        let id: Option<String> =
+            sqlx::query_scalar("SELECT brain.find_published_hero_compare_v1($1,$2,$3,$4)")
+                .bind(release_id)
+                .bind(heroes[0])
+                .bind(heroes[1])
+                .bind(client_version)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+        tx.commit().await.map_err(unavailable)?;
+        Ok(id.filter(|id| valid_compare_id(id)))
     }
 
     pub async fn read_site_compare(

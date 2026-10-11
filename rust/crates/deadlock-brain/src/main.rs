@@ -5844,6 +5844,7 @@ mod tests {
                 status,
                 text: "fixture".into(),
                 citations: vec![],
+                artifacts: vec![],
             };
             let value = serde_json::to_value(response).expect("public response must serialize");
             assert_eq!(value["status"], expected);

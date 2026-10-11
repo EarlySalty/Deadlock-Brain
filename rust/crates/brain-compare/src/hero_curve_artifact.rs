@@ -1,5 +1,8 @@
 use anyhow::{ensure, Result};
-use brain_contracts::{source::origin_from_record, DocumentRevision, Principal, SnapshotReadPort};
+use brain_contracts::{
+    source::{origin_from_record, SourceRevision},
+    DocumentRevision, Principal, SnapshotReadPort,
+};
 use brain_storage::compare_artifact::{compare_fingerprint, CompareArtifact};
 use dbrain_reasoner::{CalculationModels, GrowthMetric, HeroCurveComparison, MeasuredValue};
 use std::collections::BTreeSet;
@@ -11,6 +14,20 @@ use crate::{
         HeroCompareSeries, PublicationStatus, VersionBinding,
     },
 };
+
+fn revision_label(revision: &SourceRevision) -> String {
+    match revision {
+        SourceRevision::Http {
+            last_modified: Some(stamp),
+            ..
+        } => format!("Abrufstand vom {stamp}"),
+        SourceRevision::Http { .. } => "Abrufstand ohne Zeitangabe".into(),
+        SourceRevision::Git { commit } => format!("Commit {commit}"),
+        SourceRevision::Wiki { revision_id, .. } => format!("Wiki-Revision {revision_id}"),
+        SourceRevision::Api { api_version, .. } => format!("API-Version {api_version}"),
+        SourceRevision::Replay { original_revision } => format!("Revision {original_revision}"),
+    }
+}
 
 pub fn prepare_hero_curve_artifact(
     reader: &dyn SnapshotReadPort,
@@ -78,8 +95,9 @@ pub fn prepare_hero_curve_artifact(
             Ok(CompareSource {
                 source_id: format!("{}/{}", record.source_id, record.logical_id),
                 evidence: format!(
-                    "Originalrevision {:?}; Prüfsumme {}",
-                    origin.source_revision, origin.raw_sha256
+                    "{}; Prüfsumme {}",
+                    revision_label(&origin.source_revision),
+                    origin.raw_sha256
                 ),
                 version: version.clone(),
                 publication: PublicationStatus::PublicApproved,
