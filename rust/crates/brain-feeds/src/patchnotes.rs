@@ -285,7 +285,6 @@ mod tests {
             "https://forums.playdeadlock.com.evil.invalid/threads/update",
             "https://steamcommunity.com/games/440/announcements/detail/1",
             "https://steamcommunity.com/profiles/1",
-            "http://forums.playdeadlock.com/threads/update",
             "https://user@forums.playdeadlock.com/threads/update",
         ] {
             let mut changed = feed.clone();
@@ -300,6 +299,10 @@ mod tests {
                 Observed::unknown(UnknownReason::NotPresent)
             );
         }
+        let mut insecure = feed.clone();
+        insecure.posts[0].url = "http://forums.playdeadlock.com/threads/update".into();
+        assert!(prepare_batch(&insecure, &public, None).is_err());
+        assert!(prepare_batch(&insecure, &policy(), None).is_err());
         let mut foreign = feed.clone();
         foreign.provider = "foreign-provider".into();
         assert!(prepare_batch(&foreign, &public, None).is_err());
