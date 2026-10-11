@@ -291,7 +291,8 @@ fn check_rights(
     candidate: &CorpusSnapshot,
     allowed: &BTreeSet<String>,
     target: Target,
-) -> Result<()> {
+) -> Result<CheckedHeads> {
+    let mut checked = CheckedHeads::new();
     let internal_scopes = BTreeSet::from(["second_brain.internal".into()]);
     if target == Target::PublicGame {
         dbrain_sources::knowledge_import::public_game::validate_sources(
@@ -344,6 +345,10 @@ fn check_rights(
             allowed.contains(&old.source_id) && head.tombstone && head.revision > old.revision,
             "removal_without_tombstone"
         );
+        checked.insert(
+            (head.source_id.clone(), head.logical_id.clone()),
+            head.revision,
+        );
         let old_origin =
             origin_from_record(old).map_err(|_| anyhow::anyhow!("base_rights_missing"))?;
         let head_origin =
@@ -368,6 +373,10 @@ fn check_rights(
         ensure!(
             **head == *record && !record.tombstone,
             "candidate_superseded"
+        );
+        checked.insert(
+            (head.source_id.clone(), head.logical_id.clone()),
+            head.revision,
         );
         let origin =
             origin_from_record(record).map_err(|_| anyhow::anyhow!("source_rights_missing"))?;
@@ -447,6 +456,30 @@ fn check_rights(
             );
         }
     }
+    Ok(checked)
+}
+
+type CheckedHeads = BTreeMap<(String, String), u64>;
+
+async fn lock_checked_heads(
+    guard: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    checked: &CheckedHeads,
+) -> Result<()> {
+    let mut keys: BTreeMap<&str, BTreeMap<&str, u64>> = BTreeMap::new();
+    for ((source, logical), revision) in checked {
+        keys.entry(source.as_str())
+            .or_default()
+            .insert(logical.as_str(), *revision);
+    }
+    let rows: Vec<(String, String, i64)> = sqlx::query_as("SELECT h.source_id,h.logical_id,h.revision FROM brain.source_record_heads h JOIN jsonb_each($1::jsonb) s ON h.source_id=s.key CROSS JOIN LATERAL jsonb_each_text(s.value) d WHERE h.logical_id=d.key FOR SHARE OF h")
+        .bind(serde_json::to_value(&keys)?)
+        .fetch_all(&mut **guard)
+        .await?;
+    let mut current = CheckedHeads::new();
+    for (source, logical, revision) in rows {
+        current.insert((source, logical), u64::try_from(revision)?);
+    }
+    ensure!(current == *checked, "candidate_superseded");
     Ok(())
 }
 
@@ -837,18 +870,6 @@ async fn run(cli: &Cli, allowed: BTreeSet<String>) -> Result<Report> {
             && ["brain_service", "brain_readonly"].contains(&serve.postgres.username.as_str()),
         "serve_brain_reader_endpoint_required"
     );
-    let mut guard = pool.begin().await?;
-    if cli.apply {
-        let guard_base = store.snapshot(&cli.base_release_id).await?;
-        let guard_candidate = store.snapshot(&cli.candidate_release_id).await?;
-        let mut pins = guard_base.release.source_revisions;
-        for (source, documents) in guard_candidate.release.source_revisions {
-            pins.entry(source).or_default().extend(documents);
-        }
-        sqlx::query("SELECT h.source_id FROM brain.source_record_heads h JOIN jsonb_each($1::jsonb) s ON h.source_id=s.key CROSS JOIN LATERAL jsonb_each_text(s.value) d WHERE h.logical_id=d.key FOR SHARE OF h")
-            .bind(serde_json::to_value(&pins)?)
-            .fetch_all(&mut *guard).await?;
-    }
     let base = store.snapshot(&cli.base_release_id).await?;
     let candidate = store.snapshot(&cli.candidate_release_id).await?;
     check_hash(
@@ -862,7 +883,7 @@ async fn run(cli: &Cli, allowed: BTreeSet<String>) -> Result<Report> {
         &cli.candidate_release_sha256,
     )?;
     check_transition(&base.release, &candidate.release, &allowed)?;
-    check_rights(&base, &candidate, &allowed, cli.target)?;
+    let checked_heads = check_rights(&base, &candidate, &allowed, cli.target)?;
     if matches!(
         cli.target,
         Target::EntityProfiles | Target::EntityProfilesInternal
@@ -892,7 +913,6 @@ async fn run(cli: &Cli, allowed: BTreeSet<String>) -> Result<Report> {
                 journal_bytes(&artifacts, prepared, cli, &base.release, &candidate.release)?;
             position(&current, &old, &new)?;
         }
-        guard.rollback().await?;
         return Ok(cli.report(&current, prepared.map(|p| p.journal_ref)));
     }
     if prepared.is_none() {
@@ -946,7 +966,15 @@ async fn run(cli: &Cli, allowed: BTreeSet<String>) -> Result<Report> {
         "activation_target_mismatch"
     );
     ensure!(!plan.needs_rebase(&writer)?, "stale_activation_journal");
-    match plan.activate(&writer).await {
+    let mut guard = pool.begin().await?;
+    lock_checked_heads(&mut guard, &checked_heads).await?;
+    let written = plan.write(&writer);
+    let guard_released = guard.rollback().await.is_ok();
+    let activation = match written {
+        Ok(()) => plan.confirm().await,
+        Err(error) => Err(error),
+    };
+    match activation {
         Ok(_) => {
             report.activation_performed = !prepared.confirmed;
             report.status = "active_candidate";
@@ -1011,7 +1039,7 @@ async fn run(cli: &Cli, allowed: BTreeSet<String>) -> Result<Report> {
                 .release_bindings_sha256(),
         );
     }
-    if guard.rollback().await.is_err() {
+    if !guard_released {
         report.success = false;
         if report.status == "active_candidate" {
             report.status = "active_candidate_guard_release_failed";

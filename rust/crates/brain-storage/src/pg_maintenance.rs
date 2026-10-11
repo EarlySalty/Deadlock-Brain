@@ -620,16 +620,31 @@ impl PgStore {
         error_code: &str,
         delay_ms: u64,
     ) -> Result<MaintenanceJob, PortError> {
+        self.retry_maintenance_with_detail(lease, error_code, None, delay_ms, 100)
+            .await
+    }
+    pub async fn retry_maintenance_with_detail(
+        &self,
+        lease: &MaintenanceLease,
+        error_code: &str,
+        detail: Option<&str>,
+        delay_ms: u64,
+        max_attempts: u32,
+    ) -> Result<MaintenanceJob, PortError> {
         let fence = lease_inputs(lease)?;
         bounded(error_code, 128)?;
+        if let Some(detail) = detail {
+            bounded(detail, 2048)?;
+        }
         if !error_code
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
             || delay_ms > 86_400_000
+            || !(1..=100).contains(&max_attempts)
         {
             return Err(invalid("invalid maintenance retry"));
         }
-        let query = format!("UPDATE brain.maintenance_jobs_v1 SET owner=NULL,lease_until=NULL,error_code=$4,available_at=clock_timestamp()+($5::bigint*interval '1 millisecond'),status=CASE WHEN attempts>=100 THEN 'failed' ELSE status END,updated_at=now() WHERE id=$1 AND owner=$2 AND fence=$3 AND lease_until>clock_timestamp() RETURNING {ROW}");
+        let query = format!("UPDATE brain.maintenance_jobs_v1 SET owner=NULL,lease_until=NULL,error_code=$4,available_at=clock_timestamp()+($5::bigint*interval '1 millisecond'),checkpoint_json=CASE WHEN $6::text IS NULL THEN checkpoint_json ELSE jsonb_set(checkpoint_json,'{{artifact_refs,last_error}}',to_jsonb($6::text)) END,status=CASE WHEN attempts>=$7 THEN 'failed' ELSE status END,updated_at=now() WHERE id=$1 AND owner=$2 AND fence=$3 AND lease_until>clock_timestamp() RETURNING {ROW}");
         decode(
             sqlx::query(&query)
                 .bind(&lease.job_id)
@@ -637,6 +652,8 @@ impl PgStore {
                 .bind(fence)
                 .bind(error_code)
                 .bind(delay_ms as i64)
+                .bind(detail)
+                .bind(max_attempts as i32)
                 .fetch_optional(&self.pool)
                 .await
                 .map_err(database_error)?

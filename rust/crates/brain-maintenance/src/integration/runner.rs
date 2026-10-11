@@ -25,6 +25,23 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::{collections::BTreeMap, io::Write, path::Path, time::Duration};
 use zeroize::Zeroizing;
 
+const STAGE_FAILURE_ATTEMPTS: u32 = 8;
+
+fn stage_error_detail(error: &anyhow::Error) -> String {
+    let text: String = format!("{error:#}")
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .scan(0usize, |bytes, c| {
+            *bytes += c.len_utf8();
+            (*bytes <= 1024).then_some(c)
+        })
+        .collect();
+    match text.trim() {
+        "" => "unknown".into(),
+        trimmed => trimmed.into(),
+    }
+}
+
 #[cfg(test)]
 #[path = "runner_tests.rs"]
 mod tests;
@@ -659,8 +676,12 @@ impl Runner {
                 Ok(true) => {}
             }
             if let Err(error) = self.advance(&mut job).await {
-                self.handle_failed_advance(&job, &lease, &error).await?;
-                isolated_errors.push(json!({"job":job.spec.id,"code":"JOB_ADVANCE_FAILED"}));
+                let code = if self.handle_failed_advance(&job, &lease, &error).await? {
+                    "JOB_FAILED"
+                } else {
+                    "JOB_ADVANCE_FAILED"
+                };
+                isolated_errors.push(json!({"job":job.spec.id,"code":code}));
             }
         }
         let mut status = self.status().await?;
@@ -879,7 +900,7 @@ impl Runner {
         job: &MaintenanceJob,
         lease: &MaintenanceLease,
         error: &anyhow::Error,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let mut checkpoint = self
             .store
             .maintenance_job(&job.spec.id)
@@ -901,6 +922,7 @@ impl Runner {
             self.store
                 .transition_maintenance(lease, MaintenanceStatus::Failed, &checkpoint)
                 .await?;
+            Ok(true)
         } else {
             let code = match error.to_string().as_str() {
                 "JEV_TRANSPORT_FAILED" => "JEV_TRANSPORT_FAILED",
@@ -908,11 +930,23 @@ impl Runner {
                 "JEV_REQUEST_INVALID" => "JEV_REQUEST_INVALID",
                 _ => "STAGE_FAILED",
             };
-            self.store
-                .retry_maintenance(lease, code, self.runtime.retry_delay_ms)
+            let max_attempts = if code == "STAGE_FAILED" {
+                STAGE_FAILURE_ATTEMPTS
+            } else {
+                100
+            };
+            let retried = self
+                .store
+                .retry_maintenance_with_detail(
+                    lease,
+                    code,
+                    Some(&stage_error_detail(error)),
+                    self.runtime.retry_delay_ms,
+                    max_attempts,
+                )
                 .await?;
+            Ok(retried.status == MaintenanceStatus::Failed)
         }
-        Ok(())
     }
 
     async fn enqueue_local_imports(&self, config: &MaintenanceConfig) -> Result<()> {

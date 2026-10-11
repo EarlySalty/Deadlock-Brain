@@ -490,8 +490,16 @@ impl ActivationPlan {
     }
 
     pub async fn activate(&self, writer: &ConfigWriter) -> Result<MaintenanceActivationProof> {
+        self.write(writer)?;
+        self.confirm().await
+    }
+
+    pub fn write(&self, writer: &ConfigWriter) -> Result<()> {
         writer.require_path(&self.path)?;
-        writer.replace(&self.old_bytes, &self.new_bytes)?;
+        writer.replace(&self.old_bytes, &self.new_bytes)
+    }
+
+    pub async fn confirm(&self) -> Result<MaintenanceActivationProof> {
         self.restart_and_health(&self.new_bytes).await?;
         let verified_at_epoch = i64::try_from(
             std::time::SystemTime::now()
