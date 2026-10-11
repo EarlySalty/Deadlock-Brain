@@ -212,6 +212,7 @@ impl ChunkIndex {
     ) -> Result<Self, PortError> {
         records.retain(|record| {
             record.source_id != "git-game-facts-derived"
+                && record.source_id != "deadlock_assets_api"
                 && !record
                     .metadata
                     .contains_key("brain.entity_projection.contract")
