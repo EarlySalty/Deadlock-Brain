@@ -299,7 +299,7 @@ pub fn provider_data_texts(
         .last()
         .and_then(|message| serde_json::from_str::<Value>(&message.content).ok())
     {
-        data_leaves(&data, &mut texts);
+        data_leaves(&data["evidence"], &mut texts);
     }
     for message in &conversation.messages {
         if let ToolMessage::ToolResults { results } = message {
