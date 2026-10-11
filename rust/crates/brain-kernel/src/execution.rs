@@ -14,6 +14,26 @@ pub(super) fn validation_status(error: &PortError) -> AnswerStatus {
         PortError::Unavailable(_) | PortError::InvalidResponse(_) => AnswerStatus::Unavailable,
     }
 }
+fn values_unbound(
+    query: &Query,
+    text: &str,
+    evidence: &[Evidence],
+    conversation: &ToolConversation,
+) -> bool {
+    let unbound = brain_contracts::answer_contract::unbound_provider_values(
+        text,
+        query,
+        evidence,
+        conversation,
+    );
+    if !unbound.is_empty() {
+        eprintln!(
+            "{}",
+            serde_json::json!({"event":"brain_answer_value_unbound","request_id":query.request_id,"values":unbound.len()})
+        );
+    }
+    !unbound.is_empty()
+}
 fn account_failure(
     accounting: &mut UsageAccounting,
     failure: PortFailure,
@@ -440,6 +460,15 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             accounting.observed.clone(),
         )
         .into(),
+        Ok(answer) if values_unbound(query, &answer.text, &evidence, &conversation) => response(
+            query,
+            context,
+            AnswerStatus::InsufficientEvidence,
+            brain_contracts::answer_contract::NO_AUTHORIZED_VALUE,
+            Vec::new(),
+            accounting.observed.clone(),
+        )
+        .into(),
         Ok(answer) => {
             let grounded = !answer.cited_evidence_ids.is_empty()
                 && answer
@@ -852,6 +881,12 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         return fail_provider(
             AnswerStatus::InsufficientEvidence,
             "Dazu hab ich gerade nichts Genaues, frag am besten direkt im Discord nach.",
+        );
+    }
+    if values_unbound(query, &answer.text, &evidence, &ToolConversation::default()) {
+        return fail_provider(
+            AnswerStatus::InsufficientEvidence,
+            brain_contracts::answer_contract::NO_AUTHORIZED_VALUE,
         );
     }
     let status = if grounded && query.profile != brain_contracts::AnswerProfile::Build {
