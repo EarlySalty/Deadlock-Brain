@@ -546,12 +546,20 @@ impl PgStore {
             i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
         let mut tx = self.pool.begin().await?;
         crate::pg_jobs::lock_source(&mut tx, &record.source_id).await?;
-        let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
-            .bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_one(&mut *tx).await?;
-        if stored != serde_json::to_value(record)? {
-            return Err(invalid(
-                "Projektion widerspricht der gespeicherten Quellrevision",
-            ));
+        if !context
+            .semantic_revision_verified()
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+                .bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_one(&mut *tx).await?;
+            if stored != serde_json::to_value(record)? {
+                return Err(invalid(
+                    "Projektion widerspricht der gespeicherten Quellrevision",
+                ));
+            }
+            context
+                .semantic_revision_verified()
+                .store(true, std::sync::atomic::Ordering::Release);
         }
         let ids: Vec<_> = projections.iter().map(|(id, _)| id.clone()).collect();
         let originals = context.project(&ids)?;

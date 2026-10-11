@@ -11,7 +11,10 @@ use brain_contracts::{
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 
@@ -42,6 +45,8 @@ pub struct EntityDocumentContext<'a> {
     by_id: BTreeMap<String, usize>,
     origin: brain_contracts::source::OriginArtifact,
     source_kind: ProfileSourceKind,
+    fact_revision_verified: AtomicBool,
+    semantic_revision_verified: AtomicBool,
 }
 
 impl<'a> EntityDocumentContext<'a> {
@@ -84,6 +89,8 @@ impl<'a> EntityDocumentContext<'a> {
             by_id,
             origin,
             source_kind,
+            fact_revision_verified: AtomicBool::new(false),
+            semantic_revision_verified: AtomicBool::new(false),
         })
     }
 
@@ -95,6 +102,12 @@ impl<'a> EntityDocumentContext<'a> {
     }
     pub(crate) fn fact_index(&self) -> &BTreeMap<String, usize> {
         &self.by_id
+    }
+    pub(crate) fn fact_revision_verified(&self) -> &AtomicBool {
+        &self.fact_revision_verified
+    }
+    pub(crate) fn semantic_revision_verified(&self) -> &AtomicBool {
+        &self.semantic_revision_verified
     }
 
     pub fn project(&self, fact_ids: &[String]) -> crate::Result<Vec<EntityProfileFact>> {
@@ -717,13 +730,18 @@ impl PgStore {
         crate::pg_jobs::lock_source(&mut tx, &record.source_id).await?;
         let revision =
             i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
-        let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
-            .bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_one(&mut *tx).await?;
-        let original: SourceRecordV2 = serde_json::from_value(stored)?;
-        if serde_json::to_value(&original)? != serde_json::to_value(record)? {
-            return Err(invalid(
-                "Faktenbindung widerspricht der gespeicherten Quellrevision",
-            ));
+        if !context.fact_revision_verified().load(Ordering::Acquire) {
+            let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
+                .bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_one(&mut *tx).await?;
+            let original: SourceRecordV2 = serde_json::from_value(stored)?;
+            if serde_json::to_value(&original)? != serde_json::to_value(record)? {
+                return Err(invalid(
+                    "Faktenbindung widerspricht der gespeicherten Quellrevision",
+                ));
+            }
+            context
+                .fact_revision_verified()
+                .store(true, Ordering::Release);
         }
         let facts = context.project(fact_ids)?;
         sqlx::query("INSERT INTO brain.entity_profile_entities_v1(entity_key,identity_json) VALUES($1,$2) ON CONFLICT(entity_key) DO NOTHING").bind(&entity.entity_key).bind(&identity).execute(&mut *tx).await?;
