@@ -372,6 +372,8 @@ pub struct BuildObject {
     pub family_discovery: Option<crate::families::FamilyDiscovery>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub ability_names: crate::publish::AbilityNames,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub item_notes: crate::publish::ItemNotes,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -194,8 +194,15 @@ fn core_candidates<'a>(
         .collect()
 }
 
-fn item_why(item: &ScoredItem) -> String {
-    let mut details = Vec::new();
+pub(crate) struct ItemStat {
+    pub value: f64,
+    pub unit: &'static str,
+    pub label: &'static str,
+    pub on_trigger: bool,
+}
+
+pub(crate) fn item_stats(item: &crate::ItemModel) -> Vec<ItemStat> {
+    let mut stats = Vec::new();
     for (name, label, unit) in [
         ("BaseAttackDamagePercent", "Waffenschaden", "%"),
         ("BonusClipSizePercent", "Magazingröße", "%"),
@@ -217,22 +224,35 @@ fn item_why(item: &ScoredItem) -> String {
         ("ExplosionDamage", "Explosionsschaden", ""),
     ] {
         if let Some(value) = item
-            .item
             .properties
             .get(name)
-            .or_else(|| item.item.passive_properties.get(name))
+            .or_else(|| item.passive_properties.get(name))
             .filter(|value| value.is_finite() && **value != 0.0)
         {
-            let condition = if item.item.conditional_properties.contains(name)
-                || (item.item.is_active && !item.item.passive_properties.contains_key(name))
-            {
+            stats.push(ItemStat {
+                value: *value,
+                unit,
+                label,
+                on_trigger: item.conditional_properties.contains(name)
+                    || (item.is_active && !item.passive_properties.contains_key(name)),
+            });
+        }
+    }
+    stats
+}
+
+fn item_why(item: &ScoredItem) -> String {
+    let details = item_stats(&item.item)
+        .iter()
+        .map(|stat| {
+            let condition = if stat.on_trigger {
                 " bei Auslösung"
             } else {
                 ""
             };
-            details.push(format!("{value:+.1}{unit} {label}{condition}"));
-        }
-    }
+            format!("{:+.1}{} {}{condition}", stat.value, stat.unit, stat.label)
+        })
+        .collect::<Vec<_>>();
     let benefits = if details.is_empty() {
         format!("Die numerischen Detailwirkungen [{}] sind in dieser Zweckbeschreibung noch nicht aufgeschlüsselt; keine zusätzliche Wirkung wird behauptet.", item.item.properties.keys().cloned().collect::<Vec<_>>().join(", "))
     } else {
@@ -778,6 +798,7 @@ fn compose_build_with_author_evidence_and_constraints(
         variants: Vec::new(),
         family_discovery: None,
         ability_names: Default::default(),
+        item_notes: Default::default(),
         hero_id: hero.hero_id,
         hero_name: hero.name.clone(),
         patch_tag: cfg.patch_tag.clone(),

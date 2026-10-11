@@ -290,6 +290,7 @@ fn unpublished_build() -> crate::BuildObject {
         variants: Vec::new(),
         family_discovery: None,
         ability_names: Default::default(),
+        item_notes: Default::default(),
     }
 }
 

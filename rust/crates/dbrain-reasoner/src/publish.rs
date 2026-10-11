@@ -409,16 +409,146 @@ fn category_description(items: &[BuildItem]) -> Option<String> {
     })
 }
 
-fn mod_spec(item: &BuildItem) -> BuildSpecMod {
+fn mod_spec(item: &BuildItem, notes: &ItemNotes) -> BuildSpecMod {
     BuildSpecMod {
         ability_id: item.item_id,
-        annotation: annotation(&item.why),
+        annotation: notes
+            .get(&item.item_id)
+            .cloned()
+            .unwrap_or_else(|| annotation(&item.why)),
         imbue: item.imbue_target,
         sell_priority: item.sell_priority,
     }
 }
 
 pub type AbilityNames = std::collections::BTreeMap<i64, String>;
+pub type ItemNotes = std::collections::BTreeMap<i64, String>;
+
+const NOTE_STATS: usize = 3;
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NoteFacts {
+    pub sell_before: Option<String>,
+    pub cost: i64,
+    pub upgrade_of: Vec<String>,
+    pub stats: Vec<String>,
+    pub condition: Option<String>,
+    pub earned_souls: Option<i64>,
+}
+
+fn german_number(value: f64) -> String {
+    let rounded = (value * 10.0).round() / 10.0;
+    if rounded.fract() == 0.0 {
+        format!("{}", rounded as i64)
+    } else {
+        format!("{rounded:.1}").replace('.', ",")
+    }
+}
+
+fn souls_word(count: i64) -> &'static str {
+    if count == 1 {
+        "Seele"
+    } else {
+        "Seelen"
+    }
+}
+
+fn seconds_text(value: f64) -> String {
+    let number = german_number(value);
+    if number == "1" {
+        "1 Sekunde".to_string()
+    } else {
+        format!("{number} Sekunden")
+    }
+}
+
+fn stat_text(stat: &crate::composer::ItemStat) -> String {
+    let sign = if stat.value > 0.0 { "+" } else { "-" };
+    let trigger = if stat.on_trigger {
+        " bei Auslösung"
+    } else {
+        ""
+    };
+    format!(
+        "{sign}{}{} {}{trigger}",
+        german_number(stat.value.abs()),
+        stat.unit,
+        stat.label
+    )
+}
+
+fn condition_sentence(condition: &crate::ConditionKind) -> Option<String> {
+    use crate::ConditionKind as Kind;
+    let sentence = match condition {
+        Kind::None => return None,
+        Kind::SpiritDamageToHeroes { .. } => "Effekt braucht Spirit-Schaden an Helden.".to_string(),
+        Kind::ActiveCooldown { cooldown, .. } => {
+            format!("Aktivierung mit {} Abklingzeit.", seconds_text(*cooldown))
+        }
+        Kind::StateBound { threshold } => format!(
+            "Bonus hängt an einer Lebensschwelle von {}%.",
+            german_number(threshold * 100.0)
+        ),
+        Kind::MeleeBound => "Effekt braucht Nahkampftreffer.".to_string(),
+        Kind::ShotBound => "Effekt braucht Waffentreffer.".to_string(),
+        Kind::RampUp { ramp_seconds } => {
+            format!("Effekt baut sich über {} auf.", seconds_text(*ramp_seconds))
+        }
+        Kind::ActionBound { action } if action == "parry" => {
+            "Effekt braucht eine erfolgreiche Parade.".to_string()
+        }
+        Kind::ActionBound { .. } => "Effekt braucht seinen Auslöser.".to_string(),
+    };
+    Some(sentence)
+}
+
+fn note_fields(facts: &NoteFacts) -> Vec<String> {
+    let cost = if facts.upgrade_of.is_empty() {
+        format!("{} {}.", facts.cost, souls_word(facts.cost))
+    } else {
+        let bases = facts
+            .upgrade_of
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        format!(
+            "{} {} als Upgrade von {}.",
+            facts.cost,
+            souls_word(facts.cost),
+            german_list(&bases)
+        )
+    };
+    facts
+        .sell_before
+        .iter()
+        .map(|next| format!("Vor {next} verkaufen."))
+        .chain(std::iter::once(cost))
+        .chain((!facts.stats.is_empty()).then(|| format!("{}.", facts.stats.join(", "))))
+        .chain(facts.condition.clone())
+        .chain(
+            facts
+                .earned_souls
+                .filter(|earned| *earned > 0)
+                .map(|earned| format!("Kauf ab etwa {earned} verdienten {}.", souls_word(earned))),
+        )
+        .collect()
+}
+
+pub fn player_note(facts: &NoteFacts) -> String {
+    let mut note = String::new();
+    for field in note_fields(facts) {
+        let candidate = if note.is_empty() {
+            field
+        } else {
+            format!("{note} {field}")
+        };
+        if candidate.chars().count() > ANNOTATION_MAX_CHARS {
+            break;
+        }
+        note = candidate;
+    }
+    note
+}
 
 pub const PLAYER_DESCRIPTION_MAX_CHARS: usize = 425;
 pub const ANNOTATION_MAX_CHARS: usize = 380;
@@ -530,6 +660,21 @@ fn named_sequence(ids: &[i64], ability_names: &AbilityNames) -> Option<String> {
     (!names.is_empty()).then(|| german_list(&names))
 }
 
+fn unlocks_precede_upgrades(build: &BuildObject) -> bool {
+    let last_unlock = build
+        .ability_order
+        .iter()
+        .rposition(|step| step.currency_type == UNLOCK_CURRENCY);
+    let first_upgrade = build
+        .ability_order
+        .iter()
+        .position(|step| step.currency_type == UPGRADE_CURRENCY);
+    match (last_unlock, first_upgrade) {
+        (Some(unlock), Some(upgrade)) => unlock < upgrade,
+        _ => true,
+    }
+}
+
 fn ability_sentences(build: &BuildObject, ability_names: &AbilityNames) -> Vec<String> {
     let unlocks = ability_sequence(build, UNLOCK_CURRENCY, true);
     let upgrades = ability_sequence(build, UPGRADE_CURRENCY, false);
@@ -538,7 +683,7 @@ fn ability_sentences(build: &BuildObject, ability_names: &AbilityNames) -> Vec<S
     };
     let unlock = format!("Fähigkeiten in der Reihenfolge {unlock_names} freischalten");
     let short = format!("{unlock}.");
-    if upgrades.is_empty() {
+    if upgrades.is_empty() || !unlocks_precede_upgrades(build) {
         return vec![short];
     }
     let full = if upgrades == unlocks {
@@ -585,7 +730,11 @@ pub fn to_publish_payload(build: &BuildObject) -> BuildSpecPayload {
         description: category_description(&build.core),
         width: Some(780.0),
         height: Some(260.0),
-        mods: build.core.iter().map(mod_spec).collect(),
+        mods: build
+            .core
+            .iter()
+            .map(|item| mod_spec(item, &build.item_notes))
+            .collect(),
     };
     let situations = build
         .situations
@@ -596,7 +745,11 @@ pub fn to_publish_payload(build: &BuildObject) -> BuildSpecPayload {
             description: category_description(&block.items),
             width: Some(780.0),
             height: Some(260.0),
-            mods: block.items.iter().map(mod_spec).collect(),
+            mods: block
+                .items
+                .iter()
+                .map(|item| mod_spec(item, &build.item_notes))
+                .collect(),
         })
         .collect::<Vec<_>>();
     let ability_order = (!build.ability_order.is_empty()).then(|| {
@@ -674,7 +827,7 @@ pub fn validate_publish_input(build: &BuildObject) -> Result<()> {
 pub async fn validate_publish_current(pool: &PgPool, build: &BuildObject) -> Result<()> {
     validate_publish_input(build)?;
     let original = validate_build_provenance(build)?;
-    validate_ability_names(pool, build).await?;
+    validate_player_texts(pool, build).await?;
     let patch_tag = dbrain_builds::latest_patch_tag(pool)
         .await
         .map_err(ReasonerError::Db)?;
@@ -1336,16 +1489,102 @@ pub fn ability_names_from_catalog(build: &BuildObject, items: &Value) -> Result<
         .collect()
 }
 
-pub async fn with_ability_names(pool: &PgPool, build: &BuildObject) -> Result<BuildObject> {
+fn catalog_item(rows: &[Value], item_id: i64) -> Result<crate::ItemModel> {
+    let row = rows
+        .iter()
+        .find(|row| row["id"].as_i64() == Some(item_id))
+        .ok_or_else(|| {
+            ReasonerError::Data(
+                "Ein Item fehlt im Spielkatalog. Es wurde nichts veröffentlicht.".into(),
+            )
+        })?;
+    crate::data::item_model_from_payload(row)
+}
+
+fn catalog_names(rows: &[Value], ids: &[i64]) -> Result<Vec<String>> {
+    ids.iter()
+        .map(|id| catalog_item(rows, *id).map(|item| item.name))
+        .collect()
+}
+
+fn situation_price(item: &crate::ItemModel, core: &[crate::ItemModel]) -> (i64, Vec<String>) {
+    let components = core
+        .iter()
+        .filter(|held| item.component_items.contains(&held.class_name))
+        .collect::<Vec<_>>();
+    let price = item.cost - components.iter().map(|held| held.cost).sum::<i64>();
+    (
+        price,
+        components.iter().map(|held| held.name.clone()).collect(),
+    )
+}
+
+pub fn item_notes_from_catalog(build: &BuildObject, items: &Value) -> Result<ItemNotes> {
+    let rows = items
+        .as_array()
+        .ok_or_else(|| ReasonerError::Data("Aktueller Item-Katalog fehlt.".into()))?;
+    let steps = validate_build_provenance(build)?
+        .purchase_plan
+        .as_ref()
+        .map(|plan| plan.steps.as_slice())
+        .unwrap_or_default();
+    let core = build
+        .core
+        .iter()
+        .map(|item| catalog_item(rows, item.item_id))
+        .collect::<Result<Vec<_>>>()?;
+    let mut notes = ItemNotes::new();
+    for item in build
+        .core
+        .iter()
+        .chain(build.situations.iter().flat_map(|block| &block.items))
+    {
+        let model = catalog_item(rows, item.item_id)?;
+        let step = steps
+            .iter()
+            .find(|step| step.transition.purchased_id == item.item_id);
+        let sell_before = steps
+            .iter()
+            .find(|step| step.transition.sold_ids.contains(&item.item_id))
+            .map(|step| catalog_item(rows, step.transition.purchased_id).map(|next| next.name))
+            .transpose()?;
+        let (cost, upgrade_of) = match step {
+            Some(step) => (
+                step.transition.purchase_cost,
+                catalog_names(rows, &step.transition.consumed_ids)?,
+            ),
+            None => situation_price(&model, &core),
+        };
+        let facts = NoteFacts {
+            sell_before,
+            cost,
+            upgrade_of,
+            stats: crate::composer::item_stats(&model)
+                .iter()
+                .take(NOTE_STATS)
+                .map(stat_text)
+                .collect(),
+            condition: condition_sentence(&model.condition),
+            earned_souls: step.map(|step| step.progression.earned_souls),
+        };
+        notes.insert(item.item_id, player_note(&facts));
+    }
+    Ok(notes)
+}
+
+pub async fn with_player_texts(pool: &PgPool, build: &BuildObject) -> Result<BuildObject> {
+    let items = mirrored_item_catalog(pool).await?;
     let mut named = build.clone();
-    named.ability_names = ability_names_from_catalog(build, &mirrored_item_catalog(pool).await?)?;
+    named.ability_names = ability_names_from_catalog(build, &items)?;
+    named.item_notes = item_notes_from_catalog(build, &items)?;
     Ok(named)
 }
 
-async fn validate_ability_names(pool: &PgPool, build: &BuildObject) -> Result<()> {
-    if with_ability_names(pool, build).await?.ability_names != build.ability_names {
+async fn validate_player_texts(pool: &PgPool, build: &BuildObject) -> Result<()> {
+    let expected = with_player_texts(pool, build).await?;
+    if expected.ability_names != build.ability_names || expected.item_notes != build.item_notes {
         return Err(ReasonerError::Data(
-            "Fähigkeitsnamen passen nicht zum aktuellen Spielkatalog. Es wurde nichts veröffentlicht."
+            "Fähigkeitsnamen oder Item-Notizen passen nicht zum aktuellen Spielkatalog. Es wurde nichts veröffentlicht."
                 .into(),
         ));
     }
@@ -1355,7 +1594,7 @@ async fn validate_ability_names(pool: &PgPool, build: &BuildObject) -> Result<()
 pub async fn enqueue_publish_task(pool: &PgPool, build: &BuildObject) -> Result<i64> {
     validate_publish_input(build)?;
     validate_build_provenance(build)?;
-    let build = &with_ability_names(pool, build).await?;
+    let build = &with_player_texts(pool, build).await?;
     validate_publish_current(pool, build).await?;
     let payload = publish_task_payload(build);
     validate_publish_items(pool, &payload).await?;
@@ -1539,6 +1778,7 @@ mod tests {
             variants: vec![],
             family_discovery: None,
             ability_names: Default::default(),
+            item_notes: Default::default(),
         };
         (build, hero, models, snapshots)
     }
@@ -2118,6 +2358,7 @@ mod tests {
             variants: Vec::new(),
             family_discovery: None,
             ability_names: Default::default(),
+            item_notes: Default::default(),
             hero_id: 25,
             hero_name: "Warden".to_string(),
             patch_tag: "current".to_string(),
@@ -2199,12 +2440,66 @@ mod tests {
             player_description(&build, &build.ability_names),
             "Berechneter Build für Warden im aktuellen Patch. Kern: Item 1, Item 2, Item 3, Item 4 und Item 5, dazu 2 weitere Items. Fähigkeiten in der Reihenfolge Alchemical Fire und Binding Word freischalten und in derselben Reihenfolge ausbauen. Item 3 und Item 5 auf Alchemical Fire setzen."
         );
+        let mut interleaved = build.clone();
+        interleaved.ability_order.swap(1, 2);
+        let description = player_description(&interleaved, &interleaved.ability_names);
+        assert!(description.contains(
+            "Fähigkeiten in der Reihenfolge Alchemical Fire und Binding Word freischalten."
+        ));
+        assert!(!description.contains("ausbauen"));
         for item in &mut build.core {
             item.name = "Sehr langer Itemname ".repeat(8);
         }
         let description = player_description(&build, &build.ability_names);
         assert!(description.chars().count() <= PLAYER_DESCRIPTION_MAX_CHARS);
         assert!(description.contains("Alchemical Fire"));
+    }
+
+    #[test]
+    fn player_note_lists_shop_facts_in_order_and_drops_whole_trailing_fields() {
+        let stat = |value, unit, label, on_trigger| {
+            stat_text(&crate::composer::ItemStat {
+                value,
+                unit,
+                label,
+                on_trigger,
+            })
+        };
+        let facts = NoteFacts {
+            sell_before: Some("Spirit Rend".into()),
+            cost: 800,
+            upgrade_of: vec!["Extra Spirit".into()],
+            stats: vec![
+                stat(7.0, "", "Spirit", false),
+                stat(75.0, "", "Leben", false),
+                stat(12.5, "%", "Feuerrate", true),
+            ],
+            condition: condition_sentence(&crate::ConditionKind::ShotBound),
+            earned_souls: Some(3200),
+        };
+        assert_eq!(
+            player_note(&facts),
+            "Vor Spirit Rend verkaufen. 800 Seelen als Upgrade von Extra Spirit. +7 Spirit, +75 Leben, +12,5% Feuerrate bei Auslösung. Effekt braucht Waffentreffer. Kauf ab etwa 3200 verdienten Seelen."
+        );
+        assert_eq!(
+            player_note(&NoteFacts {
+                cost: 1,
+                earned_souls: Some(1),
+                ..Default::default()
+            }),
+            "1 Seele. Kauf ab etwa 1 verdienten Seele."
+        );
+        let crowded = NoteFacts {
+            condition: Some("Bedingung ".repeat(40)),
+            ..facts
+        };
+        let note = player_note(&crowded);
+        assert!(note.ends_with("bei Auslösung."));
+        assert!(!note.contains('…'));
+        assert_eq!(
+            condition_sentence(&crate::ConditionKind::RampUp { ramp_seconds: 1.0 }).as_deref(),
+            Some("Effekt baut sich über 1 Sekunde auf.")
+        );
     }
 
     #[test]

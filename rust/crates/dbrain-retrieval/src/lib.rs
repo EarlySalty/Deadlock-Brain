@@ -8500,6 +8500,7 @@ mod tests {
             family: None,
             family_discovery: None,
             ability_names: Default::default(),
+            item_notes: Default::default(),
             variants: Vec::new(),
             hero_id: 25,
             hero_name: "Warden".to_string(),

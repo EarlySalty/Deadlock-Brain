@@ -260,6 +260,7 @@ mod tests {
             variants: Vec::new(),
             family_discovery: None,
             ability_names: Default::default(),
+            item_notes: Default::default(),
             hero_id: 25,
             hero_name: "Warden".to_string(),
             patch_tag: "test".to_string(),

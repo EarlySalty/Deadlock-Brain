@@ -3501,7 +3501,7 @@ async fn publish_build_http(
     let build = if review {
         build
     } else {
-        named = dbrain_reasoner::publish::with_ability_names(pool, build).await?;
+        named = dbrain_reasoner::publish::with_player_texts(pool, build).await?;
         dbrain_reasoner::publish::validate_publish_current(pool, &named).await?;
         &named
     };
