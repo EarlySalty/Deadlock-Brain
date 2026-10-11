@@ -71,6 +71,15 @@ pub fn hit_rate(threshold: f64) -> f64 {
     1.0 - threshold.clamp(0.0, 1.0)
 }
 
+pub(crate) fn enemy_health_threshold(item: &ItemModel) -> Option<f64> {
+    item.properties
+        .get("EnemyLifeThreshold")
+        .or_else(|| item.passive_properties.get("EnemyLifeThreshold"))
+        .copied()
+        .filter(|value| value.is_finite() && (0.0..=100.0).contains(value))
+        .map(|value| value / 100.0)
+}
+
 pub fn condition_factor_for_hero(item: &ItemModel, hero: &HeroModel, cfg: &ReasonerConfig) -> f64 {
     match &item.condition {
         crate::ConditionKind::SpiritDamageToHeroes { .. } => {
@@ -875,6 +884,12 @@ fn property_value(name: &str, value: f64, hero: &HeroModel, cfg: &ReasonerConfig
             hero.damage_plan.weapon_dps + hero.damage_plan.spirit_dps
         };
         return basis * percent.abs();
+    }
+    if matches!(
+        name,
+        "BonusSpiritLifesteal" | "AbilityLifestealPercent" | "AbilityLifestealPercentHero"
+    ) {
+        return percent * hero.damage_plan.spirit_dps;
     }
     if lower.contains("lifesteal") {
         return percent * (hero.damage_plan.weapon_dps + hero.damage_plan.spirit_dps);
