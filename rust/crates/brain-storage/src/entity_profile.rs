@@ -11,10 +11,7 @@ use brain_contracts::{
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -45,8 +42,28 @@ pub struct EntityDocumentContext<'a> {
     by_id: BTreeMap<String, usize>,
     origin: brain_contracts::source::OriginArtifact,
     source_kind: ProfileSourceKind,
-    fact_revision_verified: AtomicBool,
-    semantic_revision_verified: AtomicBool,
+    fact_revision_verified: VerifiedRevision,
+    semantic_revision_verified: VerifiedRevision,
+}
+
+#[derive(Default)]
+pub(crate) struct VerifiedRevision(Mutex<Option<Arc<sqlx::postgres::PgConnectOptions>>>);
+
+impl VerifiedRevision {
+    pub(crate) fn holds(&self, pool: &sqlx::PgPool) -> bool {
+        let current = pool.connect_options();
+        self.0.lock().is_ok_and(|verified| {
+            verified
+                .as_ref()
+                .is_some_and(|options| Arc::ptr_eq(options, &current))
+        })
+    }
+
+    pub(crate) fn mark(&self, pool: &sqlx::PgPool) {
+        if let Ok(mut verified) = self.0.lock() {
+            *verified = Some(pool.connect_options());
+        }
+    }
 }
 
 impl<'a> EntityDocumentContext<'a> {
@@ -89,8 +106,8 @@ impl<'a> EntityDocumentContext<'a> {
             by_id,
             origin,
             source_kind,
-            fact_revision_verified: AtomicBool::new(false),
-            semantic_revision_verified: AtomicBool::new(false),
+            fact_revision_verified: VerifiedRevision::default(),
+            semantic_revision_verified: VerifiedRevision::default(),
         })
     }
 
@@ -103,10 +120,10 @@ impl<'a> EntityDocumentContext<'a> {
     pub(crate) fn fact_index(&self) -> &BTreeMap<String, usize> {
         &self.by_id
     }
-    pub(crate) fn fact_revision_verified(&self) -> &AtomicBool {
+    pub(crate) fn fact_revision_verified(&self) -> &VerifiedRevision {
         &self.fact_revision_verified
     }
-    pub(crate) fn semantic_revision_verified(&self) -> &AtomicBool {
+    pub(crate) fn semantic_revision_verified(&self) -> &VerifiedRevision {
         &self.semantic_revision_verified
     }
 
@@ -730,7 +747,7 @@ impl PgStore {
         crate::pg_jobs::lock_source(&mut tx, &record.source_id).await?;
         let revision =
             i64::try_from(record.revision).map_err(|_| invalid("Revision ist zu groß"))?;
-        if !context.fact_revision_verified().load(Ordering::Acquire) {
+        if !context.fact_revision_verified().holds(&self.pool) {
             let stored: Value = sqlx::query_scalar("SELECT record_json FROM brain.source_record_revisions WHERE source_id=$1 AND logical_id=$2 AND revision=$3")
                 .bind(&record.source_id).bind(&record.logical_id).bind(revision).fetch_one(&mut *tx).await?;
             let original: SourceRecordV2 = serde_json::from_value(stored)?;
@@ -739,9 +756,7 @@ impl PgStore {
                     "Faktenbindung widerspricht der gespeicherten Quellrevision",
                 ));
             }
-            context
-                .fact_revision_verified()
-                .store(true, Ordering::Release);
+            context.fact_revision_verified().mark(&self.pool);
         }
         let facts = context.project(fact_ids)?;
         sqlx::query("INSERT INTO brain.entity_profile_entities_v1(entity_key,identity_json) VALUES($1,$2) ON CONFLICT(entity_key) DO NOTHING").bind(&entity.entity_key).bind(&identity).execute(&mut *tx).await?;
