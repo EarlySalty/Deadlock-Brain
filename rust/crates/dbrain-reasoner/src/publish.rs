@@ -657,14 +657,8 @@ fn validate_publish_models_with_plan(
             "Gespeicherte Kaufkurve passt nicht zum veröffentlichten Build.",
         ));
     }
-    let full_souls = hero
-        .level_curve
-        .iter()
-        .map(|level| level.required_souls)
-        .max()
-        .unwrap_or(0);
     let (fully_progressed, full_progression) =
-        crate::progression::at_souls(hero, &order, full_souls, cfg);
+        crate::progression::at_souls(hero, &order, full_souls(hero), cfg);
     if !full_progression.unknown_effects.is_empty()
         || (order.iter().any(|step| step.currency_type == 1)
             && full_progression.applied_order_steps != order.len())
@@ -750,10 +744,12 @@ fn validate_publish_models_with_plan(
         let held = inventory.held_items(items)?;
         let evaluation =
             crate::combat::evaluate_inventory_with_bindings(&progressed, &held, cfg, &bindings);
-        if !evaluation.score.is_finite() || !evaluation.unknown_effects.is_empty() {
+        let baseline = crate::combat::evaluate_inventory(&progressed, &[], cfg);
+        let blocking = blocking_unknown_effects(&evaluation, &baseline);
+        if !evaluation.score.is_finite() || !blocking.is_empty() {
             return Err(ReasonerError::Data(format!(
                 "Kaufkurve enthält nicht belegte Kampfmechanik: {}",
-                evaluation.unknown_effects.join("; ")
+                blocking.join("; ")
             )));
         }
     }
@@ -764,13 +760,16 @@ fn validate_publish_models_with_plan(
     let baseline = crate::combat::evaluate_inventory(&progressed, &[], cfg);
     if !evaluation.score.is_finite()
         || evaluation.score <= baseline.score
-        || !evaluation.unknown_effects.is_empty()
+        || !blocking_unknown_effects(&evaluation, &baseline).is_empty()
     {
         return Err(error("Kern enthält nicht belegte Kampfmechanik."));
     }
     let published_evaluation =
         crate::combat::evaluate_inventory_with_bindings(&fully_progressed, &held, cfg, &bindings);
-    if !published_evaluation.score.is_finite() || !published_evaluation.unknown_effects.is_empty() {
+    let published_baseline = crate::combat::evaluate_inventory(&fully_progressed, &[], cfg);
+    if !published_evaluation.score.is_finite()
+        || !blocking_unknown_effects(&published_evaluation, &published_baseline).is_empty()
+    {
         return Err(error(
             "Veröffentlichter Kern enthält nicht belegte Kampfmechanik der Skillfolge.",
         ));
@@ -804,15 +803,239 @@ fn validate_publish_models_with_plan(
             cfg,
             &bindings,
         );
-        if !evaluation.score.is_finite() || !evaluation.unknown_effects.is_empty() {
+        let blocking = blocking_unknown_effects(&evaluation, &published_baseline);
+        if !evaluation.score.is_finite() || !blocking.is_empty() {
             return Err(ReasonerError::Data(format!(
                 "Situations-Item {} enthält nicht belegte Kampfmechanik: {}",
                 candidate.item_id,
-                evaluation.unknown_effects.join("; ")
+                blocking.join("; ")
             )));
         }
     }
     Ok(())
+}
+
+fn full_souls(hero: &crate::HeroModel) -> i64 {
+    hero.level_curve
+        .iter()
+        .map(|level| level.required_souls)
+        .max()
+        .unwrap_or(0)
+}
+
+const UTILITY_MARKERS: [&str; 9] = [
+    "OutOfCombat",
+    "StatusResistance",
+    "SlowResistance",
+    "Tooltip",
+    "NonHero",
+    "Trooper",
+    "OnOthers",
+    "Stamina",
+    "AirControl",
+];
+
+const UTILITY_SUFFIXES: [&str; 12] = [
+    "Duration",
+    "Lifetime",
+    "Delay",
+    "ChargeUpTime",
+    "Radius",
+    "Range",
+    "Angle",
+    "Velocity",
+    "Speed",
+    "Height",
+    "Scale",
+    "Tolerance",
+];
+
+const COMBAT_TOKENS: [&str; 25] = [
+    "Damage",
+    "DPS",
+    "Dot",
+    "FireRate",
+    "Clip",
+    "Ammo",
+    "Health",
+    "Heal",
+    "Barrier",
+    "Shield",
+    "Resist",
+    "Armor",
+    "Lifesteal",
+    "Steal",
+    "Crit",
+    "Power",
+    "Cooldown",
+    "Reflect",
+    "Ricochet",
+    "Threshold",
+    "Pulse",
+    "Proc",
+    "Stack",
+    "Kill",
+    "Window",
+];
+
+const UTILITY_TOKENS: [&str; 22] = [
+    "Radius",
+    "Range",
+    "Angle",
+    "Velocity",
+    "Speed",
+    "Sprint",
+    "Slide",
+    "Slow",
+    "Silence",
+    "BuildUp",
+    "Height",
+    "Scale",
+    "Jump",
+    "DropDown",
+    "Toss",
+    "Landing",
+    "Tolerance",
+    "Footstep",
+    "Dash",
+    "Immunity",
+    "Move",
+    "Aim",
+];
+
+fn unquantified_property(effect: &str) -> Option<&str> {
+    let (_, rest) = effect.rsplit_once(": ")?;
+    let key = rest.strip_suffix(" nicht quantifiziert")?;
+    (!key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')).then_some(key)
+}
+
+fn utility_property(key: &str) -> bool {
+    UTILITY_MARKERS.iter().any(|marker| key.contains(marker))
+        || UTILITY_SUFFIXES.iter().any(|suffix| key.ends_with(suffix))
+        || (!COMBAT_TOKENS.iter().any(|token| key.contains(token))
+            && UTILITY_TOKENS.iter().any(|token| key.contains(token)))
+}
+
+fn tolerated_unknown_effect(effect: &str, baseline: &crate::combat::InventoryEvaluation) -> bool {
+    (effect.starts_with("Fähigkeit ")
+        && baseline.unknown_effects.iter().any(|known| known == effect))
+        || unquantified_property(effect).is_some_and(utility_property)
+}
+
+pub(crate) fn blocking_unknown_effects(
+    evaluation: &crate::combat::InventoryEvaluation,
+    baseline: &crate::combat::InventoryEvaluation,
+) -> Vec<String> {
+    evaluation
+        .unknown_effects
+        .iter()
+        .filter(|effect| !tolerated_unknown_effect(effect, baseline))
+        .cloned()
+        .collect()
+}
+
+pub(crate) struct ExcludedItem {
+    pub(crate) item_id: i64,
+    name: String,
+    effects: Vec<String>,
+}
+
+pub(crate) fn unpublishable_items(
+    hero: &crate::HeroModel,
+    items: &[crate::ItemModel],
+    cfg: &crate::ReasonerConfig,
+) -> Vec<ExcludedItem> {
+    let baseline = crate::combat::evaluate_inventory(hero, &[], cfg);
+    items
+        .iter()
+        .filter(|item| item.shopable && !item.disabled)
+        .filter_map(|item| {
+            let evaluation =
+                crate::combat::evaluate_inventory(hero, std::slice::from_ref(item), cfg);
+            let effects = blocking_unknown_effects(&evaluation, &baseline);
+            (!effects.is_empty()).then(|| ExcludedItem {
+                item_id: item.item_id,
+                name: item.name.clone(),
+                effects,
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn record_publish_exclusions(
+    plan: &mut crate::planner::PurchasePlan,
+    excluded: &[ExcludedItem],
+    population: &crate::PopulationPrior,
+) {
+    plan.assumptions.extend(excluded.iter().map(|item| {
+        let staple = if population.is_staple(item.item_id) {
+            format!(" Populations-Stütze dieses Helden mit {:.0}% Kaufanteil: Der veröffentlichte Build ist ohne dieses Item schwächer als das beobachtete Spielerverhalten; die fehlende Kampfwirkung braucht ein eigenes Quantifizierungspaket.", population.prevalence(item.item_id) * 100.0)
+        } else {
+            String::new()
+        };
+        format!(
+            "Für die Veröffentlichung ausgeschlossen: {} ({}), nicht quantifizierte Kampfwirkung: {}.{staple}",
+            item.name,
+            item.item_id,
+            item.effects.join("; ")
+        )
+    }));
+}
+
+pub(crate) fn record_tolerated_unknowns(
+    build: &BuildObject,
+    hero: &crate::HeroModel,
+    items: &[crate::ItemModel],
+    plan: &mut crate::planner::PurchasePlan,
+    cfg: &crate::ReasonerConfig,
+) {
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut count = |evaluation: &crate::combat::InventoryEvaluation,
+                     baseline: &crate::combat::InventoryEvaluation| {
+        for effect in evaluation
+            .unknown_effects
+            .iter()
+            .filter(|effect| tolerated_unknown_effect(effect, baseline))
+        {
+            *counts.entry(effect.clone()).or_default() += 1;
+        }
+    };
+    for step in &plan.steps {
+        let (progressed, _) = crate::progression::at_souls(
+            hero,
+            &plan.ability_order,
+            step.progression.earned_souls,
+            cfg,
+        );
+        count(
+            &step.evaluation,
+            &crate::combat::evaluate_inventory(&progressed, &[], cfg),
+        );
+    }
+    let (fully_progressed, _) =
+        crate::progression::at_souls(hero, &plan.ability_order, full_souls(hero), cfg);
+    let baseline = crate::combat::evaluate_inventory(&fully_progressed, &[], cfg);
+    for candidate in build.situations.iter().flat_map(|block| &block.items) {
+        if let Some(item) = items.iter().find(|item| item.item_id == candidate.item_id) {
+            let bindings = candidate
+                .imbue_target
+                .map(|target| (candidate.item_id, target))
+                .into_iter()
+                .collect();
+            count(
+                &crate::combat::evaluate_inventory_with_bindings(
+                    &fully_progressed,
+                    std::slice::from_ref(item),
+                    cfg,
+                    &bindings,
+                ),
+                &baseline,
+            );
+        }
+    }
+    plan.assumptions.extend(counts.into_iter().map(|(effect, count)| {
+        format!("Nicht blockierende unbelegte Wirkung mit Wert null bewertet ({count} Bewertungen): {effect}")
+    }));
 }
 
 #[cfg(test)]
@@ -951,6 +1174,37 @@ mod tests {
     use crate::{BuildItem, BuyPhase, Confidence, Evidence, EvidenceKind};
 
     include!("publish_patch_tests.rs");
+
+    #[test]
+    fn combat_relevant_unknown_effect_blocks_publish_while_utility_is_tolerated() {
+        let evaluation = |effects: &[&str]| crate::combat::InventoryEvaluation {
+            unknown_effects: effects.iter().map(|effect| effect.to_string()).collect(),
+            ..Default::default()
+        };
+        let baseline =
+            evaluation(&["Fähigkeit ability_fixture: HealthStealPct nicht quantifiziert"]);
+        let held = evaluation(&[
+            "Fähigkeit ability_fixture: HealthStealPct nicht quantifiziert",
+            "Item A: BonusSprintSpeed nicht quantifiziert",
+            "Item A: ProjectileLifetime nicht quantifiziert",
+            "Item A: ProcRadius nicht quantifiziert",
+            "Item B: BonusHeavyMeleeDamage nicht quantifiziert",
+            "Item B: StaminaCooldownReduction nicht quantifiziert",
+            "Item C: FireRateSlow nicht quantifiziert",
+            "Item D: Auslöser MeleeBound nur bei belegtem Ereignis; Nahkampf/Parade nicht simuliert",
+            "Fähigkeit ability_other: DPS nicht quantifiziert",
+        ]);
+        assert_eq!(
+            blocking_unknown_effects(&held, &baseline),
+            [
+                "Fähigkeit ability_other: DPS nicht quantifiziert",
+                "Item B: BonusHeavyMeleeDamage nicht quantifiziert",
+                "Item C: FireRateSlow nicht quantifiziert",
+                "Item D: Auslöser MeleeBound nur bei belegtem Ereignis; Nahkampf/Parade nicht simuliert",
+            ]
+        );
+        assert!(blocking_unknown_effects(&baseline, &evaluation(&[])).len() == 1);
+    }
 
     fn item(id: i64, imbue: Option<i64>, sell: Option<u32>) -> BuildItem {
         BuildItem {
