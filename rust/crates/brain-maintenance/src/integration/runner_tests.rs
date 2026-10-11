@@ -244,7 +244,25 @@ async fn setup() -> (
     RepositoryConfig,
     scanner::ScanResult,
 ) {
-    let (dir, mut config, repo) = fixture();
+    setup_with_provider_egress(true).await
+}
+
+async fn setup_with_provider_egress(
+    provider_egress_allowed: bool,
+) -> (
+    tempfile::TempDir,
+    Runner,
+    MaintenanceConfig,
+    RepositoryConfig,
+    scanner::ScanResult,
+) {
+    let (dir, mut config, mut repo) = fixture();
+    repo.document_policy.provider_egress_allowed = provider_egress_allowed;
+    repo.id = format!(
+        "source-{}",
+        &digest(dir.path().as_os_str().as_encoded_bytes())[..16]
+    );
+    config.repositories = vec![repo.clone()];
     let private = dir.path().join("private");
     fs::create_dir_all(private.join("internal")).unwrap();
     fs::set_permissions(&private, fs::Permissions::from_mode(0o700)).unwrap();
@@ -440,9 +458,7 @@ async fn abandoned_local_jobs_reconcile_without_provider_calls_or_checkpoint_los
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL fixture"]
 async fn denied_provider_policy_is_terminal_without_retry_or_dispatch() {
-    let (dir, runner, mut config, mut repo, scan) = setup().await;
-    repo.document_policy.provider_egress_allowed = false;
-    config.repositories = vec![repo.clone()];
+    let (dir, runner, mut config, repo, scan) = setup_with_provider_egress(false).await;
     config.codex.executable = dir.path().join("provider-must-not-run");
     fs::write(
         &runner.runtime.maintenance_config,
@@ -1532,7 +1548,7 @@ async fn postgres_paid_invalid_results_are_terminal_and_keep_private_receipts() 
         .as_array()
         .unwrap()
         .iter()
-        .any(|error| error["repo"] == "source" && error["code"] == "SOURCE_FETCH_FAILED"));
+        .any(|error| error["repo"] == repo.id && error["code"] == "SOURCE_FETCH_FAILED"));
     let jobs = runner
         .store
         .maintenance_jobs(&registration_id(&healthy, "internal/healthy.html"), 10)

@@ -223,6 +223,160 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires isolated PostgreSQL Unix socket: BRAIN_MAINTENANCE_TEST_PG_SOCKET"]
+    async fn postgres_non_rebuild_entities_upsert_and_preserve_ids_and_aliases() -> Result<()> {
+        let socket = std::env::var("BRAIN_MAINTENANCE_TEST_PG_SOCKET")?;
+        ensure!(socket.starts_with("/tmp/") && socket.ends_with("/.maintenance-test-pg"));
+        let options = sqlx::postgres::PgConnectOptions::new_without_pgpass()
+            .host(&socket)
+            .port(55447)
+            .username("brain_maintenance_test")
+            .database("postgres")
+            .password("");
+        let owner = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(options.clone())
+            .await?;
+        let identity: (String, String) =
+            sqlx::query_as("SELECT current_user::text,current_setting('data_directory')")
+                .fetch_one(&owner)
+                .await?;
+        ensure!(identity == ("brain_maintenance_test".into(), socket));
+        let fixture = tempfile::tempdir()?;
+        let database = format!(
+            "o1_entities_{}",
+            &crate::digest(fixture.path().as_os_str().as_encoded_bytes())[..16]
+        );
+        sqlx::query(&format!("CREATE DATABASE {database} TEMPLATE template0"))
+            .execute(&owner)
+            .await?;
+        let result = async {
+            let pool = sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect_with(options.database(&database))
+                .await?;
+            let result = non_rebuild_entity_contract(&pool).await;
+            pool.close().await;
+            result
+        }
+        .await;
+        sqlx::query(&format!("DROP DATABASE {database}"))
+            .execute(&owner)
+            .await?;
+        owner.close().await;
+        result
+    }
+
+    async fn non_rebuild_entity_contract(pool: &sqlx::PgPool) -> Result<()> {
+        sqlx::raw_sql(
+            "CREATE SCHEMA brain;
+            CREATE TABLE brain.source_documents(id bigserial PRIMARY KEY,external_id text NOT NULL);
+            CREATE TABLE brain.entity_snapshots(
+                id bigserial PRIMARY KEY,source text NOT NULL,entity_type text NOT NULL,
+                external_id text NOT NULL,canonical_name text,payload jsonb NOT NULL,
+                source_document_id bigint REFERENCES brain.source_documents(id));
+            CREATE TABLE brain.entities(
+                id bigserial PRIMARY KEY,entity_type text NOT NULL,canonical_name text NOT NULL,
+                primary_external_id text,source text,first_snapshot_id bigint,
+                metadata jsonb NOT NULL DEFAULT '{}',created_at timestamptz NOT NULL DEFAULT now(),
+                updated_at timestamptz NOT NULL DEFAULT now(),UNIQUE(entity_type,canonical_name));
+            CREATE TABLE brain.entity_aliases(
+                entity_id bigint NOT NULL REFERENCES brain.entities(id) ON DELETE CASCADE,
+                alias text NOT NULL,alias_norm text NOT NULL,alias_kind text NOT NULL,
+                source text,external_id text,snapshot_id bigint,created_at timestamptz NOT NULL,
+                UNIQUE(entity_id,alias_norm,alias_kind));
+            INSERT INTO brain.entities(entity_type,canonical_name) VALUES
+                ('hero','Existing Hero'),('hero','Unrelated Hero');
+            INSERT INTO brain.entity_aliases(entity_id,alias,alias_norm,alias_kind,created_at)
+                SELECT id,'Preserved Alias','preserved alias','manual',now()
+                FROM brain.entities WHERE canonical_name='Existing Hero';",
+        )
+        .execute(pool)
+        .await?;
+        let before: Vec<(String, String, i64)> = sqlx::query_as(
+            "SELECT entity_type,canonical_name,id FROM brain.entities ORDER BY entity_type,canonical_name",
+        )
+        .fetch_all(pool)
+        .await?;
+        for (kind, external_id, name, payload) in [
+            (
+                "hero",
+                "101",
+                "Existing Snapshot",
+                json!({"id":101,"name":"Existing Hero","class_name":"hero_existing","player_selectable":true,"disabled":false}),
+            ),
+            (
+                "hero",
+                "102",
+                "New Hero Snapshot",
+                json!({"id":102,"name":"New Hero","class_name":"hero_new","player_selectable":true,"disabled":false}),
+            ),
+            (
+                "item",
+                "201",
+                "New Item Snapshot",
+                json!({"id":201,"name":"New Item","class_name":"upgrade_new","type":"upgrade","shopable":true,"disabled":false,"item_slot_type":"weapon","item_tier":1,"cost":500}),
+            ),
+        ] {
+            sqlx::query("INSERT INTO brain.entity_snapshots(source,entity_type,external_id,canonical_name,payload) VALUES('deadlock_assets_api',$1,$2,$3,$4)")
+                .bind(kind).bind(external_id).bind(name).bind(payload).execute(pool).await?;
+        }
+        let first = dbrain_normalize::normalize_entities(pool, false).await?;
+        ensure!(first["deleted"] == json!({"aliases":0,"entities":0}));
+        ensure!(first["by_type"] == json!({"hero":2,"item":1}));
+        let after_first: Vec<(String, String, i64)> = sqlx::query_as(
+            "SELECT entity_type,canonical_name,id FROM brain.entities ORDER BY entity_type,canonical_name",
+        )
+        .fetch_all(pool)
+        .await?;
+        ensure!(after_first.len() == 4 && before.iter().all(|row| after_first.contains(row)));
+        ensure!(after_first
+            .iter()
+            .any(|(kind, name, _)| kind == "hero" && name == "New Hero"));
+        ensure!(after_first
+            .iter()
+            .any(|(kind, name, _)| kind == "item" && name == "New Item"));
+        let aliases_before: Vec<(i64, String, String)> = sqlx::query_as(
+            "SELECT entity_id,alias,alias_kind FROM brain.entity_aliases ORDER BY entity_id,alias,alias_kind",
+        )
+        .fetch_all(pool)
+        .await?;
+        sqlx::query("UPDATE brain.entity_snapshots SET canonical_name='Added Snapshot Alias' WHERE external_id='101'")
+            .execute(pool).await?;
+        let second = dbrain_normalize::normalize_entities(pool, false).await?;
+        ensure!(second["deleted"] == json!({"aliases":0,"entities":0}));
+        let after_second: Vec<(String, String, i64)> = sqlx::query_as(
+            "SELECT entity_type,canonical_name,id FROM brain.entities ORDER BY entity_type,canonical_name",
+        )
+        .fetch_all(pool)
+        .await?;
+        ensure!(after_first == after_second);
+        let aliases_after: Vec<(i64, String, String)> = sqlx::query_as(
+            "SELECT entity_id,alias,alias_kind FROM brain.entity_aliases ORDER BY entity_id,alias,alias_kind",
+        )
+        .fetch_all(pool)
+        .await?;
+        ensure!(aliases_before.iter().all(|row| aliases_after.contains(row)));
+        let existing_id = before
+            .iter()
+            .find(|(_, name, _)| name == "Existing Hero")
+            .context("existing_entity_missing")?
+            .2;
+        ensure!(aliases_after.contains(&(existing_id, "Preserved Alias".into(), "manual".into())));
+        ensure!(aliases_after.contains(&(
+            existing_id,
+            "Existing Snapshot".into(),
+            "snapshot_name".into()
+        )));
+        ensure!(aliases_after.contains(&(
+            existing_id,
+            "Added Snapshot Alias".into(),
+            "snapshot_name".into()
+        )));
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "requires isolated PostgreSQL Unix socket: BRAIN_MAINTENANCE_TEST_PG_SOCKET"]
     async fn postgres_schedule_fences_concurrent_runs_and_retains_last_success() {
         let socket = std::env::var("BRAIN_MAINTENANCE_TEST_PG_SOCKET").unwrap();
         assert!(socket.ends_with("/.maintenance-test-pg"));

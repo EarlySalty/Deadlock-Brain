@@ -4342,7 +4342,7 @@ async fn run_refresh_sheet(pool: &PgPool, settings: &Settings) -> Result<()> {
     )
     .await?;
     let pull = get(&pull_wrapper, "pull").cloned().unwrap_or(pull_wrapper);
-    let entities = dbrain_normalize::normalize_entities(pool, true).await?;
+    let entities = dbrain_normalize::normalize_entities(pool, false).await?;
     let stats = dbrain_normalize::normalize_sheet_stats(pool, true).await?;
     let tabs = dbrain_normalize::normalize_sheet_tabs(pool, true).await?;
     print_json(&json!({
