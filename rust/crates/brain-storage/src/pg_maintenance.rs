@@ -11,6 +11,8 @@ const READER_MIGRATION: &str =
     include_str!("../../../../scripts/migrations/2026-10-02-brain-maintenance-reader-v3.sql");
 const NO_CHANGE_MIGRATION: &str =
     include_str!("../../../../scripts/migrations/2026-10-02-brain-maintenance-no-change-v4.sql");
+const DATA_JOBS_MIGRATION: &str =
+    include_str!("../../../../scripts/migrations/2026-10-11-brain-maintenance-data-jobs-v5.sql");
 const ROW: &str = "id,spec_json,status,checkpoint_json,attempts,error_code,owner,fence,(extract(epoch FROM lease_until)*1000)::bigint AS expires,superseded_by";
 async fn lock_publication_head(
     connection: &mut PgConnection,
@@ -442,6 +444,7 @@ impl PgStore {
             ENQUEUE_MIGRATION,
             READER_MIGRATION,
             NO_CHANGE_MIGRATION,
+            DATA_JOBS_MIGRATION,
         ] {
             let body = migration
                 .split_once("BEGIN;")
@@ -597,7 +600,7 @@ impl PgStore {
                 return Err(invalid("publication proof does not match release"));
             }
         }
-        let query = format!("UPDATE brain.maintenance_jobs_v1 SET status=$4,checkpoint_json=$5,owner=NULL,lease_until=NULL,error_code=CASE WHEN $4='failed' THEN 'STAGE_FAILED' ELSE NULL END,available_at=clock_timestamp(),updated_at=now() WHERE id=$1 AND owner=$2 AND fence=$3 AND lease_until>clock_timestamp() RETURNING {ROW}");
+        let query = format!("UPDATE brain.maintenance_jobs_v1 SET status=$4,checkpoint_json=$5,owner=NULL,lease_until=NULL,error_code=CASE WHEN $4='failed' THEN CASE WHEN $5::jsonb->'artifact_refs'->>'blocked_reason'='PROVIDER_EGRESS_DENIED' THEN 'POLICY_BLOCKED' ELSE 'STAGE_FAILED' END ELSE NULL END,available_at=clock_timestamp(),updated_at=now() WHERE id=$1 AND owner=$2 AND fence=$3 AND lease_until>clock_timestamp() RETURNING {ROW}");
         let job = decode(
             sqlx::query(&query)
                 .bind(&lease.job_id)
@@ -762,6 +765,23 @@ impl PgStore {
         &self,
         spec: &MaintenanceJobSpec,
     ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, PortError> {
+        let (tx, current) = self.lock_maintenance_provider_registration(spec).await?;
+        if current.discovered_sha != spec.source_sha {
+            return Err(invalid("maintenance provider policy revoked or changed"));
+        }
+        Ok(tx)
+    }
+
+    pub async fn lock_maintenance_provider_registration(
+        &self,
+        spec: &MaintenanceJobSpec,
+    ) -> Result<
+        (
+            sqlx::Transaction<'_, sqlx::Postgres>,
+            MaintenanceSourceRegistration,
+        ),
+        PortError,
+    > {
         let mut tx = self.pool.begin().await.map_err(database_error)?;
         let value: Option<serde_json::Value> = sqlx::query_scalar(
             "SELECT registration_json FROM brain.maintenance_sources_v1 WHERE repo_id=$1 FOR SHARE",
@@ -774,12 +794,22 @@ impl PgStore {
             serde_json::from_value(value.ok_or_else(|| invalid("maintenance registry missing"))?)
                 .map_err(|_| invalid("maintenance registry JSON"))?;
         current.validate()?;
-        if current.policy.as_ref() != Some(&spec.policy)
-            || current.discovered_sha != spec.source_sha
-        {
+        if current.policy.as_ref() != Some(&spec.policy) {
             return Err(invalid("maintenance provider policy revoked or changed"));
         }
-        Ok(tx)
+        Ok((tx, current))
+    }
+
+    pub async fn supersede_abandoned_local_maintenance(
+        &self,
+        repo_id: &str,
+        retained_ids: &[String],
+        policy: &brain_contracts::source::SourcePolicy,
+    ) -> Result<u64, PortError> {
+        let changed = sqlx::query("UPDATE brain.maintenance_jobs_v1 j SET status='superseded',superseded_by=n.id,owner=NULL,lease_until=NULL,updated_at=now() FROM brain.maintenance_jobs_v1 n WHERE j.repo_id=$1 AND j.id LIKE 'local-%' AND NOT(j.id=ANY($2)) AND j.status IN ('planned','source_review','author','reviewer') AND (j.lease_until IS NULL OR j.lease_until<=clock_timestamp()) AND j.checkpoint_json->>'publication' IS NULL AND n.repo_id=j.repo_id AND n.spec_json->>'target_path'=j.spec_json->>'target_path' AND n.spec_json->'policy'=$3 AND j.spec_json->'policy'=$3 AND n.status IN ('activated','no_change') AND n.created_at>j.created_at AND NOT EXISTS(SELECT 1 FROM brain.maintenance_jobs_v1 newer WHERE newer.repo_id=n.repo_id AND newer.spec_json->>'target_path'=n.spec_json->>'target_path' AND newer.spec_json->'policy'=$3 AND newer.status IN ('activated','no_change') AND newer.created_at>n.created_at)")
+            .bind(repo_id).bind(retained_ids).bind(json(policy)?)
+            .execute(&self.pool).await.map_err(database_error)?;
+        Ok(changed.rows_affected())
     }
 }
 

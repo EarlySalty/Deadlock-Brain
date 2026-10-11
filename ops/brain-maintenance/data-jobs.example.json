@@ -1,0 +1,14 @@
+{
+  "data_jobs": [
+    {
+      "job": "assets_build_data",
+      "interval_ms": 86400000,
+      "timeout_ms": 3600000
+    },
+    {
+      "job": "sheet_sync",
+      "interval_ms": 14400000,
+      "timeout_ms": 600000
+    }
+  ]
+}

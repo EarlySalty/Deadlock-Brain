@@ -53,10 +53,13 @@ BEGIN
   END IF;
   FOREACH patch_table IN ARRAY ARRAY[
     'brain.source_runs', 'brain.source_documents',
-    'brain.entity_snapshots', 'brain.patch_events'
+    'brain.entity_snapshots', 'brain.patch_events',
+    'brain.entities', 'brain.entity_aliases'
   ] LOOP
     IF to_regclass(patch_table) IS NOT NULL THEN
-      patch_sequence := pg_get_serial_sequence(patch_table, 'id');
+      SELECT pg_get_serial_sequence(patch_table, 'id') INTO patch_sequence
+      FROM pg_attribute WHERE attrelid = to_regclass(patch_table)
+        AND attname = 'id' AND attnum > 0 AND NOT attisdropped;
       IF patch_sequence IS NOT NULL THEN
         EXECUTE format('GRANT USAGE ON SEQUENCE %s TO brain_ingest', patch_sequence);
       END IF;
@@ -64,9 +67,11 @@ BEGIN
   END LOOP;
   IF to_regclass('brain.entities') IS NOT NULL THEN
     GRANT SELECT ON brain.entities TO brain_ingest, brain_service;
+    GRANT INSERT, UPDATE ON brain.entities TO brain_ingest;
   END IF;
   IF to_regclass('brain.entity_aliases') IS NOT NULL THEN
     GRANT SELECT ON brain.entity_aliases TO brain_ingest, brain_service;
+    GRANT INSERT ON brain.entity_aliases TO brain_ingest;
   END IF;
   IF to_regclass('brain.patch_changes') IS NOT NULL THEN
     GRANT SELECT ON brain.patch_changes TO brain_ingest, brain_service;
@@ -77,6 +82,9 @@ BEGIN
   END IF;
   IF to_regclass('brain.maintenance_jobs_v1') IS NOT NULL THEN
     GRANT SELECT, INSERT, UPDATE ON brain.maintenance_jobs_v1 TO brain_ingest;
+  END IF;
+  IF to_regclass('brain.maintenance_data_jobs_v1') IS NOT NULL THEN
+    GRANT SELECT, INSERT, UPDATE ON brain.maintenance_data_jobs_v1 TO brain_ingest;
   END IF;
   IF to_regclass('brain.entity_profile_entities_v1') IS NOT NULL THEN
     GRANT SELECT ON brain.entity_profile_entities_v1 TO brain_service, brain_readonly;
