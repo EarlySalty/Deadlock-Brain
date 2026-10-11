@@ -2168,11 +2168,58 @@ async fn gitblobfelder_werden_im_normalen_ableitungs_und_abrufweg_geprüft(
             origin.locator = "git-game-facts-derived".into();
             origin.origin_artifacts.clear();
             origin.policy = derived_policy();
+            let unbound = derived.clone();
             origin.bind_record(&mut derived).unwrap();
             let saved = store
                 .persist_entity_document(derived, &serde_json::to_string(&receipt).unwrap())
                 .await
                 .unwrap();
+            let saved = if case == 0 {
+                let mut latest = saved.revision;
+                for (suffix, same_pins) in [("same-pins", true), ("other-pins", false)] {
+                    let mut moved = release.clone();
+                    moved.release_id = format!("{}-{suffix}", release.release_id);
+                    if !same_pins {
+                        moved.source_revisions.remove(&source_id);
+                    }
+                    store.publish_release(&moved).await.unwrap();
+                    let mut moved_receipt = receipt.clone();
+                    moved_receipt.original_release_id = moved.release_id.clone();
+                    let mut moved_record = unbound.clone();
+                    moved_record.metadata.insert(
+                        "brain.entity_projection.receipt_sha256".into(),
+                        receipt_sha256(&moved_receipt).unwrap(),
+                    );
+                    origin.bind_record(&mut moved_record).unwrap();
+                    let persisted = store
+                        .persist_entity_document(
+                            moved_record,
+                            &serde_json::to_string(&moved_receipt).unwrap(),
+                        )
+                        .await
+                        .unwrap();
+                    if same_pins {
+                        assert_eq!(persisted.revision, latest);
+                    } else {
+                        assert!(persisted.revision > latest);
+                    }
+                    latest = persisted.revision;
+                }
+                let current: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3")
+                    .bind(&saved.source_id).bind(&saved.logical_id).bind(latest as i64).fetch_one(pool).await.unwrap();
+                assert!(current.contains("-other-pins"));
+                let restored = store
+                    .persist_entity_document(
+                        saved.clone(),
+                        &serde_json::to_string(&receipt).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert!(restored.revision > latest);
+                restored
+            } else {
+                saved
+            };
             let receipt_json: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3")
                 .bind(&saved.source_id).bind(&saved.logical_id).bind(saved.revision as i64).fetch_one(pool).await.unwrap();
             let stored_receipt = serde_json::from_str(&receipt_json).unwrap();

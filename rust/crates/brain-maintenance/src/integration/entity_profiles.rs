@@ -1740,6 +1740,12 @@ mod tests {
         let store = brain_storage::PgStore::new(pool.clone());
         store.migrate_core().await.unwrap();
         sqlx::raw_sql(include_str!(
+            "../../../../../scripts/migrations/2026-10-04-brain-entity-profiles-v1.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!(
             "../../../../../scripts/migrations/2026-10-04-brain-entity-derived-receipts-v1.sql"
         ))
         .execute(&pool)
