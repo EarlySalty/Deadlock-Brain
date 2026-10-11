@@ -880,6 +880,7 @@ dependencies = [
 name = "dbrain-normalize"
 version = "0.1.0"
 dependencies = [
+ "brain-contracts",
  "deadlock-brain-core",
  "regex",
  "serde_json",

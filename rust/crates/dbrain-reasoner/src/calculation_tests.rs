@@ -80,6 +80,41 @@ fn deadline() -> RequestDeadline {
 }
 
 #[test]
+fn ranking_includes_real_development_heroes_without_release_evidence() {
+    for (selectable, disabled) in [
+        (Value::Bool(false), Value::Bool(true)),
+        (Value::Null, Value::Null),
+    ] {
+        let mut models = models();
+        let hero = models.heroes.get_mut(&2).unwrap();
+        hero.raw["in_development"] = Value::Bool(true);
+        hero.raw["player_selectable"] = selectable;
+        hero.raw["disabled"] = disabled;
+        let result = rank_heroes(
+            &models,
+            &scenario(),
+            "health",
+            MetricDirection::HigherIsBetter,
+        )
+        .unwrap();
+        assert_eq!(result.population_total, models.heroes.len());
+        assert!(result.ranks.iter().any(|rank| rank.hero_id == 2));
+    }
+    let mut models = models();
+    let hero = models.heroes.get_mut(&2).unwrap();
+    hero.raw["name"] = hero.raw["class_name"].clone();
+    let result = rank_heroes(
+        &models,
+        &scenario(),
+        "health",
+        MetricDirection::HigherIsBetter,
+    )
+    .unwrap();
+    assert_eq!(result.population_total, models.heroes.len() - 1);
+    assert!(result.ranks.iter().all(|rank| rank.hero_id != 2));
+}
+
+#[test]
 fn growth_sweeps_clear_both_original_progression_assertions() {
     let models = models();
     let deadline = deadline();

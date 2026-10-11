@@ -160,6 +160,13 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
             })? {
                 context.check_deadline()?;
                 let entity_kind = if *kind == "heroes_all" {
+                    if row
+                        .as_object()
+                        .and_then(brain_contracts::hero_status::hero_status)
+                        .is_none()
+                    {
+                        continue;
+                    }
                     EntityKind::Hero
                 } else {
                     match row["type"].as_str() {
@@ -216,7 +223,7 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
                                 .iter()
                                 .all(|term| brain_contracts::lexical::terms(name).contains(term))
                     })
-                    .map(|(kind, id, name, _)| {
+                    .map(|(kind, id, name, row)| {
                         let names = bundle.localized_names(
                             if *kind == EntityKind::Hero {
                                 "heroes_all"
@@ -225,7 +232,13 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
                             },
                             *id as i64,
                         )?;
-                        Ok(json!({"kind":kind,"id":id,"name":name,"names":names}))
+                        let mut result = json!({"kind":kind,"id":id,"name":name,"names":names});
+                        if *kind == EntityKind::Hero {
+                            result["status"] = json!(row
+                                .as_object()
+                                .and_then(brain_contracts::hero_status::hero_status));
+                        }
+                        Ok(result)
                     })
                     .collect::<std::result::Result<_, brain_contracts::PortError>>()?;
                 json!({"matches":matches})
@@ -260,7 +273,14 @@ impl<S: brain_contracts::SnapshotReadPort> ReleaseToolExecutionPort<S> {
                     },
                     profile.entity.id as i64,
                 )?;
-                json!({"entity":profile.entity,"name":name,"names":names,"fields":fields})
+                let mut result =
+                    json!({"entity":profile.entity,"name":name,"names":names,"fields":fields});
+                if profile.entity.kind == EntityKind::Hero {
+                    result["status"] = json!(row
+                        .as_object()
+                        .and_then(brain_contracts::hero_status::hero_status));
+                }
+                result
             }
             _ => {
                 return Err(brain_contracts::PortError::Unavailable(

@@ -8,6 +8,7 @@ name = "dbrain_normalize"
 path = "src/lib.rs"
 
 [dependencies]
+brain-contracts = { path = "../brain-contracts" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 regex.workspace = true
 serde_json.workspace = true

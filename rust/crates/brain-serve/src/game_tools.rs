@@ -287,14 +287,24 @@ fn names(catalog: &Catalog, items: bool, id: i64) -> Result<Value> {
             names.insert(language.into(), json!(name));
         }
     }
+    if !items {
+        if let Some(status) = by_id(catalog.heroes_english, id)?
+            .and_then(Value::as_object)
+            .and_then(brain_contracts::hero_status::hero_status)
+        {
+            names.insert("status".into(), json!(status));
+        }
+    }
     Ok(Value::Object(names))
 }
 
 fn signature_owners(catalog: &Catalog) -> Result<BTreeMap<String, Vec<i64>>> {
     let mut owners = BTreeMap::<String, Vec<i64>>::new();
     for hero in rows(catalog.heroes_english)? {
-        if hero["player_selectable"].as_bool() != Some(true)
-            || hero["disabled"].as_bool() == Some(true)
+        if hero
+            .as_object()
+            .and_then(brain_contracts::hero_status::hero_status)
+            .is_none()
         {
             continue;
         }
@@ -461,8 +471,11 @@ mod tests {
         ]);
         let german = json!([{"id":1,"name":"Panzerrüstung",
             "properties":{"DeflectionPercent":{"label":"Ablenkungschance"}}}]);
-        let heroes = json!([{"id":9,"name":"McGinnis","player_selectable":true,
-            "items":{"signature1":"ability_rockets"}}]);
+        let heroes = json!([{"id":9,"name":"McGinnis","class_name":"hero_forge","player_selectable":true,"disabled":false,
+            "items":{"signature1":"ability_rockets"}},
+            {"id":56,"name":"Development Fixture","class_name":"hero_development_fixture",
+                "player_selectable":false,"disabled":true,"in_development":true,
+                "items":{"signature1":"ability_rockets"}}]);
         let catalog = Catalog {
             items_english: &items,
             items_german: &german,
@@ -494,6 +507,14 @@ mod tests {
         assert_eq!(
             counters[0]["abilities"][0]["heroes"][0]["english"],
             "McGinnis"
+        );
+        assert_eq!(
+            counters[0]["abilities"][0]["heroes"][0]["status"],
+            "released"
+        );
+        assert_eq!(
+            counters[0]["abilities"][0]["heroes"][1]["status"],
+            "in_development"
         );
     }
 }

@@ -1722,20 +1722,6 @@ pub fn rank_heroes(
 ) -> Result<PopulationRanking> {
     validate_calculation_scenario(scenario)?;
     validate_sources(models)?;
-    if models.heroes.values().any(|hero| {
-        ["player_selectable", "disabled", "in_development"]
-            .iter()
-            .any(|field| {
-                hero.raw
-                    .get(*field)
-                    .and_then(serde_json::Value::as_bool)
-                    .is_none()
-            })
-    }) {
-        return Err(error(
-            "Rangpopulation benötigt belegte Aktivitätsmerkmale für jeden Eingabehelden",
-        ));
-    }
     let mut values = Vec::new();
     let mut missing = BTreeMap::new();
     let mut unit = None;
@@ -1743,9 +1729,10 @@ pub fn rank_heroes(
         .heroes
         .values()
         .filter(|hero| {
-            hero.raw["player_selectable"].as_bool() == Some(true)
-                && hero.raw["disabled"].as_bool() == Some(false)
-                && hero.raw["in_development"].as_bool() == Some(false)
+            hero.raw
+                .as_object()
+                .and_then(brain_contracts::hero_status::hero_status)
+                .is_some()
         })
         .collect();
     for hero in &heroes {
