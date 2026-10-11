@@ -1197,13 +1197,16 @@ mod tests {
         assert_eq!(
             blocking_unknown_effects(&held, &baseline),
             [
-                "Fähigkeit ability_other: DPS nicht quantifiziert",
                 "Item B: BonusHeavyMeleeDamage nicht quantifiziert",
                 "Item C: FireRateSlow nicht quantifiziert",
                 "Item D: Auslöser MeleeBound nur bei belegtem Ereignis; Nahkampf/Parade nicht simuliert",
+                "Fähigkeit ability_other: DPS nicht quantifiziert",
             ]
         );
-        assert!(blocking_unknown_effects(&baseline, &evaluation(&[])).len() == 1);
+        assert_eq!(
+            blocking_unknown_effects(&baseline, &evaluation(&[])).len(),
+            1
+        );
     }
 
     fn item(id: i64, imbue: Option<i64>, sell: Option<u32>) -> BuildItem {
