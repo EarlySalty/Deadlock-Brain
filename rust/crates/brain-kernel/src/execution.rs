@@ -14,26 +14,38 @@ pub(super) fn validation_status(error: &PortError) -> AnswerStatus {
         PortError::Unavailable(_) | PortError::InvalidResponse(_) => AnswerStatus::Unavailable,
     }
 }
-fn values_unbound(
-    query: &Query,
-    text: &str,
-    evidence: &[Evidence],
-    conversation: &ToolConversation,
-) -> bool {
-    let unbound = brain_contracts::answer_contract::unbound_provider_values(
-        text,
-        query,
-        evidence,
-        conversation,
+fn log_game_refusal(query: &Query) {
+    eprintln!(
+        "{}",
+        serde_json::json!({"event":"brain_answer_refused_no_game_evidence","request_id":query.request_id,"profile":query.profile})
     );
-    if !unbound.is_empty() {
-        eprintln!(
-            "{}",
-            serde_json::json!({"event":"brain_answer_value_unbound","request_id":query.request_id,"values":unbound.len()})
-        );
-    }
-    !unbound.is_empty()
 }
+
+fn provider_evidence_allowed(
+    query: &Query,
+    context: &AuthorizedContext,
+    evidence: &[Evidence],
+) -> bool {
+    (!evidence.is_empty() || provider_egress_allowed(&context.principal, "public"))
+        && evidence.iter().all(|item| {
+            if item.visibility == brain_contracts::SourceVisibility::RequestScoped
+                && !context.discord.as_ref().is_some_and(|request| {
+                    request.request_id == query.request_id
+                        && item.allowed_scopes == BTreeSet::from([request.scope.clone()])
+                })
+            {
+                return false;
+            }
+            let class = match item.visibility {
+                brain_contracts::SourceVisibility::Public => "public",
+                brain_contracts::SourceVisibility::Internal => "internal",
+                brain_contracts::SourceVisibility::Private => "private",
+                brain_contracts::SourceVisibility::RequestScoped => "discord_request",
+            };
+            provider_egress_allowed(&context.principal, class)
+        })
+}
+
 fn account_failure(
     accounting: &mut UsageAccounting,
     failure: PortFailure,
@@ -156,6 +168,20 @@ pub(super) fn has_build_citation<'a>(
     })
 }
 
+fn insert_evidence(evidence: &mut Vec<Evidence>, item: &Evidence) -> Result<(), PortError> {
+    if let Some(previous) = evidence
+        .iter()
+        .find(|previous| previous.evidence_id == item.evidence_id)
+    {
+        if previous != item {
+            return Err(PortError::InvalidResponse("Beleg-ID ist mehrdeutig".into()));
+        }
+    } else {
+        evidence.push(item.clone());
+    }
+    Ok(())
+}
+
 pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     kernel: &Kernel<R, P>,
     query: &Query,
@@ -174,6 +200,10 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     let mut build_executions = Vec::<brain_contracts::ToolExecution>::new();
     let mut conversation = ToolConversation::default();
     let mut evidence = Vec::<Evidence>::new();
+    let mut retrieved_evidence = Vec::<Evidence>::new();
+    let mut retrieval_checked = false;
+    let mut successful_tool_data = false;
+    let mut deterministic_refusal = false;
     let mut seen_calls = BTreeSet::new();
     let result = (|| -> Result<brain_contracts::ProviderAnswer, PortError> {
         let binding = kernel
@@ -219,6 +249,64 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     usage: Usage::default(),
                 }
             } else {
+                if query.profile.requires_game_evidence() && !retrieval_checked {
+                    let (retrieved, usage) = kernel.retrieval.retrieve_with_usage(query, &next)?;
+                    accounting.accumulate(&UsageAccounting::observed(usage));
+                    remaining(context, &accounting.charged(), elapsed())
+                        .ok_or(PortError::BudgetExceeded)?;
+                    if retrieved.len() > 100 {
+                        return Err(PortError::InvalidResponse(
+                            "Evidence Pack ist zu groß.".into(),
+                        ));
+                    }
+                    let had_retrieved = !retrieved.is_empty();
+                    retrieved_evidence = retrieved
+                        .into_iter()
+                        .filter(|item| {
+                            item.validate().is_ok() && evidence_allowed(&context.principal, item)
+                        })
+                        .collect();
+                    if had_retrieved && retrieved_evidence.is_empty() {
+                        return Err(PortError::PermissionDenied(
+                            "Keine freigegebene Evidenz.".into(),
+                        ));
+                    }
+                    for item in &retrieved_evidence {
+                        insert_evidence(&mut evidence, item)?;
+                    }
+                    retrieval_checked = true;
+                }
+                if query.profile.requires_game_evidence()
+                    && evidence.is_empty()
+                    && !successful_tool_data
+                {
+                    log_game_refusal(query);
+                    deterministic_refusal = true;
+                    return Ok(brain_contracts::ProviderAnswer {
+                        text: String::new(),
+                        cited_evidence_ids: Vec::new(),
+                        usage: Usage::default(),
+                    });
+                }
+                if !retrieved_evidence.is_empty() {
+                    let next = remaining(context, &accounting.charged(), elapsed())
+                        .ok_or(PortError::BudgetExceeded)?;
+                    if !provider_evidence_allowed(query, &next, &retrieved_evidence) {
+                        return Err(PortError::PermissionDenied(
+                            "Provider-Egress ist nicht freigegeben.".into(),
+                        ));
+                    }
+                    kernel
+                        .retrieval
+                        .validate_evidence(query, &next, &retrieved_evidence, true)?;
+                    validate_output(
+                        &kernel.retrieval,
+                        query,
+                        &next,
+                        &retrieved_evidence,
+                        purpose,
+                    )?;
+                }
                 let input = grounded_turn_input_ceiling_with_quality(
                     query,
                     &evidence,
@@ -315,6 +403,21 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         &build_executions,
                         purpose,
                     )?;
+                    if !retrieved_evidence.is_empty() {
+                        kernel.retrieval.validate_evidence(
+                            query,
+                            &next,
+                            &retrieved_evidence,
+                            true,
+                        )?;
+                        validate_output(
+                            &kernel.retrieval,
+                            query,
+                            &next,
+                            &retrieved_evidence,
+                            purpose,
+                        )?;
+                    }
                     if !insufficient
                         && required_evidence.iter().any(|required| {
                             !required
@@ -424,19 +527,10 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                             .iter()
                             .flat_map(|dependency| &dependency.evidence)
                         {
-                            if let Some(previous) = evidence
-                                .iter()
-                                .find(|previous| previous.evidence_id == item.evidence_id)
-                            {
-                                if previous != item {
-                                    return Err(PortError::InvalidResponse(
-                                        "Werkzeugbeleg-ID ist mehrdeutig".into(),
-                                    ));
-                                }
-                            } else {
-                                evidence.push(item.clone());
-                            }
+                            insert_evidence(&mut evidence, item)?;
                         }
+                        successful_tool_data |=
+                            !execution.result.is_error && !execution.result.result.is_null();
                         results.push(execution.result);
                     }
                     conversation
@@ -455,16 +549,11 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             query,
             context,
             AnswerStatus::InsufficientEvidence,
-            "Keine ausreichenden Belege für diese Antwort.",
-            Vec::new(),
-            accounting.observed.clone(),
-        )
-        .into(),
-        Ok(answer) if values_unbound(query, &answer.text, &evidence, &conversation) => response(
-            query,
-            context,
-            AnswerStatus::InsufficientEvidence,
-            brain_contracts::answer_contract::NO_AUTHORIZED_VALUE,
+            if deterministic_refusal {
+                brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
+            } else {
+                "Keine ausreichenden Belege für diese Antwort."
+            },
             Vec::new(),
             accounting.observed.clone(),
         )
@@ -507,7 +596,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     accounting.observed.clone(),
                 ),
                 accounting: accounting.clone(),
-                dependencies: std::sync::Arc::from([]),
+                dependencies: retrieved_evidence.into(),
                 tool_dependencies: dependencies.into(),
                 build_executions: build_executions.into(),
             }
@@ -632,14 +721,23 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         .into_iter()
         .filter(|item| item.validate().is_ok() && evidence_allowed(&context.principal, item))
         .collect();
-    if evidence.is_empty() && (had_retrieved || quality_filters) {
+    if evidence.is_empty()
+        && (had_retrieved || quality_filters || query.profile.requires_game_evidence())
+    {
+        if !had_retrieved && query.profile.requires_game_evidence() {
+            log_game_refusal(query);
+        }
         return fail(
             if had_retrieved {
                 AnswerStatus::UnauthorizedEvidence
             } else {
                 AnswerStatus::InsufficientEvidence
             },
-            "Keine freigegebene ausreichende Evidenz.",
+            if !had_retrieved && query.profile.requires_game_evidence() {
+                brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
+            } else {
+                "Keine freigegebene ausreichende Evidenz."
+            },
             retrieval_usage,
         );
     }
@@ -778,26 +876,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             retrieval_usage,
         );
     }
-    let egress = (!evidence.is_empty() || provider_egress_allowed(&context.principal, "public"))
-        && evidence.iter().all(|item| {
-            if item.visibility == brain_contracts::SourceVisibility::RequestScoped
-                && !context.discord.as_ref().is_some_and(|request| {
-                    request.request_id == query.request_id
-                        && item.allowed_scopes
-                            == std::collections::BTreeSet::from([request.scope.clone()])
-                })
-            {
-                return false;
-            }
-            let class = match item.visibility {
-                brain_contracts::SourceVisibility::Public => "public",
-                brain_contracts::SourceVisibility::Internal => "internal",
-                brain_contracts::SourceVisibility::Private => "private",
-                brain_contracts::SourceVisibility::RequestScoped => "discord_request",
-            };
-            provider_egress_allowed(&context.principal, class)
-        });
-    if !egress {
+    if !provider_evidence_allowed(query, context, &evidence) {
         return fail(
             AnswerStatus::UnauthorizedEvidence,
             "Provider-Egress ist nicht freigegeben.",
@@ -881,12 +960,6 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         return fail_provider(
             AnswerStatus::InsufficientEvidence,
             "Dazu hab ich gerade nichts Genaues, frag am besten direkt im Discord nach.",
-        );
-    }
-    if values_unbound(query, &answer.text, &evidence, &ToolConversation::default()) {
-        return fail_provider(
-            AnswerStatus::InsufficientEvidence,
-            brain_contracts::answer_contract::NO_AUTHORIZED_VALUE,
         );
     }
     let status = if grounded && query.profile != brain_contracts::AnswerProfile::Build {
