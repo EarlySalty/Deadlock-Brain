@@ -42,6 +42,19 @@ fn official_patch_url(url: &str) -> bool {
         || url.starts_with("https://steamcommunity.com/games/1422450/announcements/detail/")
 }
 
+fn original_admission(
+    upstream: &str,
+    source_document_id: Option<i64>,
+    document_source: Option<&str>,
+) -> Result<Option<&'static str>, String> {
+    match (source_document_id, document_source) {
+        (None, None) => Ok(Some("original_document_binding_missing")),
+        (Some(id), None) if id > 0 => Ok(Some("original_document_missing")),
+        (Some(id), Some(source)) if id > 0 && source == upstream => Ok(None),
+        _ => Err("Snapshot besitzt eine widersprüchliche Originalquellenbindung".into()),
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct LegacyGameExclusion {
     pub snapshot_id: i64,
@@ -105,7 +118,7 @@ pub async fn export_legacy_game(
         .execute(&mut *tx)
         .await
         .map_err(|_| "Konsistenter privater Snapshot kann nicht geöffnet werden")?;
-    let rows = sqlx::query("SELECT DISTINCT ON (e.source,e.entity_type,e.external_id) e.id,e.source,e.entity_type,e.external_id,d.source AS document_source,d.url FROM brain.entity_snapshots e LEFT JOIN brain.source_documents d ON d.id=e.source_document_id WHERE e.source=ANY($1) AND e.entity_type=ANY($2) AND (e.entity_type<>'localization' OR (e.source='deadlock_data' AND e.external_id IN ('english','german'))) ORDER BY e.source,e.entity_type,e.external_id,e.fetched_at DESC,e.id DESC LIMIT 10001")
+    let rows = sqlx::query("SELECT DISTINCT ON (e.source,e.entity_type,e.external_id) e.id,e.source,e.entity_type,e.external_id,e.source_document_id,d.source AS document_source,d.url FROM brain.entity_snapshots e LEFT JOIN brain.source_documents d ON d.id=e.source_document_id WHERE e.source=ANY($1) AND e.entity_type=ANY($2) AND (e.entity_type<>'localization' OR (e.source='deadlock_data' AND e.external_id IN ('english','german'))) ORDER BY e.source,e.entity_type,e.external_id,e.fetched_at DESC,e.id DESC LIMIT 10001")
         .bind(&upstreams).bind(&kinds).fetch_all(&mut *tx).await.map_err(|_| "Spiel-Snapshot-Metadaten können nicht gelesen werden")?;
     if rows.len() > 10_000 {
         return Err("Legacy-Spielbestand überschreitet 10.000 Dokumente".into());
@@ -148,10 +161,17 @@ pub async fn export_legacy_game(
         let document_source: Option<String> = row
             .try_get("document_source")
             .map_err(|_| "Originalquelle fehlt")?;
-        if !allowed(&upstream, &kind, &external, source)
-            || document_source.as_deref() != Some(upstream.as_str())
+        if !allowed(&upstream, &kind, &external, source) {
+            return Err("Snapshot hat eine fremde Spielherkunft".into());
+        }
+        let original_document_id: Option<i64> = row
+            .try_get("source_document_id")
+            .map_err(|_| "Originalbindung ist ungültig")?;
+        if let Some(reason) =
+            original_admission(&upstream, original_document_id, document_source.as_deref())?
         {
-            return Err("Snapshot hat eine fehlende oder fremde Spielherkunft".into());
+            report.exclude(id, reason.into());
+            continue;
         }
         let url: Option<String> = row.try_get("url").map_err(|_| "Originaladresse fehlt")?;
         if source == "legacy-patchnotes" && !url.as_deref().is_some_and(official_patch_url) {
@@ -185,6 +205,7 @@ pub async fn export_legacy_game(
             .map_err(|_| "Originalmetadaten fehlen")?;
         if id <= 0
             || source_document_id <= 0
+            || Some(source_document_id) != original_document_id
             || !source_metadata.is_object()
             || document_hash.len() != 64
             || !document_hash
@@ -364,4 +385,45 @@ pub async fn verify_snapshot_record(
         return Err("Kanonisches Dokument weicht vom gespeicherten Spieloriginal ab".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metadata_admission_excludes_missing_originals_without_source_aliases() {
+        let mut report = LegacyGameExport {
+            considered: 2,
+            ..Default::default()
+        };
+        for (id, binding, reason) in [
+            (1, None, "original_document_binding_missing"),
+            (2, Some(17), "original_document_missing"),
+        ] {
+            let excluded = original_admission("deadlock_data", binding, None)
+                .unwrap()
+                .unwrap();
+            assert_eq!(excluded, reason);
+            report.exclude(id, excluded.into());
+        }
+        assert_eq!(report.documents, 0);
+        assert_eq!(report.excluded, 2);
+        assert_eq!(report.excluded_snapshots.len(), 2);
+        for source in ["deadlock_data", "deadlock_patchnotes_db"] {
+            assert_eq!(
+                original_admission(source, Some(17), Some(source)).unwrap(),
+                None
+            );
+        }
+        for (binding, source) in [
+            (Some(17), Some("deadlock_patchnotes_db")),
+            (Some(17), Some("member_data")),
+            (None, Some("deadlock_data")),
+            (Some(0), None),
+            (Some(-1), Some("deadlock_data")),
+        ] {
+            assert!(original_admission("deadlock_data", binding, source).is_err());
+        }
+    }
 }
