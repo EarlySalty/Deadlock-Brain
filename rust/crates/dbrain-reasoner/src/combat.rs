@@ -252,7 +252,9 @@ fn apply(stats: &mut InventoryStats, name: &str, v: f64) -> bool {
         "BulletArmorReduction" | "BulletResistReduction" => stats.bullet_shred += v.abs(),
         "TechArmorReduction" | "SpiritResistReduction" => stats.spirit_shred += v.abs(),
         "BulletLifestealPercent" | "ActiveBonusLifesteal" => stats.bullet_leech += v,
-        "AbilityLifestealPercent" | "AbilityLifestealPercentHero" => stats.spirit_leech += v,
+        "AbilityLifestealPercent" | "AbilityLifestealPercentHero" | "BonusSpiritLifesteal" => {
+            stats.spirit_leech += v
+        }
         "HealthRegen" | "HealthRegenBonus" | "BonusHealthRegen" => stats.regeneration += v,
         "BulletShieldMaxHealth" => stats.weapon_shield += v,
         "TechShieldMaxHealth" => stats.spirit_shield += v,
@@ -591,6 +593,8 @@ fn evaluate_core_with_deadline(
             if !ItemInteraction::from_item(item).handles_property(name)
                 && !apply(&mut InventoryStats::default(), name, *v)
                 && !metadata(name)
+                && !(name == "EnemyLifeThreshold"
+                    && crate::mechanics::enemy_health_threshold(item).is_some())
                 && !(name == "ProcChance" && *v == 100.0)
                 && !proc_damage_property(name)
                 && !matches!(name.as_str(), "AmmoReloadPercent" | "ActiveReloadPercent")
@@ -624,7 +628,9 @@ fn evaluate_core_with_deadline(
             ConditionKind::ActionBound { .. }
                 | ConditionKind::MeleeBound
                 | ConditionKind::StateBound { .. }
-        ) {
+        ) && !(matches!(item.condition, ConditionKind::StateBound { threshold }
+                if crate::mechanics::enemy_health_threshold(item) == Some(threshold)))
+        {
             unknown.insert(format!(
                 "{}: Auslöser {:?} nur bei belegtem Ereignis; Nahkampf/Parade nicht simuliert",
                 item.name, item.condition
@@ -739,6 +745,12 @@ fn evaluate_core_with_deadline(
         result.assumptions.push("Ein bestätigter Treffer je Fähigkeitsauslösung; Malice-Stapel haben einzelne Ablaufzeiten und ersetzen am Limit den ältesten Stapel. Hook-Verstärkung beginnt nach seinem Treffer; Uppercut heilt fehlendes Leben und setzt nur Hook zurück. Soul Exchange bleibt mangels eindeutiger HP-Bezugsregel unquantifiziert.".into());
         result.assumptions.push("Aura-Nähe als globale Szenarioannahme: Duell und Druckziel 8 m, bewegliches Ziel 20 m; ein gegnerischer Held, während Wechselpausen keiner. Belegter Itemradius entscheidet die Wirkung. Keine Mehrzielbehauptung.".into());
         for item in &held {
+            if let Some(threshold) = crate::mechanics::enemy_health_threshold(item) {
+                result.assumptions.push(format!("{}: EnemyLifeThreshold aus Originaldaten {:.1}%. Für den Item-Vorvergleich wird gleichverteiltes Gegner-Restleben angenommen, also {:.1}% Kampfzeit oberhalb der Schwelle; keine gemessene Verfügbarkeit. Der Inventarvergleich prüft stattdessen das simulierte Gegnerleben alle 0,2 s, strikt oberhalb der Schwelle, und beginnt bei einem frischen Ziel erneut. Innate Boni bleiben unabhängig davon erhalten.", item.name, threshold * 100.0, crate::mechanics::hit_rate(threshold) * 100.0));
+            }
+            if value(item, "BonusSpiritLifesteal") != 0.0 {
+                result.assumptions.push(format!("{}: BonusSpiritLifesteal aus Originaldaten {:.1}% zählt ausschließlich tatsächlich verursachten Spirit-Schaden nach Schadensminderung und Ziellebensgrenze. Waffen-Schaden erzeugt daraus keine Heilung; die Summe mit anderen Spirit-Lifesteal-Werten wird auf fehlendes eigenes Leben begrenzt. Im vorhandenen Itemmodell gilt der Bonus gemäß den normalisierten Bedingungsflags; die Aufladung durch Schüsse ist darin nicht eigens simuliert und ihre Verfügbarkeit nicht gemessen. Keine zusätzliche Heilverstärkung angenommen.", item.name, value(item, "BonusSpiritLifesteal")));
+            }
             let interaction = ItemInteraction::from_item(item);
             result
                 .assumptions
@@ -1381,9 +1393,9 @@ fn simulate(
                     &item_texts[idx],
                 )
             };
-            let enemy_threshold = value(item, "EnemyLifeThreshold");
-            if enemy_threshold > 0.0 {
-                trigger = target_remaining.health / out.target_health > enemy_threshold / 100.0;
+            if let Some(enemy_threshold) = crate::mechanics::enemy_health_threshold(item) {
+                trigger = target_available
+                    && target_remaining.health / out.target_health > enemy_threshold;
             }
             let uses_activation = item.is_active
                 || item.imbueable && reload > 0.0
@@ -5019,6 +5031,250 @@ pub(crate) mod tests {
         assert_eq!(leech, 12.0);
         assert!(events.is_empty());
     }
+    #[test]
+    fn bonus_spirit_lifesteal_quantifies_only_dealt_spirit_damage() {
+        let mut hero = hero();
+        hero.abilities = vec![ability(1, 100.0, 1.0)];
+        hero.damage_plan.spirit_dps = 100.0;
+        hero.damage_plan.weapon_dps = 1000.0;
+        let bonus = item(1, "BonusSpiritLifesteal", 10.0);
+        let stats = aggregate_stats(&hero, std::slice::from_ref(&bonus));
+        assert_eq!(stats.spirit_leech, 10.0);
+        assert_eq!(stats.bullet_leech, 0.0);
+        assert_eq!(
+            crate::mechanics::passive_value(&bonus, &hero, &ReasonerConfig::default()),
+            10.0
+        );
+        let mut target = 40.0;
+        let mut events = Vec::new();
+        let mut healing = 0.0;
+        assert_eq!(
+            damage_event(
+                100.0,
+                &DamageType::Spirit,
+                &stats,
+                1.0,
+                0.0,
+                &mut events,
+                &mut healing,
+                &mut target
+            ),
+            40.0
+        );
+        assert_eq!(healing, 4.0);
+        damage_event(
+            100.0,
+            &DamageType::Spirit,
+            &stats,
+            1.0,
+            0.2,
+            &mut events,
+            &mut healing,
+            &mut target,
+        );
+        damage_event(
+            100.0,
+            &DamageType::Weapon,
+            &stats,
+            1.0,
+            0.4,
+            &mut events,
+            &mut healing,
+            &mut 1000.0,
+        );
+        assert_eq!(healing, 4.0);
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 5.0,
+            incoming_pressure_dps: Some(80.0),
+            ..ReasonerConfig::default()
+        };
+        let with = evaluate_inventory(&hero, std::slice::from_ref(&bonus), &cfg);
+        let without = evaluate_inventory(&hero, &[], &cfg);
+        assert!(with.scenarios[1].remaining_health > without.scenarios[1].remaining_health);
+        assert!(with.scenarios[1].remaining_health <= hero.base_health);
+        assert_eq!(
+            with.score,
+            evaluate_inventory_fast(&hero, std::slice::from_ref(&bonus), &cfg).score
+        );
+        assert!(!with
+            .unknown_effects
+            .iter()
+            .any(|effect| effect.contains("BonusSpiritLifesteal")));
+        let mut conditional = bonus;
+        conditional
+            .conditional_properties
+            .insert("BonusSpiritLifesteal".into());
+        conditional.condition = ConditionKind::ShotBound;
+        hero.weapon.bullet_damage = 0.0;
+        hero.weapon.shots_per_second = 0.0;
+        assert_eq!(
+            evaluate_inventory(&hero, &[conditional], &cfg).scenarios[1].remaining_health,
+            evaluate_inventory(&hero, &[], &cfg).scenarios[1].remaining_health
+        );
+    }
+
+    #[test]
+    fn opening_rounds_quantifies_target_threshold_and_keeps_innate_bonus() {
+        let raw: serde_json::Value =
+            serde_json::from_str(include_str!("../testdata/combat-snapshot-20260913.json"))
+                .unwrap();
+        let mut payload = raw["snapshots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["payload"]["name"] == "Opening Rounds")
+            .unwrap()["payload"]
+            .clone();
+        payload["type"] = serde_json::json!("upgrade");
+        payload["shopable"] = serde_json::json!(true);
+        let opening = crate::data::item_model_from_payload(&payload).unwrap();
+        assert!(opening.shopable && !opening.disabled);
+        assert_eq!(opening.properties["EnemyLifeThreshold"], 50.0);
+        assert_eq!(opening.properties["BaseAttackDamagePercentBonus"], 25.0);
+        assert!(opening
+            .conditional_properties
+            .contains("BaseAttackDamagePercentBonus"));
+        assert_eq!(
+            crate::mechanics::condition_factor(&opening, &ReasonerConfig::default()),
+            0.5
+        );
+        assert_eq!(
+            aggregate_stats(&hero(), std::slice::from_ref(&opening)).weapon,
+            8.0
+        );
+        let mut hero = hero();
+        hero.cost_bonuses = ["weapon", "spirit", "vitality"]
+            .into_iter()
+            .map(|slot| {
+                (
+                    slot.into(),
+                    vec![CostBonus {
+                        gold_threshold: 0,
+                        bonus: 0.0,
+                    }],
+                )
+            })
+            .collect();
+        hero.weapon.bullet_damage = 100.0;
+        hero.weapon.shots_per_second = 1.0;
+        hero.weapon.clip_size = 100.0;
+        let cfg = ReasonerConfig {
+            combat_window_seconds: 3.1,
+            ..ReasonerConfig::default()
+        };
+        let result = evaluate_inventory(&hero, std::slice::from_ref(&opening), &cfg);
+        assert!((result.scenarios[0].weapon_damage - 507.0).abs() < 1e-8);
+        assert_eq!(
+            result.score,
+            evaluate_inventory_fast(&hero, std::slice::from_ref(&opening), &cfg).score
+        );
+        let baseline = evaluate_inventory(&hero, &[], &cfg);
+        let blocking = crate::publish::blocking_unknown_effects(&result, &baseline);
+        assert!(blocking.is_empty(), "{blocking:?}");
+        assert!(
+            crate::publish::unpublishable_items(&hero, std::slice::from_ref(&opening), &cfg)
+                .is_empty()
+        );
+        let mut invalid = opening.clone();
+        invalid
+            .properties
+            .insert("EnemyLifeThreshold".into(), 150.0);
+        assert!(!crate::publish::unpublishable_items(&hero, &[invalid], &cfg).is_empty());
+        let mut own_health = opening;
+        own_health.properties.remove("EnemyLifeThreshold");
+        assert!(!crate::publish::unpublishable_items(&hero, &[own_health], &cfg).is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "benötigt lesenden Original-API-Spiegel über DEADLOCK_CENTRAL_DSN"]
+    async fn q1_warden_dry_publish_quantifies_staples_from_live_mirror() {
+        let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").expect("DEADLOCK_CENTRAL_DSN fehlt");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .after_connect(|connection, _| {
+                Box::pin(async move {
+                    sqlx::query("SET default_transaction_read_only=on")
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(&dsn)
+            .await
+            .unwrap_or_else(|_| panic!("Lesender Original-API-Spiegel nicht erreichbar"));
+        let ctx = crate::ReasonerCtx {
+            pool,
+            ai: None,
+            config: ReasonerConfig {
+                use_ai: false,
+                ..ReasonerConfig::default()
+            },
+        };
+        let models = crate::data::load_models_from_mirror(&ctx, "Warden")
+            .await
+            .unwrap();
+        let excluded =
+            crate::publish::unpublishable_items(&models.hero, &models.items, &ctx.config);
+        for name in ["Spiritual Overflow", "Opening Rounds"] {
+            let item = models.items.iter().find(|item| item.name == name).unwrap();
+            assert!(
+                !excluded
+                    .iter()
+                    .any(|excluded| excluded.item_id == item.item_id),
+                "{name}"
+            );
+            println!("Q1_ELIGIBLE {} {}", item.item_id, item.name);
+        }
+        for item in models.items.iter().filter(|item| {
+            item.properties.contains_key("BonusSpiritLifesteal")
+                || item.properties.contains_key("EnemyLifeThreshold")
+        }) {
+            println!(
+                "Q1_SHARED_PROPERTY {} {} excluded={}",
+                item.item_id,
+                item.name,
+                excluded
+                    .iter()
+                    .any(|excluded| excluded.item_id == item.item_id)
+            );
+        }
+        let build = crate::reason_build_for_publish_with_options(
+            &ctx,
+            "Warden",
+            crate::ReasonerOptions {
+                seed_path: None,
+                persist: false,
+            },
+        )
+        .await
+        .unwrap();
+        crate::publish::validate_publish_current(&ctx.pool, &build)
+            .await
+            .unwrap();
+        let payload = crate::publish::publish_task_payload(&build);
+        crate::publish::validate_publish_items(&ctx.pool, &payload)
+            .await
+            .unwrap();
+        assert!(build
+            .core
+            .iter()
+            .chain(build.situations.iter().flat_map(|block| &block.items))
+            .any(|item| item.name == "Spiritual Overflow"));
+        let provenance = crate::publish::validate_build_provenance(&build).unwrap();
+        let plan = provenance.purchase_plan.as_ref().unwrap();
+        assert!(plan.steps.iter().any(|step| step
+            .evaluation
+            .assumptions
+            .iter()
+            .any(|assumption| assumption.contains("BonusSpiritLifesteal"))));
+        println!(
+            "Q1_DRY_PUBLISH_VALIDATED client_version={} source_run={} steps={}",
+            provenance.origin.client_version,
+            provenance.origin.source_run_id,
+            plan.steps.len()
+        );
+    }
+
     #[test]
     fn fast_and_explained_evaluations_have_identical_numbers() {
         let hero = hero();
