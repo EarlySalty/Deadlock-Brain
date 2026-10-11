@@ -22,7 +22,59 @@ impl std::fmt::Display for GitKnowledgeStep {
 
 impl std::error::Error for GitKnowledgeStep {}
 
-pub(super) fn refresh_failure(error: &anyhow::Error) -> serde_json::Value {
+const ACTIVATION_FAILURE_KEYS: [&str; 10] = [
+    "cause",
+    "error_class",
+    "sqlstate",
+    "step",
+    "entity_key",
+    "source_id",
+    "commit",
+    "document_path",
+    "validation",
+    "reasons",
+];
+
+#[derive(Debug)]
+struct ActivationBlocked {
+    failure: serde_json::Value,
+}
+
+impl std::fmt::Display for ActivationBlocked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("entity_profile_activation_blocked")
+    }
+}
+
+impl std::error::Error for ActivationBlocked {}
+
+impl ActivationBlocked {
+    fn status(&self) -> serde_json::Value {
+        let mut status = serde_json::json!({
+            "code": "ENTITY_PROFILE_REFRESH_FAILED",
+            "cause": "Steckbriefaktivierung gesperrt",
+        });
+        for key in ACTIVATION_FAILURE_KEYS {
+            if let Some(value) = self
+                .failure
+                .get(key)
+                .filter(|value| value.to_string().len() <= 2048)
+            {
+                status[key] = value.clone();
+            }
+        }
+        status["activation"] = serde_json::json!("blocked");
+        status
+    }
+}
+
+pub fn refresh_failure(error: &anyhow::Error) -> serde_json::Value {
+    if let Some(blocked) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ActivationBlocked>())
+    {
+        return blocked.status();
+    }
     let mut status = serde_json::json!({"code": "ENTITY_PROFILE_REFRESH_FAILED"});
     if let Some(dbrain_sources::SourcesError::EntityDerivation {
         entity_key, step, ..
@@ -113,14 +165,20 @@ pub(super) fn refresh_failure(error: &anyhow::Error) -> serde_json::Value {
         if let Some(sqlstate) = sqlstate {
             status["sqlstate"] = serde_json::json!(sqlstate);
         }
-    } else if let Some(io) = error.downcast_ref::<std::io::Error>() {
+    } else if let Some(io) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<std::io::Error>())
+    {
         status["cause"] = serde_json::json!(format!("Dateizugriff: {:?}", io.kind()));
+    } else if error.chain().any(|cause| cause.is::<serde_json::Error>()) {
+        status["cause"] = serde_json::json!("Steckbriefaktualisierung abgebrochen");
+        status["error_class"] = serde_json::json!("json_invalid");
     } else {
         status["cause"] = serde_json::json!("Steckbriefaktualisierung abgebrochen");
-        let reasons = safe_error_codes(error);
-        if !reasons.is_empty() {
-            status["reasons"] = serde_json::json!(reasons);
-        }
+    }
+    let reasons = safe_error_codes(error);
+    if !reasons.is_empty() {
+        status["reasons"] = serde_json::json!(reasons);
     }
     status
 }
@@ -138,24 +196,15 @@ pub fn safe_error_codes(error: &anyhow::Error) -> Vec<String> {
         .chain()
         .map(ToString::to_string)
         .filter(|text| is_safe_error_code(text))
-        .take(4)
+        .take(6)
         .collect()
 }
 
 fn activation_blocked(output: &[u8]) -> anyhow::Error {
     let report: serde_json::Value = serde_json::from_slice(output).unwrap_or_default();
-    let reasons = report["reasons"].as_array().cloned().unwrap_or_default();
-    let mut error = anyhow::anyhow!("entity_profile_activation_blocked");
-    for reason in reasons
-        .iter()
-        .chain(std::iter::once(&report["status"]))
-        .filter_map(serde_json::Value::as_str)
-        .filter(|reason| is_safe_error_code(reason))
-        .take(4)
-    {
-        error = error.context(reason.to_owned());
-    }
-    error
+    anyhow::Error::new(ActivationBlocked {
+        failure: report["failure"].clone(),
+    })
 }
 
 pub async fn refresh_git_knowledge(
@@ -952,11 +1001,15 @@ async fn verify_git_document(
 ) -> Result<()> {
     use brain_storage::entity_profile::derivation::verify_git_document_receipt;
     let private: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3")
-        .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).fetch_one(pool).await?;
+        .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).fetch_one(pool).await.context("git_document_receipt_missing")?;
     let receipt: brain_storage::entity_profile::derivation::GitDocumentReceipt =
-        serde_json::from_str(&private)?;
-    let snapshot = store.snapshot(&receipt.original_release_id).await?;
-    let repositories = registered_git_repositories(config, &snapshot, principal)?;
+        serde_json::from_str(&private).context("git_document_receipt_invalid")?;
+    let snapshot = store
+        .snapshot(&receipt.original_release_id)
+        .await
+        .context("git_document_original_snapshot")?;
+    let repositories = registered_git_repositories(config, &snapshot, principal)
+        .context("git_document_repositories")?;
     let verified = dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
         store,
         &receipt.original_release_id,
@@ -964,7 +1017,8 @@ async fn verify_git_document(
         &receipt.entity_key,
         &repositories,
     )
-    .await?;
+    .await
+    .context("git_document_derivation")?;
     let mut blobs = Vec::new();
     let mut seen = BTreeSet::new();
     for binding in verified.original_pins() {
@@ -974,7 +1028,7 @@ async fn verify_git_document(
                 .get(&binding.source_id)
                 .and_then(|pins| pins.get(&binding.logical_id))
                 == Some(&binding.store_revision),
-            "Dokumentoriginal gehört nicht zum Kandidatenstand"
+            "git_document_original_not_in_candidate"
         );
         if !seen.insert((
             &binding.source_id,
@@ -991,25 +1045,26 @@ async fn verify_git_document(
                     && original.logical_id == binding.logical_id
                     && original.revision == binding.store_revision
             })
-            .ok_or_else(|| anyhow::anyhow!("Unveränderlicher Originalpin fehlt"))?;
+            .ok_or_else(|| anyhow::anyhow!("git_document_original_pin_missing"))?;
         let (commit, origin, path) =
-            brain_storage::entity_profile::derivation::git_document_identity(original)?;
+            brain_storage::entity_profile::derivation::git_document_identity(original)
+                .context("git_document_identity")?;
         let pinned = repositories
             .get(&(binding.source_id.clone(), commit.clone()))
-            .ok_or_else(|| anyhow::anyhow!("Gepinnter Repositoryzugang fehlt"))?;
+            .ok_or_else(|| anyhow::anyhow!("git_document_repository_missing"))?;
         blobs.push(brain_storage::entity_profile::derivation::GitBlobEvidence {
             source_id: binding.source_id.clone(),
             logical_id: binding.logical_id.clone(),
             store_revision: binding.store_revision,
             git_commit: commit,
             repository_url: origin,
-            bytes: pinned.read_blob(&path)?,
+            bytes: pinned.read_blob(&path).context("git_document_blob")?,
         });
     }
     let mut identity = verified
         .original_pins()
         .first()
-        .ok_or_else(|| anyhow::anyhow!("Originalbindung fehlt"))?
+        .ok_or_else(|| anyhow::anyhow!("git_document_binding_missing"))?
         .binding_identity
         .clone();
     for binding in verified.original_pins() {
@@ -1019,8 +1074,14 @@ async fn verify_git_document(
             }
         }
     }
-    let story = store.entity_patch_story(&identity).await?;
-    let current = store.snapshot(&receipt.original_release_id).await?;
+    let story = store
+        .entity_patch_story(&identity)
+        .await
+        .context("git_document_patch_story")?;
+    let current = store
+        .snapshot(&receipt.original_release_id)
+        .await
+        .context("git_document_original_snapshot")?;
     verify_git_document_receipt(
         record,
         &receipt,
@@ -1029,7 +1090,8 @@ async fn verify_git_document(
         verified.original_pins(),
         &blobs,
         &story,
-    )?;
+    )
+    .context("git_document_receipt_mismatch")?;
     Ok(())
 }
 
@@ -1304,6 +1366,36 @@ mod tests {
             .to_string()
             .contains("Nutzwert"));
         pool.close().await;
+    }
+
+    #[test]
+    fn activation_block_forwards_child_step_and_class() {
+        let child = anyhow::Error::new(sqlx::Error::Protocol("SELECT privater_Nutzwert".into()))
+            .context("entity_profile_stored_git_document")
+            .context("activation_entity_profile_sources");
+        let output = serde_json::json!({
+            "success": false,
+            "status": "blocked",
+            "failure": refresh_failure(&child),
+            "secret": "privater_Nutzwert",
+        });
+        let error = activation_blocked(output.to_string().as_bytes()).context("privater Kontext");
+        let status = refresh_failure(&error);
+        assert_eq!(status["code"], "ENTITY_PROFILE_REFRESH_FAILED");
+        assert_eq!(status["activation"], "blocked");
+        assert_eq!(status["error_class"], "database_error");
+        assert_eq!(
+            status["reasons"],
+            serde_json::json!([
+                "activation_entity_profile_sources",
+                "entity_profile_stored_git_document"
+            ])
+        );
+        assert!(!status.to_string().contains("privater"));
+        assert!(!status.to_string().contains("SELECT"));
+        let unreadable = refresh_failure(&activation_blocked(b"kein json"));
+        assert_eq!(unreadable["activation"], "blocked");
+        assert_eq!(unreadable["cause"], "Steckbriefaktivierung gesperrt");
     }
 
     #[test]

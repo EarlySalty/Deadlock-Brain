@@ -1,4 +1,4 @@
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use brain_contracts::{
     source::origin_from_record, CorpusRelease, CorpusSnapshot, SourceVisibility,
 };
@@ -402,7 +402,8 @@ fn check_rights(
                         ),
                     "public_game_source_rights"
                 );
-                let projection = dbrain_retrieval::knowledge_projection::project_knowledge(record)?
+                let projection = dbrain_retrieval::knowledge_projection::project_knowledge(record)
+                    .context("entity_profile_projection")?
                     .ok_or_else(|| anyhow::anyhow!("public_game_projection_missing"))?;
                 ensure!(
                     projection.raw_byte_end == 0 && !projection.facts.is_empty(),
@@ -493,7 +494,8 @@ async fn check_entity_profile_sources(
 ) -> Result<()> {
     use dbrain_sources::{knowledge_contract, knowledge_import};
     let config =
-        brain_maintenance::integration::runner::load_maintenance(&runtime.maintenance_config)?;
+        brain_maintenance::integration::runner::load_maintenance(&runtime.maintenance_config)
+            .context("entity_profile_maintenance_config")?;
     let principal = brain_maintenance::integration::runner::local_operator_principal(
         require_operator_config(&runtime.maintenance_config)?,
         &runtime.maintenance_config,
@@ -517,7 +519,8 @@ async fn check_entity_profile_sources(
                     .as_deref()
                     .ok_or_else(|| anyhow::anyhow!("entity_profile_corpus_root"))?,
             )
-            .await?;
+            .await
+            .context("entity_profile_retired_git_documents")?;
             for record in records {
                 ensure!(
                     visible.contains(record),
@@ -531,7 +534,8 @@ async fn check_entity_profile_sources(
                     record,
                     &candidate.release,
                 )
-                .await?;
+                .await
+                .context("entity_profile_stored_git_document")?;
             }
             continue;
         }
@@ -546,7 +550,10 @@ async fn check_entity_profile_sources(
                 .get(id)
                 .is_some_and(BTreeMap::is_empty)
         {
-            store.verify_withdrawn_imported_source(id).await?;
+            store
+                .verify_withdrawn_imported_source(id)
+                .await
+                .context("entity_profile_withdrawn_source")?;
             continue;
         }
         if base.release.source_revisions.contains_key(id) {
@@ -557,26 +564,31 @@ async fn check_entity_profile_sources(
                 .collect();
             let mut wiki =
                 brain_maintenance::integration::runner::existing_wiki_source(pool, base, id)
-                    .await?;
+                    .await
+                    .context("entity_profile_existing_wiki")?;
             for record in &records {
                 let encoded = record
                     .metadata
                     .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
                     .ok_or_else(|| anyhow::anyhow!("entity_profile_document_missing"))?;
                 let document: knowledge_contract::KnowledgeDocument =
-                    serde_json::from_str(encoded)?;
+                    serde_json::from_str(encoded).context("entity_profile_document_decode")?;
                 wiki &= document.source_kind == knowledge_contract::KnowledgeSourceKind::Wiki;
             }
             if wiki {
                 if records.is_empty() {
-                    store.verify_withdrawn_imported_source(id).await?;
+                    store
+                        .verify_withdrawn_imported_source(id)
+                        .await
+                        .context("entity_profile_withdrawn_source")?;
                 }
                 for record in records {
                     ensure!(
                         visible.contains(record),
                         "entity_profile_source_inaccessible"
                     );
-                    dbrain_retrieval::knowledge_projection::project_knowledge(record)?
+                    dbrain_retrieval::knowledge_projection::project_knowledge(record)
+                        .context("entity_profile_projection")?
                         .ok_or_else(|| anyhow::anyhow!("entity_profile_document_missing"))?;
                 }
                 continue;
@@ -597,31 +609,41 @@ async fn check_entity_profile_sources(
         brain_maintenance::config::require_registered_game_source(&config, repo)?;
         let sha =
             brain_maintenance::scanner::resolve_ref(&repo.path, &repo.source_ref, &config.bounds)
-                .await?;
-        let pinned = dbrain_sources::git_source::PinnedRepository::open(&repo.path, &sha)?;
-        pinned.require_origin(&[&repo.origin])?;
+                .await
+                .context("entity_profile_resolve_ref")?;
+        let pinned = dbrain_sources::git_source::PinnedRepository::open(&repo.path, &sha)
+            .context("entity_profile_pinned_repository")?;
+        pinned
+            .require_origin(&[&repo.origin])
+            .context("entity_profile_repository_origin")?;
         let policy: knowledge_import::ImportPolicy =
-            serde_json::from_slice(&protected_file(&source.import_policy, 256 * 1024)?)?;
+            serde_json::from_slice(&protected_file(&source.import_policy, 256 * 1024)?)
+                .context("entity_profile_import_policy")?;
         let records: Vec<_> = candidate
             .revisions
             .iter()
             .filter(|record| record.source_id == *id)
             .collect();
         if records.is_empty() {
-            store.verify_withdrawn_imported_source(id).await?;
+            store
+                .verify_withdrawn_imported_source(id)
+                .await
+                .context("entity_profile_withdrawn_source")?;
         }
         for record in records {
             ensure!(
                 visible.contains(record),
                 "entity_profile_source_inaccessible"
             );
-            dbrain_retrieval::knowledge_projection::project_knowledge(record)?
+            dbrain_retrieval::knowledge_projection::project_knowledge(record)
+                .context("entity_profile_projection")?
                 .ok_or_else(|| anyhow::anyhow!("entity_profile_document_missing"))?;
             let encoded = record
                 .metadata
                 .get(brain_storage::source_versions::DOCUMENT_METADATA_KEY)
                 .ok_or_else(|| anyhow::anyhow!("entity_profile_document_missing"))?;
-            let document: knowledge_contract::KnowledgeDocument = serde_json::from_str(encoded)?;
+            let document: knowledge_contract::KnowledgeDocument =
+                serde_json::from_str(encoded).context("entity_profile_document_decode")?;
             ensure!(
                 document.source_kind == knowledge_contract::KnowledgeSourceKind::GameFile
                     && document
@@ -659,7 +681,8 @@ async fn check_entity_profile_sources(
                 std::io::Cursor::new(encoded.as_bytes()),
                 &policy,
                 &origin.parser_revision,
-            )?;
+            )
+            .context("entity_profile_import_prepare")?;
             ensure!(
                 prepared.records().len() == 1,
                 "entity_profile_import_rights"
@@ -841,25 +864,32 @@ async fn run(cli: &Cli, allowed: BTreeSet<String>) -> Result<Report> {
         .max_connections(2)
         .acquire_timeout(Duration::from_secs(30))
         .connect_with(options)
-        .await?;
+        .await
+        .context("activation_database_connect")?;
     drop(secrets);
     let role_ok: bool = sqlx::query_scalar(
         "SELECT current_user='brain_ingest' AND current_database()='brain' AND NOT r.rolsuper AND NOT r.rolbypassrls AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND has_schema_privilege('brain','USAGE') AND NOT has_schema_privilege('brain','CREATE') AND NOT has_table_privilege('brain.corpus_releases_v1','UPDATE,DELETE') AND NOT has_table_privilege('brain.source_record_revisions','UPDATE,DELETE') FROM pg_roles r WHERE r.rolname=current_user",
-    ).fetch_one(&pool).await?;
+    ).fetch_one(&pool).await.context("activation_database_role")?;
     ensure!(role_ok, "database_role_unsafe");
     let store = brain_storage::PgStore::new(pool.clone());
-    store.check_core_schema().await?;
+    store
+        .check_core_schema()
+        .await
+        .context("activation_core_schema")?;
     let metadata = std::fs::symlink_metadata(&runtime.artifact_dir)?;
     ensure!(
         metadata.uid() == nix::unistd::geteuid().as_raw(),
         "artifact_owner"
     );
-    let artifacts = Artifacts::open(&runtime.artifact_dir)?;
+    let artifacts = Artifacts::open(&runtime.artifact_dir).context("activation_artifacts")?;
     let lock_artifacts = artifacts.clone();
-    let _publication_lock =
-        tokio::task::spawn_blocking(move || lock_artifacts.publication_lock()).await??;
-    let writer = ConfigWriter::lock_async(runtime.serve_config.clone()).await?;
-    let current = writer.read()?;
+    let _publication_lock = tokio::task::spawn_blocking(move || lock_artifacts.publication_lock())
+        .await?
+        .context("activation_publication_lock")?;
+    let writer = ConfigWriter::lock_async(runtime.serve_config.clone())
+        .await
+        .context("activation_serve_config_lock")?;
+    let current = writer.read().context("activation_serve_config_read")?;
     let serve = brain_serve::Config::parse(&current)
         .map_err(|_| anyhow::anyhow!("serve_config_invalid"))?;
     ensure!(
@@ -870,27 +900,41 @@ async fn run(cli: &Cli, allowed: BTreeSet<String>) -> Result<Report> {
             && ["brain_service", "brain_readonly"].contains(&serve.postgres.username.as_str()),
         "serve_brain_reader_endpoint_required"
     );
-    let base = store.snapshot(&cli.base_release_id).await?;
-    let candidate = store.snapshot(&cli.candidate_release_id).await?;
+    let base = store
+        .snapshot(&cli.base_release_id)
+        .await
+        .context("activation_snapshot_base")?;
+    let candidate = store
+        .snapshot(&cli.candidate_release_id)
+        .await
+        .context("activation_snapshot_candidate")?;
     check_hash(
         &base.release,
         &cli.base_release_id,
         &cli.base_release_sha256,
-    )?;
+    )
+    .context("activation_base_hash")?;
     check_hash(
         &candidate.release,
         &cli.candidate_release_id,
         &cli.candidate_release_sha256,
-    )?;
-    check_transition(&base.release, &candidate.release, &allowed)?;
-    let checked_heads = check_rights(&base, &candidate, &allowed, cli.target)?;
+    )
+    .context("activation_candidate_hash")?;
+    check_transition(&base.release, &candidate.release, &allowed)
+        .context("activation_transition")?;
+    let checked_heads =
+        check_rights(&base, &candidate, &allowed, cli.target).context("activation_rights")?;
     if matches!(
         cli.target,
         Target::EntityProfiles | Target::EntityProfilesInternal
     ) {
-        check_entity_profile_sources(&runtime, &store, &pool, &base, &candidate, &allowed).await?;
+        check_entity_profile_sources(&runtime, &store, &pool, &base, &candidate, &allowed)
+            .await
+            .context("activation_entity_profile_sources")?;
     }
-    let prior = artifacts.call_receipt(&identity)?;
+    let prior = artifacts
+        .call_receipt(&identity)
+        .context("activation_call_receipt")?;
     let mut prepared = if let Some(bytes) = prior {
         let prepared: Prepared = serde_json::from_slice(&bytes)?;
         ensure!(
@@ -904,7 +948,8 @@ async fn run(cli: &Cli, allowed: BTreeSet<String>) -> Result<Report> {
             &base.release,
             &cli.expected_serve_config_sha256,
             cli.activation_target(),
-        )?;
+        )
+        .context("activation_basis")?;
         None
     };
     if !cli.apply {
@@ -967,7 +1012,9 @@ async fn run(cli: &Cli, allowed: BTreeSet<String>) -> Result<Report> {
     );
     ensure!(!plan.needs_rebase(&writer)?, "stale_activation_journal");
     let mut guard = pool.begin().await?;
-    lock_checked_heads(&mut guard, &checked_heads).await?;
+    lock_checked_heads(&mut guard, &checked_heads)
+        .await
+        .context("activation_lock_heads")?;
     let written = plan.write(&writer);
     let guard_released = guard.rollback().await.is_ok();
     let activation = match written {
@@ -1062,6 +1109,7 @@ fn print_blocked(error: &anyhow::Error) {
         "success": false,
         "status": "blocked",
         "reasons": brain_maintenance::integration::entity_profiles::safe_error_codes(error),
+        "failure": brain_maintenance::integration::entity_profiles::refresh_failure(error),
     });
     if let Ok(mut bytes) = serde_json::to_vec(&blocked) {
         bytes.push(b'\n');
