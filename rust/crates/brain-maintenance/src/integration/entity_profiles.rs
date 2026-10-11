@@ -117,8 +117,45 @@ pub(super) fn refresh_failure(error: &anyhow::Error) -> serde_json::Value {
         status["cause"] = serde_json::json!(format!("Dateizugriff: {:?}", io.kind()));
     } else {
         status["cause"] = serde_json::json!("Steckbriefaktualisierung abgebrochen");
+        let reasons = safe_error_codes(error);
+        if !reasons.is_empty() {
+            status["reasons"] = serde_json::json!(reasons);
+        }
     }
     status
+}
+
+pub fn is_safe_error_code(text: &str) -> bool {
+    (3..=96).contains(&text.len())
+        && text.starts_with(|c: char| c.is_ascii_lowercase())
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
+pub fn safe_error_codes(error: &anyhow::Error) -> Vec<String> {
+    error
+        .chain()
+        .map(ToString::to_string)
+        .filter(|text| is_safe_error_code(text))
+        .take(4)
+        .collect()
+}
+
+fn activation_blocked(output: &[u8]) -> anyhow::Error {
+    let report: serde_json::Value = serde_json::from_slice(output).unwrap_or_default();
+    let reasons = report["reasons"].as_array().cloned().unwrap_or_default();
+    let mut error = anyhow::anyhow!("entity_profile_activation_blocked");
+    for reason in reasons
+        .iter()
+        .chain(std::iter::once(&report["status"]))
+        .filter_map(serde_json::Value::as_str)
+        .filter(|reason| is_safe_error_code(reason))
+        .take(4)
+    {
+        error = error.context(reason.to_owned());
+    }
+    error
 }
 
 pub async fn refresh_git_knowledge(
@@ -531,7 +568,7 @@ pub async fn activate_refreshed_sources_with_expected_config(
         args.extend(["--allow-source".into(), source.clone()]);
     }
     let credential = std::fs::File::open("/proc/self/fd/5")?;
-    let output = crate::process::run_with_credential(
+    let result = crate::process::run_with_credential_observed(
         &executable,
         &args,
         runtime.artifact_dir.as_path(),
@@ -540,7 +577,10 @@ pub async fn activate_refreshed_sources_with_expected_config(
         65536,
     )
     .await?;
-    let report: serde_json::Value = serde_json::from_slice(&output)?;
+    if result.exit_code != Some(0) {
+        return Err(activation_blocked(&result.output));
+    }
+    let report: serde_json::Value = serde_json::from_slice(&result.output)?;
     ensure!(
         report["success"] == true
             && report["readiness_verified"] == true

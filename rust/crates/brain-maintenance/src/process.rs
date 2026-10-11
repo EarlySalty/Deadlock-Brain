@@ -68,8 +68,27 @@ pub async fn run_with_credential(
     timeout_ms: u64,
     max_output: usize,
 ) -> Result<Vec<u8>> {
+    let result =
+        run_with_credential_observed(executable, args, cwd, credential, timeout_ms, max_output)
+            .await?;
+    ensure!(
+        result.exit_code == Some(0),
+        "Prozess fehlgeschlagen, Exitcode {:?}",
+        result.exit_code
+    );
+    Ok(result.output)
+}
+
+pub async fn run_with_credential_observed(
+    executable: &Path,
+    args: &[String],
+    cwd: &Path,
+    credential: std::fs::File,
+    timeout_ms: u64,
+    max_output: usize,
+) -> Result<ProcessResult> {
     ensure!(credential.metadata()?.is_file(), "credential_regular_file");
-    let result = run_observed_input(
+    run_observed_input(
         executable,
         args,
         cwd,
@@ -77,13 +96,7 @@ pub async fn run_with_credential(
         timeout_ms,
         max_output,
     )
-    .await?;
-    ensure!(
-        result.exit_code == Some(0),
-        "Prozess fehlgeschlagen, Exitcode {:?}",
-        result.exit_code
-    );
-    Ok(result.output)
+    .await
 }
 
 pub async fn run_observed(

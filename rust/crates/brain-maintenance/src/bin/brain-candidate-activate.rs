@@ -1057,15 +1057,28 @@ fn credential_stdin_to_fd5() -> Result<()> {
     Ok(())
 }
 
+fn print_blocked(error: &anyhow::Error) {
+    let blocked = serde_json::json!({
+        "success": false,
+        "status": "blocked",
+        "reasons": brain_maintenance::integration::entity_profiles::safe_error_codes(error),
+    });
+    if let Ok(mut bytes) = serde_json::to_vec(&blocked) {
+        bytes.push(b'\n');
+        std::io::stdout().lock().write_all(&bytes).ok();
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     let report =
         match start(&cli).and_then(|(allowed, runtime)| runtime.block_on(run(&cli, allowed))) {
             Ok(report) => report,
-            Err(_) => {
+            Err(error) => {
                 eprintln!(
                 "Kandidatenaktivierung gesperrt: Prüfung fehlgeschlagen. Kein Aktivierungsnachweis."
             );
+                print_blocked(&error);
                 std::process::exit(1);
             }
         };

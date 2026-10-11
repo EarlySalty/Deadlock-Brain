@@ -908,17 +908,16 @@ impl Runner {
             .context("failed_job_missing")?
             .checkpoint;
         let paid_failure = error.is::<author::PaidResultFailure>();
-        let terminal_context = error.to_string() == "context_platform_identifier";
-        if paid_failure || terminal_context {
-            checkpoint.artifact_refs.insert(
-                "blocked_reason".into(),
-                if paid_failure {
-                    "PAID_RESULT_INVALID_OR_UNCERTAIN"
-                } else {
-                    "CONTEXT_REJECTED"
-                }
-                .into(),
-            );
+        let terminal = match error.to_string().as_str() {
+            _ if paid_failure => Some("PAID_RESULT_INVALID_OR_UNCERTAIN"),
+            "context_platform_identifier" => Some("CONTEXT_REJECTED"),
+            "job_source_superseded" => Some("SOURCE_SUPERSEDED"),
+            _ => None,
+        };
+        if let Some(blocked_reason) = terminal {
+            checkpoint
+                .artifact_refs
+                .insert("blocked_reason".into(), blocked_reason.into());
             self.store
                 .transition_maintenance(lease, MaintenanceStatus::Failed, &checkpoint)
                 .await?;
