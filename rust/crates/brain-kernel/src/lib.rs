@@ -738,6 +738,91 @@ mod tests {
         assert_eq!(state.lock().unwrap().calls, 1);
     }
 
+    struct FixedAnswer(&'static str);
+
+    impl AnswerProviderPort for FixedAnswer {
+        fn answer(
+            &self,
+            _query: &Query,
+            _context: &AuthorizedContext,
+            evidence: &[Evidence],
+        ) -> Result<ProviderAnswer, PortError> {
+            Ok(ProviderAnswer {
+                text: self.0.into(),
+                cited_evidence_ids: evidence
+                    .iter()
+                    .map(|item| item.evidence_id.clone())
+                    .collect(),
+                usage: Usage {
+                    network_rounds: 1,
+                    ..Usage::default()
+                },
+            })
+        }
+    }
+
+    #[test]
+    fn game_values_are_cited_from_originals_or_refused() {
+        let mut original = evidence(
+            "cooldown",
+            EvidenceKind::Prose,
+            SourceVisibility::Public,
+            &[],
+        );
+        original.content = "Mystic Burst\nm_flCooldown: 12.5".into();
+        let unrelated = evidence(
+            "unrelated",
+            EvidenceKind::Prose,
+            SourceVisibility::Public,
+            &[],
+        );
+        for quality_filters in [true, false] {
+            let cited = Kernel::new(
+                FixedRetrieval(vec![original.clone()]),
+                FixedAnswer("Mystic Burst hat 12,5 s Abklingzeit."),
+            )
+            .with_quality_filters(quality_filters)
+            .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+            assert_eq!(cited.status, AnswerStatus::Answered);
+            assert_eq!(cited.text, "Mystic Burst hat 12,5 s Abklingzeit.");
+            assert_eq!(cited.citations, vec![original.clone()]);
+            for retrieved in [vec![unrelated.clone()], Vec::new()] {
+                let refused = Kernel::new(
+                    FixedRetrieval(retrieved),
+                    FixedAnswer("Mystic Burst hat 30 s Abklingzeit."),
+                )
+                .with_quality_filters(false)
+                .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+                assert_eq!(refused.status, AnswerStatus::InsufficientEvidence);
+                assert_eq!(
+                    refused.text,
+                    brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
+                );
+                assert!(refused.citations.is_empty());
+            }
+        }
+        let call = find_call("find");
+        for quality_filters in [true, false] {
+            let mut turn = final_turn(&["find-cited"]);
+            if let brain_contracts::ProviderTurn::Final { answer, .. } = &mut turn {
+                answer.text = "Warden hat 750 Leben.".into();
+            }
+            let (kernel, _) = tool_kernel(
+                std::slice::from_ref(&call),
+                vec![tool_turn(vec![call.clone()]), turn],
+            );
+            let refused = kernel
+                .with_quality_filters(quality_filters)
+                .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+            assert_eq!(refused.status, AnswerStatus::InsufficientEvidence);
+            assert_eq!(
+                refused.text,
+                brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
+            );
+            assert!(refused.citations.is_empty());
+        }
+    }
+
     #[test]
     fn fact_path_does_not_call_provider() {
         let calls = Arc::new(AtomicUsize::new(0));
