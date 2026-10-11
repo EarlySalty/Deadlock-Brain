@@ -853,6 +853,110 @@ fn original_lifetime_request_binding_and_f_boundary_remain_fail_closed() {
     runtime.block_on(pool.close());
 }
 
+#[test]
+fn real_hero_tools_expose_release_status_and_development_stats() {
+    use brain_contracts::tools::GameContextResolver;
+    use brain_storage::entity_profile::MirroredGameContextReader;
+    let pg = scratch_pg::ScratchPg::start();
+    let runtime = test_runtime();
+    let pool = runtime.block_on(mirror_fixture::pool(&pg));
+    runtime.block_on(mirror_fixture::seed_with_heroes(&pool, "hero-status", true, json!([
+        {"id":88,"class_name":"hero_baba","name":"Baba","player_selectable":true,
+            "disabled":false,"in_development":true,"starting_stats":{"max_health":{"value":780}}},
+        {"id":56,"class_name":"hero_bomber","name":"Bomber","player_selectable":false,
+            "disabled":true,"in_development":true,"starting_stats":{"max_health":{"value":780}}},
+        {"id":68,"class_name":"hero_boho","name":"Boho","player_selectable":false,
+            "disabled":true,"in_development":true,"starting_stats":{"max_health":{"value":705}}},
+        {"id":83,"class_name":"hero_testhero","name":"hero_testhero","player_selectable":false,
+            "disabled":true,"in_development":true}
+    ])));
+    let store = PgStore::new(pool.clone());
+    runtime.block_on(store.migrate_core()).unwrap();
+    runtime.block_on(mirror_records(&store, &pool));
+    let canonical = LocalPgReader::new(
+        pg.directory.join("socket"),
+        55439,
+        "brain_core_test",
+        "postgres",
+    )
+    .unwrap();
+    let reader = MirroredGameContextReader::new(
+        pool.clone(),
+        runtime.handle().clone(),
+        ToolLanguage::English,
+    )
+    .unwrap();
+    let port = ReleaseToolExecutionPort::new(ReleaseRetriever::new(canonical, 6))
+        .with_mirrored_entities(reader.clone());
+    let (query, context, _) = context();
+    let pin = reader.resolve(&query, &context).unwrap().unwrap();
+    let definitions = port.definitions(&query, &context, Some(&pin)).unwrap();
+    for (name, id, status, health) in [
+        ("Baba", 88, "released", 780),
+        ("Bomber", 56, "in_development", 780),
+        ("Boho", 68, "in_development", 705),
+    ] {
+        let find = ToolCall {
+            id: "find".into(),
+            name: ToolName::EntityFind,
+            arguments: json!({"query":name,"kind":"hero","language":"english"}),
+        };
+        let found = port
+            .execute(
+                &query,
+                &context,
+                Some(&pin),
+                &find.id,
+                &find.validate(&definitions).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(found.result.result["matches"][0]["id"], id);
+        assert_eq!(found.result.result["matches"][0]["status"], status);
+        let profile = ToolCall {
+            id: "profile".into(),
+            name: ToolName::EntityProfile,
+            arguments: json!({"entity":{"kind":"hero","id":id},"fields":["starting_stats"]}),
+        };
+        let value = port
+            .execute(
+                &query,
+                &context,
+                Some(&pin),
+                &profile.id,
+                &profile.validate(&definitions).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(value.result.result["status"], status);
+        assert_eq!(
+            value.result.result["fields"]["starting_stats"]["value"]["max_health"]["value"],
+            health
+        );
+        for purpose in [
+            ToolValidationPurpose::Provider,
+            ToolValidationPurpose::Publication,
+        ] {
+            port.validate_dependencies(&query, &context, Some(&pin), &value.dependencies, purpose)
+                .unwrap();
+        }
+    }
+    let find = ToolCall {
+        id: "placeholder".into(),
+        name: ToolName::EntityFind,
+        arguments: json!({"query":"hero_testhero","kind":"hero","language":"english"}),
+    };
+    let found = port
+        .execute(
+            &query,
+            &context,
+            Some(&pin),
+            &find.id,
+            &find.validate(&definitions).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(found.result.result["matches"], json!([]));
+    runtime.block_on(pool.close());
+}
+
 async fn mirror_records(store: &PgStore, pool: &sqlx::PgPool) -> Vec<SourceRecordV2> {
     let rows: Vec<(serde_json::Value, Vec<u8>)> =
         sqlx::query_as("SELECT metadata,fixture_raw FROM brain.source_documents ORDER BY id")
@@ -994,10 +1098,12 @@ fn mirrored_identity_and_raw_profiles_require_real_receipts_and_canonical_grants
             .unwrap();
         execution.validate_for(&call, &request, None).unwrap();
         assert_eq!(execution.dependencies[0].game_context.as_ref(), Some(&pin));
-        assert_eq!(
-            execution.result.result["matches"],
-            json!([{"kind":kind,"id":id,"name":name,"names":{"english":name,"german":name}}])
-        );
+        let mut expected =
+            json!({"kind":kind,"id":id,"name":name,"names":{"english":name,"german":name}});
+        if kind == "hero" {
+            expected["status"] = json!("released");
+        }
+        assert_eq!(execution.result.result["matches"], json!([expected]));
         assert_eq!(execution.dependencies[0].evidence.len(), 3);
         for purpose in [
             ToolValidationPurpose::Provider,

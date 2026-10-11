@@ -168,8 +168,11 @@ struct ScratchPg {
 }
 impl ScratchPg {
     fn start() -> Self {
-        let directory =
-            std::env::temp_dir().join(format!("brain-compare-pg-{}", std::process::id()));
+        Self::start_at("brain-compare-pg", 55439)
+    }
+
+    fn start_at(name: &str, port: u16) -> Self {
+        let directory = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
         std::fs::DirBuilder::new()
             .mode(0o700)
             .create(&directory)
@@ -186,7 +189,7 @@ impl ScratchPg {
             .unwrap()
             .success());
         let options = format!(
-            "-k {} -p 55439 -c listen_addresses='' -c shared_buffers=16MB",
+            "-k {} -p {port} -c listen_addresses='' -c shared_buffers=16MB",
             instance.directory.join("socket").display()
         );
         assert!(Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
@@ -452,4 +455,121 @@ async fn isolated_postgres_pending_receipt_read_and_revocation() {
     assert!(store.save_pending_compare(&artifact).await.is_err());
     site_pool.close().await;
     pool.close().await;
+}
+
+fn hero_artifact() -> CompareArtifact {
+    CompareArtifact::pending(CompareArtifactBody {
+        release: CompareReleaseBinding::from_release(&release()).unwrap(),
+        calculation: json!({"metric":"health","client_version":6766,
+            "left":{"hero_id":13},"right":{"hero_id":1}}),
+        render_model: json!({"fixture":true}),
+        mechanism_version: "dbrain-reasoner/hero-curve-health-v2".into(),
+        dependencies: vec![compare_dependency(&record()).unwrap()],
+        html: "<html>hero fixture</html>".into(),
+        svg: "<svg>hero fixture</svg>".into(),
+    })
+    .unwrap()
+}
+
+struct HeroVerifier;
+impl CompareCalculationVerifier for HeroVerifier {
+    fn verify(&self, body: &CompareArtifactBody) -> Result<(), PortError> {
+        if body != hero_artifact().body() {
+            return Err(PortError::InvalidResponse("fixture mismatch".into()));
+        }
+        Ok(())
+    }
+}
+
+async fn insert_release(pool: &sqlx::PgPool, release_id: &str, mechanism_revision: u64) {
+    let mut pinned = release();
+    pinned.release_id = release_id.into();
+    pinned
+        .source_revisions
+        .get_mut("fixture")
+        .unwrap()
+        .insert("mechanism".into(), mechanism_revision);
+    sqlx::query("INSERT INTO brain.corpus_releases_v1(release_id,knowledge_version,patch,release_json) VALUES($1,$2,$3,$4)")
+        .bind(release_id)
+        .bind("fixture-version")
+        .bind("fixture-patch")
+        .bind(serde_json::to_value(pinned).unwrap())
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn hero_lookup_follows_pinned_dependency_hashes_across_releases() {
+    let pg = ScratchPg::start_at("brain-compare-lookup-pg", 55441);
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .connect_with(
+            PgConnectOptions::new_without_pgpass()
+                .host(pg.directory.join("socket").to_str().unwrap())
+                .port(55441)
+                .username("brain_core_test")
+                .database("postgres")
+                .password(""),
+        )
+        .await
+        .unwrap();
+    let store = PgStore::new(pool.clone());
+    store.migrate_core().await.unwrap();
+    sqlx::query("CREATE ROLE brain_site LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("GRANT USAGE ON SCHEMA brain TO brain_site")
+        .execute(&pool)
+        .await
+        .unwrap();
+    store.migrate_compare_artifacts().await.unwrap();
+    store.migrate_compare_artifacts().await.unwrap();
+    store.apply(&record()).await.unwrap();
+    store.apply(&private_record()).await.unwrap();
+    insert_release(&pool, "fixture-release", 1).await;
+    let artifact = hero_artifact();
+    store.save_pending_compare(&artifact).await.unwrap();
+    let reader = Reader {
+        record: record(),
+        head: record(),
+    };
+    store
+        .publish_compare_artifact(&artifact, &reader, &principal(), &HeroVerifier)
+        .await
+        .unwrap();
+    let id = Some(artifact.id().to_owned());
+    let find = |release: &'static str, heroes: [i64; 2], client: i64| {
+        let store = store.clone();
+        async move {
+            store
+                .find_published_hero_compare(release, heroes, client)
+                .await
+                .unwrap()
+        }
+    };
+    assert_eq!(find("fixture-release", [13, 1], 6766).await, id);
+    assert_eq!(find("fixture-release", [1, 13], 6766).await, id);
+    assert_eq!(find("fixture-release", [13, 1], 6767).await, None);
+    assert_eq!(find("fixture-release", [13, 2], 6766).await, None);
+    assert_eq!(find("unknown-release", [13, 1], 6766).await, None);
+    insert_release(&pool, "fixture-release-next", 1).await;
+    assert_eq!(find("fixture-release-next", [13, 1], 6766).await, id);
+    let mut changed = record();
+    changed.revision = 2;
+    changed.content = "fixture mechanism changed".into();
+    changed.content_hash = compare_sha256(changed.content.as_bytes());
+    store.apply(&changed).await.unwrap();
+    insert_release(&pool, "fixture-release-changed", 2).await;
+    assert_eq!(find("fixture-release-changed", [13, 1], 6766).await, None);
+    assert_eq!(find("fixture-release-next", [13, 1], 6766).await, id);
+    assert_eq!(
+        store
+            .read_public_compare(artifact.id(), &principal())
+            .await
+            .unwrap()
+            .unwrap(),
+        artifact
+    );
 }

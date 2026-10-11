@@ -391,12 +391,61 @@ async fn import_heroes(
         return Ok(());
     };
 
+    let client_version = repo
+        .version
+        .get("ClientVersion")
+        .and_then(|version| version.parse::<i64>().ok())
+        .ok_or_else(|| SourcesError::invariant("Clientversion für Heldenstatus fehlt"))?;
+    let mirror = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
+        store.pool(),
+        client_version,
+        "heroes_all",
+        Some("english"),
+    )
+    .await
+    .map_err(|_| {
+        SourcesError::invariant("Verifizierter Heldenkatalog für die Clientversion fehlt")
+    })?;
+    let catalog = mirror
+        .payload
+        .as_array()
+        .ok_or_else(|| SourcesError::invariant("Heldenkatalog ist kein Array"))?;
+    let receipt = json!({"client_version":mirror.receipt.client_version,
+        "source_run_id":mirror.receipt.source_run_id,
+        "source_document_id":mirror.receipt.endpoint.source_document_id,
+        "raw_sha256":mirror.receipt.endpoint.raw_sha256});
     for (key, value) in object_entries(&payload)? {
         let mut payload = payload_with_key(
             &key,
             &value,
             payload_metadata(repo, "data/json/hero-data.json"),
         );
+        payload.remove("_hero_catalog");
+        payload.remove("status");
+        if let Some(hero) = catalog.iter().find(|hero| hero["class_name"] == key) {
+            let mut observation = Map::new();
+            for field in [
+                "id",
+                "class_name",
+                "name",
+                "player_selectable",
+                "disabled",
+                "in_development",
+                "prerelease_only",
+                "assigned_players_only",
+                "in_hero_labs",
+                "InHeroLabs",
+            ] {
+                if let Some(value) = hero.get(field) {
+                    observation.insert(field.into(), value.clone());
+                }
+            }
+            observation.insert("receipt".into(), receipt.clone());
+            payload.insert("_hero_catalog".into(), Value::Object(observation));
+        }
+        if let Some(status) = brain_contracts::hero_status::hero_status(&payload) {
+            payload.insert("status".into(), json!(status));
+        }
         let canonical =
             display_name(&key, &payload, lookup, localizations).unwrap_or_else(|| key.clone());
         let entity_type = if hero_is_public(&payload) {
@@ -1260,10 +1309,7 @@ fn attach_lookup_metadata(payload: &mut Map<String, Value>, entries: Option<&Vec
 }
 
 fn hero_is_public(payload: &Map<String, Value>) -> bool {
-    bool_field(payload, "IsDisabled") != Some(true)
-        && bool_field(payload, "InDevelopment") != Some(true)
-        && bool_field(payload, "IsSelectable") != Some(false)
-        && text_field(payload, "Name").is_some()
+    brain_contracts::hero_status::hero_status(payload).is_some()
 }
 
 fn ability_is_public(
@@ -2059,6 +2105,26 @@ fn us_date_title(date: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hero_import_keeps_real_development_rows_public() {
+        for (id, key, name, selectable, disabled) in [
+            (88, "hero_baba", "Baba", true, false),
+            (56, "hero_bomber", "Bomber", false, true),
+            (68, "hero_boho", "Boho", false, true),
+        ] {
+            let hero = serde_json::json!({"Key":key,"Name":name,"InDevelopment":true,
+                "IsSelectable":true,"IsDisabled":disabled,
+                "_hero_catalog":{"id":id,"class_name":key,"name":name,
+                    "player_selectable":selectable,"disabled":disabled}});
+            assert!(super::hero_is_public(hero.as_object().unwrap()));
+        }
+        for key in ["hero_genericperson", "hero_targetdummy"] {
+            let placeholder = serde_json::json!({"Key":key,"InDevelopment":true,
+                "IsSelectable":true,"IsDisabled":false,"BoundAbilities":{}});
+            assert!(!super::hero_is_public(placeholder.as_object().unwrap()));
+        }
+    }
+
     #[test]
     fn entity_ids_never_fall_back_to_position() {
         assert!(super::object_entries(&serde_json::json!([{"Name":"missing"}])).is_err());

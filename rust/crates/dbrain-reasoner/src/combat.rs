@@ -68,6 +68,8 @@ pub struct InventoryEvaluation {
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InventoryStats {
     pub spirit: f64,
+    #[serde(default)]
+    pub spirit_percent: f64,
     pub weapon: f64,
     pub rate: f64,
     pub clip: f64,
@@ -116,7 +118,9 @@ pub(crate) fn apply_scenario_bonuses(
 pub fn aggregate_stats(hero: &HeroModel, items: &[ItemModel]) -> InventoryStats {
     let refs: Vec<_> = items.iter().collect();
     let interactions: Vec<_> = items.iter().map(ItemInteraction::from_item).collect();
-    prepare_stats(hero, &refs, &interactions).0
+    let mut stats = prepare_stats(hero, &refs, &interactions).0;
+    stats.spirit = crate::mechanics::project_spirit(stats.spirit, stats.spirit_percent);
+    stats
 }
 
 fn prepare_stats<'a>(
@@ -224,6 +228,8 @@ fn apply(stats: &mut InventoryStats, name: &str, v: f64) -> bool {
         "TechPower" | "SpiritPower" | "BonusSpirit" | "BonusSpiritPower" | "SpiritPowerInnate" => {
             stats.spirit += v
         }
+        "TechPowerPercent" => stats.spirit_percent += v,
+        "OutOfCombatHealthRegen" => {}
         "WeaponPower"
         | "WeaponDamage"
         | "BaseAttackDamagePercent"
@@ -246,7 +252,11 @@ fn apply(stats: &mut InventoryStats, name: &str, v: f64) -> bool {
         "BulletArmor" | "BulletResist" | "BulletResistPercent" => {
             stats.bullet_resist = 1.0 - (1.0 - stats.bullet_resist) * (1.0 - v / 100.0)
         }
-        "TechArmor" | "TechResist" | "SpiritResist" | "SpiritResistPercent" => {
+        "TechArmor"
+        | "TechResist"
+        | "SpiritResist"
+        | "SpiritResistPercent"
+        | "TechResistBelowThreshold" => {
             stats.spirit_resist = 1.0 - (1.0 - stats.spirit_resist) * (1.0 - v / 100.0)
         }
         "BulletArmorReduction" | "BulletResistReduction" => stats.bullet_shred += v.abs(),
@@ -375,6 +385,16 @@ fn active_with_text(
     spirit_damage: f64,
     text: &str,
 ) -> bool {
+    if item.properties.contains_key("HealOnVeil") {
+        return false;
+    }
+    if let Some((_, threshold, above)) = crate::mechanics::own_health_threshold(item) {
+        return if above {
+            health_fraction > threshold
+        } else {
+            health_fraction < threshold
+        };
+    }
     let low = value(item, "LowHealthThreshold");
     if low > 0.0 {
         return health_fraction < low / 100.0;
@@ -593,6 +613,9 @@ fn evaluate_core_with_deadline(
             if !ItemInteraction::from_item(item).handles_property(name)
                 && !apply(&mut InventoryStats::default(), name, *v)
                 && !metadata(name)
+                && !(matches!(name.as_str(), "HealthThreshold" | "LifeThreshold")
+                    && crate::mechanics::own_health_threshold(item)
+                        .is_some_and(|(key, _, _)| key == name))
                 && !(name == "EnemyLifeThreshold"
                     && crate::mechanics::enemy_health_threshold(item).is_some())
                 && !(name == "ProcChance" && *v == 100.0)
@@ -623,12 +646,38 @@ fn evaluate_core_with_deadline(
         {
             unknown.insert(format!("{}: deterministischer Bonus-Proc benötigt belegte 100 Prozent ProcChance und eine positive ProcCooldown", item.name));
         }
+        for (keys, reason) in [
+            (&["NonPlayerBonusWeaponPower", "NonPlayerBulletResist"][..], "NPC-Farmwirkung ohne NPC-Szenario nicht quantifiziert"),
+            (&["HealOnVeil", "InvisDuration"][..], "Cosmic-Veil-Ereignis, Stealth und Sichtbarkeit nicht quantifiziert"),
+            (&["StealPerHit", "HealthStealPctHero"][..], "temporärer Max-HP-Stapelpool mit Ablauf, Rückgabe, Kill- und Todesregeln nicht quantifiziert"),
+        ] {
+            if keys.iter().all(|key| item.properties.get(*key).is_some_and(|v| *v != 0.0)) {
+                unknown.insert(format!("{}: {reason}", item.name));
+            }
+        }
+        if ["BaseAttackDamagePercent", "BonusFireRate"]
+            .iter()
+            .all(|key| item.conditional_properties.contains(*key))
+            && !item.properties.contains_key("EnemyLifeThreshold")
+            && crate::mechanics::own_health_threshold(item).is_none()
+        {
+            unknown.insert(format!(
+                "{}: bedingte Waffenboni ohne valide LifeThreshold nicht quantifiziert",
+                item.name
+            ));
+        }
+        if item.properties.contains_key("TechResistBelowThreshold")
+            && crate::mechanics::own_health_threshold(item).is_none()
+        {
+            unknown.insert(format!("{}: TechResistBelowThreshold benötigt eine valide HealthThreshold und ein belegtes Bedingungsflag", item.name));
+        }
         if matches!(
             item.condition,
             ConditionKind::ActionBound { .. }
                 | ConditionKind::MeleeBound
                 | ConditionKind::StateBound { .. }
-        ) && !(matches!(item.condition, ConditionKind::StateBound { threshold }
+        ) && crate::mechanics::own_health_threshold(item).is_none()
+            && !(matches!(item.condition, ConditionKind::StateBound { threshold }
                 if crate::mechanics::enemy_health_threshold(item) == Some(threshold)))
         {
             unknown.insert(format!(
@@ -745,6 +794,9 @@ fn evaluate_core_with_deadline(
         result.assumptions.push("Ein bestätigter Treffer je Fähigkeitsauslösung; Malice-Stapel haben einzelne Ablaufzeiten und ersetzen am Limit den ältesten Stapel. Hook-Verstärkung beginnt nach seinem Treffer; Uppercut heilt fehlendes Leben und setzt nur Hook zurück. Soul Exchange bleibt mangels eindeutiger HP-Bezugsregel unquantifiziert.".into());
         result.assumptions.push("Aura-Nähe als globale Szenarioannahme: Duell und Druckziel 8 m, bewegliches Ziel 20 m; ein gegnerischer Held, während Wechselpausen keiner. Belegter Itemradius entscheidet die Wirkung. Keine Mehrzielbehauptung.".into());
         for item in &held {
+            result
+                .assumptions
+                .extend(crate::mechanics::item_model_provenance(item));
             if let Some(threshold) = crate::mechanics::enemy_health_threshold(item) {
                 result.assumptions.push(format!("{}: EnemyLifeThreshold aus Originaldaten {:.1}%. Für den Item-Vorvergleich wird gleichverteiltes Gegner-Restleben angenommen, also {:.1}% Kampfzeit oberhalb der Schwelle; keine gemessene Verfügbarkeit. Der Inventarvergleich prüft stattdessen das simulierte Gegnerleben alle 0,2 s, strikt oberhalb der Schwelle, und beginnt bei einem frischen Ziel erneut. Innate Boni bleiben unabhängig davon erhalten.", item.name, threshold * 100.0, crate::mechanics::hit_rate(threshold) * 100.0));
             }
@@ -1429,6 +1481,9 @@ fn simulate(
                 trigger
             };
             if enabled {
+                if crate::mechanics::own_health_threshold(item).is_some() {
+                    *out.item_condition_seconds.entry(item.item_id).or_default() += duration;
+                }
                 for (key, v) in &conditional_effects[idx] {
                     if target_effect(key)
                         && (!target_available
@@ -1444,6 +1499,7 @@ fn simulate(
         for (_, key, v) in &ability_effects {
             apply(&mut stats, key, *v);
         }
+        stats.spirit = crate::mechanics::project_spirit(stats.spirit, stats.spirit_percent);
         if let Some(crate::CalculationScenario {
             spirit: crate::SpiritInput::Total(total),
             ..
@@ -2784,6 +2840,7 @@ pub(crate) mod tests {
     use crate::{AbilityRole, CostBonus, DamagePlan, DamageType, PurchaseBonuses, WeaponProfile};
 
     include!("combat_coverage_tests.rs");
+    include!("warden_q2_tests.rs");
     pub(crate) fn hero() -> HeroModel {
         HeroModel {
             hero_id: 1,

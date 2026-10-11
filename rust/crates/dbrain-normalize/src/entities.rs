@@ -365,11 +365,7 @@ fn classify_snapshot(
 }
 
 fn is_active_hero(payload: &serde_json::Map<String, Value>) -> bool {
-    value_bool(payload.get("disabled")) != Some(true)
-        && value_bool(payload.get("player_selectable")) == Some(true)
-        && value_bool(payload.get("in_development")) != Some(true)
-        && value_bool(payload.get("prerelease_only")) != Some(true)
-        && value_bool(payload.get("assigned_players_only")) != Some(true)
+    brain_contracts::hero_status::hero_status(payload).is_some()
 }
 
 fn is_active_ability(
@@ -559,6 +555,9 @@ fn metadata_for(
     payload: &serde_json::Map<String, Value>,
 ) -> BTreeMap<String, Value> {
     let mut metadata = BTreeMap::new();
+    if let Some(status) = brain_contracts::hero_status::hero_status(payload) {
+        metadata.insert("status".to_string(), json!(status));
+    }
     for key in [
         "type",
         "ability_type",
@@ -669,4 +668,30 @@ async fn upsert_entity_alias(
     .execute(pool)
     .await?;
     Ok(result.rows_affected() > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn real_hero_profiles_include_development_heroes_and_status() {
+        for (id, class, name, selectable, disabled, status) in [
+            (88, "hero_baba", "Baba", true, false, "released"),
+            (56, "hero_bomber", "Bomber", false, true, "in_development"),
+            (68, "hero_boho", "Boho", false, true, "in_development"),
+        ] {
+            let hero = json!({"id":id,"class_name":class,"name":name,
+                "player_selectable":selectable,"disabled":disabled,"in_development":true});
+            let payload = hero.as_object().unwrap();
+            assert!(is_active_hero(payload));
+            assert_eq!(
+                classify_snapshot("hero", payload, &AssetContext::default()),
+                "hero"
+            );
+            assert_eq!(metadata_for(Some("heroes_all"), payload)["status"], status);
+        }
+        let test = json!({"id":83,"class_name":"hero_testhero","name":"hero_testhero"});
+        assert!(!is_active_hero(test.as_object().unwrap()));
+    }
 }

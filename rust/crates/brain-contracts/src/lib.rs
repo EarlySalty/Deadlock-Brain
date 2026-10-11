@@ -18,6 +18,7 @@ pub mod entity_profile;
 pub mod external;
 pub mod feeds;
 pub mod game_mode;
+pub mod hero_status;
 pub mod internal_api;
 pub mod invite;
 pub mod lexical;
