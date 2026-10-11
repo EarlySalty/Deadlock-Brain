@@ -18,7 +18,9 @@ pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool)
             answer.text.trim()
         );
     }
-    if answer.status == AnswerStatus::InsufficientEvidence {
+    if answer.status == AnswerStatus::InsufficientEvidence
+        && answer.text != brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
+    {
         let question = query.text.to_lowercase();
         let twitch_bot = [
             "twitch-bot",
@@ -130,6 +132,27 @@ mod tests {
             let public: brain_contracts::PublicAnswerResponse =
                 serde_json::from_str(&wire.body).unwrap();
             public.validate("request").unwrap();
+        }
+    }
+
+    #[test]
+    fn deterministic_game_refusal_survives_public_text_mapping() {
+        for discord in [true, false] {
+            let mut response = answer(
+                AnswerStatus::InsufficientEvidence,
+                brain_contracts::answer_contract::NO_AUTHORIZED_VALUE,
+            );
+            prepare(&mut response, &query("Wie viel Leben hat Abrams?"), discord);
+            let wire = super::super::answer_response(&response);
+            assert_eq!(wire.status, 200);
+            let public: brain_contracts::PublicAnswerResponse =
+                serde_json::from_str(&wire.body).unwrap();
+            assert_eq!(public.status, AnswerStatus::InsufficientEvidence);
+            assert_eq!(
+                public.text,
+                brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
+            );
+            assert!(public.citations.is_empty());
         }
     }
 

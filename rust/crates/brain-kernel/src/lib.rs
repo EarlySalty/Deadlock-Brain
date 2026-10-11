@@ -462,6 +462,25 @@ mod tests {
         ) -> Result<Vec<Evidence>, PortError> {
             Ok(self.0.clone())
         }
+        fn validate_publication(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+            evidence: &[Evidence],
+        ) -> Result<(), PortError> {
+            self.validate_evidence(query, context, evidence, false)?;
+            if evidence
+                .iter()
+                .all(|item| item.visibility == SourceVisibility::Public)
+            {
+                Ok(())
+            } else {
+                Err(PortError::PermissionDenied(
+                    "fixture publication denied".into(),
+                ))
+            }
+        }
+
         fn validate_evidence(
             &self,
             _query: &Query,
@@ -476,6 +495,42 @@ mod tests {
                     "fixture evidence mismatch".into(),
                 ))
             }
+        }
+    }
+
+    struct RetrievalProbe {
+        evidence: FixedRetrieval,
+        calls: Arc<AtomicUsize>,
+        usage: Usage,
+    }
+
+    impl RetrievalPort for RetrievalProbe {
+        fn retrieve(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+        ) -> Result<Vec<Evidence>, PortError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.evidence.retrieve(query, context)
+        }
+
+        fn retrieve_with_usage(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+        ) -> Result<(Vec<Evidence>, Usage), PortError> {
+            Ok((self.retrieve(query, context)?, self.usage.clone()))
+        }
+
+        fn validate_evidence(
+            &self,
+            query: &Query,
+            context: &AuthorizedContext,
+            evidence: &[Evidence],
+            provider: bool,
+        ) -> Result<(), PortError> {
+            self.evidence
+                .validate_evidence(query, context, evidence, provider)
         }
     }
 
@@ -624,12 +679,8 @@ mod tests {
     }
 
     #[test]
-    fn relaxed_quality_calls_model_for_empty_knowledge_and_marks_delivery_unverified() {
-        for profile in [
-            AnswerProfile::Explain,
-            AnswerProfile::Fact,
-            AnswerProfile::Build,
-        ] {
+    fn non_fact_profiles_keep_empty_knowledge_model_answers() {
+        for profile in [AnswerProfile::Explain, AnswerProfile::Coaching] {
             let calls = Arc::new(AtomicUsize::new(0));
             let kernel = Kernel::new(
                 FixedRetrieval(Vec::new()),
@@ -738,88 +789,51 @@ mod tests {
         assert_eq!(state.lock().unwrap().calls, 1);
     }
 
-    struct FixedAnswer(&'static str);
-
-    impl AnswerProviderPort for FixedAnswer {
-        fn answer(
-            &self,
-            _query: &Query,
-            _context: &AuthorizedContext,
-            evidence: &[Evidence],
-        ) -> Result<ProviderAnswer, PortError> {
-            Ok(ProviderAnswer {
-                text: self.0.into(),
-                cited_evidence_ids: evidence
-                    .iter()
-                    .map(|item| item.evidence_id.clone())
-                    .collect(),
-                usage: Usage {
-                    network_rounds: 1,
-                    ..Usage::default()
-                },
-            })
+    #[test]
+    fn game_fact_profiles_refuse_empty_evidence_without_calling_the_model() {
+        for profile in [AnswerProfile::Fact, AnswerProfile::Build] {
+            for quality_filters in [true, false] {
+                let calls = Arc::new(AtomicUsize::new(0));
+                let kernel = Kernel::new(
+                    FixedRetrieval(Vec::new()),
+                    CountingProvider {
+                        calls: calls.clone(),
+                    },
+                )
+                .with_quality_filters(quality_filters);
+                let answer = kernel.answer(&query(profile.clone()), &context(&[], &["public"]));
+                assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
+                assert_eq!(
+                    answer.text,
+                    brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
+                );
+                assert!(answer.citations.is_empty());
+                assert_eq!(calls.load(Ordering::SeqCst), 0);
+                assert_eq!(answer.usage.network_rounds, 0);
+                assert!(answer.usage.provider.is_none());
+            }
         }
     }
 
     #[test]
-    fn game_values_are_cited_from_originals_or_refused() {
-        let mut original = evidence(
-            "cooldown",
-            EvidenceKind::Prose,
-            SourceVisibility::Public,
-            &[],
-        );
-        original.content = "Mystic Burst\nm_flCooldown: 12.5".into();
-        let unrelated = evidence(
-            "unrelated",
-            EvidenceKind::Prose,
-            SourceVisibility::Public,
-            &[],
-        );
+    fn backed_game_facts_still_answer_normally() {
         for quality_filters in [true, false] {
-            let cited = Kernel::new(
-                FixedRetrieval(vec![original.clone()]),
-                FixedAnswer("Mystic Burst hat 12,5 s Abklingzeit."),
+            let calls = Arc::new(AtomicUsize::new(0));
+            let fact = canonical_fact();
+            let kernel = Kernel::new(
+                FixedRetrieval(vec![fact.clone()]),
+                CountingProvider {
+                    calls: calls.clone(),
+                },
             )
-            .with_quality_filters(quality_filters)
-            .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
-            assert_eq!(cited.status, AnswerStatus::Answered);
-            assert_eq!(cited.text, "Mystic Burst hat 12,5 s Abklingzeit.");
-            assert_eq!(cited.citations, vec![original.clone()]);
-            for retrieved in [vec![unrelated.clone()], Vec::new()] {
-                let refused = Kernel::new(
-                    FixedRetrieval(retrieved),
-                    FixedAnswer("Mystic Burst hat 30 s Abklingzeit."),
-                )
-                .with_quality_filters(false)
-                .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
-                assert_eq!(refused.status, AnswerStatus::InsufficientEvidence);
-                assert_eq!(
-                    refused.text,
-                    brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
-                );
-                assert!(refused.citations.is_empty());
-            }
-        }
-        let call = find_call("find");
-        for quality_filters in [true, false] {
-            let mut turn = final_turn(&["find-cited"]);
-            if let brain_contracts::ProviderTurn::Final { answer, .. } = &mut turn {
-                answer.text = "Warden hat 750 Leben.".into();
-            }
-            let (kernel, _) = tool_kernel(
-                std::slice::from_ref(&call),
-                vec![tool_turn(vec![call.clone()]), turn],
-            );
-            let refused = kernel
-                .with_quality_filters(quality_filters)
-                .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
-            assert_eq!(refused.status, AnswerStatus::InsufficientEvidence);
-            assert_eq!(
-                refused.text,
-                brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
-            );
-            assert!(refused.citations.is_empty());
+            .with_quality_filters(quality_filters);
+            let mut request = query(AnswerProfile::Fact);
+            request.text = "Abrams health".into();
+            let answer = kernel.answer(&request, &context(&[], &["public"]));
+            assert_eq!(answer.status, AnswerStatus::Answered);
+            assert_eq!(answer.text, fact.content);
+            assert_eq!(answer.citations, vec![fact]);
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
         }
     }
 
@@ -1151,6 +1165,7 @@ mod tests {
         build_is_error: bool,
         tool_reservation: Usage,
         required_calls: Vec<brain_contracts::ToolCall>,
+        retrieved_ids: Vec<String>,
     }
 
     #[derive(Clone)]
@@ -1444,13 +1459,13 @@ mod tests {
         }
         fn answer_turn(
             &self,
-            _query: &Query,
+            query: &Query,
             context: &AuthorizedContext,
             initial: &[Evidence],
             _definitions: &[ToolDefinition],
             conversation: &brain_contracts::ToolConversation,
         ) -> Result<brain_contracts::ProviderTurn, PortError> {
-            let expected_ids: Vec<_> = conversation
+            let mut expected_ids: Vec<_> = conversation
                 .messages
                 .iter()
                 .filter_map(|message| match message {
@@ -1465,13 +1480,16 @@ mod tests {
                     ]
                 })
                 .collect();
-            assert_eq!(
-                initial
-                    .iter()
-                    .map(|item| item.evidence_id.clone())
-                    .collect::<Vec<_>>(),
-                expected_ids
-            );
+            if query.profile.requires_game_evidence() {
+                expected_ids.extend(self.state.lock().unwrap().retrieved_ids.clone());
+            }
+            expected_ids.sort();
+            let mut actual_ids = initial
+                .iter()
+                .map(|item| item.evidence_id.clone())
+                .collect::<Vec<_>>();
+            actual_ids.sort();
+            assert_eq!(actual_ids, expected_ids);
             let turn = self
                 .turns
                 .lock()
@@ -1600,7 +1618,19 @@ mod tests {
             state: state.clone(),
             turns: Arc::new(std::sync::Mutex::new(turns.into())),
         };
-        let kernel = Kernel::new(FixedRetrieval(Vec::new()), provider).with_tools(
+        let retrieved = if calls
+            .iter()
+            .any(|call| call.name == brain_contracts::ToolName::BuildPlan)
+        {
+            vec![canonical_fact()]
+        } else {
+            Vec::new()
+        };
+        state.lock().unwrap().retrieved_ids = retrieved
+            .iter()
+            .map(|item| item.evidence_id.clone())
+            .collect();
+        let kernel = Kernel::new(FixedRetrieval(retrieved), provider).with_tools(
             TestTools {
                 state: state.clone(),
                 definitions,
@@ -1609,6 +1639,143 @@ mod tests {
             "fixture-provider/config-v1",
         );
         (kernel, state)
+    }
+
+    #[test]
+    fn tool_game_fact_profiles_refuse_before_the_first_optional_model_turn() {
+        let call = find_call("find");
+        for profile in [AnswerProfile::Fact, AnswerProfile::Build] {
+            for quality_filters in [true, false] {
+                let (kernel, state) =
+                    tool_kernel(std::slice::from_ref(&call), vec![final_turn(&[])]);
+                let answer = kernel
+                    .with_quality_filters(quality_filters)
+                    .answer(&query(profile.clone()), &context(&[], &["public"]));
+                assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
+                assert_eq!(
+                    answer.text,
+                    brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
+                );
+                let state = state.lock().unwrap();
+                assert_eq!(state.calls, 0);
+                assert!(state.executions.is_empty());
+                assert_eq!(answer.usage.network_rounds, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn tool_retrieval_is_skipped_for_non_fact_profiles_and_charged_for_fact_refusals() {
+        let call = find_call("find");
+        for profile in [
+            AnswerProfile::Fact,
+            AnswerProfile::Build,
+            AnswerProfile::Explain,
+            AnswerProfile::Coaching,
+        ] {
+            let turn = final_turn(&[]);
+            let model_usage = turn.usage().clone();
+            let (kernel, state) = tool_kernel(std::slice::from_ref(&call), vec![turn]);
+            let retrieval_calls = Arc::new(AtomicUsize::new(0));
+            let kernel = Kernel {
+                retrieval: RetrievalProbe {
+                    evidence: FixedRetrieval(Vec::new()),
+                    calls: retrieval_calls.clone(),
+                    usage: Usage {
+                        network_rounds: 1,
+                        input_tokens: 7,
+                        cost_micros: 5,
+                        ..Usage::default()
+                    },
+                },
+                provider: kernel.provider,
+                tools: kernel.tools,
+                quality_filters: false,
+                clock: kernel.clock,
+            };
+            let requires_evidence = profile.requires_game_evidence();
+            let result = kernel.answer_accounted(&query(profile), &context(&[], &["public"]));
+            assert_eq!(
+                retrieval_calls.load(Ordering::SeqCst),
+                usize::from(requires_evidence)
+            );
+            assert_eq!(state.lock().unwrap().calls, usize::from(!requires_evidence));
+            if requires_evidence {
+                assert_eq!(result.value.status, AnswerStatus::InsufficientEvidence);
+                assert_eq!(result.accounting.observed.network_rounds, 1);
+                assert_eq!(result.accounting.observed.input_tokens, 7);
+                assert_eq!(result.accounting.observed.cost_micros, 5);
+                assert!(!result.accounting.unaccounted);
+            } else {
+                assert_eq!(result.value.status, AnswerStatus::Unverified);
+                assert_eq!(result.accounting.observed, model_usage);
+            }
+        }
+    }
+
+    #[test]
+    fn authorized_retrieval_backs_a_tool_model_turn() {
+        let call = find_call("find");
+        for quality_filters in [true, false] {
+            let (mut kernel, state) =
+                tool_kernel(std::slice::from_ref(&call), vec![final_turn(&["original"])]);
+            let original = canonical_fact();
+            let original = Evidence {
+                evidence_id: "original".into(),
+                ..original
+            };
+            state.lock().unwrap().retrieved_ids = vec![original.evidence_id.clone()];
+            kernel.retrieval = FixedRetrieval(vec![original.clone()]);
+            let result = kernel
+                .with_quality_filters(quality_filters)
+                .answer_accounted(&query(AnswerProfile::Fact), &context(&[], &["public"]));
+            assert_eq!(result.value.status, AnswerStatus::Answered);
+            assert_eq!(result.value.citations, vec![original]);
+            assert_eq!(state.lock().unwrap().calls, 1);
+            assert!(!result.accounting.unaccounted);
+        }
+    }
+
+    #[test]
+    fn required_tools_can_back_game_fact_profiles_before_any_model_call() {
+        let call = find_call("required");
+        for profile in [AnswerProfile::Fact, AnswerProfile::Build] {
+            let (kernel, state) = tool_kernel(
+                std::slice::from_ref(&call),
+                vec![final_turn(&["required-cited"])],
+            );
+            state.lock().unwrap().required_calls = vec![call.clone()];
+            let answer = kernel
+                .with_quality_filters(false)
+                .answer(&query(profile), &context(&[], &["public"]));
+            assert!(matches!(
+                answer.status,
+                AnswerStatus::Answered | AnswerStatus::Unverified
+            ));
+            let state = state.lock().unwrap();
+            assert_eq!(state.executions.len(), 1);
+            assert_eq!(state.calls, 1);
+        }
+    }
+
+    #[test]
+    fn tool_retrieval_does_not_bypass_provider_egress() {
+        let call = find_call("find");
+        let (mut kernel, state) =
+            tool_kernel(std::slice::from_ref(&call), vec![final_turn(&["private"])]);
+        kernel.retrieval = FixedRetrieval(vec![evidence(
+            "private",
+            EvidenceKind::Prose,
+            SourceVisibility::Private,
+            &["private"],
+        )]);
+        let answer = kernel.with_quality_filters(false).answer(
+            &query(AnswerProfile::Fact),
+            &context(&["private"], &["public"]),
+        );
+        assert_eq!(answer.status, AnswerStatus::UnauthorizedEvidence);
+        assert_eq!(state.lock().unwrap().calls, 0);
+        assert!(answer.citations.is_empty());
     }
 
     #[test]
@@ -2412,7 +2579,7 @@ mod tests {
                 final_turn(&["first-cited", "second-cited"]),
             ],
         );
-        let request = query(AnswerProfile::Fact);
+        let request = query(AnswerProfile::Explain);
         let answer = kernel.answer_with_purpose(
             &request,
             &context(&[], &["public"]),

@@ -84,6 +84,15 @@ pub enum AnswerProfile {
     Coaching,
 }
 
+impl AnswerProfile {
+    pub const fn requires_game_evidence(&self) -> bool {
+        match self {
+            Self::Fact | Self::Build => true,
+            Self::Explain | Self::Coaching => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AnswerInputKind {
