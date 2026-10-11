@@ -289,6 +289,7 @@ fn unpublished_build() -> crate::BuildObject {
         family: Some(family),
         variants: Vec::new(),
         family_discovery: None,
+        ability_names: Default::default(),
     }
 }
 

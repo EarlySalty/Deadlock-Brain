@@ -8499,6 +8499,7 @@ mod tests {
             provenance: None,
             family: None,
             family_discovery: None,
+            ability_names: Default::default(),
             variants: Vec::new(),
             hero_id: 25,
             hero_name: "Warden".to_string(),

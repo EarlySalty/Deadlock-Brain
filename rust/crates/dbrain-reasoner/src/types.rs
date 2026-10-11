@@ -370,6 +370,8 @@ pub struct BuildObject {
     pub variants: Vec<BuildObject>,
     #[serde(default)]
     pub family_discovery: Option<crate::families::FamilyDiscovery>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub ability_names: crate::publish::AbilityNames,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

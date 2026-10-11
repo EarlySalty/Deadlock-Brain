@@ -5258,6 +5258,9 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
+        let build = crate::publish::with_ability_names(&ctx.pool, &build)
+            .await
+            .unwrap();
         crate::publish::validate_publish_current(&ctx.pool, &build)
             .await
             .unwrap();

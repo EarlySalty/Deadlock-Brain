@@ -3497,9 +3497,14 @@ async fn publish_build_http(
     if !(1..=120).contains(&wait_seconds) {
         anyhow::bail!("Wartezeit muss zwischen 1 und 120 Sekunden liegen.");
     }
-    if !review {
-        dbrain_reasoner::publish::validate_publish_current(pool, build).await?;
-    }
+    let named;
+    let build = if review {
+        build
+    } else {
+        named = dbrain_reasoner::publish::with_ability_names(pool, build).await?;
+        dbrain_reasoner::publish::validate_publish_current(pool, &named).await?;
+        &named
+    };
     let mut saved = SavedPublication::new(publish_request(build, review)?)?;
     saved.build = Some(serde_json::to_value(build)?);
     let request_path = saved.default_path()?;

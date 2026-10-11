@@ -70,6 +70,7 @@ fn legacy_publish_probe() -> Value {
         family: None,
         variants: Vec::new(),
         family_discovery: None,
+        ability_names: Default::default(),
     };
     let result = dbrain_reasoner::publish::validate_publish_input(&build);
     json!({"passed": result.is_err(), "validator_accepted_empty_unverified_build": result.is_ok(),

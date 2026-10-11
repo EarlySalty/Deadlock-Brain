@@ -777,6 +777,7 @@ fn compose_build_with_author_evidence_and_constraints(
         family: None,
         variants: Vec::new(),
         family_discovery: None,
+        ability_names: Default::default(),
         hero_id: hero.hero_id,
         hero_name: hero.name.clone(),
         patch_tag: cfg.patch_tag.clone(),
@@ -1987,7 +1988,10 @@ mod tests {
             .get("sell_priority")
             .is_none_or(serde_json::Value::is_null));
         assert_eq!(restored["ability_order"].as_array().unwrap().len(), 2);
-        assert!(restored["description"].as_str().unwrap().contains("Best"));
+        assert!(restored["description"]
+            .as_str()
+            .unwrap()
+            .starts_with("Berechneter Build für"));
         meta.author_builds.reverse();
         assert_eq!(compose(&meta).ability_order, build.ability_order);
         meta.author_builds

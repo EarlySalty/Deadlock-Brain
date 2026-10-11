@@ -412,10 +412,170 @@ fn category_description(items: &[BuildItem]) -> Option<String> {
 fn mod_spec(item: &BuildItem) -> BuildSpecMod {
     BuildSpecMod {
         ability_id: item.item_id,
-        annotation: item.why.clone(),
+        annotation: annotation(&item.why),
         imbue: item.imbue_target,
         sell_priority: item.sell_priority,
     }
+}
+
+pub type AbilityNames = std::collections::BTreeMap<i64, String>;
+
+pub const PLAYER_DESCRIPTION_MAX_CHARS: usize = 425;
+pub const ANNOTATION_MAX_CHARS: usize = 380;
+pub const PUBLISH_PAYLOAD_MAX_BYTES: usize = 50_000;
+const DESCRIPTION_CORE_ITEMS: usize = 5;
+const UNLOCK_CURRENCY: i64 = 2;
+const UPGRADE_CURRENCY: i64 = 1;
+
+fn is_sale_sentence(sentence: &str) -> bool {
+    sentence.starts_with("Verkaufe ")
+        || (sentence.starts_with("Vorher ") && sentence.ends_with(" verkaufen."))
+}
+
+fn annotation(why: &str) -> String {
+    if why.chars().count() <= ANNOTATION_MAX_CHARS {
+        return why.to_string();
+    }
+    let sentences = why
+        .split_inclusive(". ")
+        .map(str::trim)
+        .filter(|sentence| !sentence.is_empty())
+        .collect::<Vec<_>>();
+    let ordered = sentences
+        .iter()
+        .filter(|sentence| is_sale_sentence(sentence))
+        .chain(
+            sentences
+                .iter()
+                .filter(|sentence| !is_sale_sentence(sentence)),
+        )
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ");
+    truncate_review_text(&ordered, ANNOTATION_MAX_CHARS)
+}
+
+fn german_list(names: &[&str]) -> String {
+    match names {
+        [] => String::new(),
+        [only] => (*only).to_string(),
+        [rest @ .., last] => format!("{} und {last}", rest.join(", ")),
+    }
+}
+
+fn core_sentence(build: &BuildObject) -> String {
+    let names = build
+        .core
+        .iter()
+        .take(DESCRIPTION_CORE_ITEMS)
+        .map(|item| item.name.as_str())
+        .collect::<Vec<_>>();
+    let tail = match build.core.len().saturating_sub(DESCRIPTION_CORE_ITEMS) {
+        0 => String::new(),
+        1 => ", dazu ein weiteres Item".to_string(),
+        rest => format!(", dazu {rest} weitere Items"),
+    };
+    format!("Kern: {}{tail}.", german_list(&names))
+}
+
+fn imbue_sentences(build: &BuildObject, ability_names: &AbilityNames) -> Vec<String> {
+    let mut targets: Vec<(i64, Vec<&str>)> = Vec::new();
+    for item in build
+        .core
+        .iter()
+        .chain(build.situations.iter().flat_map(|block| &block.items))
+    {
+        let Some(target) = item.imbue_target else {
+            continue;
+        };
+        match targets.iter_mut().find(|(id, _)| *id == target) {
+            Some((_, items)) => items.push(&item.name),
+            None => targets.push((target, vec![&item.name])),
+        }
+    }
+    targets
+        .into_iter()
+        .filter_map(|(target, items)| {
+            ability_names
+                .get(&target)
+                .map(|ability| format!("{} auf {ability} setzen.", german_list(&items)))
+        })
+        .collect()
+}
+
+fn ability_sequence(build: &BuildObject, currency: i64, unique: bool) -> Vec<i64> {
+    let mut sequence: Vec<i64> = Vec::new();
+    for step in build
+        .ability_order
+        .iter()
+        .filter(|step| step.currency_type == currency)
+    {
+        let seen = if unique {
+            sequence.contains(&step.ability_id)
+        } else {
+            sequence.last() == Some(&step.ability_id)
+        };
+        if !seen {
+            sequence.push(step.ability_id);
+        }
+    }
+    sequence
+}
+
+fn named_sequence(ids: &[i64], ability_names: &AbilityNames) -> Option<String> {
+    let names = ids
+        .iter()
+        .map(|id| ability_names.get(id).map(String::as_str))
+        .collect::<Option<Vec<_>>>()?;
+    (!names.is_empty()).then(|| german_list(&names))
+}
+
+fn ability_sentences(build: &BuildObject, ability_names: &AbilityNames) -> Vec<String> {
+    let unlocks = ability_sequence(build, UNLOCK_CURRENCY, true);
+    let upgrades = ability_sequence(build, UPGRADE_CURRENCY, false);
+    let Some(unlock_names) = named_sequence(&unlocks, ability_names) else {
+        return Vec::new();
+    };
+    let unlock = format!("Fähigkeiten in der Reihenfolge {unlock_names} freischalten");
+    let short = format!("{unlock}.");
+    if upgrades.is_empty() {
+        return vec![short];
+    }
+    let full = if upgrades == unlocks {
+        Some(format!("{unlock} und in derselben Reihenfolge ausbauen."))
+    } else {
+        named_sequence(&upgrades, ability_names)
+            .map(|names| format!("{unlock}, danach in der Reihenfolge {names} ausbauen."))
+    };
+    full.into_iter().chain(std::iter::once(short)).collect()
+}
+
+fn append_fitting(text: &mut String, options: &[String]) {
+    if let Some(sentence) = options.iter().find(|sentence| {
+        text.chars().count() + 1 + sentence.chars().count() <= PLAYER_DESCRIPTION_MAX_CHARS
+    }) {
+        text.push(' ');
+        text.push_str(sentence);
+    }
+}
+
+pub fn player_description(build: &BuildObject, ability_names: &AbilityNames) -> String {
+    let mut text = format!(
+        "Berechneter Build für {} im aktuellen Patch.",
+        build.hero_name
+    );
+    append_fitting(&mut text, &[core_sentence(build)]);
+    append_fitting(&mut text, &ability_sentences(build, ability_names));
+    for sentence in imbue_sentences(build, ability_names) {
+        append_fitting(&mut text, &[sentence]);
+    }
+    if !build.situations.is_empty() {
+        append_fitting(
+            &mut text,
+            &["Situative Items findest du in den optionalen Kategorien.".to_string()],
+        );
+    }
+    truncate_review_text(&text, PLAYER_DESCRIPTION_MAX_CHARS)
 }
 
 pub fn to_publish_payload(build: &BuildObject) -> BuildSpecPayload {
@@ -453,7 +613,7 @@ pub fn to_publish_payload(build: &BuildObject) -> BuildSpecPayload {
     BuildSpecPayload {
         hero_id: build.hero_id,
         name: build.name.clone(),
-        description: build.rationale.clone(),
+        description: player_description(build, &build.ability_names),
         language: 1,
         mod_categories: std::iter::once(core).chain(situations).collect(),
         ability_order,
@@ -514,6 +674,7 @@ pub fn validate_publish_input(build: &BuildObject) -> Result<()> {
 pub async fn validate_publish_current(pool: &PgPool, build: &BuildObject) -> Result<()> {
     validate_publish_input(build)?;
     let original = validate_build_provenance(build)?;
+    validate_ability_names(pool, build).await?;
     let patch_tag = dbrain_builds::latest_patch_tag(pool)
         .await
         .map_err(ReasonerError::Db)?;
@@ -1097,7 +1258,33 @@ pub fn validate_publish_catalog(payload: &Value, items: &Value) -> Result<()> {
     Ok(())
 }
 
-pub async fn validate_publish_items(pool: &PgPool, payload: &Value) -> Result<()> {
+pub fn validate_publish_limits(payload: &Value) -> Result<()> {
+    let description = payload["description"].as_str().unwrap_or_default();
+    if description.chars().count() > PLAYER_DESCRIPTION_MAX_CHARS {
+        return Err(ReasonerError::Data(format!("Die Buildbeschreibung ist länger als {PLAYER_DESCRIPTION_MAX_CHARS} Zeichen; das Spiel lehnt sie ab. Es wurde nichts veröffentlicht.")));
+    }
+    let annotations = payload["mod_categories"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|category| category["mods"].as_array())
+        .flatten()
+        .filter_map(|item| item["annotation"].as_str());
+    for annotation in annotations {
+        if annotation.chars().count() > ANNOTATION_MAX_CHARS {
+            return Err(ReasonerError::Data(format!("Eine Item-Notiz ist länger als {ANNOTATION_MAX_CHARS} Zeichen; das Spiel lehnt sie ab. Es wurde nichts veröffentlicht.")));
+        }
+    }
+    let bytes = serde_json::to_vec(payload)
+        .map_err(|_| ReasonerError::Data("Build ist nicht serialisierbar.".into()))?
+        .len();
+    if bytes > PUBLISH_PAYLOAD_MAX_BYTES {
+        return Err(ReasonerError::Data(format!("Der Build ist {bytes} Bytes groß, erlaubt sind höchstens {PUBLISH_PAYLOAD_MAX_BYTES}; das Spiel lehnt ihn ab. Es wurde nichts veröffentlicht.")));
+    }
+    Ok(())
+}
+
+async fn mirrored_item_catalog(pool: &PgPool) -> Result<Value> {
     let version = brain_storage::asset_mirror::latest_mirrored_client_version(pool)
         .await
         .map_err(|error| ReasonerError::Data(format!("API-Spiegel: {error}")))?;
@@ -1109,10 +1296,66 @@ pub async fn validate_publish_items(pool: &PgPool, payload: &Value) -> Result<()
     )
     .await
     .map_err(|error| ReasonerError::Data(format!("API-Items: {error}")))?;
-    validate_publish_catalog(payload, &items.payload)
+    Ok(items.payload)
+}
+
+pub async fn validate_publish_items(pool: &PgPool, payload: &Value) -> Result<()> {
+    validate_publish_limits(payload)?;
+    validate_publish_catalog(payload, &mirrored_item_catalog(pool).await?)
+}
+
+pub fn ability_names_from_catalog(build: &BuildObject, items: &Value) -> Result<AbilityNames> {
+    let rows = items
+        .as_array()
+        .ok_or_else(|| ReasonerError::Data("Aktueller Item-Katalog fehlt.".into()))?;
+    build
+        .ability_order
+        .iter()
+        .map(|step| step.ability_id)
+        .chain(
+            build
+                .core
+                .iter()
+                .chain(build.situations.iter().flat_map(|block| &block.items))
+                .filter_map(|item| item.imbue_target),
+        )
+        .map(|id| {
+            rows.iter()
+                .find(|row| row["id"].as_i64() == Some(id))
+                .and_then(|row| row["name"].as_str())
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(|name| (id, name.to_string()))
+                .ok_or_else(|| {
+                    ReasonerError::Data(
+                        "Ein Fähigkeitsname fehlt im Spielkatalog. Es wurde nichts veröffentlicht."
+                            .into(),
+                    )
+                })
+        })
+        .collect()
+}
+
+pub async fn with_ability_names(pool: &PgPool, build: &BuildObject) -> Result<BuildObject> {
+    let mut named = build.clone();
+    named.ability_names = ability_names_from_catalog(build, &mirrored_item_catalog(pool).await?)?;
+    Ok(named)
+}
+
+async fn validate_ability_names(pool: &PgPool, build: &BuildObject) -> Result<()> {
+    if with_ability_names(pool, build).await?.ability_names != build.ability_names {
+        return Err(ReasonerError::Data(
+            "Fähigkeitsnamen passen nicht zum aktuellen Spielkatalog. Es wurde nichts veröffentlicht."
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 pub async fn enqueue_publish_task(pool: &PgPool, build: &BuildObject) -> Result<i64> {
+    validate_publish_input(build)?;
+    validate_build_provenance(build)?;
+    let build = &with_ability_names(pool, build).await?;
     validate_publish_current(pool, build).await?;
     let payload = publish_task_payload(build);
     validate_publish_items(pool, &payload).await?;
@@ -1143,9 +1386,12 @@ pub fn review_publish_task_payload(build: &BuildObject) -> Result<Value> {
     }
     let mut payload = to_publish_payload(build);
     payload.name = truncate_review_text(&format!("[REVIEW] {}", build.name), 80);
-    payload.description = format!(
-        "Experimentelles Brain Review Build. Nicht als reguläre Empfehlung freigegeben.\n{}",
-        truncate_review_text(&build.rationale, 360)
+    payload.description = truncate_review_text(
+        &format!(
+            "Experimentelles Brain Review Build. Nicht als reguläre Empfehlung freigegeben.\n{}",
+            truncate_review_text(&build.rationale, 360)
+        ),
+        PLAYER_DESCRIPTION_MAX_CHARS,
     );
     for category in &mut payload.mod_categories {
         category.description = category
@@ -1292,6 +1538,7 @@ mod tests {
             family: None,
             variants: vec![],
             family_discovery: None,
+            ability_names: Default::default(),
         };
         (build, hero, models, snapshots)
     }
@@ -1870,6 +2117,7 @@ mod tests {
             family: None,
             variants: Vec::new(),
             family_discovery: None,
+            ability_names: Default::default(),
             hero_id: 25,
             hero_name: "Warden".to_string(),
             patch_tag: "current".to_string(),
@@ -1897,7 +2145,10 @@ mod tests {
             payload.mod_categories[0].description.as_deref(),
             Some("Mechanik")
         );
-        assert_eq!(payload.description, "Rationale");
+        assert_eq!(
+            payload.description,
+            "Berechneter Build für Warden im aktuellen Patch. Kern: Item 10. Situative Items findest du in den optionalen Kategorien."
+        );
         assert_eq!(payload.mod_categories[1].name, "Ein Item nach Bedarf");
         assert_eq!(payload.mod_categories[1].width, Some(780.0));
         assert_eq!(payload.mod_categories[1].height, Some(260.0));
@@ -1910,5 +2161,86 @@ mod tests {
         assert!(review["description"]
             .as_str()
             .is_some_and(|text| text.contains("Nicht als reguläre Empfehlung freigegeben.")));
+    }
+
+    fn named_build() -> BuildObject {
+        let (mut build, _, _, _) = model_fixture();
+        build.hero_name = "Warden".to_string();
+        build.core = (1..=7).map(|id| item(id, None, None)).collect();
+        build.core[2].imbue_target = Some(100);
+        build.core[4].imbue_target = Some(100);
+        build.ability_order = [
+            (100, 2, -1),
+            (200, 2, -1),
+            (100, 1, -1),
+            (100, 1, -2),
+            (200, 1, -1),
+        ]
+        .into_iter()
+        .map(|(ability_id, currency_type, delta)| crate::AbilityStep {
+            ability_id,
+            currency_type,
+            delta,
+        })
+        .collect();
+        build.ability_names = [(100, "Alchemical Fire"), (200, "Binding Word")]
+            .into_iter()
+            .map(|(id, name)| (id, name.to_string()))
+            .collect();
+        build.rationale = "intern".repeat(5000);
+        build
+    }
+
+    #[test]
+    fn player_description_names_core_imbues_and_skill_order_within_game_limit() {
+        let mut build = named_build();
+        build.situations.clear();
+        assert_eq!(
+            player_description(&build, &build.ability_names),
+            "Berechneter Build für Warden im aktuellen Patch. Kern: Item 1, Item 2, Item 3, Item 4 und Item 5, dazu 2 weitere Items. Fähigkeiten in der Reihenfolge Alchemical Fire und Binding Word freischalten und in derselben Reihenfolge ausbauen. Item 3 und Item 5 auf Alchemical Fire setzen."
+        );
+        for item in &mut build.core {
+            item.name = "Sehr langer Itemname ".repeat(8);
+        }
+        let description = player_description(&build, &build.ability_names);
+        assert!(description.chars().count() <= PLAYER_DESCRIPTION_MAX_CHARS);
+        assert!(description.contains("Alchemical Fire"));
+    }
+
+    #[test]
+    fn publish_limits_reject_oversized_fields_before_the_game_call() {
+        let mut build = named_build();
+        for item in &mut build.core {
+            item.why = "Notiz ".repeat(200);
+        }
+        let payload = publish_task_payload(&build);
+        validate_publish_limits(&payload).unwrap();
+        assert!(payload["description"]
+            .as_str()
+            .is_some_and(|text| !text.contains("intern")));
+        let mut long = payload.clone();
+        long["description"] = serde_json::json!("ä".repeat(PLAYER_DESCRIPTION_MAX_CHARS + 1));
+        assert!(validate_publish_limits(&long)
+            .unwrap_err()
+            .to_string()
+            .contains("Buildbeschreibung"));
+        let mut note = payload.clone();
+        note["mod_categories"][0]["mods"][0]["annotation"] =
+            serde_json::json!("x".repeat(ANNOTATION_MAX_CHARS + 1));
+        assert!(validate_publish_limits(&note)
+            .unwrap_err()
+            .to_string()
+            .contains("Item-Notiz"));
+        let mut large = payload;
+        let mods = large["mod_categories"][0]["mods"]
+            .as_array()
+            .unwrap()
+            .clone();
+        large["mod_categories"][0]["mods"] =
+            serde_json::json!(std::iter::repeat_n(mods, 30).flatten().collect::<Vec<_>>());
+        assert!(validate_publish_limits(&large)
+            .unwrap_err()
+            .to_string()
+            .contains("Bytes"));
     }
 }
