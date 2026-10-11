@@ -829,6 +829,12 @@ fn property_value(name: &str, value: f64, hero: &HeroModel, cfg: &ReasonerConfig
     if lower.contains("healampreceivepenalty") || lower.contains("healampregenpenalty") {
         return 0.0;
     }
+    if matches!(
+        name,
+        "BonusSpiritLifesteal" | "AbilityLifestealPercent" | "AbilityLifestealPercentHero"
+    ) {
+        return percent * hero.damage_plan.spirit_dps;
+    }
     if is_proc_property(name)
         || lower.contains("proccooldown")
         || lower.contains("proc_cooldown")
@@ -884,12 +890,6 @@ fn property_value(name: &str, value: f64, hero: &HeroModel, cfg: &ReasonerConfig
             hero.damage_plan.weapon_dps + hero.damage_plan.spirit_dps
         };
         return basis * percent.abs();
-    }
-    if matches!(
-        name,
-        "BonusSpiritLifesteal" | "AbilityLifestealPercent" | "AbilityLifestealPercentHero"
-    ) {
-        return percent * hero.damage_plan.spirit_dps;
     }
     if lower.contains("lifesteal") {
         return percent * (hero.damage_plan.weapon_dps + hero.damage_plan.spirit_dps);
