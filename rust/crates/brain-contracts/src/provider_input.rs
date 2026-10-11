@@ -318,6 +318,9 @@ fn data_leaves(value: &Value, texts: &mut Vec<String>) {
         Value::Array(values) => values.iter().for_each(|value| data_leaves(value, texts)),
         Value::Object(fields) => fields.iter().for_each(|(key, value)| {
             texts.push(key.clone());
+            if let Some(seconds) = value.as_f64().filter(|_| key.contains("seconds")) {
+                texts.push((seconds / 60.0).to_string());
+            }
             data_leaves(value, texts);
         }),
         Value::Null | Value::Bool(_) => {}
