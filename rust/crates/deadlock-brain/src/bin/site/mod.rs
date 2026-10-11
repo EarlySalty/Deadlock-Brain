@@ -2,7 +2,7 @@ mod assets;
 mod comments;
 mod compare;
 pub(crate) mod database;
-mod profiles;
+pub(crate) mod profiles;
 
 use anyhow::{ensure, Context, Result};
 use axum::{

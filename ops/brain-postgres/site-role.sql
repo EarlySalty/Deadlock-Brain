@@ -21,6 +21,9 @@ BEGIN
     IF to_regprocedure('brain.read_compare_artifact_v1(text)') IS NOT NULL THEN
         GRANT EXECUTE ON FUNCTION brain.read_compare_artifact_v1(text) TO brain_site;
     END IF;
+    IF to_regprocedure('brain.read_compare_artifact_v2(text)') IS NOT NULL THEN
+        GRANT EXECUTE ON FUNCTION brain.read_compare_artifact_v2(text) TO brain_site;
+    END IF;
     IF to_regprocedure('brain.read_site_profile_bindings_v1(text,text)') IS NOT NULL THEN
         GRANT EXECUTE ON FUNCTION brain.read_site_profile_bindings_v1(text,text) TO brain_site;
     END IF;

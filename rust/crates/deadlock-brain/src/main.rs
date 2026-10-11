@@ -22,6 +22,7 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::os::unix::fs::OpenOptionsExt;
 
+mod hero_compare_cli;
 mod pg_entities;
 mod pg_insights;
 mod pg_patchnotes;
@@ -50,6 +51,11 @@ enum Commands {
     Site(site::Args),
     #[command(about = "Richtet den begrenzten öffentlichen Steckbriefzugriff ein.")]
     SiteMigrate(SiteMigrationArgs),
+    #[command(
+        name = "compare-heroes",
+        about = "Berechnet einen belegten HP-Vergleich zweier Helden als Vorschau oder veröffentlicht ihn nach Bestätigung."
+    )]
+    CompareHeroes(hero_compare_cli::CompareHeroesArgs),
     #[command(
         about = "Stellt eine Frage ausschließlich über den typisierten brain-serve/BrainClient-Pfad."
     )]
@@ -1646,6 +1652,7 @@ async fn run(cli: Cli) -> Result<()> {
     let command = match command {
         Commands::Site(args) => return site::serve(args).await,
         Commands::SiteMigrate(args) => return run_site_migrate(args).await,
+        Commands::CompareHeroes(args) => return hero_compare_cli::run(args).await,
         Commands::Pull {
             source: PullCommands::Forum(args),
         } => return run_forum_pull(args).await,
@@ -1736,7 +1743,7 @@ async fn run(cli: Cli) -> Result<()> {
     let pool = pg_pool_for_command(&command).await?;
 
     match command {
-        Commands::Site(_) | Commands::SiteMigrate(_) => {
+        Commands::Site(_) | Commands::SiteMigrate(_) | Commands::CompareHeroes(_) => {
             unreachable!("site is handled before local DB initialization")
         }
         Commands::Answer(_) => unreachable!("answer is handled before local DB initialization"),

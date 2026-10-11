@@ -157,15 +157,22 @@ async fn public_compare_http_has_no_cache_and_rechecks_revocation() {
     let (url, handle) = server(root.path(), pool.clone()).await;
     let client = Client::new();
     let path = format!("/compare/{}", artifact.id());
-    assert_eq!(
-        client
-            .get(format!("{url}{path}"))
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::NOT_FOUND
-    );
+    for header in ["X-Forwarded-For", "Forwarded", "Via"] {
+        assert_eq!(
+            client
+                .get(format!("{url}{path}"))
+                .header(header, "203.0.113.9")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    let preview = client.get(format!("{url}{path}")).send().await.unwrap();
+    assert_eq!(preview.status(), StatusCode::OK);
+    assert_eq!(preview.headers()["x-robots-tag"], "noindex, nofollow");
+    assert_eq!(preview.text().await.unwrap(), artifact.body().html);
     let publication = publish_compare_artifact(
         &store,
         &fixture,
@@ -186,8 +193,14 @@ async fn public_compare_http_has_no_cache_and_rechecks_revocation() {
         (&publication.html_path, &artifact.body().html),
         (&publication.svg_path, &artifact.body().svg),
     ] {
-        let reply = client.get(format!("{url}{path}")).send().await.unwrap();
+        let reply = client
+            .get(format!("{url}{path}"))
+            .header("X-Forwarded-For", "203.0.113.9")
+            .send()
+            .await
+            .unwrap();
         assert_eq!(reply.status(), StatusCode::OK);
+        assert!(reply.headers().get("x-robots-tag").is_none());
         assert_eq!(reply.headers()["cache-control"], "no-store");
         assert_eq!(reply.headers()["x-content-type-options"], "nosniff");
         assert_eq!(reply.text().await.unwrap(), *expected);

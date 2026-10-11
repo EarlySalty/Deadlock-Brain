@@ -22,7 +22,7 @@ struct ReleaseBinding {
     id: String,
 }
 
-pub(super) async fn release_from_config(path: &FilePath) -> Result<String> {
+pub(crate) async fn release_from_config(path: &FilePath) -> Result<String> {
     ensure!(
         path.is_absolute(),
         "Die Dienstkonfiguration muss absolut sein."

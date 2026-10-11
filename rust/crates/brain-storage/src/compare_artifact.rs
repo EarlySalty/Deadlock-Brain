@@ -10,6 +10,8 @@ use crate::PgStore;
 
 const MIGRATION: &str =
     include_str!("../../../../scripts/migrations/2026-10-07-brain-compare-artifacts-v1.sql");
+const PREVIEW_MIGRATION: &str =
+    include_str!("../../../../scripts/migrations/2026-10-11-brain-compare-preview-v1.sql");
 const MAX_BYTES: usize = 2_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +67,14 @@ pub struct ComparePublication {
 }
 
 impl ComparePublication {
+    pub fn for_id(id: &str) -> Self {
+        Self {
+            artifact_id: id.into(),
+            html_path: format!("/site/compare/{id}"),
+            svg_path: format!("/site/compare/{id}/chart.svg"),
+        }
+    }
+
     pub fn public_link(&self) -> Result<String, PortError> {
         if !valid_compare_id(&self.artifact_id)
             || self.html_path != format!("/site/compare/{}", self.artifact_id)
@@ -77,6 +87,13 @@ impl ComparePublication {
             self.html_path
         ))
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompareStage {
+    Preview,
+    Published,
 }
 
 pub trait CompareCalculationVerifier: Send + Sync {
@@ -273,6 +290,26 @@ impl PgStore {
                 .await
                 .map_err(unavailable)?;
         }
+        let preview: bool = sqlx::query_scalar(
+            "SELECT to_regprocedure('brain.read_compare_artifact_v2(text)') IS NOT NULL",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if !preview {
+            let body = PREVIEW_MIGRATION
+                .strip_prefix("BEGIN;\n")
+                .and_then(|sql| sql.trim_end().strip_suffix("COMMIT;"))
+                .ok_or_else(invalid)?;
+            sqlx::raw_sql(body)
+                .execute(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+        }
+        sqlx::query("SELECT brain.read_compare_artifact_v2(NULL)")
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
         sqlx::query("SELECT artifact_id,body_json,body_text,publication_receipt FROM brain.compare_artifacts_v1 LIMIT 0").fetch_all(&mut *tx).await.map_err(unavailable)?;
         sqlx::query("SELECT brain.read_compare_artifact_v1(NULL)")
             .execute(&mut *tx)
@@ -327,11 +364,7 @@ impl PgStore {
             return Err(invalid());
         }
         tx.commit().await.map_err(unavailable)?;
-        Ok(ComparePublication {
-            artifact_id: artifact.id().into(),
-            html_path: format!("/site/compare/{}", artifact.id()),
-            svg_path: format!("/site/compare/{}/chart.svg", artifact.id()),
-        })
+        Ok(ComparePublication::for_id(artifact.id()))
     }
 
     pub async fn read_public_compare(
@@ -339,6 +372,28 @@ impl PgStore {
         id: &str,
         principal: &Principal,
     ) -> Result<Option<CompareArtifact>, PortError> {
+        Ok(self
+            .read_compare(id, principal, "SELECT brain.read_compare_artifact_v1($1)")
+            .await?
+            .filter(|(_, stage)| *stage == CompareStage::Published)
+            .map(|(artifact, _)| artifact))
+    }
+
+    pub async fn read_site_compare(
+        &self,
+        id: &str,
+        principal: &Principal,
+    ) -> Result<Option<(CompareArtifact, CompareStage)>, PortError> {
+        self.read_compare(id, principal, "SELECT brain.read_compare_artifact_v2($1)")
+            .await
+    }
+
+    async fn read_compare(
+        &self,
+        id: &str,
+        principal: &Principal,
+        query: &str,
+    ) -> Result<Option<(CompareArtifact, CompareStage)>, PortError> {
         if !valid_compare_id(id) {
             return Ok(None);
         }
@@ -351,45 +406,62 @@ impl PgStore {
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
-        let envelope: Option<serde_json::Value> =
-            sqlx::query_scalar("SELECT brain.read_compare_artifact_v1($1)")
-                .bind(id)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(unavailable)?;
+        let envelope: Option<serde_json::Value> = sqlx::query_scalar(query)
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(unavailable)?;
         let Some(envelope) = envelope else {
             return Ok(None);
         };
-        let receipt: PublicationReceipt =
-            serde_json::from_value(envelope["receipt"].clone()).map_err(|_| invalid())?;
-        let body_text = envelope["body_text"].as_str().ok_or_else(invalid)?;
-        if compare_sha256(body_text.as_bytes()) != id {
-            return Err(invalid());
-        }
-        let artifact =
-            CompareArtifact::pending(serde_json::from_str(body_text).map_err(|_| invalid())?)?;
-        if artifact.id() != id
-            || receipt.artifact_id != id
+        let result = checked_envelope(id, &envelope, principal)?;
+        tx.commit().await.map_err(unavailable)?;
+        Ok(Some(result))
+    }
+}
+
+fn checked_envelope(
+    id: &str,
+    envelope: &serde_json::Value,
+    principal: &Principal,
+) -> Result<(CompareArtifact, CompareStage), PortError> {
+    let receipt: Option<PublicationReceipt> =
+        serde_json::from_value(envelope["receipt"].clone()).map_err(|_| invalid())?;
+    let stage = match (&receipt, envelope.get("published")) {
+        (Some(_), None | Some(serde_json::Value::Bool(true))) => CompareStage::Published,
+        (None, Some(serde_json::Value::Bool(false))) => CompareStage::Preview,
+        _ => return Err(invalid()),
+    };
+    let body_text = envelope["body_text"].as_str().ok_or_else(invalid)?;
+    if compare_sha256(body_text.as_bytes()) != id {
+        return Err(invalid());
+    }
+    let artifact =
+        CompareArtifact::pending(serde_json::from_str(body_text).map_err(|_| invalid())?)?;
+    if artifact.id() != id {
+        return Err(invalid());
+    }
+    if let Some(receipt) = receipt {
+        if receipt.artifact_id != id
             || receipt.contract != "brain.compare.publication.v1"
             || !valid_compare_id(&receipt.release_jsonb_sha256)
             || receipt.dependency_sha256 != compare_fingerprint(&artifact.body.dependencies)?
         {
             return Err(invalid());
         }
-        let release: CompareReleaseBinding =
-            serde_json::from_value(envelope["release"].clone()).map_err(|_| invalid())?;
-        if release != artifact.body.release {
-            return Err(invalid());
-        }
-        let records: Vec<SourceRecordV2> =
-            serde_json::from_value(envelope["records"].clone()).map_err(|_| invalid())?;
-        let descriptors: Vec<brain_contracts::DocumentDescriptor> =
-            serde_json::from_value(envelope["heads"].clone()).map_err(|_| invalid())?;
-        let heads = public_heads(&records, descriptors)?;
-        check_records(&artifact.body.dependencies, &records, &heads, principal)?;
-        tx.commit().await.map_err(unavailable)?;
-        Ok(Some(artifact))
     }
+    let release: CompareReleaseBinding =
+        serde_json::from_value(envelope["release"].clone()).map_err(|_| invalid())?;
+    if release != artifact.body.release {
+        return Err(invalid());
+    }
+    let records: Vec<SourceRecordV2> =
+        serde_json::from_value(envelope["records"].clone()).map_err(|_| invalid())?;
+    let descriptors: Vec<brain_contracts::DocumentDescriptor> =
+        serde_json::from_value(envelope["heads"].clone()).map_err(|_| invalid())?;
+    let heads = public_heads(&records, descriptors)?;
+    check_records(&artifact.body.dependencies, &records, &heads, principal)?;
+    Ok((artifact, stage))
 }
 
 async fn check_pg_dependencies(
