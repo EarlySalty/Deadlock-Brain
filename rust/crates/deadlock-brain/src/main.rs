@@ -2592,6 +2592,7 @@ mod requested_build_tests {
         }
         assert_eq!(fs::read(&path).unwrap(), bytes);
         assert_eq!(saved_request_files(dir.path()), 3);
+        assert_eq!(saved_request_files(&dir.path().join("builds")), 3);
         let stored: Value = serde_json::from_slice(&bytes).unwrap();
         assert!(stored.get("build").is_none());
         let build_path = dir
@@ -2665,6 +2666,7 @@ mod requested_build_tests {
         assert_eq!(fs::read(&path).unwrap(), bytes);
         assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
         assert_eq!(saved_request_files(dir.path()), 1);
+        assert_eq!(saved_request_files(&dir.path().join("builds")), 1);
     }
 
     #[test]
@@ -3052,7 +3054,10 @@ fn read_saved_build(parent: &std::path::Path, sha256: &str) -> Result<Value> {
         .map_err(|_| anyhow!("Gespeicherte Build-Provenienz ist ungültig."))
 }
 
-fn persist_saved_build(parent: &std::path::Path, build: &Value) -> Result<String> {
+fn persist_saved_build(
+    parent: &std::path::Path,
+    build: &Value,
+) -> Result<(String, Option<PathBuf>)> {
     use sha2::Digest;
     use std::io::Write;
     let failed = || anyhow!("Build-Provenienz konnte nicht gespeichert werden.");
@@ -3071,12 +3076,13 @@ fn persist_saved_build(parent: &std::path::Path, build: &Value) -> Result<String
         .mode(0o400)
         .open(&temporary)
         .map_err(|_| failed())?;
+    let mut created = None;
     let result = (|| {
         file.write_all(&bytes)
             .and_then(|_| file.sync_all())
             .map_err(|_| failed())?;
         match fs::hard_link(&temporary, &path) {
-            Ok(()) => {}
+            Ok(()) => created = Some(path.clone()),
             Err(error) if error.kind() == ErrorKind::AlreadyExists => {
                 read_saved_build(parent, &sha256)?;
             }
@@ -3088,9 +3094,21 @@ fn persist_saved_build(parent: &std::path::Path, build: &Value) -> Result<String
     })();
     drop(file);
     let removed = fs::remove_file(temporary).map_err(|_| failed());
-    result?;
-    removed?;
-    Ok(sha256)
+    if let Err(error) = result.and(removed) {
+        discard_saved_build(created.as_deref());
+        return Err(error);
+    }
+    Ok((sha256, created))
+}
+
+fn discard_saved_build(created: Option<&std::path::Path>) {
+    if let Some(path) = created {
+        if fs::remove_file(path).is_ok() {
+            if let Some(directory) = path.parent() {
+                let _ = fs::File::open(directory).and_then(|directory| directory.sync_all());
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize, Serialize, PartialEq, Eq)]
@@ -3194,24 +3212,66 @@ impl SavedPublication {
     }
 
     fn persist(&self, path: &std::path::Path) -> Result<Self> {
-        use std::io::Write;
         self.validate()?;
         let parent = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| std::path::Path::new("."));
-        fs::create_dir_all(parent).map_err(|_| {
-            anyhow!("Verzeichnis für Veröffentlichungsanfragen ist nicht verfügbar.")
-        })?;
+        let unavailable =
+            || anyhow!("Verzeichnis für Veröffentlichungsanfragen ist nicht verfügbar.");
+        fs::create_dir_all(parent).map_err(|_| unavailable())?;
+        let lock = fs::File::open(parent).map_err(|_| unavailable())?;
+        lock.lock().map_err(|_| unavailable())?;
+        if fs::symlink_metadata(path).is_ok() {
+            return self.reuse_existing(path);
+        }
+        let (build_sha256, created) = match self.build.as_ref() {
+            Some(build) => {
+                let (sha256, created) = persist_saved_build(parent, build)?;
+                (Some(sha256), created)
+            }
+            None => (None, None),
+        };
+        let selected = self.write_request(path, parent, build_sha256);
+        if !matches!(&selected, Ok(selected) if selected.build == self.build) {
+            discard_saved_build(created.as_deref());
+        }
+        selected
+    }
+
+    fn reuse_existing(&self, path: &std::path::Path) -> Result<Self> {
+        let existing = Self::read(path)?;
+        if existing != *self {
+            let equivalent = if existing.request == self.request {
+                match (existing.regular_build()?, self.regular_build()?) {
+                    (Some(first), Some(second)) => {
+                        dbrain_reasoner::publish::equivalent_calculated_builds(&first, &second)?
+                    }
+                    (None, None) => true,
+                    _ => false,
+                }
+            } else {
+                false
+            };
+            if !equivalent {
+                anyhow::bail!("Die vorhandene Veröffentlichungsanfrage stimmt nicht überein. Sie wurde nicht überschrieben.");
+            }
+        }
+        Ok(existing)
+    }
+
+    fn write_request(
+        &self,
+        path: &std::path::Path,
+        parent: &std::path::Path,
+        build_sha256: Option<String>,
+    ) -> Result<Self> {
+        use std::io::Write;
         let stored = StoredPublication {
             request_sha256: self.request_sha256.clone(),
             request: self.request.clone(),
             build: None,
-            build_sha256: self
-                .build
-                .as_ref()
-                .map(|build| persist_saved_build(parent, build))
-                .transpose()?,
+            build_sha256,
         };
         let bytes = serde_json::to_vec(&stored)
             .map_err(|_| anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden."))?;
@@ -3225,52 +3285,38 @@ impl SavedPublication {
             .mode(0o400)
             .open(&temporary)
             .map_err(|_| anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden."))?;
-        let mut selected = self.clone();
         let result = (|| {
             file.write_all(&bytes)
                 .and_then(|_| file.sync_all())
                 .map_err(|_| {
                     anyhow!("Veröffentlichungsanfrage konnte nicht gespeichert werden.")
                 })?;
-            match fs::hard_link(&temporary, path) {
-                Ok(()) => {}
+            let (selected, linked) = match fs::hard_link(&temporary, path) {
+                Ok(()) => (self.clone(), true),
                 Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                    let existing = Self::read(path)?;
-                    if existing != *self {
-                        let equivalent = if existing.request == self.request {
-                            match (existing.regular_build()?, self.regular_build()?) {
-                                (Some(first), Some(second)) => {
-                                    dbrain_reasoner::publish::equivalent_calculated_builds(
-                                        &first, &second,
-                                    )?
-                                }
-                                (None, None) => true,
-                                _ => false,
-                            }
-                        } else {
-                            false
-                        };
-                        if !equivalent {
-                            anyhow::bail!("Die vorhandene Veröffentlichungsanfrage stimmt nicht überein. Sie wurde nicht überschrieben.");
-                        }
-                    }
-                    selected = existing;
+                    (self.reuse_existing(path)?, false)
                 }
                 Err(_) => {
                     anyhow::bail!("Veröffentlichungsanfrage konnte nicht gespeichert werden.")
                 }
-            }
-            fs::File::open(parent)
+            };
+            if fs::File::open(parent)
                 .and_then(|directory| directory.sync_all())
-                .map_err(|_| {
-                    anyhow!("Veröffentlichungsanfrage konnte nicht dauerhaft gespeichert werden.")
-                })?;
-            Ok(())
+                .is_err()
+            {
+                if linked {
+                    let _ = fs::remove_file(path);
+                }
+                anyhow::bail!(
+                    "Veröffentlichungsanfrage konnte nicht dauerhaft gespeichert werden."
+                );
+            }
+            Ok(selected)
         })();
         drop(file);
         let removed = fs::remove_file(temporary)
             .map_err(|_| anyhow!("Temporäre Veröffentlichungsdatei konnte nicht entfernt werden."));
-        result?;
+        let selected = result?;
         removed?;
         Ok(selected)
     }

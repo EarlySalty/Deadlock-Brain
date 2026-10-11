@@ -835,22 +835,19 @@ const UTILITY_MARKERS: [&str; 9] = [
     "AirControl",
 ];
 
-const UTILITY_SUFFIXES: [&str; 12] = [
+const GEOMETRY_SUFFIXES: [&str; 6] = ["Radius", "Range", "Angle", "Height", "Scale", "Tolerance"];
+
+const UTILITY_SUFFIXES: [&str; 6] = [
     "Duration",
     "Lifetime",
     "Delay",
     "ChargeUpTime",
-    "Radius",
-    "Range",
-    "Angle",
     "Velocity",
     "Speed",
-    "Height",
-    "Scale",
-    "Tolerance",
 ];
 
-const COMBAT_TOKENS: [&str; 25] = [
+const COMBAT_TOKENS: [&str; 26] = [
+    "Reload",
     "Damage",
     "DPS",
     "Dot",
@@ -911,9 +908,10 @@ fn unquantified_property(effect: &str) -> Option<&str> {
 
 fn utility_property(key: &str) -> bool {
     UTILITY_MARKERS.iter().any(|marker| key.contains(marker))
-        || UTILITY_SUFFIXES.iter().any(|suffix| key.ends_with(suffix))
+        || GEOMETRY_SUFFIXES.iter().any(|suffix| key.ends_with(suffix))
         || (!COMBAT_TOKENS.iter().any(|token| key.contains(token))
-            && UTILITY_TOKENS.iter().any(|token| key.contains(token)))
+            && (UTILITY_SUFFIXES.iter().any(|suffix| key.ends_with(suffix))
+                || UTILITY_TOKENS.iter().any(|token| key.contains(token))))
 }
 
 fn tolerated_unknown_effect(effect: &str, baseline: &crate::combat::InventoryEvaluation) -> bool {
@@ -969,7 +967,7 @@ pub(crate) fn record_publish_exclusions(
 ) {
     plan.assumptions.extend(excluded.iter().map(|item| {
         let staple = if population.is_staple(item.item_id) {
-            format!(" Populations-Stütze dieses Helden mit {:.0}% Kaufanteil: Der veröffentlichte Build ist ohne dieses Item schwächer als das beobachtete Spielerverhalten; die fehlende Kampfwirkung braucht ein eigenes Quantifizierungspaket.", population.prevalence(item.item_id) * 100.0)
+            format!(" Populations-Stütze dieses Helden mit {:.0}% Kaufanteil; diese Kampfwirkung ist im Modell nicht quantifiziert und braucht ein eigenes Quantifizierungspaket.", population.prevalence(item.item_id) * 100.0)
         } else {
             String::new()
         };
@@ -1191,6 +1189,8 @@ mod tests {
             "Item B: BonusHeavyMeleeDamage nicht quantifiziert",
             "Item B: StaminaCooldownReduction nicht quantifiziert",
             "Item C: FireRateSlow nicht quantifiziert",
+            "Item C: ReloadSpeed nicht quantifiziert",
+            "Item C: BarrierDuration nicht quantifiziert",
             "Item D: Auslöser MeleeBound nur bei belegtem Ereignis; Nahkampf/Parade nicht simuliert",
             "Fähigkeit ability_other: DPS nicht quantifiziert",
         ]);
@@ -1199,6 +1199,8 @@ mod tests {
             [
                 "Item B: BonusHeavyMeleeDamage nicht quantifiziert",
                 "Item C: FireRateSlow nicht quantifiziert",
+                "Item C: ReloadSpeed nicht quantifiziert",
+                "Item C: BarrierDuration nicht quantifiziert",
                 "Item D: Auslöser MeleeBound nur bei belegtem Ereignis; Nahkampf/Parade nicht simuliert",
                 "Fähigkeit ability_other: DPS nicht quantifiziert",
             ]
