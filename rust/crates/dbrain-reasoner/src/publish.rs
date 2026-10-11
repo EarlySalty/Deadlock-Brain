@@ -1045,6 +1045,53 @@ mod catalog_tests {
     use serde_json::json;
 
     #[test]
+    fn publication_requires_one_released_hero_without_hiding_development_answers() {
+        let catalog = json!([
+            {"id":88,"name":"Baba","class_name":"hero_baba","player_selectable":true,
+                "disabled":false,"in_development":true},
+            {"id":56,"name":"Bomber","class_name":"hero_bomber","player_selectable":false,
+                "disabled":true,"in_development":true},
+            {"id":68,"name":"Boho","class_name":"hero_boho","player_selectable":false,
+                "disabled":true,"in_development":true},
+            {"id":99,"name":"Labs Fixture","class_name":"hero_labs_fixture",
+                "player_selectable":true,"disabled":false,"in_hero_labs":true},
+            {"id":83,"name":"hero_testhero","class_name":"hero_testhero",
+                "player_selectable":true,"disabled":false}
+        ]);
+        assert!(validate_publish_hero(&json!({"hero_id":88}), &catalog).is_ok());
+        for id in [56, 68, 99] {
+            assert!(brain_contracts::hero_status::hero_status(
+                catalog
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|hero| hero["id"] == id)
+                    .unwrap()
+                    .as_object()
+                    .unwrap()
+            )
+            .is_some());
+            assert!(validate_publish_hero(&json!({"hero_id":id}), &catalog).is_err());
+        }
+        for id in [83, 404, 0, -1] {
+            assert!(validate_publish_hero(&json!({"hero_id":id}), &catalog).is_err());
+        }
+        assert!(validate_publish_hero(&json!({}), &catalog).is_err());
+        for field in [
+            "player_selectable",
+            "disabled",
+            "prerelease_only",
+            "in_hero_labs",
+        ] {
+            let mut malformed = catalog.clone();
+            malformed[0][field] = Value::Null;
+            assert!(validate_publish_hero(&json!({"hero_id":88}), &malformed).is_err());
+        }
+        let duplicated = json!([catalog[0], catalog[0]]);
+        assert!(validate_publish_hero(&json!({"hero_id":88}), &duplicated).is_err());
+    }
+
+    #[test]
     fn publication_checks_actual_current_shop_entries_before_queue_or_http() {
         let payload = json!({"mod_categories":[{"mods":[{"ability_id":1}]}]});
         let catalog = json!([{"id":1,"name":"Any name","type":"upgrade","item_slot_type":"weapon","item_tier":1,"cost":800,"shopable":true}]);
@@ -1097,10 +1144,39 @@ pub fn validate_publish_catalog(payload: &Value, items: &Value) -> Result<()> {
     Ok(())
 }
 
+fn validate_publish_hero(payload: &Value, heroes: &Value) -> Result<()> {
+    let hero_id = payload["hero_id"]
+        .as_i64()
+        .filter(|id| *id > 0)
+        .ok_or_else(|| ReasonerError::Data("Build braucht einen gültigen Helden.".into()))?;
+    let mut matches = heroes
+        .as_array()
+        .ok_or_else(|| ReasonerError::Data("Aktueller Heldenkatalog fehlt.".into()))?
+        .iter()
+        .filter(|hero| hero["id"].as_i64() == Some(hero_id));
+    if matches
+        .next()
+        .is_none_or(|hero| !brain_contracts::hero_status::is_released_hero(hero))
+        || matches.next().is_some()
+    {
+        return Err(ReasonerError::Data("Für diesen Helden ist keine reguläre Spielbarkeit belegt. Es wurde nichts veröffentlicht.".into()));
+    }
+    Ok(())
+}
+
 pub async fn validate_publish_items(pool: &PgPool, payload: &Value) -> Result<()> {
     let version = brain_storage::asset_mirror::latest_mirrored_client_version(pool)
         .await
         .map_err(|error| ReasonerError::Data(format!("API-Spiegel: {error}")))?;
+    let heroes = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
+        pool,
+        version,
+        "heroes_all",
+        Some("english"),
+    )
+    .await
+    .map_err(|error| ReasonerError::Data(format!("API-Helden: {error}")))?;
+    validate_publish_hero(payload, &heroes.payload)?;
     let items = brain_storage::asset_mirror::load_mirrored_assets_with_receipt(
         pool,
         version,
@@ -1109,6 +1185,9 @@ pub async fn validate_publish_items(pool: &PgPool, payload: &Value) -> Result<()
     )
     .await
     .map_err(|error| ReasonerError::Data(format!("API-Items: {error}")))?;
+    if heroes.receipt.source_run_id != items.receipt.source_run_id {
+        return Err(ReasonerError::Data("Spieldaten wurden während der Prüfung aktualisiert. Bitte erneut versuchen. Es wurde nichts veröffentlicht.".into()));
+    }
     validate_publish_catalog(payload, &items.payload)
 }
 

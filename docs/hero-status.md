@@ -4,7 +4,7 @@ The shared rule is `brain_contracts::hero_status::hero_status`. Hero identity an
 
 ## Rule
 
-A catalog hero has a positive API ID, a nonempty stable class identifier and a resolved display name distinct from that identifier. This rejects unresolved test entries without a hero-name allowlist or denylist. Sources without a catalog match remain answerable when they explicitly mark development or Hero Labs and provide at least one named bound ability. This retains Airheart and Tokamak. An absent entry with neither that development evidence nor a catalog identity is not promoted into an independent hero. This excludes Generic Person, TargetDummy and the uncatalogued transformed Silver form from the roster; their original source data is retained.
+A catalog hero has a positive API ID, a stable class identifier in the `hero_` namespace with a nonempty suffix, and a resolved display name distinct from that identifier. The namespace prevents items and abilities from receiving hero status. This rejects unresolved test entries without a hero-name allowlist or denylist. Sources without a catalog match remain answerable when their `Key` uses that same hero namespace, they explicitly mark development or Hero Labs, and they provide at least one named bound ability. This retains Airheart and Tokamak. An absent entry with neither that development evidence nor a catalog identity is not promoted into an independent hero. This excludes Generic Person, TargetDummy and the uncatalogued transformed Silver form from the roster; their original source data is retained.
 
 Status precedence:
 
@@ -16,9 +16,11 @@ Missing or malformed playability flags cannot grant release. Explicit contradict
 
 Deadlock-data import binds compact catalog observations to the verified assets mirror for the same client version. The derived snapshot records the catalog source run, source document and original hash under `_hero_catalog.receipt`; raw source originals remain unchanged. Missing verified catalog data fails the import explicitly. Normal maintenance reimports snapshots and rebuilds normalized entities and wiki pages; no manual database rewrite is required.
 
+The final publication validator resolves `hero_id` against the current verified English catalog, requires exactly one released match, and checks items from that same complete mirror run before queue insertion or CLI publication. Development, Hero Labs, unresolved, missing and duplicate hero identities are refused without publishing.
+
 ## Measurement: 2026-10-11
 
-Brain sources: complete assets mirror run 761, client 6766; deadlock-data revision `2a26e26535a390c309e300e2c7b2763fa5ad7abd`, client 6766. Current complete mirror membership is used, not the union of historical snapshots. That distinction matters: historical assets contain Airheart and Tokamak, but the current mirror does not.
+Brain sources: complete assets mirror run 761, client 6766; deadlock-data revision `2a26e26535a390c309e300e2c7b2763fa5ad7abd`, client 6766. All 65 current English catalog rows use the `hero_` class namespace. Current complete mirror membership is used, not the union of historical snapshots. That distinction matters: historical assets contain Airheart and Tokamak, but the current mirror does not.
 
 All rows below have deadlock-data `InDevelopment=true` and `InHeroLabs=false`. `S/D` means selectable/disabled. Named abilities count localized names in `BoundAbilities`, not merely placeholder keys.
 
