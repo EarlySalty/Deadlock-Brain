@@ -14,6 +14,8 @@ const PREVIEW_MIGRATION: &str =
     include_str!("../../../../scripts/migrations/2026-10-11-brain-compare-preview-v1.sql");
 const LOOKUP_MIGRATION: &str =
     include_str!("../../../../scripts/migrations/2026-10-11-brain-compare-lookup-v1.sql");
+const LOOKUP_V2_MIGRATION: &str =
+    include_str!("../../../../scripts/migrations/2026-10-11-brain-compare-lookup-v2.sql");
 const MAX_BYTES: usize = 2_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -324,11 +326,31 @@ impl PgStore {
                 .await
                 .map_err(unavailable)?;
         }
+        let lookup_v2: bool = sqlx::query_scalar(
+            "SELECT to_regprocedure('brain.find_published_hero_compare_v2(text,bigint,bigint,bigint)') IS NOT NULL",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        if !lookup_v2 {
+            let body = LOOKUP_V2_MIGRATION
+                .strip_prefix("BEGIN;\n")
+                .and_then(|sql| sql.trim_end().strip_suffix("COMMIT;"))
+                .ok_or_else(invalid)?;
+            sqlx::raw_sql(body)
+                .execute(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+        }
         sqlx::query("SELECT brain.read_compare_artifact_v2(NULL)")
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
         sqlx::query("SELECT brain.find_published_hero_compare_v1(NULL,NULL,NULL,NULL)")
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        sqlx::query("SELECT brain.find_published_hero_compare_v2(NULL,NULL,NULL,NULL)")
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
@@ -417,7 +439,7 @@ impl PgStore {
             .await
             .map_err(unavailable)?;
         let id: Option<String> =
-            sqlx::query_scalar("SELECT brain.find_published_hero_compare_v1($1,$2,$3,$4)")
+            sqlx::query_scalar("SELECT brain.find_published_hero_compare_v2($1,$2,$3,$4)")
                 .bind(release_id)
                 .bind(heroes[0])
                 .bind(heroes[1])

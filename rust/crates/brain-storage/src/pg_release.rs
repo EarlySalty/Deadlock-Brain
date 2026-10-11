@@ -305,7 +305,16 @@ impl PgStore {
             }
             let previous: serde_json::Value = serde_json::from_str(&stored)
                 .map_err(|_| invalid("Gespeicherte Steckbriefquittung ist ungültig"))?;
-            if stable_record(current.clone()) == stable_record(record.clone())
+            let same_inputs = previous["original_release_id"] == receipt["original_release_id"]
+                || same_derivation_inputs(
+                    &mut tx,
+                    &record.logical_id,
+                    previous["original_release_id"].as_str(),
+                    receipt["original_release_id"].as_str(),
+                )
+                .await?;
+            if same_inputs
+                && stable_record(current.clone()) == stable_record(record.clone())
                 && stable_receipt(previous) == stable_receipt(receipt)
             {
                 tx.commit().await.map_err(database_error)?;
@@ -1291,6 +1300,24 @@ impl PgStore {
         tx.commit().await.map_err(database_error)?;
         Ok(snapshot)
     }
+}
+
+async fn same_derivation_inputs(
+    tx: &mut Transaction<'_, Postgres>,
+    entity_key: &str,
+    previous_release_id: Option<&str>,
+    release_id: Option<&str>,
+) -> Result<bool, PortError> {
+    let (Some(previous_release_id), Some(release_id)) = (previous_release_id, release_id) else {
+        return Ok(false);
+    };
+    sqlx::query_scalar("WITH o AS (SELECT (SELECT release_json->'source_revisions' FROM brain.corpus_releases_v1 WHERE release_id=$2) AS s), n AS (SELECT (SELECT release_json->'source_revisions' FROM brain.corpus_releases_v1 WHERE release_id=$3) AS s) SELECT NOT EXISTS (SELECT 1 FROM brain.entity_profile_facts_v1 f, o, n WHERE f.entity_key=$1 AND COALESCE((o.s->f.source_id->>f.logical_id)::bigint=f.revision,false)<>COALESCE((n.s->f.source_id->>f.logical_id)::bigint=f.revision,false))")
+        .bind(entity_key)
+        .bind(previous_release_id)
+        .bind(release_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(database_error)
 }
 
 async fn snapshot_tx(
