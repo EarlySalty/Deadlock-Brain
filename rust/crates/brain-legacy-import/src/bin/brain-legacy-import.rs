@@ -1,9 +1,11 @@
 use brain_contracts::{DocumentStorePort, SourceBatch, SourceCheckpoint, SourceRecordV2};
 use brain_ingestion::document_set::DocumentSetCheckpoint;
 use brain_legacy_import::{
-    cutover::CutoverBinding, entity_documents, patch_documents, pg::read_legacy, prepare_batch,
-    release_from_checkpoints, snapshot_digest, ImportContext, ReleaseConfig, SourcePolicyConfig,
-    ENTITIES_SOURCE, PATCHNOTES_SOURCE,
+    cutover::{snapshot_sha256, CutoverBinding},
+    entity_documents, patch_documents,
+    pg::{read_legacy, LegacyRead},
+    prepare_batch, release_from_checkpoints, snapshot_digest, ImportContext, LegacySource,
+    ReleaseConfig, SourcePolicyConfig, ENTITIES_SOURCE, PATCHNOTES_SOURCE,
 };
 use brain_storage::PgStore;
 use serde::Deserialize;
@@ -12,7 +14,11 @@ use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     ConnectOptions, Connection, Row,
 };
-use std::{collections::BTreeMap, path::PathBuf, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -95,6 +101,41 @@ fn route(config: &Config, destination: Destination<'_>) -> Result<bool, String> 
     Ok(true)
 }
 
+fn observation_route(config: &Config, destination: Destination<'_>) -> Result<(), String> {
+    if config.legacy.socket != destination.socket
+        || config.legacy.port != destination.port
+        || config.legacy.database != destination.database
+        || config.legacy.username != destination.legacy_role
+        || config.target.socket != destination.socket
+        || config.target.port != destination.port
+        || config.target.database != destination.database
+        || config.target.username != destination.target_role
+        || (destination.require_auth
+            && config.legacy.auth_env.as_deref() != Some(destination.legacy_auth))
+    {
+        return Err("read-only observation requires the exact archive endpoint".into());
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    Import,
+    Observe,
+}
+
+fn command(args: &[String]) -> Option<(Mode, &str)> {
+    match args {
+        [_, flag, path] if flag == "--config" => Some((Mode::Import, path)),
+        [_, flag, config_flag, path]
+            if flag == "--observe-snapshot" && config_flag == "--config" =>
+        {
+            Some((Mode::Observe, path))
+        }
+        _ => None,
+    }
+}
+
 const IDENTITY_SQL: &str = "SELECT current_database() AS database, current_user AS username,
     inet_server_addr()::text AS address,
     (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,
@@ -151,6 +192,21 @@ impl Identity {
         }
         Ok(())
     }
+
+    fn verify_observation(&self, destination: Destination<'_>) -> Result<(), String> {
+        if self.database != destination.database
+            || self.username != destination.legacy_role
+            || self.address.is_some()
+            || self.database_oid <= 0
+            || self.archive_oid.is_none_or(|oid| oid <= 0)
+            || self
+                .core_oid
+                .is_none_or(|oid| oid <= 0 || Some(oid) == self.archive_oid)
+        {
+            return Err("read-only observation database identity mismatch".into());
+        }
+        Ok(())
+    }
 }
 
 fn options(endpoint: &Endpoint) -> Result<PgConnectOptions, String> {
@@ -168,6 +224,106 @@ fn options(endpoint: &Endpoint) -> Result<PgConnectOptions, String> {
         options = options.password(&value);
     }
     Ok(options)
+}
+
+fn observation_time(now: SystemTime) -> Result<(String, i64), String> {
+    let elapsed = now
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "read-only observation clock invalid")?;
+    let epoch =
+        i64::try_from(elapsed.as_secs()).map_err(|_| "read-only observation clock invalid")?;
+    if epoch <= 0 {
+        return Err("read-only observation clock invalid".into());
+    }
+    Ok((
+        format!("observed-readonly-{epoch}-{:09}", elapsed.subsec_nanos()),
+        epoch,
+    ))
+}
+
+fn projected_sources(read: &LegacyRead) -> Result<[LegacySource; 2], String> {
+    Ok([
+        entity_documents(&read.entities).map_err(|_| "read-only entity projection invalid")?,
+        patch_documents(&read.patch_lines).map_err(|_| "read-only patch projection invalid")?,
+    ])
+}
+
+fn observation_payload(
+    identity: &Identity,
+    read: &LegacyRead,
+    sources: &[LegacySource; 2],
+    label: &str,
+    epoch: i64,
+) -> Result<serde_json::Value, String> {
+    if sources[0].source_id != ENTITIES_SOURCE || sources[1].source_id != PATCHNOTES_SOURCE {
+        return Err("read-only observation source mismatch".into());
+    }
+    let mut observed_ids = BTreeMap::new();
+    let mut document_counts = BTreeMap::new();
+    for source in sources {
+        let ids: BTreeSet<_> = source
+            .documents
+            .iter()
+            .map(|doc| doc.logical_id.clone())
+            .collect();
+        if ids.len() != source.documents.len()
+            || ids
+                .iter()
+                .any(|id| id.trim().is_empty() || id.chars().any(char::is_control))
+        {
+            return Err("read-only observation IDs invalid".into());
+        }
+        document_counts.insert(source.source_id, source.documents.len());
+        observed_ids.insert(source.source_id, ids.into_iter().collect::<Vec<_>>());
+    }
+    let snapshot = snapshot_sha256(sources, read, label, epoch)
+        .map_err(|_| "read-only snapshot fingerprint failed")?;
+    Ok(json!({
+        "observation_kind": "new_read_only_snapshot",
+        "snapshot_label": label,
+        "snapshot_epoch": epoch,
+        "observed_at_epoch": epoch,
+        "database": identity.database,
+        "role": identity.username,
+        "transport": "unix_socket",
+        "database_oid": identity.database_oid,
+        "archive_schema_oid": identity.archive_oid.ok_or("read-only archive identity missing")?,
+        "core_schema_oid": identity.core_oid.ok_or("read-only core identity missing")?,
+        "schema_sha256": read.schema_sha256,
+        "snapshot_sha256": snapshot,
+        "table_counts": read.table_counts,
+        "document_counts": document_counts,
+        "observed_logical_ids": observed_ids,
+    }))
+}
+
+async fn observe_with_destination(
+    config: Config,
+    destination: Destination<'_>,
+    now: SystemTime,
+) -> Result<serde_json::Value, String> {
+    observation_route(&config, destination)?;
+    let (label, epoch) = observation_time(now)?;
+    let mut legacy = options(&config.legacy)
+        .map_err(|_| "read-only archive configuration invalid")?
+        .connect()
+        .await
+        .map_err(|_| "read-only archive connection failed")?;
+    let row = sqlx::query(IDENTITY_SQL)
+        .fetch_one(&mut legacy)
+        .await
+        .map_err(|_| "read-only archive identity failed")?;
+    let identity = Identity::read(&row).map_err(|_| "read-only archive identity invalid")?;
+    identity.verify_observation(destination)?;
+    let read = read_legacy(&mut legacy)
+        .await
+        .map_err(|_| "read-only archive read failed")?;
+    legacy
+        .close()
+        .await
+        .map_err(|_| "read-only archive close failed")?;
+    let sources = projected_sources(&read)?;
+    observation_payload(&identity, &read, &sources, &label, epoch)
 }
 
 fn verify_checkpoint(
@@ -462,35 +618,51 @@ async fn run_with_destination(
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let path = match args.as_slice() {
-        [_, flag, path] if flag == "--config" => path.clone(),
-        _ => {
-            eprintln!("usage: brain-legacy-import --config <file>");
+    let (mode, path) = match command(&args) {
+        Some(command) => command,
+        None => {
+            eprintln!(
+                "usage: brain-legacy-import --config <file> | --observe-snapshot --config <file>"
+            );
             std::process::exit(64);
         }
     };
-    let config: Config = match std::fs::read(&path)
+    let config: Config = match std::fs::read(path)
         .map_err(|e| e.to_string())
         .and_then(|b| serde_json::from_slice(&b).map_err(|e| e.to_string()))
     {
         Ok(config) => config,
         Err(error) => {
-            eprintln!("config: {error}");
+            if mode == Mode::Observe {
+                eprintln!("read-only snapshot config invalid");
+            } else {
+                eprintln!("config: {error}");
+            }
             std::process::exit(64);
         }
     };
-    let report = config.report.clone();
-    match run(config).await {
+    let report = (mode == Mode::Import).then(|| config.report.clone());
+    let result = match mode {
+        Mode::Import => run(config).await,
+        Mode::Observe => observe_with_destination(config, PRODUCTION, SystemTime::now()).await,
+    };
+    match result {
         Ok(value) => {
             let text = serde_json::to_string_pretty(&value).unwrap();
-            if let Err(error) = std::fs::write(&report, &text) {
-                eprintln!("report: {error}");
-                std::process::exit(1);
+            if let Some(report) = report {
+                if let Err(error) = std::fs::write(&report, &text) {
+                    eprintln!("report: {error}");
+                    std::process::exit(1);
+                }
             }
             println!("{text}");
         }
         Err(error) => {
-            eprintln!("legacy import failed: {error}");
+            if mode == Mode::Observe {
+                eprintln!("read-only snapshot failed: {error}");
+            } else {
+                eprintln!("legacy import failed: {error}");
+            }
             std::process::exit(1);
         }
     }
@@ -537,6 +709,82 @@ mod tests {
             "report": "/tmp/cutover-fixture.json"
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn observation_mode_is_explicit_and_keeps_import_bound() {
+        let import = vec![
+            "brain-legacy-import".into(),
+            "--config".into(),
+            "config.json".into(),
+        ];
+        let observation = vec![
+            "brain-legacy-import".into(),
+            "--observe-snapshot".into(),
+            "--config".into(),
+            "config.json".into(),
+        ];
+        assert_eq!(command(&import), Some((Mode::Import, "config.json")));
+        assert_eq!(command(&observation), Some((Mode::Observe, "config.json")));
+        assert_eq!(command(&observation[..3]), None);
+
+        let mut config = config();
+        config.production_binding = None;
+        config.target.auth_env = None;
+        assert!(observation_route(&config, PRODUCTION).is_ok());
+        assert!(route(&config, PRODUCTION).is_err());
+        config.legacy.socket = "/tmp/wrong-cluster".into();
+        assert!(observation_route(&config, PRODUCTION).is_err());
+        config.legacy.socket = PRODUCTION.socket.into();
+        config.legacy.username = "brain_ingest".into();
+        assert!(observation_route(&config, PRODUCTION).is_err());
+        config.legacy.username = PRODUCTION.legacy_role.into();
+        config.legacy.database = "brain_pilot".into();
+        assert!(observation_route(&config, PRODUCTION).is_err());
+        config.legacy.database = PRODUCTION.database.into();
+        config.legacy.auth_env = Some("UNRELATED_SECRET".into());
+        assert!(observation_route(&config, PRODUCTION).is_err());
+        config.legacy.auth_env = Some(PRODUCTION.legacy_auth.into());
+        config.target.socket = "/tmp/wrong-target".into();
+        assert!(observation_route(&config, PRODUCTION).is_err());
+    }
+
+    #[test]
+    fn observation_identity_and_errors_exclude_archive_content() {
+        let mut identity = Identity {
+            database: PRODUCTION.database.into(),
+            username: PRODUCTION.legacy_role.into(),
+            address: None,
+            database_oid: 1,
+            archive_oid: Some(2),
+            core_oid: Some(3),
+        };
+        assert!(identity.verify_observation(PRODUCTION).is_ok());
+        identity.address = Some("127.0.0.1".into());
+        assert!(identity.verify_observation(PRODUCTION).is_err());
+        identity.address = None;
+        identity.username = "brain_ingest".into();
+        assert!(identity.verify_observation(PRODUCTION).is_err());
+        identity.username = PRODUCTION.legacy_role.into();
+        identity.core_oid = Some(2);
+        assert!(identity.verify_observation(PRODUCTION).is_err());
+        let read = LegacyRead {
+            entities: vec![brain_legacy_import::EntityRow {
+                entity_id: 1,
+                entity_type: "hero".into(),
+                canonical_name: "RAW_SENTINEL".into(),
+                primary_external_id: None,
+                source: None,
+                metadata: json!({"external id": "RAW_SENTINEL"}),
+                aliases: Vec::new(),
+            }],
+            patch_lines: Vec::new(),
+            schema_sha256: "a".repeat(64),
+            table_counts: BTreeMap::new(),
+        };
+        let error = projected_sources(&read).unwrap_err();
+        assert!(!error.contains("RAW_SENTINEL"));
+        assert!(observation_time(UNIX_EPOCH).is_err());
     }
 
     #[test]
@@ -1002,6 +1250,69 @@ mod tests {
             snapshot_epoch: config.snapshot_epoch,
             schema_sha256: read.schema_sha256.clone(),
         };
+        let mut observer = config.clone();
+        observer.production_binding = None;
+        observer.target.auth_env = Some("TARGET_SECRET_SENTINEL".into());
+        observer.snapshot_label = "historical-label-sentinel".into();
+        observer.snapshot_epoch = 1;
+        observer.report = "/DO_NOT_RUN/OBSERVATION.json".into();
+        let observed_at =
+            UNIX_EPOCH + Duration::from_secs(1_800_000_123) + Duration::from_nanos(456);
+        let (observed_label, observed_epoch) = observation_time(observed_at).unwrap();
+        let unchanged = target_counts(&pool).await;
+        let observed = observe_with_destination(observer.clone(), fixture, observed_at)
+            .await
+            .unwrap();
+        assert_eq!(observed["observation_kind"], "new_read_only_snapshot");
+        assert_eq!(observed["snapshot_label"], observed_label);
+        assert_eq!(observed["snapshot_epoch"], observed_epoch);
+        assert_eq!(observed["observed_at_epoch"], observed_epoch);
+        assert_eq!(
+            observed["snapshot_sha256"],
+            snapshot_sha256(&sources, &read, &observed_label, observed_epoch).unwrap()
+        );
+        assert_eq!(observed["table_counts"], json!(read.table_counts));
+        assert_eq!(observed["document_counts"][ENTITIES_SOURCE], 1);
+        assert_eq!(observed["document_counts"][PATCHNOTES_SOURCE], 2);
+        assert_eq!(
+            observed["observed_logical_ids"][ENTITIES_SOURCE],
+            json!(["entity/hero/Warden"])
+        );
+        assert_eq!(
+            observed["observed_logical_ids"][PATCHNOTES_SOURCE],
+            json!(["patch/p1", "patch/p2"])
+        );
+        assert_eq!(observed["database_oid"], identity.database_oid);
+        assert_eq!(
+            observed["archive_schema_oid"],
+            identity.archive_oid.unwrap()
+        );
+        assert_eq!(observed["core_schema_oid"], identity.core_oid.unwrap());
+        for key in [
+            "active_ids",
+            "revoked_ids",
+            "tombstone_ids",
+            "approval_ref",
+            "policy_sha256",
+        ] {
+            assert!(observed.get(key).is_none());
+        }
+        let text = observed.to_string();
+        for secret in [
+            "TARGET_SECRET_SENTINEL",
+            "historical-label-sentinel",
+            "Warden: first",
+            "https://example.invalid/p1",
+        ] {
+            assert!(!text.contains(secret));
+        }
+        assert_eq!(target_counts(&pool).await, unchanged);
+        observer.legacy.username = "wrong-role-sentinel".into();
+        let error = observe_with_destination(observer, fixture, observed_at)
+            .await
+            .unwrap_err();
+        assert!(!error.contains("wrong-role-sentinel"));
+        assert_eq!(target_counts(&pool).await, unchanged);
         let approval = format!("sha256:{}", "a".repeat(64));
         config.sources = BTreeMap::from([
             (
