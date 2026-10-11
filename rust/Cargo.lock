@@ -412,6 +412,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "brain-contracts",
+ "brain-feeds",
  "brain-ingestion",
  "brain-jev",
  "brain-serve",

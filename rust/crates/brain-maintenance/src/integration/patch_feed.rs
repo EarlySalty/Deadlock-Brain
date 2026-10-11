@@ -1,4 +1,12 @@
 use anyhow::{ensure, Context, Result};
+use brain_contracts::{DocumentStorePort, SourceVisibility};
+use brain_feeds::{
+    patchnotes::{prepare_batch, SOURCE},
+    patchnotes_http::{endpoint, fetch_feed, http_client, validated_feed, DEFAULT_URL},
+    FeedPolicy,
+};
+use brain_ingestion::document_set::current_pins;
+use brain_storage::PgStore;
 use serde_json::json;
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
@@ -56,6 +64,44 @@ pub async fn mirror_changelog_posts(
         "newest_post_id": posts.iter().map(|post| post.id).max(),
         "inserted": inserted,
         "updated": updated,
+    }))
+}
+
+pub async fn ingest_canonical_feed(
+    store: &PgStore,
+    key: &str,
+    owner: &str,
+) -> Result<serde_json::Value> {
+    let client = http_client().map_err(anyhow::Error::msg)?;
+    let url = endpoint(DEFAULT_URL).map_err(anyhow::Error::msg)?;
+    let bytes = fetch_feed(&client, url, key)
+        .await
+        .map_err(anyhow::Error::msg)?;
+    let feed = validated_feed(&bytes).map_err(anyhow::Error::msg)?;
+    let policy = FeedPolicy {
+        visibility: SourceVisibility::Public,
+        allowed_scopes: std::collections::BTreeSet::from(["bot.public".into()]),
+        provider_egress_allowed: true,
+        publication_allowed: true,
+        raw_retention_allowed: true,
+    };
+    prepare_batch(&feed, &policy, None)?;
+    let lease = store.claim(SOURCE, owner, 60_000).await?;
+    let previous = store.checkpoint(SOURCE).await?;
+    let batch = prepare_batch(&feed, &policy, previous.as_ref())?;
+    let receipt = store.commit(&batch, &lease).await?;
+    Ok(json!({
+        "source_id": SOURCE,
+        "status": if batch.records.is_empty() { "up_to_date" } else { "source_committed" },
+        "export_revision": feed.export_revision,
+        "generation": receipt.generation,
+        "replayed": receipt.replayed,
+        "records": batch.records.len(),
+        "tombstones": batch.records.iter().filter(|record| record.tombstone).count(),
+        "live_documents": current_pins(&batch.checkpoint)?.len(),
+        "publication_allowed": true,
+        "provider_egress_allowed": true,
+        "activation_performed": false,
     }))
 }
 
