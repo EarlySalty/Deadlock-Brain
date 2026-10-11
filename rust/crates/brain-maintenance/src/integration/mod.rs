@@ -2,6 +2,7 @@ pub mod activation;
 pub mod artifacts;
 mod c9_import;
 pub mod config_writer;
+pub mod data_jobs;
 pub mod entity_profiles;
 mod patch_feed;
 pub mod runner;

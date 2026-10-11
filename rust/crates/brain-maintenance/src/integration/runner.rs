@@ -107,7 +107,12 @@ where
             && job.source_sha == scan.source_sha,
         "provider_job_binding"
     );
-    let guard = store.lock_maintenance_provider_policy(job).await?;
+    let (guard, registration) = store.lock_maintenance_provider_registration(job).await?;
+    ensure!(
+        registration.source_id == source_id(repo, &job.target_path)
+            && scanner::relevant_source_matches(config, repo, &registration.discovered_sha).await?,
+        "provider_registry_source_changed"
+    );
     author::validate_provider_input(config, repo, scan, &job.target_path).await?;
     let result = dispatch().await?;
     guard.commit().await?;
@@ -615,9 +620,13 @@ impl Runner {
                 })
                 .await?;
         }
-        if self.enqueue_local_imports(&config).await.is_err() {
-            isolated_errors.push(json!({"code":"LOCAL_IMPORT_ENQUEUE_FAILED"}));
-        }
+        let reconciled_local_jobs = match self.enqueue_local_imports(&config).await {
+            Ok(()) => self.reconcile_abandoned_local_jobs(&config).await?,
+            Err(_) => {
+                isolated_errors.push(json!({"code":"LOCAL_IMPORT_ENQUEUE_FAILED"}));
+                0
+            }
+        };
         for _ in 0..self.runtime.max_jobs_per_tick * 5 {
             let Some(mut job) = self
                 .store
@@ -689,6 +698,7 @@ impl Runner {
             }
         }
         let mut status = self.status().await?;
+        status["reconciled_local_jobs"] = json!(reconciled_local_jobs);
         if let Some((source_dsn, key)) = &self.patch_feed {
             match super::patch_feed::mirror_changelog_posts(source_dsn, &self.pool).await {
                 Ok(mirrored) => {
@@ -701,6 +711,27 @@ impl Runner {
                     }
                 }
                 Err(_) => isolated_errors.push(json!({"code":"PATCH_FEED_MIRROR_FAILED"})),
+            }
+        }
+        if !self.runtime.data_jobs.is_empty() {
+            match super::data_jobs::run_due(
+                &self.pool,
+                &self.runtime.data_jobs,
+                &self.runtime.infisical_config,
+                self.runtime.retry_delay_ms,
+            )
+            .await
+            {
+                Ok(outcomes) => {
+                    for outcome in &outcomes {
+                        if outcome["status"] == "failed" {
+                            isolated_errors
+                                .push(json!({"code":"DATA_JOB_FAILED","job":outcome["job"]}));
+                        }
+                    }
+                    status["data_jobs"] = json!(outcomes);
+                }
+                Err(_) => isolated_errors.push(json!({"code":"DATA_JOBS_FAILED"})),
             }
         }
         if self.runtime.entity_profile_corpus_root.is_some() {
@@ -1028,6 +1059,40 @@ impl Runner {
         Ok(())
     }
 
+    async fn reconcile_abandoned_local_jobs(&self, config: &MaintenanceConfig) -> Result<u64> {
+        let mut retained_ids = Vec::new();
+        for import in &self.runtime.local_imports {
+            let bytes = read_bounded(&import.path, 8 * 1024 * 1024)?;
+            ensure!(
+                digest(&bytes) == import.sha256,
+                "local_import_changed_since_review"
+            );
+            let documents: Vec<CoreDocument> = serde_json::from_slice(&bytes)?;
+            for document in documents {
+                let repo = config
+                    .repositories
+                    .iter()
+                    .find(|repo| repo.doc_targets.contains(&document.logical_id))
+                    .context("local_import_unregistered_target")?;
+                retained_ids.push(local_job_spec(config, repo, &document, &import.sha256).id);
+            }
+        }
+        let mut reconciled = 0;
+        for repo in &config.repositories {
+            for target in &repo.doc_targets {
+                reconciled += self
+                    .store
+                    .supersede_abandoned_local_maintenance(
+                        &registration_id(repo, target),
+                        &retained_ids,
+                        repo.document_policy_for(target),
+                    )
+                    .await?;
+            }
+        }
+        Ok(reconciled)
+    }
+
     async fn local_document(
         &self,
         job: &MaintenanceJob,
@@ -1136,6 +1201,27 @@ impl Runner {
         );
         let mut lease = job.lease.clone().context("job_lease")?;
         let mut checkpoint = job.checkpoint.clone();
+        if matches!(
+            job.status,
+            MaintenanceStatus::Planned
+                | MaintenanceStatus::SourceReview
+                | MaintenanceStatus::Author
+                | MaintenanceStatus::Reviewer
+        ) && !job.spec.policy.provider_egress_allowed
+            && !repo
+                .code_only_migration_targets
+                .contains(&job.spec.target_path)
+            && !checkpoint.artifact_refs.contains_key("local_review")
+            && self.local_document(job).await?.is_none()
+        {
+            checkpoint
+                .artifact_refs
+                .insert("blocked_reason".into(), "PROVIDER_EGRESS_DENIED".into());
+            self.store
+                .transition_maintenance(&lease, MaintenanceStatus::Failed, &checkpoint)
+                .await?;
+            return Ok(());
+        }
         if job.checkpoint.publication.is_none()
             && matches!(
                 job.status,

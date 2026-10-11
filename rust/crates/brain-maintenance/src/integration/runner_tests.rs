@@ -259,7 +259,10 @@ async fn setup() -> (
         .max_connections(4)
         .connect_with(
             PgConnectOptions::new_without_pgpass()
-                .host("/tmp/brain-maintenance-test-20261002/socket")
+                .host(
+                    &std::env::var("BRAIN_MAINTENANCE_TEST_PG_SOCKET")
+                        .unwrap_or_else(|_| "/tmp/brain-maintenance-test-20261002/socket".into()),
+                )
                 .port(55447)
                 .username("brain_maintenance_test")
                 .database("postgres")
@@ -321,6 +324,199 @@ async fn setup() -> (
         .await
         .unwrap();
     (dir, runner, config, repo, scan)
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL fixture"]
+async fn abandoned_local_jobs_reconcile_without_provider_calls_or_checkpoint_loss() {
+    let (_dir, runner, config, repo, scan) = setup().await;
+    let mut old = job_spec(
+        &config,
+        &repo,
+        "internal/system.html",
+        &scan.source_sha,
+        None,
+        "abandoned",
+    );
+    old.id = format!("local-{}", runner.owner);
+    old.idempotency_key = old.id.clone();
+    runner
+        .store
+        .enqueue_maintenance(&old, MaintenanceStatus::Planned)
+        .await
+        .unwrap();
+    let old_lease = runner
+        .store
+        .claim_maintenance_for_job(&runner.owner, 60000, Some(&old.id))
+        .await
+        .unwrap()
+        .unwrap()
+        .lease
+        .unwrap();
+    let replacement = job_spec(
+        &config,
+        &repo,
+        "internal/system.html",
+        &scan.source_sha,
+        None,
+        &runner.owner,
+    );
+    runner
+        .store
+        .enqueue_maintenance(&replacement, MaintenanceStatus::Planned)
+        .await
+        .unwrap();
+    let mut checkpoint = MaintenanceCheckpoint::default();
+    checkpoint
+        .artifact_refs
+        .insert("scan".into(), "fixture-scan".into());
+    checkpoint
+        .artifact_refs
+        .insert("triage".into(), "fixture-triage".into());
+    for next in [MaintenanceStatus::SourceReview, MaintenanceStatus::NoChange] {
+        let claimed = runner
+            .store
+            .claim_maintenance_for_job(&runner.owner, 60000, Some(&replacement.id))
+            .await
+            .unwrap()
+            .unwrap();
+        runner
+            .store
+            .transition_maintenance(&claimed.lease.unwrap(), next, &checkpoint)
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        runner
+            .reconcile_abandoned_local_jobs(&config)
+            .await
+            .unwrap(),
+        0
+    );
+    runner
+        .store
+        .retry_maintenance_with_detail(&old_lease, "STAGE_FAILED", Some("preserved_error"), 0, 100)
+        .await
+        .unwrap();
+    assert_eq!(
+        runner
+            .store
+            .supersede_abandoned_local_maintenance(&old.repo_id, &[old.id.clone()], &old.policy)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        runner
+            .reconcile_abandoned_local_jobs(&config)
+            .await
+            .unwrap(),
+        1
+    );
+    let reconciled = runner
+        .store
+        .maintenance_job(&old.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reconciled.status, MaintenanceStatus::Superseded);
+    assert_eq!(
+        reconciled.superseded_by.as_deref(),
+        Some(replacement.id.as_str())
+    );
+    assert_eq!(
+        reconciled.checkpoint.artifact_refs["last_error"],
+        "preserved_error"
+    );
+    assert_eq!(
+        runner
+            .reconcile_abandoned_local_jobs(&config)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL fixture"]
+async fn denied_provider_policy_is_terminal_without_retry_or_dispatch() {
+    let (dir, runner, mut config, mut repo, scan) = setup().await;
+    repo.document_policy.provider_egress_allowed = false;
+    config.repositories = vec![repo.clone()];
+    config.codex.executable = dir.path().join("provider-must-not-run");
+    fs::write(
+        &runner.runtime.maintenance_config,
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    runner
+        .registration(&repo, "internal/system.html", &scan.source_sha)
+        .await
+        .unwrap();
+    let spec = job_spec(
+        &config,
+        &repo,
+        "internal/system.html",
+        &scan.source_sha,
+        None,
+        &runner.owner,
+    );
+    runner
+        .store
+        .enqueue_maintenance(&spec, MaintenanceStatus::Planned)
+        .await
+        .unwrap();
+    let mut claimed = runner
+        .store
+        .claim_maintenance_for_job(&runner.owner, 60000, Some(&spec.id))
+        .await
+        .unwrap()
+        .unwrap();
+    runner
+        .store
+        .transition_maintenance(
+            &claimed.lease.take().unwrap(),
+            MaintenanceStatus::SourceReview,
+            &claimed.checkpoint,
+        )
+        .await
+        .unwrap();
+    let mut claimed = runner
+        .store
+        .claim_maintenance_for_job(&runner.owner, 60000, Some(&spec.id))
+        .await
+        .unwrap()
+        .unwrap();
+    runner.advance(&mut claimed).await.unwrap();
+    let stored = runner
+        .store
+        .maintenance_job(&spec.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.status, MaintenanceStatus::Failed);
+    assert_eq!(stored.error_code.as_deref(), Some("POLICY_BLOCKED"));
+    assert_eq!(
+        stored.checkpoint.artifact_refs["blocked_reason"],
+        "PROVIDER_EGRESS_DENIED"
+    );
+    assert!(stored.lease.is_none());
+    assert!(!stored.checkpoint.artifact_refs.contains_key("triage"));
+    assert!(runner
+        .store
+        .claim_maintenance_for_job(&runner.owner, 60000, Some(&spec.id))
+        .await
+        .unwrap()
+        .is_none());
+    let status = runner.status().await.unwrap();
+    let visible = status["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|job| job["id"] == spec.id)
+        .unwrap();
+    assert_eq!(visible["error_code"], "POLICY_BLOCKED");
+    assert_eq!(visible["blocked_reason"], "PROVIDER_EGRESS_DENIED");
 }
 
 async fn stage(
@@ -1026,7 +1222,10 @@ async fn postgres_paid_invalid_results_are_terminal_and_keep_private_receipts() 
         .max_connections(1)
         .connect_with(
             PgConnectOptions::new_without_pgpass()
-                .host("/tmp/brain-maintenance-test-20261002/socket")
+                .host(
+                    &std::env::var("BRAIN_MAINTENANCE_TEST_PG_SOCKET")
+                        .unwrap_or_else(|_| "/tmp/brain-maintenance-test-20261002/socket".into()),
+                )
                 .port(55447)
                 .username("brain_maintenance_test")
                 .database("postgres")

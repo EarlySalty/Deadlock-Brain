@@ -33,6 +33,8 @@ pub struct RuntimeConfig {
     pub entity_profile_patch_raw_dir: Option<PathBuf>,
     #[serde(default)]
     pub patch_feed_secret: Option<String>,
+    #[serde(default)]
+    pub data_jobs: Vec<super::data_jobs::DataJobConfig>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -95,6 +97,7 @@ impl RuntimeConfig {
             "retry_delay"
         );
         ensure!(config.local_imports.len() <= 32, "local_import_limit");
+        super::data_jobs::validate(&config.data_jobs)?;
         if let Some(root) = &config.entity_profile_corpus_root {
             ensure!(root.is_absolute(), "entity_profile_corpus_root");
         }

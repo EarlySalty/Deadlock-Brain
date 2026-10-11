@@ -198,7 +198,10 @@ async fn postgres_revocation_after_scan_blocks_actual_provider_dispatch() {
         .max_connections(4)
         .connect_with(
             sqlx::postgres::PgConnectOptions::new_without_pgpass()
-                .host("/tmp/brain-maintenance-test-20261002/socket")
+                .host(
+                    &std::env::var("BRAIN_MAINTENANCE_TEST_PG_SOCKET")
+                        .unwrap_or_else(|_| "/tmp/brain-maintenance-test-20261002/socket".into()),
+                )
                 .port(55447)
                 .username("brain_maintenance_test")
                 .database("postgres")
@@ -225,7 +228,7 @@ async fn postgres_revocation_after_scan_blocks_actual_provider_dispatch() {
     };
     let mut registration = MaintenanceSourceRegistration {
         repo_id: spec.repo_id.clone(),
-        source_id: format!("maintenance-docs:{id}"),
+        source_id: format!("maintenance-docs:{}", spec.repo_id),
         discovered_sha: scan.source_sha.clone(),
         policy: Some(spec.policy.clone()),
         authorization_ref: Some("controlled-test".into()),
@@ -239,6 +242,24 @@ async fn postgres_revocation_after_scan_blocks_actual_provider_dispatch() {
         .await
         .unwrap();
     let calls = AtomicUsize::new(0);
+    guarded_provider_dispatch(&store, &config, &repo, &scan, &spec, || async {
+        calls.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(calls.swap(0, Ordering::SeqCst), 1);
+    fs::write(repo.path.join("README.md"), "Unrelated repository change").unwrap();
+    pin(&repo.path);
+    registration.discovered_sha =
+        scanner::resolve_ref(&repo.path, &repo.source_ref, &config.bounds)
+            .await
+            .unwrap();
+    assert_ne!(registration.discovered_sha, spec.source_sha);
+    store
+        .register_maintenance_source(&registration)
+        .await
+        .unwrap();
     guarded_provider_dispatch(&store, &config, &repo, &scan, &spec, || async {
         calls.fetch_add(1, Ordering::SeqCst);
         Ok(())
