@@ -110,6 +110,14 @@ pub fn score_item(
             detail,
         })
         .collect();
+    sources.extend(
+        mechanics::item_model_provenance(item)
+            .into_iter()
+            .map(|detail| crate::Evidence {
+                kind: crate::EvidenceKind::Mechanic,
+                detail,
+            }),
+    );
     if rate_provenance.unknown_nonfinite {
         sources.push(crate::Evidence {
             kind: crate::EvidenceKind::Mechanic,
@@ -156,7 +164,7 @@ pub fn score_item(
     if item.properties.contains_key("HealthStealPctHero")
         || item.passive_properties.contains_key("HealthStealPctHero")
     {
-        sources.push(crate::Evidence { kind:crate::EvidenceKind::Mechanic, detail:"Max-HP-Entzug zählt Verlust am Ziel und eigenen Lebensgewinn. Annahme: Ziel hat das Basisleben des Helden; keine Gegnerdaten vorhanden. Bewertung als Bruttowirkung der Procs im Fenster, ohne Rückgabe nach Debuff-Ende.".into() });
+        sources.push(crate::Evidence { kind:crate::EvidenceKind::Mechanic, detail: if item.properties.contains_key("StealDuration") { "Temporärer Max-HP-Entzug ist ohne zielgebundenen Ablauf- und Rückgabepool nicht quantifiziert; kein garantierter Lebensgewinn im Item-Vorvergleich.".into() } else { "Max-HP-Entzug zählt Verlust am Ziel und eigenen Lebensgewinn. Annahme: Ziel hat das Basisleben des Helden; keine Gegnerdaten vorhanden. Bewertung als Bruttowirkung der Procs im Fenster, ohne Rückgabe nach Debuff-Ende.".into() } });
     }
     if meta_support != 0.0 {
         sources.push(crate::Evidence {
@@ -242,6 +250,24 @@ pub fn spirit_fire_rate_value(
         .filter(|(name, value)| is_spirit(name) && value.is_finite() && is_conditional(name))
         .map(|(_, value)| value)
         .sum::<f64>();
+    let passive_percent = properties
+        .get("TechPowerPercent")
+        .filter(|value| value.is_finite() && !is_conditional("TechPowerPercent"))
+        .copied()
+        .unwrap_or_default();
+    let active_percent = properties
+        .get("TechPowerPercent")
+        .filter(|value| value.is_finite() && is_conditional("TechPowerPercent"))
+        .copied()
+        .unwrap_or_default();
+    let project = |flat: f64, percent: f64| {
+        mechanics::project_spirit(hero.base_spirit_power + flat, percent) - hero.base_spirit_power
+    };
+    let passive_flat = passive_spirit;
+    let active_flat = active_spirit;
+    let passive_spirit = project(passive_flat, passive_percent);
+    let active_spirit =
+        project(passive_flat + active_flat, passive_percent + active_percent) - passive_spirit;
     let bonus = if item.slot == crate::SlotType::Spirit {
         hero.purchase_bonuses
             .spirit
@@ -267,16 +293,24 @@ pub fn spirit_fire_rate_value(
     let factor = mechanics::condition_factor_for_hero(item, hero, cfg);
     let passive_dps = dps(passive_spirit) - dps(0.0);
     let active_dps = dps(passive_spirit + active_spirit) - dps(passive_spirit);
+    let passive_purchase = project(passive_flat + bonus, passive_percent) - passive_spirit;
+    let active_purchase = project(
+        passive_flat + active_flat + bonus,
+        passive_percent + active_percent,
+    ) - passive_spirit
+        - active_spirit;
     let purchase_dps = factor
-        * (dps(passive_spirit + active_spirit + bonus) - dps(passive_spirit + active_spirit))
-        + (1.0 - factor) * (dps(passive_spirit + bonus) - dps(passive_spirit));
+        * (dps(passive_spirit + active_spirit + active_purchase)
+            - dps(passive_spirit + active_spirit))
+        + (1.0 - factor) * (dps(passive_spirit + passive_purchase) - dps(passive_spirit));
+    let projected_bonus = passive_purchase * (1.0 - factor) + active_purchase * factor;
     SpiritFireRateValue {
         spirit_power: passive_spirit + active_spirit,
-        purchase_spirit_power: bonus,
-        rounds_per_second: (passive_spirit + active_spirit + bonus) * per_spirit,
-        bullet_damage: (passive_spirit + active_spirit + bonus)
+        purchase_spirit_power: projected_bonus,
+        rounds_per_second: (passive_spirit + active_spirit + projected_bonus) * per_spirit,
+        bullet_damage: (passive_spirit + active_spirit + projected_bonus)
             * mechanics::weapon_spirit_scaling(hero).bullet_damage,
-        clip_size: (passive_spirit + active_spirit + bonus)
+        clip_size: (passive_spirit + active_spirit + projected_bonus)
             * mechanics::weapon_spirit_scaling(hero).clip_size,
         active_dps,
         passive_dps,

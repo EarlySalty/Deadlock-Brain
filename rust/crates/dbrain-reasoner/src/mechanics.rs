@@ -24,7 +24,21 @@ pub fn purchase_bonus_value_with_config(
         .unwrap_or_default();
     match item.slot {
         SlotType::Weapon => bonus / 100.0 * hero.damage_plan.weapon_dps,
-        SlotType::Spirit => bonus * spirit_power_value(hero, cfg),
+        SlotType::Spirit => {
+            let percent = item
+                .properties
+                .get("TechPowerPercent")
+                .or_else(|| item.passive_properties.get("TechPowerPercent"))
+                .copied()
+                .filter(|value| value.is_finite())
+                .unwrap_or_default();
+            let factor = if item.conditional_properties.contains("TechPowerPercent") {
+                condition_factor_for_hero(item, hero, cfg)
+            } else {
+                1.0
+            };
+            project_spirit(bonus, percent * factor) * spirit_power_value(hero, cfg)
+        }
         SlotType::Vitality => bonus * hero.base_health / 100.0 / cfg.combat_window_seconds.max(1.0),
     }
 }
@@ -80,7 +94,87 @@ pub(crate) fn enemy_health_threshold(item: &ItemModel) -> Option<f64> {
         .map(|value| value / 100.0)
 }
 
+pub(crate) fn own_health_threshold(item: &ItemModel) -> Option<(&'static str, f64, bool)> {
+    let (key, above) = if item
+        .conditional_properties
+        .contains("TechResistBelowThreshold")
+    {
+        ("HealthThreshold", false)
+    } else if item.properties.contains_key("LifeThreshold")
+        && ["BaseAttackDamagePercent", "BonusFireRate"]
+            .iter()
+            .all(|key| item.conditional_properties.contains(*key))
+    {
+        ("LifeThreshold", true)
+    } else {
+        return None;
+    };
+    item.properties
+        .get(key)
+        .or_else(|| item.passive_properties.get(key))
+        .copied()
+        .filter(|value| value.is_finite() && (0.0..=100.0).contains(value))
+        .map(|value| (key, value / 100.0, above))
+}
+
+pub(crate) fn project_spirit(flat: f64, percent: f64) -> f64 {
+    (flat * (1.0 + percent / 100.0)).max(0.0)
+}
+
+pub(crate) fn item_model_provenance(item: &ItemModel) -> Vec<String> {
+    let mut result = Vec::new();
+    if let Some((key, threshold, above)) = own_health_threshold(item) {
+        result.push(format!("{}: {key} aus Originaldaten {:.1}%; Bedingung ist strikt {} des eigenen aktuellen Maximallebens, alle 0,2 s vor Kampfereignissen geprüft. Heilung kann die Bedingung wieder umkehren. Innate Widerstände bleiben erhalten. Im Item-Vorvergleich gilt gleichverteiltes eigenes Restleben, keine gemessene Verfügbarkeit.", item.name, threshold * 100.0, if above { "oberhalb" } else { "unterhalb" }));
+        if !above {
+            result.push(format!("{}: TechResistBelowThreshold wird als zusätzliche unabhängige Spirit-Resistenz angenommen, multiplikativ mit TechResist und anderen Widerständen; keine additive Prozentpunkt-Annahme. Defensive Kapazität verwendet den aktuellen Zustand, keine vollständige stückweise Schwellenprognose.", item.name));
+        }
+    }
+    if item.properties.contains_key("TechPowerPercent") {
+        result.push(format!("{}: TechPowerPercent ist ein prozentualer Spirit-Multiplikator, keine flache Spirit-Zugabe. Modellannahme: globale flache Spirit-Werte einschließlich Heldenbasis, Item-, Shop- und laufender Buffboni werden zuerst summiert; Prozentboni werden addiert und einmal danach angewandt. Ein expliziter Gesamt-Spirit-Wert in einer Berechnung ersetzt dieses Ergebnis. Abgeleitete Waffenwerte und Fähigkeitsschaden verwenden denselben Gesamtwert.", item.name));
+    }
+    if item.properties.contains_key("OutOfCombatHealthRegen") {
+        result.push(format!("{}: OutOfCombatHealthRegen wirkt im durchgehend kämpfenden Vergleich null; auch die 1,0-s-Zielwechselpause wird nicht als belegter Austritt aus dem Kampf behandelt. Erholung zwischen Kämpfen ist nicht bewertet und wird nicht als Dauerheilung addiert.", item.name));
+    }
+    for (keys, reason) in [
+        (&["NonPlayerBonusWeaponPower", "NonPlayerBulletResist"][..], "NPC-Schaden und NPC-Widerstand benötigen ein NPC-Ziel mit eigener Bedrohung. Die drei Heldenkampfszenarien quantifizieren diese Farmwirkung nicht; keine Übertragung auf gegnerische Helden."),
+        (&["HealOnVeil", "InvisDuration"][..], "Kein belegtes Durchqueren eines Cosmic Veil im Ereignismodell. Heilung, Stealth, Sichtbarkeit und bedingtes Lauftempo bleiben unquantifiziert; AbilityCooldown belegt keine automatische Auslösung."),
+        (&["StealPerHit", "HealthStealPctHero"][..], "Temporärer Max-HP-Entzug benötigt einen zielgebundenen Stapelpool mit Ablauf und Rückgabe, einschließlich Kill- und Todesregeln. Ohne diese Mechanik keine permanente Lebensreduktion, Heilung oder garantierte Bruttowirkung angenommen."),
+    ] {
+        if keys.iter().all(|key| item.properties.contains_key(*key)) {
+            result.push(format!("{}: {reason}", item.name));
+        }
+    }
+    if !result.is_empty() {
+        let mut properties = item.passive_properties.clone();
+        properties.extend(item.properties.clone());
+        result.insert(
+            0,
+            format!(
+                "{}: nichtnull Rohproperties aus gebundenem Original-Item: {}.",
+                item.name,
+                properties
+                    .iter()
+                    .filter(|(_, value)| **value != 0.0)
+                    .map(|(key, value)| format!("{key}={value}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        );
+    }
+    result
+}
+
 pub fn condition_factor_for_hero(item: &ItemModel, hero: &HeroModel, cfg: &ReasonerConfig) -> f64 {
+    if item.properties.contains_key("HealOnVeil") {
+        return 0.0;
+    }
+    if let Some((_, threshold, above)) = own_health_threshold(item) {
+        return if above {
+            hit_rate(threshold)
+        } else {
+            threshold
+        };
+    }
     match &item.condition {
         crate::ConditionKind::SpiritDamageToHeroes { .. } => {
             crate::combat::damage_refresh_summary(item, hero, cfg).map_or(0.0, |(factor, _)| factor)
@@ -796,7 +890,11 @@ fn property_value(name: &str, value: f64, hero: &HeroModel, cfg: &ReasonerConfig
             share * (1.0 - percent.clamp(-1.0, 0.9)),
             1.0 - share,
         )),
-        "TechArmor" | "TechResist" | "SpiritResist" | "SpiritResistPercent" => Some((
+        "TechArmor"
+        | "TechResist"
+        | "SpiritResist"
+        | "SpiritResistPercent"
+        | "TechResistBelowThreshold" => Some((
             0.0,
             0.0,
             0.0,
@@ -864,6 +962,10 @@ fn property_value(name: &str, value: f64, hero: &HeroModel, cfg: &ReasonerConfig
         || lower.contains("buildup")
     {
         return 0.0;
+    }
+    if lower == "techpowerpercent" {
+        return (project_spirit(hero.base_spirit_power, value) - hero.base_spirit_power)
+            * spirit_power_value(hero, cfg);
     }
     if lower.contains("spiritpower") || lower.contains("techpower") || lower == "bonusspirit" {
         return magnitude * spirit_power_value(hero, cfg);
@@ -995,6 +1097,9 @@ fn proc_property_effect(
                     .unwrap_or(f64::INFINITY),
             );
             if name.eq_ignore_ascii_case("HealthStealPctHero") {
+                if item.properties.contains_key("StealDuration") {
+                    return 0.0;
+                }
                 let target_max_health = hero.base_health;
                 let target_health_lost = value / 100.0 * target_max_health * stacks;
                 let own_health_gained = target_health_lost;
@@ -1036,14 +1141,35 @@ fn item_property_effect(
     let values = properties
         .iter()
         .filter(|(name, _)| {
-            (burn.is_none() || (name.as_str() != "DPS" && name.as_str() != "ExplosionDamage"))
+            name.as_str() != "TechPowerPercent"
+                && (burn.is_none()
+                    || (name.as_str() != "DPS" && name.as_str() != "ExplosionDamage"))
                 && !(name.as_str() == "Regeneration"
                     && (item.properties.contains_key("RegenerationDuration")
                         || item.passive_properties.contains_key("RegenerationDuration")))
         })
         .map(|(name, value)| (name.clone(), *value))
         .collect();
+    let flat_spirit: f64 = [
+        "TechPower",
+        "SpiritPower",
+        "BonusSpirit",
+        "BonusSpiritPower",
+        "SpiritPowerInnate",
+    ]
+    .iter()
+    .filter_map(|key| properties.get(*key))
+    .sum();
+    let spirit_percent = properties
+        .get("TechPowerPercent")
+        .copied()
+        .unwrap_or_default();
+    let spirit_percent_value =
+        (project_spirit(hero.base_spirit_power + flat_spirit, spirit_percent)
+            - (hero.base_spirit_power + flat_spirit))
+            * spirit_power_value(hero, cfg);
     property_effect(&values, hero, cfg)
+        + spirit_percent_value
         + burn.unwrap_or_default()
         + proc_property_effect(properties, item, hero, cfg)
         + reload_value(properties, item, hero, cfg)
