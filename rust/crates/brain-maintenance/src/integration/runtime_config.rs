@@ -31,6 +31,8 @@ pub struct RuntimeConfig {
     pub entity_profile_sources: Vec<EntityProfileSource>,
     #[serde(default)]
     pub entity_profile_patch_raw_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub patch_feed_secret: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -100,6 +102,12 @@ impl RuntimeConfig {
             ensure!(
                 raw_dir.is_absolute() && config.entity_profile_corpus_root.is_some(),
                 "entity_profile_patch_raw_dir"
+            );
+        }
+        if let Some(secret) = &config.patch_feed_secret {
+            ensure!(
+                !secret.is_empty() && config.entity_profile_patch_raw_dir.is_some(),
+                "patch_feed_secret"
             );
         }
         ensure!(

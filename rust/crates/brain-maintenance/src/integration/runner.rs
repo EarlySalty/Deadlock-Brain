@@ -67,6 +67,7 @@ pub struct Runner {
     pool: sqlx::PgPool,
     artifacts: Artifacts,
     jev: Zeroizing<String>,
+    patch_feed: Option<Zeroizing<String>>,
     pub(super) owner: String,
 }
 
@@ -287,6 +288,15 @@ impl Runner {
             .get(&runtime.jev_secret)
             .cloned()
             .context("jev_secret_missing")?;
+        let patch_feed = match &runtime.patch_feed_secret {
+            Some(name) => Some(
+                snapshot
+                    .get(name)
+                    .cloned()
+                    .context("patch_feed_secret_missing")?,
+            ),
+            None => None,
+        };
         let pg = &runtime.postgres;
         let mut options = PgConnectOptions::new_without_pgpass()
             .host(pg.socket_dir.to_str().context("postgres_socket")?)
@@ -319,6 +329,7 @@ impl Runner {
             runtime,
             artifacts,
             jev,
+            patch_feed,
             owner,
         })
     }
@@ -653,6 +664,12 @@ impl Runner {
             }
         }
         let mut status = self.status().await?;
+        if let Some(source_dsn) = &self.patch_feed {
+            match super::patch_feed::mirror_changelog_posts(source_dsn, &self.pool).await {
+                Ok(mirrored) => status["patch_feed"] = mirrored,
+                Err(_) => isolated_errors.push(json!({"code":"PATCH_FEED_MIRROR_FAILED"})),
+            }
+        }
         if self.runtime.entity_profile_corpus_root.is_some() {
             match self.refresh_entity_profiles(&config, &fresh_sources).await {
                 Ok(profiles) => status["entity_profiles"] = profiles,

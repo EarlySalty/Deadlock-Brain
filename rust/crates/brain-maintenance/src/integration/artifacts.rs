@@ -5,7 +5,10 @@ use std::{
     io::{Read, Write},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
+
+const PUBLICATION_LOCK_WAIT: Duration = Duration::from_secs(600);
 
 #[derive(Clone)]
 pub struct Artifacts {
@@ -188,8 +191,17 @@ impl Artifacts {
             .write(true)
             .read(true)
             .open(path)?;
-        file.lock()?;
-        Ok(file)
+        let deadline = Instant::now() + PUBLICATION_LOCK_WAIT;
+        loop {
+            match file.try_lock() {
+                Ok(()) => return Ok(file),
+                Err(fs::TryLockError::WouldBlock) => {
+                    ensure!(Instant::now() < deadline, "publication_lock_busy");
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+                Err(fs::TryLockError::Error(error)) => return Err(error.into()),
+            }
+        }
     }
 }
 

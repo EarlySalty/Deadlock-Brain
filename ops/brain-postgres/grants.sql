@@ -36,14 +36,14 @@ BEGIN
   END IF;
   IF to_regclass('patchnotes.changelog_posts') IS NOT NULL THEN
     GRANT USAGE ON SCHEMA patchnotes TO brain_ingest;
-    GRANT SELECT ON patchnotes.changelog_posts TO brain_ingest;
+    GRANT SELECT, INSERT, UPDATE ON patchnotes.changelog_posts TO brain_ingest;
   END IF;
   IF to_regclass('brain.source_runs') IS NOT NULL THEN
     GRANT SELECT (id), INSERT (source, status, started_at),
       UPDATE (status, finished_at, summary) ON brain.source_runs TO brain_ingest;
   END IF;
   IF to_regclass('brain.source_documents') IS NOT NULL THEN
-    GRANT SELECT, INSERT ON brain.source_documents TO brain_ingest;
+    GRANT SELECT, INSERT, UPDATE (raw_path) ON brain.source_documents TO brain_ingest;
   END IF;
   IF to_regclass('brain.entity_snapshots') IS NOT NULL THEN
     GRANT SELECT, INSERT ON brain.entity_snapshots TO brain_ingest;

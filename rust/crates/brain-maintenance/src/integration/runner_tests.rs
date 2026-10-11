@@ -304,6 +304,7 @@ async fn setup() -> (
         pool,
         artifacts,
         jev: Zeroizing::new("fixture-unused".into()),
+        patch_feed: None,
         owner: release_id,
     };
     let config = load_maintenance(&runner.runtime.maintenance_config).unwrap();
