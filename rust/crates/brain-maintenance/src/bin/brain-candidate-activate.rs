@@ -521,6 +521,8 @@ async fn check_entity_profile_sources(
             )
             .await
             .context("entity_profile_retired_git_documents")?;
+            let mut verifier =
+                brain_maintenance::integration::entity_profiles::GitDocumentVerifier::default();
             for record in records {
                 ensure!(
                     visible.contains(record),
@@ -533,6 +535,7 @@ async fn check_entity_profile_sources(
                     &principal,
                     record,
                     &candidate.release,
+                    &mut verifier,
                 )
                 .await
                 .context("entity_profile_stored_git_document")?;

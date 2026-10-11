@@ -22,6 +22,8 @@ impl std::fmt::Display for GitKnowledgeStep {
 
 impl std::error::Error for GitKnowledgeStep {}
 
+const GIT_DOCUMENT_VERIFY_MS: u64 = 5_000;
+
 const ACTIVATION_FAILURE_KEYS: [&str; 10] = [
     "cause",
     "error_class",
@@ -616,16 +618,22 @@ pub async fn activate_refreshed_sources_with_expected_config(
     for source in &prepared.changed_sources {
         args.extend(["--allow-source".into(), source.clone()]);
     }
+    let git_documents = prepared
+        .candidate
+        .source_revisions
+        .get("git-game-facts-derived")
+        .map_or(0, |pins| pins.len() as u64);
     let credential = std::fs::File::open("/proc/self/fd/5")?;
     let result = crate::process::run_with_credential_observed(
         &executable,
         &args,
         runtime.artifact_dir.as_path(),
         credential,
-        180_000 + runtime.health_timeout_ms * 3,
+        180_000 + runtime.health_timeout_ms * 3 + git_documents * GIT_DOCUMENT_VERIFY_MS,
         65536,
     )
-    .await?;
+    .await
+    .context("entity_profile_activation_process")?;
     if result.exit_code != Some(0) {
         return Err(activation_blocked(&result.output));
     }
@@ -780,6 +788,24 @@ pub async fn verify_retired_git_documents(
     Ok(())
 }
 
+type GitBlobKey = (String, String, u64, String, String, String);
+
+struct OriginalRelease {
+    projection: brain_storage::entity_profile::derivation::OriginalReleaseProjection,
+    repositories:
+        std::collections::BTreeMap<(String, String), dbrain_sources::git_source::PinnedRepository>,
+}
+
+#[derive(Default)]
+pub struct GitDocumentVerifier {
+    originals: std::collections::BTreeMap<String, OriginalRelease>,
+    blobs: std::collections::BTreeMap<
+        GitBlobKey,
+        brain_storage::entity_profile::derivation::GitBlobEvidence,
+    >,
+    proofs: brain_storage::entity_profile::derivation::GitProofBatchCache,
+}
+
 pub async fn verify_stored_git_document(
     store: &brain_storage::PgStore,
     pool: &sqlx::PgPool,
@@ -787,8 +813,9 @@ pub async fn verify_stored_git_document(
     principal: &brain_contracts::Principal,
     record: &brain_contracts::SourceRecordV2,
     release: &brain_contracts::CorpusRelease,
+    verifier: &mut GitDocumentVerifier,
 ) -> Result<()> {
-    verify_git_document(store, pool, config, principal, record, release).await
+    verify_git_document(store, pool, config, principal, record, release, verifier).await
 }
 
 async fn retirement_documents(
@@ -998,30 +1025,54 @@ async fn verify_git_document(
     principal: &brain_contracts::Principal,
     record: &brain_contracts::SourceRecordV2,
     release: &brain_contracts::CorpusRelease,
+    verifier: &mut GitDocumentVerifier,
 ) -> Result<()> {
-    use brain_storage::entity_profile::derivation::verify_git_document_receipt;
+    use brain_storage::entity_profile::derivation::{
+        project_original_release, verify_git_document_receipt_projected, GitBlobEvidence,
+    };
+    use std::collections::btree_map::Entry;
     let private: String = sqlx::query_scalar("SELECT receipt_json FROM brain.entity_derived_receipts_v1 WHERE derived_source_id=$1 AND derived_logical_id=$2 AND derived_revision=$3")
         .bind(&record.source_id).bind(&record.logical_id).bind(record.revision as i64).fetch_one(pool).await.context("git_document_receipt_missing")?;
     let receipt: brain_storage::entity_profile::derivation::GitDocumentReceipt =
         serde_json::from_str(&private).context("git_document_receipt_invalid")?;
-    let snapshot = store
-        .snapshot(&receipt.original_release_id)
+    let original = match verifier
+        .originals
+        .entry(receipt.original_release_id.clone())
+    {
+        Entry::Occupied(entry) => entry.into_mut(),
+        Entry::Vacant(entry) => {
+            let snapshot = store
+                .snapshot(&receipt.original_release_id)
+                .await
+                .context("git_document_original_snapshot")?;
+            let repositories = registered_git_repositories(config, &snapshot, principal)
+                .context("git_document_repositories")?;
+            let wanted = bound_original_facts(pool, &snapshot.release).await?;
+            let projection = project_original_release(&snapshot, principal, &wanted)
+                .context("git_document_original_projection")?;
+            drop(snapshot);
+            entry.insert(OriginalRelease {
+                projection,
+                repositories,
+            })
+        }
+    };
+    let (_, bindings) = store
+        .entity_derivation_inputs(&receipt.original_release_id, principal, &receipt.entity_key)
         .await
-        .context("git_document_original_snapshot")?;
-    let repositories = registered_git_repositories(config, &snapshot, principal)
-        .context("git_document_repositories")?;
-    let verified = dbrain_sources::entity_binding::derivation::derive_git_entity_profile(
-        store,
-        &receipt.original_release_id,
-        principal,
-        &receipt.entity_key,
-        &repositories,
-    )
-    .await
-    .context("git_document_derivation")?;
+        .context("git_document_bindings")?;
+    if verifier
+        .blobs
+        .values()
+        .map(|blob| blob.bytes.len())
+        .sum::<usize>()
+        > 64 * 1024 * 1024
+    {
+        verifier.blobs.clear();
+    }
     let mut blobs = Vec::new();
     let mut seen = BTreeSet::new();
-    for binding in verified.original_pins() {
+    for binding in &bindings {
         ensure!(
             release
                 .source_revisions
@@ -1037,37 +1088,45 @@ async fn verify_git_document(
         )) {
             continue;
         }
-        let original = snapshot
-            .revisions
-            .iter()
-            .find(|original| {
-                original.source_id == binding.source_id
-                    && original.logical_id == binding.logical_id
-                    && original.revision == binding.store_revision
-            })
-            .ok_or_else(|| anyhow::anyhow!("git_document_original_pin_missing"))?;
-        let (commit, origin, path) =
-            brain_storage::entity_profile::derivation::git_document_identity(original)
-                .context("git_document_identity")?;
-        let pinned = repositories
+        let (commit, origin, path) = original
+            .projection
+            .git_identity(
+                &binding.source_id,
+                &binding.logical_id,
+                binding.store_revision,
+            )
+            .context("git_document_identity")?;
+        let pinned = original
+            .repositories
             .get(&(binding.source_id.clone(), commit.clone()))
             .ok_or_else(|| anyhow::anyhow!("git_document_repository_missing"))?;
-        blobs.push(brain_storage::entity_profile::derivation::GitBlobEvidence {
-            source_id: binding.source_id.clone(),
-            logical_id: binding.logical_id.clone(),
-            store_revision: binding.store_revision,
-            git_commit: commit,
-            repository_url: origin,
-            bytes: pinned.read_blob(&path).context("git_document_blob")?,
-        });
+        let key = (
+            binding.source_id.clone(),
+            binding.logical_id.clone(),
+            binding.store_revision,
+            commit.clone(),
+            origin.clone(),
+            path.clone(),
+        );
+        let blob = match verifier.blobs.entry(key) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(GitBlobEvidence {
+                source_id: binding.source_id.clone(),
+                logical_id: binding.logical_id.clone(),
+                store_revision: binding.store_revision,
+                git_commit: commit,
+                repository_url: origin,
+                bytes: pinned.read_blob(&path).context("git_document_blob")?,
+            }),
+        };
+        blobs.push(blob.clone());
     }
-    let mut identity = verified
-        .original_pins()
+    let mut identity = bindings
         .first()
         .ok_or_else(|| anyhow::anyhow!("git_document_binding_missing"))?
         .binding_identity
         .clone();
-    for binding in verified.original_pins() {
+    for binding in &bindings {
         for alias in &binding.binding_identity.aliases {
             if !identity.aliases.contains(alias) {
                 identity.aliases.push(alias.clone());
@@ -1078,21 +1137,40 @@ async fn verify_git_document(
         .entity_patch_story(&identity)
         .await
         .context("git_document_patch_story")?;
-    let current = store
-        .snapshot(&receipt.original_release_id)
-        .await
-        .context("git_document_original_snapshot")?;
-    verify_git_document_receipt(
+    verify_git_document_receipt_projected(
         record,
         &receipt,
-        &current,
+        &original.projection,
         principal,
-        verified.original_pins(),
+        &bindings,
         &blobs,
         &story,
+        &mut verifier.proofs,
     )
     .context("git_document_receipt_mismatch")?;
     Ok(())
+}
+
+async fn bound_original_facts(
+    pool: &sqlx::PgPool,
+    release: &brain_contracts::CorpusRelease,
+) -> Result<BTreeSet<brain_storage::entity_profile::derivation::OriginalFactKey>> {
+    let pins = serde_json::to_value(&release.source_revisions)?;
+    let rows: Vec<(String, String, i64, String)> = sqlx::query_as("SELECT f.source_id,f.logical_id,f.revision,f.fact_id FROM brain.entity_profile_facts_v1 f WHERE ($1::jsonb->f.source_id->>f.logical_id)::bigint=f.revision")
+        .bind(&pins)
+        .fetch_all(pool)
+        .await
+        .context("git_document_bound_facts")?;
+    rows.into_iter()
+        .map(|(source_id, logical_id, revision, fact_id)| {
+            Ok((
+                source_id,
+                logical_id,
+                u64::try_from(revision).context("git_document_bound_fact_revision")?,
+                fact_id,
+            ))
+        })
+        .collect()
 }
 
 fn entity_profile_document(

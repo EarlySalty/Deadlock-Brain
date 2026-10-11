@@ -1,7 +1,4 @@
-use super::{
-    assemble_profile, compact::compact_document, invalid, project_entity_facts,
-    semantic::SemanticProjection,
-};
+use super::{assemble_profile, compact::compact_document, invalid, semantic::SemanticProjection};
 use crate::Result;
 use brain_contracts::{
     entity_profile::{EntityIdentity, EntityProfile, EntityProfileFact, ProfileSourceKind},
@@ -310,77 +307,266 @@ pub fn derive_git_profile(
     blobs: &[GitBlobEvidence],
     live_story: &[brain_contracts::entity_profile::PatchStoryChange],
 ) -> Result<(EntityProfile, GitDocumentReceipt)> {
-    // Der vollständige Altvertrag prüft zusätzlich die archivierten Faktenmetadaten.
+    derive_git_profile_projected(
+        entity_key,
+        &project_original_release(snapshot, operator, &bound_facts(bindings))?,
+        operator,
+        bindings,
+        blobs,
+        live_story,
+        &mut GitProofBatchCache::new(),
+    )
+}
+
+type OriginalKey = (String, String, u64);
+pub type OriginalFactKey = (String, String, u64, String);
+
+fn bound_facts(bindings: &[StoredGitBinding]) -> BTreeSet<OriginalFactKey> {
+    bindings
+        .iter()
+        .map(|binding| {
+            (
+                binding.source_id.clone(),
+                binding.logical_id.clone(),
+                binding.store_revision,
+                binding.original_fact.fact_id.clone(),
+            )
+        })
+        .collect()
+}
+
+#[derive(Debug)]
+struct ProjectedOriginal {
+    header: OriginalEvidenceHeader,
+    identity: std::result::Result<(String, String, String), String>,
+    facts: BTreeMap<String, std::result::Result<EntityProfileFact, String>>,
+}
+
+#[derive(Debug)]
+pub struct OriginalReleaseProjection {
+    release_id: String,
+    manifest: brain_contracts::ReleaseReadManifest,
+    order: Vec<OriginalKey>,
+    records: BTreeMap<OriginalKey, std::result::Result<ProjectedOriginal, String>>,
+}
+
+impl OriginalReleaseProjection {
+    pub fn release_id(&self) -> &str {
+        &self.release_id
+    }
+
+    fn record(
+        &self,
+        source_id: &str,
+        logical_id: &str,
+        revision: u64,
+    ) -> Result<&ProjectedOriginal> {
+        match self
+            .records
+            .get(&(source_id.to_owned(), logical_id.to_owned(), revision))
+        {
+            None => Err(invalid("Originalpin fehlt")),
+            Some(Err(message)) => Err(invalid(message)),
+            Some(Ok(projected)) => Ok(projected),
+        }
+    }
+
+    pub fn git_identity(
+        &self,
+        source_id: &str,
+        logical_id: &str,
+        revision: u64,
+    ) -> Result<(String, String, String)> {
+        self.record(source_id, logical_id, revision)?
+            .identity
+            .clone()
+            .map_err(|message| invalid(&message))
+    }
+}
+
+pub fn project_original_release(
+    snapshot: &CorpusSnapshot,
+    operator: &Principal,
+    wanted: &BTreeSet<OriginalFactKey>,
+) -> Result<OriginalReleaseProjection> {
     snapshot
         .authorized(operator, false)
         .map_err(|_| invalid("Frische Originalautorisierung fehlt"))?;
     let manifest = brain_contracts::ReleaseReadManifest::from_snapshot(snapshot);
+    let descriptors: BTreeMap<_, _> = manifest
+        .revisions
+        .iter()
+        .map(|descriptor| {
+            (
+                (
+                    descriptor.head.source_id.as_str(),
+                    descriptor.head.logical_id.as_str(),
+                    descriptor.head.revision,
+                ),
+                descriptor,
+            )
+        })
+        .collect();
+    let mut order = Vec::new();
+    let mut records = BTreeMap::new();
+    for record in &snapshot.revisions {
+        let key = (
+            record.source_id.clone(),
+            record.logical_id.clone(),
+            record.revision,
+        );
+        let ids: Vec<_> = wanted
+            .range((key.0.clone(), key.1.clone(), key.2, String::new())..)
+            .take_while(|fact| fact.0 == key.0 && fact.1 == key.1 && fact.2 == key.2)
+            .map(|fact| fact.3.clone())
+            .collect();
+        if ids.is_empty() {
+            continue;
+        }
+        let descriptor = descriptors
+            .get(&(
+                record.source_id.as_str(),
+                record.logical_id.as_str(),
+                record.revision,
+            ))
+            .copied();
+        let projected =
+            project_original_record(record, descriptor, &ids).map_err(|error| error.to_string());
+        if records.insert(key.clone(), projected).is_none() {
+            order.push(key);
+        }
+    }
+    Ok(OriginalReleaseProjection {
+        release_id: snapshot.release.release_id.clone(),
+        manifest,
+        order,
+        records,
+    })
+}
+
+fn project_original_record(
+    record: &SourceRecordV2,
+    descriptor: Option<&brain_contracts::DocumentDescriptor>,
+    ids: &[String],
+) -> Result<ProjectedOriginal> {
+    if sha256(record.content.as_bytes()) != record.content_hash {
+        return Err(invalid(
+            "Archivierter Originalkörper widerspricht seinem Hash",
+        ));
+    }
+    let context = super::EntityDocumentContext::new(record)?;
+    let document_header = Value::Object(
+        context
+            .document()
+            .as_object()
+            .ok_or_else(|| invalid("Originaldokument fehlt"))?
+            .iter()
+            .filter(|(key, _)| !matches!(key.as_str(), "content" | "facts"))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    );
+    let identity = git_header_identity(&document_header).map_err(|error| error.to_string());
+    let facts = match identity {
+        Ok(_) => ids
+            .iter()
+            .map(|id| {
+                let fact = context
+                    .project(std::slice::from_ref(id))
+                    .map_err(|error| error.to_string())
+                    .and_then(|mut facts| {
+                        facts
+                            .pop()
+                            .ok_or_else(|| "Faktenzuordnung ist nicht eindeutig".to_owned())
+                    });
+                (id.clone(), fact)
+            })
+            .collect(),
+        Err(_) => BTreeMap::new(),
+    };
+    Ok(ProjectedOriginal {
+        header: OriginalEvidenceHeader {
+            descriptor: descriptor
+                .ok_or_else(|| invalid("Originaldescriptor fehlt"))?
+                .clone(),
+            document_header,
+        },
+        identity,
+        facts,
+    })
+}
+
+fn projected_facts(
+    projected: &ProjectedOriginal,
+    fact_ids: &[String],
+) -> Result<Vec<EntityProfileFact>> {
+    if let Err(message) = &projected.identity {
+        return Err(invalid(message));
+    }
+    let mut seen = BTreeSet::new();
+    fact_ids
+        .iter()
+        .map(|id| {
+            if !seen.insert(id) {
+                return Err(invalid("Faktenzuordnung ist nicht eindeutig"));
+            }
+            match projected.facts.get(id) {
+                None => Err(invalid("Faktenzuordnung ist nicht eindeutig")),
+                Some(Err(message)) => Err(invalid(message)),
+                Some(Ok(fact)) => Ok(fact.clone()),
+            }
+        })
+        .collect()
+}
+
+pub fn derive_git_profile_projected(
+    entity_key: &str,
+    projection: &OriginalReleaseProjection,
+    operator: &Principal,
+    bindings: &[StoredGitBinding],
+    blobs: &[GitBlobEvidence],
+    live_story: &[brain_contracts::entity_profile::PatchStoryChange],
+    cache: &mut GitProofBatchCache,
+) -> Result<(EntityProfile, GitDocumentReceipt)> {
     let mut originals = Vec::new();
     let mut archived_facts = Vec::new();
-    for record in &snapshot.revisions {
+    for key in &projection.order {
         let selected: Vec<_> = bindings
             .iter()
             .filter(|binding| {
-                binding.source_id == record.source_id
-                    && binding.logical_id == record.logical_id
-                    && binding.store_revision == record.revision
+                binding.source_id == key.0
+                    && binding.logical_id == key.1
+                    && binding.store_revision == key.2
             })
             .collect();
         if selected.is_empty() {
             continue;
         }
-        if sha256(record.content.as_bytes()) != record.content_hash {
-            return Err(invalid(
-                "Archivierter Originalkörper widerspricht seinem Hash",
-            ));
-        }
+        let projected = projection.record(&key.0, &key.1, key.2)?;
         let ids: Vec<_> = selected
             .iter()
             .map(|binding| binding.original_fact.fact_id.clone())
             .collect();
-        let projected = project_entity_facts(record, &ids)?;
-        archived_facts.extend(projected.iter().cloned().map(|fact| {
-            (
-                record.source_id.clone(),
-                record.logical_id.clone(),
-                record.revision,
-                fact,
-            )
-        }));
+        let facts = projected_facts(projected, &ids)?;
         if selected
             .iter()
-            .zip(projected)
-            .any(|(binding, original)| binding.original_fact != original)
+            .zip(&facts)
+            .any(|(binding, original)| &binding.original_fact != original)
         {
             return Err(invalid(
                 "Gespeicherte Originalbindung widerspricht dem Git-Original",
             ));
         }
-        let mut document: Value =
-            serde_json::from_str(&record.metadata[crate::source_versions::DOCUMENT_METADATA_KEY])?;
-        let object = document
-            .as_object_mut()
-            .ok_or_else(|| invalid("Originaldokument fehlt"))?;
-        object.remove("content");
-        object.remove("facts");
-        originals.push(OriginalEvidenceHeader {
-            descriptor: manifest
-                .revisions
-                .iter()
-                .find(|descriptor| {
-                    descriptor.head.source_id == record.source_id
-                        && descriptor.head.logical_id == record.logical_id
-                        && descriptor.head.revision == record.revision
-                })
-                .ok_or_else(|| invalid("Originaldescriptor fehlt"))?
-                .clone(),
-            document_header: document,
-        });
+        archived_facts.extend(
+            facts
+                .into_iter()
+                .map(|fact| (key.0.clone(), key.1.clone(), key.2, fact)),
+        );
+        originals.push(projected.header.clone());
     }
     derive_git_profile_evidence_core(
         entity_key,
         &VerifiedOriginalEvidence {
-            manifest,
+            manifest: projection.manifest.clone(),
             originals,
         },
         operator,
@@ -388,7 +574,7 @@ pub fn derive_git_profile(
         &blobs.iter().collect::<Vec<_>>(),
         live_story,
         Some(&archived_facts),
-        &mut GitProofBatchCache::new(),
+        cache,
     )
 }
 
@@ -401,14 +587,38 @@ pub fn verify_git_document_receipt(
     blobs: &[GitBlobEvidence],
     live_story: &[brain_contracts::entity_profile::PatchStoryChange],
 ) -> Result<EntityProfile> {
-    verify_receipt_core(record, receipt, &snapshot.release.release_id, || {
-        derive_git_profile(
+    verify_git_document_receipt_projected(
+        record,
+        receipt,
+        &project_original_release(snapshot, operator, &bound_facts(bindings))?,
+        operator,
+        bindings,
+        blobs,
+        live_story,
+        &mut GitProofBatchCache::new(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn verify_git_document_receipt_projected(
+    record: &SourceRecordV2,
+    receipt: &GitDocumentReceipt,
+    projection: &OriginalReleaseProjection,
+    operator: &Principal,
+    bindings: &[StoredGitBinding],
+    blobs: &[GitBlobEvidence],
+    live_story: &[brain_contracts::entity_profile::PatchStoryChange],
+    cache: &mut GitProofBatchCache,
+) -> Result<EntityProfile> {
+    verify_receipt_core(record, receipt, projection.release_id(), || {
+        derive_git_profile_projected(
             &receipt.entity_key,
-            snapshot,
+            projection,
             operator,
             bindings,
             blobs,
             live_story,
+            cache,
         )
     })
 }
