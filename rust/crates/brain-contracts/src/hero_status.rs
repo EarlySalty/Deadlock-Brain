@@ -21,6 +21,9 @@ impl HeroStatus {
 
 pub fn hero_status(payload: &Map<String, Value>) -> Option<HeroStatus> {
     if let Some(key) = payload.get("Key").and_then(Value::as_str) {
+        if !hero_class(key) {
+            return None;
+        }
         if let Some(catalog) = payload.get("_hero_catalog").and_then(Value::as_object) {
             if catalog.get("class_name").and_then(Value::as_str) != Some(key) {
                 return None;
@@ -73,11 +76,17 @@ pub fn is_released_hero(payload: &Value) -> bool {
     payload.as_object().and_then(hero_status) == Some(HeroStatus::Released)
 }
 
+fn hero_class(class: &str) -> bool {
+    class
+        .strip_prefix("hero_")
+        .is_some_and(|suffix| !suffix.trim().is_empty())
+}
+
 fn catalog_status(payload: &Map<String, Value>) -> Option<HeroStatus> {
     let id = payload.get("id")?.as_u64()?;
     let class = payload.get("class_name")?.as_str()?;
     let name = payload.get("name")?.as_str()?.trim();
-    if id == 0 || id > i64::MAX as u64 || class.is_empty() || name.is_empty() || name == class {
+    if id == 0 || id > i64::MAX as u64 || !hero_class(class) || name.is_empty() || name == class {
         return None;
     }
     let labs = ["in_hero_labs", "InHeroLabs"]
@@ -113,6 +122,17 @@ mod tests {
     fn catalog(class: &str, name: &str, selectable: bool, disabled: bool) -> Value {
         json!({"id":88,"class_name":class,"name":name,"player_selectable":selectable,
             "disabled":disabled,"in_development":true})
+    }
+
+    #[test]
+    fn nonhero_entities_do_not_receive_hero_status() {
+        for class in ["upgrade_fixture", "ability_fixture", "", "hero_", "hero_ "] {
+            let catalog = catalog(class, "Fixture", true, false);
+            assert_eq!(hero_status(catalog.as_object().unwrap()), None);
+            let raw = json!({"Key":class,"InDevelopment":true,
+                "BoundAbilities":{"1":{"Name":"Fixture Ability"}}});
+            assert_eq!(hero_status(raw.as_object().unwrap()), None);
+        }
     }
 
     #[test]
