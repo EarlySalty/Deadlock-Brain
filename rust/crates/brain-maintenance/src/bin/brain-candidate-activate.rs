@@ -403,7 +403,7 @@ fn check_rights(
                     "public_game_source_rights"
                 );
                 let projection = dbrain_retrieval::knowledge_projection::project_knowledge(record)
-                    .context("entity_profile_projection")?
+                    .context("public_game_projection")?
                     .ok_or_else(|| anyhow::anyhow!("public_game_projection_missing"))?;
                 ensure!(
                     projection.raw_byte_end == 0 && !projection.facts.is_empty(),
