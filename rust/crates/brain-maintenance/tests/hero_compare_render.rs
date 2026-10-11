@@ -69,6 +69,7 @@ fn synthetic_valid_input_renders_deterministically_for_every_metric() {
         CompareMetric::BaseDps,
         CompareMetric::MagazineDamage,
         CompareMetric::Hp,
+        CompareMetric::Health,
     ] {
         let mut input = synthetic_input();
         input.metric = metric;

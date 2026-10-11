@@ -25,6 +25,8 @@ pub struct Config {
     #[serde(default)]
     pub trusted_discord_consumers: Vec<DiscordConsumer>,
     #[serde(default)]
+    pub answer_artifact_consumers: Vec<DiscordConsumer>,
+    #[serde(default)]
     pub discord_live: Option<DiscordLiveConfig>,
     #[serde(default)]
     pub bot_task_consumers: Vec<BotTaskConsumer>,
@@ -591,6 +593,18 @@ impl Config {
                             && credential.provider_egress == BTreeSet::from(["public".into()])
                     }),
                 "discord_consumers",
+            )?;
+        }
+        let mut artifact_consumers = BTreeSet::new();
+        for consumer in &self.answer_artifact_consumers {
+            require(
+                artifact_consumers.insert((&consumer.actor_id, &consumer.channel))
+                    && self.deadlock_api.is_some()
+                    && self.credentials.iter().any(|credential| {
+                        credential.actor_id == consumer.actor_id
+                            && credential.channel == consumer.channel
+                    }),
+                "answer_artifact_consumers",
             )?;
         }
         let mut names = BTreeSet::new();

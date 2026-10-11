@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 brain-api = { path = "../brain-api" }
+brain-compare = { path = "../brain-compare" }
 brain-contracts = { path = "../brain-contracts" }
 brain-kernel = { path = "../brain-kernel" }
 brain-policy = { path = "../brain-policy" }

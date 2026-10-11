@@ -47,6 +47,7 @@ fn answer(request_id: &str) -> PublicAnswerResponse {
             citation_id: "cite-1".into(),
             label: "Beleg 1".into(),
         }],
+        artifacts: Vec::new(),
     }
 }
 

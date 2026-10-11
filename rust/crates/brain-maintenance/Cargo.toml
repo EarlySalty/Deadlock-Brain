@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+brain-compare = { path = "../brain-compare" }
 brain-contracts = { path = "../brain-contracts" }
 brain-feeds = { path = "../brain-feeds" }
 brain-ingestion = { path = "../brain-ingestion" }

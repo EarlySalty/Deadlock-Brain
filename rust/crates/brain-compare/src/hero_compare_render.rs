@@ -6,6 +6,7 @@ pub enum CompareMetric {
     BaseDps,
     MagazineDamage,
     Hp,
+    Health,
 }
 
 impl CompareMetric {
@@ -14,6 +15,7 @@ impl CompareMetric {
             Self::BaseDps => "Grund-DPS",
             Self::MagazineDamage => "Magazinschaden",
             Self::Hp => "HP",
+            Self::Health => "Lebenspunkte",
         }
     }
 
@@ -21,7 +23,7 @@ impl CompareMetric {
         match self {
             Self::BaseDps => "Schaden/s",
             Self::MagazineDamage => "Schaden",
-            Self::Hp => "HP",
+            Self::Hp | Self::Health => "HP",
         }
     }
 }

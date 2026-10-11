@@ -7,9 +7,11 @@ pub use brain_contracts::bot_tasks::{
 pub use brain_contracts::discord_task::{
     bounded_user_questions, DiscordAnswerCapability, DiscordAnswerTask,
 };
+pub use brain_contracts::public_api::MAX_PUBLIC_ARTIFACTS;
 pub use brain_contracts::{
     AnswerContext, AnswerInputKind, AnswerProfile, AnswerStatus, DiscordAnswerContext,
-    PublicAnswerResponse, PublicCitation, Query, TwitchAnswerContext, PUBLIC_API_VERSION,
+    PublicAnswerResponse, PublicArtifact, PublicArtifactKind, PublicCitation, Query,
+    TwitchAnswerContext, PUBLIC_API_VERSION,
 };
 use reqwest::{
     blocking::Client,
@@ -161,6 +163,7 @@ mod tests {
                     citation_id: "cite-fixture".into(),
                     label: "Beleg 1".into(),
                 }],
+                artifacts: Vec::new(),
             })
             .unwrap();
             write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();

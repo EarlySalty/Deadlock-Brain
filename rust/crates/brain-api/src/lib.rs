@@ -32,6 +32,8 @@ pub struct ApiService<K> {
         Option<std::sync::Arc<dyn brain_contracts::discord_task::DiscordContextResolver>>,
     bot_task_consumers: task::TaskConsumers,
     twitch_title: Option<std::sync::Arc<dyn brain_contracts::bot_tasks::TwitchTitlePort>>,
+    artifacts: Option<std::sync::Arc<dyn brain_contracts::AnswerArtifactPort>>,
+    artifact_consumers: std::collections::BTreeSet<(String, String)>,
 }
 
 struct AnswerInput {
@@ -66,6 +68,47 @@ where
             discord_context: None,
             bot_task_consumers: task::TaskConsumers::new(),
             twitch_title: None,
+            artifacts: None,
+            artifact_consumers: std::collections::BTreeSet::new(),
+        }
+    }
+
+    pub fn with_answer_artifacts(
+        mut self,
+        port: impl brain_contracts::AnswerArtifactPort + 'static,
+        consumers: std::collections::BTreeSet<(String, String)>,
+    ) -> Self {
+        self.artifacts = Some(std::sync::Arc::new(port));
+        self.artifact_consumers = consumers;
+        self
+    }
+
+    fn answer_artifacts(
+        &self,
+        answer: &AnswerResponse,
+        principal: &brain_contracts::Principal,
+        deadline: &brain_contracts::RequestDeadline,
+    ) -> Vec<brain_contracts::PublicArtifact> {
+        let Some(port) = self.artifacts.as_ref() else {
+            return Vec::new();
+        };
+        if answer.status != AnswerStatus::Answered
+            || !self
+                .artifact_consumers
+                .contains(&(principal.actor_id.clone(), principal.channel.clone()))
+        {
+            return Vec::new();
+        }
+        match port.artifacts(&answer.knowledge_release, &answer.citations, deadline) {
+            Ok(mut artifacts) => {
+                artifacts.retain(|artifact| artifact.validate().is_ok());
+                artifacts.truncate(brain_contracts::public_api::MAX_PUBLIC_ARTIFACTS);
+                artifacts
+            }
+            Err(error) => {
+                tracing::warn!(request_id = %answer.request_id, error = %error, "Antwortgrafik nicht verfügbar");
+                Vec::new()
+            }
         }
     }
 
@@ -420,7 +463,11 @@ where
         if let Some(task) = task {
             tracing::info!(capability = ?task.capability, request_id = %query.request_id, status = ?answer.status, "Discord-Bot-Aufgabe abgeschlossen");
         }
-        answer_response(&answer)
+        let artifacts = self.answer_artifacts(&answer, &context.principal, &deadline);
+        if deadline.check().is_err() {
+            return deadline_response();
+        }
+        public_answer_response(&answer, artifacts)
     }
 }
 
@@ -438,6 +485,13 @@ fn bearer_token(header: Option<&str>) -> Option<&str> {
 }
 
 fn answer_response(answer: &AnswerResponse) -> ApiResponse {
+    public_answer_response(answer, Vec::new())
+}
+
+fn public_answer_response(
+    answer: &AnswerResponse,
+    artifacts: Vec<brain_contracts::PublicArtifact>,
+) -> ApiResponse {
     let public = brain_contracts::PublicAnswerResponse {
         contract_version: brain_contracts::PUBLIC_API_VERSION.into(),
         request_id: answer.request_id.clone(),
@@ -454,6 +508,7 @@ fn answer_response(answer: &AnswerResponse) -> ApiResponse {
             .enumerate()
             .map(|(index, item)| brain_contracts::PublicCitation::from_evidence(item, index))
             .collect(),
+        artifacts,
     };
     if public.validate(&answer.request_id).is_err() {
         return json_error(
@@ -862,6 +917,67 @@ mod tests {
         assert_eq!(answer.status, AnswerStatus::Answered);
         assert_eq!(answer.knowledge_release, "release-1");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn answer_artifacts_reach_only_configured_consumers_as_service_links() {
+        struct Artifacts(Arc<AtomicUsize>);
+        impl brain_contracts::AnswerArtifactPort for Artifacts {
+            fn artifacts(
+                &self,
+                release: &str,
+                citations: &[brain_contracts::Evidence],
+                deadline: &brain_contracts::RequestDeadline,
+            ) -> Result<Vec<brain_contracts::PublicArtifact>, brain_contracts::PortError>
+            {
+                deadline.check()?;
+                self.0.fetch_add(1, Ordering::SeqCst);
+                assert_eq!(release, "release-1");
+                assert_eq!(citations[0].evidence_id, "fixture-evidence");
+                let mut forged =
+                    brain_contracts::PublicArtifact::hero_compare(&"b".repeat(64), "Fremdes Ziel")?;
+                forged.page_url = "https://example.org/model-destination".into();
+                Ok(vec![
+                    brain_contracts::PublicArtifact::hero_compare(
+                        &"a".repeat(64),
+                        "Haze gegen Infernus: Lebenspunkte nach Boons",
+                    )?,
+                    forged,
+                ])
+            }
+        }
+        let body = serde_json::to_vec(&query(&["docs.public"])).unwrap();
+        for (consumers, expected) in [
+            (BTreeSet::new(), 0),
+            (BTreeSet::from([("actor-1".into(), "mcp".into())]), 1),
+        ] {
+            let lookups = Arc::new(AtomicUsize::new(0));
+            let response = service(Arc::new(AtomicUsize::new(0)))
+                .with_answer_artifacts(Artifacts(lookups.clone()), consumers)
+                .handle_answer(Some("Bearer test-token"), &body);
+            assert_eq!(response.status, 200);
+            let answer: brain_contracts::PublicAnswerResponse =
+                serde_json::from_str(&response.body).unwrap();
+            answer.validate("request-1").unwrap();
+            assert_eq!(answer.artifacts.len(), expected);
+            assert_eq!(lookups.load(Ordering::SeqCst), expected);
+            assert!(!response.body.contains("example.org"));
+            if expected == 0 {
+                assert!(!response.body.contains("artifacts"));
+            } else {
+                assert_eq!(
+                    answer.artifacts[0].page_url,
+                    format!(
+                        "https://deutsche-deadlock-community.de/brain/site/compare/{}",
+                        "a".repeat(64)
+                    )
+                );
+                assert_eq!(
+                    answer.artifacts[0].chart_url,
+                    format!("{}/chart.svg", answer.artifacts[0].page_url)
+                );
+            }
+        }
     }
 
     #[test]

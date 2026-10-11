@@ -1012,6 +1012,7 @@ fn pilot_acceptance_rejects_returned_private_or_unknown_citations() {
             citation_id: citation_id.clone(),
             label: "[Beleg 1]".into(),
         }],
+        artifacts: Vec::new(),
     };
     let private_sources = BTreeMap::from([(
         citation_id.clone(),

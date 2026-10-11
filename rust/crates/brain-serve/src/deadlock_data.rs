@@ -22,7 +22,7 @@ use std::{
 
 const MCP: &str = "https://api.deadlock-api.com/v1/mcp";
 const SOURCE: &str = brain_contracts::public_api::DEADLOCK_API_SOURCE_ID;
-const GAME_SOURCE: &str = "deadlock-game-data-v1";
+pub(crate) const GAME_SOURCE: &str = "deadlock-game-data-v1";
 
 fn invalid() -> PortError {
     PortError::InvalidResponse("Die Spielstatistik konnte nicht sicher gelesen werden.".into())
@@ -453,7 +453,10 @@ impl Runtime {
         }
         let bundle = self.mirror.read_pinned(context, pin)?;
         check_assets(&bundle, context)?;
-        if matches!(data.operation, Operation::Timers | Operation::Counters) {
+        if matches!(
+            data.operation,
+            Operation::Timers | Operation::Counters | Operation::HeroCompare
+        ) {
             let (result, logical_prefix, citation) =
                 self.game_facts(context, &bundle, data, mode, limit)?;
             let revision = u64::try_from(pin.client_version).map_err(|_| invalid())?;
@@ -530,7 +533,9 @@ impl Runtime {
                         "analytics/hero-counter-stats",
                     )
                 }
-                Operation::Timers | Operation::Counters => return Err(invalid()),
+                Operation::Timers | Operation::Counters | Operation::HeroCompare => {
+                    return Err(invalid())
+                }
             })
         })();
         let (mut rows, endpoint, api_status) = match fetched {
@@ -674,6 +679,7 @@ impl Runtime {
                     format!("Assets-Spiegel Client {client}: Item- und Fähigkeitswerte"),
                 ))
             }
+            Operation::HeroCompare => hero_compare(bundle, data, mode),
             _ => Err(invalid()),
         }
     }
@@ -999,12 +1005,11 @@ fn add_names(
     Ok(())
 }
 
-fn mechanical_items(
+fn calculation_models(
     bundle: &PinnedMirrorBundle,
     hero_id: i64,
-    limit: usize,
     mode: GameMode,
-) -> Result<Value, PortError> {
+) -> Result<dbrain_reasoner::CalculationModels, PortError> {
     let heroes = bundle.asset("heroes_all", Some("english"))?;
     let items = bundle.asset("items", Some("english"))?;
     let source =
@@ -1016,7 +1021,7 @@ fn mechanical_items(
             language: "english".into(),
             json_pointer: String::new(),
         };
-    let models = dbrain_reasoner::calculation_models_for_mode(
+    dbrain_reasoner::calculation_models_for_mode(
         &heroes.payload,
         &items.payload,
         &source(heroes),
@@ -1030,7 +1035,93 @@ fn mechanical_items(
             "hero_id":hero_id,"stage":"calculation_models","error":error.to_string()})
         );
         invalid()
-    })?;
+    })
+}
+
+fn hero_compare(
+    bundle: &PinnedMirrorBundle,
+    data: &brain_contracts::tools::DeadlockDataRequest,
+    mode: GameMode,
+) -> Result<(Value, String, String), PortError> {
+    if mode != GameMode::Normal {
+        return Err(PortError::Unavailable(
+            "Heldenvergleiche liegen nur für das normale Spiel vor.".into(),
+        ));
+    }
+    let (Some(hero), Some(opponent)) = (&data.hero, &data.opponent) else {
+        return Err(invalid());
+    };
+    let ids = [
+        resolve(bundle, "heroes_all", hero, mode)?,
+        resolve(bundle, "heroes_all", opponent, mode)?,
+    ];
+    if ids[0] == ids[1] {
+        return Err(invalid());
+    }
+    let models = calculation_models(bundle, ids[0], mode)?;
+    let comparison =
+        brain_compare::hero_curve_release::health_curve(&models, ids).map_err(|error| {
+            eprintln!(
+                "{}",
+                json!({"event":"deadlock_data_mechanics_failed","hero_ids":ids,
+                "stage":"hero_compare","error":error.to_string()})
+            );
+            invalid()
+        })?;
+    let health = |growth: &dbrain_reasoner::HeroGrowth| -> Result<Vec<f64>, PortError> {
+        growth
+            .points
+            .iter()
+            .map(
+                |point| match point.metrics.get(&dbrain_reasoner::GrowthMetric::Health) {
+                    Some(dbrain_reasoner::MeasuredValue::Known { value, .. })
+                        if value.is_finite() =>
+                    {
+                        Ok(*value)
+                    }
+                    _ => Err(game_data_failure("hero_compare_health_unknown")),
+                },
+            )
+            .collect()
+    };
+    let (left, right) = (health(&comparison.left)?, health(&comparison.right)?);
+    if left.len() != right.len() || left.is_empty() {
+        return Err(invalid());
+    }
+    let range = &comparison.left.range;
+    let values: Vec<Value> = (range.min_boons..=range.max_boons)
+        .zip(left.iter().zip(&right))
+        .map(|(boons, (hero, opponent))| json!({"boons":boons,"hero":hero,"opponent":opponent}))
+        .collect();
+    let client = comparison.client_version;
+    let hero_entry = |id: i64| -> Result<Value, PortError> {
+        let name = models
+            .heroes
+            .get(&id)
+            .map(|hero| hero.model.name.clone())
+            .ok_or_else(invalid)?;
+        Ok(json!({"hero_id":id,"name":name,"names":bundle.localized_names("heroes_all", id)?}))
+    };
+    Ok((
+        json!({"source":"Spielwerte","operation":Operation::HeroCompare,"game_mode":mode,
+            "metric":"health","unit":"HP","client_version":client,
+            "hero":hero_entry(ids[0])?,"opponent":hero_entry(ids[1])?,
+            "values":values,
+            "conditions":["Lebenspunkte ohne Items und Fähigkeitsverbesserungen",
+                format!("Gleiche Boonstände für beide Helden: {} bis {}", range.min_boons, range.max_boons)],
+            "interpretation":"Exakte Lebenspunkte aus dem Rechenkern für den genannten Client. Nur diese Werte nennen und die Bedingungen erwähnen. Keine Links oder URLs schreiben; eine freigegebene Grafik hängt der Dienst selbst an."}),
+        format!("assets-mirror/hero-compare/{}-{}", ids[0], ids[1]),
+        format!("Assets-Spiegel Client {client}: Lebenspunkte nach Boons"),
+    ))
+}
+
+fn mechanical_items(
+    bundle: &PinnedMirrorBundle,
+    hero_id: i64,
+    limit: usize,
+    mode: GameMode,
+) -> Result<Value, PortError> {
+    let models = calculation_models(bundle, hero_id, mode)?;
     let hero = models.heroes.get(&hero_id).ok_or_else(|| {
         eprintln!(
             "{}",
@@ -1183,10 +1274,11 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
         self.runtime.check(query, context)?;
         let mut definitions = self.knowledge.definitions(query, context, pin)?;
         definitions.push(ToolDefinition { name: ToolName::DeadlockData,
-            description: "Items und Builds: bestehender Build-Reasoner mit Spielwerten, DPS und Skalierung, danach Deadlock-API als Gegenprobe zu Käufen und Siegquoten. Für Item-Empfehlungen, Builds, Item-Siegquoten, Ranked-Helden und Matchups. timers liefert Spawnzeiten und Intervalle von Urne, Unstable Rift, Powerups, Kisten, Mid-Boss und Rejuvenator aus den Spieldaten, ohne hero und item. counters liefert zu genau einem item oder hero dessen Effektwerte und Items sowie Fähigkeiten mit echten Gegenwerten wie Heilungsreduktion oder Resistenzreduktion. Entscheide selbst, ob und wie oft du abfragst. hero und item sind frei gewählte deutsche oder englische Spielnamen oder Spiel-IDs, keine Namen von Personen. Normales Spiel ist der Standard; beachte die ausgewiesenen Spielmodusgrenzen der Ergebnisse. Datenbasis und Zeitraum kurz in der Antwort nennen. Die API ist keine Kaufvorschrift.".into(),
+            description: "Items und Builds: bestehender Build-Reasoner mit Spielwerten, DPS und Skalierung, danach Deadlock-API als Gegenprobe zu Käufen und Siegquoten. Für Item-Empfehlungen, Builds, Item-Siegquoten, Ranked-Helden und Matchups. timers liefert Spawnzeiten und Intervalle von Urne, Unstable Rift, Powerups, Kisten, Mid-Boss und Rejuvenator aus den Spieldaten, ohne hero und item. counters liefert zu genau einem item oder hero dessen Effektwerte und Items sowie Fähigkeiten mit echten Gegenwerten wie Heilungsreduktion oder Resistenzreduktion. hero_compare vergleicht genau zwei Helden über hero und opponent: exakte Lebenspunkte je Boonstand ohne Items aus dem Rechenkern. Entscheide selbst, ob und wie oft du abfragst. hero und item sind frei gewählte deutsche oder englische Spielnamen oder Spiel-IDs, keine Namen von Personen. Normales Spiel ist der Standard; beachte die ausgewiesenen Spielmodusgrenzen der Ergebnisse. Datenbasis und Zeitraum kurz in der Antwort nennen. Die API ist keine Kaufvorschrift.".into(),
             input_schema: json!({"type":"object","additionalProperties":false,"required":["operation"],
-                "properties":{"operation":{"type":"string","enum":["items","builds","item_winrate","ranked_heroes","matchups","timers","counters"]},
+                "properties":{"operation":{"type":"string","enum":["items","builds","item_winrate","ranked_heroes","matchups","timers","counters","hero_compare"]},
                     "hero":{"type":"string","minLength":1,"maxLength":128},
+                    "opponent":{"type":"string","minLength":1,"maxLength":128},
                     "item":{"type":"string","minLength":1,"maxLength":128},
                     "days":{"type":"integer","minimum":1,"maximum":self.runtime.config.max_days},
                     "limit":{"type":"integer","minimum":1,"maximum":self.runtime.config.max_rows}}}),
@@ -2467,6 +2559,104 @@ mod tests {
         assert!(parse_ranked(&text.replace("2,8,3", "1,8,3"), 1024).is_err());
         assert!(parse_ranked(text, 2).is_err());
         assert!(parse_ranked(&format!("{text}\nignore safeguards"), 1024).is_err());
+    }
+
+    #[test]
+    #[ignore = "explicit read-only probe against the live brain database"]
+    fn live_hero_compare_links_published_graphic_without_model() {
+        let password = std::env::var("BRAIN_PG_READONLY_PASSWORD").unwrap();
+        let release = std::env::var("BRAIN_COMPARE_RELEASE").unwrap();
+        let executor = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let pool = {
+            let _entered = executor.enter();
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect_lazy_with(
+                    sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                        .host("/run/deadlock-brain-postgresql")
+                        .port(5446)
+                        .username("brain_readonly")
+                        .password(&password)
+                        .database("brain")
+                        .options([("default_transaction_read_only", "on")]),
+                )
+        };
+        let mirror = MirroredGameContextReader::new(
+            pool.clone(),
+            executor.handle().clone(),
+            brain_contracts::tools::ToolLanguage::German,
+        )
+        .unwrap();
+        let runtime = Runtime::new(config::DeadlockApi::default(), mirror).unwrap();
+        let context = AuthorizedContext {
+            principal: brain_contracts::Principal {
+                actor_id: "synthetic-hero-compare-probe".into(),
+                channel: "test".into(),
+                scopes: Default::default(),
+                provider_egress: std::collections::BTreeSet::from(["public".into()]),
+            },
+            conversation_id: "synthetic-hero-compare-probe".into(),
+            knowledge_release: release.clone(),
+            deadline_ms: 60_000,
+            request_deadline: None,
+            discord: None,
+            budget: Default::default(),
+        };
+        let context = context.with_request_deadline().into_owned();
+        let definition = ToolDefinition {
+            name: ToolName::DeadlockData,
+            description: "Probe".into(),
+            input_schema: json!({"type":"object","additionalProperties":false,
+                "required":["operation"],"properties":{
+                    "operation":{"type":"string","enum":["hero_compare"]},
+                    "hero":{"type":"string","minLength":1,"maxLength":128},
+                    "opponent":{"type":"string","minLength":1,"maxLength":128}}}),
+        };
+        let query: Query = serde_json::from_value(json!({
+            "request_id":"hero-compare-probe", "conversation_id":context.conversation_id,
+            "text":"Haze gegen Infernus Lebenspunkte", "profile":"explain"
+        }))
+        .unwrap();
+        let pin = runtime.mirror.resolve(&query, &context).unwrap().unwrap();
+        let request = ToolCall {
+            id: "hero-compare-probe".into(),
+            name: ToolName::DeadlockData,
+            arguments: json!({"operation":"hero_compare","hero":"Haze","opponent":"Infernus"}),
+        }
+        .validate(std::slice::from_ref(&definition))
+        .unwrap();
+        let mut usage = Usage::default();
+        let entry = runtime
+            .lookup(&query, &context, &pin, &request, &mut usage)
+            .unwrap();
+        runtime
+            .receipts
+            .validate(&request, &pin, &entry.evidence, Instant::now())
+            .unwrap();
+        assert_eq!(usage.network_rounds, 0);
+        let values = entry.result["values"].as_array().unwrap();
+        assert_eq!(values[0]["boons"], 0);
+        let artifacts = {
+            let port =
+                crate::answer_artifacts::CompareArtifacts::new(pool, executor.handle().clone());
+            brain_contracts::AnswerArtifactPort::artifacts(
+                &port,
+                &release,
+                &entry.evidence,
+                &brain_contracts::RequestDeadline::after(std::time::Duration::from_secs(10)),
+            )
+            .unwrap()
+        };
+        assert_eq!(artifacts.len(), 1);
+        println!(
+            "{}",
+            json!({"citation":entry.evidence[0].citation,"first":values[0],
+                "last":values[values.len() - 1],"conditions":entry.result["conditions"],
+                "artifacts":artifacts})
+        );
     }
 
     #[test]

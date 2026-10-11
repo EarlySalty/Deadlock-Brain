@@ -370,6 +370,7 @@ pub enum DeadlockDataOperation {
     Matchups,
     Timers,
     Counters,
+    HeroCompare,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -378,6 +379,8 @@ pub struct DeadlockDataRequest {
     pub operation: DeadlockDataOperation,
     pub hero: Option<String>,
     pub item: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opponent: Option<String>,
     pub days: Option<u32>,
     pub limit: Option<usize>,
 }
@@ -491,27 +494,38 @@ impl ToolSubrequest {
                     .map_or(Ok(()), ToolScenario::validate)
             }
             Self::DeadlockData(request) => {
-                for name in request.hero.iter().chain(&request.item) {
+                for name in request
+                    .hero
+                    .iter()
+                    .chain(&request.item)
+                    .chain(&request.opponent)
+                {
                     validate_text(name)?;
                     if name.len() > 128 || name.chars().any(char::is_control) {
                         return Err(invalid("Ungültiger Spielname"));
                     }
                 }
-                let target_invalid = match request.operation {
-                    DeadlockDataOperation::RankedHeroes => false,
-                    DeadlockDataOperation::Timers => {
-                        request.hero.is_some() || request.item.is_some()
-                    }
-                    DeadlockDataOperation::Counters => {
-                        request.hero.is_some() == request.item.is_some()
-                    }
-                    DeadlockDataOperation::ItemWinrate => {
-                        request.hero.is_none() || request.item.is_none()
-                    }
-                    DeadlockDataOperation::Items
-                    | DeadlockDataOperation::Builds
-                    | DeadlockDataOperation::Matchups => request.hero.is_none(),
-                };
+                let opponent_invalid = request.opponent.is_some()
+                    != (request.operation == DeadlockDataOperation::HeroCompare);
+                let target_invalid = opponent_invalid
+                    || match request.operation {
+                        DeadlockDataOperation::RankedHeroes => false,
+                        DeadlockDataOperation::HeroCompare => {
+                            request.hero.is_none() || request.item.is_some()
+                        }
+                        DeadlockDataOperation::Timers => {
+                            request.hero.is_some() || request.item.is_some()
+                        }
+                        DeadlockDataOperation::Counters => {
+                            request.hero.is_some() == request.item.is_some()
+                        }
+                        DeadlockDataOperation::ItemWinrate => {
+                            request.hero.is_none() || request.item.is_none()
+                        }
+                        DeadlockDataOperation::Items
+                        | DeadlockDataOperation::Builds
+                        | DeadlockDataOperation::Matchups => request.hero.is_none(),
+                    };
                 if request.days == Some(0) || request.limit == Some(0) || target_invalid {
                     return Err(invalid("Spielauswahl fehlt"));
                 }

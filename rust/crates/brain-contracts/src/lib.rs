@@ -43,7 +43,8 @@ pub mod value;
 pub mod wiki;
 pub use embedding::{EmbeddingIdentity, EmbeddingOutput, EmbeddingProviderPort};
 pub use public_api::{
-    ApiErrorDetail, ApiErrorEnvelope, PublicAnswerResponse, PublicCitation, PUBLIC_API_VERSION,
+    AnswerArtifactPort, ApiErrorDetail, ApiErrorEnvelope, PublicAnswerResponse, PublicArtifact,
+    PublicArtifactKind, PublicCitation, PUBLIC_API_VERSION,
 };
 pub use store::{
     BatchReceipt, CorpusSnapshot, DocumentStorePort, Lease, SnapshotReadPort, SourceBatch,

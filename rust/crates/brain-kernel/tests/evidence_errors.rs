@@ -274,6 +274,7 @@ fn unavailable_roundtrips_through_the_public_response_contract() {
         status: AnswerStatus::Unavailable,
         text: "Evidenz vorübergehend nicht verfügbar.".into(),
         citations: Vec::new(),
+        artifacts: Vec::new(),
     };
     let json = serde_json::to_string(&value).unwrap();
     assert!(json.contains("\"status\":\"unavailable\""));

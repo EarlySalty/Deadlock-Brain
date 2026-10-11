@@ -14,8 +14,8 @@ use dbrain_reasoner::{
 use std::{collections::BTreeMap, time::Duration};
 
 use crate::hero_curve_artifact::prepare_hero_curve_artifact;
+pub use crate::hero_curve_artifact::{HERO_CURVE_MECHANISM, LEGACY_HERO_CURVE_MECHANISM};
 
-pub const HERO_CURVE_MECHANISM: &str = "dbrain-reasoner/hero-curve-health-v1";
 const ASSETS_SOURCE: &str = "deadlock_assets_api";
 const ASSETS_PREFIX: &str = "https://api.deadlock-api.com/v1/assets/";
 
@@ -183,19 +183,13 @@ fn empty_scenario() -> CalculationScenario {
     }
 }
 
-fn curve_artifact(
-    reader: &dyn SnapshotReadPort,
-    principal: &Principal,
-    release_id: &str,
-    heroes: [i64; 2],
-) -> Result<CompareArtifact> {
-    let release = release_models(reader, release_id)?;
-    let max_boons = boon_limit(&release.models, heroes[0])?
-        .min(boon_limit(&release.models, heroes[1])?)
+pub fn health_curve(models: &CalculationModels, heroes: [i64; 2]) -> Result<HeroCurveComparison> {
+    let max_boons = boon_limit(models, heroes[0])?
+        .min(boon_limit(models, heroes[1])?)
         .min(100);
     ensure!(max_boons > 0, "Boonstände fehlen im Quellenstand");
-    let comparison = dbrain_reasoner::compare_hero_curves(
-        &release.models,
+    Ok(dbrain_reasoner::compare_hero_curves(
+        models,
         heroes,
         &empty_scenario(),
         BoonRange {
@@ -204,7 +198,18 @@ fn curve_artifact(
         },
         GrowthMetric::Health,
         &RequestDeadline::after(Duration::from_secs(30)),
-    )?;
+    )?)
+}
+
+fn curve_artifact(
+    reader: &dyn SnapshotReadPort,
+    principal: &Principal,
+    release_id: &str,
+    heroes: [i64; 2],
+    mechanism_version: &str,
+) -> Result<CompareArtifact> {
+    let release = release_models(reader, release_id)?;
+    let comparison = health_curve(&release.models, heroes)?;
     prepare_hero_curve_artifact(
         reader,
         principal,
@@ -212,7 +217,7 @@ fn curve_artifact(
         &release.models,
         release_id,
         &release.documents,
-        HERO_CURVE_MECHANISM,
+        mechanism_version,
     )
 }
 
@@ -225,7 +230,7 @@ pub fn prepare_release_hero_curve(
 ) -> Result<CompareArtifact> {
     let models = release_models(reader, release_id)?.models;
     let heroes = [hero_id(&models, left)?, hero_id(&models, right)?];
-    curve_artifact(reader, principal, release_id, heroes)
+    curve_artifact(reader, principal, release_id, heroes, HERO_CURVE_MECHANISM)
 }
 
 pub struct ReleaseCurveVerifier<'a> {
@@ -237,7 +242,9 @@ impl CompareCalculationVerifier for ReleaseCurveVerifier<'_> {
     fn verify(&self, body: &CompareArtifactBody) -> Result<(), PortError> {
         let rejected =
             || PortError::InvalidResponse("Vergleichsrechnung ist nicht bestätigt".into());
-        if body.mechanism_version != HERO_CURVE_MECHANISM {
+        if ![HERO_CURVE_MECHANISM, LEGACY_HERO_CURVE_MECHANISM]
+            .contains(&body.mechanism_version.as_str())
+        {
             return Err(rejected());
         }
         let comparison: HeroCurveComparison =
@@ -247,6 +254,7 @@ impl CompareCalculationVerifier for ReleaseCurveVerifier<'_> {
             self.principal,
             &body.release.release_id,
             [comparison.left.hero_id, comparison.right.hero_id],
+            &body.mechanism_version,
         )
         .map_err(|_| rejected())?;
         if rebuilt.body() != body {

@@ -6,6 +6,8 @@ pub const PUBLIC_API_VERSION: &str = "brain.public.v1";
 pub const UNVERIFIED_PREFIX: &str = "Ungeprüft: ";
 pub const MAX_PUBLIC_ANSWER_TEXT_BYTES: usize = 64 * 1024;
 pub const DEADLOCK_API_SOURCE_ID: &str = "deadlock-api-live-v1";
+pub const MAX_PUBLIC_ARTIFACTS: usize = 4;
+pub const COMPARE_PAGE_ORIGIN: &str = "https://deutsche-deadlock-community.de/brain/site/compare/";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublicCitation {
@@ -72,6 +74,60 @@ pub struct PublicRetrievalResponse {
     pub truncated: bool,
     pub out_of_domain: bool,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicArtifactKind {
+    HeroCompare,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublicArtifact {
+    pub kind: PublicArtifactKind,
+    pub artifact_id: String,
+    pub title: String,
+    pub page_url: String,
+    pub chart_url: String,
+}
+impl PublicArtifact {
+    pub fn hero_compare(artifact_id: &str, title: &str) -> Result<Self, PortError> {
+        let artifact = Self {
+            kind: PublicArtifactKind::HeroCompare,
+            artifact_id: artifact_id.into(),
+            title: title.into(),
+            page_url: format!("{COMPARE_PAGE_ORIGIN}{artifact_id}"),
+            chart_url: format!("{COMPARE_PAGE_ORIGIN}{artifact_id}/chart.svg"),
+        };
+        artifact.validate()?;
+        Ok(artifact)
+    }
+
+    pub fn validate(&self) -> Result<(), PortError> {
+        let id_valid = self.artifact_id.len() == 64
+            && self
+                .artifact_id
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
+        let page = format!("{COMPARE_PAGE_ORIGIN}{}", self.artifact_id);
+        if !id_valid
+            || self.page_url != page
+            || self.chart_url != format!("{page}/chart.svg")
+            || self.title.trim().is_empty()
+            || self.title.len() > 200
+            || self.title.chars().any(char::is_control)
+        {
+            return Err(PortError::InvalidResponse("invalid public artifact".into()));
+        }
+        Ok(())
+    }
+}
+pub trait AnswerArtifactPort: Send + Sync {
+    fn artifacts(
+        &self,
+        knowledge_release: &str,
+        citations: &[crate::Evidence],
+        deadline: &crate::RequestDeadline,
+    ) -> Result<Vec<PublicArtifact>, PortError>;
+}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublicAnswerResponse {
@@ -81,16 +137,23 @@ pub struct PublicAnswerResponse {
     pub status: AnswerStatus,
     pub text: String,
     pub citations: Vec<PublicCitation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifacts: Vec<PublicArtifact>,
 }
 impl PublicAnswerResponse {
     pub fn validate(&self, expected_request: &str) -> Result<(), PortError> {
         let ids: BTreeSet<_> = self.citations.iter().map(|c| &c.citation_id).collect();
+        let artifact_ids: BTreeSet<_> = self.artifacts.iter().map(|a| &a.artifact_id).collect();
         if self.contract_version != PUBLIC_API_VERSION
             || self.request_id != expected_request
             || self.knowledge_release.trim().is_empty()
             || self.text.len() > MAX_PUBLIC_ANSWER_TEXT_BYTES
             || self.citations.len() > 100
             || ids.len() != self.citations.len()
+            || self.artifacts.len() > MAX_PUBLIC_ARTIFACTS
+            || artifact_ids.len() != self.artifacts.len()
+            || self.artifacts.iter().any(|a| a.validate().is_err())
+            || (!self.artifacts.is_empty() && self.status != AnswerStatus::Answered)
             || self.citations.iter().any(|c| {
                 c.citation_id.is_empty()
                     || c.citation_id.len() > 128

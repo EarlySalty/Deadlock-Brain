@@ -1,0 +1,12 @@
+[package]
+name = "brain-compare"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+brain-contracts = { path = "../brain-contracts" }
+brain-storage = { path = "../brain-storage" }
+dbrain-reasoner = { path = "../dbrain-reasoner" }
+serde.workspace = true
+serde_json.workspace = true
