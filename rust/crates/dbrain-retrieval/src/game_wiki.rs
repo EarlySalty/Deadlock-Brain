@@ -329,6 +329,9 @@ fn search_game_wiki_inner(
             }
             hero_context = json!({
                 "hero": binding.name, "bound_abilities": bound.len(),
+                "status": entry_payload_json(&hero.content).and_then(|payload| {
+                    payload.as_object().and_then(brain_contracts::hero_status::hero_status)
+                }),
                 "binding_source": "hero_bound_abilities",
                 "ability_bindings": bound.iter().take(MAX_HERO_ABILITIES).map(|(key, name)| json!({"key":key,"name":name})).collect::<Vec<_>>(),
                 "missing_abilities": missing, "omitted_abilities": bound.len().saturating_sub(MAX_HERO_ABILITIES),
@@ -392,13 +395,18 @@ fn hero_roster_answer_context(root: Option<&Path>, query: &str) -> Result<JsonVa
             let Some(payload) = entry_payload_json(entry) else {
                 continue;
             };
-            if payload.get("IsSelectable").and_then(JsonValue::as_bool) == Some(false)
-                || payload.get("IsDisabled").and_then(JsonValue::as_bool) == Some(true)
-                || payload.get("InDevelopment").and_then(JsonValue::as_bool) == Some(true)
-            {
+            let Some(status) = payload
+                .as_object()
+                .and_then(brain_contracts::hero_status::hero_status)
+            else {
                 continue;
-            }
-            let Some(name) = payload.get("Name").and_then(JsonValue::as_str) else {
+            };
+            let Some(name) = payload
+                .get("Name")
+                .and_then(JsonValue::as_str)
+                .filter(|name| !name.trim().is_empty())
+                .or_else(|| payload.get("Key").and_then(JsonValue::as_str))
+            else {
                 continue;
             };
             if source_meta.is_null() {
@@ -453,6 +461,7 @@ fn hero_roster_answer_context(root: Option<&Path>, query: &str) -> Result<JsonVa
                     .cloned()
                     .unwrap_or(JsonValue::Null),
                 abilities,
+                status,
             ]));
         }
     }
@@ -475,7 +484,8 @@ fn hero_roster_answer_context(root: Option<&Path>, query: &str) -> Result<JsonVa
             "dps_growth",
             "health_growth",
             "spirit_growth",
-            "abilities"
+            "abilities",
+            "status"
         ],
         "hero_roster": heroes,
         "_deadlock_data": source_meta,
@@ -1658,13 +1668,74 @@ mod tests {
     }
 
     #[test]
+    fn hero_roster_preserves_uncatalogued_development_source_information() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pages = tmp.path().join("pages/deadlock-data");
+        fs::create_dir_all(&pages).unwrap();
+        let mut content = String::new();
+        for (key, name, ability) in [
+            ("hero_airheart", "", "Rocket Launcher"),
+            ("hero_tokamak", "Tokamak", "Hot Shot"),
+        ] {
+            let payload = json!({"Key":key,"Name":name,"InDevelopment":true,
+                "IsDisabled":true,"BoundAbilities":{"1":{"Name":ability}}});
+            content.push_str(&format!("<!-- game-wiki-entry entity_type=\"hero\" -->\n## {key}\n````json\n{payload}\n````\n"));
+        }
+        fs::write(pages.join("hero.md"), content).unwrap();
+        let result =
+            hero_roster_answer_context(Some(tmp.path()), "Welche Helden gibt es?").unwrap();
+        let payload =
+            entry_payload_json(result["matches"][0]["content"].as_str().unwrap()).unwrap();
+        let heroes = payload["hero_roster"].as_array().unwrap();
+        assert_eq!(heroes.len(), 2);
+        for (name, ability) in [
+            ("hero_airheart", "Rocket Launcher"),
+            ("Tokamak", "Hot Shot"),
+        ] {
+            let hero = heroes.iter().find(|hero| hero[0] == name).unwrap();
+            assert_eq!(hero[9], json!([ability]));
+            assert_eq!(hero[10], "in_development");
+        }
+    }
+
+    #[test]
+    fn hero_roster_keeps_development_rows_with_status_and_original_health() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pages = tmp.path().join("pages/deadlock-data");
+        fs::create_dir_all(&pages).unwrap();
+        let mut content = String::new();
+        for (id, key, name, selectable, disabled) in [
+            (88, "hero_baba", "Baba", true, false),
+            (56, "hero_bomber", "Bomber", false, true),
+            (68, "hero_boho", "Boho", false, true),
+            (83, "hero_testhero", "hero_testhero", false, true),
+        ] {
+            let hero = json!({"Key":key,"Name":name,"InDevelopment":true,
+                "IsDisabled":disabled,"MaxHealth":780,"_hero_catalog":{
+                    "id":id,"class_name":key,"name":name,
+                    "player_selectable":selectable,"disabled":disabled}});
+            content.push_str(&format!("<!-- game-wiki-entry entity_type=\"hero\" -->\n## {name}\n````json\n{hero}\n````\n"));
+        }
+        fs::write(pages.join("hero.md"), content).unwrap();
+        let result = hero_roster_answer_context(Some(tmp.path()), "Alle Helden").unwrap();
+        let facts = entry_payload_json(result["matches"][0]["content"].as_str().unwrap()).unwrap();
+        let heroes = facts["hero_roster"].as_array().unwrap();
+        assert_eq!(heroes.len(), 3);
+        assert_eq!(heroes[0][0], "Baba");
+        assert_eq!(heroes[0][2], 780);
+        assert_eq!(heroes[0][10], "released");
+        assert_eq!(heroes[1][10], "in_development");
+        assert_eq!(heroes[2][10], "in_development");
+    }
+
+    #[test]
     fn hero_archetype_answer_uses_roster_evidence_instead_of_item_names() {
         let tmp = tempfile::tempdir().unwrap();
         let pages = tmp.path().join("pages/deadlock-data");
         fs::create_dir_all(&pages).unwrap();
         fs::write(
             pages.join("hero.md"),
-            "<!-- game-wiki-entry source=\"deadlock_data\" entity_type=\"hero\" external_id=\"hero_beacon\" title=\"Beacon\" -->\n## Beacon\n````json\n{\"Key\":\"hero_beacon\",\"Name\":\"Beacon\",\"Type\":\"Brawler\",\"IsSelectable\":true,\"MaxHealth\":700,\"MaxMoveSpeed\":6.5,\"SprintSpeed\":1.5,\"Stamina\":3,\"LevelScaling\":{\"DPS\":1.2,\"MaxHealth\":40},\"BoundAbilities\":{\"1\":{\"Key\":\"ability_beacon\",\"Name\":\"Fast Start\"}}}\n````\n",
+            "<!-- game-wiki-entry source=\"deadlock_data\" entity_type=\"hero\" external_id=\"hero_beacon\" title=\"Beacon\" -->\n## Beacon\n````json\n{\"Key\":\"hero_beacon\",\"Name\":\"Beacon\",\"Type\":\"Brawler\",\"IsSelectable\":true,\"_hero_catalog\":{\"id\":1,\"class_name\":\"hero_beacon\",\"name\":\"Beacon\",\"player_selectable\":true,\"disabled\":false},\"MaxHealth\":700,\"MaxMoveSpeed\":6.5,\"SprintSpeed\":1.5,\"Stamina\":3,\"LevelScaling\":{\"DPS\":1.2,\"MaxHealth\":40},\"BoundAbilities\":{\"1\":{\"Key\":\"ability_beacon\",\"Name\":\"Fast Start\"}}}\n````\n",
         )
         .unwrap();
         fs::write(

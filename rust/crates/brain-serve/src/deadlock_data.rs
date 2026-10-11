@@ -545,7 +545,7 @@ impl Runtime {
             }
             Err(error) => return Err(error),
         };
-        retain_shop_items(&bundle, &mut rows, mode)?;
+        retain_entities(&bundle, &mut rows, mode)?;
         let all_rows = rows.clone();
         rows.truncate(limit);
         for row in &mut rows {
@@ -569,7 +569,7 @@ impl Runtime {
         } else {
             "not_requested"
         };
-        let result = json!({"source":"Deadlock-API","operation":data.operation,
+        let mut result = json!({"source":"Deadlock-API","operation":data.operation,
             "hero_id":hero_id,"item_id":item_id,
             "hero_names":hero_id.map(|id| bundle.localized_names("heroes_all", id)).transpose()?,
             "item_names":item_id.map(|id| bundle.localized_names("items", id)).transpose()?,
@@ -579,6 +579,9 @@ impl Runtime {
             "build_limit":"Einzelitemvergleich aus dem Build-Reasoner, kein vollständiger geprüfter Kaufplan.",
             "build_observation_basis":"Keine Build-Statistik: Der Upstream unterstützt hier keinen Spielmodusfilter. Keine Daten aus anderen Spielmodi verwenden.",
             "matchup_observation_basis":"Gegner in derselben Lane nach dem Standardfilter der Deadlock-API."});
+        if let Some(id) = hero_id {
+            result["status"] = json!(hero_status(&bundle, id)?);
+        }
         let citation = format!(
             "Deadlock-API: {} bis {} (UTC), {}",
             stamp(start)?,
@@ -668,6 +671,9 @@ impl Runtime {
                 result["client_version"] = json!(client);
                 result["target"] = json!({"kind":kind,"id":id,
                     "names":bundle.localized_names(kind, id)?});
+                if kind == "heroes_all" {
+                    result["target"]["status"] = json!(hero_status(bundle, id)?);
+                }
                 Ok((
                     result,
                     format!("assets-mirror/counters/{kind}-{id}"),
@@ -908,6 +914,21 @@ fn check_assets(bundle: &PinnedMirrorBundle, context: &AuthorizedContext) -> Res
     Ok(())
 }
 
+fn hero_status(
+    bundle: &PinnedMirrorBundle,
+    id: i64,
+) -> Result<Option<brain_contracts::hero_status::HeroStatus>, PortError> {
+    Ok(bundle
+        .asset("heroes_all", Some("english"))?
+        .payload
+        .as_array()
+        .ok_or_else(invalid)?
+        .iter()
+        .find(|row| row["id"].as_i64() == Some(id))
+        .and_then(Value::as_object)
+        .and_then(brain_contracts::hero_status::hero_status))
+}
+
 fn resolve(
     bundle: &PinnedMirrorBundle,
     kind: &str,
@@ -924,6 +945,14 @@ fn resolve(
         {
             if kind == "items" && !mode.allows_item(row) {
                 continue;
+            }
+            if kind == "heroes_all" {
+                let Some(id) = row["id"].as_i64() else {
+                    continue;
+                };
+                if hero_status(bundle, id)?.is_none() {
+                    continue;
+                }
             }
             if [row["name"].as_str(), row["class_name"].as_str()]
                 .into_iter()
@@ -943,7 +972,7 @@ fn resolve(
     ids.into_iter().next().ok_or_else(invalid)
 }
 
-fn retain_shop_items(
+fn retain_entities(
     bundle: &PinnedMirrorBundle,
     rows: &mut Vec<Value>,
     mode: GameMode,
@@ -957,11 +986,28 @@ fn retain_shop_items(
         .filter(|item| mode.allows_item(item))
         .filter_map(|item| item["id"].as_i64())
         .collect();
+    let heroes: std::collections::BTreeSet<_> = bundle
+        .asset("heroes_all", Some("english"))?
+        .payload
+        .as_array()
+        .ok_or_else(invalid)?
+        .iter()
+        .filter(|hero| {
+            hero.as_object()
+                .and_then(brain_contracts::hero_status::hero_status)
+                .is_some()
+        })
+        .filter_map(|hero| hero["id"].as_i64())
+        .collect();
     rows.retain(|row| {
-        row.get("item_id").is_none()
+        (row.get("item_id").is_none()
             || row["item_id"]
                 .as_i64()
-                .is_some_and(|id| eligible.contains(&id))
+                .is_some_and(|id| eligible.contains(&id)))
+            && ["hero_id", "enemy_hero_id"].iter().all(|field| {
+                row.get(*field).is_none()
+                    || row[*field].as_i64().is_some_and(|id| heroes.contains(&id))
+            })
     });
     Ok(())
 }
@@ -993,6 +1039,10 @@ fn add_names(
                     row[output] = name.clone();
                 }
                 row[format!("{output}s")] = names;
+                if kind == "heroes_all" {
+                    let status_field = field.replace("_id", "_status");
+                    row[status_field] = json!(hero_status(bundle, id)?);
+                }
             }
         }
     }

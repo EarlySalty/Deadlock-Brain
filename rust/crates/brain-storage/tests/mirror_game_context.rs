@@ -126,6 +126,23 @@ async fn seed(pool: &PgPool, marker: &str) -> i64 {
 }
 
 pub(crate) async fn seed_with_grants(pool: &PgPool, marker: &str, granted: bool) -> i64 {
+    seed_with_heroes(
+        pool,
+        marker,
+        granted,
+        json!([{"id":7,"name":"Prüfdaten",
+        "class_name":"hero_fixture","player_selectable":true,"disabled":false,
+        "observation":marker}]),
+    )
+    .await
+}
+
+pub(crate) async fn seed_with_heroes(
+    pool: &PgPool,
+    marker: &str,
+    granted: bool,
+    heroes: Value,
+) -> i64 {
     let (manifest, manifest_hash) = document(
         pool,
         json!({"client_version":6759}),
@@ -145,6 +162,8 @@ pub(crate) async fn seed_with_grants(pool: &PgPool, marker: &str, granted: bool)
                 json!([{"id":8,"name":"Prüfitem","type":"upgrade","shopable":true,"disabled":false,
                     "item_slot_type":"spirit","item_tier":1,"cost":800,"observation":marker,"zero":0},
                     {"id":9,"name":"Prüffähigkeit","type":"ability","observation":marker}])
+            } else if matches!(*kind, "heroes" | "heroes_all") {
+                heroes.clone()
             } else {
                 json!([{"id":7,"name":"Prüfdaten","observation":marker}])
             };
