@@ -56,6 +56,7 @@ impl OpenAiCompatibleProvider {
             "valid JSON with model, usage and one complete assistant response",
         );
         let mut deviations = Vec::new();
+        let mut withheld_output = false;
         let result = (|| {
             let mut parsed = if self.config.subscription {
                 subscription_response(&bytes, &mut failed_check)?
@@ -183,34 +184,40 @@ impl OpenAiCompatibleProvider {
                         format!("grounded_envelope_{shape}"),
                     );
                 }
-                let answer = match answer {
+                let mut answer = match answer {
                     Ok(_) if unverified_finish => {
-                        failed_check = super::audit::check(
-                            "unverified_answer",
-                            "message.content",
-                            "nonempty display-safe answer text",
-                        );
-                        unverified_answer(&text, usage, evidence)?
+                        withheld_output = true;
+                        unverified_answer(usage)
                     }
                     Ok(answer) => answer,
                     Err(error @ ProviderError::InvalidResponse(_))
-                        if !self.config.quality_filters =>
+                        if !self.config.quality_filters
+                            || failed_check.check == "citation_invalid" =>
                     {
+                        withheld_output = true;
                         deviations.push(failed_check.clone());
                         self.report_failure(Some(&request.query.request_id), &error);
                         self.report_category(
                             Some(&request.query.request_id),
                             "answer_unverified".into(),
                         );
-                        failed_check = super::audit::check(
-                            "unverified_answer",
-                            "message.content",
-                            "nonempty display-safe answer text",
-                        );
-                        unverified_answer(&text, usage, evidence)?
+                        unverified_answer(usage)
                     }
                     Err(error) => return Err(error),
                 };
+                if brain_contracts::answer_contract::enforce(request.query, evidence, &mut answer) {
+                    withheld_output = true;
+                    failed_check = super::audit::check(
+                        "answer_original_unbound",
+                        "message.content.text",
+                        "one complete original excerpt from cited authorized display content",
+                    );
+                    deviations.push(failed_check.clone());
+                    self.report_category(
+                        Some(&request.query.request_id),
+                        "answer_unverified_original_unbound".into(),
+                    );
+                }
                 ProviderTurn::Final {
                     answer,
                     finish_reason: parsed.finish_reason,
@@ -241,7 +248,7 @@ impl OpenAiCompatibleProvider {
         if result.is_err() {
             deviations.push(failed_check);
         }
-        let disposition = if result.is_ok() {
+        let disposition = if result.is_ok() && !withheld_output {
             brain_contracts::response_audit::ResponseDisposition::UncheckedReturned
         } else {
             brain_contracts::response_audit::ResponseDisposition::Rejected
@@ -962,100 +969,8 @@ fn compatible_response(
     })
 }
 
-fn unverified_answer(raw: &str, usage: Usage, evidence: &[Evidence]) -> Result<ProviderAnswer> {
-    let raw = raw.trim();
-    let body = raw
-        .strip_prefix("```")
-        .and_then(|fenced| fenced.split_once('\n').map(|(_, body)| body))
-        .map(|body| body.strip_suffix("```").unwrap_or(body).trim())
-        .unwrap_or(raw);
-    let body = body
-        .split_once('{')
-        .filter(|(prefix, suffix)| {
-            !prefix.trim().is_empty()
-                && (suffix.trim_start().starts_with("\"text\"")
-                    || suffix.trim_start().starts_with("\"cited_evidence_ids\""))
-        })
-        .map(|(prefix, _)| prefix.trim_end())
-        .unwrap_or(body);
-    let decoded = parse_unique_json(body.as_bytes()).ok();
-    let extracted = decoded.as_ref().and_then(|value| {
-        value
-            .as_str()
-            .or_else(|| value.get("text").and_then(Value::as_str))
-    });
-    let partial = if extracted.is_none() && body.starts_with('{') {
-        body.find("\"text\"").and_then(|start| {
-            let rest = &body[start + "\"text\"".len()..];
-            let rest = rest.trim_start().strip_prefix(':')?.trim_start();
-            match serde_json::Deserializer::from_str(rest)
-                .into_iter::<String>()
-                .next()?
-            {
-                Ok(text) => Some(text),
-                Err(error) if error.is_eof() && rest.starts_with('"') => {
-                    let mut completed = rest.to_owned();
-                    if completed
-                        .as_bytes()
-                        .iter()
-                        .rev()
-                        .take_while(|byte| **byte == b'\\')
-                        .count()
-                        % 2
-                        == 1
-                    {
-                        completed.pop();
-                    }
-                    completed.push('"');
-                    serde_json::from_str(&completed).ok()
-                }
-                Err(_) => None,
-            }
-        })
-    } else {
-        None
-    };
-    let answer_text = extracted.or(partial.as_deref());
-    if answer_text.is_none() && body.starts_with(['{', '[']) {
-        return Err(ProviderError::InvalidResponse(
-            "structured answer text missing".into(),
-        ));
-    }
-    let text = answer_text.unwrap_or(body);
-    let text = text
-        .find("cited_evidence_ids")
-        .map(|end| {
-            text[..end].trim_end_matches([' ', '\n', '\r', '\t', '"', '\\', ',', '`', '*', '{'])
-        })
-        .unwrap_or(text);
-    let mut text = brain_contracts::provider_input::discord_display_text(text);
-    for (start, end) in [("[[ev-", "]]"), ("\u{e200}cite\u{e202}", "\u{e201}")] {
-        text = text
-            .split(start)
-            .enumerate()
-            .filter_map(|(index, part)| {
-                if index == 0 {
-                    Some(part)
-                } else {
-                    part.split_once(end).map(|(_, rest)| rest)
-                }
-            })
-            .collect();
-    }
-    for item in evidence {
-        text = text.replace(&item.evidence_id, "");
-    }
-    text = text.replace("[[]]", "").replace("【】", "");
-    if text.trim().is_empty() || text.len() > 64 * 1024 {
-        return Err(ProviderError::InvalidResponse(
-            "empty or oversized unverified answer".into(),
-        ));
-    }
-    Ok(ProviderAnswer {
-        text,
-        cited_evidence_ids: Vec::new(),
-        usage,
-    })
+fn unverified_answer(usage: Usage) -> ProviderAnswer {
+    brain_contracts::answer_contract::safe_answer(usage)
 }
 
 fn grounded_answer(

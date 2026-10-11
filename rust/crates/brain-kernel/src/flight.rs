@@ -412,6 +412,7 @@ impl<R: RetrievalPort, P: AnswerProviderPort> CachedKernel<R, P> {
                     ))
                     .with_accounting(answer.accounting);
                 }
+                answer.enforce_answer_contract(query);
                 answer
             }
             Err(PortError::BudgetExceeded) => response(
@@ -542,6 +543,7 @@ mod retained_pack_tests {
                         accounting: UsageAccounting::default(),
                         tool_dependencies: Arc::from([]),
                         build_executions: Arc::from([]),
+                        trusted_rendering: false,
                     }
                 })
                 .unwrap()

@@ -344,10 +344,14 @@ impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
         purpose: AnswerPurpose,
         session: Option<&ToolSession>,
     ) -> KernelAnswer {
-        if let Some(session) = session.filter(|session| !session.definitions.is_empty()) {
-            return execution::answer_tools(self, query, context, session, purpose);
-        }
-        execution::answer(self, query, context, purpose, self.clock.as_ref())
+        let mut answer =
+            if let Some(session) = session.filter(|session| !session.definitions.is_empty()) {
+                execution::answer_tools(self, query, context, session, purpose)
+            } else {
+                execution::answer(self, query, context, purpose, self.clock.as_ref())
+            };
+        answer.enforce_answer_contract(query);
+        answer
     }
 
     fn validate_reuse(

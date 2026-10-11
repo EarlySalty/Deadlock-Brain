@@ -8,6 +8,7 @@ pub(super) struct KernelAnswer {
     pub dependencies: Arc<[Evidence]>,
     pub tool_dependencies: Arc<[ToolEvidenceDependency]>,
     pub build_executions: Arc<[brain_contracts::ToolExecution]>,
+    pub trusted_rendering: bool,
 }
 impl From<AnswerResponse> for KernelAnswer {
     fn from(answer: AnswerResponse) -> Self {
@@ -16,11 +17,57 @@ impl From<AnswerResponse> for KernelAnswer {
             dependencies: answer.citations.clone().into(),
             tool_dependencies: Arc::from([]),
             build_executions: Arc::from([]),
+            trusted_rendering: false,
             answer,
         }
     }
 }
 impl KernelAnswer {
+    pub fn with_trusted_rendering(mut self) -> Self {
+        self.trusted_rendering = true;
+        self
+    }
+
+    pub fn enforce_answer_contract(&mut self, query: &Query) {
+        if self.trusted_rendering
+            || !matches!(
+                self.answer.status,
+                AnswerStatus::Answered | AnswerStatus::Unverified
+            )
+        {
+            return;
+        }
+        let mut evidence = self.dependencies.to_vec();
+        for item in self
+            .tool_dependencies
+            .iter()
+            .flat_map(|dependency| &dependency.evidence)
+        {
+            if !evidence.contains(item) {
+                evidence.push(item.clone());
+            }
+        }
+        let mut candidate = brain_contracts::ProviderAnswer {
+            text: self.answer.text.clone(),
+            cited_evidence_ids: self
+                .answer
+                .citations
+                .iter()
+                .map(|item| item.evidence_id.clone())
+                .collect(),
+            usage: self.answer.usage.clone(),
+        };
+        if brain_contracts::answer_contract::enforce(query, &evidence, &mut candidate) {
+            self.answer.text = candidate.text;
+            self.answer.citations.clear();
+            self.answer.status = AnswerStatus::Unverified;
+            eprintln!(
+                "{}",
+                serde_json::json!({"event":"brain_answer_unverified","request_id":query.request_id,"reason":"output_original_unbound"})
+            );
+        }
+    }
+
     pub fn with_accounting(mut self, accounting: UsageAccounting) -> Self {
         self.answer.usage = accounting.observed.clone();
         self.accounting = accounting;
@@ -226,6 +273,7 @@ mod tests {
             dependencies: vec![dependency].into(),
             tool_dependencies: Arc::from([]),
             build_executions: Arc::from([]),
+            trusted_rendering: false,
         };
         assert!(outcome.retained_bytes() >= bytes);
         let reused = outcome.clone();

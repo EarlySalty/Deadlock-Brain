@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const CONTRACT_VERSION: &str = "brain.v1";
+pub mod answer_contract;
 mod deadline;
 pub use deadline::RequestDeadline;
 pub mod discord_task;

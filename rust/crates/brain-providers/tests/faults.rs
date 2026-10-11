@@ -159,6 +159,64 @@ fn fixture_requests<F: FnOnce(ProviderConfig) -> R, R>(
         Arc::try_unwrap(requests).unwrap().into_inner().unwrap(),
     )
 }
+#[test]
+fn unchecked_citation_and_missing_proof_failures_never_rescue_generated_names() {
+    for native in [false, true] {
+        for tool_turn in [false, true] {
+            for text in [
+                serde_json::json!({"text":"Falls du mit Rift den Riftwalker meinst", "cited_evidence_ids":["invented-proof"]}).to_string(),
+                serde_json::json!({"text":"Riftwalker", "cited_evidence_ids":[]}).to_string(),
+                serde_json::json!({"text":"Riftwalker", "cited_evidence_ids":[], "game_name_claims":[]}).to_string(),
+                "Falls du mit Rift den Riftwalker meinst".into(),
+                "```json\n{\"text\":\"Riftwalker\",\"cited_evidence_ids\":[]}\n```".into(),
+                "{\"text\":\"Riftwalker".into(),
+                "Nimm dir Zeit und spiel ruhig.".into(),
+            ] {
+                let body = wire_response(native, &[ModelBlock::Text { text }], if native { "end_turn" } else { "stop" }, 11, 4);
+                let (result, calls) = fixture(vec![(Duration::ZERO, json_response("200 OK", &body.to_string()))], |mut config| {
+                    config.quality_filters = false;
+                    let provider = turn_provider(native, config);
+                    if tool_turn {
+                        provider.answer_turn(&query(), &turn_context(), &[], &definitions(), &ToolConversation::default()).and_then(ProviderTurn::into_answer)
+                    } else {
+                        provider.answer(&query(), &context(), &[])
+                    }
+                });
+                assert_eq!(calls, 1);
+                let answer = result.unwrap();
+                assert!(brain_contracts::answer_contract::is_safe_answer(&answer));
+                assert_eq!(answer.usage.output_tokens, 4);
+            }
+        }
+    }
+}
+
+#[test]
+fn truncation_cannot_restore_raw_unverified_names() {
+    for native in [false, true] {
+        let body = wire_response(
+            native,
+            &[ModelBlock::Text {
+                text: "{\"text\":\"Riftwalker".into(),
+            }],
+            if native { "max_tokens" } else { "length" },
+            11,
+            4,
+        );
+        let (result, calls) = fixture(
+            vec![(Duration::ZERO, json_response("200 OK", &body.to_string()))],
+            |mut config| {
+                config.quality_filters = false;
+                turn_provider(native, config).answer(&query(), &context(), &[])
+            },
+        );
+        assert_eq!(calls, 1);
+        assert!(brain_contracts::answer_contract::is_safe_answer(
+            &result.unwrap()
+        ));
+    }
+}
+
 const CHAT: &str = r#"{"model":"fixture-model","choices":[{"finish_reason":"stop","message":{"content":"fixture answer"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#;
 
 fn definitions() -> Vec<ToolDefinition> {
@@ -222,6 +280,7 @@ fn turn_provider(native: bool, config: ProviderConfig) -> Box<dyn AnswerProvider
         let mut native_config = ProviderConfig::codex_subscription(config.base_url);
         native_config.timeout = config.timeout;
         native_config.max_response_bytes = config.max_response_bytes;
+        native_config.quality_filters = config.quality_filters;
         Box::new(brain_providers::CodexSubscriptionProvider::new(native_config).unwrap())
     } else {
         Box::new(OpenAiCompatibleProvider::new(config).unwrap())
