@@ -5196,9 +5196,9 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "benötigt lesenden Original-API-Spiegel über DEADLOCK_CENTRAL_DSN"]
+    #[ignore = "requires read-only original API mirror via DEADLOCK_CENTRAL_DSN"]
     async fn q1_warden_dry_publish_quantifies_staples_from_live_mirror() {
-        let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").expect("DEADLOCK_CENTRAL_DSN fehlt");
+        let dsn = std::env::var("DEADLOCK_CENTRAL_DSN").expect("DEADLOCK_CENTRAL_DSN is missing");
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
             .after_connect(|connection, _| {
@@ -5211,7 +5211,7 @@ pub(crate) mod tests {
             })
             .connect(&dsn)
             .await
-            .unwrap_or_else(|_| panic!("Lesender Original-API-Spiegel nicht erreichbar"));
+            .unwrap_or_else(|_| panic!("Read-only original API mirror is unavailable"));
         let ctx = crate::ReasonerCtx {
             pool,
             ai: None,
@@ -5265,11 +5265,35 @@ pub(crate) mod tests {
         crate::publish::validate_publish_items(&ctx.pool, &payload)
             .await
             .unwrap();
+        let spiritual_overflow = models
+            .items
+            .iter()
+            .find(|item| item.name == "Spiritual Overflow")
+            .unwrap();
         assert!(build
             .core
             .iter()
             .chain(build.situations.iter().flat_map(|block| &block.items))
-            .any(|item| item.name == "Spiritual Overflow"));
+            .any(|item| item.item_id == spiritual_overflow.item_id));
+        for name in ["Grit", "Spellslinger"] {
+            let Some(item) = models.items.iter().find(|item| item.name == name) else {
+                println!("Q1_P1_EXCLUSION {name} present=false selected=false");
+                continue;
+            };
+            let blocked = excluded
+                .iter()
+                .any(|excluded| excluded.item_id == item.item_id);
+            let selected = build
+                .core
+                .iter()
+                .chain(build.situations.iter().flat_map(|block| &block.items))
+                .any(|selected| selected.item_id == item.item_id);
+            println!(
+                "Q1_P1_EXCLUSION {} {} excluded={} selected={}",
+                item.item_id, item.name, blocked, selected
+            );
+            assert!(!selected, "{name}");
+        }
         let provenance = crate::publish::validate_build_provenance(&build).unwrap();
         let plan = provenance.purchase_plan.as_ref().unwrap();
         assert!(plan.steps.iter().any(|step| step
