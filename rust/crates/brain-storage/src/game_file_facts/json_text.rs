@@ -44,8 +44,6 @@ pub(super) fn number(text: &str) -> Result<(Value, Option<&'static str>), &'stat
     if i != b.len() {
         return Err("invalid_numeric_lexeme");
     }
-    // Integer representations are exact. Decimal/exponent lexemes deliberately
-    // remain strings: no IEEE-754 rounding is presented as a source value.
     if !text.contains(['.', 'e', 'E']) && text != "-0" {
         if let Ok(n) = text.parse::<i64>() {
             return Ok((Value::from(n), Some("exact_integer")));
@@ -61,10 +59,14 @@ pub(super) fn number(text: &str) -> Result<(Value, Option<&'static str>), &'stat
 }
 
 pub(super) fn parse(input: &str) -> Result<Vec<Leaf>, &'static str> {
+    parse_with_budget(input, Budget::new())
+}
+
+pub(super) fn parse_with_budget(input: &str, budget: Budget) -> Result<Vec<Leaf>, &'static str> {
     let mut p = Parser {
         input,
         index: 0,
-        budget: Budget::new(),
+        budget,
         leaves: Vec::new(),
     };
     p.value("", 0)?;

@@ -9,6 +9,8 @@ mod json_text;
 mod kv;
 #[path = "game_file_facts/kv3.rs"]
 mod kv3;
+#[path = "game_file_facts/receipt_verify.rs"]
+pub mod receipt_verify;
 
 pub fn extract_facts(path: &str, content: &str) -> (Vec<Value>, String) {
     let trimmed = content.trim_start_matches('\u{feff}').trim_start();

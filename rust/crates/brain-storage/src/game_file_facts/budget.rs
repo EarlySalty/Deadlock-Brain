@@ -1,5 +1,3 @@
-// Conservative cumulative allocation accounting, including downstream fact expansion.
-// Charges never get refunded, so transient copies and retained values share a bound.
 pub const EXCEEDED: &str = "allocation_budget_exceeded_preserved_as_text";
 const MAX_BYTES: usize = 512 * 1024 * 1024;
 
@@ -8,9 +6,10 @@ pub struct Budget {
 }
 impl Budget {
     pub fn new() -> Self {
-        Self {
-            remaining: MAX_BYTES,
-        }
+        Self::with_limit(MAX_BYTES)
+    }
+    pub fn with_limit(bytes: usize) -> Self {
+        Self { remaining: bytes }
     }
     pub fn charge(&mut self, bytes: usize) -> Result<(), &'static str> {
         self.remaining = self.remaining.checked_sub(bytes).ok_or(EXCEEDED)?;

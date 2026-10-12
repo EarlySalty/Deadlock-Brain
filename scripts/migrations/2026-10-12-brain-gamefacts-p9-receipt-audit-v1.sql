@@ -1,21 +1,46 @@
 BEGIN;
 
+CREATE TABLE ops.receipt_audit_run (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    started_at timestamptz NOT NULL,
+    finished_at timestamptz NOT NULL,
+    status text NOT NULL CHECK (status IN ('succeeded', 'failed')),
+    sampled smallint NOT NULL CHECK (sampled BETWEEN 0 AND 200),
+    verified_receipts smallint NOT NULL CHECK (verified_receipts BETWEEN 0 AND 200),
+    rejected_receipts smallint NOT NULL CHECK (rejected_receipts BETWEEN 0 AND 200),
+    rejected_objects smallint NOT NULL CHECK (rejected_objects BETWEEN 0 AND 200),
+    error_code text CHECK (octet_length(error_code) BETWEEN 1 AND 128),
+    CHECK (finished_at >= started_at),
+    CHECK (verified_receipts + rejected_receipts <= sampled),
+    CHECK (status <> 'succeeded' OR verified_receipts + rejected_receipts = sampled),
+    CHECK (rejected_objects <= rejected_receipts)
+);
+
+CREATE TABLE ops.receipt_audit_rejection (
+    audit_run_id bigint NOT NULL REFERENCES ops.receipt_audit_run(id) ON DELETE RESTRICT,
+    raw_object_key text NOT NULL CHECK (octet_length(raw_object_key) BETWEEN 1 AND 2048),
+    code text NOT NULL CHECK (octet_length(code) BETWEEN 1 AND 128),
+    detail text NOT NULL CHECK (octet_length(detail) <= 512),
+    affected_receipts smallint NOT NULL CHECK (affected_receipts BETWEEN 1 AND 200),
+    PRIMARY KEY (audit_run_id, raw_object_key)
+);
+
 CREATE TABLE ops.receipt_audit (
-    job_run_id bigint NOT NULL REFERENCES ops.job_run(id) ON DELETE RESTRICT,
+    audit_run_id bigint NOT NULL REFERENCES ops.receipt_audit_run(id) ON DELETE RESTRICT,
     receipt_id bigint NOT NULL REFERENCES canon.receipt(id) ON DELETE RESTRICT,
     outcome text NOT NULL CHECK (outcome IN ('match', 'mismatch', 'locator_not_found', 'unsupported_locator_kind')),
     observed_value_sha256 bytea CHECK (octet_length(observed_value_sha256) = 32),
     recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-    PRIMARY KEY (job_run_id, receipt_id),
+    PRIMARY KEY (audit_run_id, receipt_id),
     CHECK (outcome <> 'match' OR observed_value_sha256 IS NOT NULL)
 );
 CREATE INDEX receipt_audit_receipt_idx ON ops.receipt_audit(receipt_id, recorded_at DESC);
 
 CREATE TABLE canon.receipt_quarantine (
     receipt_id bigint PRIMARY KEY REFERENCES canon.receipt(id) ON DELETE RESTRICT,
-    job_run_id bigint NOT NULL,
+    audit_run_id bigint NOT NULL,
     quarantined_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-    FOREIGN KEY (job_run_id, receipt_id) REFERENCES ops.receipt_audit(job_run_id, receipt_id) ON DELETE RESTRICT
+    FOREIGN KEY (audit_run_id, receipt_id) REFERENCES ops.receipt_audit(audit_run_id, receipt_id) ON DELETE RESTRICT
 );
 
 CREATE FUNCTION ops.serialize_receipt_audit_write() RETURNS trigger
@@ -34,8 +59,8 @@ CREATE TRIGGER receipt_audit_write_lock BEFORE INSERT ON ops.receipt_audit
 CREATE FUNCTION ops.quarantine_audited_receipts() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $quarantine$
 BEGIN
-    INSERT INTO canon.receipt_quarantine(receipt_id, job_run_id)
-        SELECT receipt_id, job_run_id FROM audit_results WHERE outcome IN ('mismatch', 'locator_not_found')
+    INSERT INTO canon.receipt_quarantine(receipt_id, audit_run_id)
+        SELECT receipt_id, audit_run_id FROM audit_results WHERE outcome IN ('mismatch', 'locator_not_found')
         ON CONFLICT (receipt_id) DO NOTHING;
     IF FOUND THEN
         PERFORM serve.refresh_hero_profile();
@@ -111,11 +136,14 @@ SELECT h.entity_id, h.key,
 FROM serve.hero_profile h
 WHERE serve.receipt_citation_usable(h.identity->>'citation');
 
-REVOKE ALL ON ops.receipt_audit, canon.receipt_quarantine FROM PUBLIC, brain_tool, brain_ingest, brain_service;
+REVOKE ALL ON ops.receipt_audit_run, ops.receipt_audit_rejection, ops.receipt_audit, canon.receipt_quarantine FROM PUBLIC, brain_tool, brain_ingest, brain_service;
 REVOKE ALL ON FUNCTION ops.serialize_receipt_audit_write(), ops.quarantine_audited_receipts(),
     serve.receipt_citation_usable(text), serve.audited_fact_section(jsonb) FROM PUBLIC, brain_tool, brain_ingest, brain_service;
-GRANT SELECT ON ops.receipt_audit, canon.receipt_quarantine TO brain_ingest;
-GRANT INSERT (job_run_id, receipt_id, outcome, observed_value_sha256) ON ops.receipt_audit TO brain_ingest;
+GRANT SELECT ON ops.receipt_audit_run, ops.receipt_audit_rejection, ops.receipt_audit, canon.receipt_quarantine TO brain_ingest;
+GRANT INSERT (started_at, finished_at, status, sampled, verified_receipts, rejected_receipts, rejected_objects, error_code) ON ops.receipt_audit_run TO brain_ingest;
+GRANT USAGE, SELECT ON SEQUENCE ops.receipt_audit_run_id_seq TO brain_ingest;
+GRANT INSERT (audit_run_id, raw_object_key, code, detail, affected_receipts) ON ops.receipt_audit_rejection TO brain_ingest;
+GRANT INSERT (audit_run_id, receipt_id, outcome, observed_value_sha256) ON ops.receipt_audit TO brain_ingest;
 GRANT SELECT ON canon.receipt_quarantine, serve.audited_entity, serve.audited_hero_profile TO brain_tool;
 GRANT EXECUTE ON FUNCTION serve.receipt_citation_usable(text), serve.audited_fact_section(jsonb) TO brain_tool, brain_ingest;
 

@@ -26,13 +26,19 @@ enum Token {
 }
 
 pub(super) fn parse(input: &str) -> Result<Vec<Leaf>, &'static str> {
+    parse_with_budget(input, Budget::new())
+}
+
+pub(super) fn parse_with_budget(
+    input: &str,
+    mut budget: Budget,
+) -> Result<Vec<Leaf>, &'static str> {
     let body = if input.starts_with("<!--") {
         let end = input.find("-->").ok_or("Nicht geschlossener KV3-Kopf")?;
         &input[end + 3..]
     } else {
         input
     };
-    let mut budget = Budget::new();
     let tokens = tokenize(body, &mut budget)?;
     let mut parser = Parser {
         budget: &mut budget,

@@ -19,7 +19,13 @@ enum Token {
 }
 
 pub(super) fn parse(input: &str) -> Result<Vec<Entry>, &'static str> {
-    let mut budget = Budget::new();
+    parse_with_budget(input, Budget::new())
+}
+
+pub(super) fn parse_with_budget(
+    input: &str,
+    mut budget: Budget,
+) -> Result<Vec<Entry>, &'static str> {
     let tokens = tokenize(input, &mut budget)?;
     if tokens.is_empty() {
         return Ok(Vec::new());
@@ -159,7 +165,6 @@ fn tokenize(input: &str, budget: &mut Budget) -> Result<Vec<Token>, &'static str
                     }
                     match bytes[index] {
                         b'\\' => {
-                            // Keep escape bytes. KV callers differ in whether escape processing is enabled.
                             index += 2;
                             if index > bytes.len() {
                                 return Err("Unvollständige KV-Escapesequenz");
