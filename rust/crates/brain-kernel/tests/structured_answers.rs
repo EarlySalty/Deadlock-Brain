@@ -160,6 +160,65 @@ const NUMERIC_LITERALS: &[&str] = &[
     "650E+42",
     "650e-42",
     "650e−42",
+    "650.e42",
+    "650.E+42",
+    "650.e-42",
+    "650.e−42",
+    "650_e42",
+    "650e_42",
+    "650_e_42",
+    "650__e__42",
+    "650.e4_2",
+    "650.E+4'2",
+    "650e4__2",
+    "650e42_",
+    "650_",
+    "650__42",
+    "650.E＋42",
+    "650.E－42",
+    "+650.e42",
+    "−650.e-42",
+    "650,e42",
+    "650٫E+42",
+    "650．e-42",
+    "650，e−42",
+    "650_042.e42",
+    "650'042.E+42",
+    "650’042.e-42",
+    "650ʼ042.e−42",
+    "650٬042.E＋42",
+    "1 234 567.e-42",
+    "650\u{00a0}042.e42",
+    "650\u{2007}042.e42",
+    "650\u{2009}042.e42",
+    "650\u{202f}042.e42",
+    "６５０．e−４２",
+    "0x650",
+    "0XdeadBEEF",
+    "0b101",
+    "0B101",
+    "0o650",
+    "0O650",
+    "+0x650",
+    "-0b101",
+    "−0o650",
+    "0x_650",
+    "0x__650",
+    "0x650_",
+    "0b1_01",
+    "0o6_50",
+    "0x6'50",
+    "0x6’50",
+    "0x6ʼ50",
+    "0x650p42",
+    "0x650.p42",
+    "0x650.p+42",
+    "0x650.p-42",
+    "0x650p4_2",
+    "0x650.p4'2",
+    "0x1.8p−42",
+    "0x.8p42",
+    "0Xf.P＋42",
     "+650",
     "-650",
     "−650",
@@ -243,8 +302,8 @@ fn numeric_literals_cannot_cross_exact_value_slots() {
 #[test]
 fn numeric_free_prose_cannot_join_values_into_a_new_literal() {
     for separator in [
-        "", ".", ",", "٫", "．", "，", "e", "E+", "e-", "E−", "_", "'", "’", "ʼ", "٬", " ",
-        "\u{00a0}", "\u{2007}", "\u{2009}", "\u{202f}",
+        "", ".", ",", "٫", "．", "，", "e", "E+", "e-", "E−", "_", "__", "_e", "e_", "_e_",
+        "__e__", "'", "’", "ʼ", "٬", " ", "\u{00a0}", "\u{2007}", "\u{2009}", "\u{202f}",
     ] {
         let right = if !separator.is_empty() && separator.chars().all(char::is_whitespace) {
             "042"
@@ -279,6 +338,218 @@ fn numeric_free_prose_cannot_join_values_into_a_new_literal() {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+#[test]
+fn trailing_decimal_exponents_cannot_be_composed_with_prose() {
+    for decimal in [".", ",", "٫", "．", "，"] {
+        for exponent in ["e", "E"] {
+            for sign in ["", "+", "-", "−", "＋", "－"] {
+                let separator = format!("{decimal}{exponent}{sign}");
+                let literal = format!("650{separator}42");
+                for value in [game("/health", &literal), other("/count", &literal)] {
+                    assert_eq!(
+                        grounded(vec![value]).render(&[numeric_evidence(&literal, "42")]),
+                        Ok(literal.clone())
+                    );
+                }
+                for first in [game("/health", "650"), other("/count", "650")] {
+                    for second in [game("/damage", "42"), other("/capacity", "42")] {
+                        for fragmented in [false, true] {
+                            let mut parts = vec![first.clone()];
+                            if fragmented {
+                                parts.extend(
+                                    separator.chars().map(|value| prose(&value.to_string())),
+                                );
+                            } else {
+                                parts.push(prose(&separator));
+                            }
+                            parts.push(second.clone());
+                            assert_eq!(
+                                grounded(parts.clone()).render(&[numeric_evidence("650", "42")]),
+                                Err(AnswerViolation::Value),
+                                "{literal:?}, {first:?}, {second:?}, fragmented {fragmented}"
+                            );
+                            for profile in [AnswerProfile::Explain, AnswerProfile::Coaching] {
+                                for quality in [true, false] {
+                                    let answer = run(
+                                        grounded(parts.clone()),
+                                        vec![numeric_evidence("650", "42")],
+                                        profile.clone(),
+                                        quality,
+                                    );
+                                    assert_eq!(
+                                        answer.status,
+                                        AnswerStatus::InsufficientEvidence,
+                                        "{literal:?}, {first:?}, {second:?}, fragmented {fragmented}"
+                                    );
+                                    assert!(answer.citations.is_empty());
+                                    assert_eq!(answer.usage.network_rounds, 1);
+                                    assert_eq!(answer.usage.output_tokens, 7);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn radix_literals_and_separated_exponents_cannot_be_composed_with_prose() {
+    for (left, separator, right) in [
+        ("0", "x", "650"),
+        ("0", "X", "deadBEEF"),
+        ("0", "b", "101"),
+        ("0", "B", "101"),
+        ("0", "o", "650"),
+        ("0", "O", "650"),
+        ("0", "x_", "650"),
+        ("0", "X__", "650"),
+        ("0x650", "p", "42"),
+        ("0x650", ".p", "42"),
+        ("0x650", ".p+", "42"),
+        ("0x650", ".P−", "42"),
+        ("0x", ".fp-", "42"),
+        ("650e4", "_", "2"),
+        ("650e4", "'", "2"),
+        ("650.e4", "_", "2"),
+        ("650", "e_", "42"),
+        ("650", "_e", "42"),
+        ("650__", "e_", "42"),
+        ("0x650p4", "_", "2"),
+        ("0x650.p4", "'", "2"),
+    ] {
+        let literal = format!("{left}{separator}{right}");
+        for value in [game("/health", &literal), other("/count", &literal)] {
+            assert_eq!(
+                grounded(vec![value]).render(&[numeric_evidence(&literal, right)]),
+                Ok(literal.clone())
+            );
+        }
+        for first in [game("/health", left), other("/count", left)] {
+            for second in [game("/damage", right), other("/capacity", right)] {
+                for fragmented in [false, true] {
+                    let mut parts = vec![first.clone()];
+                    if fragmented {
+                        parts.extend(separator.chars().map(|value| prose(&value.to_string())));
+                    } else {
+                        parts.push(prose(separator));
+                    }
+                    parts.push(second.clone());
+                    assert_eq!(
+                        grounded(parts.clone()).render(&[numeric_evidence(left, right)]),
+                        Err(AnswerViolation::Value),
+                        "{literal:?}, {first:?}, {second:?}, fragmented {fragmented}"
+                    );
+                    for profile in [AnswerProfile::Explain, AnswerProfile::Coaching] {
+                        for quality in [true, false] {
+                            let answer = run(
+                                grounded(parts.clone()),
+                                vec![numeric_evidence(left, right)],
+                                profile.clone(),
+                                quality,
+                            );
+                            assert_eq!(
+                                answer.status,
+                                AnswerStatus::InsufficientEvidence,
+                                "{literal:?}, {first:?}, {second:?}, fragmented {fragmented}"
+                            );
+                            assert!(answer.citations.is_empty());
+                            assert_eq!(answer.usage.network_rounds, 1);
+                            assert_eq!(answer.usage.output_tokens, 7);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for (literal, suffix) in [
+        ("0x650", "deadBEEF"),
+        ("0x650", "_"),
+        ("0x650", "__"),
+        ("650", "_"),
+        ("650", "__"),
+        ("650e42", "_"),
+        ("650e42", "__"),
+    ] {
+        for value in [game("/health", literal), other("/count", literal)] {
+            let answer = run(
+                grounded(vec![value, prose(suffix)]),
+                vec![numeric_evidence(literal, "42")],
+                AnswerProfile::Explain,
+                false,
+            );
+            assert_eq!(
+                answer.status,
+                AnswerStatus::InsufficientEvidence,
+                "{suffix:?}"
+            );
+            assert!(answer.citations.is_empty());
+        }
+    }
+    for separator in [
+        ". Ende. Danach ",
+        ", ",
+        ".p ohne Exponent, dann ",
+        ".P+ ohne Exponent, dann ",
+    ] {
+        for first in [game("/health", "0x650"), other("/count", "0x650")] {
+            for second in [game("/damage", "42"), other("/capacity", "42")] {
+                let answer = run(
+                    grounded(vec![first.clone(), prose(separator), second]),
+                    vec![numeric_evidence("0x650", "42")],
+                    AnswerProfile::Explain,
+                    false,
+                );
+                assert_eq!(answer.status, AnswerStatus::Answered, "{separator:?}");
+                assert_eq!(answer.text, format!("0x650{separator}42"));
+                assert_eq!(answer.citations.len(), 1);
+            }
+        }
+    }
+}
+
+#[test]
+fn sentence_punctuation_and_incomplete_exponents_remain_separate_from_values() {
+    for separator in [
+        ".",
+        ",",
+        ". Ende. Danach ",
+        ".Ende. Danach ",
+        ",Einordnung: ",
+        ".e ohne Exponent, dann ",
+        ".E+ ohne Exponent, dann ",
+        ".e- ohne Exponent, dann ",
+        ".e− ohne Exponent, dann ",
+        "e ohne Exponent, dann ",
+        "E+ ohne Exponent, dann ",
+        "e- ohne Exponent, dann ",
+    ] {
+        for first in [game("/health", "650"), other("/count", "650")] {
+            assert_eq!(
+                grounded(vec![first.clone(), prose(separator)])
+                    .render(&[numeric_evidence("650", "42")]),
+                Ok(format!("650{separator}")),
+                "{separator:?}, {first:?}"
+            );
+            if !separator.ends_with(' ') {
+                continue;
+            }
+            for second in [game("/damage", "42"), other("/capacity", "42")] {
+                let answer = run(
+                    grounded(vec![first.clone(), prose(separator), second]),
+                    vec![numeric_evidence("650", "42")],
+                    AnswerProfile::Explain,
+                    false,
+                );
+                assert_eq!(answer.status, AnswerStatus::Answered, "{separator:?}");
+                assert_eq!(answer.text, format!("650{separator}42"));
+                assert_eq!(answer.citations.len(), 1);
             }
         }
     }

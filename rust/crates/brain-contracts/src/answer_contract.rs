@@ -262,10 +262,78 @@ fn number_sign(character: char) -> bool {
     matches!(character, '+' | '-' | '−' | '＋' | '－')
 }
 
+fn exponent_end(characters: &[char], start: usize, marker: char) -> Option<usize> {
+    if !characters
+        .get(start)
+        .is_some_and(|value| value.eq_ignore_ascii_case(&marker))
+    {
+        return None;
+    }
+    let mut end = start + 1;
+    if characters.get(end).is_some_and(|value| number_sign(*value)) {
+        end += 1;
+    }
+    separated_digits_end(characters, end, char::is_numeric)
+}
+
+fn separated_digits_end(
+    characters: &[char],
+    start: usize,
+    digit: impl Fn(char) -> bool,
+) -> Option<usize> {
+    let mut end = start;
+    let mut has_digit = false;
+    while let Some(value) = characters.get(end) {
+        if digit(*value) {
+            has_digit = true;
+        } else if *value != '_'
+            && !(has_digit
+                && matches!(*value, '\'' | '’' | 'ʼ')
+                && characters.get(end + 1).is_some_and(|value| digit(*value)))
+        {
+            break;
+        }
+        end += 1;
+    }
+    has_digit.then_some(end)
+}
+
+fn radix_end(characters: &[char], start: usize) -> Option<usize> {
+    if characters.get(start) != Some(&'0') {
+        return None;
+    }
+    let radix = match characters.get(start + 1) {
+        Some('x' | 'X') => 16,
+        Some('b' | 'B') => 2,
+        Some('o' | 'O') => 8,
+        _ => return None,
+    };
+    let integer = separated_digits_end(characters, start + 2, |value| value.is_digit(radix));
+    if radix == 16 {
+        let mut end = integer.unwrap_or(start + 2);
+        let fraction = if characters.get(end) == Some(&'.') {
+            end += 1;
+            separated_digits_end(characters, end, |value| value.is_digit(radix))
+        } else {
+            None
+        };
+        end = fraction.unwrap_or(end);
+        if integer.is_some() || fraction.is_some() {
+            if let Some(end) = exponent_end(characters, end, 'p') {
+                return Some(end);
+            }
+        }
+    }
+    integer
+}
+
 fn number_end(characters: &[char], start: usize) -> Option<usize> {
     let mut end = start;
     if characters.get(end).is_some_and(|value| number_sign(*value)) {
         end += 1;
+    }
+    if let Some(end) = radix_end(characters, end) {
+        return Some(end);
     }
     if matches!(characters.get(end), Some('.' | ',' | '٫' | '．' | '，')) {
         end += 1;
@@ -280,12 +348,25 @@ fn number_end(characters: &[char], start: usize) -> Option<usize> {
     loop {
         let separator = end;
         match characters.get(end) {
-            Some('.' | ',' | '٫' | '٬' | '．' | '，' | '_' | '\'' | '’' | 'ʼ') => {
+            Some('_') => {
+                while characters.get(end) == Some(&'_') {
+                    end += 1;
+                }
+                while characters.get(end).is_some_and(|value| value.is_numeric()) {
+                    end += 1;
+                }
+            }
+            Some('.' | ',' | '٫' | '٬' | '．' | '，' | '\'' | '’' | 'ʼ') => {
                 end += 1;
                 while characters.get(end).is_some_and(|value| value.is_numeric()) {
                     end += 1;
                 }
                 if end == separator + 1 {
+                    if matches!(characters[separator], '.' | ',' | '٫' | '．' | '，') {
+                        if let Some(end) = exponent_end(characters, end, 'e') {
+                            return Some(end);
+                        }
+                    }
                     end = separator;
                     break;
                 }
@@ -303,21 +384,7 @@ fn number_end(characters: &[char], start: usize) -> Option<usize> {
             _ => break,
         }
     }
-    if matches!(characters.get(end), Some('e' | 'E')) {
-        let exponent = end;
-        end += 1;
-        if characters.get(end).is_some_and(|value| number_sign(*value)) {
-            end += 1;
-        }
-        let digits = end;
-        while characters.get(end).is_some_and(|value| value.is_numeric()) {
-            end += 1;
-        }
-        if end == digits {
-            end = exponent;
-        }
-    }
-    Some(end)
+    Some(exponent_end(characters, end, 'e').unwrap_or(end))
 }
 
 fn numbers_are_field_bound(output: &str, value_ranges: &[std::ops::Range<usize>]) -> bool {
