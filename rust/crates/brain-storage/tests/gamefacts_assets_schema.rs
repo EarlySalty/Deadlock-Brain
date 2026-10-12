@@ -825,8 +825,11 @@ async fn qualified_source_semantics_receipts_and_ambiguous_entries_on_real_postg
             SELECT 'ability','qualified_ability',id FROM canon.receipt WHERE source_id=2;
         COMMIT")
         .execute(&owner).await.unwrap();
-    let entity: i64 = sqlx::query_scalar("SELECT id FROM canon.entity WHERE key='qualified_ability'")
-        .fetch_one(&owner).await.unwrap();
+    let entity: i64 =
+        sqlx::query_scalar("SELECT id FROM canon.entity WHERE key='qualified_ability'")
+            .fetch_one(&owner)
+            .await
+            .unwrap();
     let upgrade = json!({"upgrade_tier":2,"operation":"delta"});
     let game_upgrade = json!({"upgrade_tier":2,"operation":"delta","upgrade_property":"AbilityCooldown",
         "upgrade_property_locator":"/qualified_ability/0/m_vecAbilityUpgrades/0/[1]/m_vecPropertyUpgrades/0/[0]/m_StrPropertyNAme/0"});
@@ -838,98 +841,313 @@ async fn qualified_source_semantics_receipts_and_ambiguous_entries_on_real_postg
         "scale_value_locator":"/0/properties/Damage/scale_function/stat_scale",
         "scale_stat_0_locator":"/0/properties/Damage/scale_function/scaling_stats/0"});
     let winners = [
-        ("ability.AbilityCooldown", json!(-12), upgrade.clone(), game_upgrade, 2),
+        (
+            "ability.AbilityCooldown",
+            json!(-12),
+            upgrade.clone(),
+            game_upgrade,
+            2,
+        ),
         ("ability.Damage", json!(25), assets_scale, game_scale, 2),
-        ("ability.DeadlockScale", json!(26),
+        (
+            "ability.DeadlockScale",
+            json!(26),
             json!({"scale_type":"cooldown","scale_value":"1","scale_type_locator":"/0/properties/DeadlockScale/scale_function/specific_stat_scale_type","scale_value_locator":"/0/properties/DeadlockScale/scale_function/stat_scale"}),
-            json!({"scale_type":"cooldown","scale_value":"1","scale_type_locator":"/qualified_ability/DeadlockScale/Scale/Type","scale_value_locator":"/qualified_ability/DeadlockScale/Scale/Value"}), 2),
-        ("ability.QualifiedJson", json!([1,2,3]),
+            json!({"scale_type":"cooldown","scale_value":"1","scale_type_locator":"/qualified_ability/DeadlockScale/Scale/Type","scale_value_locator":"/qualified_ability/DeadlockScale/Scale/Value"}),
+            2,
+        ),
+        (
+            "ability.QualifiedJson",
+            json!([1, 2, 3]),
             json!({"scale_type":"Spirit","scale_type_locator":"/0/properties/QualifiedJson/scale_function/specific_stat_scale_type"}),
-            json!({"scale_type":"Spirit","scale_locator":"/qualified_ability/0/m_mapAbilityProperties/0/QualifiedJson/0/m_subclassScaleFunction/0"}), 2),
-        ("identity.name", json!("Assets Fähigkeit"), json!({"lang":"en"}), json!({"lang":"en"}), 1),
+            json!({"scale_type":"Spirit","scale_locator":"/qualified_ability/0/m_mapAbilityProperties/0/QualifiedJson/0/m_subclassScaleFunction/0"}),
+            2,
+        ),
+        (
+            "identity.name",
+            json!("Assets Fähigkeit"),
+            json!({"lang":"en"}),
+            json!({"lang":"en"}),
+            1,
+        ),
     ];
     let mut expected_winners = Vec::new();
     for (stat, value, assets_condition, game_condition, source) in winners {
-        let other_value = if value.is_number() { json!(999) } else if value.is_string() { json!("Game ability") } else { json!([99]) };
+        let other_value = if value.is_number() {
+            json!(999)
+        } else if value.is_string() {
+            json!("Game ability")
+        } else {
+            json!([99])
+        };
         let assets_value = if source == 1 { &value } else { &other_value };
         let game_value = if source == 2 { &value } else { &other_value };
-        let assets = insert_qualified_fact(&owner, entity, 1, stat, assets_value, &assets_condition, "/0/value").await;
-        let game = insert_qualified_fact(&owner, entity, 2, stat, game_value, &game_condition, "/qualified_ability/0/value/0").await;
-        let (receipt, condition) = if source == 1 { (assets, assets_condition) } else { (game, game_condition) };
+        let assets = insert_qualified_fact(
+            &owner,
+            entity,
+            1,
+            stat,
+            assets_value,
+            &assets_condition,
+            "/0/value",
+        )
+        .await;
+        let game = insert_qualified_fact(
+            &owner,
+            entity,
+            2,
+            stat,
+            game_value,
+            &game_condition,
+            "/qualified_ability/0/value/0",
+        )
+        .await;
+        let (receipt, condition) = if source == 1 {
+            (assets, assets_condition)
+        } else {
+            (game, game_condition)
+        };
         expected_winners.push((stat.to_owned(), value, condition, receipt));
     }
-    for key in ["scale_class_locator", "scale_type_locator", "scale_value_locator",
-        "scale_stat_0_locator", "scale_stat_1_locator", "scale_stat_2_locator", "scale_stat_3_locator",
-        "usage_flag_0_locator", "usage_flag_1_locator", "usage_flag_2_locator", "usage_flag_3_locator"] {
+    for key in [
+        "scale_class_locator",
+        "scale_type_locator",
+        "scale_value_locator",
+        "scale_stat_0_locator",
+        "scale_stat_1_locator",
+        "scale_stat_2_locator",
+        "scale_stat_3_locator",
+        "usage_flag_0_locator",
+        "usage_flag_1_locator",
+        "usage_flag_2_locator",
+        "usage_flag_3_locator",
+    ] {
         let label = key.strip_suffix("_locator").unwrap();
         let stat = format!("ability.Known_{label}");
         let first = json!({label:"known",key:"/0/properties/value"});
         let second = json!({label:"known",key:"/9/properties/value"});
-        let receipt = insert_qualified_fact(&owner, entity, 1, &stat, &json!(10), &first, "/0/value").await;
+        let receipt =
+            insert_qualified_fact(&owner, entity, 1, &stat, &json!(10), &first, "/0/value").await;
         insert_qualified_fact(&owner, entity, 3, &stat, &json!(99), &second, "/9/value").await;
         expected_winners.push((stat, json!(10), first, receipt));
     }
     let distinct = [
-        ("tiers", upgrade.clone(), json!({"upgrade_tier":3,"operation":"delta"})),
-        ("tier_types", upgrade.clone(), json!({"upgrade_tier":"2","operation":"delta"})),
-        ("operations", upgrade.clone(), json!({"upgrade_tier":2,"operation":"set"})),
+        (
+            "tiers",
+            upgrade.clone(),
+            json!({"upgrade_tier":3,"operation":"delta"}),
+        ),
+        (
+            "tier_types",
+            upgrade.clone(),
+            json!({"upgrade_tier":"2","operation":"delta"}),
+        ),
+        (
+            "operations",
+            upgrade.clone(),
+            json!({"upgrade_tier":2,"operation":"set"}),
+        ),
         ("languages", json!({"lang":"en"}), json!({"lang":"de"})),
-        ("duplicate_entries", json!({"upgrade_tier":2,"operation":"delta","upgrade_entry":0}), json!({"upgrade_tier":2,"operation":"delta","upgrade_entry":1})),
-        ("missing_entry", upgrade.clone(), json!({"upgrade_tier":2,"operation":"delta","upgrade_entry":0})),
-        ("scale_classes", json!({"scale_class":"CScale"}), json!({"scale_class":"OtherScale"})),
-        ("scale_types", json!({"scale_type":"Spirit"}), json!({"scale_type":"Health"})),
-        ("scale_values", json!({"scale_value":"1"}), json!({"scale_value":"2"})),
-        ("scale_numeric_lexemes", json!({"scale_value":"1"}), json!({"scale_value":"1.0"})),
-        ("scale_value_types", json!({"scale_value":"1"}), json!({"scale_value":1})),
-        ("scale_stats", json!({"scale_stat_0":"Spirit"}), json!({"scale_stat_0":"Health"})),
-        ("scale_stat_positions", json!({"scale_stat_0":"Spirit"}), json!({"scale_stat_1":"Spirit"})),
-        ("scale_missing_class", json!({"scale_type":"Spirit"}), json!({"scale_type":"Spirit","scale_class":"CScale"})),
-        ("hero_scales", json!({"scale":"LevelScaling"}), json!({"scale":"SpiritScaling"})),
-        ("usage_flags", json!({"usage_flag_0":"Imbued"}), json!({"usage_flag_0":"All"})),
-        ("usage_positions", json!({"usage_flag_0":"Imbued"}), json!({"usage_flag_1":"Imbued"})),
+        (
+            "duplicate_entries",
+            json!({"upgrade_tier":2,"operation":"delta","upgrade_entry":0}),
+            json!({"upgrade_tier":2,"operation":"delta","upgrade_entry":1}),
+        ),
+        (
+            "missing_entry",
+            upgrade.clone(),
+            json!({"upgrade_tier":2,"operation":"delta","upgrade_entry":0}),
+        ),
+        (
+            "scale_classes",
+            json!({"scale_class":"CScale"}),
+            json!({"scale_class":"OtherScale"}),
+        ),
+        (
+            "scale_types",
+            json!({"scale_type":"Spirit"}),
+            json!({"scale_type":"Health"}),
+        ),
+        (
+            "scale_values",
+            json!({"scale_value":"1"}),
+            json!({"scale_value":"2"}),
+        ),
+        (
+            "scale_numeric_lexemes",
+            json!({"scale_value":"1"}),
+            json!({"scale_value":"1.0"}),
+        ),
+        (
+            "scale_value_types",
+            json!({"scale_value":"1"}),
+            json!({"scale_value":1}),
+        ),
+        (
+            "scale_stats",
+            json!({"scale_stat_0":"Spirit"}),
+            json!({"scale_stat_0":"Health"}),
+        ),
+        (
+            "scale_stat_positions",
+            json!({"scale_stat_0":"Spirit"}),
+            json!({"scale_stat_1":"Spirit"}),
+        ),
+        (
+            "scale_missing_class",
+            json!({"scale_type":"Spirit"}),
+            json!({"scale_type":"Spirit","scale_class":"CScale"}),
+        ),
+        (
+            "hero_scales",
+            json!({"scale":"LevelScaling"}),
+            json!({"scale":"SpiritScaling"}),
+        ),
+        (
+            "usage_flags",
+            json!({"usage_flag_0":"Imbued"}),
+            json!({"usage_flag_0":"All"}),
+        ),
+        (
+            "usage_positions",
+            json!({"usage_flag_0":"Imbued"}),
+            json!({"usage_flag_1":"Imbued"}),
+        ),
         ("usage_missing", json!({}), json!({"usage_flag_0":"Imbued"})),
-        ("source_flags", json!({"source_flags":"Imbued"}), json!({"usage_flag_0":"Imbued"})),
-        ("unknown_metadata", json!({"future_qualifier":"one"}), json!({"future_qualifier":"two"})),
-        ("unknown_locators", json!({"audit_locator":"/one"}), json!({"audit_locator":"/two"})),
-        ("orphan_locators", json!({"scale_type_locator":"/one"}), json!({"scale_type_locator":"/two"})),
-        ("malformed_locators", json!({"scale_type":"Spirit","scale_type_locator":1}), json!({"scale_type":"Spirit","scale_type_locator":2})),
-        ("nonpointer_locators", json!({"scale_type":"Spirit","scale_type_locator":"one"}), json!({"scale_type":"Spirit","scale_type_locator":"two"})),
-        ("null_companions", json!({"scale_type":null,"scale_type_locator":"/one"}), json!({"scale_type":null,"scale_type_locator":"/two"})),
-        ("unknown_scale_index", json!({"scale_stat_4":"Spirit","scale_stat_4_locator":"/one"}), json!({"scale_stat_4":"Spirit","scale_stat_4_locator":"/two"})),
-        ("inconsistent_property", upgrade.clone(), json!({"upgrade_tier":2,"operation":"delta","upgrade_property":"OtherStat","upgrade_property_locator":"/other/name"})),
-        ("orphan_upgrade_locator", upgrade.clone(), json!({"upgrade_tier":2,"operation":"delta","upgrade_property_locator":"/other/name"})),
-        ("orphan_scale_locator", json!({"scale_locator":"/one"}), json!({"scale_locator":"/two"})),
+        (
+            "source_flags",
+            json!({"source_flags":"Imbued"}),
+            json!({"usage_flag_0":"Imbued"}),
+        ),
+        (
+            "unknown_metadata",
+            json!({"future_qualifier":"one"}),
+            json!({"future_qualifier":"two"}),
+        ),
+        (
+            "unknown_locators",
+            json!({"audit_locator":"/one"}),
+            json!({"audit_locator":"/two"}),
+        ),
+        (
+            "orphan_locators",
+            json!({"scale_type_locator":"/one"}),
+            json!({"scale_type_locator":"/two"}),
+        ),
+        (
+            "malformed_locators",
+            json!({"scale_type":"Spirit","scale_type_locator":1}),
+            json!({"scale_type":"Spirit","scale_type_locator":2}),
+        ),
+        (
+            "nonpointer_locators",
+            json!({"scale_type":"Spirit","scale_type_locator":"one"}),
+            json!({"scale_type":"Spirit","scale_type_locator":"two"}),
+        ),
+        (
+            "null_companions",
+            json!({"scale_type":null,"scale_type_locator":"/one"}),
+            json!({"scale_type":null,"scale_type_locator":"/two"}),
+        ),
+        (
+            "unknown_scale_index",
+            json!({"scale_stat_4":"Spirit","scale_stat_4_locator":"/one"}),
+            json!({"scale_stat_4":"Spirit","scale_stat_4_locator":"/two"}),
+        ),
+        (
+            "inconsistent_property",
+            upgrade.clone(),
+            json!({"upgrade_tier":2,"operation":"delta","upgrade_property":"OtherStat","upgrade_property_locator":"/other/name"}),
+        ),
+        (
+            "orphan_upgrade_locator",
+            upgrade.clone(),
+            json!({"upgrade_tier":2,"operation":"delta","upgrade_property_locator":"/other/name"}),
+        ),
+        (
+            "orphan_scale_locator",
+            json!({"scale_locator":"/one"}),
+            json!({"scale_locator":"/two"}),
+        ),
     ];
     let mut expected_distinct = Vec::new();
     for (name, first, second) in distinct {
         let stat = format!("ability.Distinct_{name}");
-        let assets = insert_qualified_fact(&owner, entity, 1, &stat, &json!(999), &first, "/0/value").await;
-        let game = insert_qualified_fact(&owner, entity, 2, &stat, &json!(25), &second, "/qualified_ability/0/value/0").await;
+        let assets =
+            insert_qualified_fact(&owner, entity, 1, &stat, &json!(999), &first, "/0/value").await;
+        let game = insert_qualified_fact(
+            &owner,
+            entity,
+            2,
+            &stat,
+            &json!(25),
+            &second,
+            "/qualified_ability/0/value/0",
+        )
+        .await;
         expected_distinct.push((stat, vec![(first, assets), (second, game)]));
     }
     let mut duplicate_upgrade = Vec::new();
     for entry in 0..2 {
         let condition = json!({"upgrade_tier":2,"operation":"delta","upgrade_property":"DuplicateUpgrade",
             "upgrade_property_locator":format!("/qualified_ability/0/m_vecAbilityUpgrades/0/[1]/m_vecPropertyUpgrades/0/[{entry}]/m_strPropertyName/0")});
-        let receipt = insert_qualified_fact(&owner, entity, 2, "ability.DuplicateUpgrade", &json!(-10-entry), &condition, &format!("/duplicate/{entry}/bonus")).await;
+        let receipt = insert_qualified_fact(
+            &owner,
+            entity,
+            2,
+            "ability.DuplicateUpgrade",
+            &json!(-10 - entry),
+            &condition,
+            &format!("/duplicate/{entry}/bonus"),
+        )
+        .await;
         duplicate_upgrade.push((condition, receipt));
     }
-    let receipt = insert_qualified_fact(&owner, entity, 1, "ability.DuplicateUpgrade", &json!(-99), &upgrade, "/0/upgrades/1/property_upgrades/0/bonus").await;
+    let receipt = insert_qualified_fact(
+        &owner,
+        entity,
+        1,
+        "ability.DuplicateUpgrade",
+        &json!(-99),
+        &upgrade,
+        "/0/upgrades/1/property_upgrades/0/bonus",
+    )
+    .await;
     duplicate_upgrade.push((upgrade.clone(), receipt));
     expected_distinct.push(("ability.DuplicateUpgrade".into(), duplicate_upgrade));
     let mut duplicate_scale = Vec::new();
-    for (source, locator) in [(1,"/one"),(2,"/two"),(2,"/three"),(3,"/four")] {
+    for (source, locator) in [(1, "/one"), (2, "/two"), (2, "/three"), (3, "/four")] {
         let condition = json!({"scale_type":"Spirit","scale_type_locator":locator});
-        let receipt = insert_qualified_fact(&owner, entity, source, "ability.DuplicateScale", &json!(source), &condition, locator).await;
+        let receipt = insert_qualified_fact(
+            &owner,
+            entity,
+            source,
+            "ability.DuplicateScale",
+            &json!(source),
+            &condition,
+            locator,
+        )
+        .await;
         duplicate_scale.push((condition, receipt));
     }
     expected_distinct.push(("ability.DuplicateScale".into(), duplicate_scale));
     let other_entity: i64 = sqlx::query_scalar("INSERT INTO canon.entity(kind,key,identity_receipt_id)
         SELECT 'ability','qualified_other',identity_receipt_id FROM canon.entity WHERE id=$1 RETURNING id")
         .bind(entity).fetch_one(&owner).await.unwrap();
-    let other_receipt = insert_qualified_fact(&owner, other_entity, 2, "ability.AbilityCooldown", &json!(7), &upgrade, "/other/value").await;
+    let other_receipt = insert_qualified_fact(
+        &owner,
+        other_entity,
+        2,
+        "ability.AbilityCooldown",
+        &json!(7),
+        &upgrade,
+        "/other/value",
+    )
+    .await;
     let original = snapshot(&owner).await;
-    assert!(qualified_rows(&owner, entity, "ability.AbilityCooldown").await.is_empty());
+    assert!(qualified_rows(&owner, entity, "ability.AbilityCooldown")
+        .await
+        .is_empty());
     publish_public_fixture(&owner).await;
     let unpublished = qualified_rows(&owner, entity, "ability.AbilityCooldown").await;
     assert_eq!(unpublished.len(), 1);
@@ -940,17 +1158,37 @@ async fn qualified_source_semantics_receipts_and_ambiguous_entries_on_real_postg
         .execute(&owner).await.unwrap();
     for (stat, value, condition, receipt) in &expected_winners {
         let rows = qualified_rows(&owner, entity, stat).await;
-        assert_eq!(rows.len(), 1, "equivalent conditions did not reconcile: {stat}");
+        assert_eq!(
+            rows.len(),
+            1,
+            "equivalent conditions did not reconcile: {stat}"
+        );
         assert_eq!(rows[0]["value"], *value, "wrong source priority: {stat}");
-        assert_eq!(rows[0]["condition"], *condition, "winner condition changed: {stat}");
-        assert_eq!(rows[0]["citation"], receipt.to_string(), "winner receipt changed: {stat}");
+        assert_eq!(
+            rows[0]["condition"], *condition,
+            "winner condition changed: {stat}"
+        );
+        assert_eq!(
+            rows[0]["citation"],
+            receipt.to_string(),
+            "winner receipt changed: {stat}"
+        );
         assert!(rows[0]["patch"].is_null());
     }
     for (stat, originals) in &expected_distinct {
         let rows = qualified_rows(&owner, entity, stat).await;
-        assert_eq!(rows.len(), originals.len(), "genuine or ambiguous qualifiers collapsed: {stat}");
+        assert_eq!(
+            rows.len(),
+            originals.len(),
+            "genuine or ambiguous qualifiers collapsed: {stat}"
+        );
         for (condition, receipt) in originals {
-            assert!(rows.iter().any(|row| row["condition"] == *condition && row["citation"] == receipt.to_string()), "original assertion lost: {stat} {condition}");
+            assert!(
+                rows.iter()
+                    .any(|row| row["condition"] == *condition
+                        && row["citation"] == receipt.to_string()),
+                "original assertion lost: {stat} {condition}"
+            );
         }
     }
     let other_rows = qualified_rows(&owner, other_entity, "ability.AbilityCooldown").await;
@@ -958,25 +1196,48 @@ async fn qualified_source_semantics_receipts_and_ambiguous_entries_on_real_postg
     assert_eq!(other_rows[0]["entity_id"], other_entity);
     assert_eq!(other_rows[0]["value"], 7);
     assert_eq!(other_rows[0]["citation"], other_receipt.to_string());
-    let selected_before: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(f) FROM serve.selected_fact_p2 f ORDER BY id")
-        .fetch_all(&owner).await.unwrap();
-    sqlx::query("SELECT serve.refresh_assets_p2()").execute(&owner).await.unwrap();
-    let selected_after: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(f) FROM serve.selected_fact_p2 f ORDER BY id")
-        .fetch_all(&owner).await.unwrap();
+    let selected_before: Vec<Value> =
+        sqlx::query_scalar("SELECT to_jsonb(f) FROM serve.selected_fact_p2 f ORDER BY id")
+            .fetch_all(&owner)
+            .await
+            .unwrap();
+    sqlx::query("SELECT serve.refresh_assets_p2()")
+        .execute(&owner)
+        .await
+        .unwrap();
+    let selected_after: Vec<Value> =
+        sqlx::query_scalar("SELECT to_jsonb(f) FROM serve.selected_fact_p2 f ORDER BY id")
+            .fetch_all(&owner)
+            .await
+            .unwrap();
     assert_eq!(selected_before, selected_after);
     let retained = snapshot(&owner).await;
     for field in ["facts", "receipts", "entities", "relations"] {
-        assert_eq!(original[field], retained[field], "serving rewrote stored {field}");
+        assert_eq!(
+            original[field], retained[field],
+            "serving rewrote stored {field}"
+        );
     }
     let card: Value = sqlx::query_scalar("SELECT card FROM serve.ability_card WHERE entity_id=$1")
-        .bind(entity).fetch_one(&owner).await.unwrap();
+        .bind(entity)
+        .fetch_one(&owner)
+        .await
+        .unwrap();
     assert!(serde_json::to_vec(&card).unwrap().len() < 16 * 1024);
     let upgrade_winner = &expected_winners[0];
-    assert!(card["facts"]["facts"].as_array().unwrap().iter().any(|row|
-        row["stat_key"] == upgrade_winner.0 && row["condition"] == upgrade_winner.2 && row["citation"] == upgrade_winner.3.to_string()));
+    assert!(card["facts"]["facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["stat_key"] == upgrade_winner.0
+            && row["condition"] == upgrade_winner.2
+            && row["citation"] == upgrade_winner.3.to_string()));
     let tool_pool = scratch.pool("brain_public", "brain_test_dba").await;
     let mut tool = tool_pool.acquire().await.unwrap();
-    sqlx::query("SET ROLE brain_tool").execute(&mut *tool).await.unwrap();
+    sqlx::query("SET ROLE brain_tool")
+        .execute(&mut *tool)
+        .await
+        .unwrap();
     sqlx::query("SELECT condition FROM serve.selected_fact_p2 WHERE entity_id=$1 AND stat_key='ability.AbilityCooldown'")
         .bind(entity).fetch_all(&mut *tool).await.unwrap();
     sqlx::query("RESET ROLE").execute(&mut *tool).await.unwrap();
