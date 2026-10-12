@@ -16,4 +16,5 @@ sqlx = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["process", "io-util", "fs", "sync", "macros"] }
 
 [dev-dependencies]
+brain-storage = { path = "../brain-storage" }
 tempfile.workspace = true
