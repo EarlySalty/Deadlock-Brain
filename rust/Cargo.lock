@@ -389,6 +389,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "brain-contracts",
+ "chrono",
  "clap",
  "deadlock-brain-core",
  "hex",
@@ -398,6 +399,7 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+ "url",
 ]
 
 [[package]]

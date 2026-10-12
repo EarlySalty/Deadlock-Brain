@@ -7,6 +7,8 @@ edition.workspace = true
 anyhow.workspace = true
 brain-contracts = { path = "../brain-contracts" }
 clap.workspace = true
+chrono.workspace = true
+url = "2.5"
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 hex.workspace = true
 serde.workspace = true

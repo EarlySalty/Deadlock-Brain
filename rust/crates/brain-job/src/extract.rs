@@ -49,7 +49,7 @@ mod budget {
 }
 
 pub const EXTRACTOR: &str = "hero-ability-atoms";
-pub const VERSION: &str = "p1-v1";
+pub const VERSION: &str = "p1-v2";
 
 #[derive(Debug)]
 pub struct Assertion {
@@ -83,6 +83,9 @@ struct Leaf {
 }
 
 pub fn supported(source: Source, path: &str) -> bool {
+    if crate::patch_extract::supported(source, path) {
+        return true;
+    }
     match source.key {
         "deadlock-data" => matches!(
             path,
@@ -446,6 +449,9 @@ pub fn extract_with_identities(
     bytes: &[u8],
     identities: &BTreeMap<String, &'static str>,
 ) -> Result<Vec<Assertion>> {
+    if crate::patch_extract::supported(source, path) {
+        return crate::patch_extract::dispatch_extract(source, path, bytes, identities);
+    }
     if !supported(source, path) {
         return Ok(Vec::new());
     }
@@ -665,6 +671,9 @@ fn prove_scale(assertion: &Assertion, index: &BTreeMap<&str, &Leaf>) -> Result<(
 }
 
 pub fn prove(source: Source, path: &str, bytes: &[u8], assertions: &[Assertion]) -> Result<()> {
+    if crate::patch_extract::supported(source, path) {
+        return crate::patch_extract::dispatch_prove(source, path, bytes, assertions);
+    }
     ensure!(
         supported(source, path) || assertions.is_empty(),
         "proof_source"
