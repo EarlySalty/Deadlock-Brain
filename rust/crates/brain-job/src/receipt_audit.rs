@@ -1,6 +1,6 @@
 use crate::{
     config::Config,
-    extract::{raw_locator_hashes, RawLocatorHash},
+    extract::{raw_locator_hashes, unsupported_raw_locator, RawLocatorHash},
     store::Counts,
 };
 use anyhow::{ensure, Context, Result};
@@ -221,7 +221,11 @@ fn verify(bytes: &[u8], receipts: &[Receipt], raw_mismatch: bool) -> Result<Vec<
                 .iter()
                 .map(|receipt| AuditResult {
                     receipt: receipt.id,
-                    outcome: "mismatch",
+                    outcome: if unsupported_raw_locator(kind, &receipt.locator) {
+                        "unsupported_locator_kind"
+                    } else {
+                        "mismatch"
+                    },
                     observed: None,
                 })
                 .collect::<Vec<_>>()
@@ -255,4 +259,46 @@ fn verify(bytes: &[u8], receipts: &[Receipt], raw_mismatch: bool) -> Result<Vec<
         results.extend(hashes);
     }
     Ok(results)
+}
+
+#[cfg(test)]
+mod unsupported_tier_tests {
+    use super::*;
+
+    #[test]
+    fn raw_content_mismatch_cannot_override_unsupported_upgrade_tiers() {
+        let mut receipts = Vec::new();
+        for tier in ["3", "4294967294", "4294967295", "4294967296", "-1"] {
+            for (kind, locator) in [
+                ("json_pointer", format!("/ability_test/Upgrades/{tier}/AbilityCooldown")),
+                ("kv_pointer", format!("/ability_test/1/m_vecAbilityUpgrades/0/[{tier}]/m_vecPropertyUpgrades/0/[0]/m_strBonus/0")),
+            ] {
+                receipts.push(Receipt { id: receipts.len() as i64, kind: kind.into(), locator, hash: vec![0; 32] });
+            }
+        }
+        receipts.push(Receipt {
+            id: 10,
+            kind: "future_pointer".into(),
+            locator: "/future".into(),
+            hash: vec![0; 32],
+        });
+        receipts.push(Receipt {
+            id: 11,
+            kind: "json_pointer".into(),
+            locator: "/ability_test/Upgrades/2/AbilityCooldown".into(),
+            hash: vec![0; 32],
+        });
+        let results = verify(b"{}", &receipts, true).unwrap();
+        for result in results {
+            assert_eq!(
+                result.outcome,
+                if result.receipt == 11 {
+                    "mismatch"
+                } else {
+                    "unsupported_locator_kind"
+                }
+            );
+            assert!(result.observed.is_none());
+        }
+    }
 }
