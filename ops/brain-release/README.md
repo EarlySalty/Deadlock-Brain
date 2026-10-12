@@ -1,6 +1,6 @@
 # Gemeinsame Brain-Binaryinstallation
 
-Der Rust-Helfer baut ein gemeinsames Release und prüft dessen Herkunft ohne weiteren Cargo-Bau. Er ändert keine Units, Laufzeitkonfiguration, Datenbanken oder Wiki-Dateien und startet keinen Dienst.
+The Rust helper builds and verifies one shared release. `install` and `rollback` also install and restart the three capped system services. They do not change application data or the operator's serve configuration. See [P0b system-unit installation and rollback](P0b.md) for the enforced memory caps, the old user-unit cutover, and the convention for future Brain job units.
 
 ## Aufrufe
 
@@ -53,6 +53,8 @@ Der privilegierte Teil läuft aus dem root-eigenen `/usr/local/libexec/brain-rel
 ```
 
 Reguläre Dateien werden mit `O_NOFOLLOW` geöffnet; Besitzer, Dateitypen, Schreibrechte, Hardlinks und Pfadbestandteile werden geprüft. Root-Staging kopiert aus offenen Dateideskriptoren und prüft die kopierten Bytes. Beide vollständigen Layouts müssen dasselbe Manifest und dieselben Binaryhashes haben. Ein teilweise vorhandenes Layout kann bei `install` ergänzt werden, wenn bereits ein vollständiger Buildbeleg vorliegt; ein unvollständiger erster Buildbeleg stoppt die Bestätigung.
+
+`current` points to `/opt/deadlock-brain/releases/<SHA>`. `maintenance-current` is a compatibility alias to `/opt/deadlock-brain/current/bin`, not an independent release track. The retained dual-layout build proofs do not select the live binaries. See [P0 runtime layout](P0.md) for units, credential loading, memory caps and the disabled-maintenance waiver.
 
 Die beiden Releasezeiger wechseln einzeln atomar. Vorher wird `.deploy-pending.json.tmp` vollständig geschrieben und synchronisiert, danach als `.deploy-pending.json` veröffentlicht. Schlägt ein Zeigerwechsel fehl, stellt der Helfer beide alten Zeiger wieder her. Scheitert der Rückweg, bleibt das Journal erhalten und weitere Installationen stoppen bis zu `recover`. Ohne veröffentlichtes Journal entfernt `recover` ein geprüftes Zwischenjournal. Vorhandene Releaseverzeichnisse und Rückfallstände bleiben erhalten.
 
