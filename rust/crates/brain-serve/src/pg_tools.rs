@@ -164,6 +164,7 @@ impl<T> PgTools<T> {
             .is_some_and(|patch| patch != "current")
             || matches!(request.subrequest(), ToolSubrequest::GetHero(hero)
                 if hero.patch.as_deref().is_some_and(|patch| patch != "current"))
+            || pg_asset_tools::historical(request)
         {
             return Ok(error_execution(
                 call_id,
@@ -218,6 +219,9 @@ impl<T> PgTools<T> {
                             "Kein veröffentlichter Heldensteckbrief für diese Entitäts-ID gefunden."));
                     };
                     profile
+                }
+                ToolSubrequest::GetItem(_) | ToolSubrequest::GetAbility(_) | ToolSubrequest::Compare(_) => {
+                    return pg_asset_tools::execute(&mut connection, call_id, request).await;
                 }
                 _ => return Err(invalid()),
             };
@@ -334,6 +338,7 @@ impl<T: ToolExecutionPort> ToolExecutionPort for PgTools<T> {
 
 pub(super) fn canonical(name: ToolName) -> bool {
     matches!(name, ToolName::FindEntity | ToolName::GetHero)
+        || pg_asset_tools::canonical(name)
 }
 
 fn normalize(text: &str) -> String {
@@ -369,6 +374,9 @@ fn definitions() -> Vec<ToolDefinition> {
                 "patch":{"type":"string","minLength":1,"maxLength":128},
                 "sections":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"string","enum":["stats","abilities","weapon"]}}}})},
     ]
+    .into_iter()
+    .chain(pg_asset_tools::definitions())
+    .collect()
 }
 
 fn hero_sql(request: &GetHeroRequest) -> &'static str {
@@ -573,6 +581,9 @@ fn receipt_evidence(row: sqlx::postgres::PgRow) -> Result<Evidence, PortError> {
         patch: None,
     })
 }
+
+#[path = "pg_asset_tools.rs"]
+mod pg_asset_tools;
 
 #[cfg(test)]
 #[path = "pg_tools_tests.rs"]

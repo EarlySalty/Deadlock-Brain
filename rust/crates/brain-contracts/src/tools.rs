@@ -1,5 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+#[path = "asset_tools.rs"]
+mod asset_tools;
+pub use asset_tools::{CompareRequest, GetAbilityRequest, GetItemRequest};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -23,6 +27,9 @@ pub enum ToolName {
     DeadlockData,
     FindEntity,
     GetHero,
+    GetItem,
+    GetAbility,
+    Compare,
 }
 
 impl ToolName {
@@ -39,6 +46,9 @@ impl ToolName {
             Self::DeadlockData => "deadlock_data",
             Self::FindEntity => "find_entity",
             Self::GetHero => "get_hero",
+            Self::GetItem => "get_item",
+            Self::GetAbility => "get_ability",
+            Self::Compare => "compare",
         }
     }
 }
@@ -438,6 +448,9 @@ pub enum ToolSubrequest {
     DeadlockData(DeadlockDataRequest),
     FindEntity(FindEntityRequest),
     GetHero(GetHeroRequest),
+    GetItem(GetItemRequest),
+    GetAbility(GetAbilityRequest),
+    Compare(CompareRequest),
 }
 
 impl ToolSubrequest {
@@ -466,6 +479,9 @@ impl ToolSubrequest {
             }
             ToolName::FindEntity => serde_json::from_value(arguments.clone()).map(Self::FindEntity),
             ToolName::GetHero => serde_json::from_value(arguments.clone()).map(Self::GetHero),
+            ToolName::GetItem => serde_json::from_value(arguments.clone()).map(Self::GetItem),
+            ToolName::GetAbility => serde_json::from_value(arguments.clone()).map(Self::GetAbility),
+            ToolName::Compare => serde_json::from_value(arguments.clone()).map(Self::Compare),
         };
         parsed.map_err(|_| invalid("Werkzeugargumente passen nicht zur typisierten Unteranfrage"))
     }
@@ -588,6 +604,9 @@ impl ToolSubrequest {
                 }
                 Ok(())
             }
+            Self::GetItem(request) => request.validate(),
+            Self::GetAbility(request) => request.validate(),
+            Self::Compare(request) => request.validate(),
             Self::GetHero(request) => {
                 validate_numeric_id(request.hero)?;
                 if let Some(patch) = &request.patch {
@@ -986,6 +1005,7 @@ impl ToolExecution {
         let expected_game = if matches!(
             request.name(),
             ToolName::ServerKnowledge | ToolName::FindEntity | ToolName::GetHero
+                | ToolName::GetItem | ToolName::GetAbility | ToolName::Compare
         ) {
             None
         } else {

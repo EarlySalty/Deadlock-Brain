@@ -3,6 +3,8 @@ Description=Deadlock-Brain-Dokumentation prüfen und freigegebene Fassungen übe
 
 [Service]
 Type=oneshot
+MemoryAccounting=yes
+MemoryMax=8G
 LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
 ExecStart=/bin/bash -c 'exec 5<"%d/infisical-token"; exec /opt/deadlock-brain/maintenance-current/brain-maintain --config /etc/deadlock-brain/maintenance-runtime.json --infisical-config /etc/deadlock-brain/infisical.json tick'
 TimeoutStartSec=120min

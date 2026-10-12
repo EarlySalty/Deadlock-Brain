@@ -482,7 +482,7 @@ fn real_pg_tools_roles_validity_bounded_results_and_trace_writer() {
             .is_error
     );
     let definitions = tools.definitions(&query, &context, None).unwrap();
-    assert_eq!(definitions.len(), 3);
+    assert_eq!(definitions.len(), 3 + pg_asset_tools::definitions().len());
     tools.required_calls(&query, &context, None).unwrap();
     let old = ToolCall {
         id: "old".into(),
