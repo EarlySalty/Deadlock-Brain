@@ -1,0 +1,15 @@
+[package]
+name = "brain-job"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+brain-storage = { path = "../brain-storage" }
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+sha2.workspace = true
