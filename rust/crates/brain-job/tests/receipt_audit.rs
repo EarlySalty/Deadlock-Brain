@@ -121,6 +121,7 @@ async fn real_receipt_audit_quarantines_only_corrupted_fact_and_bounds_sample() 
     sqlx::raw_sql(
         "CREATE ROLE brain_migrate LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
         CREATE ROLE brain_ingest LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+        ALTER ROLE brain_ingest SET default_transaction_isolation = 'repeatable read';
         CREATE ROLE brain_service LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
         CREATE ROLE brain_readonly LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
         CREATE ROLE brain_tool NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
@@ -147,6 +148,17 @@ async fn real_receipt_audit_quarantines_only_corrupted_fact_and_bounds_sample() 
     .await
     .unwrap();
     let writer = scratch.pool("brain_p9", "brain_ingest").await;
+    let isolation: String = sqlx::query_scalar("SHOW transaction_isolation")
+        .fetch_one(&writer)
+        .await
+        .unwrap();
+    assert_eq!(isolation, "repeatable read");
+    let rejected = sqlx::query("INSERT INTO ops.job_run(job,extractor,extractor_version) VALUES ('audit-receipts','receipt-audit','fixture')")
+        .execute(&writer).await.unwrap_err();
+    assert_eq!(
+        rejected.as_database_error().unwrap().code().as_deref(),
+        Some("0A000")
+    );
     ingest(
         &writer,
         "fixture-a",
@@ -306,6 +318,25 @@ async fn real_receipt_audit_quarantines_only_corrupted_fact_and_bounds_sample() 
         bounded.mismatched + bounded.locator_not_found + bounded.unsupported_locator_kind,
         0
     );
+    let outcomes: Vec<(String, i64)> = sqlx::query_as("SELECT a.outcome,count(*) FROM ops.receipt_audit a JOIN ops.job_run j ON j.id=a.job_run_id WHERE j.job='audit-receipts' GROUP BY a.outcome ORDER BY a.outcome")
+        .fetch_all(&owner).await.unwrap();
+    assert_eq!(
+        outcomes,
+        vec![
+            ("locator_not_found".into(), 1),
+            ("match".into(), 205),
+            ("mismatch".into(), 1),
+            ("unsupported_locator_kind".into(), 1),
+        ]
+    );
+    let completed: i64 = sqlx::query_scalar("SELECT count(*) FROM ops.job_run WHERE job='audit-receipts' AND finished_at IS NOT NULL AND status IN ('succeeded','partial')")
+        .fetch_one(&owner).await.unwrap();
+    assert_eq!(completed, 5);
+    let isolation: String = sqlx::query_scalar("SHOW default_transaction_isolation")
+        .fetch_one(&writer)
+        .await
+        .unwrap();
+    assert_eq!(isolation, "repeatable read");
     writer.close().await;
     owner.close().await;
     admin.close().await;

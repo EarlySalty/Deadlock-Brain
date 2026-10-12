@@ -62,6 +62,9 @@ pub async fn audit_pool(pool: &PgPool, max_blob_bytes: usize) -> Result<AuditCou
         "audit_blob_limit"
     );
     let mut connection = pool.acquire().await?.detach();
+    sqlx::query("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        .execute(&mut connection)
+        .await?;
     sqlx::query("SET statement_timeout='10000ms'")
         .execute(&mut connection)
         .await?;
