@@ -282,10 +282,11 @@ CREATE VIEW serve.published_patch_origin AS
 SELECT origin.* FROM canon.patch_origin origin
 JOIN canon.receipt head ON head.id = origin.receipt_id
 JOIN canon.source_head published ON published.source_id = origin.source_id AND published.published_revision_id >= head.revision_id
-JOIN LATERAL (SELECT object_id, action FROM canon.revision v
+JOIN LATERAL (SELECT v.id AS revision_id, object_id, action FROM canon.revision v
     JOIN raw.run_object observed ON observed.run_id = v.raw_run_id AND observed.path = origin.external_id
     WHERE v.source_id = origin.source_id AND v.id <= published.published_revision_id
-    ORDER BY v.id DESC LIMIT 1) latest ON latest.action = 'upsert' AND latest.object_id = head.raw_object_id;
+    ORDER BY v.id DESC LIMIT 1) latest ON latest.action = 'upsert' AND latest.object_id = head.raw_object_id
+        AND latest.revision_id = head.revision_id;
 CREATE VIEW serve.current_patch AS
 SELECT p.* FROM canon.patch p JOIN serve.published_patch_origin origin ON origin.patch_id = p.id
 ORDER BY p.released_at DESC, p.id DESC LIMIT 1;
@@ -297,9 +298,16 @@ WHERE (SELECT true FROM serve.published_patch_origin origin
         AND proof.revision_id = head.revision_id AND proof.raw_object_id = head.raw_object_id
     WHERE origin.patch_id = change.patch_id);
 CREATE VIEW serve.published_source_revision_patch AS
-SELECT m.*, c.revision_id AS evidence_revision_id FROM canon.source_revision_patch m
+SELECT m.*, extraction.id AS evidence_revision_id FROM canon.source_revision_patch m
 JOIN canon.receipt c ON c.id = m.receipt_id
+JOIN canon.revision mapping_revision ON mapping_revision.id = c.revision_id
+JOIN raw.run mapping_run ON mapping_run.id = mapping_revision.raw_run_id AND mapping_run.status = 'succeeded'
 JOIN canon.source_head h ON h.source_id = m.source_id AND h.published_revision_id >= c.revision_id
+JOIN LATERAL (SELECT v.id FROM canon.revision v
+    JOIN raw.run r ON r.id = v.raw_run_id AND r.status = 'succeeded'
+    WHERE v.source_id = m.source_id AND v.source_revision = m.source_revision
+        AND v.id BETWEEN c.revision_id AND h.published_revision_id
+    ORDER BY v.id DESC LIMIT 1) extraction ON true
 JOIN serve.published_patch_origin origin ON origin.patch_id = m.patch_id
 JOIN canon.receipt official ON official.id = origin.receipt_id
 JOIN canon.receipt mapping_official ON mapping_official.id = m.patch_receipt_id
@@ -317,7 +325,8 @@ JOIN canon.stat s ON s.key = f.stat_key
 JOIN serve.published_source_revision_patch opening ON opening.source_id = f.source_id AND opening.source_revision = v.source_revision
 LEFT JOIN canon.revision ending ON ending.id = f.valid_to_revision_id
 LEFT JOIN serve.published_source_revision_patch closing ON closing.source_id = f.source_id AND closing.source_revision = ending.source_revision
-WHERE f.valid_to_revision_id IS NULL OR (closing.patch_id IS NOT NULL AND h.published_revision_id >= f.valid_to_revision_id);
+    AND f.valid_to_revision_id <= h.published_revision_id
+WHERE f.valid_to_revision_id IS NULL OR f.valid_to_revision_id > h.published_revision_id OR closing.patch_id IS NOT NULL;
 CREATE VIEW serve.fact_patch_snapshot AS
 SELECT f.*, snapshot.patch_id AS snapshot_patch_id, snapshot.receipt_id AS snapshot_receipt_id,
     snapshot.patch_receipt_id AS snapshot_official_receipt_id, snapshot.evidence_revision_id AS snapshot_revision_id
