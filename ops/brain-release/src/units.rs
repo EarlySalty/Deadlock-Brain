@@ -61,6 +61,12 @@ fn checked_status(mut command: Command) -> Result<()> {
     Ok(())
 }
 
+fn disabled_or_absent(state: &str, exit: Option<i32>) -> bool {
+    matches!(exit, Some(1 | 4))
+        && (matches!(state.trim(), "disabled" | "not-found")
+            || (state.trim().is_empty() && exit == Some(4)))
+}
+
 fn replace(path: &Path, contents: &str) -> Result<()> {
     let parent = path.parent().context("Installationsverzeichnis fehlt")?;
     fs_safe::checked_path(parent, 0, true)?;
@@ -111,7 +117,7 @@ pub fn install() -> Result<()> {
         let output = user_systemctl().args(["is-enabled", name]).output()?;
         let state = String::from_utf8(output.stdout)?;
         ensure!(
-            matches!(state.trim(), "disabled" | "not-found"),
+            disabled_or_absent(&state, output.status.code()),
             "Alter Nutzerdienst ist nicht deaktiviert: {name}"
         );
     }
@@ -155,6 +161,19 @@ pub fn install() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn absent_user_units_accept_the_documented_exit_without_accepting_query_failures() {
+        assert!(disabled_or_absent("disabled\n", Some(1)));
+        assert!(disabled_or_absent("not-found\n", Some(4)));
+        assert!(disabled_or_absent("", Some(4)));
+        assert!(!disabled_or_absent("", Some(1)));
+        assert!(!disabled_or_absent("enabled", Some(0)));
+        assert!(!disabled_or_absent("", None));
+        assert!(!disabled_or_absent("disabled", None));
+        assert!(!disabled_or_absent("not-found", None));
+        assert!(!disabled_or_absent("disabled", Some(127)));
+    }
 
     #[test]
     fn system_templates_preserve_operator_paths_and_enforced_caps() {

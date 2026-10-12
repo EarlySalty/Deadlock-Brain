@@ -43,10 +43,17 @@ For every future Brain job, install its package-owned template in `/etc/systemd/
 P1 can install its additional units without editing the P0b helper. After its own gate, merge, release installation and verification, use this explicit install path from P1's clean verified origin/main worktree. Hold the shared deploy lock and ensure no release build or install is running. Do not enable a timer until its service has passed the package's real-execution proof.
 
 ```bash
-sudo -n flock --exclusive /opt/deadlock-brain/.deploy.lock /usr/bin/install -o root -g root -m 0644 ops/brain-job@.service ops/brain-job@.timer /etc/systemd/system/
-sudo -n systemctl daemon-reload
-sudo -n systemctl start brain-job@ingest-gamefiles.service
-sudo -n systemctl enable --now brain-job@ingest-gamefiles.timer
+sudo -n flock --exclusive /opt/deadlock-brain/.deploy.lock /bin/sh -ec '
+/usr/bin/install -o root -g root -m 0644 ops/brain-job@.service ops/brain-job@.timer /etc/systemd/system/
+/usr/bin/systemctl daemon-reload
+/usr/bin/systemctl start brain-job@ingest-gamefiles.service
+'
+```
+
+After the real-execution proof passes, enable the timer under the same lock:
+
+```bash
+sudo -n flock --exclusive /opt/deadlock-brain/.deploy.lock /usr/bin/systemctl enable --now brain-job@ingest-gamefiles.timer
 ```
 
 If matching user units already exist, disable and stop those instances before installation. The explicit privileged install uses the independently reviewed package files; the root-owned P0b helper does not accept arbitrary unit text or invoke arbitrary caller-selected commands. Its future releases preserve P1's additional system units because it installs only its three named services.
