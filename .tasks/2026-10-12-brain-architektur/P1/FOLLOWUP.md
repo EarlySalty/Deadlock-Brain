@@ -1,0 +1,7 @@
+# P1 follow-up
+
+The 2026-10-12 08:12 CEST directive restricts the current critical path to P1 acceptance in PAKETE.md and the local merge gate. These items are not additional P1 shipping requirements.
+
+1. Extractor-version cutovers: incompatible unfinished runs cannot be resumed by the new extractor. Preserve the approved release precondition: finish/publish old-version runs with their matching executable, then prove zero old pending runs under job/release serialization before a bump. Do not relabel runs or bypass guards. P1 remains `p1-v1` and its production schema was absent at inventory; future cutover enforcement belongs to the responsible version-bump integrator.
+2. Historical storage restore fixture: remove its hard-coded `/tmp/brain-c11.*` assumption so the existing ignored probe can run with private temporary socket directories. Current migration checks report 74 passed, one ignored, zero failed; the ignored probe is not counted as runtime proof.
+3. Additional independent source reviews and general polish are deferred. The migration/helper review lanes were stopped after matching implementation checks passed. Acceptance diagnostics and required existing checks remain in scope; only the local gate can authorize main integration.

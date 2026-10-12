@@ -1,8 +1,7 @@
-//! Explicit owner-only migration and DDL-free service preflight.
-//! The historical SQL files stay immutable; one outer transaction owns the upgrade.
 use crate::{memory_repository::validate_release, pg_jobs::database_error, PgStore};
 use brain_contracts::{store::STORE_VERSION, CorpusRelease, PortError, SourceRecordV2};
-use sqlx::{PgConnection, Row};
+use sqlx::{Connection, PgConnection, Row};
+use std::collections::BTreeSet;
 
 pub const CORE_SCHEMA_VERSION: i32 = 2;
 pub(crate) const RESPONSE_AUDIT_SHAPE_PROBE: &str = "SELECT count(*)=11 FROM (VALUES
@@ -12,9 +11,12 @@ pub(crate) const RESPONSE_AUDIT_SHAPE_PROBE: &str = "SELECT count(*)=11 FROM (VA
     JOIN pg_attribute a ON a.attrelid=to_regclass('brain.response_deviations_v1') AND a.attname=expected.name
     WHERE a.atttypid=expected.type::regtype AND a.attnotnull AND NOT a.attisdropped";
 
-const GAMEFACTS: &str =
-    include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql");
-const GAMEFACTS_SHAPE_PROBE: &str = "SELECT s.id,s.last_complete_revision,o.id,o.content_sha256,o.body,
+const GAMEFACTS_MIGRATIONS: &[(i32, &str)] = &[(
+    1,
+    include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"),
+)];
+const GAMEFACTS_V1_MIN_SERIALIZE_TRIGGERS: i64 = 14;
+const GAMEFACTS_V1_SHAPE_PROBE: &str = "SELECT s.id,s.last_complete_revision,o.id,o.content_sha256,o.body,
     r.id,r.base_revision,r.target_revision,r.extractor_version,ro.run_id,ro.path,ro.parse_status,
     v.id,v.source_revision,h.published_revision_id,p.id,c.id,c.raw_object_id,c.value_sha256,
     e.id,e.identity_receipt_id,d.key,d.section,d.unit,f.id,f.receipt_id,f.valid_from_revision_id,f.valid_to_revision_id,
@@ -100,8 +102,6 @@ fn compatibility_error(_: sqlx::Error) -> PortError {
     )
 }
 
-// Not a general SQL parser: accept only our embedded, single-transaction files.
-// Never send their COMMIT through an outer sqlx transaction (partial upgrades!).
 fn body(sql: &str) -> Result<&str, PortError> {
     let (_, rest) = sql
         .split_once("BEGIN;")
@@ -138,7 +138,6 @@ async fn check_version(connection: &mut PgConnection) -> Result<(), PortError> {
     Ok(())
 }
 
-// Parse/plan only. Requires SELECT, never CREATE/ALTER, and reads no corpus rows.
 pub(crate) const SHAPE_PROBE: &str = "SELECT r.source_id,r.logical_id,r.revision,r.content_hash,r.tombstone,r.record_json,r.created_at,r.read_header_json,r.original_header_json,
     h.source_id,h.logical_id,h.revision,h.content_hash,h.tombstone,h.record_json,h.updated_at,h.read_header_json,
     c.release_id,c.knowledge_version,c.patch,c.release_json,c.created_at,
@@ -149,7 +148,6 @@ pub(crate) const SHAPE_PROBE: &str = "SELECT r.source_id,r.logical_id,r.revision
          brain.source_jobs_v1 j, brain.source_checkpoints_v1 p, brain.conversation_owners_v1 o
     LIMIT 0";
 
-// Vorhandene beschreibbare Spalten oder ersetzte Funktionen erfüllen den Vertrag nicht.
 pub(crate) const READ_HEADER_CONTRACT_PROBE: &str = "SELECT
     (SELECT count(*)=3 FROM (VALUES
         ('source_record_revisions','read_header_json','source_read_header_v1'),
@@ -200,15 +198,41 @@ async fn check_response_audit(connection: &mut PgConnection) -> Result<(), PortE
     Ok(())
 }
 
-async fn check_gamefacts(connection: &mut PgConnection) -> Result<(), PortError> {
-    let version: Vec<i32> = sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version")
-        .fetch_all(&mut *connection)
+fn gamefacts_listed_versions(migrations: &[(i32, &str)]) -> Result<BTreeSet<i32>, PortError> {
+    let versions: BTreeSet<_> = migrations.iter().map(|(version, _)| *version).collect();
+    if versions.is_empty() || versions.len() != migrations.len() || versions.iter().any(|v| *v <= 0)
+    {
+        return Err(invalid(
+            "Spielwertmigrationen benötigen eindeutige positive Versionen",
+        ));
+    }
+    Ok(versions)
+}
+
+async fn gamefacts_recorded_versions(
+    connection: &mut PgConnection,
+) -> Result<BTreeSet<i32>, PortError> {
+    let versions: Vec<i32> = sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version")
+        .fetch_all(connection)
         .await
         .map_err(|_| invalid("Spielwertschema fehlt oder ist nicht lesbar"))?;
-    if version != [1] {
-        return Err(invalid("Spielwertschema besitzt eine unbekannte Version"));
+    Ok(versions.into_iter().collect())
+}
+
+async fn check_gamefacts(
+    connection: &mut PgConnection,
+    migrations: &[(i32, &str)],
+) -> Result<(), PortError> {
+    if gamefacts_recorded_versions(connection).await? != gamefacts_listed_versions(migrations)? {
+        return Err(invalid(
+            "Spielwertschema besitzt fehlende oder unbekannte Versionen",
+        ));
     }
-    sqlx::query(GAMEFACTS_SHAPE_PROBE)
+    check_gamefacts_v1(connection).await
+}
+
+async fn check_gamefacts_v1(connection: &mut PgConnection) -> Result<(), PortError> {
+    sqlx::query(GAMEFACTS_V1_SHAPE_PROBE)
         .fetch_all(&mut *connection)
         .await
         .map_err(|_| invalid("Spielwertschema erfüllt den Spaltenvertrag nicht"))?;
@@ -248,11 +272,12 @@ async fn check_gamefacts(connection: &mut PgConnection) -> Result<(), PortError>
         AND (SELECT count(*)=4 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
             WHERE c.relname IN ('fact_source_history_idx','alias_source_history_idx','relation_source_history_idx','relation_from_entity_idx')
                 AND i.indisvalid AND i.indpred IS NULL AND i.indexprs IS NULL)
-        AND (SELECT count(*)=14 FROM pg_trigger t WHERE t.tgfoid='ops.serialize_gamefacts_write()'::regprocedure
+        AND (SELECT count(*) >= $1 FROM pg_trigger t WHERE t.tgfoid='ops.serialize_gamefacts_write()'::regprocedure
             AND t.tgenabled='O' AND t.tgtype & 1 = 0 AND t.tgtype & 2 = 2)
         AND NOT has_table_privilege('brain_ingest','raw.object','UPDATE,DELETE,TRUNCATE')
         AND NOT has_table_privilege('brain_ingest','canon.receipt','UPDATE,DELETE,TRUNCATE')",
     )
+    .bind(GAMEFACTS_V1_MIN_SERIALIZE_TRIGGERS)
     .fetch_one(connection)
     .await
     .map_err(|_| invalid("Spielwertschema erfüllt den Rollenvertrag nicht"))?;
@@ -264,6 +289,76 @@ async fn check_gamefacts(connection: &mut PgConnection) -> Result<(), PortError>
     Ok(())
 }
 
+async fn prepare_gamefacts_migration(connection: &mut PgConnection) -> Result<(), PortError> {
+    sqlx::raw_sql("SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='60000ms'; SELECT pg_advisory_xact_lock(742110026112::bigint)")
+        .execute(&mut *connection).await.map_err(migration_error)?;
+    let is_dba: bool =
+        sqlx::query_scalar("SELECT rolsuper FROM pg_roles WHERE rolname=current_user")
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(migration_error)?;
+    if is_dba {
+        sqlx::raw_sql(GAMEFACTS_ROLE_BOOTSTRAP)
+            .execute(&mut *connection)
+            .await
+            .map_err(|_| invalid("Werkzeugrolle konnte nicht sicher vorbereitet werden"))?;
+    }
+    let owner: bool = sqlx::query_scalar("SELECT current_user='brain_migrate'")
+        .fetch_one(connection)
+        .await
+        .map_err(migration_error)?;
+    if !owner {
+        return Err(PortError::PermissionDenied(
+            "Spielwertmigration benötigt brain_migrate oder den lokalen DBA".into(),
+        ));
+    }
+    Ok(())
+}
+
+async fn apply_gamefacts_migrations(
+    connection: &mut PgConnection,
+    migrations: &[(i32, &str)],
+) -> Result<(), PortError> {
+    let expected = gamefacts_listed_versions(migrations)?;
+    for (index, (version, sql)) in migrations.iter().enumerate() {
+        let mut tx = connection.begin().await.map_err(migration_error)?;
+        prepare_gamefacts_migration(&mut tx).await?;
+        let installed: bool =
+            sqlx::query_scalar("SELECT to_regclass('ops.gamefacts_schema_version') IS NOT NULL")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(migration_error)?;
+        let recorded = if installed {
+            gamefacts_recorded_versions(&mut tx).await?
+        } else {
+            BTreeSet::new()
+        };
+        if !recorded.is_subset(&expected) {
+            return Err(invalid(
+                "Spielwertschema besitzt unbekannte Versionen; eine ältere Programmversion darf es nicht zurücksetzen",
+            ));
+        }
+        if !recorded.contains(version) {
+            sqlx::raw_sql(body(sql)?)
+                .execute(&mut *tx)
+                .await
+                .map_err(|_| invalid("Spielwertmigration ist fehlgeschlagen; die Transaktion wurde nicht veröffentlicht"))?;
+            sqlx::query("INSERT INTO ops.gamefacts_schema_version(version) VALUES ($1)")
+                .bind(version)
+                .execute(&mut *tx)
+                .await
+                .map_err(migration_error)?;
+        }
+        if index + 1 == migrations.len() {
+            check_gamefacts(&mut tx, migrations).await?;
+        } else {
+            check_gamefacts_v1(&mut tx).await?;
+        }
+        tx.commit().await.map_err(migration_error)?;
+    }
+    Ok(())
+}
+
 impl PgStore {
     pub async fn check_gamefacts_schema(&self) -> Result<(), PortError> {
         let mut tx = self.pool.begin().await.map_err(compatibility_error)?;
@@ -271,45 +366,13 @@ impl PgStore {
             .execute(&mut *tx)
             .await
             .map_err(compatibility_error)?;
-        check_gamefacts(&mut tx).await?;
+        check_gamefacts(&mut tx, GAMEFACTS_MIGRATIONS).await?;
         tx.commit().await.map_err(compatibility_error)
     }
 
     pub async fn migrate_gamefacts(&self) -> Result<(), PortError> {
-        let mut tx = self.pool.begin().await.map_err(migration_error)?;
-        sqlx::raw_sql("SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='60000ms'; SELECT pg_advisory_xact_lock(742110026112::bigint)")
-            .execute(&mut *tx).await.map_err(migration_error)?;
-        let is_dba: bool =
-            sqlx::query_scalar("SELECT rolsuper FROM pg_roles WHERE rolname=current_user")
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(migration_error)?;
-        if is_dba {
-            sqlx::raw_sql(GAMEFACTS_ROLE_BOOTSTRAP)
-                .execute(&mut *tx)
-                .await
-                .map_err(|_| invalid("Werkzeugrolle konnte nicht sicher vorbereitet werden"))?;
-        }
-        let owner: bool = sqlx::query_scalar("SELECT current_user='brain_migrate'")
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(migration_error)?;
-        if !owner {
-            return Err(PortError::PermissionDenied(
-                "Spielwertmigration benötigt brain_migrate oder den lokalen DBA".into(),
-            ));
-        }
-        let installed: bool =
-            sqlx::query_scalar("SELECT to_regclass('ops.gamefacts_schema_version') IS NOT NULL")
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(migration_error)?;
-        if !installed {
-            sqlx::raw_sql(body(GAMEFACTS)?).execute(&mut *tx).await
-                .map_err(|_| invalid("Spielwertmigration ist fehlgeschlagen; die Transaktion wurde nicht veröffentlicht"))?;
-        }
-        check_gamefacts(&mut tx).await?;
-        tx.commit().await.map_err(migration_error)
+        let mut connection = self.pool.acquire().await.map_err(migration_error)?;
+        apply_gamefacts_migrations(&mut connection, GAMEFACTS_MIGRATIONS).await
     }
 
     pub async fn check_response_audit_schema(&self) -> Result<(), PortError> {
@@ -396,8 +459,6 @@ impl PgStore {
         tx.commit().await.map_err(migration_error)
     }
 
-    /// Service startup preflight. SELECT-only; no automatic migration or repair.
-    /// Call before admitting traffic/jobs, including when the schema already exists.
     pub async fn check_core_schema(&self) -> Result<(), PortError> {
         let mut tx = self.pool.begin().await.map_err(compatibility_error)?;
         sqlx::raw_sql("SET TRANSACTION READ ONLY; SET LOCAL statement_timeout='5000ms'")
@@ -413,9 +474,6 @@ impl PgStore {
         tx.commit().await.map_err(compatibility_error)
     }
 
-    /// Explicit privileged maintenance operation. Never called by constructors/read paths.
-    /// Stop and externally fence every writer before backup and this call; the locks below
-    /// protect the transaction, not the post-COMMIT cutover from old/uncooperative binaries.
     pub async fn migrate_core(&self) -> Result<(), PortError> {
         let mut tx = self.pool.begin().await.map_err(migration_error)?;
         sqlx::raw_sql(
@@ -459,8 +517,6 @@ impl PgStore {
         .map_err(migration_error)?;
         validate_records(&mut tx).await?;
         validate_releases(&mut tx).await?;
-        // No source record, head, release, checkpoint, lease, or ACL is rewritten.
-        // In particular, source-wide legacy release maxima cannot be guessed into document pins.
         sqlx::raw_sql(body(VERSION)?)
             .execute(&mut *tx)
             .await
@@ -482,7 +538,6 @@ impl PgStore {
 }
 
 async fn validate_records(connection: &mut PgConnection) -> Result<(), PortError> {
-    // Bounded keyset pages, not a full in-memory copy of the corpus during maintenance.
     let mut cursor: Option<(String, String, i64)> = None;
     loop {
         let rows = sqlx::query(
@@ -617,5 +672,12 @@ mod tests {
         for (migration, _) in ENTITY_MIGRATIONS {
             assert!(body(migration).is_ok());
         }
+        for (_, migration) in GAMEFACTS_MIGRATIONS {
+            assert!(body(migration).is_ok());
+        }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/support/gamefacts_migrations.rs"]
+mod gamefacts_migration_tests;

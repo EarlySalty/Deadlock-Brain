@@ -38,8 +38,9 @@ fn run_cargo(source: &Path, target: &Path) -> Result<()> {
         "Cargo darf niemals als root laufen"
     );
     fs_safe::new_dir(target)?;
-    let status = source::command("/home/nathanael/.cargo/bin/cargo")
+    let status = source::command("/home/nathanael/.local/bin/cargo-slot")
         .current_dir(source.join("rust"))
+        .env("CARGO_SLOT_DEPLOY", "1")
         .env("CARGO_INCREMENTAL", "0")
         .env("RUSTFLAGS", RUSTFLAGS)
         .env("RUSTC_WRAPPER", "/home/nathanael/.cargo/bin/sccache")
@@ -206,21 +207,11 @@ pub fn compile(source: &Path, bundle: &Path) -> Result<Manifest> {
         eprintln!("Bestätigten Sourcebuild wiederverwendet; Cargo nicht gestartet");
         return Ok(manifest);
     }
-    let _host = loop {
-        let mut available = None;
-        for slot in 1..=3 {
-            let path = format!("/home/nathanael/Documents/.tasks/2026-10-02-offene-branches/locks/build-slot-{slot}.lock");
-            if let Some(lock) = Lock::try_acquire(Path::new(&path), OPERATOR)? {
-                available = Some(lock);
-                break;
-            }
-        }
-        if let Some(lock) = available {
-            break lock;
-        }
-        std::thread::sleep(std::time::Duration::from_secs(10));
+    let target_lock = Path::new("/home/nathanael/.cache/brain-release-target.lock");
+    let _target = match Lock::try_acquire(target_lock, OPERATOR)? {
+        Some(lock) => lock,
+        None => Lock::acquire(target_lock, OPERATOR)?,
     };
-    let _cargo = Lock::acquire(Path::new("/tmp/deadlock-cargo-release.lock"), OPERATOR)?;
     fs_safe::new_dir(bundle)?;
     let result = (|| {
         for (program, args) in [
@@ -338,6 +329,12 @@ mod tests {
             0o600,
         )
         .unwrap();
+        let git_status = source::command("/usr/bin/git")
+            .args(["init", "--quiet"])
+            .arg(&source)
+            .status()
+            .unwrap();
+        assert!(git_status.success());
         let target = dir.path().join("target");
         run_cargo(&source, &target).unwrap();
         let bundle = dir.path().join("bundle");

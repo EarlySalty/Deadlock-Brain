@@ -14,7 +14,7 @@ struct Scratch {
 
 impl Scratch {
     fn new() -> Self {
-        let root = PathBuf::from(format!("/tmp/brain-gamefacts.{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("brain-gamefacts.{}", std::process::id()));
         std::fs::create_dir(&root).expect("new private scratch directory");
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::create_dir(root.join("socket")).unwrap();
@@ -611,6 +611,20 @@ async fn real_postgres_gamefacts_receipts_publication_and_roles() {
     let owner = scratch.pool("brain_gamefacts", "brain_migrate").await;
     let ingest = scratch.pool("brain_gamefacts", "brain_ingest").await;
     sqlx::raw_sql(SEED).execute(&ingest).await.unwrap();
+    sqlx::query("INSERT INTO canon.entity(kind,key,identity_receipt_id) VALUES ('item','kind_contract_item',1),('timer','kind_contract_timer',1)")
+        .execute(&ingest).await.unwrap();
+    let kinds: Vec<String> =
+        sqlx::query_scalar("SELECT DISTINCT kind FROM canon.entity ORDER BY kind")
+            .fetch_all(&owner)
+            .await
+            .unwrap();
+    assert_eq!(kinds, ["ability", "hero", "item", "timer"]);
+    error_code(&ingest, "INSERT INTO canon.entity(kind,key,identity_receipt_id) VALUES ('structure','kind_contract_invalid',1)", "23514").await;
+    let versions: Vec<i32> = sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version")
+        .fetch_all(&owner)
+        .await
+        .unwrap();
+    assert!(versions.contains(&1));
     let current: i64 = sqlx::query_scalar("SELECT count(*) FROM serve.current_fact")
         .fetch_one(&owner)
         .await
