@@ -5,6 +5,7 @@ pub mod compare_artifact;
 mod domain_reader;
 mod entity_derivation_store;
 pub mod entity_profile;
+pub mod gamefacts;
 mod local_pg_reader;
 mod memory_repository;
 mod pg_jobs;
