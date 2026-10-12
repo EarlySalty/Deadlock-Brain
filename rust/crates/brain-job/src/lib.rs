@@ -96,3 +96,5 @@ async fn process(
     counts.sources_completed += 1;
     Ok(())
 }
+
+pub mod assets;
