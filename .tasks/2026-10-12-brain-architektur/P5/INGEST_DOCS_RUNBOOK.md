@@ -28,8 +28,9 @@ When unit installation is actually needed, follow the privileged, independently 
 
 ## Scoped live behavior
 
-- With docs-client or dl-bot authenticated grants, retrieve a known public guide and confirm an immutable public GitHub commit-and-line citation. Confirm a known internal section is absent from result bodies, titles, paths, URLs and counts.
-- Through the existing private second-brain route, use the existing internal grant with empty provider egress. Confirm a known internal section is reachable, provider transport is not used, and publication/provider validation rejects internal evidence. Do not create token files or use a real user account.
+- With each authenticated public grant separately, docs-client/docs.public and dl-bot/bot.public, retrieve a known public guide and confirm an immutable public GitHub commit-and-line citation.
+- Through the existing private second-brain route, use the existing internal grant with empty provider egress. Confirm a known internal section is reachable with a harmless, non-private query; record the successful matching search inputs. Confirm provider transport is not used and publication/provider validation rejects internal evidence. Do not create token files or use a real user account.
+- Repeat those same internally matching search inputs separately under docs-client/docs.public and dl-bot/bot.public. Both negative probes must exclude the known internal section from bodies, titles, paths, URLs and counts. An unrelated public-guide query or a probe with only one public grant is not scope proof. Use authenticated read-only checks without forwarding internal evidence to a provider; do not add an endpoint or widen a grant.
 - Evaluate the exact Baba early-game question against the fetched committed corpus, canonical alias links and live answer. The earlier public-source inspection found no Baba/Yaga guide. A Billy citation is a wiring proof, not Baba acceptance; missing Baba evidence remains an explicit data-coverage gap outside P5.
 - After Brain live acceptance, run the separate Bots gate and release. A real isolated bot session must demonstrate /v1/answer routing, silence for non-answered results, and no request to port 8896 or /v1/retrieve. Static source inspection is not this runtime proof. Keep dl-knowledge switched off.
 
