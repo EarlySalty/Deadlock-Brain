@@ -389,6 +389,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "brain-storage",
+ "html5ever",
+ "scraper",
  "serde",
  "serde_json",
  "sha2 0.10.9",
