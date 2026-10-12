@@ -1,6 +1,9 @@
 use super::*;
 use brain_contracts::{Budget, Principal};
 
+#[path = "pg_asset_tools_postgres_tests.rs"]
+mod postgres;
+
 fn request(name: ToolName, arguments: Value) -> Result<ToolRequest, PortError> {
     ToolCall {
         id: "asset-test".into(),
@@ -117,15 +120,21 @@ fn fact(entity: u64, stat: &str, receipt: u64) -> Value {
 
 #[test]
 fn receipt_completeness_requires_every_displayed_fact_relation_and_identity() {
-    let value = json!({"identity":identity(1),"facts":[fact(1,"item.cost",5)],
-        "links":[{"entity_id":2,"kind":"component_of","citation":"6","patch":null,"source_revision":"assets-a","identity":identity(2)}]});
+    let value = json!({"identity":identity(1),
+        "facts":{"facts":[fact(1,"item.cost",5)],"omitted_count":0,"truncated":false},
+        "links":{"links":[{"entity_id":2,"kind":"component_of","citation":"6","patch":null,"source_revision":"assets-a","identity":identity(2)}],"omitted_count":0,"truncated":false}});
     let bounded = bounded_value(ToolName::GetItem, value.clone())
         .unwrap()
         .unwrap();
     let mut ids = BTreeSet::new();
     citations(&bounded, &mut ids).unwrap();
     assert_eq!(ids, BTreeSet::from([1, 2, 5, 6]));
-    for pointer in ["/identity", "/facts/0", "/links/0", "/links/0/identity"] {
+    for pointer in [
+        "/identity",
+        "/facts/facts/0",
+        "/links/links/0",
+        "/links/links/0/identity",
+    ] {
         for field in ["citation", "patch", "source_revision"] {
             let mut invalid = value.clone();
             invalid
@@ -138,14 +147,90 @@ fn receipt_completeness_requires_every_displayed_fact_relation_and_identity() {
         }
     }
     let mut invalid = value.clone();
-    invalid["facts"][0]["condition"] = Value::Null;
+    invalid["facts"]["facts"][0]["condition"] = Value::Null;
     assert!(bounded_value(ToolName::GetItem, invalid).unwrap().is_none());
     let mut invalid = value.clone();
-    invalid["links"][0] = json!({});
+    invalid["links"]["links"][0] = json!({});
     assert!(bounded_value(ToolName::GetItem, invalid).unwrap().is_none());
     let mut invalid = value;
-    invalid["facts"][0]["patch"] = json!("unconfirmed");
+    invalid["facts"]["facts"][0]["patch"] = json!("unconfirmed");
     assert!(bounded_value(ToolName::GetItem, invalid).unwrap().is_none());
+}
+
+#[test]
+fn wrapped_cards_preserve_receipt_boundaries_and_complete_omission_counts() {
+    let mut first = fact(1, "ability.damage", 5);
+    first["value"] = json!({"citation":"source-value","facts":{"citation":"also-source-data"},"links":[{"citation":"source-link"}]});
+    first["condition"] =
+        json!({"citation":"source-condition","identity":{"citation":"source-identity"}});
+    let link = json!({"entity_id":2,"kind":"has_ability","citation":"6","patch":null,"source_revision":"assets-a","identity":identity(2)});
+    let value = json!({"identity":identity(1),
+        "facts":{"facts":[first.clone()],"omitted_count":7,"truncated":true},
+        "links":{"links":[link.clone(),link.clone()],"omitted_count":3,"truncated":true},
+        "abilities":{"links":[link.clone()],"omitted_count":4,"truncated":true}});
+    for name in [ToolName::GetItem, ToolName::GetAbility] {
+        let bounded = bounded_value(name, value.clone()).unwrap().unwrap();
+        assert_eq!(bounded, value);
+        let mut ids = BTreeSet::new();
+        citations(&bounded, &mut ids).unwrap();
+        assert_eq!(ids, BTreeSet::from([1, 2, 5, 6]));
+    }
+    for (pointer, replacement) in [
+        ("/facts", json!([])),
+        ("/facts/facts", json!({})),
+        ("/facts/omitted_count", json!(-1)),
+        ("/facts/omitted_count", json!(u64::MAX)),
+        ("/facts/truncated", json!(false)),
+        ("/facts/facts/0", json!({})),
+        ("/links/links/0/identity", json!({})),
+        ("/links/omitted_count", Value::Null),
+        ("/abilities/links", Value::Null),
+    ] {
+        let mut malformed = value.clone();
+        *malformed.pointer_mut(pointer).unwrap() = replacement;
+        assert!(bounded_value(ToolName::GetAbility, malformed)
+            .unwrap()
+            .is_none());
+    }
+    let mut trimmed = value.clone();
+    assert!(trim_card(&mut trimmed));
+    assert_eq!(trimmed["abilities"]["omitted_count"], 5);
+    assert!(trim_card(&mut trimmed));
+    assert_eq!(trimmed["facts"]["omitted_count"], 8);
+    assert!(trim_card(&mut trimmed));
+    assert_eq!(trimmed["links"]["omitted_count"], 4);
+    assert_eq!(trimmed["links"]["links"], json!([link]));
+    assert_eq!(trimmed["identity"], value["identity"]);
+    let original = (0..12)
+        .map(|n| {
+            let mut row = fact(1, &format!("ability.value_{n}"), n + 10);
+            row["value"] = json!("x".repeat(2500));
+            row
+        })
+        .collect::<Vec<_>>();
+    let oversized = json!({"identity":identity(1),
+        "facts":{"facts":original,"omitted_count":7,"truncated":true},
+        "links":{"links":[],"omitted_count":3,"truncated":true}});
+    let bounded = bounded_value(ToolName::GetAbility, oversized)
+        .unwrap()
+        .unwrap();
+    let rows = bounded["facts"]["facts"].as_array().unwrap();
+    assert!(!rows.is_empty() && rows.len() < 12);
+    assert!(rows.iter().all(|row| original.contains(row)));
+    assert_eq!(bounded["facts"]["omitted_count"], 7 + 12 - rows.len());
+    assert_eq!(bounded["links"]["omitted_count"], 3);
+    assert_eq!(bounded["identity"], identity(1));
+    let mut ids = BTreeSet::new();
+    citations(&bounded, &mut ids).unwrap();
+    let result = ToolResult {
+        call_id: "\"".repeat(512),
+        name: ToolName::GetAbility,
+        result: bounded,
+        evidence_ids: ids.iter().map(ToString::to_string).collect(),
+        is_error: false,
+    };
+    assert!(serde_json::to_vec(&result).unwrap().len() <= MAX_BYTES);
+    assert!(fits(&result, ids.len()).unwrap());
 }
 
 #[test]
@@ -269,6 +354,17 @@ impl ToolExecutionPort for NoLegacy {
         _: &ToolRequest,
     ) -> Result<ToolExecution, PortError> {
         panic!("P2 tools must not delegate to legacy tools")
+    }
+    fn validate_dependencies(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        _: Option<&PinnedGameContext>,
+        dependencies: &[ToolEvidenceDependency],
+        _: ToolValidationPurpose,
+    ) -> Result<(), PortError> {
+        assert!(dependencies.is_empty());
+        Ok(())
     }
 }
 

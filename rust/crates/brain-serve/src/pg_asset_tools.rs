@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 const ITEM: &str = "SELECT card FROM serve.item_card WHERE entity_id=$1 LIMIT 1";
 const ABILITY: &str = "SELECT card FROM serve.ability_card WHERE entity_id=$1 LIMIT 1";
-const SLOT: &str = "SELECT DISTINCT r.to_entity_id FROM serve.current_relation r
+const SLOT: &str = "SELECT DISTINCT r.to_entity_id FROM serve.selected_relation_p2 r
     JOIN canon.entity h ON h.id=r.from_entity_id AND h.kind='hero'
     JOIN canon.entity a ON a.id=r.to_entity_id AND a.kind='ability'
     JOIN canon.receipt p ON p.id=h.identity_receipt_id
@@ -17,7 +17,7 @@ const SLOT_LINKS: &str = "SELECT jsonb_build_object('entity_id',r.to_entity_id,
     'citation',r.receipt_id::text,'patch',NULL,'source_revision',r.source_revision,
     'identity',jsonb_build_object('entity_id',h.id,'key',h.key,'citation',p.id::text,
         'patch',NULL,'source_revision',v.source_revision)) AS link, count(*) OVER () AS total
-    FROM serve.current_relation r JOIN canon.entity h ON h.id=r.from_entity_id AND h.kind='hero'
+    FROM serve.selected_relation_p2 r JOIN canon.entity h ON h.id=r.from_entity_id AND h.kind='hero'
     JOIN canon.receipt p ON p.id=h.identity_receipt_id JOIN canon.revision v ON v.id=p.revision_id
     JOIN canon.source_head s ON s.source_id=p.source_id AND s.published_revision_id>=p.revision_id
     WHERE r.from_entity_id=$1 AND r.slot=$2 AND r.kind='has_ability' AND r.to_entity_id=$3
@@ -263,50 +263,64 @@ async fn comparison(
     Ok(Some(value))
 }
 
-fn validate_receipts(value: &Value) -> Result<(), PortError> {
-    match value {
-        Value::Object(object) => {
-            if object.contains_key("entity_id")
-                || object.contains_key("stat_key")
-                || object.contains_key("citation")
+fn validate_receipted_row(value: &Value) -> Result<(), PortError> {
+    let object = value.as_object().ok_or_else(invalid)?;
+    if !object.contains_key("citation")
+        || !object
+            .get("entity_id")
+            .and_then(Value::as_i64)
+            .is_some_and(|id| id > 0)
+    {
+        return Err(invalid());
+    }
+    let mut ids = BTreeSet::new();
+    citations(value, &mut ids)?;
+    Ok(())
+}
+
+fn validate_section(value: &Value, key: &str) -> Result<(), PortError> {
+    let rows = value
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(invalid)?;
+    let omitted = value["omitted_count"].as_u64().ok_or_else(invalid)?;
+    if omitted.checked_add(rows.len() as u64).is_none()
+        || value["truncated"].as_bool() != Some(omitted > 0)
+    {
+        return Err(invalid());
+    }
+    for row in rows {
+        validate_receipted_row(row)?;
+        if key == "facts" {
+            if !row
+                .get("stat_key")
+                .and_then(Value::as_str)
+                .is_some_and(|key| !key.is_empty())
+                || row.get("value").is_none()
             {
-                if !object.contains_key("citation") {
-                    return Err(invalid());
-                }
-                let mut ids = BTreeSet::new();
-                citations(value, &mut ids)?;
-                if object.contains_key("stat_key") && !object.contains_key("value") {
-                    return Err(invalid());
-                }
+                return Err(invalid());
             }
-            for key in [
-                "identity",
-                "facts",
-                "links",
-                "entities",
-                "stats",
-                "abilities",
-            ] {
-                if let Some(field) = object.get(key) {
-                    if key == "identity" && field.get("citation").is_none() {
-                        return Err(invalid());
-                    }
-                    if matches!(key, "facts" | "links" | "entities") {
-                        let rows = field.as_array().ok_or_else(invalid)?;
-                        if rows.iter().any(|row| row.get("citation").is_none()) {
-                            return Err(invalid());
-                        }
-                    }
-                    validate_receipts(field)?;
-                }
-            }
+        } else {
+            validate_receipted_row(&row["identity"])?;
         }
-        Value::Array(rows) => {
-            for row in rows {
-                validate_receipts(row)?;
-            }
+    }
+    Ok(())
+}
+
+fn validate_receipts(name: ToolName, value: &Value) -> Result<(), PortError> {
+    if name == ToolName::Compare {
+        let entities = value["entities"].as_array().ok_or_else(invalid)?;
+        for entity in entities {
+            validate_receipted_row(entity)?;
         }
-        _ => return Err(invalid()),
+        validate_section(&value["stats"], "facts")?;
+    } else {
+        validate_receipted_row(&value["identity"])?;
+        validate_section(&value["facts"], "facts")?;
+        validate_section(&value["links"], "links")?;
+        if let Some(abilities) = value.get("abilities") {
+            validate_section(abilities, "links")?;
+        }
     }
     Ok(())
 }
@@ -348,14 +362,11 @@ fn update_cells(value: &mut Value) -> Result<(), PortError> {
 }
 
 fn trim_card(value: &mut Value) -> bool {
-    if let Some(identity) = value.get_mut("identity") {
-        if trim_card(identity) {
-            return true;
-        }
-    }
-    if let Some(abilities) = value.get_mut("abilities") {
-        if trim_card(abilities) {
-            return true;
+    for key in ["abilities", "facts", "links"] {
+        if let Some(section) = value.get_mut(key).filter(|field| field.is_object()) {
+            if trim_card(section) {
+                return true;
+            }
         }
     }
     for key in ["facts", "links"] {
@@ -372,7 +383,7 @@ fn trim_card(value: &mut Value) -> bool {
 }
 
 fn bounded_value(name: ToolName, mut value: Value) -> Result<Option<Value>, PortError> {
-    if validate_receipts(&value).is_err() {
+    if validate_receipts(name, &value).is_err() {
         return Ok(None);
     }
     if name == ToolName::Compare {
