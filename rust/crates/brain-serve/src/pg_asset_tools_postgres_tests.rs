@@ -1,7 +1,5 @@
+use super::super::super::tests::ScratchPg;
 use super::*;
-
-#[path = "../../brain-storage/tests/support/scratch_pg.rs"]
-mod scratch_pg;
 
 const SEED: &str = "BEGIN;
     INSERT INTO ops.job_run(job,extractor,extractor_version) VALUES ('fixture','brain-gamefiles','v1');
@@ -42,7 +40,7 @@ const SEED: &str = "BEGIN;
 
 #[test]
 fn real_p2_ability_cards_use_selected_slots_and_published_receipts() {
-    let pg = scratch_pg::ScratchPg::start();
+    let pg = ScratchPg::start();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

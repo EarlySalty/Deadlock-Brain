@@ -337,8 +337,7 @@ impl<T: ToolExecutionPort> ToolExecutionPort for PgTools<T> {
 }
 
 pub(super) fn canonical(name: ToolName) -> bool {
-    matches!(name, ToolName::FindEntity | ToolName::GetHero)
-        || pg_asset_tools::canonical(name)
+    matches!(name, ToolName::FindEntity | ToolName::GetHero) || pg_asset_tools::canonical(name)
 }
 
 fn normalize(text: &str) -> String {

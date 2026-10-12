@@ -9,13 +9,13 @@ use brain_contracts::{
 use brain_kernel::{AnswerKernelPort, CachedKernel, GameContextResolver, Kernel};
 use std::sync::{Arc, Mutex};
 
-struct ScratchPg {
-    directory: std::path::PathBuf,
+pub(super) struct ScratchPg {
+    pub(super) directory: std::path::PathBuf,
     _root: tempfile::TempDir,
 }
 
 impl ScratchPg {
-    fn start() -> Self {
+    pub(super) fn start() -> Self {
         let root = tempfile::Builder::new()
             .prefix("brain-p1-tools-")
             .tempdir()

@@ -1004,8 +1004,12 @@ impl ToolExecution {
         }
         let expected_game = if matches!(
             request.name(),
-            ToolName::ServerKnowledge | ToolName::FindEntity | ToolName::GetHero
-                | ToolName::GetItem | ToolName::GetAbility | ToolName::Compare
+            ToolName::ServerKnowledge
+                | ToolName::FindEntity
+                | ToolName::GetHero
+                | ToolName::GetItem
+                | ToolName::GetAbility
+                | ToolName::Compare
         ) {
             None
         } else {
