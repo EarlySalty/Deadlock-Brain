@@ -1,0 +1,39 @@
+[Unit]
+Description=Deadlock Brain Antwortdienst
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/deadlock-brain/current
+LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
+ExecStart=/opt/deadlock-brain/current/bin/brain-serve --config %h/.config/deadlock-brain/brain-serve.json --infisical-config /etc/deadlock-brain/infisical-serve.json
+ExecStartPost=/usr/bin/test /run/user/1000/credentials/brain-serve.service/infisical-token = ${CREDENTIALS_DIRECTORY}/infisical-token
+ExecStartPost=/usr/bin/test -f ${CREDENTIALS_DIRECTORY}/infisical-token
+ExecStartPost=/usr/bin/printf "P0 credential_path=%%s exists=true\\n" ${CREDENTIALS_DIRECTORY}/infisical-token
+MemoryAccounting=yes
+MemoryMax=512M
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=600
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+PrivateUsers=no
+PrivateTmp=no
+PrivateDevices=no
+ProtectSystem=no
+ProtectHome=no
+ProtectKernelTunables=no
+ProtectControlGroups=no
+ProtectProc=default
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

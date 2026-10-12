@@ -1,0 +1,15 @@
+[Unit]
+Description=Deadlock Build-Korpus Site (/brain, loopback 8087)
+After=network.target
+
+[Service]
+Type=simple
+LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
+ExecStart=/opt/deadlock-brain/current/bin/deadlock-brain site --corpus-root /home/naniadm/Documents/deadlock-build-corpus --pg-config /home/nathanael/.config/deadlock-brain/site-peer.json --serve-config /home/nathanael/.config/deadlock-brain/brain-serve.json
+MemoryAccounting=yes
+MemoryMax=256M
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
