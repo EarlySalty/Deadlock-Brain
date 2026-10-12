@@ -5,11 +5,13 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+Slice=system.slice
 User=nathanael
 Group=nathanael
 WorkingDirectory=/opt/deadlock-brain/current
 LoadCredential=infisical-token:/home/nathanael/.config/infisical-tokens/infisical-token-bots
 ExecStart=/opt/deadlock-brain/current/bin/brain-job --config /etc/deadlock-brain/brain-job.json audit-receipts
+ExecStartPost=/usr/bin/cat /sys/fs/cgroup/memory/system.slice/brain-job@audit-receipts.service/memory.limit_in_bytes /sys/fs/cgroup/memory/system.slice/brain-job@audit-receipts.service/memory.max_usage_in_bytes
 TimeoutStartSec=115s
 TimeoutStopSec=5s
 Restart=no
