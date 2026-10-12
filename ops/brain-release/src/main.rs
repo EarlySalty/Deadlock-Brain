@@ -1,5 +1,6 @@
 mod build;
 mod fs_safe;
+mod gamefacts;
 mod install;
 mod source;
 
@@ -127,7 +128,7 @@ fn main_result() -> Result<()> {
             let installer = install::Installer::open(Path::new(install::ROOT), 0)?;
             let manifest = operator_verify(source, bundle)?;
             installer.stage(bundle, &manifest)?;
-            installer.activate_checked(&manifest.source.sha, || {
+            gamefacts::activate(&installer, &manifest, || {
                 ensure!(operator_verify(source, bundle)? == manifest, "Herkunft unmittelbar vor Zeigerwechsel verändert");
                 Ok(())
             })?;
