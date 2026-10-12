@@ -1,3 +1,4 @@
+use brain_contracts::{ToolName, ToolResult};
 use brain_storage::PgStore;
 use serde_json::{json, Value};
 use sqlx::{postgres::PgPoolOptions, PgPool};
@@ -9,7 +10,12 @@ struct Scratch {
 
 impl Scratch {
     fn new() -> Self {
-        let root = PathBuf::from(format!("/tmp/brain-assets-schema.{}", std::process::id()));
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = PathBuf::from(format!(
+            "/tmp/brain-assets-schema.{}.{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         std::fs::create_dir(&root).unwrap();
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::create_dir(root.join("socket")).unwrap();
@@ -297,7 +303,7 @@ async fn bounded_cards(owner: &PgPool, ingest: &PgPool) {
         .await
         .unwrap();
     let returned = card["facts"]["facts"].as_array().unwrap().len();
-    assert!(returned > 0 && returned < 12);
+    assert!(returned > 0 && returned < 30);
     assert_eq!(card["facts"]["omitted_count"], 30 - returned);
     assert_eq!(card["facts"]["truncated"], true);
     assert!(serde_json::to_vec(&card).unwrap().len() < 16 * 1024);
@@ -476,4 +482,333 @@ async fn p1_upgrade_priority_receipts_bounds_and_roles_on_real_postgres() {
     ingest.close().await;
     owner.close().await;
     admin.close().await;
+}
+
+async fn public_fixture_database(scratch: &Scratch, simulate_item_kind: bool) -> PgPool {
+    let admin = scratch.pool("postgres", "brain_test_dba").await;
+    sqlx::raw_sql("CREATE ROLE brain_migrate LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+        CREATE ROLE brain_ingest LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+        CREATE ROLE brain_service LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+        CREATE ROLE brain_tool NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS")
+        .execute(&admin).await.unwrap();
+    sqlx::query("CREATE DATABASE brain_public OWNER brain_migrate")
+        .execute(&admin)
+        .await
+        .unwrap();
+    admin.close().await;
+    let owner = scratch.pool("brain_public", "brain_migrate").await;
+    sqlx::raw_sql(P1).execute(&owner).await.unwrap();
+    if simulate_item_kind {
+        sqlx::raw_sql(
+            "ALTER TABLE canon.entity DROP CONSTRAINT entity_kind_check,
+            ADD CONSTRAINT entity_kind_check CHECK(kind IN ('hero','ability','item'))",
+        )
+        .execute(&owner)
+        .await
+        .unwrap();
+        println!("ITEM_KIND_SIMULATION_ONLY: this isolated fixture is not integrated P1 proof");
+    }
+    sqlx::raw_sql(P2).execute(&owner).await.unwrap();
+    sqlx::raw_sql("BEGIN;
+        INSERT INTO ops.job_run(job,extractor,extractor_version) VALUES ('ingest-assets','brain-assets','v1');
+        INSERT INTO raw.source(kind,locator) VALUES ('assets','public-fixture://client6774');
+        INSERT INTO raw.run(source_id,job_run_id,target_revision,extractor,extractor_version)
+            VALUES (1,1,'31c96630cba83b9fdbbedf62bb76a70cc3334667f05d2694c58d1d73791fe596','brain-assets','v1');
+        INSERT INTO raw.object(source_id,external_id,revision,content_sha256,media_type,body)
+            VALUES (1,'items-english.json','31c96630cba83b9fdbbedf62bb76a70cc3334667f05d2694c58d1d73791fe596',decode(repeat('01',32),'hex'),'application/json','projection fixture, not lexical receipt audit'),
+                (1,'heroes-english.json','31c96630cba83b9fdbbedf62bb76a70cc3334667f05d2694c58d1d73791fe596',decode(repeat('03',32),'hex'),'application/json','projection fixture, not lexical receipt audit');
+        INSERT INTO raw.run_object(run_id,path,object_id,action,parse_status)
+            VALUES (1,'items-english.json',1,'upsert','succeeded'), (1,'heroes-english.json',2,'upsert','succeeded');
+        INSERT INTO canon.revision(source_id,raw_run_id,source_revision,extractor,extractor_version)
+            VALUES (1,1,'31c96630cba83b9fdbbedf62bb76a70cc3334667f05d2694c58d1d73791fe596','brain-assets','v1');
+        SELECT setval('canon.receipt_id_seq',100000,false);
+        SELECT setval('canon.entity_id_seq',1000,false); COMMIT")
+        .execute(&owner).await.unwrap();
+    owner
+}
+
+fn public_records() -> Vec<Value> {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/public_assets_card_6774.json")).unwrap();
+    assert_eq!(fixture["client_version"], 6774);
+    let records = fixture["records"].as_array().unwrap().clone();
+    for record in &records {
+        let prefix = format!("/{}", record["source_position"].as_u64().unwrap());
+        assert_eq!(record["key"], record["source_record"]["class_name"]);
+        for fact in record["facts"].as_array().unwrap() {
+            let pointer = fact["locator"]
+                .as_str()
+                .unwrap()
+                .strip_prefix(&prefix)
+                .unwrap();
+            assert_eq!(
+                record["source_record"].pointer(pointer).unwrap(),
+                &fact["value"]
+            );
+            for (key, locator) in fact["condition"].as_object().unwrap() {
+                if let Some(qualifier) = key.strip_suffix("_locator") {
+                    let pointer = locator.as_str().unwrap().strip_prefix(&prefix).unwrap();
+                    let value = record["source_record"].pointer(pointer).unwrap();
+                    let expected = value
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| value.to_string());
+                    assert_eq!(fact["condition"][qualifier], expected);
+                }
+            }
+            if let Some(tier) = fact["condition"].get("upgrade_tier") {
+                let parent = pointer.strip_suffix("/bonus").unwrap();
+                let property = record["source_record"]
+                    .pointer(&format!("{parent}/name"))
+                    .unwrap();
+                assert_eq!(
+                    fact["stat"],
+                    format!("ability.{}", property.as_str().unwrap())
+                );
+                assert_eq!(
+                    pointer.split('/').nth(2).unwrap().parse::<u64>().unwrap() + 1,
+                    tier.as_u64().unwrap()
+                );
+            }
+        }
+    }
+    records
+}
+
+async fn insert_public_record(owner: &PgPool, record: &Value) -> i64 {
+    let mut tx = owner.begin().await.unwrap();
+    let mut receipts = Vec::new();
+    for fact in record["facts"].as_array().unwrap() {
+        let receipt: i64 = sqlx::query_scalar("INSERT INTO canon.receipt(raw_object_id,source_id,revision_id,locator_kind,locator,value_sha256,extractor,extractor_version)
+            VALUES (1,1,1,'json_pointer',$1,decode(repeat('02',32),'hex'),'brain-assets','v1') RETURNING id")
+            .bind(fact["locator"].as_str().unwrap()).fetch_one(&mut *tx).await.unwrap();
+        receipts.push(receipt);
+    }
+    let identity_index = record["facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|f| f["stat"] == "identity.key")
+        .unwrap();
+    let entity: i64 = sqlx::query_scalar(
+        "INSERT INTO canon.entity(kind,key,identity_receipt_id) VALUES ($1,$2,$3) RETURNING id",
+    )
+    .bind(record["kind"].as_str().unwrap())
+    .bind(record["key"].as_str().unwrap())
+    .bind(receipts[identity_index])
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    for (fact, receipt) in record["facts"].as_array().unwrap().iter().zip(receipts) {
+        let numeric = fact["numeric"].as_bool().unwrap();
+        sqlx::query(
+            "INSERT INTO canon.stat(key,section,unit,value_type,display_order)
+            VALUES ($1,$2,$3,$4,$5) ON CONFLICT(key) DO NOTHING",
+        )
+        .bind(fact["stat"].as_str().unwrap())
+        .bind(fact["section"].as_str().unwrap())
+        .bind(fact["unit"].as_str())
+        .bind(if numeric { "number" } else { "text" })
+        .bind(fact["order"].as_i64().unwrap() as i32)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        let value = fact["value"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| fact["value"].to_string());
+        sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,source_id,source_path,condition,value_num,value_text,receipt_id,valid_from_revision_id)
+            VALUES ($1,$2,1,'items-english.json',$3,$4::text::numeric,$5,$6,1)")
+            .bind(entity).bind(fact["stat"].as_str().unwrap()).bind(&fact["condition"])
+            .bind(numeric.then_some(value.clone())).bind((!numeric).then_some(value))
+            .bind(receipt).execute(&mut *tx).await.unwrap();
+    }
+    tx.commit().await.unwrap();
+    entity
+}
+
+async fn insert_public_hero_link(owner: &PgPool, record: &Value, ability: i64) {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/public_assets_card_6774.json")).unwrap();
+    let link = fixture["hero_links"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|link| link["ability"] == record["key"])
+        .unwrap();
+    let mut tx = owner.begin().await.unwrap();
+    let mut receipts = Vec::new();
+    for locator in ["identity_locator", "locator"] {
+        let receipt: i64 = sqlx::query_scalar("INSERT INTO canon.receipt(raw_object_id,source_id,revision_id,locator_kind,locator,value_sha256,extractor,extractor_version)
+            VALUES (2,1,1,'json_pointer',$1,decode(repeat('04',32),'hex'),'brain-assets','v1') RETURNING id")
+            .bind(link[locator].as_str().unwrap()).fetch_one(&mut *tx).await.unwrap();
+        receipts.push(receipt);
+    }
+    let hero: i64 = sqlx::query_scalar(
+        "INSERT INTO canon.entity(kind,key,identity_receipt_id) VALUES ('hero',$1,$2) RETURNING id",
+    )
+    .bind(link["key"].as_str().unwrap())
+    .bind(receipts[0])
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO canon.relation(from_entity_id,kind,to_entity_id,slot,receipt_id,source_id,source_path,valid_from_revision_id)
+        VALUES ($1,'has_ability',$2,$3,$4,1,'heroes-english.json',1)")
+        .bind(hero).bind(ability).bind(link["slot"].as_i64().unwrap() as i16).bind(receipts[1])
+        .execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+}
+
+fn essential_public_fact(fact: &Value) -> bool {
+    let stat = fact["stat"].as_str().unwrap();
+    stat == "item.cost"
+        || stat.contains(".description_")
+        || fact["condition"].get("upgrade_tier").is_some()
+        || (fact["section"] != "identity"
+            && (!fact["numeric"].as_bool().unwrap()
+                || fact["value"]
+                    .as_f64()
+                    .unwrap_or_else(|| fact["value"].as_str().unwrap().parse::<f64>().unwrap())
+                    != 0.0))
+}
+
+async fn assert_public_card(owner: &PgPool, record: &Value, entity: i64) {
+    let card: Value = sqlx::query_scalar("SELECT card FROM serve.asset_card_p2 WHERE entity_id=$1")
+        .bind(entity)
+        .fetch_one(owner)
+        .await
+        .unwrap();
+    let stored: Value = sqlx::query_scalar("SELECT card FROM serve.item_card WHERE entity_id=$1 UNION ALL SELECT card FROM serve.ability_card WHERE entity_id=$1")
+        .bind(entity).fetch_one(owner).await.unwrap();
+    assert_eq!(card, stored);
+    let rows = card["facts"]["facts"].as_array().unwrap();
+    let mut evidence = std::collections::BTreeSet::new();
+    evidence.insert(card["identity"]["citation"].as_str().unwrap().to_owned());
+    for fact in record["facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| essential_public_fact(f))
+    {
+        let returned = rows
+            .iter()
+            .find(|row| row["stat_key"] == fact["stat"] && row["condition"] == fact["condition"])
+            .unwrap_or_else(|| {
+                panic!(
+                    "essential fact lost: {} {} {}",
+                    record["key"], fact["stat"], fact["condition"]
+                )
+            });
+        if fact["numeric"] == true {
+            let expected = fact["value"]
+                .as_f64()
+                .unwrap_or_else(|| fact["value"].as_str().unwrap().parse().unwrap());
+            assert_eq!(returned["value"].as_f64().unwrap(), expected);
+        } else {
+            assert_eq!(returned["value"], fact["value"]);
+        }
+        assert_eq!(
+            returned["source_revision"],
+            "31c96630cba83b9fdbbedf62bb76a70cc3334667f05d2694c58d1d73791fe596"
+        );
+        assert!(returned["patch"].is_null());
+        let citation: i64 = returned["citation"].as_str().unwrap().parse().unwrap();
+        let locator: String = sqlx::query_scalar("SELECT locator FROM canon.receipt WHERE id=$1")
+            .bind(citation)
+            .fetch_one(owner)
+            .await
+            .unwrap();
+        assert_eq!(locator, fact["locator"].as_str().unwrap());
+    }
+    for row in rows {
+        evidence.insert(row["citation"].as_str().unwrap().to_owned());
+    }
+    let links = card["links"]["links"].as_array().unwrap();
+    assert_eq!(links.len(), usize::from(record["kind"] == "ability"));
+    for link in links {
+        evidence.insert(link["citation"].as_str().unwrap().to_owned());
+        evidence.insert(link["identity"]["citation"].as_str().unwrap().to_owned());
+        assert!(link["patch"].is_null());
+        assert_eq!(
+            link["source_revision"],
+            "31c96630cba83b9fdbbedf62bb76a70cc3334667f05d2694c58d1d73791fe596"
+        );
+    }
+    let mapped = record["facts"].as_array().unwrap().len();
+    assert_eq!(card["facts"]["omitted_count"], mapped - rows.len());
+    assert_eq!(card["facts"]["truncated"], mapped > rows.len());
+    assert!(rows.len() > 12);
+    let pg_bytes: i32 = sqlx::query_scalar(
+        "SELECT octet_length(card::text) FROM serve.asset_card_p2 WHERE entity_id=$1",
+    )
+    .bind(entity)
+    .fetch_one(owner)
+    .await
+    .unwrap();
+    assert!(pg_bytes <= 15000);
+    let returned_count = rows.len();
+    let result = ToolResult {
+        call_id: "\"".repeat(512),
+        name: ToolName::DamageCalculate,
+        result: json!({"card": card}),
+        evidence_ids: evidence.into_iter().collect(),
+        is_error: false,
+    };
+    let envelope_bytes = serde_json::to_vec(&result).unwrap().len();
+    assert!(envelope_bytes <= 16 * 1024);
+    println!("PUBLIC_CARD_PROJECTION: key={} mapped={mapped} returned={returned_count} pg_bytes={pg_bytes} ToolResult_bytes={envelope_bytes}; synthetic receipts, no ingestion or lexical hash audit, conservative existing tool name", record["key"]);
+}
+
+async fn publish_public_fixture(owner: &PgPool) {
+    sqlx::raw_sql(
+        "BEGIN; UPDATE raw.run SET status='succeeded' WHERE id=1;
+        INSERT INTO canon.source_head(source_id,published_revision_id) VALUES (1,1);
+        UPDATE raw.source SET last_complete_revision='31c96630cba83b9fdbbedf62bb76a70cc3334667f05d2694c58d1d73791fe596' WHERE id=1; COMMIT",
+    )
+    .execute(owner)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn public_ability_values_descriptions_and_all_upgrade_tiers_survive_real_projection() {
+    let scratch = Scratch::new();
+    let owner = public_fixture_database(&scratch, false).await;
+    let mut inserted = Vec::new();
+    for record in public_records()
+        .into_iter()
+        .filter(|r| r["kind"] == "ability")
+    {
+        let entity = insert_public_record(&owner, &record).await;
+        insert_public_hero_link(&owner, &record, entity).await;
+        inserted.push((record, entity));
+    }
+    publish_public_fixture(&owner).await;
+    for (record, entity) in inserted {
+        assert_public_card(&owner, &record, entity).await;
+    }
+    owner.close().await;
+}
+
+#[tokio::test]
+async fn public_item_cost_and_effects_survive_explicit_test_only_kind_simulation() {
+    let scratch = Scratch::new();
+    let owner = public_fixture_database(&scratch, true).await;
+    let record = public_records()
+        .into_iter()
+        .find(|r| r["key"] == "upgrade_toxic_bullets")
+        .unwrap();
+    assert_eq!(record["source_record"]["cost"], 3200);
+    assert_eq!(
+        record["source_record"]["properties"]["DotHealthPercent"]["value"],
+        "1.9"
+    );
+    assert_eq!(
+        record["source_record"]["properties"]["HealAmpReceivePenaltyPercent"]["value"],
+        "-35"
+    );
+    let entity = insert_public_record(&owner, &record).await;
+    publish_public_fixture(&owner).await;
+    assert_public_card(&owner, &record, entity).await;
+    owner.close().await;
 }

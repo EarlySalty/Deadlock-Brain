@@ -103,8 +103,7 @@ ORDER BY r.from_entity_id, r.kind, r.slot,
 
 CREATE VIEW serve.asset_card_p2 AS
 SELECT e.id AS entity_id, e.key, e.kind, jsonb_build_object(
-    'identity', jsonb_build_object('entity_id', e.id, 'kind', e.kind, 'key', e.key, 'status', e.status,
-        'citation', proof.id::text, 'patch', NULL, 'source_revision', identity_revision.source_revision, 'condition', '{}'::jsonb),
+    'identity', identity.payload,
     'facts', jsonb_build_object('facts', facts.rows, 'omitted_count', facts.omitted_count, 'truncated', facts.omitted_count > 0),
     'links', jsonb_build_object('links', links.rows, 'omitted_count', links.omitted_count, 'truncated', links.omitted_count > 0)
 ) AS card
@@ -112,20 +111,10 @@ FROM canon.entity e JOIN canon.receipt proof ON proof.id = e.identity_receipt_id
 JOIN canon.revision identity_revision ON identity_revision.id = proof.revision_id
 JOIN canon.source_head identity_head ON identity_head.source_id = proof.source_id AND identity_head.published_revision_id >= proof.revision_id
 CROSS JOIN LATERAL (
-    SELECT coalesce(jsonb_agg(payload ORDER BY ordinal) FILTER (WHERE ordinal <= 12 AND bytes <= 8000), '[]') AS rows,
-        count(*) - count(*) FILTER (WHERE ordinal <= 12 AND bytes <= 8000) AS omitted_count
-    FROM (
-        SELECT payload, row_number() OVER ordering AS ordinal,
-            sum(octet_length(payload::text) + 2) OVER ordering AS bytes
-        FROM (
-            SELECT f.display_order, f.stat_key, f.condition, f.id,
-                serve.atomic_fact(f.entity_id, f.stat_key, f.value_num, f.value_text, f.value_json,
-                    f.unit, f.condition, f.receipt_id, f.source_revision) AS payload
-            FROM serve.selected_fact_p2 f WHERE f.entity_id = e.id
-        ) assertions
-        WINDOW ordering AS (ORDER BY display_order, stat_key, condition, id ROWS UNBOUNDED PRECEDING)
-    ) bounded
-) facts
+    SELECT jsonb_build_object('entity_id', e.id, 'kind', e.kind, 'key', e.key, 'status', e.status,
+        'citation', proof.id::text, 'patch', NULL, 'source_revision', identity_revision.source_revision,
+        'condition', '{}'::jsonb) AS payload
+) identity
 CROSS JOIN LATERAL (
     SELECT coalesce(jsonb_agg(payload ORDER BY ordinal) FILTER (WHERE ordinal <= 8 AND bytes <= 3500), '[]') AS rows,
         count(*) - count(*) FILTER (WHERE ordinal <= 8 AND bytes <= 3500) AS omitted_count
@@ -149,6 +138,45 @@ CROSS JOIN LATERAL (
         WINDOW ordering AS (ORDER BY kind, slot, from_entity_id, to_entity_id, id ROWS UNBOUNDED PRECEDING)
     ) bounded
 ) links
+CROSS JOIN LATERAL (
+    SELECT jsonb_build_object(
+        'identity', identity.payload,
+        'facts', jsonb_build_object('facts', '[]'::jsonb, 'omitted_count', 9223372036854775807::bigint, 'truncated', false),
+        'links', jsonb_build_object('links', links.rows, 'omitted_count', links.omitted_count, 'truncated', links.omitted_count > 0)
+    ) AS card,
+    jsonb_build_array(proof.id::text) || coalesce((
+        SELECT jsonb_agg(citation) FROM jsonb_array_elements(links.rows) link
+        CROSS JOIN LATERAL (VALUES (link -> 'citation'), (link -> 'identity' -> 'citation')) ids(citation)
+    ), '[]'::jsonb) AS evidence_ids
+) shell
+CROSS JOIN LATERAL (
+    SELECT least(14000, 15000 - octet_length(shell.card::text)) AS fact_bytes,
+        16384 - octet_length(jsonb_build_object('call_id', repeat('"', 512), 'name', 'damage_calculate',
+            'result', jsonb_build_object('card', shell.card), 'evidence_ids', shell.evidence_ids, 'is_error', false)::text) AS envelope_bytes
+) budget
+CROSS JOIN LATERAL (
+    SELECT coalesce(jsonb_agg(payload ORDER BY ordinal) FILTER (WHERE bytes <= budget.fact_bytes AND envelope_bytes <= budget.envelope_bytes), '[]') AS rows,
+        count(*) - count(*) FILTER (WHERE bytes <= budget.fact_bytes AND envelope_bytes <= budget.envelope_bytes) AS omitted_count
+    FROM (
+        SELECT payload, row_number() OVER ordering AS ordinal,
+            sum(octet_length(payload::text) + 2) OVER ordering AS bytes,
+            sum(octet_length(payload::text) + octet_length(to_jsonb(citation)::text) + 4) OVER ordering AS envelope_bytes
+        FROM (
+            SELECT f.display_order, f.stat_key, f.condition, f.id, f.receipt_id::text AS citation,
+                CASE WHEN f.stat_key = 'item.cost' THEN 0
+                    WHEN starts_with(f.stat_key, e.kind || '.description_') THEN 1
+                    WHEN f.condition ? 'upgrade_tier' THEN 2
+                    WHEN f.section <> 'identity' AND (f.value_num IS NULL OR f.value_num <> 0) THEN 3
+                    WHEN f.stat_key IN ('identity.name', 'name', 'name_en', 'name_de') THEN 4
+                    WHEN f.section <> 'identity' THEN 5
+                    ELSE 6 END AS priority,
+                serve.atomic_fact(f.entity_id, f.stat_key, f.value_num, f.value_text, f.value_json,
+                    f.unit, f.condition, f.receipt_id, f.source_revision) AS payload
+            FROM serve.selected_fact_p2 f WHERE f.entity_id = e.id
+        ) assertions
+        WINDOW ordering AS (ORDER BY priority, display_order, stat_key, condition, id ROWS UNBOUNDED PRECEDING)
+    ) bounded
+) facts
 WHERE e.kind IN ('ability', 'item');
 
 CREATE MATERIALIZED VIEW serve.item_card AS SELECT entity_id, key, card FROM serve.asset_card_p2 WHERE kind = 'item';
