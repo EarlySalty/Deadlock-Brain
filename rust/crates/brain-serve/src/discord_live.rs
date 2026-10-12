@@ -1688,7 +1688,19 @@ mod tests {
             adapter.pricing = Some(price);
             let (items, usage) = adapter.retrieve_with_usage(&query, &context).unwrap();
             assert_eq!(usage.network_rounds, 1);
-            assert!(grounded_input_ceiling(&query, &items) <= 8672);
+            let input_ceiling = grounded_input_ceiling(&query, &items);
+            println!(
+                "{}",
+                json!({
+                    "event": "k2_lane_payload_measurement",
+                    "panel_bytes": panel_bytes,
+                    "input_ceiling": input_ceiling,
+                    "input_budget": 8672,
+                    "documents": items.iter().filter(|item| item.source_id == "docs.public").count(),
+                    "live_evidence": items.iter().filter(|item| item.source_id == SOURCE).count()
+                })
+            );
+            assert!(input_ceiling <= 8672);
             assert_eq!(items[0].evidence_id, "doc-0");
             assert!(items.iter().any(|item| item.evidence_id == "doc-0"));
             let content = items

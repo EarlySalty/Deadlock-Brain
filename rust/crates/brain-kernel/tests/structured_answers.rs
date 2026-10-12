@@ -1,5 +1,5 @@
 use brain_contracts::{
-    answer_contract::{AnswerKind, AnswerPart, StructuredAnswer},
+    answer_contract::{AnswerKind, AnswerPart, AnswerViolation, StructuredAnswer},
     AnswerProfile, AnswerProviderPort, AnswerStatus, AuthorizedContext, Budget, ChunkProvenance,
     DocumentRevision, Evidence, EvidenceKind, PortError, Principal, ProviderAnswer, Query,
     RetrievalPort, SourceVisibility, Usage,
@@ -138,6 +138,242 @@ fn game(field: &str, value: &str) -> AnswerPart {
         evidence_id: "e1".into(),
         field: field.into(),
         value: value.into(),
+    }
+}
+
+fn other(field: &str, value: &str) -> AnswerPart {
+    AnswerPart::Other {
+        evidence_id: "e1".into(),
+        field: field.into(),
+        value: value.into(),
+    }
+}
+
+const NUMERIC_LITERALS: &[&str] = &[
+    "65042",
+    "650,42",
+    "650.42",
+    "650٫42",
+    "650，42",
+    "650．42",
+    "650e42",
+    "650E+42",
+    "650e-42",
+    "650e−42",
+    "+650",
+    "-650",
+    "−650",
+    "＋650",
+    "－650",
+    ".42",
+    ",42",
+    "-.42",
+    "650_042",
+    "650'042",
+    "650’042",
+    "650ʼ042",
+    "650٬042",
+    "650 042",
+    "650\u{00a0}042",
+    "650\u{2007}042",
+    "650\u{2009}042",
+    "650\u{202f}042",
+    "1 234 567,89e-42",
+    "６５０,４２",
+];
+
+fn numeric_evidence(left: &str, right: &str) -> Evidence {
+    evidence(
+        "deadlock-assets-heroes",
+        &serde_json::json!({
+            "health": left,
+            "damage": right,
+            "count": left,
+            "capacity": right,
+        })
+        .to_string(),
+    )
+}
+
+#[test]
+fn numeric_literals_cannot_cross_exact_value_slots() {
+    for literal in NUMERIC_LITERALS {
+        for (split, _) in literal.char_indices().skip(1) {
+            let (left, right) = literal.split_at(split);
+            for first in [game("/health", left), other("/count", left)] {
+                for second in [game("/damage", right), other("/capacity", right)] {
+                    let source = numeric_evidence(left, right);
+                    assert_eq!(
+                        grounded(vec![first.clone()]).render(std::slice::from_ref(&source)),
+                        Ok(left.to_owned())
+                    );
+                    assert_eq!(
+                        grounded(vec![second.clone()]).render(std::slice::from_ref(&source)),
+                        Ok(right.to_owned())
+                    );
+                    assert_eq!(
+                        grounded(vec![first.clone(), second.clone()])
+                            .render(std::slice::from_ref(&source)),
+                        Err(AnswerViolation::Value)
+                    );
+                    for profile in [AnswerProfile::Explain, AnswerProfile::Coaching] {
+                        for quality in [true, false] {
+                            let answer = run(
+                                grounded(vec![first.clone(), prose(""), second.clone()]),
+                                vec![numeric_evidence(left, right)],
+                                profile.clone(),
+                                quality,
+                            );
+                            assert_eq!(
+                                answer.status,
+                                AnswerStatus::InsufficientEvidence,
+                                "{literal:?}, split {split}, {first:?}, {second:?}"
+                            );
+                            assert!(answer.citations.is_empty());
+                            assert_eq!(answer.usage.network_rounds, 1);
+                            assert_eq!(answer.usage.output_tokens, 7);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn numeric_free_prose_cannot_join_values_into_a_new_literal() {
+    for separator in [
+        "", ".", ",", "٫", "．", "，", "e", "E+", "e-", "E−", "_", "'", "’", "ʼ", "٬", " ",
+        "\u{00a0}", "\u{2007}", "\u{2009}", "\u{202f}",
+    ] {
+        let right = if !separator.is_empty() && separator.chars().all(char::is_whitespace) {
+            "042"
+        } else {
+            "42"
+        };
+        for first in [game("/health", "650"), other("/count", "650")] {
+            for second in [game("/damage", right), other("/capacity", right)] {
+                for fragmented in [true, false] {
+                    let mut parts = vec![first.clone()];
+                    if fragmented {
+                        parts.extend(separator.chars().map(|value| prose(&value.to_string())));
+                    } else {
+                        parts.push(prose(separator));
+                    }
+                    parts.push(second.clone());
+                    for profile in [AnswerProfile::Explain, AnswerProfile::Coaching] {
+                        for quality in [true, false] {
+                            let answer = run(
+                                grounded(parts.clone()),
+                                vec![numeric_evidence("650", right)],
+                                profile.clone(),
+                                quality,
+                            );
+                            assert_eq!(
+                                answer.status,
+                                AnswerStatus::InsufficientEvidence,
+                                "{separator:?}, {first:?}, {second:?}, fragmented {fragmented}"
+                            );
+                            assert!(answer.citations.is_empty());
+                            assert_eq!(answer.usage.network_rounds, 1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn numeric_prefixes_from_prose_are_not_evidence_bound() {
+    for prefix in ["+", "-", "−", "＋", "－", ".", ",", "٫", "．", "，", "-."] {
+        for value in [game("/health", "650"), other("/count", "650")] {
+            let answer = run(
+                grounded(vec![prose(prefix), value]),
+                vec![numeric_evidence("650", "042")],
+                AnswerProfile::Explain,
+                false,
+            );
+            assert_eq!(
+                answer.status,
+                AnswerStatus::InsufficientEvidence,
+                "{prefix:?}"
+            );
+            assert!(answer.citations.is_empty());
+        }
+    }
+}
+
+#[test]
+fn complete_literals_in_one_field_and_clearly_separated_values_remain_answerable() {
+    for literal in NUMERIC_LITERALS {
+        for value in [game("/health", literal), other("/count", literal)] {
+            let answer = run(
+                grounded(vec![prose("Belegt ist "), value, prose(" als Wert.")]),
+                vec![numeric_evidence(literal, "42")],
+                AnswerProfile::Explain,
+                false,
+            );
+            assert_eq!(answer.status, AnswerStatus::Answered, "{literal:?}");
+            assert_eq!(answer.text, format!("Belegt ist {literal} als Wert."));
+            assert_eq!(answer.citations.len(), 1);
+        }
+    }
+    for separator in [
+        " und ",
+        ", ",
+        ". ",
+        ";",
+        " / ",
+        "\n",
+        " ",
+        " Lebenspunkte und ",
+    ] {
+        for first in [game("/health", "650"), other("/count", "650")] {
+            for second in [game("/damage", "42"), other("/capacity", "42")] {
+                let answer = run(
+                    grounded(vec![first.clone(), prose(separator), second]),
+                    vec![numeric_evidence("650", "42")],
+                    AnswerProfile::Coaching,
+                    true,
+                );
+                assert_eq!(answer.status, AnswerStatus::Answered, "{separator:?}");
+                assert_eq!(answer.text, format!("650{separator}42"));
+                assert_eq!(answer.citations.len(), 1);
+            }
+        }
+    }
+}
+
+#[test]
+fn values_from_different_authorities_cannot_compose_a_literal() {
+    for separator in [",", "e-", ""] {
+        let mut metadata = evidence("discord.public-live.v1", "count: 42");
+        metadata.evidence_id = "e2".into();
+        let value = AnswerPart::Other {
+            evidence_id: "e2".into(),
+            field: "count".into(),
+            value: "42".into(),
+        };
+        for parts in [
+            vec![game("health", "650"), prose(separator), value.clone()],
+            vec![value.clone(), prose(separator), game("health", "650")],
+        ] {
+            let mut structured = grounded(parts);
+            structured.cited_evidence_ids.push("e2".into());
+            let answer = run(
+                structured,
+                vec![
+                    evidence("deadlock-assets-heroes", "health: 650"),
+                    metadata.clone(),
+                ],
+                AnswerProfile::Explain,
+                false,
+            );
+            assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
+            assert!(answer.citations.is_empty());
+            assert_eq!(answer.usage.network_rounds, 1);
+        }
     }
 }
 

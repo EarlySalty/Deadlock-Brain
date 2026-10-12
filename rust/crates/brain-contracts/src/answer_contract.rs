@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 pub const NO_AUTHORIZED_VALUE: &str =
     "Dafür habe ich keinen gesicherten Wert aus den freigegebenen Spieldaten. Zahlen rate ich nicht.";
 
-pub const STRUCTURED_ANSWER_INSTRUCTION: &str = " Nur JSON mit kind, parts, cited_evidence_ids. Verkette parts: {\"kind\":\"prose\",\"text\":\"...\"} oder {\"kind\":\"game_value\",\"evidence_id\":\"...\",\"field\":\"...\",\"value\":\"...\"}; other hat dieselben Felder. Prose zahlenfrei, Leerzeichen dort. Werte exakt aus citable_values, Beleg-ID zitieren. other nur Datum, Zählung, Version, keine Spielwerte. Gruß, Dank, Smalltalk ohne Spielbehauptung: social, nur Prose, keine Belege. Sonst grounded, auch bei unsicheren belegten Tipps. Keine Antwort: grounded, beide Listen leer.";
+pub const STRUCTURED_ANSWER_INSTRUCTION: &str = " Nur JSON: {\"kind\":\"grounded\",\"parts\":[{\"kind\":\"prose\",\"text\":\"...\"}],\"cited_evidence_ids\":[\"ID\"]}. parts verketten; Prose zahlenfrei, Leerzeichen dort. Werte nur als {\"kind\":\"game_value\",\"evidence_id\":\"ID\",\"field\":\"...\",\"value\":\"...\"} exakt aus citable_values; other ebenso, nur Datum, Zählung, Version, keine Spielwerte. IDs aus evidence.id exakt und einmal zitieren. Grounded ohne Beleg: beide Listen leer. Gruß, Dank, Smalltalk ohne Spielbehauptung: social, nur Prose, keine Belege. Unsichere belegte Tipps bleiben grounded.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -258,6 +258,95 @@ pub fn provider_citable_values(evidence: &Evidence) -> Vec<CitableValue> {
         .collect()
 }
 
+fn number_sign(character: char) -> bool {
+    matches!(character, '+' | '-' | '−' | '＋' | '－')
+}
+
+fn number_end(characters: &[char], start: usize) -> Option<usize> {
+    let mut end = start;
+    if characters.get(end).is_some_and(|value| number_sign(*value)) {
+        end += 1;
+    }
+    if matches!(characters.get(end), Some('.' | ',' | '٫' | '．' | '，')) {
+        end += 1;
+    }
+    let digits = end;
+    while characters.get(end).is_some_and(|value| value.is_numeric()) {
+        end += 1;
+    }
+    if end == digits {
+        return None;
+    }
+    loop {
+        let separator = end;
+        match characters.get(end) {
+            Some('.' | ',' | '٫' | '٬' | '．' | '，' | '_' | '\'' | '’' | 'ʼ') => {
+                end += 1;
+                while characters.get(end).is_some_and(|value| value.is_numeric()) {
+                    end += 1;
+                }
+                if end == separator + 1 {
+                    end = separator;
+                    break;
+                }
+            }
+            Some(' ' | '\u{00a0}' | '\u{2007}' | '\u{2009}' | '\u{202f}') => {
+                end += 1;
+                while characters.get(end).is_some_and(|value| value.is_numeric()) {
+                    end += 1;
+                }
+                if end != separator + 4 {
+                    end = separator;
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    if matches!(characters.get(end), Some('e' | 'E')) {
+        let exponent = end;
+        end += 1;
+        if characters.get(end).is_some_and(|value| number_sign(*value)) {
+            end += 1;
+        }
+        let digits = end;
+        while characters.get(end).is_some_and(|value| value.is_numeric()) {
+            end += 1;
+        }
+        if end == digits {
+            end = exponent;
+        }
+    }
+    Some(end)
+}
+
+fn numbers_are_field_bound(output: &str, value_ranges: &[std::ops::Range<usize>]) -> bool {
+    let (mut offsets, characters): (Vec<_>, Vec<_>) = output.char_indices().unzip();
+    offsets.push(output.len());
+    let mut start = 0;
+    let mut ranges = value_ranges.iter().peekable();
+    while start < characters.len() {
+        let Some(end) = number_end(&characters, start) else {
+            start += 1;
+            continue;
+        };
+        while ranges
+            .peek()
+            .is_some_and(|range| range.end <= offsets[start])
+        {
+            ranges.next();
+        }
+        if !ranges
+            .peek()
+            .is_some_and(|range| range.start <= offsets[start] && offsets[end] <= range.end)
+        {
+            return false;
+        }
+        start = end;
+    }
+    true
+}
+
 impl StructuredAnswer {
     pub fn prose(text: String, cited_evidence_ids: Vec<String>) -> Self {
         Self {
@@ -300,6 +389,7 @@ impl StructuredAnswer {
             return Err(AnswerViolation::Citation);
         }
         let mut output = String::new();
+        let mut value_ranges = Vec::new();
         for part in &self.parts {
             match part {
                 AnswerPart::Prose { text } => {
@@ -336,7 +426,9 @@ impl StructuredAnswer {
                     }) {
                         return Err(AnswerViolation::Value);
                     }
+                    let start = output.len();
                     output.push_str(value);
+                    value_ranges.push(start..output.len());
                 }
             }
             if output.len() > 64 * 1024 {
@@ -345,6 +437,9 @@ impl StructuredAnswer {
         }
         if !self.parts.is_empty() && output.trim().is_empty() {
             return Err(AnswerViolation::Format);
+        }
+        if !numbers_are_field_bound(&output, &value_ranges) {
+            return Err(AnswerViolation::Value);
         }
         Ok(output)
     }

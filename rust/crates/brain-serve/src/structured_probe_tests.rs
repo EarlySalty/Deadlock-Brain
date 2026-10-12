@@ -116,13 +116,16 @@ fn live_structured_answer_compliance() {
         let social = result
             .as_ref()
             .is_ok_and(|accounted| accounted.value.is_social());
+        let mut violation = None;
         let classification = match result {
             Ok(mut accounted) => match accounted.value.render(&evidence) {
-                Err(AnswerViolation::Format | AnswerViolation::Citation) => {
+                Err(reason @ (AnswerViolation::Format | AnswerViolation::Citation)) => {
+                    violation = Some(reason.code());
                     format_silence += 1;
                     "format_silence"
                 }
                 Err(AnswerViolation::Value) => {
+                    violation = Some(AnswerViolation::Value.code());
                     value_silence += 1;
                     "value_silence"
                 }
@@ -139,11 +142,13 @@ fn live_structured_answer_compliance() {
                 }
             },
             Err(failure) => match AnswerViolation::from_error(&failure.error) {
-                Some(AnswerViolation::Format | AnswerViolation::Citation) => {
+                Some(reason @ (AnswerViolation::Format | AnswerViolation::Citation)) => {
+                    violation = Some(reason.code());
                     format_silence += 1;
                     "format_silence"
                 }
                 Some(AnswerViolation::Value) => {
+                    violation = Some(AnswerViolation::Value.code());
                     value_silence += 1;
                     "value_silence"
                 }
@@ -155,7 +160,7 @@ fn live_structured_answer_compliance() {
         };
         println!(
             "{}",
-            json!({"case":index,"type":category,"outcome":classification,"evidence":evidence.len(),"social":social})
+            json!({"case":index,"type":category,"outcome":classification,"evidence":evidence.len(),"social":social,"violation":violation})
         );
     }
     println!(

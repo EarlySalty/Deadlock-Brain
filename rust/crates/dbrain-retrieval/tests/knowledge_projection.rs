@@ -1286,10 +1286,18 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
     combined.patch = None;
     let evidence = tokio::task::block_in_place(|| retriever.retrieve(&combined, &context)).unwrap();
     assert_eq!(evidence.len(), 2);
-    assert!(
-        brain_contracts::provider_input::grounded_input_ceiling(&combined, &evidence)
-            <= context.budget.max_input_tokens as u64
+    let input_ceiling =
+        brain_contracts::provider_input::grounded_input_ceiling(&combined, &evidence);
+    println!(
+        "{}",
+        serde_json::json!({
+            "event": "k2_retrieval_payload_measurement",
+            "evidence": evidence.len(),
+            "input_ceiling": input_ceiling,
+            "input_budget": context.budget.max_input_tokens
+        })
     );
+    assert!(input_ceiling <= context.budget.max_input_tokens as u64);
     assert!(evidence.iter().all(|item| documents
         .iter()
         .any(|document| document.content == item.content)));
