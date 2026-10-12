@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod patch_extract;
 pub mod registry;
 pub mod sources;
 pub use brain_storage::gamefacts::{
