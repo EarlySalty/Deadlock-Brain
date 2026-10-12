@@ -305,6 +305,31 @@ pub struct PatchHistoryRequest {
     pub historical_client_versions: Vec<i64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanonicalPatchHistoryRequest {
+    pub entity: u64,
+    pub since: Option<String>,
+    pub until: Option<String>,
+    pub limit: Option<usize>,
+}
+
+pub fn canonical_patch_history_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: ToolName::PatchHistory,
+        description: "Liest belegte offizielle Patchänderungen für die positive kanonische entity_id aus find_entity, keine ältere Spiel-ID. Ohne Zeitraum gilt nur der chronologisch neueste offizielle Patch, nicht der letzte Patch mit einer Änderung dieser Entität. since und until sind inklusive Patchlabels oder exakte Veröffentlichungszeitpunkte mit Zeitzone. Mehrdeutige Labels werden abgewiesen. Höchstens 20 vollständige Änderungszeilen. Eine leere Änderungsliste beweist keinen unveränderten Spielwert. Jede citation verweist auf den Beleg im offiziellen Rohobjekt. Fehlende oder abgeschnittene Zeilen nicht ergänzen.".into(),
+        input_schema: serde_json::json!({
+            "type":"object","additionalProperties":false,"required":["entity"],
+            "properties":{
+                "entity":{"type":"integer","minimum":1,"maximum":i64::MAX},
+                "since":{"type":"string","minLength":1,"maxLength":128},
+                "until":{"type":"string","minLength":1,"maxLength":128},
+                "limit":{"type":"integer","minimum":1,"maximum":20}
+            }
+        }),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolPlaystyle {
@@ -397,6 +422,7 @@ pub enum ToolSubrequest {
     GameRules(GameRulesRequest),
     ServerKnowledge(ServerKnowledgeRequest),
     DeadlockData(DeadlockDataRequest),
+    CanonicalPatchHistory(CanonicalPatchHistoryRequest),
 }
 
 impl ToolSubrequest {
@@ -411,6 +437,9 @@ impl ToolSubrequest {
             }
             ToolName::DamageCalculate => {
                 serde_json::from_value(arguments.clone()).map(Self::DamageCalculate)
+            }
+            ToolName::PatchHistory if arguments["entity"].is_number() => {
+                serde_json::from_value(arguments.clone()).map(Self::CanonicalPatchHistory)
             }
             ToolName::PatchHistory => {
                 serde_json::from_value(arguments.clone()).map(Self::PatchHistory)
@@ -458,6 +487,26 @@ impl ToolSubrequest {
             Self::DamageCalculate(request) => {
                 validate_numeric_id(request.hero_id)?;
                 request.scenario.validate()
+            }
+            Self::CanonicalPatchHistory(request) => {
+                validate_numeric_id(request.entity)?;
+                for patch in request.since.iter().chain(&request.until) {
+                    if patch.trim().is_empty()
+                        || patch.len() > 128
+                        || patch.chars().any(char::is_control)
+                    {
+                        return Err(invalid(
+                            "Patch benötigt ein bis 128 Bytes ohne Steuerzeichen",
+                        ));
+                    }
+                }
+                if request
+                    .limit
+                    .is_some_and(|limit| !(1..=20).contains(&limit))
+                {
+                    return Err(invalid("Patchverlauf erlaubt ein bis 20 Ergebnisse"));
+                }
+                Ok(())
             }
             Self::PatchHistory(request) => {
                 validate_entity(&request.entity)?;
@@ -911,7 +960,11 @@ impl ToolExecution {
             }
             return Ok(());
         }
-        let expected_game = if request.name() == ToolName::ServerKnowledge {
+        let expected_game = if request.name() == ToolName::ServerKnowledge
+            || matches!(
+                request.subrequest(),
+                ToolSubrequest::CanonicalPatchHistory(_)
+            ) {
             None
         } else {
             let game = game_context
