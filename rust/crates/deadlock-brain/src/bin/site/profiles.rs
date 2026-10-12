@@ -6,7 +6,7 @@ use axum::{
 };
 use brain_contracts::entity_profile::EntityKind;
 use brain_maintenance::entity_profile_render::render_entity_profile;
-use brain_storage::PgStore;
+use brain_storage::{PgStore, StorageError};
 use serde::Deserialize;
 use std::path::Path as FilePath;
 
@@ -88,6 +88,37 @@ fn unavailable(method: Method) -> Response {
     )
 }
 
+fn error_message(route: &str, error: &anyhow::Error) -> String {
+    let database = error.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<sqlx::Error>()
+            .or_else(|| match cause.downcast_ref::<StorageError>() {
+                Some(StorageError::Database(error)) => Some(error),
+                _ => None,
+            })
+    });
+    let category = if database.is_some() {
+        "database"
+    } else if error.chain().any(|cause| {
+        cause.is::<serde_json::Error>()
+            || matches!(
+                cause.downcast_ref::<StorageError>(),
+                Some(StorageError::Json(_))
+            )
+    }) {
+        "json"
+    } else if error.chain().any(|cause| cause.is::<std::io::Error>()) {
+        "io"
+    } else {
+        "validation"
+    };
+    let sqlstate = database
+        .and_then(sqlx::Error::as_database_error)
+        .and_then(|error| error.code())
+        .unwrap_or_else(|| "none".into());
+    format!("site_profiles_failed route={route} category={category} sqlstate={sqlstate}")
+}
+
 pub(super) async fn page(
     State(site): State<Site>,
     Path((requested_kind, id)): Path<(String, String)>,
@@ -107,8 +138,12 @@ pub(super) async fn page(
             method,
         );
     }
-    let Ok(release) = current_release(&site).await else {
-        return unavailable(method);
+    let release = match current_release(&site).await {
+        Ok(release) => release,
+        Err(error) => {
+            eprintln!("{}", error_message("page", &error));
+            return unavailable(method);
+        }
     };
     let store = PgStore::new(site.pool);
     let result: Result<Option<String>> = async {
@@ -128,7 +163,10 @@ pub(super) async fn page(
             "Dieser Steckbrief ist nicht verfügbar.".into(),
             method,
         ),
-        Err(_) => unavailable(method),
+        Err(error) => {
+            eprintln!("{}", error_message("page", &error));
+            unavailable(method)
+        }
     }
 }
 
@@ -147,8 +185,12 @@ fn decode_id(id: &str) -> Option<String> {
 }
 
 pub(super) async fn index(State(site): State<Site>, method: Method) -> Response {
-    let Ok(release) = current_release(&site).await else {
-        return unavailable(method);
+    let release = match current_release(&site).await {
+        Ok(release) => release,
+        Err(error) => {
+            eprintln!("{}", error_message("index", &error));
+            return unavailable(method);
+        }
     };
     let result: Result<String> = async {
         let profiles = PgStore::new(site.pool).read_site_profiles(&release, None).await?;
@@ -166,13 +208,45 @@ pub(super) async fn index(State(site): State<Site>, method: Method) -> Response 
     }.await;
     match result {
         Ok(html) => response(StatusCode::OK, html, method),
-        Err(_) => unavailable(method),
+        Err(error) => {
+            eprintln!("{}", error_message("index", &error));
+            unavailable(method)
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_errors_do_not_log_private_details() {
+        let private_detail = "untrusted-private-detail";
+        for (error, category) in [
+            (
+                anyhow::Error::new(sqlx::Error::Protocol(private_detail.into())),
+                "database",
+            ),
+            (
+                anyhow::Error::new(StorageError::Database(sqlx::Error::Protocol(
+                    private_detail.into(),
+                ))),
+                "database",
+            ),
+            (
+                anyhow::Error::new(std::io::Error::other(private_detail)),
+                "io",
+            ),
+            (anyhow::anyhow!(private_detail), "validation"),
+        ] {
+            for route in ["page", "index"] {
+                let message = error_message(route, &error);
+                assert!(!message.contains(private_detail));
+                assert!(message.contains(route));
+                assert!(message.contains(&format!("category={category}")));
+            }
+        }
+    }
 
     #[test]
     fn profile_ids_are_fixed_encoded_game_keys() {
