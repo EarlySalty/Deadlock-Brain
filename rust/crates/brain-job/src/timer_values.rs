@@ -47,6 +47,7 @@ struct Mapping {
     field: String,
     timer: &'static str,
     stat: &'static str,
+    required: bool,
 }
 
 fn mappings(
@@ -55,12 +56,13 @@ fn mappings(
 ) -> Result<Vec<Mapping>, &'static str> {
     let json = path.ends_with(".json");
     let mut values = Vec::new();
-    let mut add = |root: &str, field: &str, timer, stat| -> Result<(), &'static str> {
+    let mut add = |root: &str, field: &str, timer, stat, required| -> Result<(), &'static str> {
         values.push(Mapping {
             root: normalize(root)?,
             field: normalize(field)?,
             timer,
             stat,
+            required,
         });
         Ok(())
     };
@@ -88,6 +90,7 @@ fn mappings(
                 if json { json_field } else { kv_field },
                 "rejuvenator",
                 stat,
+                stat == "timer.buff_duration_seconds",
             )?;
         }
     } else {
@@ -109,6 +112,7 @@ fn mappings(
                     if json { json_field } else { kv_field },
                     "soul_box",
                     stat,
+                    *root == BOXES[0] && stat == "timer.first_spawn_seconds",
                 )?;
             }
         }
@@ -134,6 +138,7 @@ fn mappings(
                 if json { json_field } else { kv_field },
                 "mid_boss",
                 stat,
+                stat == "timer.respawn_interval_seconds",
             )?;
         }
     }
@@ -201,7 +206,7 @@ pub fn parse(
             .find(|mapping| mapping.root == root_key && mapping.field == field_key);
         if !scalar {
             if mapping.is_some() {
-                return Err("timer_numeric_value");
+                return Err("timer_property_type");
             }
             continue;
         }
@@ -220,10 +225,10 @@ pub fn parse(
             continue;
         };
         if leaf.numeric_representation.is_none() {
-            return Err("timer_numeric_value");
+            return Err("timer_property_type");
         }
         if !matches!(leaf.value, Value::Number(_) | Value::String(_)) {
-            return Err("timer_numeric_value");
+            return Err("timer_property_type");
         }
         output.push(TimerValue {
             timer: mapping.timer,
@@ -235,6 +240,14 @@ pub fn parse(
             locator: leaf.pointer,
             flags: leaf.flags,
         });
+    }
+    if mappings.iter().any(|mapping| {
+        mapping.required
+            && !objects
+                .get(&mapping.root)
+                .is_some_and(|object| object.fields.contains(&mapping.field))
+    }) {
+        return Err("timer_property_missing");
     }
     Ok(output)
 }

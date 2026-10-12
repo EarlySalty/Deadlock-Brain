@@ -18,4 +18,28 @@ Completed remote-first checks: contracts 104 passed, parser mapping/receipt chec
 
 TESTNACHWEIS[TW-1]: 111 passed, 0 ignored | Baseline: not separately measured
 
-Budget currently 240 parser lines and 94 parser-test lines; the core adapter and poison-run tests remain to add. Full checks, real Store proof, whole-diff fresh review, gate and live acceptance remain open.
+Verified independent checkpoint 2bfe7935 is pushed to origin/feat/brain-p3-timers-20261012-v2. It is not a live tool, completed Extractor or gate-ready package.
+
+Budget at that checkpoint: 240 parser lines and 94 parser-test lines; the core adapter and poison-run tests remain to add. Full checks, real Store proof, whole-diff fresh review, gate and live acceptance remain open.
+
+Follow-up: the remote regression proved both empty-container cases were silently accepted (0 passed, 1 failed, 0 ignored, 7 filtered, remote EXIT=101). cargo-slot incorrectly classified that assertion failure as an environment problem and started a local retry; the harness stopped that retry at its 120-second background limit. No completed local result is claimed.
+
+The orchestrator resolved the boundary: no shared parser changes and no duplicate parser. Mappings now mark required properties, checked after parsing against scalar numeric leaves. The complete misc snapshot requires the primary gold-box InitialSpawnTime and midboss SpawnIntervalInSeconds; generic requires RejuvinatorBuffDuration, using their exact KV3 equivalents. Other mapped properties are optional. A required empty/missing property rejects the whole object with timer_property_missing; a present wrong type rejects with timer_property_type. Optional empty containers emit no fact. Collisions are checked on scalar leaves, not empty containers. No switch to another parser without informing the orchestrator.
+
+Required/optional verification completed: 8 passed, 0 failed/ignored/filtered; strict Clippy passed. Remote-first was configured, but the wrapper's sticky fallback ran the test locally after the earlier assertion failure; Clippy completed remotely. Logs: /tmp/brain-p3-v2-required-optional-tests-20261012.log and /tmp/brain-p3-v2-required-optional-clippy-20261012.log.
+
+Merged only the forwarded P1r checkpoint 4cc0cf5d1843897b7519214cb2117e1aa8f848ed in attributed merge 83ff3044. Read its real lib/registry/sources, types/limits/receipts/migrations, Store, CLI and scratch test. The orchestrator approved the one-line pub mod timers export, in addition to registry and reserved migration v2 entries. Existing sha2 moved from dev-only to production dependencies because the reused parser computes real receipts; no new library.
+
+The real TimerExtractor uses central normalization, validates the complete FactSet before Accepted, retains exact numeric text/unit/conditions in canonical Text payloads and has no database access. Its temporary numeric validation projection and input-size stand-in must be replaced by core 2's exact validate_numeric_lexeme and RAW_BYTES before gate. Core 2 also supplies streamed multi-object sources, kv_path verification and successful-object idempotence. These gaps were routed to P1r by the orchestrator; do not repeat the requests or edit those core implementations.
+
+First real scratch Store proof: 2 passed, 0 failed/ignored/filtered; strict all-targets job Clippy passed after moving the existing sha2 dependency. The actual TimerExtractor produced two rejections (oversized text and normalized collision), one accepted object, a succeeded run, unchanged raw bytes and a leaf-hash-resolving receipt; a subsequent changed-object run was free. No unchanged-run idempotence, KV3 Store or public/live proof is claimed at this checkpoint.
+
+Read rule updated before publishing the migration: serve.timer uses only serve.current_alias/current_entity/current_fact. Receipt-backed und aliases supply indexed four-key lookup. Entity keys include source and original entity variants so the frozen current_fact projection cannot collapse different sources. Matching raw object/source across the current views hides stale optional values after disappearance and inherits P9 quarantine. No canon/raw selects in the package view or tool. The raw joins in the scratch test are admin-only receipt verification, not serving.
+
+The adjusted job suite completed: 9 passed, 0 failed/ignored/filtered (4 reused parser tests, 3 existing core tests and 2 P3 tests); strict all-targets Clippy passed. The real scratch test executed shared production timer_query.sql as brain_tool in a read-only transaction with 500 ms timeout, retained complete citations/units/conditions, returned no urn value and hid an old optional drop duration after disappearance. Logs: /tmp/brain-p3-v2-serve-only-store-tests-20261012.log and /tmp/brain-p3-v2-serve-only-store-clippy-20261012.log. Current extractor and its parser/Store tests: 675 lines; final source/core-2/proof count remains to measure.
+
+TESTNACHWEIS[TW-1]: 9 passed, 0 ignored | Baseline: not separately measured
+
+Own read-only public snapshots are captured in /tmp/brain-p3-public-v2-20261012.TOVndF: deadlock-data 0242320cbc507852aaffbcb29204bcf32394eaea and GameTracking e6bb7e33d212b110d138f98427ef37f9a80c2839. Original selected blob sizes: JSON misc 149410, JSON generic 78988, KV3 misc 147082, KV3 generic 47334 bytes. JSON primary required fields are present: gold-box InitialSpawnTime, midboss SpawnIntervalInSeconds and RejuvinatorBuffDuration. IdolParams has drop timing but no initial-spawn key. This is source inspection, not a completed public Store or live proof; no downloaded code is executed.
+
+Full serve registration, core 2 adaptation, public Store/memory/index proof, final budget recount, fresh whole-diff review, gate and live acceptance remain open.

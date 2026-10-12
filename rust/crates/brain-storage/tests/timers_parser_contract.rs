@@ -13,31 +13,37 @@ fn values(
 
 #[test]
 fn numeric_timer_values_keep_exact_raw_lexemes_and_locators() {
-    let json = br#"{"citadel_breakable_prop_drop_gold":{"InitialSpawnTime":180.0,"RespawnTime":180.0},"neutral_camp_midboss":{"InitialSpawnDelayInSeconds":0}}"#;
+    let json = br#"{"citadel_breakable_prop_drop_gold":{"InitialSpawnTime":180.0,"RespawnTime":180.0},"neutral_camp_midboss":{"InitialSpawnDelayInSeconds":0,"SpawnIntervalInSeconds":120}}"#;
     let facts = values("deadlock-data", "data/json/misc-data.json", json).unwrap();
-    assert_eq!(facts.len(), 2);
-    for fact in facts {
-        assert_eq!(fact.timer, "soul_box");
+    assert_eq!(facts.len(), 3);
+    for fact in facts.iter().filter(|fact| fact.timer == "soul_box") {
         assert_eq!(fact.numeric, "180.0");
         assert_eq!(fact.locator_kind, "json_pointer");
         assert_eq!(fact.value_sha256, Sha256::digest(b"180.0").to_vec());
         assert_eq!(fact.source_entity, "citadel_breakable_prop_drop_gold");
         assert!(fact.flags.is_empty());
     }
-    let kv = br#"<!-- kv3 encoding:text --> { neutral_camp_midboss = { m_iSpawnIntervalInSeconds = 120 m_iSpawnIntervalMin = 60 } }"#;
+    assert!(facts
+        .iter()
+        .filter(|fact| fact.timer == "mid_boss")
+        .all(|fact| fact.stat != "timer.first_spawn_seconds"));
+    let kv = br#"<!-- kv3 encoding:text --> { citadel_breakable_prop_drop_gold = { m_flInitialSpawnTime = 180 } neutral_camp_midboss = { m_iSpawnIntervalInSeconds = 120 m_iSpawnIntervalMin = 60 } }"#;
     let facts = values(
         "gametracking",
         "game/citadel/pak01_dir/scripts/misc.vdata",
         kv,
     )
     .unwrap();
-    assert_eq!(facts.len(), 2);
+    assert_eq!(facts.len(), 3);
+    let fact = facts
+        .iter()
+        .find(|fact| fact.timer == "mid_boss" && fact.stat == "timer.respawn_interval_seconds")
+        .unwrap();
     assert_eq!(
-        facts[0].locator,
+        fact.locator,
         "/neutral_camp_midboss/0/m_iSpawnIntervalInSeconds/0"
     );
-    assert_eq!(facts[0].locator_kind, "kv_path");
-    assert_eq!(facts[0].stat, "timer.respawn_interval_seconds");
+    assert_eq!(fact.locator_kind, "kv_path");
 }
 
 #[test]
@@ -68,6 +74,46 @@ fn duplicate_properties_and_wrong_timer_types_reject_the_object() {
         malformed
     )
     .is_err());
+}
+
+#[test]
+fn required_empty_properties_reject_and_optional_empty_properties_emit_no_fact() {
+    for (source, path, required_empty, optional_empty) in [
+        (
+            "deadlock-data",
+            "data/json/generic-data.json",
+            br#"{"RejuvParams":{"RejuvinatorBuffDuration":[],"RejuvinatorDropDuration":6}}"#.as_slice(),
+            br#"{"RejuvParams":{"RejuvinatorBuffDuration":120,"RejuvinatorDropDuration":{}}}"#.as_slice(),
+        ),
+        (
+            "gametracking",
+            "game/citadel/pak01_dir/scripts/generic_data.vdata",
+            br#"{ m_RejuvParams = { m_flRejuvinatorBuffDuration = {} m_flRejuvinatorDropDuration = 6 } }"#.as_slice(),
+            br#"{ m_RejuvParams = { m_flRejuvinatorBuffDuration = 120 m_flRejuvinatorDropDuration = [] } }"#.as_slice(),
+        ),
+    ] {
+        assert_eq!(values(source, path, required_empty).unwrap_err(), "timer_property_missing");
+        let facts = values(source, path, optional_empty).unwrap();
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].stat, "timer.buff_duration_seconds");
+        assert_eq!(facts[0].numeric, "120");
+    }
+    for value in ["null", "\"120\"", "[120]"] {
+        let bytes = format!("{{\"RejuvParams\":{{\"RejuvinatorBuffDuration\":{value}}}}}");
+        assert_eq!(
+            values(
+                "deadlock-data",
+                "data/json/generic-data.json",
+                bytes.as_bytes()
+            )
+            .unwrap_err(),
+            "timer_property_type"
+        );
+    }
+    assert_eq!(
+        values("deadlock-data", "data/json/generic-data.json", b"{}").unwrap_err(),
+        "timer_property_missing"
+    );
 }
 
 #[test]
