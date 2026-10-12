@@ -45,3 +45,14 @@ Shared extractor dispatch additions in `supported`, `extract_with_identities` an
 - Baseline first; affected build, formatter, linter and existing tests pass. New tests only protect receipts, output bounds and scope filtering.
 
 Integration waits for P1 live. Merge updated base, affected checks, independent intent review, local merge gate ALLOW, push `HEAD:main`, deploy verified `origin/main` through brain-release, install/enable the timer and prove the live path.
+
+## Current integration boundary
+
+User directive 08:12 on 2026-10-12 forbids new cargo-slot jobs until P1 is live and the orchestrator explicitly releases slots. Both fresh fixers started no compiler jobs. Do not ask P1 for more interfaces or merge original defective slices independently to satisfy the stop hook.
+
+- Coupled producer/consumer code is saved at `2fd36868`; component proofs and limitations remain in `CHECKPOINTS.md`. The actual final package has not passed combined checks or its gate and is not live.
+- Clean, parent-pushed source candidates: `fix/p2-assets-replay-proofs` at `192c2e4e5c488982f51b90f287272b9573631e95`, and `fix/p2-semantic-source-selection` at `37ea7c37834963bb2ab45b8e75fde5f35cb6cb09`. They are not accepted or merged into the parent. Build, clippy, PostgreSQL and new regression bodies remain unexecuted; only the Assets worker reported pinned package formatting success.
+- Adversarial reading-only review found a PLAUSIBLE composite/window predicate-pushdown barrier in the selection candidate. It did not prove scan count or a timeout. Deferred actual compare EXPLAIN must test entity/stat filtering through both windows; a confirmed defect requires a fresh scalar-projection fix preserving all columns and ambiguity rules.
+- Resume only after explicit release: adopt P1's actual ordered runner/item kinds, integrate and verify the candidates, register only migration 3, reconcile the actual registry count and monotone shared extractor version, then independent intent review/gate/live acceptance/ancestry-safe cleanup. Verify essential evidence against combined Gamefiles plus EN/DE cards, not English-only synthetic projection sizes. The supplied public fixture directory lacks the later contract's `items-en.json`/`items-de.json` pair.
+
+Installed cargo-slot currently rewrites non-deploy verification commands to incremental `verify`, despite requested release flags. This was read from the installed wrapper, not executed or bypassed; record actual log profiles and leave true release artifacts to the deploy wrapper. Detailed frozen checkpoint notes remain recoverable from commit `6dcc2b91`; no current TODO is kept because `ABLAUF.md` reserves that file for actual quota exhaustion.
