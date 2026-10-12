@@ -583,6 +583,7 @@ pub fn extract_with_identities(
                 (parts[1], condition)
             } else if parts.len() == 4 && parts[1] == "Upgrades" {
                 let tier: u32 = parts[2].parse().context("upgrade_tier")?;
+                ensure!(tier < 3, "upgrade_tier");
                 (
                     parts[3],
                     json!({"upgrade_tier":tier + 1,"operation":"delta"}),
@@ -924,6 +925,42 @@ mod tests {
         assert_eq!(facts[0].stat, "ability.AbilityCooldown");
         assert_eq!(facts[0].condition["upgrade_property_locator"], "/citadel_ability_infinity_slash/0/m_vecAbilityUpgrades/0/[0]/m_vecPropertyUpgrades/0/[0]/m_StrPropertyNAme/0");
         prove(Source::ALL[1], path, bytes, &facts).unwrap();
+    }
+
+    #[test]
+    fn json_upgrade_tiers_keep_three_tier_conditions_and_original_value_hashes() {
+        let path = "data/json/ability-data.json";
+        for upgrades in [
+            r#"[{"AbilityCooldown":-12.0},{"AbilityCooldown":1e2},{"AbilityCooldown":0.50}]"#,
+            r#"{"0":{"AbilityCooldown":-12.0},"1":{"AbilityCooldown":1e2},"2":{"AbilityCooldown":0.50}}"#,
+        ] {
+            let bytes = format!(r#"{{"ability_test":{{"Upgrades":{upgrades}}}}}"#);
+            let mut facts = extract(Source::ALL[0], path, bytes.as_bytes()).unwrap();
+            assert_eq!(facts.len(), 3);
+            for (index, (fact, lexeme)) in facts.iter().zip(["-12.0", "1e2", "0.50"]).enumerate() {
+                assert_eq!(
+                    fact.condition,
+                    json!({"upgrade_tier":index+1,"operation":"delta"})
+                );
+                assert_eq!(
+                    fact.locator,
+                    format!("/ability_test/Upgrades/{index}/AbilityCooldown")
+                );
+                assert_eq!(fact.hash, Sha256::digest(lexeme.as_bytes()).to_vec());
+                assert!(matches!(&fact.value, Atom::Number(value) if value == lexeme));
+            }
+            prove(Source::ALL[0], path, bytes.as_bytes(), &facts).unwrap();
+            facts[2].hash[0] ^= 1;
+            assert!(prove(Source::ALL[0], path, bytes.as_bytes(), &facts).is_err());
+        }
+        for tier in ["3", "4294967294", "4294967295", "4294967296", "-1"] {
+            let bytes = format!(
+                r#"{{"ability_test":{{"Upgrades":{{"{tier}":{{"AbilityCooldown":1}}}}}}}}"#
+            );
+            assert!(extract(Source::ALL[0], path, bytes.as_bytes()).is_err());
+        }
+        let fourth = br#"{"ability_test":{"Upgrades":[{},{},{},{"AbilityCooldown":1}]}}"#;
+        assert!(extract(Source::ALL[0], path, fourth).is_err());
     }
 
     #[test]

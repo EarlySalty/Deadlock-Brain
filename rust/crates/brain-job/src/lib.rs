@@ -7,7 +7,14 @@ pub mod store;
 use anyhow::Result;
 use config::Config;
 use git::{Repository, Source};
+use std::collections::BTreeMap;
 use store::{Counts, Run, Store};
+
+const IDENTITY_PATHS: [&str; 2] = ["data/json/hero-data.json", "data/json/ability-data.json"];
+const LOCALIZATION_PATHS: [&str; 2] = [
+    "data/localizations/english.json",
+    "data/localizations/german.json",
+];
 
 pub async fn ingest(config: &Config) -> Result<Counts> {
     let state = config.state()?;
@@ -79,7 +86,16 @@ async fn process(
         &run.target,
     )?;
     let mut blobs = repository.blobs(max_bytes)?;
+    let mut identities_changed = false;
+    let mut localizations = BTreeMap::new();
     while let Some(change) = store.during(changes.next()).await? {
+        if source == Source::ALL[0] {
+            identities_changed |= IDENTITY_PATHS.contains(&change.path.as_str());
+            if LOCALIZATION_PATHS.contains(&change.path.as_str()) {
+                localizations.insert(change.path, change.oid);
+                continue;
+            }
+        }
         if store.completed(run, &change.path).await? {
             continue;
         }
@@ -92,8 +108,29 @@ async fn process(
             .object(run, source, &change.path, blob, counts)
             .await?;
     }
+    if identities_changed && !run.full {
+        let mut dependencies = repository.paths(&run.target, &LOCALIZATION_PATHS)?;
+        while let Some(change) = store.during(dependencies.next()).await? {
+            localizations.entry(change.path).or_insert(change.oid);
+        }
+    }
+    for (path, oid) in localizations {
+        if store.completed(run, &path).await? {
+            continue;
+        }
+        let blob = if let Some(oid) = oid {
+            Some(store.during(blobs.read(&oid)).await?)
+        } else {
+            None
+        };
+        store.object(run, source, &path, blob, counts).await?;
+    }
     store.during(blobs.finish()).await?;
     store.publish(run).await?;
     counts.sources_completed += 1;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "ingest_tests.rs"]
+mod tests;

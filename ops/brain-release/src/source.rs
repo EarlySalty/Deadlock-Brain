@@ -22,6 +22,15 @@ pub const BUILD_ARGS: [&str; 7] = [
     "--locked",
     "--release",
     "--jobs",
+    "8",
+    "--workspace",
+    "--bins",
+];
+pub const LEGACY_BUILD_ARGS: [&str; 7] = [
+    "build",
+    "--locked",
+    "--release",
+    "--jobs",
     "4",
     "--workspace",
     "--bins",
@@ -295,11 +304,11 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<()> {
         "Herkunft fehlt"
     );
     ensure!(
-        manifest
+        [BUILD_ARGS, LEGACY_BUILD_ARGS].iter().any(|args| manifest
             .build_args
             .iter()
             .map(String::as_str)
-            .eq(BUILD_ARGS),
+            .eq(*args)),
         "Unbekannter Buildaufruf"
     );
     ensure!(
