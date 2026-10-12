@@ -1,6 +1,6 @@
 # P5 deferred ingestion and live acceptance
 
-This is a preparation document, not evidence of execution. The user directive at 2026-10-12 08:12 prohibits new cargo-slot jobs until the orchestrator explicitly clears build slots. P1 must be live before P5 integration or deployment. No commands below have been executed as part of this document.
+This is historical preparation, not evidence of execution or current authorization. The orchestrator's USER DECISION at 2026-10-12 16:45 stops P1 for an ingestion redesign and pauses P5. Do not execute the sequences below; a new briefing must first revalidate their assumptions. `TODO.md` records the pushed WIP and continuation point. No commands below have been executed as part of this document.
 
 ## Release prerequisites
 
