@@ -1,0 +1,5 @@
+feat(brain): Add bounded receipt-backed PG tool contracts
+
+Add typed find_entity/get_hero requests and pin-free execution validation while preserving the legacy tool pin rules. Verified with 108 contract tests, rustfmt and strict Clippy.
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>

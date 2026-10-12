@@ -12,6 +12,32 @@ pub(crate) const RESPONSE_AUDIT_SHAPE_PROBE: &str = "SELECT count(*)=11 FROM (VA
     JOIN pg_attribute a ON a.attrelid=to_regclass('brain.response_deviations_v1') AND a.attname=expected.name
     WHERE a.atttypid=expected.type::regtype AND a.attnotnull AND NOT a.attisdropped";
 
+const GAMEFACTS: &str =
+    include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql");
+const GAMEFACTS_SHAPE_PROBE: &str = "SELECT s.id,s.last_complete_revision,o.id,o.content_sha256,o.body,
+    r.id,r.base_revision,r.target_revision,r.extractor_version,ro.run_id,ro.path,ro.parse_status,
+    v.id,v.source_revision,h.published_revision_id,p.id,c.id,c.raw_object_id,c.value_sha256,
+    e.id,e.identity_receipt_id,d.key,d.section,d.unit,f.id,f.receipt_id,f.valid_from_revision_id,f.valid_to_revision_id,
+    a.alias_norm,a.receipt_id,l.slot,l.receipt_id,j.id,j.counts,k.epoch,t.question_sha256,
+    hp.entity_id,hp.identity,hp.stats,hp.weapon,hp.abilities,cf.receipt_id,ca.alias_norm,cr.slot
+    FROM raw.source s,raw.object o,raw.run r,raw.run_object ro,canon.revision v,canon.source_head h,
+    canon.patch p,canon.receipt c,canon.entity e,canon.stat d,canon.fact f,canon.alias a,canon.relation l,
+    ops.job_run j,ops.job_lease k,ops.answer_trace t,serve.hero_profile hp,serve.current_fact cf,
+    serve.current_alias ca,serve.current_relation cr LIMIT 0";
+const GAMEFACTS_ROLE_BOOTSTRAP: &str = "DO $roles$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='brain_tool') THEN
+            CREATE ROLE brain_tool NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='brain_tool' AND NOT rolcanlogin
+            AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
+            OR EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='brain_tool') THEN
+            RAISE EXCEPTION 'Werkzeugrolle besitzt unzulässige Rechte';
+        END IF;
+        GRANT brain_tool TO brain_readonly WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+    END
+    $roles$; SET LOCAL ROLE brain_migrate";
+
 const RESPONSE_AUDIT: &str =
     include_str!("../../../../scripts/migrations/2026-10-08-brain-response-audit-v1.sql");
 const V1: &str = include_str!("../../../../scripts/migrations/2026-09-24-brain-contract-v1.sql");
@@ -174,7 +200,118 @@ async fn check_response_audit(connection: &mut PgConnection) -> Result<(), PortE
     Ok(())
 }
 
+async fn check_gamefacts(connection: &mut PgConnection) -> Result<(), PortError> {
+    let version: Vec<i32> = sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version")
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|_| invalid("Spielwertschema fehlt oder ist nicht lesbar"))?;
+    if version != [1] {
+        return Err(invalid("Spielwertschema besitzt eine unbekannte Version"));
+    }
+    sqlx::query(GAMEFACTS_SHAPE_PROBE)
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|_| invalid("Spielwertschema erfüllt den Spaltenvertrag nicht"))?;
+    let valid: bool = sqlx::query_scalar(
+        "SELECT
+        (SELECT count(*)=5 FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner
+            WHERE n.nspname IN ('raw','canon','docs','serve','ops') AND r.rolname='brain_migrate')
+        AND EXISTS (SELECT 1 FROM pg_index WHERE indrelid='serve.hero_profile'::regclass
+            AND indisunique AND indisvalid AND indpred IS NULL AND indexprs IS NULL AND indnatts=1)
+        AND EXISTS (SELECT 1 FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner
+            WHERE c.oid='serve.hero_profile'::regclass AND c.relispopulated AND r.rolname='brain_migrate')
+        AND EXISTS (SELECT 1 FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
+            WHERE p.oid='serve.refresh_hero_profile()'::regprocedure AND p.prosecdef
+            AND p.proconfig=ARRAY['search_path=pg_catalog, pg_temp'] AND r.rolname='brain_migrate')
+        AND EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles tool ON tool.oid=m.roleid
+            JOIN pg_roles reader ON reader.oid=m.member WHERE tool.rolname='brain_tool'
+            AND reader.rolname='brain_readonly' AND m.set_option AND NOT m.inherit_option AND NOT m.admin_option)
+        AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname='brain_tool' AND NOT rolcanlogin
+            AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
+        AND NOT EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member WHERE r.rolname='brain_tool')
+        AND NOT pg_has_role('brain_ingest','brain_migrate','MEMBER')
+        AND NOT has_schema_privilege('brain_ingest','canon','CREATE')
+        AND NOT has_table_privilege('brain_service','canon.fact','INSERT,UPDATE,DELETE,TRUNCATE')
+        AND NOT has_table_privilege('brain_tool','canon.fact','INSERT,UPDATE,DELETE,TRUNCATE')
+        AND NOT has_schema_privilege('brain_tool','raw','USAGE')
+        AND NOT has_schema_privilege('brain_tool','ops','USAGE')
+        AND NOT has_function_privilege('brain_tool','serve.refresh_hero_profile()','EXECUTE')
+        AND has_function_privilege('brain_ingest','serve.refresh_hero_profile()','EXECUTE')
+        AND NOT has_column_privilege('brain_ingest','canon.fact','value_num','UPDATE')
+        AND NOT EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
+            JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname IN ('raw','canon','ops') AND a.attidentity <> ''
+                AND has_column_privilege('brain_ingest',c.oid,a.attnum,'INSERT'))
+        AND NOT has_column_privilege('brain_service','ops.answer_trace','id','INSERT')
+        AND NOT has_table_privilege('brain_service','ops.answer_trace','SELECT,UPDATE,DELETE,TRUNCATE')
+        AND has_column_privilege('brain_service','ops.answer_trace','question_sha256','INSERT')
+        AND (SELECT count(*)=4 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+            WHERE c.relname IN ('fact_source_history_idx','alias_source_history_idx','relation_source_history_idx','relation_from_entity_idx')
+                AND i.indisvalid AND i.indpred IS NULL AND i.indexprs IS NULL)
+        AND (SELECT count(*)=14 FROM pg_trigger t WHERE t.tgfoid='ops.serialize_gamefacts_write()'::regprocedure
+            AND t.tgenabled='O' AND t.tgtype & 1 = 0 AND t.tgtype & 2 = 2)
+        AND NOT has_table_privilege('brain_ingest','raw.object','UPDATE,DELETE,TRUNCATE')
+        AND NOT has_table_privilege('brain_ingest','canon.receipt','UPDATE,DELETE,TRUNCATE')",
+    )
+    .fetch_one(connection)
+    .await
+    .map_err(|_| invalid("Spielwertschema erfüllt den Rollenvertrag nicht"))?;
+    if !valid {
+        return Err(invalid(
+            "Spielwertschema erfüllt den Eigentums- oder Rollenvertrag nicht",
+        ));
+    }
+    Ok(())
+}
+
 impl PgStore {
+    pub async fn check_gamefacts_schema(&self) -> Result<(), PortError> {
+        let mut tx = self.pool.begin().await.map_err(compatibility_error)?;
+        sqlx::raw_sql("SET TRANSACTION READ ONLY; SET LOCAL statement_timeout='5000ms'")
+            .execute(&mut *tx)
+            .await
+            .map_err(compatibility_error)?;
+        check_gamefacts(&mut tx).await?;
+        tx.commit().await.map_err(compatibility_error)
+    }
+
+    pub async fn migrate_gamefacts(&self) -> Result<(), PortError> {
+        let mut tx = self.pool.begin().await.map_err(migration_error)?;
+        sqlx::raw_sql("SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='60000ms'; SELECT pg_advisory_xact_lock(742110026112::bigint)")
+            .execute(&mut *tx).await.map_err(migration_error)?;
+        let is_dba: bool =
+            sqlx::query_scalar("SELECT rolsuper FROM pg_roles WHERE rolname=current_user")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(migration_error)?;
+        if is_dba {
+            sqlx::raw_sql(GAMEFACTS_ROLE_BOOTSTRAP)
+                .execute(&mut *tx)
+                .await
+                .map_err(|_| invalid("Werkzeugrolle konnte nicht sicher vorbereitet werden"))?;
+        }
+        let owner: bool = sqlx::query_scalar("SELECT current_user='brain_migrate'")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(migration_error)?;
+        if !owner {
+            return Err(PortError::PermissionDenied(
+                "Spielwertmigration benötigt brain_migrate oder den lokalen DBA".into(),
+            ));
+        }
+        let installed: bool =
+            sqlx::query_scalar("SELECT to_regclass('ops.gamefacts_schema_version') IS NOT NULL")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(migration_error)?;
+        if !installed {
+            sqlx::raw_sql(body(GAMEFACTS)?).execute(&mut *tx).await
+                .map_err(|_| invalid("Spielwertmigration ist fehlgeschlagen; die Transaktion wurde nicht veröffentlicht"))?;
+        }
+        check_gamefacts(&mut tx).await?;
+        tx.commit().await.map_err(migration_error)
+    }
+
     pub async fn check_response_audit_schema(&self) -> Result<(), PortError> {
         let mut connection = self.pool.acquire().await.map_err(compatibility_error)?;
         check_response_audit(&mut connection).await

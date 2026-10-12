@@ -1,3 +1,8 @@
+#[path = "answer_trace.rs"]
+mod answer_trace;
+#[path = "pg_tools.rs"]
+mod pg_tools;
+
 use crate::{
     analytics::{AnalyticsRetriever, AnalyticsRuntime},
     config::{ProviderKind, RetrievalKind},
@@ -195,6 +200,7 @@ pub struct Prepared {
     analytics: Option<Arc<AnalyticsRuntime>>,
     discord_live: Option<Arc<DiscordLive>>,
     mirror_password: Option<String>,
+    trace_options: Option<sqlx::postgres::PgConnectOptions>,
     twitch_title: Option<Arc<TwitchTitleGenerator>>,
     shutdown: Arc<Shutdown>,
     startup_deadline: Instant,
@@ -231,6 +237,17 @@ impl Prepared {
             .map(Arc::new);
         let t = &config.timeouts;
         let pg = &config.postgres;
+        let trace_options = config.deadlock_api.as_ref().map(|_| {
+            let options = sqlx::postgres::PgConnectOptions::new_without_pgpass()
+                .host(&pg.socket_dir.to_string_lossy())
+                .port(pg.port)
+                .username(&pg.username)
+                .database(&pg.database);
+            match postgres_password.as_deref() {
+                Some(password) => options.password(password),
+                None => options,
+            }
+        });
         let reader = LocalPgReader::new(&pg.socket_dir, pg.port, &pg.username, &pg.database)
             .and_then(|reader| {
                 reader.with_pool_options(
@@ -310,6 +327,7 @@ impl Prepared {
             analytics,
             discord_live,
             mirror_password,
+            trace_options,
             twitch_title,
             shutdown,
             startup_deadline: deadline,
@@ -548,7 +566,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         .with_quality_filters(prepared.config.kernel.quality_filters);
     if let Some(config) = &prepared.config.deadlock_api {
         let pg = &prepared.config.postgres;
-        let options = sqlx::postgres::PgConnectOptions::new()
+        let options = sqlx::postgres::PgConnectOptions::new_without_pgpass()
             .host(&pg.socket_dir.to_string_lossy())
             .port(pg.port)
             .username("brain_readonly")
@@ -569,6 +587,10 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                         .to_string(),
                 ),
             ]);
+        let gamefacts_pool = pg_tools::tool_pool(
+            options.clone(),
+            Duration::from_millis(prepared.config.timeouts.postgres_pool_wait_ms),
+        );
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(Duration::from_millis(
@@ -598,15 +620,21 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         )
         .with_provider(&prepared.config.provider);
         answer_kernel = answer_kernel.with_tools(
-            crate::deadlock_data::Tools {
-                knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(ReleaseRetriever::new(
-                    prepared.reader.clone(),
-                    prepared.config.retrieval.limit,
-                ))
-                .with_knowledge_retrieval(knowledge)
-                .with_mirrored_entities(runtime.mirror.clone()),
-                runtime: Arc::new(runtime),
-            },
+            answer_trace::TracedTools(pg_tools::PgTools::new(
+                crate::deadlock_data::Tools {
+                    knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(
+                        ReleaseRetriever::new(
+                            prepared.reader.clone(),
+                            prepared.config.retrieval.limit,
+                        ),
+                    )
+                    .with_knowledge_retrieval(knowledge)
+                    .with_mirrored_entities(runtime.mirror.clone()),
+                    runtime: Arc::new(runtime),
+                },
+                gamefacts_pool,
+                tokio::runtime::Handle::current(),
+            )),
             resolver,
             format!(
                 "{}:{}",
@@ -618,6 +646,16 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         answer_kernel,
         prepared.config.kernel.cache_entries,
         Duration::from_millis(prepared.config.kernel.cache_ttl_ms),
+    );
+    let kernel = answer_trace::TracedKernel::new(
+        kernel,
+        prepared.trace_options.clone().map(|options| {
+            Arc::new(answer_trace::PgTraceWriter::new(
+                options,
+                tokio::runtime::Handle::current(),
+                Duration::from_millis(prepared.config.timeouts.postgres_pool_wait_ms),
+            )) as Arc<dyn answer_trace::TraceSink>
+        }),
     );
     let policy = PolicyEngine::with_ownership_store(
         prepared.credentials.clone(),
