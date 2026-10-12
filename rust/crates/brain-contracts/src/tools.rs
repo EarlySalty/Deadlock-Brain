@@ -9,6 +9,10 @@ use crate::{
     UsageAccounting,
 };
 
+#[path = "asset_tools.rs"]
+mod asset_tools;
+pub use asset_tools::{CompareRequest, GetAbilityRequest, GetItemRequest};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolName {
@@ -21,6 +25,9 @@ pub enum ToolName {
     GameRules,
     ServerKnowledge,
     DeadlockData,
+    GetItem,
+    GetAbility,
+    Compare,
 }
 
 impl ToolName {
@@ -35,6 +42,9 @@ impl ToolName {
             Self::GameRules => "game_rules",
             Self::ServerKnowledge => "server_knowledge",
             Self::DeadlockData => "deadlock_data",
+            Self::GetItem => "get_item",
+            Self::GetAbility => "get_ability",
+            Self::Compare => "compare",
         }
     }
 }
@@ -397,6 +407,9 @@ pub enum ToolSubrequest {
     GameRules(GameRulesRequest),
     ServerKnowledge(ServerKnowledgeRequest),
     DeadlockData(DeadlockDataRequest),
+    GetItem(GetItemRequest),
+    GetAbility(GetAbilityRequest),
+    Compare(CompareRequest),
 }
 
 impl ToolSubrequest {
@@ -423,6 +436,9 @@ impl ToolSubrequest {
             ToolName::ServerKnowledge => {
                 serde_json::from_value(arguments.clone()).map(Self::ServerKnowledge)
             }
+            ToolName::GetItem => serde_json::from_value(arguments.clone()).map(Self::GetItem),
+            ToolName::GetAbility => serde_json::from_value(arguments.clone()).map(Self::GetAbility),
+            ToolName::Compare => serde_json::from_value(arguments.clone()).map(Self::Compare),
         };
         parsed.map_err(|_| invalid("Werkzeugargumente passen nicht zur typisierten Unteranfrage"))
     }
@@ -538,6 +554,9 @@ impl ToolSubrequest {
                 }
                 Ok(())
             }
+            Self::GetItem(request) => request.validate(),
+            Self::GetAbility(request) => request.validate(),
+            Self::Compare(request) => request.validate(),
         }
     }
 }
