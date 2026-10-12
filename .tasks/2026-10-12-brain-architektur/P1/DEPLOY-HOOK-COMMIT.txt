@@ -1,0 +1,13 @@
+feat(brain): Migrate gamefacts before release pointer activation
+
+Run the attested staged brain-migrate through the existing local DBA
+peer identity before either release pointer changes. Use the isolated
+up-gamefacts track, fixed non-secret configuration and clean privilege
+drop without altering the installer, credentials or HBA.
+
+Independent security and adversarial reviews passed. Verified the six
+new migration-order and subprocess-failure tests, owned formatting,
+strict all-target Clippy and the release-helper build. Rebase checks,
+production helper installation and migration remain pending.
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
