@@ -30,8 +30,7 @@ AS $counts$
 $counts$;
 
 CREATE TABLE ops.gamefacts_schema_version (
-    singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
-    version integer NOT NULL CHECK (version = 1)
+    version integer PRIMARY KEY CHECK (version > 0)
 );
 CREATE TABLE ops.job_run (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -146,7 +145,7 @@ CREATE INDEX receipt_revision_idx ON canon.receipt(revision_id, source_id);
 CREATE INDEX receipt_source_idx ON canon.receipt(source_id);
 CREATE TABLE canon.entity (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    kind text NOT NULL CHECK (kind IN ('hero', 'ability')),
+    kind text NOT NULL CHECK (kind IN ('hero', 'ability', 'item', 'timer')),
     key text NOT NULL CHECK (length(key) BETWEEN 1 AND 128),
     status text NOT NULL DEFAULT 'unknown' CHECK (status = 'unknown'),
     identity_receipt_id bigint NOT NULL REFERENCES canon.receipt(id) ON DELETE RESTRICT,
@@ -621,6 +620,5 @@ GRANT USAGE ON SCHEMA ops TO brain_service;
 GRANT INSERT (question_sha256, tool_calls, citation_ids, status, tokens, latency_ms, recorded_at) ON ops.answer_trace TO brain_service;
 GRANT USAGE ON SEQUENCE ops.answer_trace_id_seq TO brain_service;
 ALTER DEFAULT PRIVILEGES FOR ROLE brain_migrate IN SCHEMA canon, docs, serve GRANT SELECT ON TABLES TO brain_tool;
-INSERT INTO ops.gamefacts_schema_version(singleton, version) VALUES (true, 1);
 
 COMMIT;

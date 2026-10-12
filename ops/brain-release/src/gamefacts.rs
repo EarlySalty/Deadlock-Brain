@@ -304,12 +304,30 @@ mod tests {
         }
     }
 
+    fn assert_active_release(root: &Path, sha: &str) {
+        let release = root.join("releases").join(sha);
+        assert_eq!(fs::read_link(root.join("current")).unwrap(), release);
+        assert_eq!(
+            fs::read_link(root.join("maintenance-current")).unwrap(),
+            root.join("current/bin")
+        );
+        for name in BINS.into_iter().chain(["brain-migrate"]) {
+            let expected = release.join("bin").join(name);
+            for prefix in ["current/bin", "maintenance-current"] {
+                assert_eq!(
+                    fs::canonicalize(root.join(prefix).join(name)).unwrap(),
+                    expected
+                );
+            }
+        }
+    }
+
     fn probe() -> (TempDir, Vec<u8>) {
         let dir = tempdir_in("/home/nathanael/.cache").unwrap();
         let source = dir.path().join("probe.rs");
         let binary = dir.path().join("probe");
         fs::write(&source, r#"
-use std::{fs, path::Path, process::{Command, ExitCode, Stdio}};
+use std::{fs, io::Write, path::Path, process::{Command, ExitCode, Stdio}};
 fn main() -> ExitCode {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     assert_eq!(args.len(), 3);
@@ -318,9 +336,17 @@ fn main() -> ExitCode {
     let config = Path::new(&args[2]);
     assert_eq!(config.file_name().unwrap(), "gamefacts-migrate.json");
     let root = config.parent().unwrap();
-    let current = fs::read_link(root.join("current")).unwrap();
-    assert_eq!(current.file_name().unwrap(), "a".repeat(40).as_str());
-    assert_eq!(fs::read_link(root.join("maintenance-current")).unwrap().file_name().unwrap(), "a".repeat(40).as_str());
+    let active = root.join("releases").join("a".repeat(40));
+    assert_eq!(fs::read_link(root.join("current")).unwrap(), active);
+    assert_eq!(fs::read_link(root.join("maintenance-current")).unwrap(), root.join("current/bin"));
+    for prefix in ["current/bin", "maintenance-current"] {
+        assert_eq!(fs::canonicalize(root.join(prefix)).unwrap(), active.join("bin"));
+        for binary in fs::read_dir(active.join("bin")).unwrap() {
+            let binary = binary.unwrap();
+            assert_eq!(fs::canonicalize(root.join(prefix).join(binary.file_name())).unwrap(), binary.path());
+        }
+    }
+    assert_eq!(std::env::current_exe().unwrap(), root.join("releases").join("d".repeat(40)).join("bin/brain-migrate"));
     assert!(root.join(".deploy-pending.json").is_file());
     assert_eq!(std::env::current_dir().unwrap(), Path::new("/"));
     let mut env: Vec<_> = std::env::vars().collect();
@@ -330,7 +356,8 @@ fn main() -> ExitCode {
         .args(["--nonblock", "--exclusive"]).arg(root.join(".deploy.lock"))
         .arg("/usr/bin/true").stdin(Stdio::null()).status().unwrap();
     assert_eq!(status.code(), Some(1));
-    fs::write(root.join("migration-ran"), b"before-pointer-change").unwrap();
+    fs::OpenOptions::new().write(true).create_new(true).open(root.join("migration-ran")).unwrap()
+        .write_all(b"before-pointer-change").unwrap();
     if root.join("migration-fail").exists() { ExitCode::from(73) } else { ExitCode::SUCCESS }
 }
 "#).unwrap();
@@ -368,16 +395,16 @@ fn main() -> ExitCode {
                 &next,
                 test_identity(),
                 || {
-                    assert_eq!(
-                        fs::read_link(root.join("current")).unwrap(),
-                        root.join("releases").join(&manifest.source.sha)
-                    );
+                    assert_active_release(&root, &manifest.source.sha);
                     assert_eq!(root.join("migration-ran").exists(), checks.get() == 1);
                     checks.set(checks.get() + 1);
                     Ok(())
                 },
             );
             assert_eq!(result.is_err(), fail);
+            if let Err(error) = result {
+                assert!(error.to_string().contains("Exit Some(73)"));
+            }
             assert_eq!(checks.get(), if fail { 1 } else { 2 });
             assert_eq!(
                 fs::read(root.join("migration-ran")).unwrap(),
@@ -388,15 +415,7 @@ fn main() -> ExitCode {
             } else {
                 &next.source.sha
             };
-            for (name, parent) in [
-                ("current", "releases"),
-                ("maintenance-current", "maintenance-releases"),
-            ] {
-                assert_eq!(
-                    fs::read_link(root.join(name)).unwrap(),
-                    root.join(parent).join(active)
-                );
-            }
+            assert_active_release(&root, active);
             assert!(!root.join(".deploy-pending.json").exists());
         }
     }
@@ -526,7 +545,7 @@ fn main() -> ExitCode {
 
     #[test]
     fn source_recheck_failure_after_migration_preserves_old_pointers() {
-        let binary = fs::read("/usr/bin/true").unwrap();
+        let (_probe, binary) = probe();
         let (_dir, root, bundle, manifest) = fixture(&binary);
         let installer = install::Installer::open(&root, fs_safe::uid()).unwrap();
         installer.stage(&bundle, &manifest).unwrap();
@@ -535,29 +554,27 @@ fn main() -> ExitCode {
         next.source.sha = "d".repeat(40);
         installer.stage(&bundle, &next).unwrap();
         let checks = Cell::new(0);
-        assert!(activate_at(
+        let result = activate_at(
             &installer,
             &root,
             fs_safe::uid(),
             &next,
             test_identity(),
             || {
+                assert_active_release(&root, &manifest.source.sha);
+                assert_eq!(root.join("migration-ran").exists(), checks.get() == 1);
                 checks.set(checks.get() + 1);
                 ensure!(checks.get() == 1, "Geänderte Herkunft");
                 Ok(())
-            }
-        )
-        .is_err());
+            },
+        );
+        assert!(result.is_err());
         assert_eq!(checks.get(), 2);
-        for (name, parent) in [
-            ("current", "releases"),
-            ("maintenance-current", "maintenance-releases"),
-        ] {
-            assert_eq!(
-                fs::read_link(root.join(name)).unwrap(),
-                root.join(parent).join(&manifest.source.sha)
-            );
-        }
+        assert_eq!(
+            fs::read(root.join("migration-ran")).unwrap(),
+            b"before-pointer-change"
+        );
+        assert_active_release(&root, &manifest.source.sha);
         assert!(!root.join(".deploy-pending.json").exists());
     }
 }

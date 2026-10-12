@@ -385,6 +385,7 @@ fn real_pg_tools_roles_validity_bounded_results_and_trace_writer() {
         let mut connection=pool.acquire().await.unwrap();
         sqlx::query("SET ROLE brain_migrate").execute(&mut *connection).await.unwrap();
         sqlx::raw_sql(include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql")).execute(&mut *connection).await.unwrap();
+        sqlx::query("INSERT INTO ops.gamefacts_schema_version(version) VALUES(1)").execute(&mut *connection).await.unwrap();
         sqlx::query("RESET ROLE").execute(&mut *connection).await.unwrap();
         sqlx::raw_sql(SEED).execute(&mut *connection).await.unwrap();
         drop(connection);
