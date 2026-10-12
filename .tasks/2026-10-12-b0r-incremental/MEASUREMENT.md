@@ -20,6 +20,6 @@ All three jobs ran on ionos with jobs=4 using the same remote workspace 173350f7
 
 Formatter and package-only Clippy with -D warnings passed, task b7xc6virx. Logs and monotonic wall timing files: /tmp/b0r-profile.f2pfCi/brain-incremental-{unchanged,warm-before,one-line}.{log,time}. Client RSS in those files is not compiler RAM.
 
-Commit-only reuse proof remains pending. No full workspace test suite was run for this measurement.
+After the actual commit 89764e03, the identical package test reused the same artifact path without reporting any compilation: Cargo 0.15 s, wall 7.021 s, 6 passed, 0 ignored. Task bhx5m07i4 exited 0; ionos slot 1, jobs=4. Logs: /tmp/b0r-profile.f2pfCi/brain-incremental-committed.{log,time}. The commit was pushed on measure/b0r-incremental-20261012. No full workspace test suite was run for this measurement.
 
 TESTNACHWEIS[TW-1]: 6 passed, 0 ignored | Baseline: 0 rot in the unchanged targeted run
