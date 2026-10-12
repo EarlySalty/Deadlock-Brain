@@ -23,6 +23,7 @@ pub enum ToolName {
     DeadlockData,
     FindEntity,
     GetHero,
+    SearchDocs,
 }
 
 impl ToolName {
@@ -39,6 +40,7 @@ impl ToolName {
             Self::DeadlockData => "deadlock_data",
             Self::FindEntity => "find_entity",
             Self::GetHero => "get_hero",
+            Self::SearchDocs => "search_docs",
         }
     }
 }
@@ -424,6 +426,14 @@ pub struct GetHeroRequest {
     pub sections: Option<Vec<HeroSection>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SearchDocsRequest {
+    pub query: String,
+    pub entity: Option<u64>,
+    pub limit: Option<usize>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "name", content = "arguments", rename_all = "snake_case")]
 pub enum ToolSubrequest {
@@ -438,6 +448,7 @@ pub enum ToolSubrequest {
     DeadlockData(DeadlockDataRequest),
     FindEntity(FindEntityRequest),
     GetHero(GetHeroRequest),
+    SearchDocs(SearchDocsRequest),
 }
 
 impl ToolSubrequest {
@@ -466,6 +477,7 @@ impl ToolSubrequest {
             }
             ToolName::FindEntity => serde_json::from_value(arguments.clone()).map(Self::FindEntity),
             ToolName::GetHero => serde_json::from_value(arguments.clone()).map(Self::GetHero),
+            ToolName::SearchDocs => serde_json::from_value(arguments.clone()).map(Self::SearchDocs),
         };
         parsed.map_err(|_| invalid("Werkzeugargumente passen nicht zur typisierten Unteranfrage"))
     }
@@ -598,6 +610,21 @@ impl ToolSubrequest {
                     if !(1..=3).contains(&sections.len()) || unique.len() != sections.len() {
                         return Err(invalid("Ungültige oder doppelte Steckbriefabschnitte"));
                     }
+                }
+                Ok(())
+            }
+            Self::SearchDocs(request) => {
+                if request.query.trim().is_empty()
+                    || request.query.len() > 512
+                    || request.query.chars().any(char::is_control)
+                {
+                    return Err(invalid("Ungültiger Suchtext für Dokumente"));
+                }
+                if let Some(entity) = request.entity {
+                    validate_numeric_id(entity)?;
+                }
+                if request.limit.is_some_and(|limit| !(1..=5).contains(&limit)) {
+                    return Err(invalid("Dokumentensuche erlaubt ein bis fünf Ergebnisse"));
                 }
                 Ok(())
             }
@@ -985,7 +1012,10 @@ impl ToolExecution {
         }
         let expected_game = if matches!(
             request.name(),
-            ToolName::ServerKnowledge | ToolName::FindEntity | ToolName::GetHero
+            ToolName::ServerKnowledge
+                | ToolName::FindEntity
+                | ToolName::GetHero
+                | ToolName::SearchDocs
         ) {
             None
         } else {

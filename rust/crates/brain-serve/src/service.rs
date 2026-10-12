@@ -1,5 +1,9 @@
 #[path = "answer_trace.rs"]
 mod answer_trace;
+#[path = "docs_tools.rs"]
+mod docs_tools;
+#[path = "internal_docs.rs"]
+mod internal_docs;
 #[path = "pg_tools.rs"]
 mod pg_tools;
 
@@ -562,6 +566,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     )
     .with_provider(&prepared.config.provider);
     let mut answer_artifacts = None;
+    let mut internal_docs_reader = None;
     let mut answer_kernel = Kernel::new(retrieval, prepared.provider.clone())
         .with_quality_filters(prepared.config.kernel.quality_filters);
     if let Some(config) = &prepared.config.deadlock_api {
@@ -591,6 +596,10 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             options.clone(),
             Duration::from_millis(prepared.config.timeouts.postgres_pool_wait_ms),
         );
+        internal_docs_reader = Some(docs_tools::DocsReader::new(
+            gamefacts_pool.clone(),
+            tokio::runtime::Handle::current(),
+        ));
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(Duration::from_millis(
@@ -621,17 +630,21 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         .with_provider(&prepared.config.provider);
         answer_kernel = answer_kernel.with_tools(
             answer_trace::TracedTools(pg_tools::PgTools::new(
-                crate::deadlock_data::Tools {
-                    knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(
-                        ReleaseRetriever::new(
-                            prepared.reader.clone(),
-                            prepared.config.retrieval.limit,
-                        ),
-                    )
-                    .with_knowledge_retrieval(knowledge)
-                    .with_mirrored_entities(runtime.mirror.clone()),
-                    runtime: Arc::new(runtime),
-                },
+                docs_tools::DocsTools::new(
+                    crate::deadlock_data::Tools {
+                        knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(
+                            ReleaseRetriever::new(
+                                prepared.reader.clone(),
+                                prepared.config.retrieval.limit,
+                            ),
+                        )
+                        .with_knowledge_retrieval(knowledge)
+                        .with_mirrored_entities(runtime.mirror.clone()),
+                        runtime: Arc::new(runtime),
+                    },
+                    gamefacts_pool.clone(),
+                    tokio::runtime::Handle::current(),
+                ),
                 gamefacts_pool,
                 tokio::runtime::Handle::current(),
             )),
@@ -767,7 +780,10 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                 prepared.internal_credentials.clone(),
                 Arc::new(prepared.reader.clone()),
             ),
-            ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit),
+            internal_docs::InternalDocs::new(
+                ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit),
+                internal_docs_reader.clone(),
+            ),
             config.release.id.clone(),
             prepared.config.timeouts.request_ms,
             (&prepared.config.budgets).into(),
@@ -776,6 +792,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             prepared.config.operator_docs_release(),
             prepared.config.operator_docs_scope(),
         ) {
+            (Some(_), _) if internal_docs_reader.is_some() => service,
             (Some(release), Some("bot.public")) => {
                 service.with_public_bot_release(release.id.clone())
             }

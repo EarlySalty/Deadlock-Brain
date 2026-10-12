@@ -1,4 +1,3 @@
-//! Public projection: deliberately excludes source paths, ACLs, prompts, usage and provider metadata.
 use crate::{AnswerStatus, PortError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -20,6 +19,7 @@ impl PublicCitation {
         Self {
             citation_id: format!("cite-{:x}", Sha256::digest(evidence.evidence_id.as_bytes())),
             label: deadlock_api_label(evidence)
+                .or_else(|| public_docs_label(evidence))
                 .unwrap_or_else(|| format!("Beleg {}", index.saturating_add(1))),
         }
     }
@@ -54,7 +54,64 @@ fn deadlock_api_label(evidence: &crate::Evidence) -> Option<String> {
         end.format(format)
     ))
 }
-/// Öffentlich freigegebene Originalbelege ohne interne Quellenadressen oder ACLs.
+pub fn valid_public_docs_section_url(value: &str) -> bool {
+    if value.len() > 256 {
+        return false;
+    }
+    let Some(tail) = value.strip_prefix("https://github.com/EarlySalty/Deadlock-Docs/blob/") else {
+        return false;
+    };
+    let Some((commit, tail)) = tail.split_once('/') else {
+        return false;
+    };
+    let Some((path, lines)) = tail.split_once("#L") else {
+        return false;
+    };
+    let Some((start, end)) = lines.split_once("-L") else {
+        return false;
+    };
+    let positive_line = |value: &str| {
+        value.bytes().all(|byte| byte.is_ascii_digit())
+            && value.parse::<u64>().is_ok_and(|line| line > 0)
+    };
+    commit.len() == 40
+        && commit
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        && path.starts_with("public/")
+        && path.ends_with(".html")
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
+        && path
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"/-_.".contains(&byte))
+        && positive_line(start)
+        && positive_line(end)
+        && start.parse::<u64>().ok() <= end.parse::<u64>().ok()
+}
+
+fn public_docs_label(evidence: &crate::Evidence) -> Option<String> {
+    if evidence.visibility != crate::SourceVisibility::Public
+        || evidence.kind != crate::EvidenceKind::Prose
+        || !evidence
+            .source_id
+            .strip_prefix("docs.public/")
+            .and_then(|id| id.parse::<i64>().ok())
+            .is_some_and(|id| id > 0)
+        || !evidence.evidence_id.parse::<i64>().is_ok_and(|id| id > 0)
+        || evidence.logical_id != format!("receipt/{}", evidence.evidence_id)
+        || evidence.allowed_scopes.is_empty()
+        || evidence
+            .allowed_scopes
+            .iter()
+            .any(|scope| scope != "docs.public" && scope != "bot.public")
+        || !valid_public_docs_section_url(&evidence.citation)
+    {
+        return None;
+    }
+    Some(evidence.citation.clone())
+}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublicEvidence {
@@ -203,6 +260,72 @@ mod tests {
             provenance: None,
             patch: None,
         }
+    }
+
+    #[test]
+    fn public_docs_labels_require_public_receipts_and_safe_section_urls() {
+        let evidence = crate::Evidence {
+            evidence_id: "42".into(),
+            source_id: "docs.public/7".into(),
+            logical_id: "receipt/42".into(),
+            revision: 1,
+            kind: crate::EvidenceKind::Prose,
+            content: "Nicht öffentlich projizierter Auszug".into(),
+            citation:
+                "https://github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/deadlock-helden/billy.html#L35-L38"
+                    .into(),
+            visibility: crate::SourceVisibility::Public,
+            allowed_scopes: BTreeSet::from(["docs.public".into()]),
+            score: 1.0,
+            provenance: None,
+            patch: None,
+        };
+        let projected = PublicCitation::from_evidence(&evidence, 0);
+        assert_eq!(projected.label, evidence.citation);
+        assert_eq!(
+            projected.citation_id,
+            PublicCitation::from_evidence(&evidence, 9).citation_id
+        );
+        let mut internal = evidence.clone();
+        internal.visibility = crate::SourceVisibility::Internal;
+        assert_ne!(
+            PublicCitation::from_evidence(&internal, 0).label,
+            evidence.citation
+        );
+        for source in ["docs.internal/7", "docs.public/0", "unrelated"] {
+            let mut invalid = evidence.clone();
+            invalid.source_id = source.into();
+            assert_ne!(
+                PublicCitation::from_evidence(&invalid, 0).label,
+                evidence.citation
+            );
+        }
+        for url in [
+            "http://github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/page.html#L1-L2",
+            "https://github.com.example/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/page.html#L1-L2",
+            "https://name@github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/page.html#L1-L2",
+            "https://github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/page.html?token=x#L1-L2",
+            "https://github.com/EarlySalty/Deadlock-Docs/blob/main/public/page.html#L1-L2",
+            "https://github.com/EarlySalty/Deadlock-Docs/blob/7B0f0e645f026214f28b99dddbb18bd477bc2819/public/page.html#L1-L2",
+            "https://github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/../internal/page.html#L1-L2",
+            "https://github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/%2e%2e/page.html#L1-L2",
+            "https://github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/internal/page.html#L1-L2",
+            "https://github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/page.txt#L1-L2",
+            "https://github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/page.html#start",
+            "https://github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/page.html#L0-L2",
+            "https://github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/page.html#L3-L2",
+            "https://github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/page.html#L1-L18446744073709551616",
+            "https://github.com/Other/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/page.html#L1-L2",
+            "https://deutsche-deadlock-community.de/docs/page.html#section",
+        ] {
+            let mut invalid = evidence.clone();
+            invalid.citation = url.into();
+            assert_ne!(PublicCitation::from_evidence(&invalid, 0).label, url);
+        }
+        let encoded = serde_json::to_string(&projected).unwrap();
+        assert!(!encoded.contains(&evidence.content));
+        assert!(!encoded.contains(&evidence.source_id));
+        assert!(!encoded.contains(&evidence.logical_id));
     }
 
     #[test]
