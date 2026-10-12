@@ -361,6 +361,271 @@ const SEED: &str = "BEGIN;
     UPDATE raw.source SET last_complete_revision='commit-a' WHERE id=1;
     COMMIT;";
 
+async fn metadata_revision(pool: &PgPool, target: &str) -> i64 {
+    let mut tx = pool.begin().await.unwrap();
+    let job: i64 = sqlx::query_scalar(
+        "INSERT INTO ops.job_run(job,extractor,extractor_version)
+        VALUES ('fixture','fixture','v1') RETURNING id",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let run: i64 = sqlx::query_scalar("INSERT INTO raw.run(source_id,job_run_id,base_revision,target_revision,extractor,extractor_version)
+        SELECT 1,$1,last_complete_revision,$2,'fixture','v1' FROM raw.source WHERE id=1 RETURNING id")
+        .bind(job).bind(target).fetch_one(&mut *tx).await.unwrap();
+    sqlx::query(
+        "INSERT INTO raw.run_object(run_id,path,object_id,action,parse_status)
+        VALUES ($1,'hero.kv',1,'upsert','succeeded')",
+    )
+    .bind(run)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let revision = sqlx::query_scalar("INSERT INTO canon.revision(source_id,raw_run_id,source_revision,extractor,extractor_version)
+        VALUES (1,$1,$2,'fixture','v1') RETURNING id")
+        .bind(run).bind(target).fetch_one(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    revision
+}
+
+async fn metadata_receipt(pool: &PgPool, revision: i64, locator: &str) -> i64 {
+    sqlx::query_scalar("INSERT INTO canon.receipt(raw_object_id,source_id,revision_id,locator_kind,locator,value_sha256,extractor,extractor_version)
+        VALUES (1,1,$1,'kv_path',$2,decode(repeat('02',32),'hex'),'fixture','v1') RETURNING id")
+        .bind(revision).bind(locator).fetch_one(pool).await.unwrap()
+}
+
+async fn publish_metadata_revision(pool: &PgPool, revision: i64) {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query(
+        "UPDATE raw.run SET status='succeeded'
+        WHERE id=(SELECT raw_run_id FROM canon.revision WHERE id=$1)",
+    )
+    .bind(revision)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE canon.source_head SET published_revision_id=$1 WHERE source_id=1")
+        .bind(revision)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE raw.source SET last_complete_revision=(SELECT source_revision FROM canon.revision WHERE id=$1)
+        WHERE id=1")
+        .bind(revision).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+}
+
+#[test]
+fn real_pg_revalidation_rejects_metadata_changes_with_unchanged_retained_receipts() {
+    let pg = ScratchPg::start();
+    let executor = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let options = |user: &str| {
+        PgConnectOptions::new_without_pgpass()
+            .host(pg.directory.join("socket").to_str().unwrap())
+            .port(55439)
+            .username(user)
+            .database("postgres")
+    };
+    let admin = executor.block_on(async {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(options("brain_core_test"))
+            .await
+            .unwrap();
+        sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN;
+            CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN;
+            CREATE ROLE brain_tool NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+            GRANT brain_tool TO brain_readonly WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+            GRANT CREATE ON DATABASE postgres TO brain_migrate;")
+            .execute(&pool).await.unwrap();
+        let mut connection = pool.acquire().await.unwrap();
+        sqlx::query("SET ROLE brain_migrate").execute(&mut *connection).await.unwrap();
+        sqlx::raw_sql(include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"))
+            .execute(&mut *connection).await.unwrap();
+        sqlx::query("RESET ROLE").execute(&mut *connection).await.unwrap();
+        sqlx::raw_sql(SEED).execute(&mut *connection).await.unwrap();
+        drop(connection);
+        pool
+    });
+    let pool = {
+        let _entered = executor.enter();
+        tool_pool(options("brain_readonly"), Duration::from_secs(2))
+    };
+    let tools = PgTools::new(Delegate::default(), pool.clone(), executor.handle().clone());
+    let query = query();
+    let context = context();
+    let validate = |execution: &ToolExecution, valid: bool| {
+        for purpose in [
+            ToolValidationPurpose::Provider,
+            ToolValidationPurpose::Publication,
+            ToolValidationPurpose::Cache,
+        ] {
+            let result = tools.validate_dependencies(
+                &query,
+                &context,
+                None,
+                &execution.dependencies,
+                purpose,
+            );
+            if valid {
+                result.unwrap();
+            } else {
+                assert!(matches!(result, Err(PortError::Unavailable(_))));
+            }
+        }
+    };
+    let receipts = executor
+        .block_on(
+            sqlx::query_scalar::<_, Value>(
+                "SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM canon.receipt r WHERE id<=120",
+            )
+            .fetch_one(&admin),
+        )
+        .unwrap();
+    let find = request(
+        ToolName::FindEntity,
+        json!({"text":"Baba Jäger","kind":"hero","limit":1}),
+    );
+    let unique = tools
+        .execute(&query, &context, None, "unique", &find)
+        .unwrap();
+    assert_eq!(unique.result.result["resolved"], true);
+    assert_eq!(unique.result.result["omitted_count"], 0);
+    validate(&unique, true);
+    executor.block_on(async {
+        let revision = metadata_revision(&admin, "alias-added").await;
+        let receipt = metadata_receipt(&admin, revision, "additional-alias").await;
+        sqlx::query(
+            "INSERT INTO canon.alias(entity_id,alias_norm,lang,receipt_id,source_id,source_path,valid_from_revision_id)
+            VALUES (2,'baba jäger','de',$2,1,'hero.kv',$1)",
+        ).bind(revision).bind(receipt).execute(&admin).await.unwrap();
+        publish_metadata_revision(&admin, revision).await;
+    });
+    let ambiguous = tools
+        .execute(&query, &context, None, "another-call-id", &find)
+        .unwrap();
+    assert_eq!(
+        unique.result.result["entities"],
+        ambiguous.result.result["entities"]
+    );
+    assert_eq!(
+        unique.dependencies[0].evidence,
+        ambiguous.dependencies[0].evidence
+    );
+    assert_eq!(unique.result.evidence_ids, ambiguous.result.evidence_ids);
+    assert_eq!(ambiguous.result.result["ambiguous"], true);
+    assert_eq!(ambiguous.result.result["resolved"], false);
+    assert_eq!(ambiguous.result.result["truncated"], true);
+    assert_eq!(ambiguous.result.result["omitted_count"], 1);
+    assert_eq!(
+        ambiguous.dependencies[0].request.arguments(),
+        find.arguments()
+    );
+    validate(&unique, false);
+    validate(&ambiguous, true);
+    let mut missing_binding = ambiguous.clone();
+    missing_binding.dependencies[0].request = find;
+    validate(&missing_binding, false);
+    executor.block_on(async {
+        let revision = metadata_revision(&admin, "stats-full").await;
+        sqlx::query("INSERT INTO canon.stat(key,section,unit,value_type,display_order)
+            SELECT 'stats.extra_'||n,'stats','health','number',100+n FROM generate_series(1,19) n")
+            .execute(&admin).await.unwrap();
+        for number in 1..=19 {
+            let key = format!("stats.extra_{number}");
+            let receipt = metadata_receipt(&admin, revision, &key).await;
+            sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,source_id,source_path,value_num,receipt_id,valid_from_revision_id)
+                VALUES (1,$1,1,'hero.kv',$2,$3,$4)")
+                .bind(key).bind(number).bind(receipt).bind(revision)
+                .execute(&admin).await.unwrap();
+        }
+        publish_metadata_revision(&admin, revision).await;
+    });
+    let hero = request(
+        ToolName::GetHero,
+        json!({"hero":1,"patch":"current","sections":["stats"]}),
+    );
+    let full = tools
+        .execute(&query, &context, None, "full", &hero)
+        .unwrap();
+    assert_eq!(
+        full.result.result["stats"]["facts"]
+            .as_array()
+            .unwrap()
+            .len(),
+        20
+    );
+    assert_eq!(full.result.result["stats"]["omitted_count"], 0);
+    assert_eq!(full.result.result["stats"]["truncated"], false);
+    validate(&full, true);
+    let abilities_request = request(
+        ToolName::GetHero,
+        json!({"hero":1,"sections":["abilities"]}),
+    );
+    let abilities = tools
+        .execute(&query, &context, None, "abilities", &abilities_request)
+        .unwrap();
+    let mut previous = full;
+    for omitted in 1..=2 {
+        executor.block_on(async {
+            let revision = metadata_revision(&admin, &format!("stats-omitted-{omitted}")).await;
+            let receipt = metadata_receipt(&admin, revision, &format!("stats.omitted_{omitted}")).await;
+            sqlx::query("INSERT INTO canon.stat(key,section,unit,value_type,display_order)
+                VALUES ($1,'stats','health','number',200+$2)")
+                .bind(format!("stats.omitted_{omitted}"))
+                .bind(omitted)
+                .execute(&admin).await.unwrap();
+            sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,source_id,source_path,value_num,receipt_id,valid_from_revision_id)
+                VALUES (1,$1,1,'hero.kv',99,$2,$3)")
+                .bind(format!("stats.omitted_{omitted}"))
+                .bind(receipt)
+                .bind(revision)
+                .execute(&admin).await.unwrap();
+            publish_metadata_revision(&admin, revision).await;
+        });
+        let current = tools
+            .execute(&query, &context, None, "truncated", &hero)
+            .unwrap();
+        assert_eq!(
+            previous.result.result["stats"]["facts"],
+            current.result.result["stats"]["facts"]
+        );
+        assert_eq!(
+            previous.dependencies[0].evidence,
+            current.dependencies[0].evidence
+        );
+        assert_eq!(previous.result.evidence_ids, current.result.evidence_ids);
+        assert_eq!(
+            current.dependencies[0].request.arguments(),
+            hero.arguments()
+        );
+        assert_eq!(current.result.result["stats"]["omitted_count"], omitted);
+        assert_eq!(current.result.result["stats"]["truncated"], true);
+        assert!(current.result.result.get("abilities").is_none());
+        assert!(current.result.result.get("weapon").is_none());
+        validate(&previous, false);
+        validate(&current, true);
+        validate(&abilities, true);
+        previous = current;
+    }
+    let after = executor
+        .block_on(
+            sqlx::query_scalar::<_, Value>(
+                "SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM canon.receipt r WHERE id<=120",
+            )
+            .fetch_one(&admin),
+        )
+        .unwrap();
+    assert_eq!(after, receipts);
+    executor.block_on(async {
+        pool.close().await;
+        admin.close().await;
+    });
+}
+
 #[test]
 fn real_pg_tools_roles_validity_bounded_results_and_trace_writer() {
     let pg = ScratchPg::start();
