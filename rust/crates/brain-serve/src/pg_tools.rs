@@ -9,6 +9,9 @@ use serde_json::{json, Value};
 use sqlx::{postgres::PgConnectOptions, PgConnection, PgPool, Row};
 use std::{collections::BTreeSet, future::Future, time::Duration};
 
+#[path = "timer_tools.rs"]
+mod timer_tools;
+
 const MAX_BYTES: usize = 16_384;
 const MAX_EVIDENCE: usize = 100;
 const EXACT: &str = "SELECT * FROM (
@@ -164,6 +167,8 @@ impl<T> PgTools<T> {
             .is_some_and(|patch| patch != "current")
             || matches!(request.subrequest(), ToolSubrequest::GetHero(hero)
                 if hero.patch.as_deref().is_some_and(|patch| patch != "current"))
+            || matches!(request.subrequest(), ToolSubrequest::GetTimer(timer)
+                if timer.patch.as_deref().is_some_and(|patch| patch != "current"))
         {
             return Ok(error_execution(
                 call_id,
@@ -218,6 +223,13 @@ impl<T> PgTools<T> {
                             "Kein veröffentlichter Heldensteckbrief für diese Entitäts-ID gefunden."));
                     };
                     profile
+                }
+                ToolSubrequest::GetTimer(timer) => {
+                    let Some(value) = timer_tools::read(&mut connection, timer).await? else {
+                        return Ok(error_execution(call_id, request.name(), "timer_not_found",
+                            "Keine veröffentlichten Zeitangaben für diesen Kartentimer gefunden."));
+                    };
+                    value
                 }
                 _ => return Err(invalid()),
             };
@@ -333,7 +345,7 @@ impl<T: ToolExecutionPort> ToolExecutionPort for PgTools<T> {
 }
 
 pub(super) fn canonical(name: ToolName) -> bool {
-    matches!(name, ToolName::FindEntity | ToolName::GetHero)
+    matches!(name, ToolName::FindEntity | ToolName::GetHero) || name == ToolName::GetTimer
 }
 
 fn normalize(text: &str) -> String {
@@ -368,6 +380,7 @@ fn definitions() -> Vec<ToolDefinition> {
                 "hero":{"type":"integer","minimum":1,"maximum":i64::MAX},
                 "patch":{"type":"string","minLength":1,"maxLength":128},
                 "sections":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"string","enum":["stats","abilities","weapon"]}}}})},
+        timer_tools::definition(),
     ]
 }
 
