@@ -527,3 +527,6 @@ fn append_only_from_traced_wiring_records_each_actual_call_once() {
     assert_eq!(traces.len(), 1);
     assert_eq!(traces[0], ["get_hero", "patch_history"]);
 }
+
+#[path = "pg_patch_tools_pg_contract.rs"]
+mod pg_contract;

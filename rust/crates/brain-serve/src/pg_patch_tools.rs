@@ -83,16 +83,19 @@ const HISTORICAL_FACTS: &str = "SELECT jsonb_build_object(
         'official_citation',f.snapshot_official_receipt_id::text,'patch',requested.label,
         'head_citation',(SELECT o.receipt_id::text FROM serve.published_patch_origin o WHERE o.patch_id=requested.id)))
     FROM serve.fact_patch_snapshot f JOIN canon.patch requested ON requested.id=f.snapshot_patch_id
+    JOIN canon.source_head h ON h.source_id=f.source_id AND h.published_revision_id>=f.valid_from_revision_id
     JOIN canon.patch introduced ON introduced.id=f.proven_from_patch
     JOIN serve.published_source_revision_patch opening ON opening.source_id=f.source_id
         AND opening.source_revision=f.source_revision
     LEFT JOIN canon.revision ending_revision ON ending_revision.id=f.valid_to_revision_id
+        AND ending_revision.id<=h.published_revision_id
     LEFT JOIN serve.published_source_revision_patch closing ON closing.source_id=f.source_id
         AND closing.source_revision=ending_revision.source_revision
     LEFT JOIN canon.patch ending ON ending.id=closing.patch_id
     WHERE f.entity_id=$1 AND f.snapshot_patch_id=$2 AND f.section=ANY($3::text[])
         AND introduced.released_at<=requested.released_at
-        AND (f.valid_to_revision_id IS NULL OR ending.released_at>requested.released_at)
+        AND (f.valid_to_revision_id IS NULL OR f.valid_to_revision_id>h.published_revision_id
+            OR ending.released_at>requested.released_at)
         AND f.snapshot_revision_id=(SELECT max(s.evidence_revision_id)
             FROM serve.published_source_revision_patch s WHERE s.source_id=f.source_id AND s.patch_id=$2)
     ORDER BY f.display_order,f.stat_key,f.source_id,f.id LIMIT 20";
@@ -110,6 +113,8 @@ const HISTORICAL_LINKS: &str = "SELECT jsonb_build_object(
         'official_citation',snapshot.patch_receipt_id::text,'patch',requested.label,
         'head_citation',(SELECT o.receipt_id::text FROM serve.published_patch_origin o WHERE o.patch_id=requested.id)))
     FROM canon.relation relation JOIN canon.revision v ON v.id=relation.valid_from_revision_id
+    JOIN canon.source_head h ON h.source_id=relation.source_id
+        AND h.published_revision_id>=relation.valid_from_revision_id
     JOIN serve.published_source_revision_patch opening ON opening.source_id=relation.source_id
         AND opening.source_revision=v.source_revision
     JOIN canon.patch introduced ON introduced.id=opening.patch_id JOIN canon.patch requested ON requested.id=$2
@@ -117,13 +122,14 @@ const HISTORICAL_LINKS: &str = "SELECT jsonb_build_object(
         WHERE s.source_id=relation.source_id AND s.patch_id=$2
         ORDER BY s.evidence_revision_id DESC LIMIT 1) snapshot ON true
     LEFT JOIN canon.revision ending_revision ON ending_revision.id=relation.valid_to_revision_id
+        AND ending_revision.id<=h.published_revision_id
     LEFT JOIN serve.published_source_revision_patch closing ON closing.source_id=relation.source_id
         AND closing.source_revision=ending_revision.source_revision
     LEFT JOIN canon.patch ending ON ending.id=closing.patch_id
     WHERE relation.from_entity_id=$1 AND relation.kind='has_ability'
         AND relation.valid_from_revision_id<=snapshot.evidence_revision_id
         AND introduced.released_at<=requested.released_at
-        AND (relation.valid_to_revision_id IS NULL OR
+        AND (relation.valid_to_revision_id IS NULL OR relation.valid_to_revision_id>h.published_revision_id OR
             (closing.evidence_revision_id IS NOT NULL AND relation.valid_to_revision_id>snapshot.evidence_revision_id
                 AND ending.released_at>requested.released_at))
     ORDER BY relation.slot,relation.source_id,relation.id LIMIT 20";
