@@ -264,11 +264,11 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
                 assert!(!serialized.contains("restricted-fixture-canary"));
                 assert!(!serialized.contains("source_document_id"));
                 if self.unverified {
-                    return Ok(ProviderAnswer {
-                        text: "Eine mögliche Antwort ohne bestätigte Daten.".into(),
-                        cited_evidence_ids: Vec::new(),
+                    return Ok(ProviderAnswer::prose(
+                        "Eine mögliche Antwort ohne bestätigte Daten.".into(),
+                        Vec::new(),
                         usage,
-                    }
+                    )
                     .into());
                 }
                 return Ok(ProviderTurn::ToolCalls {
@@ -285,14 +285,14 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
             assert!(evidence
                 .iter()
                 .all(|item| item.source_id == "fixture-server"));
-            Ok(ProviderAnswer {
-                text: "Die Sprechstunde ist am Freitag.".into(),
-                cited_evidence_ids: evidence
+            Ok(ProviderAnswer::prose(
+                "Die Sprechstunde ist am Freitag.".into(),
+                evidence
                     .iter()
                     .map(|item| item.evidence_id.clone())
                     .collect(),
                 usage,
-            }
+            )
             .into())
         }
     }
@@ -383,7 +383,7 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
         assert_eq!(
             outcome.value.status,
             if unverified {
-                brain_contracts::AnswerStatus::Unverified
+                brain_contracts::AnswerStatus::InsufficientEvidence
             } else {
                 brain_contracts::AnswerStatus::Answered
             }

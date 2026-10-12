@@ -8,6 +8,9 @@ use std::{
     time::{Duration, Instant},
 };
 pub(super) fn validation_status(error: &PortError) -> AnswerStatus {
+    if brain_contracts::answer_contract::AnswerViolation::from_error(error).is_some() {
+        return AnswerStatus::InsufficientEvidence;
+    }
     match error {
         PortError::PermissionDenied(_) => AnswerStatus::UnauthorizedEvidence,
         PortError::BudgetExceeded => AnswerStatus::BudgetExceeded,
@@ -19,6 +22,21 @@ fn log_game_refusal(query: &Query) {
         "{}",
         serde_json::json!({"event":"brain_answer_refused_no_game_evidence","request_id":query.request_id,"profile":query.profile})
     );
+}
+
+fn log_contract_refusal(
+    query: &Query,
+    violation: brain_contracts::answer_contract::AnswerViolation,
+) {
+    eprintln!(
+        "{}",
+        serde_json::json!({"event":"brain_answer_contract_rejected","request_id":query.request_id,"reason":format!("{violation:?}").to_ascii_lowercase()})
+    );
+}
+
+fn ambient_evidence(item: &Evidence) -> bool {
+    item.visibility == brain_contracts::SourceVisibility::RequestScoped
+        || item.source_id.starts_with("discord.")
 }
 
 fn provider_evidence_allowed(
@@ -204,6 +222,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     let mut retrieval_checked = false;
     let mut successful_tool_data = false;
     let mut deterministic_refusal = false;
+    let mut structured_refusal = false;
     let mut seen_calls = BTreeSet::new();
     let result = (|| -> Result<brain_contracts::ProviderAnswer, PortError> {
         let binding = kernel
@@ -277,16 +296,16 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     retrieval_checked = true;
                 }
                 if query.profile.requires_game_evidence()
-                    && evidence.is_empty()
+                    && evidence.iter().all(ambient_evidence)
                     && !successful_tool_data
                 {
                     log_game_refusal(query);
                     deterministic_refusal = true;
-                    return Ok(brain_contracts::ProviderAnswer {
-                        text: String::new(),
-                        cited_evidence_ids: Vec::new(),
-                        usage: Usage::default(),
-                    });
+                    return Ok(brain_contracts::ProviderAnswer::prose(
+                        String::new(),
+                        Vec::new(),
+                        Usage::default(),
+                    ));
                 }
                 if !retrieved_evidence.is_empty() {
                     let next = remaining(context, &accounting.charged(), elapsed())
@@ -369,7 +388,16 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             };
             turn.validate(&session.definitions)?;
             match turn {
-                ProviderTurn::Final { answer, .. } => {
+                ProviderTurn::Final { mut answer, .. } => {
+                    if let Err(violation) = answer.render(&evidence) {
+                        log_contract_refusal(query, violation);
+                        structured_refusal = true;
+                        return Ok(brain_contracts::ProviderAnswer::prose(
+                            String::new(),
+                            Vec::new(),
+                            answer.usage,
+                        ));
+                    }
                     let ids: BTreeSet<_> = answer.cited_evidence_ids.iter().collect();
                     let insufficient = answer.text.is_empty() && ids.is_empty();
                     let grounded = !ids.is_empty()
@@ -379,7 +407,10 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                             .all(|id| evidence.iter().any(|item| &item.evidence_id == *id));
                     if answer.text.len() > 64 * 1024
                         || (!insufficient && answer.text.trim().is_empty())
-                        || (kernel.quality_filters && !insufficient && !grounded)
+                        || (kernel.quality_filters
+                            && !insufficient
+                            && !grounded
+                            && !answer.is_social())
                     {
                         return Err(PortError::InvalidResponse(
                             "Ungültige finale Werkzeugantwort".into(),
@@ -549,7 +580,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             query,
             context,
             AnswerStatus::InsufficientEvidence,
-            if deterministic_refusal {
+            if deterministic_refusal || structured_refusal {
                 brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
             } else {
                 "Keine ausreichenden Belege für diese Antwort."
@@ -570,7 +601,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     .cited_evidence_ids
                     .iter()
                     .all(|id| evidence.iter().any(|item| &item.evidence_id == id));
-            let status = if grounded
+            let status = if (grounded || answer.is_social())
                 && (query.profile != brain_contracts::AnswerProfile::Build
                     || kernel.quality_filters)
             {
@@ -721,9 +752,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
         .into_iter()
         .filter(|item| item.validate().is_ok() && evidence_allowed(&context.principal, item))
         .collect();
-    if evidence.is_empty()
-        && (had_retrieved || quality_filters || query.profile.requires_game_evidence())
-    {
+    if evidence.is_empty() && (had_retrieved || query.profile.requires_game_evidence()) {
         if !had_retrieved && query.profile.requires_game_evidence() {
             log_game_refusal(query);
         }
@@ -738,6 +767,19 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             } else {
                 "Keine freigegebene ausreichende Evidenz."
             },
+            retrieval_usage,
+        );
+    }
+    if query.domain.is_none()
+        && query.profile.requires_game_evidence()
+        && !evidence
+            .iter()
+            .any(brain_contracts::answer_contract::is_game_source)
+    {
+        log_game_refusal(query);
+        return fail(
+            AnswerStatus::InsufficientEvidence,
+            brain_contracts::answer_contract::NO_AUTHORIZED_VALUE,
             retrieval_usage,
         );
     }
@@ -901,14 +943,21 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
     };
     let mut accounting = UsageAccounting::observed(retrieval_usage);
     let Accounted {
-        value: answer,
+        value: mut answer,
         accounting: provider_accounting,
     } = match provider.answer_accounted(query, &provider_context, &evidence) {
         Ok(answer) => answer,
         Err(failure) => {
             let error = account_failure(&mut accounting, failure, &provider_context);
+            if let Some(violation) =
+                brain_contracts::answer_contract::AnswerViolation::from_error(&error)
+            {
+                log_contract_refusal(query, violation);
+            }
             return fail(
-                if error == PortError::BudgetExceeded {
+                if brain_contracts::answer_contract::AnswerViolation::from_error(&error).is_some() {
+                    AnswerStatus::InsufficientEvidence
+                } else if error == PortError::BudgetExceeded {
                     AnswerStatus::BudgetExceeded
                 } else {
                     AnswerStatus::ProviderError
@@ -929,6 +978,13 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             "Provider überschreitet das Request Budget.",
         );
     }
+    if let Err(violation) = answer.render(&evidence) {
+        log_contract_refusal(query, violation);
+        return fail_provider(
+            AnswerStatus::InsufficientEvidence,
+            brain_contracts::answer_contract::NO_AUTHORIZED_VALUE,
+        );
+    }
     let ids: BTreeSet<_> = answer.cited_evidence_ids.iter().collect();
     let insufficient = answer.text.is_empty() && ids.is_empty();
     let grounded = !ids.is_empty()
@@ -938,7 +994,7 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             .all(|id| evidence.iter().any(|e| &e.evidence_id == *id));
     if answer.text.len() > 64 * 1024
         || (!insufficient && answer.text.trim().is_empty())
-        || (quality_filters && !insufficient && !grounded)
+        || (quality_filters && !insufficient && !grounded && !answer.is_social())
     {
         return fail_provider(
             AnswerStatus::ProviderError,
@@ -962,7 +1018,9 @@ pub(super) fn answer<R: RetrievalPort, P: AnswerProviderPort>(
             "Dazu hab ich gerade nichts Genaues, frag am besten direkt im Discord nach.",
         );
     }
-    let status = if grounded && query.profile != brain_contracts::AnswerProfile::Build {
+    let status = if (grounded || answer.is_social())
+        && query.profile != brain_contracts::AnswerProfile::Build
+    {
         AnswerStatus::Answered
     } else {
         eprintln!(

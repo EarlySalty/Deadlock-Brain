@@ -119,10 +119,9 @@ pub(super) fn select<'a>(query: &Query, evidence: &'a [Evidence]) -> Option<&'a 
     let query_numbers = numbers(&query.text);
     let mut matched_entities = BTreeSet::new();
     let mut candidates = Vec::new();
-    for item in evidence
-        .iter()
-        .filter(|item| item.kind == EvidenceKind::Fact)
-    {
+    for item in evidence.iter().filter(|item| {
+        item.kind == EvidenceKind::Fact && brain_contracts::answer_contract::is_game_source(item)
+    }) {
         let Some(provenance) = &item.provenance else {
             continue;
         };
@@ -204,7 +203,7 @@ mod tests {
         let content = format!("hero: {entity}\nAliases: {aliases}\n{fields}");
         Evidence {
             evidence_id: logical_id.clone(),
-            source_id: "fixture".into(),
+            source_id: "deadlock-assets-heroes".into(),
             logical_id: logical_id.clone(),
             revision: 1,
             kind: EvidenceKind::Fact,
@@ -215,7 +214,7 @@ mod tests {
             score: 9.0,
             provenance: Some(ChunkProvenance {
                 document: DocumentRevision {
-                    source_id: "fixture".into(),
+                    source_id: "deadlock-assets-heroes".into(),
                     logical_id,
                     revision: 1,
                     content_hash: "fixture".into(),

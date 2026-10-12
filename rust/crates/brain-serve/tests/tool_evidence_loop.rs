@@ -40,7 +40,7 @@ impl Kind {
     }
 
     fn response(self, call: Option<&ToolCall>, citations: &[&str]) -> Value {
-        let answer = json!({"text":"Geprüfte Antwort", "cited_evidence_ids":citations}).to_string();
+        let answer = json!({"kind":"grounded","parts":[{"kind":"prose","text":"Geprüfte Antwort"}],"cited_evidence_ids":citations}).to_string();
         match self {
             Self::Compatible => {
                 let message = match call {
@@ -732,7 +732,7 @@ fn konkrete_provider_verwerfen_unbekannte_finalzitate_mit_abrechnung() {
             inputs.clone(),
             executions,
         );
-        assert_eq!(outcome.value.status, AnswerStatus::Unavailable);
+        assert_eq!(outcome.value.status, AnswerStatus::InsufficientEvidence);
         assert!(outcome.value.citations.is_empty());
         assert_eq!(inputs.lock().unwrap().len(), 2);
         assert_eq!(server.finish().len(), 2);

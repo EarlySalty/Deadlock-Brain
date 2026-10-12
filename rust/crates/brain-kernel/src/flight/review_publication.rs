@@ -161,16 +161,16 @@ impl AnswerProviderPort for Provider {
             })
             .unwrap();
         assert!(*released, "test must release the provider gate");
-        Ok(ProviderAnswer {
-            text: "text derived from uncited B".into(),
-            cited_evidence_ids: vec![e
+        Ok(ProviderAnswer::prose(
+            "text derived from uncited B".into(),
+            vec![e
                 .iter()
                 .find(|e| e.logical_id == "a")
                 .unwrap()
                 .evidence_id
                 .clone()],
-            usage: Usage::default(),
-        })
+            Usage::default(),
+        ))
     }
 }
 fn unblock(gate: &Arc<(Mutex<bool>, Condvar)>) {

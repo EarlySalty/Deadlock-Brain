@@ -57,7 +57,7 @@ impl OpenAiCompatibleProvider {
         );
         let mut deviations = Vec::new();
         let result = (|| {
-            let mut parsed = if self.config.subscription {
+            let parsed = if self.config.subscription {
                 subscription_response(&bytes, &mut failed_check)?
             } else {
                 compatible_response(&bytes, &mut failed_check)?
@@ -89,20 +89,7 @@ impl OpenAiCompatibleProvider {
                 "finish_reason",
                 "complete end_turn or valid tool_use",
             );
-            let unverified_finish = !self.config.quality_filters
-                && parsed.finish_reason == ProviderFinishReason::MaxTokens
-                && !parsed
-                    .blocks
-                    .iter()
-                    .any(|block| matches!(block, ModelBlock::ToolUse { .. }));
-            if unverified_finish {
-                deviations.push(failed_check.clone());
-                self.report_category(
-                    Some(&request.query.request_id),
-                    "answer_unverified_truncated".into(),
-                );
-                parsed.finish_reason = ProviderFinishReason::EndTurn;
-            } else if matches!(
+            if matches!(
                 parsed.finish_reason,
                 ProviderFinishReason::MaxTokens | ProviderFinishReason::Refusal
             ) {
@@ -155,16 +142,9 @@ impl OpenAiCompatibleProvider {
                         ModelBlock::ToolUse { .. } => None,
                     })
                     .collect();
-                failed_check = super::audit::check("grounded_envelope", "message.content", "object with text and cited_evidence_ids; nonempty text requires known unique evidence IDs");
-                let answer = grounded_answer(
-                    text.clone(),
-                    usage.clone(),
-                    evidence,
-                    !tools.is_empty()
-                        || !conversation.messages.is_empty()
-                        || !self.config.quality_filters,
-                    &mut failed_check,
-                );
+                failed_check = super::audit::check("grounded_envelope", "message.content", "object with kind, parts and cited_evidence_ids; values require exact evidence fields");
+                let answer =
+                    grounded_answer(text.clone(), usage.clone(), evidence, &mut failed_check);
                 if matches!(&answer, Err(ProviderError::InvalidResponse(message)) if message == "grounded answer envelope missing")
                 {
                     let shape = if text.trim().starts_with("```") {
@@ -183,34 +163,7 @@ impl OpenAiCompatibleProvider {
                         format!("grounded_envelope_{shape}"),
                     );
                 }
-                let answer = match answer {
-                    Ok(_) if unverified_finish => {
-                        failed_check = super::audit::check(
-                            "unverified_answer",
-                            "message.content",
-                            "nonempty display-safe answer text",
-                        );
-                        unverified_answer(&text, usage, evidence)?
-                    }
-                    Ok(answer) => answer,
-                    Err(error @ ProviderError::InvalidResponse(_))
-                        if !self.config.quality_filters =>
-                    {
-                        deviations.push(failed_check.clone());
-                        self.report_failure(Some(&request.query.request_id), &error);
-                        self.report_category(
-                            Some(&request.query.request_id),
-                            "answer_unverified".into(),
-                        );
-                        failed_check = super::audit::check(
-                            "unverified_answer",
-                            "message.content",
-                            "nonempty display-safe answer text",
-                        );
-                        unverified_answer(&text, usage, evidence)?
-                    }
-                    Err(error) => return Err(error),
-                };
+                let answer = answer?;
                 ProviderTurn::Final {
                     answer,
                     finish_reason: parsed.finish_reason,
@@ -962,159 +915,32 @@ fn compatible_response(
     })
 }
 
-fn unverified_answer(raw: &str, usage: Usage, evidence: &[Evidence]) -> Result<ProviderAnswer> {
-    let raw = raw.trim();
-    let body = raw
-        .strip_prefix("```")
-        .and_then(|fenced| fenced.split_once('\n').map(|(_, body)| body))
-        .map(|body| body.strip_suffix("```").unwrap_or(body).trim())
-        .unwrap_or(raw);
-    let body = body
-        .split_once('{')
-        .filter(|(prefix, suffix)| {
-            !prefix.trim().is_empty()
-                && (suffix.trim_start().starts_with("\"text\"")
-                    || suffix.trim_start().starts_with("\"cited_evidence_ids\""))
-        })
-        .map(|(prefix, _)| prefix.trim_end())
-        .unwrap_or(body);
-    let decoded = parse_unique_json(body.as_bytes()).ok();
-    let extracted = decoded.as_ref().and_then(|value| {
-        value
-            .as_str()
-            .or_else(|| value.get("text").and_then(Value::as_str))
-    });
-    let partial = if extracted.is_none() && body.starts_with('{') {
-        body.find("\"text\"").and_then(|start| {
-            let rest = &body[start + "\"text\"".len()..];
-            let rest = rest.trim_start().strip_prefix(':')?.trim_start();
-            match serde_json::Deserializer::from_str(rest)
-                .into_iter::<String>()
-                .next()?
-            {
-                Ok(text) => Some(text),
-                Err(error) if error.is_eof() && rest.starts_with('"') => {
-                    let mut completed = rest.to_owned();
-                    if completed
-                        .as_bytes()
-                        .iter()
-                        .rev()
-                        .take_while(|byte| **byte == b'\\')
-                        .count()
-                        % 2
-                        == 1
-                    {
-                        completed.pop();
-                    }
-                    completed.push('"');
-                    serde_json::from_str(&completed).ok()
-                }
-                Err(_) => None,
-            }
-        })
-    } else {
-        None
-    };
-    let answer_text = extracted.or(partial.as_deref());
-    if answer_text.is_none() && body.starts_with(['{', '[']) {
-        return Err(ProviderError::InvalidResponse(
-            "structured answer text missing".into(),
-        ));
-    }
-    let text = answer_text.unwrap_or(body);
-    let text = text
-        .find("cited_evidence_ids")
-        .map(|end| {
-            text[..end].trim_end_matches([' ', '\n', '\r', '\t', '"', '\\', ',', '`', '*', '{'])
-        })
-        .unwrap_or(text);
-    let mut text = brain_contracts::provider_input::discord_display_text(text);
-    for (start, end) in [("[[ev-", "]]"), ("\u{e200}cite\u{e202}", "\u{e201}")] {
-        text = text
-            .split(start)
-            .enumerate()
-            .filter_map(|(index, part)| {
-                if index == 0 {
-                    Some(part)
-                } else {
-                    part.split_once(end).map(|(_, rest)| rest)
-                }
-            })
-            .collect();
-    }
-    for item in evidence {
-        text = text.replace(&item.evidence_id, "");
-    }
-    text = text.replace("[[]]", "").replace("【】", "");
-    if text.trim().is_empty() || text.len() > 64 * 1024 {
-        return Err(ProviderError::InvalidResponse(
-            "empty or oversized unverified answer".into(),
-        ));
-    }
-    Ok(ProviderAnswer {
-        text,
-        cited_evidence_ids: Vec::new(),
-        usage,
-    })
-}
-
 fn grounded_answer(
     text: String,
     usage: Usage,
     evidence: &[Evidence],
-    require_grounded: bool,
     check: &mut brain_contracts::response_audit::ResponseCheck,
 ) -> Result<ProviderAnswer> {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Grounded {
-        text: String,
-        cited_evidence_ids: Vec<String>,
-    }
-    let text = text.trim().to_owned();
-    if text.is_empty() {
-        return Err(ProviderError::InvalidResponse(
-            "empty provider answer".into(),
-        ));
-    }
-    let (text, cited_evidence_ids) = if evidence.is_empty() && !require_grounded {
-        if parse_unique_json(text.as_bytes()).is_err_and(|error| error.is_data()) {
-            return Err(ProviderError::InvalidResponse(
-                "grounded answer envelope missing".into(),
-            ));
-        }
-        (text, Vec::new())
-    } else {
-        let envelope_error =
-            || ProviderError::InvalidResponse("grounded answer envelope missing".into());
-        let grounded: Grounded = checked_response(text.as_bytes(), check).map_err(|_| {
-            check.check = "grounded_envelope".into();
-            check.field = format!("message.content.{}", check.field);
-            envelope_error()
-        })?;
-        let unique: std::collections::BTreeSet<_> = grounded.cited_evidence_ids.iter().collect();
-        let insufficient = grounded.text.is_empty() && unique.is_empty();
-        if (!insufficient && (grounded.text.trim().is_empty() || unique.is_empty()))
-            || unique.len() != grounded.cited_evidence_ids.len()
-            || unique
-                .iter()
-                .any(|id| !evidence.iter().any(|item| &item.evidence_id == *id))
-        {
-            *check = super::audit::check(
-                "citation_invalid",
-                "cited_evidence_ids",
-                "nonempty unique IDs from the supplied evidence",
-            );
-            return Err(ProviderError::InvalidResponse(
-                "unknown, duplicate or missing citation".into(),
-            ));
-        }
-        (grounded.text, grounded.cited_evidence_ids)
-    };
+    let structured = checked_response::<brain_contracts::answer_contract::StructuredAnswer>(
+        text.as_bytes(),
+        check,
+    )
+    .map_err(|_| {
+        ProviderError::InvalidResponse(
+            brain_contracts::answer_contract::AnswerViolation::Format
+                .code()
+                .into(),
+        )
+    })?;
+    let rendered = structured.render(evidence).map_err(|violation| {
+        *check = super::audit::check("answer_contract", "message.content.parts", violation.code());
+        ProviderError::InvalidResponse(violation.code().into())
+    })?;
     Ok(ProviderAnswer {
-        text,
-        cited_evidence_ids,
+        text: rendered,
+        cited_evidence_ids: structured.cited_evidence_ids.clone(),
         usage,
+        structured: Some(structured),
     })
 }
 

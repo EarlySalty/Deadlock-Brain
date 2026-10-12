@@ -475,11 +475,11 @@ impl AnswerProviderPort for Counting {
         evidence: &[Evidence],
     ) -> Result<ProviderAnswer, PortError> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        Ok(ProviderAnswer {
-            text: "Kartenzusammenfassung".into(),
-            cited_evidence_ids: evidence.iter().map(|e| e.evidence_id.clone()).collect(),
-            usage: Usage::default(),
-        })
+        Ok(ProviderAnswer::prose(
+            "Kartenzusammenfassung".into(),
+            evidence.iter().map(|e| e.evidence_id.clone()).collect(),
+            Usage::default(),
+        ))
     }
 }
 #[tokio::test]

@@ -59,7 +59,7 @@ async fn answer(
         );
     }
     tokio::time::sleep(Duration::from_millis(state.delay_ms.load(Ordering::SeqCst))).await;
-    let grounded = json!({"text": "Abrams has a verified fixture.", "cited_evidence_ids": [input["evidence"][0]["id"]]}).to_string();
+    let grounded = json!({"kind":"grounded","parts":[{"kind":"prose","text":"Abrams has a verified fixture."}],"cited_evidence_ids": [input["evidence"][0]["id"]]}).to_string();
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/json")],

@@ -41,6 +41,7 @@ fn record(id: &str, revision: u64, publication: bool, fact: bool) -> SourceRecor
         metadata: BTreeMap::new(),
     };
     if fact {
+        record.source_id = "deadlock-assets-heroes".into();
         record.metadata.insert("kind".into(), "fact".into());
     }
     OriginArtifact {
@@ -449,19 +450,19 @@ impl AnswerProviderPort for Provider {
         if let Some(store) = &self.revoke {
             store.apply_record(record("b", 2, false, false)).unwrap();
         }
-        Ok(ProviderAnswer {
-            text: "answer derived from uncited B".into(),
-            cited_evidence_ids: vec![evidence
+        Ok(ProviderAnswer::prose(
+            "answer derived from uncited B".into(),
+            vec![evidence
                 .iter()
                 .find(|e| e.source_id == "publication-a")
                 .unwrap()
                 .evidence_id
                 .clone()],
-            usage: Usage {
+            Usage {
                 network_rounds: 1,
                 ..Usage::default()
             },
-        })
+        ))
     }
 }
 #[derive(Clone)]
@@ -510,7 +511,7 @@ async fn retrieval_returns_original_public_text_without_provider_or_internal_met
         assert_eq!(public.status, AnswerStatus::Answered);
     }
     for secret in [
-        "publication-a",
+        "deadlock-assets-heroes",
         "entity/hero",
         "fixture-grant",
         "allowed_scopes",
@@ -648,7 +649,7 @@ async fn retrieval_http_route_enforces_authentication_and_dispatches_without_pro
         if expected.ends_with("200") {
             assert!(response.contains("hero: Abrams"));
             assert!(response.contains("no-store"));
-            assert!(!response.contains("publication-a"));
+            assert!(!response.contains("deadlock-assets-heroes"));
         } else {
             assert!(!response.contains("650"));
         }

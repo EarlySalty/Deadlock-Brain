@@ -38,7 +38,7 @@ async fn provider(
         serde_json::from_str(request["messages"][1]["content"].as_str().unwrap()).unwrap();
     let id = input["evidence"][0]["id"].as_str().unwrap();
     let answer =
-        serde_json::json!({"text":"Abrams: belegte Fixture-Antwort.","cited_evidence_ids":[id]})
+        serde_json::json!({"kind":"grounded","parts":[{"kind":"prose","text":"Abrams: belegte Fixture-Antwort."}],"cited_evidence_ids":[id]})
             .to_string();
     (StatusCode::OK,[(header::CONTENT_TYPE,"application/json")],serde_json::json!({"model":"fixture-model","choices":[{"message":{"role":"assistant","content":answer},"finish_reason":"stop"}],"usage":{"prompt_tokens":16,"completion_tokens":10}}).to_string())
 }

@@ -157,7 +157,7 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
             .ok_or_else(denied)?;
         lines.push(format!("Join-to-create: {}.", channel.name));
     }
-    for lane in &facts.tempvoice.open_lanes {
+    for (index, lane) in facts.tempvoice.open_lanes.iter().enumerate() {
         let channel = facts
             .channels
             .iter()
@@ -167,8 +167,9 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
             "Offene Lane: {}, Art {}, {} anwesend.",
             channel.name, lane.mode, lane.count
         ));
+        lines.push(format!("open_lanes/{index}/occupancy: {}", lane.count));
     }
-    for c in &facts.channels {
+    for (index, c) in facts.channels.iter().enumerate() {
         let kind = match c.kind {
             0 => "Textkanal",
             2 => "Voice",
@@ -185,10 +186,8 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
             .and_then(|id| facts.channels.iter().find(|p| p.id == *id))
             .map(|p| format!(", Kategorie {}", p.name))
             .unwrap_or_default();
-        let count = facts
-            .voice_counts
-            .iter()
-            .find(|v| v.channel_id == c.id)
+        let voice_count = facts.voice_counts.iter().find(|v| v.channel_id == c.id);
+        let count = voice_count
             .map(|v| format!(", {} anwesend", v.count))
             .unwrap_or_default();
         lines.push(format!(
@@ -197,6 +196,9 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
             c.position,
             c.topic.as_deref().unwrap_or_default()
         ));
+        if let Some(voice_count) = voice_count {
+            lines.push(format!("channels/{index}/count: {}", voice_count.count));
+        }
     }
     for info in &facts.bot_infos {
         lines.push(format!(
@@ -352,6 +354,42 @@ impl DiscordLive {
             .map(str::to_owned)
             .ok_or_else(unavailable)
     }
+}
+
+fn paired_count(line: &str, prose: &str) -> bool {
+    if prose.contains('\n') {
+        return false;
+    }
+    let Some((field, value)) = line.split_once(':') else {
+        return false;
+    };
+    if value.trim().parse::<u64>().is_err() {
+        return false;
+    }
+    let (prefix, suffix) = if prose.starts_with("Offene Lane: ") {
+        ("open_lanes/", "/occupancy")
+    } else if prose.starts_with("Voice: ") || prose.starts_with("Stage: ") {
+        ("channels/", "/count")
+    } else {
+        return false;
+    };
+    field
+        .strip_prefix(prefix)
+        .and_then(|field| field.strip_suffix(suffix))
+        .is_some_and(|index| !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+fn live_evidence_units(content: &str) -> Vec<String> {
+    let mut units: Vec<String> = Vec::new();
+    for line in content.lines() {
+        if let Some(prose) = units.last_mut().filter(|prose| paired_count(line, prose)) {
+            prose.push('\n');
+            prose.push_str(line);
+        } else {
+            units.push(line.to_owned());
+        }
+    }
+    units
 }
 
 fn allowed(query: &Query, context: &AuthorizedContext, provider: bool) -> bool {
@@ -612,21 +650,23 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                         > packing_context.budget.max_input_tokens as u64
                 {
                     let terms = brain_contracts::lexical::terms(&query.text);
-                    let mut lines: Vec<_> = current.content.lines().collect();
+                    let mut lines = live_evidence_units(&current.content);
                     lines.sort_by_key(|line| {
                         let line = line.to_lowercase();
                         !terms.iter().any(|term| line.contains(term))
                     });
                     let mut seen = HashSet::new();
-                    lines.retain(|line| seen.insert(*line));
+                    lines.retain(|line| seen.insert(line.clone()));
                     candidates = lines
                         .into_iter()
                         .filter(|line| !line.trim().is_empty())
                         .map(|line| {
                             let mut item = current.clone();
-                            item.content = line.to_owned();
-                            item.evidence_id =
-                                format!("discord-live-{:x}", Sha256::digest(line.as_bytes()));
+                            item.content = line;
+                            item.evidence_id = format!(
+                                "discord-live-{:x}",
+                                Sha256::digest(item.content.as_bytes())
+                            );
                             item
                         })
                         .collect();
@@ -914,7 +954,7 @@ mod tests {
                 let status: brain_contracts::invite::SelfInviteStatus =
                     serde_json::from_str(data["evidence"][0]["content"].as_str().unwrap()).unwrap();
                 assert_eq!(status.status, brain_contracts::invite::InviteStatus::Sent);
-                let answer = json!({"text":"Deine Einladung ist verschickt.","cited_evidence_ids":[brain_contracts::invite::EVIDENCE_ID]}).to_string();
+                let answer = json!({"kind":"grounded","parts":[{"kind":"prose","text":"Deine Einladung ist verschickt."}],"cited_evidence_ids":[brain_contracts::invite::EVIDENCE_ID]}).to_string();
                 reply(
                     &mut stream,
                     if native {
@@ -1087,11 +1127,11 @@ mod tests {
                 let data: Value = serde_json::from_str(&payload[1].content).unwrap();
                 assert_eq!(data["query"], query.text);
                 assert!(!payload[1].content.contains("discord.request:"));
-                Ok(ProviderAnswer {
-                    text: "Antwort aus gespeichertem Wissen".into(),
-                    cited_evidence_ids: vec![items[0].evidence_id.clone()],
-                    usage: Usage::default(),
-                })
+                Ok(ProviderAnswer::prose(
+                    "Antwort aus gespeichertem Wissen".into(),
+                    vec![items[0].evidence_id.clone()],
+                    Usage::default(),
+                ))
             }
         }
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1348,6 +1388,80 @@ mod tests {
     }
 
     #[test]
+    fn tight_budget_keeps_or_drops_count_and_lane_prose_together() {
+        let query: Query = serde_json::from_value(json!({
+            "request_id":"r", "conversation_id":"c", "text":"Welche Discord-Lanes gibt es?"
+        }))
+        .unwrap();
+        let context = AuthorizedContext {
+            discord: None,
+            request_deadline: None,
+            principal: brain_contracts::Principal {
+                actor_id: "fixture".into(),
+                channel: "fixture".into(),
+                scopes: BTreeSet::new(),
+                provider_egress: BTreeSet::new(),
+            },
+            conversation_id: query.conversation_id.clone(),
+            knowledge_release: "fixture".into(),
+            deadline_ms: 1000,
+            budget: brain_contracts::Budget {
+                max_input_tokens: 8672,
+                ..brain_contracts::Budget::default()
+            },
+        };
+        let mut lines = Vec::new();
+        for index in 0..10 {
+            lines.push(format!(
+                "Offene Lane: Lane-{index}, Art ranked, {index} anwesend."
+            ));
+            lines.push(format!("open_lanes/{index}/occupancy: {index}"));
+            lines.push(format!(
+                "Voice: Lane-{index}, {index} anwesend, Reihenfolge {index}. {}",
+                "a".repeat(700)
+            ));
+            lines.push(format!("channels/{index}/count: {index}"));
+        }
+        let units = live_evidence_units(&lines.join("\n"));
+        assert_eq!(units.len(), 20);
+        let candidates = units
+            .iter()
+            .map(|content| {
+                serde_json::from_value::<Evidence>(json!({
+                    "evidence_id":format!("discord-live-{:x}", Sha256::digest(content.as_bytes())),
+                    "source_id":SOURCE, "logical_id":"fixture", "revision":1,
+                    "kind":"prose", "content":content, "citation":"synthetic",
+                    "visibility":"request_scoped", "allowed_scopes":[], "score":1.0,
+                    "provenance":null, "patch":null
+                }))
+                .unwrap()
+            })
+            .collect();
+        let packed = dbrain_retrieval::pack(&query, &context, candidates).unwrap();
+        let mut kept = 0;
+        let mut dropped = 0;
+        for unit in &units {
+            let (prose, count) = unit.split_once('\n').unwrap();
+            let prose_kept = packed
+                .iter()
+                .any(|item| item.content.lines().any(|line| line == prose));
+            let count_kept = packed
+                .iter()
+                .any(|item| item.content.lines().any(|line| line == count));
+            assert_eq!(prose_kept, count_kept);
+            if count_kept {
+                kept += 1;
+                assert!(packed.iter().any(|item| item.content == *unit));
+            } else {
+                dropped += 1;
+            }
+        }
+        assert!(kept > 0);
+        assert!(dropped > 0);
+        assert!(brain_contracts::provider_input::grounded_input_ceiling(&query, &packed) <= 8672);
+    }
+
+    #[test]
     fn grosse_live_panels_und_doku_passen_gemeinsam_ins_providerbudget() {
         use brain_contracts::{provider_input::grounded_input_ceiling, AnswerProviderPort};
         use brain_providers::{OpenAiCompatibleProvider, PriceCeiling, ProviderConfig};
@@ -1521,13 +1635,37 @@ mod tests {
                     .to_string()
                     .contains("https://discord.com/channels/1"));
                 println!("Provider-Input: Ortskontext Hilfe / Community / mention angekommen");
-                let ids: Vec<_> = supplied["evidence"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter(|item| item["content"].as_str().unwrap().contains("Lane"))
-                    .map(|item| item["id"].clone())
-                    .collect();
+                let mut parts = Vec::new();
+                let mut ids = Vec::new();
+                for (index, lane, count) in [
+                    (1, "Anfänger-Lane", "3"),
+                    (2, "Ranked-Lane", "4"),
+                    (3, "Turnier-Lane", "5"),
+                ] {
+                    let field = format!("channels/{index}/count");
+                    let item = supplied["evidence"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|item| {
+                            item["citable_values"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .any(|value| {
+                                    value["kind"] == "other"
+                                        && value["field"] == field
+                                        && value["value"] == count
+                                })
+                        })
+                        .expect("Gepackte Lane braucht ihr belegbares Zählfeld");
+                    if !ids.contains(&item["id"]) {
+                        ids.push(item["id"].clone());
+                    }
+                    parts.push(json!({"kind":"prose","text":format!("{lane}: ")}));
+                    parts.push(json!({"kind":"other","evidence_id":item["id"],"field":field,"value":count}));
+                    parts.push(json!({"kind":"prose","text":" anwesend. "}));
+                }
                 assert!(!ids.is_empty());
                 assert!(supplied["evidence"].as_array().unwrap().iter().any(|item| {
                     item["id"] == "doc-0"
@@ -1536,7 +1674,7 @@ mod tests {
                             .unwrap()
                             .contains("Casual, Ranked oder Street Brawl")
                 }));
-                let answer = json!({"text":"Es gibt Anfänger-Lane, Ranked-Lane und Turnier-Lane.","cited_evidence_ids":ids});
+                let answer = json!({"kind":"grounded","parts":parts,"cited_evidence_ids":ids});
                 reply(
                     &mut stream,
                     json!({"model":"fixture-model","choices":[{"message":{"content":answer.to_string()},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000,"completion_tokens":40}}),
@@ -1595,6 +1733,9 @@ mod tests {
                 .answer(&query, &context, &items)
                 .unwrap();
             assert!(answer.text.contains("Turnier-Lane"));
+            for count in ["3 anwesend", "4 anwesend", "5 anwesend"] {
+                assert!(answer.text.contains(count));
+            }
             assert_eq!(answer.usage.network_rounds + usage.network_rounds, 2);
             worker.join().unwrap();
             let mut other_query = query.clone();
@@ -1822,14 +1963,14 @@ mod tests {
                 assert!(messages[0]
                     .content
                     .contains("Aktuelle Live-Fakten belegen keinen historischen Zustand"));
-                Ok(ProviderAnswer {
-                    text: String::new(),
-                    cited_evidence_ids: Vec::new(),
-                    usage: Usage {
+                Ok(ProviderAnswer::prose(
+                    String::new(),
+                    Vec::new(),
+                    Usage {
                         network_rounds: 1,
                         ..Usage::default()
                     },
-                })
+                ))
             }
         }
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -2350,6 +2491,28 @@ mod tests {
             .unwrap()
             .1;
         assert!(fact.content.contains("3 anwesend"));
+        let mut with_lane = public.clone();
+        with_lane["tempvoice"] = json!({"category_ids":[],"join_channel_ids":[],
+            "open_lanes":[{"channel_id":"2","count":3,"mode":"ranked"}]});
+        let lane_fact = evidence(serde_json::from_value(with_lane).unwrap())
+            .unwrap()
+            .1;
+        for (item, field) in [
+            (&fact, "channels/0/count"),
+            (&lane_fact, "open_lanes/0/occupancy"),
+        ] {
+            let answer = brain_contracts::answer_contract::StructuredAnswer {
+                kind: brain_contracts::answer_contract::AnswerKind::Grounded,
+                parts: vec![brain_contracts::answer_contract::AnswerPart::Other {
+                    evidence_id: item.evidence_id.clone(),
+                    field: field.into(),
+                    value: "3".into(),
+                }],
+                cited_evidence_ids: vec![item.evidence_id.clone()],
+            };
+            assert_eq!(answer.render(std::slice::from_ref(item)).unwrap(), "3");
+            assert!(!brain_contracts::answer_contract::is_game_source(item));
+        }
         assert_eq!(fact.visibility, SourceVisibility::RequestScoped);
         assert_eq!(
             fact.allowed_scopes,

@@ -97,19 +97,19 @@ impl AnswerProviderPort for PartialCitationProvider {
         if let Some((store, tombstone)) = &self.revoke {
             revoke(store, record("b", 1), *tombstone);
         }
-        Ok(ProviderAnswer {
-            text: "answer containing uncited B input".into(),
-            cited_evidence_ids: vec![evidence
+        Ok(ProviderAnswer::prose(
+            "answer containing uncited B input".into(),
+            vec![evidence
                 .iter()
                 .find(|e| e.source_id == "review-a")
                 .unwrap()
                 .evidence_id
                 .clone()],
-            usage: Usage {
+            Usage {
                 network_rounds: 1,
                 ..Usage::default()
             },
-        })
+        ))
     }
 }
 
@@ -200,16 +200,18 @@ async fn fact_reuse_rechecks_newly_visible_conflict_and_alias_collision() {
     for alias_collision in [false, true] {
         let store = MemoryRepository::default();
         let mut a = record("a", 1);
+        a.source_id = "deadlock-assets-heroes".into();
         a.content = "hero: Abrams\nAliases: Guardian\nhealth: 650".into();
         a.metadata.insert("kind".into(), "fact".into());
         let mut b = record("b", 1);
+        b.source_id = "legacy-entities".into();
         if alias_collision {
             b.logical_id = "entity/hero/Bebop".into();
             b.content = "hero: Bebop\nAliases: Guardian\nhealth: 700".into();
         } else {
-            a.source_id = "review-facts".into();
+            a.source_id = "deadlock-assets-heroes".into();
             a.logical_id = "asset/hero/25/a".into();
-            b.source_id = "review-facts".into();
+            b.source_id = "deadlock-assets-heroes".into();
             b.logical_id = "asset/hero/25/b".into();
             b.content = "hero: Abrams\nhealth: 700".into();
         }
@@ -266,7 +268,7 @@ async fn hybrid_fact_limit_cannot_hide_a_pinned_conflicting_value() {
     let store = MemoryRepository::default();
     for (id, value) in [("a", 650), ("b", 700)] {
         let mut fact = record(id, 1);
-        fact.source_id = "review-facts".into();
+        fact.source_id = "deadlock-assets-heroes".into();
         fact.logical_id = format!("asset/hero/25/{id}");
         fact.content = format!("hero: Abrams\nhealth: {value}");
         fact.metadata.insert("kind".into(), "fact".into());
@@ -342,12 +344,14 @@ impl brain_contracts::SnapshotReadPort for CountedStore {
 async fn fresh_fact_selection_reuses_the_release_index_and_bounds_head_reads() {
     let store = MemoryRepository::default();
     let mut a = record("a", 1);
+    a.source_id = "deadlock-assets-heroes".into();
     a.content = "hero: Abrams\nhealth: 650".into();
     a.metadata.insert("kind".into(), "fact".into());
     a.content_hash = dbrain_sources::external::sha256(a.content.as_bytes());
     store.apply_record(a).unwrap();
     for index in 1..256 {
         let mut unrelated = record(&format!("unrelated-{index}"), 1);
+        unrelated.source_id = "deadlock-assets-heroes".into();
         unrelated.logical_id = format!("entity/hero/Unrelated{index}");
         unrelated.content = format!("hero: Unrelated{index}\nhealth: 650");
         unrelated.metadata.insert("kind".into(), "fact".into());
@@ -433,7 +437,7 @@ async fn concurrent_fact_requests_reselect_instead_of_sharing_an_old_winner() {
     for alias in [false, true] {
         let store = MemoryRepository::default();
         let mut a = record("a", 1);
-        a.source_id = "review-facts".into();
+        a.source_id = "deadlock-assets-heroes".into();
         a.logical_id = "asset/hero/25/a".into();
         a.content = "hero: Abrams\nAliases: Guardian\nhealth: 650".into();
         a.metadata.insert("kind".into(), "fact".into());

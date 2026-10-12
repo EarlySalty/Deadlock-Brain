@@ -93,14 +93,14 @@ impl AnswerProviderPort for Provider {
         if self.revoke_during_call {
             self.revoked.store(true, Ordering::SeqCst);
         }
-        Ok(ProviderAnswer {
+        Ok(ProviderAnswer::prose(
             text,
-            cited_evidence_ids: vec!["public".into()],
-            usage: Usage {
+            vec!["public".into()],
+            Usage {
                 network_rounds: 1,
                 ..Usage::default()
             },
-        })
+        ))
     }
 }
 fn request() -> Query {
@@ -222,6 +222,7 @@ impl RetrievalPort for FactReader {
 fn fact(id: &str, hero: &str, health: &str) -> Evidence {
     let mut item = source(id, false);
     item.kind = EvidenceKind::Fact;
+    item.source_id = "deadlock-assets-heroes".into();
     item.logical_id = format!("entity/hero/{hero}");
     item.content = format!("hero: {hero}\nAliases: Guardian\nhealth: {health}");
     item.provenance = Some(brain_contracts::ChunkProvenance {

@@ -50,7 +50,7 @@ impl Branch {
         let text = if malformed {
             "{broken".into()
         } else {
-            json!({"text":"Strukturprobe", "cited_evidence_ids":["e1"]}).to_string()
+            json!({"kind":"grounded","parts":[{"kind":"prose","text":"Strukturprobe"}],"cited_evidence_ids":["e1"]}).to_string()
         };
         match self {
             Self::OpenAi => {

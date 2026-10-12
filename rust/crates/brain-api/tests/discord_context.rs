@@ -322,7 +322,7 @@ async fn all_routes_always_send_ordered_public_projection_before_real_provider_t
             let ids: Vec<Value> = evidence.iter().map(|item| item["id"].clone()).collect();
             assert!(!ids.is_empty());
             let answer =
-                json!({"text":"Hier ist die Antwort auf deine Frage.", "cited_evidence_ids":ids})
+                json!({"kind":"grounded","parts":[{"kind":"prose","text":"Hier ist die Antwort auf deine Frage."}], "cited_evidence_ids":ids})
                     .to_string();
             let response = json!({"model":"gpt-6-luna", "stop_reason":"end_turn", "content":[{"type":"text","text":answer}], "usage":{"input_tokens":12,"output_tokens":3}}).to_string();
             recorded.lock().unwrap().push(request);
