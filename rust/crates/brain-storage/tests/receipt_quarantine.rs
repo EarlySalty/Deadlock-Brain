@@ -3,9 +3,6 @@ use serde_json::Value;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use std::{os::unix::fs::PermissionsExt, path::PathBuf, process::Command};
 
-const AUDIT_SCHEMA: &str = include_str!(
-    "../../../../scripts/migrations/2026-10-12-brain-gamefacts-p9-receipt-audit-v1.sql"
-);
 const SEED: &str = include_str!("fixtures/receipt_audit_seed.sql");
 
 struct Scratch {
@@ -140,7 +137,12 @@ async fn quarantine_projection_contract_in_real_postgres() {
         count(&owner, "SELECT count(*) FROM serve.current_fact").await,
         2
     );
-    sqlx::raw_sql(AUDIT_SCHEMA).execute(&owner).await.unwrap();
+    let versions: Vec<i32> =
+        sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version ORDER BY version")
+            .fetch_all(&owner)
+            .await
+            .unwrap();
+    assert_eq!(versions, [1, 6]);
     PgStore::new(owner.clone())
         .check_gamefacts_schema()
         .await

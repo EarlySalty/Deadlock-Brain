@@ -389,6 +389,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "brain-contracts",
+ "brain-storage",
  "clap",
  "deadlock-brain-core",
  "hex",

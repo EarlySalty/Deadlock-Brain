@@ -4,6 +4,7 @@ use brain_job::{
     receipt_audit::audit_pool,
     store::{Counts, Store},
 };
+use brain_storage::PgStore;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{postgres::PgPoolOptions, PgPool};
@@ -134,18 +135,15 @@ async fn real_receipt_audit_quarantines_only_corrupted_fact_and_bounds_sample() 
         .await
         .unwrap();
     let owner = scratch.pool("brain_p9", "brain_migrate").await;
-    sqlx::raw_sql(include_str!(
-        "../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"
-    ))
-    .execute(&owner)
-    .await
-    .unwrap();
-    sqlx::raw_sql(include_str!(
-        "../../../../scripts/migrations/2026-10-12-brain-gamefacts-p9-receipt-audit-v1.sql"
-    ))
-    .execute(&owner)
-    .await
-    .unwrap();
+    let owner_store = PgStore::new(owner.clone());
+    owner_store.migrate_gamefacts().await.unwrap();
+    owner_store.check_gamefacts_schema().await.unwrap();
+    let versions: Vec<i32> =
+        sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version ORDER BY version")
+            .fetch_all(&owner)
+            .await
+            .unwrap();
+    assert_eq!(versions, [1, 6]);
     let writer = scratch.pool("brain_p9", "brain_ingest").await;
     ingest(
         &writer,

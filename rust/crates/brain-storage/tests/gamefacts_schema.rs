@@ -620,11 +620,12 @@ async fn real_postgres_gamefacts_receipts_publication_and_roles() {
             .unwrap();
     assert_eq!(kinds, ["ability", "hero", "item", "timer"]);
     error_code(&ingest, "INSERT INTO canon.entity(kind,key,identity_receipt_id) VALUES ('structure','kind_contract_invalid',1)", "23514").await;
-    let versions: Vec<i32> = sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version")
-        .fetch_all(&owner)
-        .await
-        .unwrap();
-    assert!(versions.contains(&1));
+    let versions: Vec<i32> =
+        sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version ORDER BY version")
+            .fetch_all(&owner)
+            .await
+            .unwrap();
+    assert_eq!(versions, [1, 6]);
     let current: i64 = sqlx::query_scalar("SELECT count(*) FROM serve.current_fact")
         .fetch_one(&owner)
         .await
