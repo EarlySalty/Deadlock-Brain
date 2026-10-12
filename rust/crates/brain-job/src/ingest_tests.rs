@@ -3,6 +3,9 @@ use serde_json::Value;
 use sqlx::{postgres::PgConnectOptions, PgPool};
 use std::{path::Path, process::Command};
 
+#[path = "recovery_tests.rs"]
+mod recovery;
+
 struct ScratchPg(tempfile::TempDir);
 
 impl ScratchPg {

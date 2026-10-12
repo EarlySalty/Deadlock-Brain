@@ -420,9 +420,10 @@ impl Blobs {
         );
         let size: usize = fields[2].parse().context("git_blob_size")?;
         ensure!(
-            size <= self.limit && fields[2].bytes().all(|b| b.is_ascii_digit()),
-            "git_blob_limit"
+            fields[2].bytes().all(|b| b.is_ascii_digit()),
+            "git_blob_size"
         );
+        ensure!(size <= self.limit, crate::InvalidTarget);
         let mut bytes = Vec::with_capacity(size);
         let mut hash = Sha256::new();
         let mut chunk = [0; 64 * 1024];

@@ -240,6 +240,10 @@ async fn check_gamefacts_v1(connection: &mut PgConnection) -> Result<(), PortErr
         "SELECT
         (SELECT count(*)=5 FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner
             WHERE n.nspname IN ('raw','canon','docs','serve','ops') AND r.rolname='brain_migrate')
+        AND EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+            WHERE i.indrelid='raw.run'::regclass AND c.relname='run_incomplete_source_idx'
+                AND i.indisunique AND i.indisvalid AND i.indexprs IS NULL AND i.indnatts=1
+                AND pg_get_expr(i.indpred,i.indrelid)='(status = ANY (ARRAY[''running''::text, ''partial''::text]))')
         AND EXISTS (SELECT 1 FROM pg_index WHERE indrelid='serve.hero_profile'::regclass
             AND indisunique AND indisvalid AND indpred IS NULL AND indexprs IS NULL AND indnatts=1)
         AND EXISTS (SELECT 1 FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner

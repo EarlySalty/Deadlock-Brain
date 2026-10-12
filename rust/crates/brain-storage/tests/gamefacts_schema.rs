@@ -805,6 +805,14 @@ async fn real_postgres_gamefacts_receipts_publication_and_roles() {
     revision_and_isolation_boundaries(&ingest, &owner).await;
     full_history_index_plans(&ingest, &owner).await;
     owner_store.check_gamefacts_schema().await.unwrap();
+    sqlx::raw_sql("DROP INDEX raw.run_incomplete_source_idx;
+        CREATE UNIQUE INDEX run_incomplete_source_idx ON raw.run(source_id) WHERE status <> 'succeeded'")
+        .execute(&owner).await.unwrap();
+    assert!(owner_store.check_gamefacts_schema().await.is_err());
+    sqlx::raw_sql("DROP INDEX raw.run_incomplete_source_idx;
+        CREATE UNIQUE INDEX run_incomplete_source_idx ON raw.run(source_id) WHERE status IN ('running','partial')")
+        .execute(&owner).await.unwrap();
+    owner_store.check_gamefacts_schema().await.unwrap();
     service.close().await;
     reader.close().await;
     ingest.close().await;

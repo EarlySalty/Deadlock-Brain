@@ -6,7 +6,7 @@ pub mod store;
 use anyhow::Result;
 use config::Config;
 use git::{Repository, Source};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, future::Future};
 use store::{Counts, Run, Store};
 
 const IDENTITY_PATHS: [&str; 2] = ["data/json/hero-data.json", "data/json/ability-data.json"];
@@ -21,35 +21,18 @@ pub async fn ingest(config: &Config) -> Result<Counts> {
     let mut counts = Counts::default();
     let result = async {
         for source in Source::ALL {
-            let source_id = store.source(source).await?;
             let repository = store
                 .during(Repository::open(&state, source, config.git_timeout_seconds))
                 .await?;
-            if let Some(run) = store.pending(source_id).await? {
-                process(
-                    &store,
-                    &repository,
-                    source,
-                    &run,
-                    config.max_blob_bytes,
-                    &mut counts,
-                )
-                .await?;
-            }
-            let target = store.during(repository.fetch(source)).await?;
-            if let Some(run) = store.begin_run(source_id, &target).await? {
-                process(
-                    &store,
-                    &repository,
-                    source,
-                    &run,
-                    config.max_blob_bytes,
-                    &mut counts,
-                )
-                .await?;
-            } else {
-                counts.sources_unchanged += 1;
-            }
+            ingest_source(
+                &store,
+                &repository,
+                source,
+                config.max_blob_bytes,
+                &mut counts,
+                repository.fetch(source),
+            )
+            .await?;
         }
         Ok::<(), anyhow::Error>(())
     }
@@ -57,6 +40,50 @@ pub async fn ingest(config: &Config) -> Result<Counts> {
     store.finish(&counts, result.is_err()).await?;
     result?;
     Ok(counts)
+}
+
+#[derive(Debug)]
+struct InvalidTarget;
+
+impl std::fmt::Display for InvalidTarget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("invalid_source_target")
+    }
+}
+
+impl std::error::Error for InvalidTarget {}
+
+async fn ingest_source(
+    store: &Store,
+    repository: &Repository,
+    source: Source,
+    max_bytes: usize,
+    counts: &mut Counts,
+    fetch: impl Future<Output = Result<String>>,
+) -> Result<()> {
+    let source_id = store.source(source).await?;
+    let mut invalid = None;
+    if let Some(run) = store.pending(source_id).await? {
+        if let Err(error) = process(store, repository, source, &run, max_bytes, counts).await {
+            if error.downcast_ref::<InvalidTarget>().is_none() {
+                return Err(error);
+            }
+            invalid = Some((run, error));
+        }
+    }
+    let target = store.during(fetch).await?;
+    if let Some((run, error)) = invalid {
+        if run.target == target {
+            return Err(error);
+        }
+        store.fail(&run).await?;
+    }
+    if let Some(run) = store.begin_run(source_id, &target).await? {
+        process(store, repository, source, &run, max_bytes, counts).await?;
+    } else {
+        counts.sources_unchanged += 1;
+    }
+    Ok(())
 }
 
 async fn process(
@@ -80,6 +107,11 @@ async fn process(
             }
         }
     }
+    let mut missing = if run.full {
+        store.active_paths(run).await?
+    } else {
+        Default::default()
+    };
     let mut changes = repository.changes(
         if run.full { None } else { run.base.as_deref() },
         &run.target,
@@ -88,6 +120,7 @@ async fn process(
     let mut identities_changed = false;
     let mut localizations = BTreeMap::new();
     while let Some(change) = store.during(changes.next()).await? {
+        missing.remove(&change.path);
         if source == Source::ALL[0] {
             identities_changed |= IDENTITY_PATHS.contains(&change.path.as_str());
             if LOCALIZATION_PATHS.contains(&change.path.as_str()) {
@@ -106,6 +139,11 @@ async fn process(
         store
             .object(run, source, &change.path, blob, counts)
             .await?;
+    }
+    for path in missing {
+        if !store.completed(run, &path).await? {
+            store.object(run, source, &path, None, counts).await?;
+        }
     }
     if identities_changed && !run.full {
         let mut dependencies = repository.paths(&run.target, &LOCALIZATION_PATHS)?;

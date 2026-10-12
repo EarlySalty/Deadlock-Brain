@@ -84,7 +84,7 @@ CREATE TABLE raw.run (
     last_completed_path text CHECK (length(last_completed_path) BETWEEN 1 AND 2048),
     UNIQUE (id, source_id, target_revision, extractor, extractor_version)
 );
-CREATE UNIQUE INDEX run_incomplete_source_idx ON raw.run(source_id) WHERE status <> 'succeeded';
+CREATE UNIQUE INDEX run_incomplete_source_idx ON raw.run(source_id) WHERE status IN ('running', 'partial');
 CREATE INDEX run_source_idx ON raw.run(source_id, id);
 CREATE INDEX run_job_idx ON raw.run(job_run_id);
 CREATE TABLE raw.run_object (
@@ -295,9 +295,17 @@ BEGIN
             RAISE EXCEPTION 'Quellenlauf benötigt den veröffentlichten Ausgangsstand';
         END IF;
     ELSE
-        IF OLD.status = 'succeeded' OR ROW(NEW.source_id, NEW.base_revision, NEW.target_revision, NEW.extractor, NEW.extractor_version)
+        IF OLD.status IN ('succeeded', 'failed') OR ROW(NEW.source_id, NEW.base_revision, NEW.target_revision, NEW.extractor, NEW.extractor_version)
             IS DISTINCT FROM ROW(OLD.source_id, OLD.base_revision, OLD.target_revision, OLD.extractor, OLD.extractor_version) THEN
             RAISE EXCEPTION 'Der Zielstand eines Quellenlaufs ist unveränderlich';
+        END IF;
+        IF NEW.status = 'failed' AND (OLD.status <> 'running' OR NEW.job_run_id <> OLD.job_run_id OR NOT EXISTS (
+            SELECT 1 FROM ops.job_lease l JOIN ops.job_run j ON j.id = l.run_id
+            WHERE l.lease_key = 'brain-job:ingest-gamefiles' AND l.run_id = NEW.job_run_id
+                AND l.expires_at > clock_timestamp() AND j.status = 'running'
+                AND j.extractor = NEW.extractor AND j.extractor_version = NEW.extractor_version
+        )) THEN
+            RAISE EXCEPTION 'Ein fehlgeschlagener Quellenlauf benötigt den aktiven Lease-Eigentümer';
         END IF;
         IF NEW.status = 'succeeded' AND EXISTS (SELECT 1 FROM raw.run_object WHERE run_id = NEW.id AND parse_status NOT IN ('succeeded', 'skipped')) THEN
             RAISE EXCEPTION 'Ein unvollständiger Quellenlauf darf nicht veröffentlicht werden';
@@ -312,7 +320,7 @@ AS $guard$
 DECLARE source bigint; run_status text;
 BEGIN
     SELECT source_id, status INTO source, run_status FROM raw.run WHERE id = NEW.run_id FOR UPDATE;
-    IF run_status = 'succeeded' OR (NEW.object_id IS NOT NULL AND NOT EXISTS (
+    IF run_status NOT IN ('running', 'partial') OR (NEW.object_id IS NOT NULL AND NOT EXISTS (
         SELECT 1 FROM raw.object WHERE id = NEW.object_id AND source_id = source AND external_id = NEW.path
     )) THEN
         RAISE EXCEPTION 'Rohobjekt gehört nicht zum offenen Quellenlauf';
@@ -328,7 +336,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM canon.revision v JOIN raw.run r ON r.id = v.raw_run_id
         JOIN raw.run_object ro ON ro.run_id = r.id AND ro.object_id = NEW.raw_object_id
-        WHERE v.id = NEW.revision_id AND r.status <> 'succeeded' AND ro.action = 'upsert' FOR UPDATE OF r
+        WHERE v.id = NEW.revision_id AND r.status IN ('running', 'partial') AND ro.action = 'upsert' FOR UPDATE OF r
     ) THEN
         RAISE EXCEPTION 'Belege benötigen ein Rohobjekt im offenen Quellenlauf';
     END IF;
@@ -358,7 +366,7 @@ BEGIN
     END IF;
     SELECT r.status INTO run_status FROM canon.revision v JOIN raw.run r ON r.id = v.raw_run_id
         WHERE v.id = revision AND v.source_id = NEW.source_id FOR UPDATE OF r;
-    IF run_status IS NULL OR run_status = 'succeeded' OR NOT EXISTS (
+    IF run_status IS NULL OR run_status NOT IN ('running', 'partial') OR NOT EXISTS (
         SELECT 1 FROM canon.revision v JOIN raw.run_object ro ON ro.run_id = v.raw_run_id
             WHERE v.id = revision AND ro.path = NEW.source_path
     ) THEN
@@ -481,7 +489,17 @@ SELECT e.id AS entity_id, e.key, jsonb_build_object(
 jsonb_build_object('facts', stats.rows, 'truncated', stats.omitted_count > 0, 'omitted_count', stats.omitted_count) AS stats,
 jsonb_build_object('facts', weapon.rows, 'truncated', weapon.omitted_count > 0, 'omitted_count', weapon.omitted_count) AS weapon,
 jsonb_build_object('links', abilities.rows, 'truncated', abilities.omitted_count > 0, 'omitted_count', abilities.omitted_count) AS abilities
-FROM canon.entity e JOIN canon.receipt proof ON proof.id = e.identity_receipt_id
+FROM canon.entity e
+JOIN canon.receipt original_proof ON original_proof.id = e.identity_receipt_id
+JOIN canon.revision original_revision ON original_revision.id = original_proof.revision_id
+JOIN raw.run original_run ON original_run.id = original_revision.raw_run_id
+JOIN canon.receipt proof ON proof.id = CASE WHEN original_run.status = 'failed' THEN (
+    SELECT min(receipt_id) FROM (
+        SELECT receipt_id FROM serve.current_fact WHERE entity_id = e.id
+        UNION ALL SELECT receipt_id FROM serve.current_alias WHERE entity_id = e.id
+        UNION ALL SELECT receipt_id FROM serve.current_relation WHERE from_entity_id = e.id
+    ) evidence
+) ELSE original_proof.id END
 JOIN canon.revision identity_revision ON identity_revision.id = proof.revision_id
 JOIN canon.source_head identity_head ON identity_head.source_id = proof.source_id AND identity_head.published_revision_id >= proof.revision_id
 CROSS JOIN LATERAL (
@@ -516,7 +534,10 @@ CROSS JOIN LATERAL (
             count(*) OVER () AS total
         FROM serve.current_relation r
         JOIN canon.entity ability ON ability.id = r.to_entity_id
-        JOIN canon.receipt ap ON ap.id = ability.identity_receipt_id
+        JOIN canon.receipt original_ap ON original_ap.id = ability.identity_receipt_id
+        JOIN canon.revision original_av ON original_av.id = original_ap.revision_id
+        JOIN raw.run original_ar ON original_ar.id = original_av.raw_run_id
+        JOIN canon.receipt ap ON ap.id = CASE WHEN original_ar.status = 'failed' THEN r.receipt_id ELSE original_ap.id END
         JOIN canon.revision av ON av.id = ap.revision_id
         JOIN canon.source_head ah ON ah.source_id = ap.source_id AND ah.published_revision_id >= ap.revision_id
         WHERE r.from_entity_id = e.id AND r.kind = 'has_ability'

@@ -6,7 +6,11 @@ use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use std::{collections::BTreeMap, future::Future, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    future::Future,
+    time::Duration,
+};
 
 const LEASE_KEY: &str = "brain-job:ingest-gamefiles";
 
@@ -127,7 +131,7 @@ impl Store {
     async fn pending_once(&self, source: i64) -> Result<Option<Run>> {
         let mut tx = write_transaction(&self.pool).await?;
         self.renew_tx(&mut tx).await?;
-        let row = sqlx::query("SELECT r.id,r.base_revision,r.target_revision,r.extractor,r.extractor_version,v.id AS revision_id FROM raw.run r JOIN canon.revision v ON v.raw_run_id=r.id WHERE r.source_id=$1 AND r.status<>'succeeded' FOR UPDATE OF r")
+        let row = sqlx::query("SELECT r.id,r.base_revision,r.target_revision,r.extractor,r.extractor_version,v.id AS revision_id FROM raw.run r JOIN canon.revision v ON v.raw_run_id=r.id WHERE r.source_id=$1 AND r.status IN ('running','partial') FOR UPDATE OF r")
             .bind(source).fetch_optional(&mut *tx).await?;
         let Some(row) = row else {
             tx.commit().await?;
@@ -160,7 +164,62 @@ impl Store {
     async fn needs_full_tx(&self, source: i64, tx: &mut Transaction<'_, Postgres>) -> Result<bool> {
         let version = sqlx::query_scalar::<_, String>("SELECT v.extractor_version FROM canon.source_head h JOIN canon.revision v ON v.id=h.published_revision_id WHERE h.source_id=$1")
             .bind(source).fetch_optional(&mut **tx).await?;
-        Ok(version.as_deref() != Some(extract::VERSION))
+        let failures: Vec<(String, String)> = sqlx::query_as(
+            "SELECT DISTINCT r.extractor,r.extractor_version FROM raw.run r
+            JOIN canon.revision v ON v.raw_run_id=r.id
+            LEFT JOIN canon.source_head h ON h.source_id=r.source_id
+            WHERE r.source_id=$1 AND r.status='failed'
+            AND v.id>coalesce(h.published_revision_id,0)",
+        )
+        .bind(source)
+        .fetch_all(&mut **tx)
+        .await?;
+        ensure!(
+            failures
+                .iter()
+                .all(|(extractor, version)| extractor == extract::EXTRACTOR
+                    && version == extract::VERSION),
+            "resume_extractor_unavailable"
+        );
+        Ok(version.as_deref() != Some(extract::VERSION) || !failures.is_empty())
+    }
+
+    pub async fn fail(&self, run: &Run) -> Result<()> {
+        retry_transaction(|| self.fail_once(run)).await
+    }
+
+    async fn fail_once(&self, run: &Run) -> Result<()> {
+        let mut tx = write_transaction(&self.pool).await?;
+        self.renew_tx(&mut tx).await?;
+        let changed = sqlx::query(
+            "UPDATE raw.run SET status='failed' WHERE id=$1 AND job_run_id=$2 AND status='running'",
+        )
+        .bind(run.id)
+        .bind(self.job)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        ensure!(changed == 1, "run_not_owned");
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn active_paths(&self, run: &Run) -> Result<BTreeSet<String>> {
+        let paths: Vec<String> = sqlx::query_scalar(
+            "WITH paths AS (
+                SELECT source_path,receipt_id FROM canon.fact WHERE source_id=$1 AND valid_to_revision_id IS NULL
+                UNION
+                SELECT source_path,receipt_id FROM canon.alias WHERE source_id=$1 AND valid_to_revision_id IS NULL
+                UNION
+                SELECT source_path,receipt_id FROM canon.relation WHERE source_id=$1 AND valid_to_revision_id IS NULL
+            ) SELECT DISTINCT a.source_path FROM paths a
+            JOIN canon.receipt p ON p.id=a.receipt_id WHERE p.extractor=$2",
+        )
+        .bind(run.source)
+        .bind(extract::EXTRACTOR)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(paths.into_iter().collect())
     }
 
     pub async fn begin_run(&self, source: i64, target: &str) -> Result<Option<Run>> {
@@ -288,7 +347,8 @@ impl Store {
                     BTreeMap::new()
                 };
                 let assertions =
-                    extract::extract_with_identities(source, path, &bytes, &identities)?;
+                    extract::extract_with_identities(source, path, &bytes, &identities)
+                        .context(crate::InvalidTarget)?;
                 extract::prove(source, path, &bytes, &assertions)?;
                 Some(assertions)
             } else {
@@ -363,7 +423,9 @@ impl Store {
         .bind(run.revision)
         .fetch_all(&mut **tx)
         .await?;
-        ensure!(rows.len() <= 10000, "identity_limit");
+        if rows.len() > 10000 {
+            return Err(anyhow::Error::new(crate::InvalidTarget).context("identity_limit"));
+        }
         rows.into_iter()
             .map(|(key, kind)| {
                 let kind = match kind.as_str() {
