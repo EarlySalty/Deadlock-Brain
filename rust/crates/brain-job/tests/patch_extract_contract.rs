@@ -310,6 +310,559 @@ fn missing_stubs_announcements_and_combined_entities_are_retained_not_refetched(
 }
 
 #[test]
+fn compound_entity_continuations_are_refused_by_both_proof_paths() {
+    let control = envelope(Some("- Baba: Added knockback"));
+    let mut receipt = assertions(&control, &catalog());
+    assert_eq!(receipt.len(), 1);
+    for statement in [
+        "- Baba: Added knockback\n  Sinclair: Removed knockback",
+        "- Baba: Added knockback\nSinclair: Removed knockback",
+        "- Baba: Added knockback\r\n\tSinclair: Removed knockback",
+        "- Baba: Added knockback\n  - Sinclair: Removed knockback",
+        "- Baba: Added knockback; Sinclair: Removed knockback",
+        "- Baba: Added knockback and Sinclair removed knockback",
+        "- Baba: Added knockback & Sinclair removed knockback",
+        "- Baba: Added knockback / Sinclair added knockback",
+        "- Baba: Added knockback. Sinclair now takes less damage",
+        "- Baba: Added knockback\n  Sinclair removed knockback",
+        "- Baba: Added knockback\n  Unknown: Removed knockback",
+        "- Baba: Added knockback\n  Unknown removed knockback",
+        "- Baba: Added knockback\n  sinclair recoil 10%",
+        "- Baba: Added knockback\n  unknown passive effect",
+        "- Baba: Added knockback\n  - Unknown's passive effect",
+    ] {
+        let bytes = envelope(Some(statement));
+        let post = patch_extract::parse_post(&bytes).unwrap();
+        let result = patch_extract::extract(&post, &catalog()).unwrap();
+        assert!(result.changes.is_empty(), "{statement}");
+        assert_eq!(result.skipped.len(), 1, "{statement}");
+        receipt[0].hash =
+            Sha256::digest(post.lexical_value("/raw_content").unwrap().as_bytes()).to_vec();
+        receipt[0].condition["post_hash"] = json!(hex::encode(Sha256::digest(&bytes)));
+        receipt[0].value = Atom::Text(statement.into());
+        assert!(
+            patch_extract::prove(&post, &catalog(), &receipt).is_err(),
+            "{statement}"
+        );
+        assert!(
+            extract::prove(patch_extract::SOURCE, "42", &bytes, &receipt).is_err(),
+            "{statement}"
+        );
+    }
+}
+
+#[test]
+fn unindented_qualifiers_cannot_publish_a_truncated_numeric_change() {
+    let change = "- Baba: Max Health increased from 780.0 to 800.0";
+    let control = envelope(Some(change));
+    let mut receipt = assertions(&control, &catalog());
+    assert_eq!(receipt.len(), 1);
+    assert_eq!(receipt[0].condition["old_value"], "780.0");
+    assert_eq!(receipt[0].condition["new_value"], "800.0");
+    for qualifier in [
+        "when attacking objectives",
+        "against airborne enemies",
+        "while the ability is active",
+        "unless the target is immune",
+        "only against objectives",
+    ] {
+        for separator in ["\n", "\r\n", "\n\n"] {
+            let statement = format!("{change}{separator}{qualifier}");
+            let bytes = envelope(Some(&statement));
+            let post = patch_extract::parse_post(&bytes).unwrap();
+            let result = patch_extract::extract(&post, &catalog()).unwrap();
+            assert!(result.changes.is_empty(), "{statement}");
+            assert_eq!(result.skipped[0].reason, "ambiguous_continuation");
+            receipt[0].hash =
+                Sha256::digest(post.lexical_value("/raw_content").unwrap().as_bytes()).to_vec();
+            receipt[0].condition["post_hash"] = json!(hex::encode(Sha256::digest(&bytes)));
+            for value in [change, statement.as_str()] {
+                receipt[0].value = Atom::Text(value.into());
+                assert!(
+                    patch_extract::prove(&post, &catalog(), &receipt).is_err(),
+                    "{statement}"
+                );
+                assert!(
+                    extract::prove(patch_extract::SOURCE, "42", &bytes, &receipt).is_err(),
+                    "{statement}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn continuation_bullets_with_action_words_cannot_release_a_truncated_change() {
+    let change = "- Baba: Max Health increased from 780.0 to 800.0";
+    let control = envelope(Some(change));
+    for qualifier in [
+        "when Damage increased from 1 to 2",
+        "When Damage increased from 1 to 2",
+        "WHEN DAMAGE increased from 1 to 2",
+        "**When** Damage increased from 1 to 2",
+        "[When] Damage increased from 1 to 2",
+        "`When` Damage increased from 1 to 2",
+        "Every Time Damage increased from 1 to 2",
+        "Not Damage increased from 1 to 2",
+        "When damage is increased",
+        "while removed effects are active",
+        "unless knockback is now applied",
+    ] {
+        for marker in ["", "- ", "* ", "• "] {
+            let statement = format!("{change}\n{marker}{qualifier}");
+            let bytes = envelope(Some(&statement));
+            let post = patch_extract::parse_post(&bytes).unwrap();
+            let result = patch_extract::extract(&post, &catalog()).unwrap();
+            assert!(result.changes.is_empty(), "{statement}");
+            assert!(!result.skipped.is_empty(), "{statement}");
+            let mut receipt = assertions(&control, &catalog());
+            receipt[0].hash =
+                Sha256::digest(post.lexical_value("/raw_content").unwrap().as_bytes()).to_vec();
+            receipt[0].condition["post_hash"] = json!(hex::encode(Sha256::digest(&bytes)));
+            for value in [change, statement.as_str()] {
+                receipt[0].value = Atom::Text(value.into());
+                assert!(
+                    patch_extract::prove(&post, &catalog(), &receipt).is_err(),
+                    "{statement}"
+                );
+                assert!(
+                    extract::prove(patch_extract::SOURCE, "42", &bytes, &receipt).is_err(),
+                    "{statement}"
+                );
+            }
+            receipt[0].value = Atom::Text(change.into());
+            for boundary in [
+                json!(1),
+                json!({"position":1,"key":"hero_fabricated","kind":"hero","scope":null}),
+            ] {
+                receipt[0].condition["next_heading"] = boundary;
+                assert!(patch_extract::prove(&post, &catalog(), &receipt).is_err());
+                assert!(extract::prove(patch_extract::SOURCE, "42", &bytes, &receipt).is_err());
+            }
+        }
+    }
+}
+
+#[test]
+fn qualified_numeric_statements_keep_complete_text_without_unqualified_values() {
+    let change = "- Baba: Max Health increased from 780.0 to 800.0";
+    for suffix in [
+        "\n  when attacking objectives",
+        "\n\n  against airborne enemies",
+        "\n  - while the ability is active",
+        " - only against objectives",
+        ", only against objectives",
+        "; only against objectives",
+    ] {
+        let statement = format!("{change}{suffix}");
+        let bytes = envelope(Some(&statement));
+        let post = patch_extract::parse_post(&bytes).unwrap();
+        let mut facts = assertions(&bytes, &catalog());
+        assert_eq!(facts.len(), 1, "{statement}");
+        assert!(matches!(&facts[0].value, Atom::Text(value) if value == &statement));
+        assert!(facts[0].condition["old_value"].is_null());
+        assert!(facts[0].condition["new_value"].is_null());
+        assert!(facts[0].condition["stat"].is_null());
+        facts[0].condition["old_value"] = json!("780.0");
+        facts[0].condition["new_value"] = json!("800.0");
+        facts[0].condition["stat"] = json!("stats.max_health");
+        facts[0].condition["stat_label"] = json!("Max Health");
+        assert!(patch_extract::prove(&post, &catalog(), &facts).is_err());
+        assert!(extract::prove(patch_extract::SOURCE, "42", &bytes, &facts).is_err());
+    }
+}
+
+#[test]
+fn ambiguous_continuations_clear_context_and_cannot_evade_statement_limits() {
+    let bytes = envelope(Some(
+        "Baba\n- Added knockback\nUnknown\n- Damage increased from 1 to 2",
+    ));
+    let post = patch_extract::parse_post(&bytes).unwrap();
+    let result = patch_extract::extract(&post, &catalog()).unwrap();
+    assert!(result.changes.is_empty());
+    assert_eq!(result.skipped[0].reason, "ambiguous_continuation");
+    assert_eq!(result.skipped[1].reason, "unknown_or_unscoped_entity");
+    let bytes = envelope(Some(&format!(
+        "- Baba: Added knockback\n{}",
+        "x".repeat(patch_extract::MAX_STATEMENT_BYTES)
+    )));
+    let post = patch_extract::parse_post(&bytes).unwrap();
+    let result = patch_extract::extract(&post, &catalog()).unwrap();
+    assert!(result.changes.is_empty());
+    assert_eq!(result.skipped[0].reason, "statement_limit");
+}
+
+#[test]
+fn independent_statements_and_catalog_headings_remain_provable() {
+    for content in [
+        "Baba\n- Max Health increased from 780.0 to 800.0\nSinclair\n- Added knockback",
+        "- Baba: Max Health increased from 780.0 to 800.0\n- Sinclair: Added knockback",
+        "Baba\n  - Max Health increased from 780.0 to 800.0\nSinclair\n  - Added knockback",
+    ] {
+        let bytes = envelope(Some(content));
+        let facts = assertions(&bytes, &catalog());
+        assert_eq!(facts.len(), 2, "{content}");
+        assert_eq!(facts[0].entity, "hero_baba");
+        assert_eq!(facts[0].condition["old_value"], "780.0");
+        assert_eq!(facts[1].entity, "hero_sinclair");
+    }
+}
+
+#[test]
+fn receipt_less_headings_preserve_source_positions_with_declared_catalog_bindings() {
+    for content in [
+        "Baba\n- Added knockback\nSinclair\n",
+        "Baba\n- Added knockback\nSinclair\n- Recoil 10%",
+        "Baba\n- Added knockback\n## **Sinclair**\n- Recoil 10%",
+        "Baba\n- Added knockback\n- Sinclair\n- Recoil 10%",
+        "Baba\n- Added knockback\nBubbling Brew\n- Recoil 10%",
+        "Baba\r\n\r\n- Added knockback\r\n## **Sinclair**\r\n- Recoil 10%",
+        "Sinclair\n- Recoil 10%\nBaba\n- Added knockback",
+        "Unknown\nBaba\n- Added knockback",
+    ] {
+        let bytes = envelope(Some(content));
+        let post = patch_extract::parse_post(&bytes).unwrap();
+        let facts = assertions(&bytes, &catalog());
+        assert_eq!(facts.len(), 1, "{content}");
+        assert_eq!(facts[0].entity, "hero_baba");
+        assert_eq!(post.bytes(), bytes);
+        assert!(facts[0].condition.to_string().len() <= 1024);
+    }
+    let bytes = envelope(Some("Baba\n- Added knockback\nSinclair\n- Recoil 10%"));
+    let post = patch_extract::parse_post(&bytes).unwrap();
+    let facts = assertions(&bytes, &catalog());
+    assert_eq!(facts[0].order, 1);
+    assert_eq!(facts[0].condition["statement_index"], 1);
+    assert_eq!(facts[0].condition["context_indices"], json!([0]));
+    assert_eq!(
+        facts[0].condition["next_heading"],
+        json!({"position":2,"key":"hero_sinclair","kind":"hero","scope":null})
+    );
+    for position in [0, 1, 3, 9999] {
+        let mut forged = assertions(&bytes, &catalog());
+        forged[0].condition["next_heading"]["position"] = json!(position);
+        assert!(patch_extract::prove(&post, &catalog(), &forged).is_err());
+        assert!(extract::prove(patch_extract::SOURCE, "42", &bytes, &forged).is_err());
+    }
+    let reduced = AliasIndex::new(
+        vec![alias("Baba", "hero_baba", "hero", None)],
+        Vec::new(),
+    )
+    .unwrap();
+    assert!(patch_extract::prove(&post, &reduced, &facts).is_err());
+}
+
+#[test]
+fn index_only_unknown_heading_cannot_truncate_the_source_statement() {
+    let control = envelope(Some("Baba\n- Added knockback"));
+    let bytes = envelope(Some(
+        "Baba\n- Added knockback\nUnknown\n- Damage increased from 1 to 2",
+    ));
+    let post = patch_extract::parse_post(&bytes).unwrap();
+    assert!(patch_extract::extract(&post, &catalog())
+        .unwrap()
+        .changes
+        .is_empty());
+    let mut forged = assertions(&control, &catalog());
+    forged[0].hash =
+        Sha256::digest(post.lexical_value("/raw_content").unwrap().as_bytes()).to_vec();
+    forged[0].condition["post_hash"] = json!(hex::encode(Sha256::digest(&bytes)));
+    forged[0].condition["next_heading"] = json!(2);
+    assert!(patch_extract::prove(&post, &catalog(), &forged).is_err());
+    assert!(extract::prove(patch_extract::SOURCE, "42", &bytes, &forged).is_err());
+}
+
+#[test]
+fn boundary_binding_mutations_must_match_source_and_other_receipts() {
+    let bytes = envelope(Some("Baba\n- Added knockback\nSinclair\n- Added knockback"));
+    let post = patch_extract::parse_post(&bytes).unwrap();
+    let facts = assertions(&bytes, &catalog());
+    assert_eq!(facts.len(), 2);
+    for boundary in [
+        json!(2),
+        json!({"position":2}),
+        json!({"position":2,"key":"hero_sinclair","kind":"hero","scope":"hero_unknown"}),
+        json!({"position":2,"key":"hero_other","kind":"hero","scope":null}),
+        json!({"position":2,"key":"hero_sinclair","kind":"ability","scope":null}),
+        json!({"position":2,"key":"hero_sinclair","kind":"hero","scope":null,"alias":"Sinclair"}),
+    ] {
+        let mut forged = assertions(&bytes, &catalog());
+        forged[0].condition["next_heading"] = boundary;
+        assert!(patch_extract::prove(&post, &catalog(), &forged).is_err());
+        assert!(extract::prove(patch_extract::SOURCE, "42", &bytes, &forged).is_err());
+    }
+}
+
+#[test]
+fn ambiguous_or_inapplicable_catalog_heading_cannot_release_the_previous_statement() {
+    let bytes = envelope(Some("Baba\n- Added knockback\nShared\n- Recoil 10%"));
+    let post = patch_extract::parse_post(&bytes).unwrap();
+    for bindings in [
+        vec![
+            alias("Shared", "ability_a", "ability", Some("hero_baba")),
+            alias("Shared", "ability_b", "ability", Some("hero_baba")),
+        ],
+        vec![alias("Shared", "ability_a", "ability", Some("hero_other"))],
+    ] {
+        let aliases = AliasIndex::new(
+            std::iter::once(alias("Baba", "hero_baba", "hero", None))
+                .chain(bindings)
+                .collect(),
+            Vec::new(),
+        )
+        .unwrap();
+        let result = patch_extract::extract(&post, &aliases).unwrap();
+        assert!(result.changes.is_empty());
+        assert!(result
+            .skipped
+            .iter()
+            .any(|entry| matches!(entry.reason, "ambiguous_alias" | "unscoped_alias")));
+    }
+}
+
+#[test]
+fn fabricated_self_consistent_boundaries_require_the_public_catalog_prover() {
+    let bytes = envelope(Some("Baba\n- Added knockback\nUnknown\n- Recoil 10%"));
+    let post = patch_extract::parse_post(&bytes).unwrap();
+    let fabricated = AliasIndex::new(
+        vec![
+            alias("Baba", "hero_baba", "hero", None),
+            alias("Unknown", "hero_fabricated", "hero", None),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let facts = assertions(&bytes, &fabricated);
+    assert_eq!(facts.len(), 1);
+    assert_eq!(
+        facts[0].condition["next_heading"],
+        json!({"position":2,"key":"hero_fabricated","kind":"hero","scope":null})
+    );
+    extract::prove(patch_extract::SOURCE, "42", &bytes, &facts).unwrap();
+    assert!(patch_extract::prove(&post, &catalog(), &facts).is_err());
+}
+
+#[test]
+fn capitalized_words_and_arbitrary_source_labels_do_not_infer_entities() {
+    let bytes = envelope(Some("Objectives\nBaba\n- Added Knockback against Objectives"));
+    let facts = assertions(&bytes, &catalog());
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].entity, "hero_baba");
+    assert_eq!(facts[0].order, 2);
+    assert!(
+        matches!(&facts[0].value, Atom::Text(value) if value == "- Added Knockback against Objectives")
+    );
+}
+
+#[test]
+fn receipt_less_secondary_subjects_cannot_disappear_from_replay_checks() {
+    let control = envelope(Some("Baba\n- Added knockback\nSinclair\n- Recoil 10%"));
+    for statement in [
+        "- Added knockback against Sinclair",
+        "- Added knockback while Sinclair's effect is active",
+        "- Added knockback\n  Sinclair: Recoil 10%",
+        "- Added knockback\n  when Sinclair's effect is active",
+        "- Added knockback\nSinclair: Removed knockback",
+    ] {
+        let content = format!("Baba\n{statement}\nSinclair\n- Recoil 10%");
+        let bytes = envelope(Some(&content));
+        let post = patch_extract::parse_post(&bytes).unwrap();
+        let result = patch_extract::extract(&post, &catalog()).unwrap();
+        assert!(result.changes.is_empty(), "{statement}");
+        let mut forged = assertions(&control, &catalog());
+        forged[0].hash =
+            Sha256::digest(post.lexical_value("/raw_content").unwrap().as_bytes()).to_vec();
+        forged[0].condition["post_hash"] = json!(hex::encode(Sha256::digest(&bytes)));
+        forged[0].condition["next_heading"]["position"] = json!(1 + statement.lines().count());
+        forged[0].value = Atom::Text(statement.into());
+        assert!(patch_extract::prove(&post, &catalog(), &forged).is_err());
+        assert!(extract::prove(patch_extract::SOURCE, "42", &bytes, &forged).is_err());
+    }
+    let aliases = AliasIndex::new(
+        vec![
+            alias("Baba", "hero_baba", "hero", None),
+            alias("secondary", "hero_secondary", "hero", None),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let control = envelope(Some("Baba\n- Added knockback\nsecondary\n- Recoil 10%"));
+    let bytes = envelope(Some(
+        "Baba\n- Added knockback against secondary\nsecondary\n- Recoil 10%",
+    ));
+    let post = patch_extract::parse_post(&bytes).unwrap();
+    assert!(patch_extract::extract(&post, &aliases)
+        .unwrap()
+        .changes
+        .is_empty());
+    let mut forged = assertions(&control, &aliases);
+    forged[0].hash =
+        Sha256::digest(post.lexical_value("/raw_content").unwrap().as_bytes()).to_vec();
+    forged[0].condition["post_hash"] = json!(hex::encode(Sha256::digest(&bytes)));
+    forged[0].value = Atom::Text("- Added knockback against secondary".into());
+    assert!(patch_extract::prove(&post, &aliases, &forged).is_err());
+    assert!(extract::prove(patch_extract::SOURCE, "42", &bytes, &forged).is_err());
+}
+
+#[test]
+fn conditional_numeric_subjects_never_become_unqualified_numeric_values() {
+    for qualifier in ["When", "WHEN", "**When**", "[When]", "`When`", "While", "Unless"] {
+        let statement = format!("- Baba: {qualifier} Damage increased from 1 to 2");
+        let bytes = envelope(Some(&statement));
+        let post = patch_extract::parse_post(&bytes).unwrap();
+        let mut facts = assertions(&bytes, &catalog());
+        assert_eq!(facts.len(), 1, "{statement}");
+        assert!(matches!(&facts[0].value, Atom::Text(value) if value == &statement));
+        assert!(facts[0].condition["old_value"].is_null());
+        assert!(facts[0].condition["new_value"].is_null());
+        assert!(facts[0].condition["stat"].is_null());
+        facts[0].condition["old_value"] = json!("1");
+        facts[0].condition["new_value"] = json!("2");
+        assert!(patch_extract::prove(&post, &catalog(), &facts).is_err());
+        assert!(extract::prove(patch_extract::SOURCE, "42", &bytes, &facts).is_err());
+    }
+    for content in [
+        "Baba\n- Max Health increased from 780.0 to 800.0\n- Damage increased from 1 to 2",
+        "Baba\n- Max Health increased from 780.0 to 800.0\n- Added knockback",
+        "- Baba: Max Health increased from 780.0 to 800.0\n- Sinclair: Added knockback",
+    ] {
+        let bytes = envelope(Some(content));
+        let facts = assertions(&bytes, &catalog());
+        assert_eq!(facts.len(), 2, "{content}");
+        assert_eq!(facts[0].condition["old_value"], "780.0");
+        assert_eq!(facts[0].condition["new_value"], "800.0");
+    }
+}
+
+#[test]
+fn complete_statement_byte_limit_includes_qualified_bullet_continuations() {
+    let prefix = "- Baba: Added ";
+    let statement = format!(
+        "{prefix}{}",
+        "x".repeat(patch_extract::MAX_STATEMENT_BYTES - prefix.len())
+    );
+    let bytes = envelope(Some(&statement));
+    let facts = assertions(&bytes, &catalog());
+    assert_eq!(facts.len(), 1);
+    assert!(
+        matches!(&facts[0].value, Atom::Text(value) if value.len() == patch_extract::MAX_STATEMENT_BYTES)
+    );
+    let statement = format!(
+        "- Baba: Max Health increased from 780.0 to 800.0\n  - **When** Damage increased from 1 to 2 {}",
+        "ä".repeat(patch_extract::MAX_STATEMENT_BYTES / 2)
+    );
+    let bytes = envelope(Some(&statement));
+    let post = patch_extract::parse_post(&bytes).unwrap();
+    let result = patch_extract::extract(&post, &catalog()).unwrap();
+    assert!(result.changes.is_empty());
+    assert_eq!(result.skipped[0].reason, "statement_limit");
+    let control = envelope(Some("- Baba: Max Health increased from 780.0 to 800.0"));
+    let mut forged = assertions(&control, &catalog());
+    forged[0].hash =
+        Sha256::digest(post.lexical_value("/raw_content").unwrap().as_bytes()).to_vec();
+    forged[0].condition["post_hash"] = json!(hex::encode(Sha256::digest(&bytes)));
+    assert!(patch_extract::prove(&post, &catalog(), &forged).is_err());
+    assert!(extract::prove(patch_extract::SOURCE, "42", &bytes, &forged).is_err());
+}
+
+#[test]
+fn condition_byte_limit_includes_catalog_boundary_metadata() {
+    let owner_alias = "a".repeat(128);
+    let owner_key = "h".repeat(128);
+    let entity_alias = "b".repeat(128);
+    let entity_key = "e".repeat(128);
+    let boundary_alias = "c".repeat(128);
+    let boundary_key = "n".repeat(128);
+    let aliases = AliasIndex::new(
+        vec![
+            alias(&owner_alias, &owner_key, "hero", None),
+            alias(&entity_alias, &entity_key, "ability", Some(&owner_key)),
+            alias(&boundary_alias, &boundary_key, "ability", Some(&owner_key)),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let content = format!("{owner_alias}\n{entity_alias}\n- Added knockback");
+    let control = envelope(Some(&content));
+    let facts = assertions(&control, &aliases);
+    assert_eq!(facts.len(), 1);
+    assert!(facts[0].condition.to_string().len() <= 1024);
+    let bytes = envelope(Some(&format!("{content}\n{boundary_alias}\n- Recoil 10%")));
+    let post = patch_extract::parse_post(&bytes).unwrap();
+    assert_eq!(
+        patch_extract::extract(&post, &aliases)
+            .unwrap_err()
+            .to_string(),
+        "patch_condition_limit"
+    );
+}
+
+#[test]
+fn complete_single_scope_statements_are_not_rejected_by_action_word_count() {
+    for statement in [
+        "- Baba: Fixed a bug where knockback is now applied twice",
+        "- Baba: Changed how removed effects are displayed",
+        "- Baba: Now deals increased damage against objectives",
+        "- Baba: Fixed Baba's knockback",
+    ] {
+        let bytes = envelope(Some(statement));
+        let post = patch_extract::parse_post(&bytes).unwrap();
+        let facts = assertions(&bytes, &catalog());
+        assert_eq!(facts.len(), 1, "{statement}");
+        assert!(matches!(&facts[0].value, Atom::Text(value) if value == statement));
+        assert!(facts[0].condition["old_value"].is_null());
+        assert!(facts[0].condition["new_value"].is_null());
+        assert_eq!(
+            facts[0].hash,
+            Sha256::digest(post.lexical_value("/raw_content").unwrap().as_bytes()).to_vec()
+        );
+    }
+    let bytes = envelope(Some(
+        "Baba\n- Max Health increased from 780.0 to 800.0\n- Damage increased from 1 to 2",
+    ));
+    let facts = assertions(&bytes, &catalog());
+    assert_eq!(facts.len(), 2);
+    assert_eq!(facts[1].entity, "hero_baba");
+    assert_eq!(facts[1].condition["old_value"], "1");
+    assert_eq!(facts[1].condition["new_value"], "2");
+    assert!(facts[1].condition["stat"].is_null());
+}
+
+#[test]
+fn entity_generic_timer_catalog_entries_use_existing_extraction_and_proof_apis() {
+    let aliases = AliasIndex::new(
+        vec![alias("Objective Timer", "timer_objective", "timer", None)],
+        vec![StatBinding {
+            entity: "timer_objective".into(),
+            label: "Respawn".into(),
+            stat: "timer.respawn".into(),
+        }],
+    )
+    .unwrap();
+    let bytes = envelope(Some("- Objective Timer: Respawn increased from 60s to 90s"));
+    let post = patch_extract::parse_post(&bytes).unwrap();
+    let facts = assertions(&bytes, &aliases);
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].entity, "timer_objective");
+    assert_eq!(facts[0].kind, "timer");
+    assert_eq!(facts[0].condition["old_value"], "60s");
+    assert_eq!(facts[0].condition["new_value"], "90s");
+    assert_eq!(facts[0].condition["stat"], "timer.respawn");
+    let unmapped = AliasIndex::new(
+        vec![alias("Objective Timer", "timer_objective", "timer", None)],
+        Vec::new(),
+    )
+    .unwrap();
+    assert!(patch_extract::prove(&post, &unmapped, &facts).is_err());
+    let bytes = envelope(Some("- timer_objective: Respawn increased from 60s to 90s"));
+    let identities = std::collections::BTreeMap::from([("timer_objective".into(), "timer")]);
+    let facts =
+        extract::extract_with_identities(patch_extract::SOURCE, "42", &bytes, &identities).unwrap();
+    assert_eq!(facts.len(), 1);
+    extract::prove(patch_extract::SOURCE, "42", &bytes, &facts).unwrap();
+}
+
+#[test]
 fn lexical_escape_spelling_is_proven_without_reserializing_the_envelope() {
     let fixture = include_str!("fixtures/patchnotes_lexical.json");
     let escaped = fixture.replace("Baba", &format!("{}u0042aba", char::from(92)));

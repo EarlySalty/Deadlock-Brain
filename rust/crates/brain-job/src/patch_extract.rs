@@ -4,10 +4,10 @@ use crate::{
 };
 use anyhow::{ensure, Context, Result};
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const SOURCE: Source = Source {
     key: "deadlock_patchnotes_db",
@@ -54,7 +54,7 @@ impl AliasIndex {
         for binding in aliases {
             ensure!(
                 valid_key(&binding.entity.key)
-                    && matches!(binding.entity.kind, "hero" | "ability" | "item")
+                    && matches!(binding.entity.kind, "hero" | "ability" | "item" | "timer")
                     && valid_label(&binding.alias)
                     && binding.scope.as_deref().is_none_or(valid_key),
                 "patch_alias_invalid"
@@ -303,9 +303,20 @@ pub struct Extraction {
     pub skipped: Vec<Skipped>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HeadingBoundary {
+    position: usize,
+    key: String,
+    kind: String,
+    scope: Option<String>,
+}
+
 #[derive(Clone, Copy)]
 struct Segment<'a> {
     raw: &'a str,
+    position: usize,
+    next_heading: Option<(usize, &'a str)>,
 }
 
 fn bullet(value: &str) -> Option<&str> {
@@ -341,46 +352,116 @@ fn section(value: &str) -> bool {
     )
 }
 
-fn segments(content: &str) -> Result<Vec<Segment<'_>>> {
+fn segments<'a>(content: &'a str, aliases: &AliasIndex) -> Result<Vec<Segment<'a>>> {
     let mut output = Vec::new();
     let mut start = 0;
-    let mut pending: Option<usize> = None;
-    for line in content.split_inclusive('\n') {
+    let mut pending: Option<(usize, usize, usize)> = None;
+    for (position, line) in content.split_inclusive('\n').enumerate() {
         let text = line.trim_end_matches(['\r', '\n']);
-        let continuation = text.starts_with(char::is_whitespace)
-            || text.trim_start().starts_with("only ")
-            || text.trim_start().starts_with("Only ");
-        let heading = !continuation && bullet(text).is_none();
-        if text.trim().is_empty() || bullet(text).is_some() || heading {
-            if let Some(begin) = pending.take() {
+        let indentation = text.len() - text.trim_start().len();
+        let body = bullet(text).unwrap_or(text.trim());
+        let entity_heading = structural_heading(body) && aliases.aliases.contains_key(label(body));
+        let heading =
+            indentation == 0 && bullet(text).is_none() && (section(text) || entity_heading);
+        let new_bullet = bullet(text).is_some_and(|body| {
+            pending.is_none_or(|(_, depth, _)| {
+                indentation <= depth
+                    && (statement_start(body) || section(body) || entity_heading)
+            })
+        });
+        if heading || new_bullet {
+            if let Some((begin, _, begin_position)) = pending.take() {
                 output.push(Segment {
                     raw: content[begin..start].trim_end_matches(['\r', '\n']),
+                    position: begin_position,
+                    next_heading: (entity_heading && !section(body)).then_some((position, body)),
                 });
             }
-            if bullet(text).is_some() {
-                pending = Some(start);
-            } else if !text.trim().is_empty() {
-                output.push(Segment { raw: text });
+            if heading {
+                output.push(Segment {
+                    raw: text,
+                    position,
+                    next_heading: None,
+                });
+            } else {
+                pending = Some((start, indentation, position));
             }
-        } else if pending.is_none() {
-            output.push(Segment { raw: text });
+        } else if pending.is_none() && !text.trim().is_empty() {
+            pending = Some((start, indentation, position));
         }
         start += line.len();
         ensure!(output.len() <= MAX_SEGMENTS, "patch_segment_limit");
     }
-    if let Some(begin) = pending {
+    if let Some((begin, _, position)) = pending {
         output.push(Segment {
             raw: content[begin..].trim_end_matches(['\r', '\n']),
+            position,
+            next_heading: None,
         });
     }
     ensure!(output.len() <= MAX_SEGMENTS, "patch_segment_limit");
     Ok(output)
 }
 
+fn compound_scope(body: &str, aliases: &AliasIndex) -> Result<(), &'static str> {
+    let mut clauses = body
+        .split(['\n', ';'])
+        .flat_map(|part| part.split(" - "))
+        .flat_map(|part| part.split(" and "))
+        .flat_map(|part| part.split(" & "))
+        .flat_map(|part| part.split(" / "))
+        .flat_map(|part| part.split(". "))
+        .flat_map(|part| part.split(", "));
+    let first_action = clauses.next().is_some_and(action);
+    for part in clauses {
+        let part = bullet(part).unwrap_or(part.trim());
+        if let Some((subject, _)) = part.split_once(':') {
+            return Err(if aliases.aliases.contains_key(label(subject)) {
+                "multiple_entity_statements"
+            } else {
+                "unknown_subject"
+            });
+        }
+        if aliases.aliases.keys().any(|alias| {
+            part.strip_prefix(alias).is_some_and(|rest| {
+                rest.starts_with(char::is_whitespace) || rest.starts_with(['\'', '’'])
+            })
+        }) {
+            return Err("multiple_entity_statements");
+        }
+        if first_action && action(part) {
+            return Err("ambiguous_compound_statement");
+        }
+    }
+    Ok(())
+}
+
 struct Binding<'a> {
     entity: &'a AliasBinding,
     scope: Option<&'a AliasBinding>,
     contexts: Vec<usize>,
+}
+
+fn heading_boundary(
+    next_heading: Option<(usize, &str)>,
+    current: Option<&Binding<'_>>,
+    aliases: &AliasIndex,
+) -> Result<Option<HeadingBoundary>, &'static str> {
+    next_heading
+        .map(|(position, body)| {
+            let scope =
+                current.map(|entry| entry.scope.unwrap_or(entry.entity).entity.key.as_str());
+            let entity = aliases
+                .resolve(label(body), scope)?
+                .ok_or("unknown_boundary")?;
+            Ok(HeadingBoundary {
+                position,
+                key: entity.entity.key.clone(),
+                kind: entity.entity.kind.to_owned(),
+                scope: entity.scope.clone(),
+            })
+        })
+        .transpose()
 }
 
 fn bind<'a>(
@@ -444,30 +525,164 @@ fn bind<'a>(
 }
 
 fn action(body: &str) -> bool {
-    let body = body.to_ascii_lowercase();
+    action_subject(body).is_some()
+}
+
+fn action_subject(body: &str) -> Option<&str> {
+    action_position(body).map(|(position, _)| body[..position].trim())
+}
+
+fn action_position(body: &str) -> Option<(usize, usize)> {
+    let lowercase = body.to_ascii_lowercase();
+    let mut position = 0;
+    for word in lowercase.split_inclusive(|ch: char| !ch.is_ascii_alphabetic()) {
+        let action = word.trim_end_matches(|ch: char| !ch.is_ascii_alphabetic());
+        if matches!(
+            action,
+            "increased"
+                | "decreased"
+                | "reduced"
+                | "raised"
+                | "lowered"
+                | "fixed"
+                | "added"
+                | "removed"
+                | "changed"
+                | "adjusted"
+                | "updated"
+                | "reworked"
+                | "renamed"
+                | "now"
+        ) {
+            return Some((position, position + action.len()));
+        }
+        position += word.len();
+    }
+    None
+}
+
+fn qualification_word(word: &str) -> bool {
+    matches!(
+        word.to_ascii_lowercase().as_str(),
+        "when"
+            | "whenever"
+            | "while"
+            | "whilst"
+            | "every"
+            | "each"
+            | "if"
+            | "unless"
+            | "only"
+            | "except"
+            | "against"
+            | "during"
+            | "until"
+            | "after"
+            | "before"
+            | "once"
+            | "provided"
+            | "assuming"
+            | "given"
+            | "with"
+            | "without"
+            | "for"
+            | "on"
+            | "in"
+            | "at"
+            | "as"
+            | "per"
+            | "under"
+            | "upon"
+            | "otherwise"
+            | "instead"
+            | "where"
+            | "whether"
+            | "not"
+            | "but"
+            | "and"
+            | "or"
+            | "however"
+            | "though"
+            | "although"
+            | "because"
+            | "since"
+            | "despite"
+            | "even"
+            | "else"
+            | "then"
+            | "which"
+    )
+}
+
+fn qualified_subject(subject: &str) -> bool {
+    subject
+        .split(|ch: char| !ch.is_ascii_alphabetic())
+        .any(qualification_word)
+}
+
+fn qualified_continuation(body: &str) -> bool {
     body.split(|ch: char| !ch.is_ascii_alphabetic())
-        .any(|word| {
-            matches!(
-                word,
-                "increased"
-                    | "decreased"
-                    | "reduced"
-                    | "raised"
-                    | "lowered"
-                    | "fixed"
-                    | "added"
-                    | "removed"
-                    | "changed"
-                    | "adjusted"
-                    | "updated"
-                    | "reworked"
-                    | "renamed"
-                    | "now"
-            )
+        .find(|word| !word.is_empty())
+        .is_some_and(qualification_word)
+}
+
+fn structural_heading(body: &str) -> bool {
+    let subject = label(body);
+    valid_label(subject)
+        && !qualified_subject(subject)
+        && !action(subject)
+        && subject.chars().any(char::is_alphabetic)
+        && subject.chars().all(|ch| {
+            ch.is_alphanumeric() || ch.is_whitespace() || matches!(ch, '-' | '_' | '\'' | '’')
         })
 }
 
+fn property_subject(subject: &str) -> bool {
+    !subject.is_empty()
+        && subject.split_whitespace().all(|word| {
+            word.starts_with(|ch: char| ch.is_ascii_uppercase())
+                && word
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+        })
+}
+
+fn statement_start(body: &str) -> bool {
+    action_subject(body).is_some_and(|subject| {
+        let subject = label(subject);
+        !qualified_subject(subject)
+            && (subject.is_empty()
+                || property_subject(subject)
+                || body
+                    .split_once(':')
+                    .or_else(|| body.split_once(" - "))
+                    .is_some_and(|(subject, _)| structural_heading(subject)))
+    })
+}
+
+fn reference_positions<'a>(body: &'a str, alias: &'a str) -> impl Iterator<Item = usize> + 'a {
+    body.match_indices(alias).filter_map(move |(position, _)| {
+        let before = body[..position].chars().next_back();
+        let after = body[position + alias.len()..].chars().next();
+        (before.is_none_or(|ch| !ch.is_alphanumeric() && ch != '_')
+            && after.is_none_or(|ch| !ch.is_alphanumeric() && ch != '_'))
+        .then_some(position)
+    })
+}
+
+fn mentions_other_entity(body: &str, binding: &Binding<'_>, aliases: &AliasIndex) -> bool {
+    aliases.aliases.iter().any(|(alias, entries)| {
+        entries
+            .iter()
+            .any(|entry| entry.entity != binding.entity.entity)
+            && reference_positions(body, alias).next().is_some()
+    })
+}
+
 fn explicit_values(body: &str) -> (Option<String>, Option<String>, Option<&str>) {
+    if body.contains(['\r', '\n']) {
+        return (None, None, None);
+    }
     let candidate = [
         " increased from ",
         " reduced from ",
@@ -482,18 +697,13 @@ fn explicit_values(body: &str) -> (Option<String>, Option<String>, Option<&str>)
     let Some((subject, values)) = candidate else {
         return (None, None, None);
     };
+    if qualified_subject(subject) {
+        return (None, None, None);
+    }
     let Some((old, rest)) = values.split_once(" to ") else {
         return (None, None, None);
     };
-    let new = rest
-        .split([',', ';', '\n'])
-        .next()
-        .unwrap_or(rest)
-        .split(" - ")
-        .next()
-        .unwrap_or(rest)
-        .trim()
-        .trim_end_matches('.');
+    let new = rest.trim().trim_end_matches('.');
     let old = old.trim();
     if !explicit_number(old) || !explicit_number(new) {
         return (None, None, None);
@@ -546,9 +756,10 @@ pub fn extract(post: &Post<'_>, aliases: &AliasIndex) -> Result<Extraction> {
         .raw_content
         .as_deref()
         .context("patch_content_missing")?;
-    let rows = segments(content)?;
+    let rows = segments(content, aliases)?;
     let mut current: Option<Binding<'_>> = None;
-    for (position, row) in rows.iter().enumerate() {
+    for row in &rows {
+        let position = row.position;
         if section(row.raw) {
             current = None;
             continue;
@@ -604,14 +815,11 @@ pub fn extract(post: &Post<'_>, aliases: &AliasIndex) -> Result<Extraction> {
         if bullet(row.raw).is_none() && !body.contains(':') {
             current = None;
         }
-        if body.split(" - ").skip(1).any(|part| {
-            part.split_once(':')
-                .is_some_and(|(subject, _)| aliases.aliases.contains_key(label(subject)))
-        }) {
+        if let Err(reason) = compound_scope(body, aliases) {
             current = None;
             output.skipped.push(Skipped {
                 statement_index: Some(position),
-                reason: "multiple_entity_statements",
+                reason,
             });
             continue;
         }
@@ -626,6 +834,18 @@ pub fn extract(post: &Post<'_>, aliases: &AliasIndex) -> Result<Extraction> {
                 continue;
             }
         };
+        if row.raw.lines().skip(1).any(|line| {
+            !line.trim().is_empty()
+                && (!line.starts_with(char::is_whitespace)
+                    || !qualified_continuation(bullet(line).unwrap_or(line.trim())))
+        }) {
+            current = None;
+            output.skipped.push(Skipped {
+                statement_index: Some(position),
+                reason: "ambiguous_continuation",
+            });
+            continue;
+        }
         if !action(body) {
             current = None;
             output.skipped.push(Skipped {
@@ -641,6 +861,14 @@ pub fn extract(post: &Post<'_>, aliases: &AliasIndex) -> Result<Extraction> {
             });
             continue;
         };
+        if mentions_other_entity(body, &binding, aliases) {
+            current = None;
+            output.skipped.push(Skipped {
+                statement_index: Some(position),
+                reason: "multiple_entity_statements",
+            });
+            continue;
+        }
         if binding.contexts.len() > 3 {
             current = None;
             output.skipped.push(Skipped {
@@ -649,6 +877,20 @@ pub fn extract(post: &Post<'_>, aliases: &AliasIndex) -> Result<Extraction> {
             });
             continue;
         }
+        if row.raw.contains('\n') {
+            current = None;
+        }
+        let next_heading = match heading_boundary(row.next_heading, current.as_ref(), aliases) {
+            Ok(boundary) => boundary,
+            Err(reason) => {
+                current = None;
+                output.skipped.push(Skipped {
+                    statement_index: Some(position),
+                    reason,
+                });
+                continue;
+            }
+        };
         let (old_value, new_value, stat_label) = explicit_values(body);
         let stat = stat_label
             .and_then(|label| aliases.stat(&binding.entity.entity.key, label))
@@ -656,6 +898,7 @@ pub fn extract(post: &Post<'_>, aliases: &AliasIndex) -> Result<Extraction> {
         let change_kind = "changed";
         let condition = json!({
             "post_hash": post.post_hash, "statement_index": position,
+            "next_heading": next_heading,
             "context_indices": binding.contexts, "entity_alias": binding.entity.alias,
             "scope_alias": binding.scope.map(|entry| entry.alias.as_str()),
             "scope_key": binding.scope.map(|entry| entry.entity.key.as_str()),
@@ -754,6 +997,16 @@ pub(crate) fn dispatch_extract(
         .collect())
 }
 
+fn replay_kind(value: &str) -> Result<&'static str> {
+    match value {
+        "hero" => Ok("hero"),
+        "ability" => Ok("ability"),
+        "item" => Ok("item"),
+        "timer" => Ok("timer"),
+        _ => anyhow::bail!("patch_proof_kind"),
+    }
+}
+
 pub(crate) fn dispatch_prove(
     source: Source,
     path: &str,
@@ -766,8 +1019,31 @@ pub(crate) fn dispatch_prove(
     ensure!(assertions.len() <= MAX_CHANGES, "patch_proof_limit");
     let mut bindings = Vec::new();
     let mut stats = Vec::new();
+    let mut boundaries = BTreeMap::<usize, HeadingBoundary>::new();
+    let mut statement_positions = BTreeSet::new();
     for assertion in assertions {
+        ensure!(
+            assertion.order >= 0 && statement_positions.insert(assertion.order),
+            "patch_proof_statement"
+        );
         let condition = &assertion.condition;
+        ensure!(condition.to_string().len() <= 1024, "patch_condition_limit");
+        if !condition["next_heading"].is_null() {
+            let boundary: HeadingBoundary =
+                serde_json::from_value(condition["next_heading"].clone())
+                    .context("patch_proof_boundary")?;
+            ensure!(
+                boundary.position > assertion.order as usize
+                    && boundary.position < MAX_ENVELOPE_BYTES
+                    && valid_key(&boundary.key)
+                    && boundary.scope.as_deref().is_none_or(valid_key),
+                "patch_proof_boundary"
+            );
+            replay_kind(&boundary.kind)?;
+            if let Some(previous) = boundaries.insert(boundary.position, boundary.clone()) {
+                ensure!(previous == boundary, "patch_proof_boundary");
+            }
+        }
         let alias = condition["entity_alias"]
             .as_str()
             .context("patch_proof_alias")?;
@@ -782,11 +1058,11 @@ pub(crate) fn dispatch_prove(
                 let key = condition["scope_key"]
                     .as_str()
                     .context("patch_proof_scope")?;
-                let kind = match condition["scope_kind"].as_str() {
-                    Some("hero") => "hero",
-                    Some("item") => "item",
-                    _ => anyhow::bail!("patch_proof_scope"),
-                };
+                let kind = replay_kind(
+                    condition["scope_kind"]
+                        .as_str()
+                        .context("patch_proof_scope")?,
+                )?;
                 bindings.push(AliasBinding {
                     alias: alias.to_owned(),
                     entity: KnownEntity {
@@ -815,6 +1091,39 @@ pub(crate) fn dispatch_prove(
                     .to_owned(),
                 stat: stat.to_owned(),
             });
+        }
+    }
+    let mut seen_boundaries = 0;
+    for (position, line) in post
+        .raw_content()
+        .unwrap_or_default()
+        .split_inclusive('\n')
+        .enumerate()
+    {
+        let Some(boundary) = boundaries.get(&position) else {
+            continue;
+        };
+        let text = line.trim_end_matches(['\r', '\n']);
+        let body = bullet(text).unwrap_or(text.trim());
+        ensure!(
+            structural_heading(body) && !section(body),
+            "patch_proof_boundary"
+        );
+        bindings.push(AliasBinding {
+            alias: label(body).to_owned(),
+            entity: KnownEntity {
+                key: boundary.key.clone(),
+                kind: replay_kind(&boundary.kind)?,
+            },
+            scope: boundary.scope.clone(),
+        });
+        seen_boundaries += 1;
+    }
+    ensure!(seen_boundaries == boundaries.len(), "patch_proof_boundary");
+    let mut entity_kinds = BTreeMap::new();
+    for binding in &bindings {
+        if let Some(kind) = entity_kinds.insert(&binding.entity.key, binding.entity.kind) {
+            ensure!(kind == binding.entity.kind, "patch_proof_entity");
         }
     }
     let aliases = AliasIndex::new(bindings, stats)?;
