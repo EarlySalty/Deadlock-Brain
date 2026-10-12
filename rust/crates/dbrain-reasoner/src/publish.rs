@@ -1588,7 +1588,7 @@ fn catalog_item(rows: &[Value], item_id: i64) -> Result<crate::ItemModel> {
                 "Ein Item fehlt im Spielkatalog. Es wurde nichts veröffentlicht.".into(),
             )
         })?;
-    crate::data::item_model_from_payload(row)
+    crate::item::build_item_model(&crate::data::item_model_from_payload(row)?)
 }
 
 fn catalog_names(rows: &[Value], ids: &[i64]) -> Result<Vec<String>> {
@@ -1618,9 +1618,11 @@ pub fn item_notes_from_catalog(build: &BuildObject, items: &Value) -> Result<Ite
         .as_ref()
         .map(|plan| plan.steps.as_slice())
         .unwrap_or_default();
+    let final_held = steps.last().map(|step| &step.transition.after.held_ids);
     let core = build
         .core
         .iter()
+        .filter(|item| final_held.is_none_or(|held| held.contains(&item.item_id)))
         .map(|item| catalog_item(rows, item.item_id))
         .collect::<Result<Vec<_>>>()?;
     let mut notes = ItemNotes::new();
