@@ -49,7 +49,10 @@ mod budget {
 }
 
 pub const EXTRACTOR: &str = "hero-ability-atoms";
-pub const VERSION: &str = "p1-v1";
+pub const VERSION: &str = "p1-v2";
+
+#[path = "assets/parser.rs"]
+pub mod assets_parser;
 
 #[derive(Debug)]
 pub struct Assertion {

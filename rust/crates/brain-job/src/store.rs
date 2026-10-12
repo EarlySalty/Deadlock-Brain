@@ -45,12 +45,11 @@ impl Store {
     pub async fn start(pool: PgPool, seconds: u32) -> Result<Self> {
         ensure!((30..=900).contains(&seconds), "lease_duration");
         ensure!(
-            sqlx::query_scalar::<_, i32>(
-                "SELECT version FROM ops.gamefacts_schema_version WHERE singleton"
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM ops.gamefacts_schema_version WHERE version=1)"
             )
             .fetch_one(&pool)
-            .await?
-                == 1,
+            .await?,
             "schema_version"
         );
         let seconds = i32::try_from(seconds).context("lease_duration")?;
@@ -337,15 +336,31 @@ impl Store {
         run: &Run,
     ) -> Result<BTreeMap<String, &'static str>> {
         let rows: Vec<(String, String)> = sqlx::query_as(
-            "SELECT e.key,e.kind FROM canon.entity e
-            JOIN canon.receipt r ON r.id=e.identity_receipt_id
+            "WITH evidence AS (
+                SELECT entity_id,receipt_id,source_id,source_path,valid_from_revision_id,valid_to_revision_id
+                FROM canon.fact WHERE source_id=$1
+                UNION ALL
+                SELECT from_entity_id,receipt_id,source_id,source_path,valid_from_revision_id,valid_to_revision_id
+                FROM canon.relation WHERE source_id=$1
+            )
+            SELECT DISTINCT e.key,e.kind FROM canon.entity e
+            JOIN evidence a ON a.entity_id=e.id
+            JOIN canon.receipt r ON r.id=a.receipt_id
             JOIN raw.object o ON o.id=r.raw_object_id
-            WHERE r.source_id=$1 AND r.extractor=$2 AND e.kind IN ('hero','ability')
-            AND o.external_id IN ('data/json/hero-data.json','data/json/ability-data.json')
+            LEFT JOIN canon.source_head h ON h.source_id=a.source_id
+            WHERE r.extractor=$2 AND r.extractor_version=$3
+            AND ((e.kind='hero' AND a.source_path='data/json/hero-data.json')
+                OR (e.kind='ability' AND a.source_path='data/json/ability-data.json'))
+            AND o.external_id=a.source_path
+            AND a.valid_from_revision_id<=$4
+            AND (a.valid_to_revision_id IS NULL OR a.valid_to_revision_id>$4)
+            AND (r.revision_id=$4 OR r.revision_id<=h.published_revision_id)
             ORDER BY e.key LIMIT 10001",
         )
         .bind(run.source)
         .bind(extract::EXTRACTOR)
+        .bind(extract::VERSION)
+        .bind(run.revision)
         .fetch_all(&mut **tx)
         .await?;
         ensure!(rows.len() <= 10000, "identity_limit");

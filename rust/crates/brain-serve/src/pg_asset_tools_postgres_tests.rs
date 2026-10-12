@@ -28,18 +28,28 @@ const SEED: &str = "BEGIN;
     INSERT INTO raw.run_object(run_id,path,object_id,action,parse_status) VALUES (2,'abilities.json',2,'upsert','succeeded');
     INSERT INTO canon.revision(source_id,raw_run_id,source_revision,extractor,extractor_version) VALUES (2,2,'assets-a','brain-assets','v1');
     INSERT INTO canon.receipt(raw_object_id,source_id,revision_id,locator_kind,locator,value_sha256,extractor,extractor_version)
-        SELECT 2,2,2,'json_pointer','/field-'||n,decode(repeat('04',32),'hex'),'brain-assets','v1' FROM generate_series(1,2) n;
+        SELECT 2,2,2,'json_pointer','/field-'||n,decode(repeat('04',32),'hex'),'brain-assets','v1' FROM generate_series(1,8) n;
     INSERT INTO canon.fact(entity_id,stat_key,source_id,source_path,value_num,condition,receipt_id,valid_from_revision_id)
         VALUES (3,'ability.damage',2,'abilities.json',99,'{}',6,2);
     INSERT INTO canon.relation(from_entity_id,kind,to_entity_id,slot,receipt_id,source_id,source_path,valid_from_revision_id)
         VALUES (1,'has_ability',3,1,7,2,'abilities.json',2);
+    INSERT INTO canon.entity(kind,key,identity_receipt_id)
+        VALUES ('item','upgrade_toxic_bullets',8),('item','upgrade_component',9);
+    INSERT INTO canon.stat(key,section,unit,value_type)
+        VALUES ('item.cost','stats','souls','number'),('item.description_passive','identity',NULL,'text');
+    INSERT INTO canon.fact(entity_id,stat_key,source_id,source_path,value_num,receipt_id,valid_from_revision_id)
+        VALUES (4,'item.cost',2,'abilities.json',3200,10,2);
+    INSERT INTO canon.fact(entity_id,stat_key,source_id,source_path,value_text,condition,receipt_id,valid_from_revision_id)
+        VALUES (4,'item.description_passive',2,'abilities.json','Verursacht Blutung.','{\"lang\":\"de\"}',11,2);
+    INSERT INTO canon.relation(from_entity_id,kind,to_entity_id,receipt_id,source_id,source_path,valid_from_revision_id)
+        VALUES (5,'component_of',4,12,2,'abilities.json',2),(5,'upgrades_to',4,13,2,'abilities.json',2);
     UPDATE raw.run SET status='succeeded' WHERE id=2;
     INSERT INTO canon.source_head(source_id,published_revision_id) VALUES (2,2);
     UPDATE raw.source SET last_complete_revision='assets-a' WHERE id=2;
     COMMIT;";
 
 #[test]
-fn real_p2_ability_cards_use_selected_slots_and_published_receipts() {
+fn real_p2_item_and_ability_cards_use_selected_edges_and_published_receipts() {
     let pg = ScratchPg::start();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -68,16 +78,18 @@ fn real_p2_ability_cards_use_selected_slots_and_published_receipts() {
         sqlx::query("SET ROLE brain_migrate").execute(&mut *connection).await.unwrap();
         sqlx::raw_sql(include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"))
             .execute(&mut *connection).await.unwrap();
-        sqlx::query("RESET ROLE").execute(&mut *connection).await.unwrap();
-        sqlx::raw_sql(SEED).execute(&mut *connection).await.unwrap();
-        sqlx::query("SET ROLE brain_migrate").execute(&mut *connection).await.unwrap();
+        sqlx::query("INSERT INTO ops.gamefacts_schema_version(version) VALUES (1)")
+            .execute(&mut *connection).await.unwrap();
         sqlx::raw_sql(include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-p2-assets-v1.sql"))
             .execute(&mut *connection).await.unwrap();
+        sqlx::query("INSERT INTO ops.gamefacts_schema_version(version) VALUES (3)")
+            .execute(&mut *connection).await.unwrap();
         sqlx::query("RESET ROLE").execute(&mut *connection).await.unwrap();
+        sqlx::raw_sql(SEED).execute(&mut *connection).await.unwrap();
         let targets: Vec<i64> = sqlx::query_scalar("SELECT to_entity_id FROM serve.current_relation WHERE from_entity_id=1 AND slot=1 ORDER BY to_entity_id")
             .fetch_all(&mut *connection).await.unwrap();
         assert_eq!(targets, vec![2, 3]);
-        let receipts: Vec<i64> = sqlx::query_scalar("SELECT receipt_id FROM canon.relation ORDER BY receipt_id")
+        let receipts: Vec<i64> = sqlx::query_scalar("SELECT receipt_id FROM canon.relation WHERE kind='has_ability' ORDER BY receipt_id")
             .fetch_all(&mut *connection).await.unwrap();
         assert_eq!(receipts, vec![5, 7]);
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM canon.receipt WHERE id IN (5,7)")
@@ -88,7 +100,10 @@ fn real_p2_ability_cards_use_selected_slots_and_published_receipts() {
         assert_eq!(producer["facts"]["omitted_count"], 0);
         assert_eq!(producer["links"]["links"][0]["citation"], "5");
         assert_eq!(bounded_value(ToolName::GetAbility, producer.clone()).unwrap(), Some(producer));
-        eprintln!("P2_POSTGRES_ABILITY_PRODUCER_CONSUMER_RAN; POSITIVE_ITEM_SQL_PENDING_P1_KIND_CHECKPOINT");
+        let item: Value = sqlx::query_scalar(ITEM).bind(4_i64).fetch_one(&mut *connection).await.unwrap();
+        assert_eq!(item["identity"]["kind"], "item");
+        assert_eq!(item["links"]["links"].as_array().unwrap().len(), 2);
+        assert_eq!(bounded_value(ToolName::GetItem, item.clone()).unwrap(), Some(item));
         drop(connection);
         pool
     });
@@ -112,12 +127,25 @@ fn real_p2_ability_cards_use_selected_slots_and_published_receipts() {
         discord: None,
         budget: Budget::default(),
     };
-    for (arguments, expected_ids) in [
-        (json!({"ability":2}), vec!["1", "2", "4", "5"]),
-        (json!({"hero":1,"slot":1}), vec!["1", "2", "4", "5"]),
-        (json!({"ability":3}), vec!["3", "6"]),
+    for (name, arguments, expected_ids) in [
+        (
+            ToolName::GetAbility,
+            json!({"ability":2}),
+            vec!["1", "2", "4", "5"],
+        ),
+        (
+            ToolName::GetAbility,
+            json!({"hero":1,"slot":1}),
+            vec!["1", "2", "4", "5"],
+        ),
+        (ToolName::GetAbility, json!({"ability":3}), vec!["3", "6"]),
+        (
+            ToolName::GetItem,
+            json!({"item":4}),
+            vec!["8", "9", "10", "11", "12", "13"],
+        ),
     ] {
-        let request = request(ToolName::GetAbility, arguments).unwrap();
+        let request = request(name, arguments).unwrap();
         let result = tools
             .execute(&query, &context, None, "\"".repeat(512).as_str(), &request)
             .unwrap();
@@ -126,6 +154,28 @@ fn real_p2_ability_cards_use_selected_slots_and_published_receipts() {
         assert_eq!(result.dependencies.len(), 1);
         assert_eq!(result.dependencies[0].evidence.len(), expected_ids.len());
         assert!(serde_json::to_vec(&result.result).unwrap().len() <= MAX_BYTES);
+        if name == ToolName::GetItem {
+            let card = &result.result.result;
+            assert_eq!(card["identity"]["entity_id"], 4);
+            let facts = card["facts"]["facts"].as_array().unwrap();
+            assert!(facts.iter().any(|fact| fact["stat_key"] == "item.cost"
+                && fact["value"] == 3200
+                && fact["citation"] == "10"));
+            assert!(facts
+                .iter()
+                .any(|fact| fact["stat_key"] == "item.description_passive"
+                    && fact["value"] == "Verursacht Blutung."
+                    && fact["citation"] == "11"));
+            let links = card["links"]["links"].as_array().unwrap();
+            assert_eq!(links.len(), 2);
+            for (kind, citation) in [("component_of", "12"), ("upgrades_to", "13")] {
+                assert!(links.iter().any(|link| link["kind"] == kind
+                    && link["citation"] == citation
+                    && link["identity"]["citation"] == "9"
+                    && link["source_revision"] == "assets-a"
+                    && link["patch"].is_null()));
+            }
+        }
         if result.result.result.get("abilities").is_some() {
             assert_eq!(result.result.result["identity"]["entity_id"], 2);
             assert_eq!(

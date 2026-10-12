@@ -23,17 +23,17 @@ Der geprüfte Build wird anschließend in die beiden root-eigenen Release-Layout
 
 Die Quelle muss ein vollständig sauberer eigener Worktree unter `/home/nathanael/.worktrees/` auf dem aktuellen Remote-main sein. Auch ignorierte Dateien, Symlinks und fremd beschreibbare Pfade werden abgewiesen. Gruppen-Schreibrechte sind nur für die nach Accountprüfung private Betreibergruppe 1000 erlaubt. Der feste Ursprung ist `git@github.com:EarlySalty/Deadlock-Brain.git`. Verfolgte Dateien werden einschließlich Dateimodus gegen die Git-Blobs geprüft; zusätzlich wird der vollständige Quellbaum mit SHA-256 erfasst. Worktree-Inode und Git-Zeiger werden ebenfalls geprüft. `assume-unchanged` ersetzt die Byteprüfung nicht.
 
-Der Build belegt einen der drei Host-Build-Slots und danach `/tmp/deadlock-cargo-release.lock`. Die feste Build-Ablage wird unter dieser Sperre vor dem Bau entfernt, frisch angelegt und nach Übernahme der Binaries wieder entfernt, auch bei einem Buildfehler. Es gibt keine Wiederverwendung eines Cargo-Targets von einem anderen Commit oder Worktree. Nach einem harten Prozessabbruch räumt der nächste gesperrte Lauf die Ablage vor dem Bau auf.
+Der Build läuft über `CARGO_SLOT_DEPLOY=1 cargo-slot` mit der repositoryweiten Deploy-Sperre und der Slotsteuerung aus claude-config. Während der Wrappermigration hält cargo-slot zusätzlich die alte globale Sperre. Eine separate Brain-Targetsperre schützt die feste Build-Ablage über Reinigung, Bau, Artefaktübernahme und abschließendes Aufräumen hinweg. Sie blockiert keine anderen Repositories. Die Ablage wird vor dem Bau entfernt, frisch angelegt und nach Übernahme der Binaries wieder entfernt, auch bei einem Buildfehler. Nach einem harten Prozessabbruch räumt der nächste gesperrte Lauf die Ablage vor dem Bau auf.
 
 ```text
 CARGO_INCREMENTAL=0
 RUSTFLAGS=--remap-path-prefix=/home/nathanael=/brain-operator
 RUSTC_WRAPPER=/home/nathanael/.cargo/bin/sccache
 SCCACHE_DIR=/home/nathanael/.cache/sccache
-cargo build --locked --release --jobs 4 --workspace --bins --target-dir /home/nathanael/.cache/brain-release-target --config 'build.build-dir="/home/nathanael/.cache/brain-release-target"'
+CARGO_SLOT_DEPLOY=1 cargo-slot build --locked --release --jobs 8 --workspace --bins --target-dir /home/nathanael/.cache/brain-release-target --config 'build.build-dir="/home/nathanael/.cache/brain-release-target"'
 ```
 
-Die Compiler-Flags und der Targetpfad sind laufunabhängig. Der vorhandene gemeinsame sccache bleibt die einzige Compiler-Cache-Ablage. Ein globales `CARGO_TARGET_DIR` ist nicht erlaubt. Die Kinder erhalten eine bereinigte Umgebung ohne geerbte Providerzugänge. Prüfungen der Worker verwenden dasselbe Release-Profil und dieselben Flags, beispielsweise `cargo-slot test --locked --release` oder `cargo-slot clippy --locked --release --all-targets` mit den oben genannten Umgebungswerten. Testprogramme und Clippy-Metadaten sind weiterhin eigene Cargo-Targets, kein Nachweis eines Produktionsbinaries.
+The deployment compiler flags and target path are independent of the invocation. The existing shared sccache remains the compiler cache; a global `CARGO_TARGET_DIR` is not allowed. Children receive a sanitized environment without inherited provider credentials. Worker checks follow the active profile and iteration policy of `cargo-slot` and claude-config `machines/v50671/RUST-BUILDS.md`, rather than assuming they use the deployment profile. Test executables and Clippy metadata are separate Cargo targets, not evidence of a production binary.
 
 Das Inventar kommt aus `cargo metadata --format-version 1 --no-deps`. Sämtliche Workspace-Binaries werden gemeinsam gebaut. Pflichtbinaries sind `deadlock-brain`, `brain-serve`, `brain-maintain`, `brain-legacy-import`, `deadlock-brain-yt`, `brain-candidate-activate` und `brain-patchnotes-ingest`. Cargoartefakte dürfen den belegten zweiten Hardlink in `release/deps/<Binary>-<Hash>` haben; weitere Hardlinks werden abgewiesen. Kopierte Bundledateien müssen einlinkig sein.
 

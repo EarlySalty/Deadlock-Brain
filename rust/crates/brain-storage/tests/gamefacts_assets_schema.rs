@@ -139,7 +139,7 @@ async fn rejected(pool: &PgPool, sql: &str, code: &str) {
     );
 }
 
-async fn relation_contracts(ingest: &PgPool, owner: &PgPool) {
+async fn relation_contracts(ingest: &PgPool) {
     for slot in ["NULL", "0", "5"] {
         rejected(ingest, &format!("INSERT INTO canon.relation(from_entity_id,kind,to_entity_id,slot,receipt_id,source_id,source_path,valid_from_revision_id) VALUES (1,'has_ability',2,{slot},15,2,'abilities.json',2)"), "23514").await;
     }
@@ -163,14 +163,7 @@ async fn relation_contracts(ingest: &PgPool, owner: &PgPool) {
     .await;
     rejected(ingest, "DELETE FROM canon.receipt WHERE id=1", "42501").await;
     rejected(ingest, "INSERT INTO canon.fact(entity_id,stat_key,source_id,source_path,value_text,receipt_id,valid_from_revision_id) VALUES (3,'damage',2,'abilities.json','wrong type',15,2)", "P0001").await;
-    let entity_kind: String = sqlx::query_scalar("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='canon.entity'::regclass AND conname='entity_kind_check'")
-        .fetch_one(owner).await.unwrap();
-    if entity_kind.contains("item") {
-        item_relation_contracts(ingest).await;
-    } else {
-        rejected(ingest, "INSERT INTO canon.entity(kind,key,identity_receipt_id) VALUES ('item','not-yet-p3',15)", "23514").await;
-        println!("ITEM_INTEGRATION_PREREQUISITE: the actual P1 entity-kind extension is not installed; positive item edges and item cards remain unproven");
-    }
+    item_relation_contracts(ingest).await;
 }
 
 async fn item_relation_contracts(ingest: &PgPool) {
@@ -255,6 +248,7 @@ async fn serving_contracts(owner: &PgPool, ingest: &PgPool) {
             .fetch_all(owner)
             .await
             .unwrap();
+    assert_eq!(item_cards.len(), 2);
     for item in item_cards {
         assert_eq!(item["links"]["links"].as_array().unwrap().len(), 2);
         for link in item["links"]["links"].as_array().unwrap() {
@@ -401,6 +395,10 @@ async fn p1_upgrade_priority_receipts_bounds_and_roles_on_real_postgres() {
     let owner = scratch.pool("brain_assets", "brain_migrate").await;
     let ingest = scratch.pool("brain_assets", "brain_ingest").await;
     sqlx::raw_sql(P1).execute(&owner).await.unwrap();
+    sqlx::query("INSERT INTO ops.gamefacts_schema_version(version) VALUES (1)")
+        .execute(&owner)
+        .await
+        .unwrap();
     sqlx::raw_sql(SEED).execute(&ingest).await.unwrap();
     let before = snapshot(&owner).await;
     let original_index: String =
@@ -408,8 +406,9 @@ async fn p1_upgrade_priority_receipts_bounds_and_roles_on_real_postgres() {
             .fetch_one(&owner)
             .await
             .unwrap();
-    sqlx::raw_sql(P2).execute(&owner).await.unwrap();
     let store = PgStore::new(owner.clone());
+    assert!(store.check_gamefacts_schema().await.is_err());
+    store.migrate_gamefacts().await.unwrap();
     store.check_gamefacts_schema().await.unwrap();
     assert_eq!(snapshot(&owner).await, before);
     store.migrate_gamefacts().await.unwrap();
@@ -426,7 +425,7 @@ async fn p1_upgrade_priority_receipts_bounds_and_roles_on_real_postgres() {
         .unwrap();
     assert_eq!(card["facts"]["facts"].as_array().unwrap().len(), 3);
     sqlx::raw_sql(ASSETS).execute(&ingest).await.unwrap();
-    relation_contracts(&ingest, &owner).await;
+    relation_contracts(&ingest).await;
     serving_contracts(&owner, &ingest).await;
     bounded_cards(&owner, &ingest).await;
     serialized_publication_refresh(&owner, &ingest).await;
@@ -472,19 +471,19 @@ async fn p1_upgrade_priority_receipts_bounds_and_roles_on_real_postgres() {
         tx.rollback().await.unwrap();
     }
     store.check_gamefacts_schema().await.unwrap();
-    let p1_version: Vec<i32> =
-        sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version")
+    let versions: Vec<i32> =
+        sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version ORDER BY version")
             .fetch_all(&owner)
             .await
             .unwrap();
-    assert_eq!(p1_version, [1]);
+    assert_eq!(versions, [1, 3]);
     reader.close().await;
     ingest.close().await;
     owner.close().await;
     admin.close().await;
 }
 
-async fn public_fixture_database(scratch: &Scratch, simulate_item_kind: bool) -> PgPool {
+async fn public_fixture_database(scratch: &Scratch) -> PgPool {
     let admin = scratch.pool("postgres", "brain_test_dba").await;
     sqlx::raw_sql("CREATE ROLE brain_migrate LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
         CREATE ROLE brain_ingest LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
@@ -498,17 +497,11 @@ async fn public_fixture_database(scratch: &Scratch, simulate_item_kind: bool) ->
     admin.close().await;
     let owner = scratch.pool("brain_public", "brain_migrate").await;
     sqlx::raw_sql(P1).execute(&owner).await.unwrap();
-    if simulate_item_kind {
-        sqlx::raw_sql(
-            "ALTER TABLE canon.entity DROP CONSTRAINT entity_kind_check,
-            ADD CONSTRAINT entity_kind_check CHECK(kind IN ('hero','ability','item'))",
-        )
+    sqlx::raw_sql(P2).execute(&owner).await.unwrap();
+    sqlx::query("INSERT INTO ops.gamefacts_schema_version(version) VALUES (1),(3)")
         .execute(&owner)
         .await
         .unwrap();
-        println!("ITEM_KIND_SIMULATION_ONLY: this isolated fixture is not integrated P1 proof");
-    }
-    sqlx::raw_sql(P2).execute(&owner).await.unwrap();
     sqlx::raw_sql("BEGIN;
         INSERT INTO ops.job_run(job,extractor,extractor_version) VALUES ('ingest-assets','brain-assets','v1');
         INSERT INTO raw.source(kind,locator) VALUES ('assets','public-fixture://client6774');
@@ -770,10 +763,233 @@ async fn publish_public_fixture(owner: &PgPool) {
     .unwrap();
 }
 
+async fn insert_qualified_fact(
+    owner: &PgPool,
+    entity: i64,
+    source: i64,
+    stat: &str,
+    value: &Value,
+    condition: &Value,
+    locator: &str,
+) -> i64 {
+    let receipt: i64 = sqlx::query_scalar("INSERT INTO canon.receipt(raw_object_id,source_id,revision_id,locator_kind,locator,value_sha256,extractor,extractor_version)
+        SELECT o.id,v.source_id,v.id,'json_pointer',$2,decode(repeat('05',32),'hex'),v.extractor,v.extractor_version
+        FROM canon.revision v JOIN raw.object o ON o.source_id=v.source_id
+        WHERE v.source_id=$1 AND o.external_id<> 'heroes-english.json' RETURNING id")
+        .bind(source).bind(locator).fetch_one(owner).await.unwrap();
+    let value_type = if value.is_number() {
+        "number"
+    } else if value.is_string() {
+        "text"
+    } else {
+        "json"
+    };
+    sqlx::query("INSERT INTO canon.stat(key,section,value_type) VALUES ($1,'ability',$2) ON CONFLICT(key) DO NOTHING")
+        .bind(stat).bind(value_type).execute(owner).await.unwrap();
+    sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,source_id,source_path,condition,value_num,value_text,value_json,receipt_id,valid_from_revision_id)
+        SELECT $1,$2,p.source_id,o.external_id,$3,$4::text::numeric,$5,$6,p.id,p.revision_id
+        FROM canon.receipt p JOIN raw.object o ON o.id=p.raw_object_id WHERE p.id=$7")
+        .bind(entity).bind(stat).bind(condition)
+        .bind(value.is_number().then(|| value.to_string())).bind(value.as_str())
+        .bind((value_type == "json").then_some(value)).bind(receipt)
+        .execute(owner).await.unwrap();
+    receipt
+}
+
+async fn qualified_rows(owner: &PgPool, entity: i64, stat: &str) -> Vec<Value> {
+    sqlx::query_scalar("SELECT serve.atomic_fact(entity_id,stat_key,value_num,value_text,value_json,unit,condition,receipt_id,source_revision)
+        FROM serve.selected_fact_p2 WHERE entity_id=$1 AND stat_key=$2 ORDER BY condition,receipt_id")
+        .bind(entity).bind(stat).fetch_all(owner).await.unwrap()
+}
+
+#[tokio::test]
+async fn qualified_source_semantics_receipts_and_ambiguous_entries_on_real_postgres() {
+    let scratch = Scratch::new();
+    let owner = public_fixture_database(&scratch).await;
+    sqlx::raw_sql("BEGIN;
+        INSERT INTO ops.job_run(job,extractor,extractor_version)
+            VALUES ('ingest-gamefiles','hero-ability-atoms','p1-v2'),('ingest-assets','brain-assets','v1');
+        INSERT INTO raw.source(kind,locator) VALUES ('git','synthetic://qualified-gamefiles'),('assets','synthetic://qualified-assets');
+        INSERT INTO raw.run(source_id,job_run_id,target_revision,extractor,extractor_version)
+            VALUES (2,2,'qualified-game','hero-ability-atoms','p1-v2'),(3,3,'qualified-assets','brain-assets','v1');
+        INSERT INTO raw.object(source_id,external_id,revision,content_sha256,media_type,body)
+            VALUES (2,'abilities.vdata','qualified-game',decode(repeat('06',32),'hex'),'text/plain','qualified serving contract, not lexical receipt audit'),
+                (3,'items-german.json','qualified-assets',decode(repeat('07',32),'hex'),'application/json','qualified serving contract, not lexical receipt audit');
+        INSERT INTO raw.run_object(run_id,path,object_id,action,parse_status)
+            VALUES (2,'abilities.vdata',3,'upsert','succeeded'),(3,'items-german.json',4,'upsert','succeeded');
+        INSERT INTO canon.revision(source_id,raw_run_id,source_revision,extractor,extractor_version)
+            VALUES (2,2,'qualified-game','hero-ability-atoms','p1-v2'),(3,3,'qualified-assets','brain-assets','v1');
+        INSERT INTO canon.receipt(raw_object_id,source_id,revision_id,locator_kind,locator,value_sha256,extractor,extractor_version)
+            VALUES (3,2,2,'kv_pointer','/qualified_ability/0/m_eAbilityType/0',decode(repeat('08',32),'hex'),'hero-ability-atoms','p1-v2');
+        INSERT INTO canon.entity(kind,key,identity_receipt_id)
+            SELECT 'ability','qualified_ability',id FROM canon.receipt WHERE source_id=2;
+        COMMIT")
+        .execute(&owner).await.unwrap();
+    let entity: i64 = sqlx::query_scalar("SELECT id FROM canon.entity WHERE key='qualified_ability'")
+        .fetch_one(&owner).await.unwrap();
+    let upgrade = json!({"upgrade_tier":2,"operation":"delta"});
+    let game_upgrade = json!({"upgrade_tier":2,"operation":"delta","upgrade_property":"AbilityCooldown",
+        "upgrade_property_locator":"/qualified_ability/0/m_vecAbilityUpgrades/0/[1]/m_vecPropertyUpgrades/0/[0]/m_StrPropertyNAme/0"});
+    let game_scale = json!({"scale_class":"CScale","scale_type":"Spirit","scale_value":"1.5","scale_stat_0":"Spirit",
+        "scale_locator":"/qualified_ability/0/m_mapAbilityProperties/0/Damage/0/m_subclassScaleFunction/0"});
+    let assets_scale = json!({"scale_class":"CScale","scale_type":"Spirit","scale_value":"1.5","scale_stat_0":"Spirit",
+        "scale_class_locator":"/0/properties/Damage/scale_function/class_name",
+        "scale_type_locator":"/0/properties/Damage/scale_function/specific_stat_scale_type",
+        "scale_value_locator":"/0/properties/Damage/scale_function/stat_scale",
+        "scale_stat_0_locator":"/0/properties/Damage/scale_function/scaling_stats/0"});
+    let winners = [
+        ("ability.AbilityCooldown", json!(-12), upgrade.clone(), game_upgrade, 2),
+        ("ability.Damage", json!(25), assets_scale, game_scale, 2),
+        ("ability.DeadlockScale", json!(26),
+            json!({"scale_type":"cooldown","scale_value":"1","scale_type_locator":"/0/properties/DeadlockScale/scale_function/specific_stat_scale_type","scale_value_locator":"/0/properties/DeadlockScale/scale_function/stat_scale"}),
+            json!({"scale_type":"cooldown","scale_value":"1","scale_type_locator":"/qualified_ability/DeadlockScale/Scale/Type","scale_value_locator":"/qualified_ability/DeadlockScale/Scale/Value"}), 2),
+        ("ability.QualifiedJson", json!([1,2,3]),
+            json!({"scale_type":"Spirit","scale_type_locator":"/0/properties/QualifiedJson/scale_function/specific_stat_scale_type"}),
+            json!({"scale_type":"Spirit","scale_locator":"/qualified_ability/0/m_mapAbilityProperties/0/QualifiedJson/0/m_subclassScaleFunction/0"}), 2),
+        ("identity.name", json!("Assets Fähigkeit"), json!({"lang":"en"}), json!({"lang":"en"}), 1),
+    ];
+    let mut expected_winners = Vec::new();
+    for (stat, value, assets_condition, game_condition, source) in winners {
+        let other_value = if value.is_number() { json!(999) } else if value.is_string() { json!("Game ability") } else { json!([99]) };
+        let assets_value = if source == 1 { &value } else { &other_value };
+        let game_value = if source == 2 { &value } else { &other_value };
+        let assets = insert_qualified_fact(&owner, entity, 1, stat, assets_value, &assets_condition, "/0/value").await;
+        let game = insert_qualified_fact(&owner, entity, 2, stat, game_value, &game_condition, "/qualified_ability/0/value/0").await;
+        let (receipt, condition) = if source == 1 { (assets, assets_condition) } else { (game, game_condition) };
+        expected_winners.push((stat.to_owned(), value, condition, receipt));
+    }
+    for key in ["scale_class_locator", "scale_type_locator", "scale_value_locator",
+        "scale_stat_0_locator", "scale_stat_1_locator", "scale_stat_2_locator", "scale_stat_3_locator",
+        "usage_flag_0_locator", "usage_flag_1_locator", "usage_flag_2_locator", "usage_flag_3_locator"] {
+        let label = key.strip_suffix("_locator").unwrap();
+        let stat = format!("ability.Known_{label}");
+        let first = json!({label:"known",key:"/0/properties/value"});
+        let second = json!({label:"known",key:"/9/properties/value"});
+        let receipt = insert_qualified_fact(&owner, entity, 1, &stat, &json!(10), &first, "/0/value").await;
+        insert_qualified_fact(&owner, entity, 3, &stat, &json!(99), &second, "/9/value").await;
+        expected_winners.push((stat, json!(10), first, receipt));
+    }
+    let distinct = [
+        ("tiers", upgrade.clone(), json!({"upgrade_tier":3,"operation":"delta"})),
+        ("tier_types", upgrade.clone(), json!({"upgrade_tier":"2","operation":"delta"})),
+        ("operations", upgrade.clone(), json!({"upgrade_tier":2,"operation":"set"})),
+        ("languages", json!({"lang":"en"}), json!({"lang":"de"})),
+        ("duplicate_entries", json!({"upgrade_tier":2,"operation":"delta","upgrade_entry":0}), json!({"upgrade_tier":2,"operation":"delta","upgrade_entry":1})),
+        ("missing_entry", upgrade.clone(), json!({"upgrade_tier":2,"operation":"delta","upgrade_entry":0})),
+        ("scale_classes", json!({"scale_class":"CScale"}), json!({"scale_class":"OtherScale"})),
+        ("scale_types", json!({"scale_type":"Spirit"}), json!({"scale_type":"Health"})),
+        ("scale_values", json!({"scale_value":"1"}), json!({"scale_value":"2"})),
+        ("scale_numeric_lexemes", json!({"scale_value":"1"}), json!({"scale_value":"1.0"})),
+        ("scale_value_types", json!({"scale_value":"1"}), json!({"scale_value":1})),
+        ("scale_stats", json!({"scale_stat_0":"Spirit"}), json!({"scale_stat_0":"Health"})),
+        ("scale_stat_positions", json!({"scale_stat_0":"Spirit"}), json!({"scale_stat_1":"Spirit"})),
+        ("scale_missing_class", json!({"scale_type":"Spirit"}), json!({"scale_type":"Spirit","scale_class":"CScale"})),
+        ("hero_scales", json!({"scale":"LevelScaling"}), json!({"scale":"SpiritScaling"})),
+        ("usage_flags", json!({"usage_flag_0":"Imbued"}), json!({"usage_flag_0":"All"})),
+        ("usage_positions", json!({"usage_flag_0":"Imbued"}), json!({"usage_flag_1":"Imbued"})),
+        ("usage_missing", json!({}), json!({"usage_flag_0":"Imbued"})),
+        ("source_flags", json!({"source_flags":"Imbued"}), json!({"usage_flag_0":"Imbued"})),
+        ("unknown_metadata", json!({"future_qualifier":"one"}), json!({"future_qualifier":"two"})),
+        ("unknown_locators", json!({"audit_locator":"/one"}), json!({"audit_locator":"/two"})),
+        ("orphan_locators", json!({"scale_type_locator":"/one"}), json!({"scale_type_locator":"/two"})),
+        ("malformed_locators", json!({"scale_type":"Spirit","scale_type_locator":1}), json!({"scale_type":"Spirit","scale_type_locator":2})),
+        ("nonpointer_locators", json!({"scale_type":"Spirit","scale_type_locator":"one"}), json!({"scale_type":"Spirit","scale_type_locator":"two"})),
+        ("null_companions", json!({"scale_type":null,"scale_type_locator":"/one"}), json!({"scale_type":null,"scale_type_locator":"/two"})),
+        ("unknown_scale_index", json!({"scale_stat_4":"Spirit","scale_stat_4_locator":"/one"}), json!({"scale_stat_4":"Spirit","scale_stat_4_locator":"/two"})),
+        ("inconsistent_property", upgrade.clone(), json!({"upgrade_tier":2,"operation":"delta","upgrade_property":"OtherStat","upgrade_property_locator":"/other/name"})),
+        ("orphan_upgrade_locator", upgrade.clone(), json!({"upgrade_tier":2,"operation":"delta","upgrade_property_locator":"/other/name"})),
+        ("orphan_scale_locator", json!({"scale_locator":"/one"}), json!({"scale_locator":"/two"})),
+    ];
+    let mut expected_distinct = Vec::new();
+    for (name, first, second) in distinct {
+        let stat = format!("ability.Distinct_{name}");
+        let assets = insert_qualified_fact(&owner, entity, 1, &stat, &json!(999), &first, "/0/value").await;
+        let game = insert_qualified_fact(&owner, entity, 2, &stat, &json!(25), &second, "/qualified_ability/0/value/0").await;
+        expected_distinct.push((stat, vec![(first, assets), (second, game)]));
+    }
+    let mut duplicate_upgrade = Vec::new();
+    for entry in 0..2 {
+        let condition = json!({"upgrade_tier":2,"operation":"delta","upgrade_property":"DuplicateUpgrade",
+            "upgrade_property_locator":format!("/qualified_ability/0/m_vecAbilityUpgrades/0/[1]/m_vecPropertyUpgrades/0/[{entry}]/m_strPropertyName/0")});
+        let receipt = insert_qualified_fact(&owner, entity, 2, "ability.DuplicateUpgrade", &json!(-10-entry), &condition, &format!("/duplicate/{entry}/bonus")).await;
+        duplicate_upgrade.push((condition, receipt));
+    }
+    let receipt = insert_qualified_fact(&owner, entity, 1, "ability.DuplicateUpgrade", &json!(-99), &upgrade, "/0/upgrades/1/property_upgrades/0/bonus").await;
+    duplicate_upgrade.push((upgrade.clone(), receipt));
+    expected_distinct.push(("ability.DuplicateUpgrade".into(), duplicate_upgrade));
+    let mut duplicate_scale = Vec::new();
+    for (source, locator) in [(1,"/one"),(2,"/two"),(2,"/three"),(3,"/four")] {
+        let condition = json!({"scale_type":"Spirit","scale_type_locator":locator});
+        let receipt = insert_qualified_fact(&owner, entity, source, "ability.DuplicateScale", &json!(source), &condition, locator).await;
+        duplicate_scale.push((condition, receipt));
+    }
+    expected_distinct.push(("ability.DuplicateScale".into(), duplicate_scale));
+    let other_entity: i64 = sqlx::query_scalar("INSERT INTO canon.entity(kind,key,identity_receipt_id)
+        SELECT 'ability','qualified_other',identity_receipt_id FROM canon.entity WHERE id=$1 RETURNING id")
+        .bind(entity).fetch_one(&owner).await.unwrap();
+    let other_receipt = insert_qualified_fact(&owner, other_entity, 2, "ability.AbilityCooldown", &json!(7), &upgrade, "/other/value").await;
+    let original = snapshot(&owner).await;
+    assert!(qualified_rows(&owner, entity, "ability.AbilityCooldown").await.is_empty());
+    publish_public_fixture(&owner).await;
+    let unpublished = qualified_rows(&owner, entity, "ability.AbilityCooldown").await;
+    assert_eq!(unpublished.len(), 1);
+    assert_eq!(unpublished[0]["value"], 999);
+    sqlx::raw_sql("BEGIN; UPDATE raw.run SET status='succeeded' WHERE id IN (2,3);
+        INSERT INTO canon.source_head(source_id,published_revision_id) VALUES (2,2),(3,3);
+        UPDATE raw.source SET last_complete_revision=CASE id WHEN 2 THEN 'qualified-game' ELSE 'qualified-assets' END WHERE id IN (2,3); COMMIT")
+        .execute(&owner).await.unwrap();
+    for (stat, value, condition, receipt) in &expected_winners {
+        let rows = qualified_rows(&owner, entity, stat).await;
+        assert_eq!(rows.len(), 1, "equivalent conditions did not reconcile: {stat}");
+        assert_eq!(rows[0]["value"], *value, "wrong source priority: {stat}");
+        assert_eq!(rows[0]["condition"], *condition, "winner condition changed: {stat}");
+        assert_eq!(rows[0]["citation"], receipt.to_string(), "winner receipt changed: {stat}");
+        assert!(rows[0]["patch"].is_null());
+    }
+    for (stat, originals) in &expected_distinct {
+        let rows = qualified_rows(&owner, entity, stat).await;
+        assert_eq!(rows.len(), originals.len(), "genuine or ambiguous qualifiers collapsed: {stat}");
+        for (condition, receipt) in originals {
+            assert!(rows.iter().any(|row| row["condition"] == *condition && row["citation"] == receipt.to_string()), "original assertion lost: {stat} {condition}");
+        }
+    }
+    let other_rows = qualified_rows(&owner, other_entity, "ability.AbilityCooldown").await;
+    assert_eq!(other_rows.len(), 1);
+    assert_eq!(other_rows[0]["entity_id"], other_entity);
+    assert_eq!(other_rows[0]["value"], 7);
+    assert_eq!(other_rows[0]["citation"], other_receipt.to_string());
+    let selected_before: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(f) FROM serve.selected_fact_p2 f ORDER BY id")
+        .fetch_all(&owner).await.unwrap();
+    sqlx::query("SELECT serve.refresh_assets_p2()").execute(&owner).await.unwrap();
+    let selected_after: Vec<Value> = sqlx::query_scalar("SELECT to_jsonb(f) FROM serve.selected_fact_p2 f ORDER BY id")
+        .fetch_all(&owner).await.unwrap();
+    assert_eq!(selected_before, selected_after);
+    let retained = snapshot(&owner).await;
+    for field in ["facts", "receipts", "entities", "relations"] {
+        assert_eq!(original[field], retained[field], "serving rewrote stored {field}");
+    }
+    let card: Value = sqlx::query_scalar("SELECT card FROM serve.ability_card WHERE entity_id=$1")
+        .bind(entity).fetch_one(&owner).await.unwrap();
+    assert!(serde_json::to_vec(&card).unwrap().len() < 16 * 1024);
+    let upgrade_winner = &expected_winners[0];
+    assert!(card["facts"]["facts"].as_array().unwrap().iter().any(|row|
+        row["stat_key"] == upgrade_winner.0 && row["condition"] == upgrade_winner.2 && row["citation"] == upgrade_winner.3.to_string()));
+    let tool_pool = scratch.pool("brain_public", "brain_test_dba").await;
+    let mut tool = tool_pool.acquire().await.unwrap();
+    sqlx::query("SET ROLE brain_tool").execute(&mut *tool).await.unwrap();
+    sqlx::query("SELECT condition FROM serve.selected_fact_p2 WHERE entity_id=$1 AND stat_key='ability.AbilityCooldown'")
+        .bind(entity).fetch_all(&mut *tool).await.unwrap();
+    sqlx::query("RESET ROLE").execute(&mut *tool).await.unwrap();
+    drop(tool);
+    tool_pool.close().await;
+    println!("QUALIFIED_SOURCE_CONTRACT: {} reconciled groups, {} distinct or ambiguous groups; synthetic canon assertions and receipts, no extraction or lexical hash audit", expected_winners.len(), expected_distinct.len());
+    owner.close().await;
+}
+
 #[tokio::test]
 async fn public_ability_values_descriptions_and_all_upgrade_tiers_survive_real_projection() {
     let scratch = Scratch::new();
-    let owner = public_fixture_database(&scratch, false).await;
+    let owner = public_fixture_database(&scratch).await;
     let mut inserted = Vec::new();
     for record in public_records()
         .into_iter()
@@ -791,9 +1007,9 @@ async fn public_ability_values_descriptions_and_all_upgrade_tiers_survive_real_p
 }
 
 #[tokio::test]
-async fn public_item_cost_and_effects_survive_explicit_test_only_kind_simulation() {
+async fn public_item_cost_and_effects_survive_real_p1_kinds_and_p2_projection() {
     let scratch = Scratch::new();
-    let owner = public_fixture_database(&scratch, true).await;
+    let owner = public_fixture_database(&scratch).await;
     let record = public_records()
         .into_iter()
         .find(|r| r["key"] == "upgrade_toxic_bullets")
