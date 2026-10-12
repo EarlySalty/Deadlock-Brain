@@ -49,7 +49,7 @@ mod budget {
 }
 
 pub const EXTRACTOR: &str = "hero-ability-atoms";
-pub const VERSION: &str = "p1-v1";
+pub const VERSION: &str = "p1-v2";
 
 #[derive(Debug)]
 pub struct Assertion {
@@ -96,6 +96,7 @@ pub fn supported(source: Source, path: &str) -> bool {
             "game/citadel/pak01_dir/scripts/heroes.vdata"
                 | "game/citadel/pak01_dir/scripts/abilities.vdata"
         ),
+        "deadlock-docs" => crate::docs_extract::supported(path),
         _ => false,
     }
 }
@@ -449,6 +450,9 @@ pub fn extract_with_identities(
     if !supported(source, path) {
         return Ok(Vec::new());
     }
+    if source.key == "deadlock-docs" {
+        return crate::docs_extract::extract(path, bytes);
+    }
     let parsed = leaves(path, bytes)?;
     let index: BTreeMap<_, _> = parsed
         .iter()
@@ -669,6 +673,9 @@ pub fn prove(source: Source, path: &str, bytes: &[u8], assertions: &[Assertion])
         supported(source, path) || assertions.is_empty(),
         "proof_source"
     );
+    if source.key == "deadlock-docs" && supported(source, path) {
+        return crate::docs_extract::prove(path, bytes, assertions);
+    }
     if assertions.is_empty() {
         return Ok(());
     }

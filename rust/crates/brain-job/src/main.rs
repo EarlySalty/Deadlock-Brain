@@ -12,6 +12,7 @@ struct Arguments {
 #[derive(Subcommand)]
 enum Job {
     IngestGamefiles,
+    IngestDocs,
 }
 
 #[tokio::main]
@@ -21,6 +22,7 @@ async fn main() -> std::process::ExitCode {
         let config = Config::load(&arguments.config)?;
         match arguments.command {
             Job::IngestGamefiles => brain_job::ingest(&config).await,
+            Job::IngestDocs => brain_job::docs::ingest(&config).await,
         }
     }
     .await;

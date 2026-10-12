@@ -392,6 +392,8 @@ dependencies = [
  "clap",
  "deadlock-brain-core",
  "hex",
+ "html5ever",
+ "scraper",
  "serde",
  "serde_json",
  "sha2 0.10.9",

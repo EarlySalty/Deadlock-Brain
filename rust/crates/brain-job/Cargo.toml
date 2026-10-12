@@ -9,6 +9,8 @@ brain-contracts = { path = "../brain-contracts" }
 clap.workspace = true
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 hex.workspace = true
+html5ever = "0.27"
+scraper.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true

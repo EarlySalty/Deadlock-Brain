@@ -1,4 +1,7 @@
 pub mod config;
+pub mod docs;
+pub mod docs_extract;
+pub mod docs_store;
 pub mod extract;
 pub mod git;
 pub mod store;
