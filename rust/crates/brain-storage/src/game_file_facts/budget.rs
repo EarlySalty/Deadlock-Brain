@@ -1,3 +1,5 @@
+// Conservative cumulative allocation accounting, including downstream fact expansion.
+// Charges never get refunded, so transient copies and retained values share a bound.
 pub const EXCEEDED: &str = "allocation_budget_exceeded_preserved_as_text";
 const MAX_BYTES: usize = 512 * 1024 * 1024;
 

@@ -165,6 +165,7 @@ fn tokenize(input: &str, budget: &mut Budget) -> Result<Vec<Token>, &'static str
                     }
                     match bytes[index] {
                         b'\\' => {
+                            // Keep escape bytes. KV callers differ in whether escape processing is enabled.
                             index += 2;
                             if index > bytes.len() {
                                 return Err("Unvollständige KV-Escapesequenz");

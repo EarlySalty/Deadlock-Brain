@@ -64,30 +64,29 @@ pub fn verify(
     if requests.len() > policy.max_requests {
         return Err(Rejection::RequestLimit);
     }
-    let supported = |request: &Request<'_>| {
-        !request.explicitly_unsupported
-            && matches!(request.locator_kind, "json_pointer" | "kv_pointer")
-    };
-    let requested: BTreeSet<_> = requests
-        .iter()
-        .filter(|request| supported(request))
-        .map(|request| request.locator)
-        .collect();
-    let hashes = if requested.is_empty() {
-        Ok(BTreeMap::new())
-    } else if bytes.len() > policy.max_raw_bytes {
-        Err(Rejection::RawSizeLimit)
-    } else if requested
-        .iter()
-        .any(|locator| locator.len() > policy.max_locator_bytes)
-    {
-        Err(Rejection::LocatorSizeLimit)
-    } else {
-        raw_hashes(bytes, format, &requested, policy.parser_allocation_bytes)
-    };
     let expected_kind = match format {
         Format::Json => "json_pointer",
         Format::Kv | Format::Kv3 => "kv_pointer",
+    };
+    let supported = |request: &Request<'_>| {
+        !request.explicitly_unsupported && request.locator_kind == expected_kind
+    };
+    let hashes = if !requests.iter().any(supported) {
+        Ok(BTreeMap::new())
+    } else if bytes.len() > policy.max_raw_bytes {
+        Err(Rejection::RawSizeLimit)
+    } else if requests
+        .iter()
+        .any(|request| supported(request) && request.locator.len() > policy.max_locator_bytes)
+    {
+        Err(Rejection::LocatorSizeLimit)
+    } else {
+        let requested: BTreeSet<_> = requests
+            .iter()
+            .filter(|request| supported(request))
+            .map(|request| request.locator)
+            .collect();
+        raw_hashes(bytes, format, &requested, policy.parser_allocation_bytes)
     };
     Ok(requests
         .iter()
@@ -99,9 +98,7 @@ pub fn verify(
                 Ok(hashes) => hashes,
                 Err(reason) => return Verification::ObjectRejected(*reason),
             };
-            let observed = (request.locator_kind == expected_kind)
-                .then(|| hashes.get(request.locator))
-                .flatten();
+            let observed = hashes.get(request.locator);
             Verification::Receipt(match observed {
                 Some(hash) if *hash == request.expected_sha256 => ReceiptOutcome::Match(*hash),
                 Some(hash) => ReceiptOutcome::Mismatch(*hash),
@@ -326,6 +323,170 @@ mod tests {
         assert!(ReceiptOutcome::LocatorNotFound.quarantines());
         assert!(ReceiptOutcome::Mismatch([0; 32]).quarantines());
         assert!(!ReceiptOutcome::Match([0; 32]).quarantines());
+    }
+
+    #[test]
+    fn incompatible_locator_kinds_skip_json_kv_and_kv3_parsing() {
+        let oversized = vec![0xff; policy().max_raw_bytes + 1];
+        let long_locator = "/x".repeat(policy().max_locator_bytes);
+        for (format, compatible, incompatible) in [
+            (Format::Json, "json_pointer", "kv_pointer"),
+            (Format::Kv, "kv_pointer", "json_pointer"),
+            (Format::Kv3, "kv_pointer", "json_pointer"),
+        ] {
+            let mut tier = request(compatible, &long_locator, b"1");
+            tier.explicitly_unsupported = true;
+            let requests = [
+                request(incompatible, "/x", b"1"),
+                request(incompatible, &long_locator, b"1"),
+                request("future_pointer", &long_locator, b"1"),
+                tier,
+            ];
+            let mut limits = policy();
+            limits.parser_allocation_bytes = 0;
+            for bytes in [b"{".as_slice(), &[0xff], oversized.as_slice()] {
+                let results = verify(bytes, format, &requests, limits).unwrap();
+                assert_eq!(
+                    results,
+                    [Verification::Receipt(ReceiptOutcome::UnsupportedLocatorKind); 4]
+                );
+                assert!(results.iter().all(|result| matches!(
+                    result,
+                    Verification::Receipt(outcome) if !outcome.quarantines()
+                )));
+            }
+        }
+    }
+
+    #[test]
+    fn incompatible_oversized_locators_do_not_poison_supported_receipts() {
+        let long_locator = "/x".repeat(policy().max_locator_bytes);
+        for (format, compatible, incompatible, locator, bytes) in [
+            (
+                Format::Json,
+                "json_pointer",
+                "kv_pointer",
+                "/x",
+                br#"{"x":1}"#.as_slice(),
+            ),
+            (Format::Kv, "kv_pointer", "json_pointer", "/x/0", b"x 1"),
+            (
+                Format::Kv3,
+                "kv_pointer",
+                "json_pointer",
+                "/x/0",
+                b"{ x = 1 }",
+            ),
+        ] {
+            let mut tier = request(compatible, &long_locator, b"1");
+            tier.explicitly_unsupported = true;
+            let supported = request(compatible, locator, b"1");
+            let results = verify(
+                bytes,
+                format,
+                &[
+                    request(incompatible, locator, b"1"),
+                    request(incompatible, &long_locator, b"1"),
+                    request("future_pointer", &long_locator, b"1"),
+                    tier,
+                    supported,
+                ],
+                policy(),
+            )
+            .unwrap();
+            assert_eq!(
+                results[..4],
+                [Verification::Receipt(ReceiptOutcome::UnsupportedLocatorKind); 4]
+            );
+            assert_eq!(
+                results[4],
+                Verification::Receipt(ReceiptOutcome::Match(supported.expected_sha256))
+            );
+        }
+    }
+
+    #[test]
+    fn mixed_supported_poison_rejects_only_compatible_requests() {
+        for (format, compatible, incompatible) in [
+            (Format::Json, "json_pointer", "kv_pointer"),
+            (Format::Kv, "kv_pointer", "json_pointer"),
+            (Format::Kv3, "kv_pointer", "json_pointer"),
+        ] {
+            let mut tier = request(compatible, "/x", b"1");
+            tier.explicitly_unsupported = true;
+            for bytes in [b"{".as_slice(), &[0xff]] {
+                let results = verify(
+                    bytes,
+                    format,
+                    &[
+                        request(incompatible, "/x", b"1"),
+                        request("future_pointer", "/x", b"1"),
+                        tier,
+                        request(compatible, "/x", b"1"),
+                    ],
+                    policy(),
+                )
+                .unwrap();
+                assert_eq!(
+                    results[..3],
+                    [Verification::Receipt(ReceiptOutcome::UnsupportedLocatorKind); 3]
+                );
+                if bytes == [0xff] {
+                    assert_eq!(
+                        results[3],
+                        Verification::ObjectRejected(Rejection::InvalidUtf8)
+                    );
+                } else {
+                    assert!(matches!(
+                        results[3],
+                        Verification::ObjectRejected(Rejection::Parser(_))
+                    ));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn long_common_prefix_locators_are_size_rejections_not_receipt_failures() {
+        let prefix = "x".repeat(64 * 1024);
+        let locators: Vec<_> = (0..64)
+            .map(|index| format!("/{prefix}/{index:02}"))
+            .collect();
+        let oversized = vec![0xff; policy().max_raw_bytes + 1];
+        for (format, compatible, incompatible) in [
+            (Format::Json, "json_pointer", "kv_pointer"),
+            (Format::Kv, "kv_pointer", "json_pointer"),
+            (Format::Kv3, "kv_pointer", "json_pointer"),
+        ] {
+            let mut requests: Vec<_> = locators
+                .iter()
+                .map(|locator| request(compatible, locator, b"1"))
+                .collect();
+            let mut tier = request(compatible, &locators[0], b"1");
+            tier.explicitly_unsupported = true;
+            requests.extend([
+                request(incompatible, &locators[0], b"1"),
+                request("future_pointer", &locators[0], b"1"),
+                tier,
+            ]);
+            for (bytes, rejection) in [
+                (&[0xff][..], Rejection::LocatorSizeLimit),
+                (oversized.as_slice(), Rejection::RawSizeLimit),
+            ] {
+                let results = verify(bytes, format, &requests, policy()).unwrap();
+                assert_eq!(results[..64], [Verification::ObjectRejected(rejection); 64]);
+                assert_eq!(
+                    results[64..],
+                    [Verification::Receipt(ReceiptOutcome::UnsupportedLocatorKind); 3]
+                );
+            }
+            let mut limits = policy();
+            limits.max_requests = requests.len() - 1;
+            assert_eq!(
+                verify(&oversized, format, &requests, limits),
+                Err(Rejection::RequestLimit)
+            );
+        }
     }
 
     #[test]

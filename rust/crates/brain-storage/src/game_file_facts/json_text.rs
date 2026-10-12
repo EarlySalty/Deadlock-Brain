@@ -44,6 +44,8 @@ pub(super) fn number(text: &str) -> Result<(Value, Option<&'static str>), &'stat
     if i != b.len() {
         return Err("invalid_numeric_lexeme");
     }
+    // Integer representations are exact. Decimal/exponent lexemes deliberately
+    // remain strings: no IEEE-754 rounding is presented as a source value.
     if !text.contains(['.', 'e', 'E']) && text != "-0" {
         if let Ok(n) = text.parse::<i64>() {
             return Ok((Value::from(n), Some("exact_integer")));
