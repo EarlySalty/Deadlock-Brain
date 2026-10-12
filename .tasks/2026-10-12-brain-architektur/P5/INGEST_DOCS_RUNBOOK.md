@@ -15,6 +15,8 @@ P1 owns ops/brain-job@.service and ops/brain-job@.timer. The common wave-2 contr
 
 Use the final published P1 system templates, not the interim template from the first checkpoint. Inspect the installed instance metadata to confirm User=nathanael, Group=nathanael, explicit absolute configuration and credential-source paths, LoadCredential, MemoryAccounting=yes, MemoryMax=512M and the expected system-manager ControlGroup. Do not read any credential contents or secret environment. If the final P1 template already supplies the required instance configuration, no P5 unit copy or redundant drop-in is needed.
 
+The imported P1 template at checkpoint ddbeb2fe adds ExecStartPost capture of InvocationID, cgroup membership, enforced limit and memory.max_usage_in_bytes while the job cgroup is still available. Verify that the installed instance actually contains those steps. Bind its sanitized journal measurements to the same ingest-docs invocation and fetched source commit; a P1 Wiki job measurement is not P5 Docs memory proof.
+
 Before enabling a system instance, inspect whether the matching user-manager brain-job@ingest-docs service or timer exists. Stop and disable only those matching old instances if present. Do not change other jobs, serve directly, Caddy, the site, maintenance or dl-knowledge.
 
 When unit installation is actually needed, follow the privileged, independently reviewed P0b install path under /opt/deadlock-brain/.deploy.lock from the clean verified origin/main worktree. Install only the approved package files. Do not enable the docs timer before both real executions below pass.
