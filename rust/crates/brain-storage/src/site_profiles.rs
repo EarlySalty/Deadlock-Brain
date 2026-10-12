@@ -165,6 +165,18 @@ impl PgStore {
             .execute(&self.pool)
             .await?;
         }
+        let mut tx = self.pool.begin().await?;
+        sqlx::raw_sql("SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='60000ms'; SELECT pg_advisory_xact_lock(hashtextextended('brain.site_profiles',0))")
+            .execute(&mut *tx)
+            .await?;
+        let migration = include_str!(
+            "../../../../scripts/migrations/2026-10-12-brain-site-profile-index-v1.sql"
+        )
+        .strip_prefix("BEGIN;\n")
+        .and_then(|sql| sql.trim_end().strip_suffix("COMMIT;"))
+        .ok_or_else(invalid)?;
+        sqlx::raw_sql(migration).execute(&mut *tx).await?;
+        tx.commit().await?;
         Ok(())
     }
 
