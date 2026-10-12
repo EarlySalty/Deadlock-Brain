@@ -2,6 +2,7 @@ mod build;
 mod fs_safe;
 mod install;
 mod source;
+mod units;
 
 use anyhow::{bail, ensure, Context, Result};
 use fs_safe::uid;
@@ -131,6 +132,7 @@ fn main_result() -> Result<()> {
                 ensure!(operator_verify(source, bundle)? == manifest, "Herkunft unmittelbar vor Zeigerwechsel verändert");
                 Ok(())
             })?;
+            units::install()?;
             print_manifest(&installer.installed(&manifest.source.sha)?)
         }
         ("rollback", 2) => {
@@ -138,6 +140,7 @@ fn main_result() -> Result<()> {
             let sha = args[1].to_str().context("Ungültiger SHA")?;
             let installer = install::Installer::open(Path::new(install::ROOT), 0)?;
             installer.activate(sha)?;
+            units::install()?;
             print_manifest(&installer.installed(sha)?)
         }
         ("recover", 1) => {

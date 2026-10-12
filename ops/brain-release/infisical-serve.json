@@ -4,5 +4,5 @@
   "secret_path": "/",
   "socket_path": "/run/uplink-infisical/api.sock",
   "database_secret": "DEADLOCK_CENTRAL_DSN",
-  "credential_path": "/run/user/1000/credentials/brain-serve.service/infisical-token"
+  "credential_path": "/run/credentials/brain-serve.service/infisical-token"
 }

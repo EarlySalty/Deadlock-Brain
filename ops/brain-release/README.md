@@ -1,6 +1,6 @@
 # Gemeinsame Brain-Binaryinstallation
 
-Der Rust-Helfer baut ein gemeinsames Release und prüft dessen Herkunft ohne weiteren Cargo-Bau. Er ändert keine Units, Laufzeitkonfiguration, Datenbanken oder Wiki-Dateien und startet keinen Dienst.
+The Rust helper builds and verifies one shared release. `install` and `rollback` also install and restart the three capped system services. They do not change application data or the operator's serve configuration. See [P0b system-unit installation and rollback](P0b.md) for the enforced memory caps, the old user-unit cutover, and the convention for future Brain job units.
 
 ## Aufrufe
 
