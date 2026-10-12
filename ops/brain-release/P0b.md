@@ -38,4 +38,15 @@ This reverts enforcement to the known previous user-unit state, not to enforced 
 
 Repository search found no operational shell health/deploy caller for these three units. `rust/crates/brain-maintenance/src/integration/activation.rs` still invokes `systemctl --user restart` for the configured serve unit. Maintenance and its user-disablement drop-in remain unchanged and inactive; P7 must change or retire that activation before maintenance can run. The historical `architecture/migration/CUTOVER_RUNBOOK.md` has user-manager inspection commands and is outside this package's write area.
 
-For every future Brain job, place its service template in `ops/brain-release/systemd` and install it in `/etc/systemd/system` through the release helper, never in the user manager. Use `User=nathanael`, explicit absolute config/credential-source paths, `LoadCredential`, `MemoryAccounting=yes` and a measured `MemoryMax`; bind its timer to the system service and enable it through `sudo -n systemctl`. Stop and disable a matching old user timer and service before enabling the system timer. Add the template to the helper's fixed, trusted installation inventory rather than loading arbitrary operator-controlled unit text as root. Prove `/sys/fs/cgroup/memory/system.slice/<instance>/memory.limit_in_bytes` and `memory.max_usage_in_bytes` on a real execution. `brain-job@ingest-gamefiles` belongs to P1; if P1 is not on origin/main at P0b's gate, its files stay untouched and its template migration is routed by the orchestrator.
+For every future Brain job, install its package-owned template in `/etc/systemd/system`, never in the user manager. Use `User=nathanael`, explicit absolute config/credential-source paths, `LoadCredential`, `MemoryAccounting=yes` and a measured `MemoryMax`; bind its timer to the system service and enable it through `sudo -n systemctl`. Stop and disable a matching old user timer and service before enabling the system timer. Prove `/sys/fs/cgroup/memory/system.slice/<instance>/memory.limit_in_bytes` and `memory.max_usage_in_bytes` on a real execution. P1 owns `ops/brain-job@.service` and `ops/brain-job@.timer`; P0b never creates or moves those files, even if P1 merges during this package.
+
+P1 can install its additional units without editing the P0b helper. After its own gate, merge, release installation and verification, use this explicit install path from P1's clean verified origin/main worktree. Hold the shared deploy lock and ensure no release build or install is running. Do not enable a timer until its service has passed the package's real-execution proof.
+
+```bash
+sudo -n flock --exclusive /opt/deadlock-brain/.deploy.lock /usr/bin/install -o root -g root -m 0644 ops/brain-job@.service ops/brain-job@.timer /etc/systemd/system/
+sudo -n systemctl daemon-reload
+sudo -n systemctl start brain-job@ingest-gamefiles.service
+sudo -n systemctl enable --now brain-job@ingest-gamefiles.timer
+```
+
+If matching user units already exist, disable and stop those instances before installation. The explicit privileged install uses the independently reviewed package files; the root-owned P0b helper does not accept arbitrary unit text or invoke arbitrary caller-selected commands. Its future releases preserve P1's additional system units because it installs only its three named services.

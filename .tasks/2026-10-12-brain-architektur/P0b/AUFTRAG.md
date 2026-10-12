@@ -6,4 +6,4 @@ Goal: enforce 512M, 256M and 64M caps for serve, site and consent through system
 
 Acceptance: all three system services active with exact cgroup-v1 limit and readable peak; matching user services disabled or absent; normal Infisical credential path equals the unit-emitted credential path and exists without reading it; synthetic `/v1/answer` answered with citation; site `/site/steckbriefe` HTTP 200; error-priority journal empty since switch; release install restarts system services.
 
-Procedure and rollback: `ops/brain-release/P0b.md`. Operational evidence: `/home/nathanael/.local/state/brain-p0b-proof-20261012`. P1 is absent from origin/main `c7123fe7` at the initial integration check; its job template stays outside this package unless that changes before gate.
+Procedure and rollback: `ops/brain-release/P0b.md`. Operational evidence: `/home/nathanael/.local/state/brain-p0b-proof-20261012`. P1 owns its job templates even if they appear on origin/main; P0b leaves them untouched and documents a separate explicit install path that needs no P0b helper-code change.

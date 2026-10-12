@@ -47,10 +47,15 @@ fn user_systemctl() -> Command {
 }
 
 fn checked_status(mut command: Command) -> Result<()> {
-    let status = command.status()?;
+    let operation = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let status = command.status().with_context(|| operation.clone())?;
     ensure!(
         status.success(),
-        "Dienstinstallation fehlgeschlagen (Exit {:?})",
+        "Dienstinstallation fehlgeschlagen: {operation} (Exit {:?})",
         status.code()
     );
     Ok(())
