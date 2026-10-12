@@ -1,0 +1,11 @@
+[Unit]
+Description=Stündlicher Import der Deadlock-Assets
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=300
+Persistent=true
+Unit=brain-job@ingest-assets.service
+
+[Install]
+WantedBy=timers.target

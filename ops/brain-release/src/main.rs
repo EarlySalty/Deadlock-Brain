@@ -105,7 +105,7 @@ fn main_result() -> Result<()> {
             let state = source::inspect(&source)?;
             ensure!(state.sha == remote, "Quelle liegt nicht auf Remote-main");
             println!("{}", serde_json::to_string_pretty(&state)?);
-            println!("Buildargv: /home/nathanael/.cargo/bin/cargo {} --target-dir {} (frisch, exklusiv, danach entfernt)", source::BUILD_ARGS.join(" "), build::TARGET);
+            println!("Buildargv: CARGO_SLOT_DEPLOY=1 /home/nathanael/.local/bin/cargo-slot {} --target-dir {} (frisch, exklusiv, danach entfernt)", source::BUILD_ARGS.join(" "), build::TARGET);
             println!("RUSTFLAGS={} | sccache=/home/nathanael/.cache/sccache | Buildbeleg in root-eigenen Release-Layouts", build::RUSTFLAGS);
             Ok(())
         }
