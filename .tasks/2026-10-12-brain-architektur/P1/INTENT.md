@@ -1,0 +1,12 @@
+# P1 independent intent observations
+
+These are source-path observations, not live acceptance.
+
+- Legacy tool authorization is preserved: `deadlock_data.rs:206-215` and `pg_tools.rs:133-142` both require the same conversation binding and public provider egress. The new wrapper delegates old execution, dependency and build-plan checks.
+- `CachedKernel` is process-local, caps TTL at 60 seconds and does not cache Discord-request context (`brain-kernel/src/cache.rs:16-35`). The permitted P1 serve restart clears pre-deploy cache entries. A fresh proof must still verify actual calls in the trace, not infer them from response text.
+- Canonical tools carry `game_context:None`, revalidate immutable receipt metadata and compare dependency evidence (`pg_tools.rs:303-332`). Kernel tool publication uses tool-dependency validation; it does not send canonical receipts through the legacy retrieval validator (`brain-kernel/src/execution.rs:390-419`). Receipt consistency is therefore a relevant independent contract, not just a citation-format check.
+- The current source tool loop recognizes a grounded final answer by cited evidence IDs and applies the existing publication checks. No K2 citation/value logic was changed. Rebase may bring additional upstream checks, which must be rerun against the final integrated source.
+
+Public fixture metadata was checked independently on 2026-10-12. The complete non-truncated GameTracking tree has 14,567 blobs totaling 118,131,018 bytes, largest 12,737,456 bytes; the deadlock-data tree has 432 blobs totaling 31,765,989 bytes, largest 1,680,224 bytes. Neither fixture tree exceeds the draft 32 MiB individual-blob bound. This is a bound plausibility check against those pinned public fixtures, not a full import or current upstream guarantee. All hero BoundAbilities targets in the public JSON fixture exist in its ability document, but numerous valid identifiers lack the assumed `ability_` prefix. The genuine fixture failure is being corrected with document/provenance-based selection rather than a guessed prefix list.
+
+Remaining intent proof: real initial/no-change ingest, independently measured enforced-cgroup-v1 peaks and raw delta, actual canonical values and locators, indexed tool query, fresh live answered response, ordered trace and observed absence of repository/snapshot I/O. Source reviews and synthetic subprocess tests do not replace those checks.

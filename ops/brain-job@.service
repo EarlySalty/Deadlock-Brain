@@ -1,0 +1,21 @@
+[Unit]
+Description=Deadlock Brain ingestion job (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/deadlock-brain/current
+LoadCredential=infisical-token:%h/.config/infisical-tokens/infisical-token-bots
+ExecStart=/opt/deadlock-brain/current/bin/brain-job --config /etc/deadlock-brain/brain-job.json %i
+StateDirectory=deadlock-brain-job
+StateDirectoryMode=0700
+TimeoutStartSec=120min
+TimeoutStopSec=30s
+Restart=no
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+MemoryAccounting=yes
+MemoryMax=512M
+MemorySwapMax=0
