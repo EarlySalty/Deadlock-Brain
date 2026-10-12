@@ -78,13 +78,53 @@ BEGIN
 END
 $guard$;
 
+CREATE FUNCTION serve.fact_selection_condition_p2(stat_key text, condition jsonb) RETURNS jsonb
+LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SET search_path = pg_catalog, pg_temp AS $condition$
+    WITH upgrade AS (
+        SELECT starts_with(stat_key, 'ability.')
+            AND condition -> 'upgrade_property' = to_jsonb(substr(stat_key, 9))
+            AND condition -> 'upgrade_tier' IN ('1'::jsonb, '2'::jsonb, '3'::jsonb)
+            AND condition -> 'operation' = '"delta"'::jsonb AS redundant
+    ), removable AS (
+        SELECT key FROM jsonb_each(CASE WHEN jsonb_typeof(condition) = 'object' THEN condition ELSE '{}'::jsonb END)
+        WHERE jsonb_typeof(value) = 'string' AND starts_with(value #>> '{}', '/')
+            AND ((key IN ('scale_class_locator', 'scale_type_locator', 'scale_value_locator',
+                'scale_stat_0_locator', 'scale_stat_1_locator', 'scale_stat_2_locator', 'scale_stat_3_locator',
+                'usage_flag_0_locator', 'usage_flag_1_locator', 'usage_flag_2_locator', 'usage_flag_3_locator')
+                AND jsonb_typeof(condition -> substr(key, 1, length(key) - 8)) = 'string')
+            OR (key = 'upgrade_property_locator' AND (SELECT redundant FROM upgrade))
+            OR (key = 'scale_locator' AND EXISTS (
+                SELECT 1 FROM jsonb_each(condition) qualifier
+                WHERE qualifier.key IN ('scale_class', 'scale_type', 'scale_value',
+                    'scale_stat_0', 'scale_stat_1', 'scale_stat_2', 'scale_stat_3')
+                    AND jsonb_typeof(qualifier.value) = 'string')))
+        UNION ALL SELECT 'upgrade_property' WHERE (SELECT redundant FROM upgrade)
+    )
+    SELECT condition - coalesce((SELECT array_agg(key) FROM removable), ARRAY[]::text[])
+$condition$;
+
 CREATE VIEW serve.selected_fact_p2 AS
-SELECT DISTINCT ON (f.entity_id, f.stat_key, f.condition) f.*
-FROM serve.current_fact f JOIN canon.receipt p ON p.id = f.receipt_id
-ORDER BY f.entity_id, f.stat_key, f.condition,
-    CASE WHEN f.value_type = 'text' THEN CASE WHEN p.extractor = 'brain-assets' THEN 0 ELSE 1 END
-        ELSE CASE WHEN p.extractor = 'brain-assets' THEN 1 ELSE 0 END END,
-    f.source_id, f.valid_from_revision_id DESC, f.source_path, f.receipt_id, f.id;
+WITH candidates AS (
+    SELECT f AS fact, p.extractor, selection.condition,
+        min(f.condition::text) OVER same_source AS first_condition,
+        max(f.condition::text) OVER same_source AS last_condition
+    FROM serve.current_fact f JOIN canon.receipt p ON p.id = f.receipt_id
+    CROSS JOIN LATERAL (VALUES (CASE WHEN p.extractor IN ('brain-assets', 'hero-ability-atoms')
+        THEN serve.fact_selection_condition_p2(f.stat_key, f.condition) ELSE f.condition END)) selection(condition)
+    WINDOW same_source AS (PARTITION BY f.entity_id, f.stat_key, f.source_id, selection.condition)
+), qualified AS (
+    SELECT c.*, bool_or(c.first_condition <> c.last_condition) OVER (
+        PARTITION BY (c.fact).entity_id, (c.fact).stat_key, c.condition) AS ambiguous
+    FROM candidates c
+)
+SELECT DISTINCT ON ((c.fact).entity_id, (c.fact).stat_key, selection.condition) (c.fact).*
+FROM qualified c
+CROSS JOIN LATERAL (VALUES (CASE WHEN c.ambiguous
+    THEN (c.fact).condition ELSE c.condition END)) selection(condition)
+ORDER BY (c.fact).entity_id, (c.fact).stat_key, selection.condition,
+    CASE WHEN (c.fact).value_type = 'text' THEN CASE WHEN c.extractor = 'brain-assets' THEN 0 ELSE 1 END
+        ELSE CASE WHEN c.extractor = 'brain-assets' THEN 1 ELSE 0 END END,
+    (c.fact).source_id, (c.fact).valid_from_revision_id DESC, (c.fact).source_path, (c.fact).receipt_id, (c.fact).id;
 
 CREATE VIEW serve.selected_relation_p2 AS
 SELECT DISTINCT ON (r.from_entity_id, r.kind, r.slot,
@@ -205,7 +245,8 @@ $refresh$;
 CREATE TRIGGER head_refresh_assets_p2 AFTER INSERT OR UPDATE ON canon.source_head
     FOR EACH STATEMENT EXECUTE FUNCTION canon.refresh_assets_on_publish_p2();
 
-REVOKE ALL ON FUNCTION serve.refresh_assets_p2(), canon.refresh_assets_on_publish_p2() FROM PUBLIC, brain_tool, brain_ingest, brain_service;
+REVOKE ALL ON FUNCTION serve.fact_selection_condition_p2(text, jsonb), serve.refresh_assets_p2(), canon.refresh_assets_on_publish_p2() FROM PUBLIC, brain_tool, brain_ingest, brain_service;
+GRANT EXECUTE ON FUNCTION serve.fact_selection_condition_p2(text, jsonb) TO brain_tool, brain_ingest;
 GRANT EXECUTE ON FUNCTION serve.refresh_assets_p2() TO brain_ingest;
 GRANT SELECT ON serve.selected_fact_p2, serve.selected_relation_p2, serve.asset_card_p2, serve.item_card, serve.ability_card TO brain_tool, brain_ingest;
 
