@@ -11,10 +11,16 @@ pub(crate) const RESPONSE_AUDIT_SHAPE_PROBE: &str = "SELECT count(*)=11 FROM (VA
     JOIN pg_attribute a ON a.attrelid=to_regclass('brain.response_deviations_v1') AND a.attname=expected.name
     WHERE a.atttypid=expected.type::regtype AND a.attnotnull AND NOT a.attisdropped";
 
-const GAMEFACTS_MIGRATIONS: &[(i32, &str)] = &[(
-    1,
-    include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"),
-)];
+const GAMEFACTS_MIGRATIONS: &[(i32, &str)] = &[
+    (
+        1,
+        include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"),
+    ),
+    (
+        5,
+        include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-p5-docs-v1.sql"),
+    ),
+];
 const GAMEFACTS_V1_MIN_SERIALIZE_TRIGGERS: i64 = 14;
 const GAMEFACTS_V1_SHAPE_PROBE: &str = "SELECT s.id,s.last_complete_revision,o.id,o.content_sha256,o.body,
     r.id,r.base_revision,r.target_revision,r.extractor_version,ro.run_id,ro.path,ro.parse_status,
@@ -223,12 +229,24 @@ async fn check_gamefacts(
     connection: &mut PgConnection,
     migrations: &[(i32, &str)],
 ) -> Result<(), PortError> {
-    if gamefacts_recorded_versions(connection).await? != gamefacts_listed_versions(migrations)? {
+    let recorded = gamefacts_recorded_versions(connection).await?;
+    if recorded != gamefacts_listed_versions(migrations)? {
         return Err(invalid(
             "Spielwertschema besitzt fehlende oder unbekannte Versionen",
         ));
     }
-    check_gamefacts_v1(connection).await
+    check_installed_gamefacts(connection, &recorded).await
+}
+
+async fn check_installed_gamefacts(
+    connection: &mut PgConnection,
+    versions: &BTreeSet<i32>,
+) -> Result<(), PortError> {
+    check_gamefacts_v1(connection).await?;
+    if versions.contains(&5) {
+        crate::docs_schema::check(connection).await?;
+    }
+    Ok(())
 }
 
 async fn check_gamefacts_v1(connection: &mut PgConnection) -> Result<(), PortError> {
@@ -328,7 +346,7 @@ async fn apply_gamefacts_migrations(
                 .fetch_one(&mut *tx)
                 .await
                 .map_err(migration_error)?;
-        let recorded = if installed {
+        let mut recorded = if installed {
             gamefacts_recorded_versions(&mut tx).await?
         } else {
             BTreeSet::new()
@@ -348,11 +366,12 @@ async fn apply_gamefacts_migrations(
                 .execute(&mut *tx)
                 .await
                 .map_err(migration_error)?;
+            recorded.insert(*version);
         }
         if index + 1 == migrations.len() {
             check_gamefacts(&mut tx, migrations).await?;
         } else {
-            check_gamefacts_v1(&mut tx).await?;
+            check_installed_gamefacts(&mut tx, &recorded).await?;
         }
         tx.commit().await.map_err(migration_error)?;
     }
@@ -654,6 +673,29 @@ async fn validate_releases(connection: &mut PgConnection) -> Result<(), PortErro
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn docs_migration_is_registered_once_after_gamefacts_v1() {
+        let docs: Vec<_> = GAMEFACTS_MIGRATIONS
+            .iter()
+            .enumerate()
+            .filter(|(_, (version, _))| *version == 5)
+            .collect();
+        assert_eq!(docs.len(), 1);
+        let v1 = GAMEFACTS_MIGRATIONS
+            .iter()
+            .position(|(version, _)| *version == 1)
+            .unwrap();
+        assert!(docs[0].0 > v1);
+        assert_eq!(
+            docs[0].1.1,
+            include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-p5-docs-v1.sql")
+        );
+        assert!(!body(docs[0].1.1)
+            .unwrap()
+            .contains("INSERT INTO ops.gamefacts_schema_version"));
+    }
+
     #[test]
     fn embedded_migrations_have_exactly_one_outer_transaction() {
         for sql in [V1, V2, VERSION] {
