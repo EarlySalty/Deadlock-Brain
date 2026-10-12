@@ -2,9 +2,9 @@
 
 ## Reviewed inputs
 
-Standalone schema checkpoint: `639a36d41863bb4db7714d6602a063c51e7490cc`.
-Tool checkpoint: `7b9bd3ec1c6bce5426b44195c210bc8017d552b2`.
-These checkpoints are not yet integrated into the package branch or deployed. Independent reviews are in progress; this document is not an ALLOW result.
+Original standalone schema checkpoint: `639a36d41863bb4db7714d6602a063c51e7490cc`.
+Original tool checkpoint: `7b9bd3ec1c6bce5426b44195c210bc8017d552b2`.
+Corrected producer `19f5876b` and consumer `a1edfdf2` are jointly incorporated at package merge `2fd36868bb8feeb8e41aeab721233513de60caac`. This package checkpoint is pushed, not main-merged or deployed. Original reviews found defects; essential-card retention and wrapped-card/selected-slot corrections have component proofs recorded in `CHECKPOINTS.md`. Qualified-condition source selection and Assets backfill/prover fixes remain open. This document is not an ALLOW result. All new compiler jobs are frozen by user directive 08:12 until explicit orchestrator release after P1 live.
 
 ## Relation constraints before and after
 
@@ -46,7 +46,7 @@ Both materialized cards expose `(entity_id bigint, key text, card jsonb)` and un
 
 Source selection is per entity/stat/condition. Non-assets numeric/JSON facts precede `brain-assets`; Assets text precedes non-assets text, with deterministic source/revision/path/receipt tie-breaks. Selected hero-slot relations prefer non-assets sources. Original facts and receipts remain stored.
 
-The package integration must exercise this actual producer shape through the tool consumer, not just a hand-written flat array fixture. The source-level parent inspection found that the initial tool checkpoint assumes outer `facts`/`links` values are arrays in receipt validation, while the card producer wraps both in objects. Independent verification and a fresh fixer are required before accepting the coupled checkpoints. Historical absence, truncation and source conflicts must remain explicit and fail closed without guessing.
+The package now uses the actual producer shape through the corrected tool consumer, with a real PostgreSQL ability/slot/receipt-revalidation component proof. The independently confirmed original mismatch rejected the wrapped `facts`/`links` objects, and original slot queries bypassed `selected_relation_p2`; both are fixed. Essential evidence now precedes defaults and redundant metadata under measured serialized-byte bounds rather than a fixed 12-row prefix. Positive item producer-to-tool execution still awaits the actual P1 item-kind checkpoint. Historical absence, truncation and source conflicts remain explicit and fail closed without guessing. Provenance-only differences in equivalent qualified conditions are under a separate fresh serving fix, without merging genuine semantic conditions or rewriting stored facts.
 
 ## Outstanding gate and intent evidence
 
