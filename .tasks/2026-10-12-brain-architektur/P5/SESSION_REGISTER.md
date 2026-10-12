@@ -4,6 +4,8 @@ Parent Claude Code session: 2f84a0c2-f0bc-432a-b9a8-f7bca80848e1. Main orchestra
 
 Build hold from the user directive at 2026-10-12 08:12 remains active. No new cargo-slot jobs are authorized until explicit slot clearance. Previously running jobs may finish. Code, SQL, notes and read-only reviews continue; no main integration or deployment before P1 is live.
 
+The latest genuine orchestrator directive requests checkpoint 2, 3ef22729188f435f070e6ef8182a90a28df6659c, by git merge only and reserved P5 version 5 source-only. The primary merge returned Already up to date, because the exact checkpoint is already included. Active read-only ws5xvzc0c / wf_0fc656e3-38b verifies actual ancestry and the retained single version-5 entry; it owns no writes. Do not fetch or chase later P1 feature corrections. Future dependencies arrive through origin/main after P1 merges. The stated P1 estimate 13:50 CEST is not proof of live deployment or slot release.
+
 ## Retained work and current ownership
 
 | Area | Native agent | Workflow | Worktree and branch | Starting HEAD | State and ownership |
