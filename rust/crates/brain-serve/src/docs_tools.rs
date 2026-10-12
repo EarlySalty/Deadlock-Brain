@@ -11,6 +11,7 @@ use sqlx::{PgPool, Row};
 use std::{collections::BTreeSet, time::Duration};
 
 const MAX_BYTES: usize = 16_384;
+const MAX_SECTIONS: usize = 5;
 const MAX_EXCERPT_CHARS: usize = 1500;
 const SEARCH: &str = "WITH authorized AS MATERIALIZED (
     SELECT section_id FROM docs.current_section WHERE scope=ANY($1::text[])
@@ -101,18 +102,9 @@ impl DocsReader {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<Vec<Evidence>, PortError> {
-        let call = ToolCall {
-            id: "internal-docs".into(),
-            name: ToolName::SearchDocs,
-            arguments: json!({"query":query.text}),
-        };
-        let request = call.validate(&[definition()])?;
-        Ok(self
-            .search(query, context, &call.id, &request)?
-            .dependencies
-            .into_iter()
-            .flat_map(|dependency| dependency.evidence)
-            .collect())
+        let search_text = internal_search_text(query)?;
+        let (sections, _) = self.select_sections(query, context, &search_text, None, MAX_SECTIONS)?;
+        bounded_evidence(sections)
     }
 
     fn search(
@@ -122,7 +114,7 @@ impl DocsReader {
         id: &str,
         request: &ToolRequest,
     ) -> Result<ToolExecution, PortError> {
-        let allowed = scopes(query, context)?;
+        scopes(query, context)?;
         let call = ToolCall {
             id: id.into(),
             name: request.name(),
@@ -134,14 +126,40 @@ impl DocsReader {
         let ToolSubrequest::SearchDocs(search) = request.subrequest() else {
             return Err(invalid());
         };
-        let limit = search.limit.unwrap_or(5);
+        let (sections, truncated) = self.select_sections(
+            query,
+            context,
+            &search.query,
+            search.entity,
+            search.limit.unwrap_or(MAX_SECTIONS),
+        )?;
+        let execution = bounded_execution(id, request, sections, truncated)?;
+        execution.validate_for(&call, request, None)?;
+        Ok(execution)
+    }
+
+    fn select_sections(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        search_text: &str,
+        entity: Option<u64>,
+        limit: usize,
+    ) -> Result<(Vec<Section>, bool), PortError> {
+        let allowed = scopes(query, context)?;
+        if !(1..=MAX_SECTIONS).contains(&limit) {
+            return Err(invalid());
+        }
+        if search_text.is_empty() {
+            return Ok((Vec::new(), false));
+        }
         let budget = context.remaining_time()?.min(Duration::from_secs(2));
         let rows = blocking(&self.runtime, async {
             tokio::time::timeout(budget, async {
                 sqlx::query(SEARCH)
                     .bind(&allowed)
-                    .bind(&search.query)
-                    .bind(search.entity.map(|entity| entity as i64))
+                    .bind(search_text)
+                    .bind(entity.map(|entity| entity as i64))
                     .bind((limit + 1) as i64)
                     .fetch_all(&self.pool)
                     .await
@@ -157,9 +175,7 @@ impl DocsReader {
             .take(limit)
             .map(|row| section(row, context))
             .collect::<Result<Vec<_>, _>>()?;
-        let execution = bounded_execution(id, request, sections, truncated)?;
-        execution.validate_for(&call, request, None)?;
-        Ok(execution)
+        Ok((sections, truncated))
     }
 }
 
@@ -386,6 +402,38 @@ fn valid_internal_url(value: &str) -> bool {
         && url.password().is_none()
         && url.query().is_none()
         && url.fragment().is_some_and(|fragment| !fragment.is_empty())
+}
+
+fn internal_search_text(query: &Query) -> Result<String, PortError> {
+    query
+        .validate()
+        .map_err(|_| PortError::InvalidResponse("Ungültige Dokumentenanfrage.".into()))?;
+    Ok(query
+        .text
+        .split(|character: char| character.is_whitespace() || character.is_control())
+        .filter(|term| !term.is_empty())
+        .collect::<Vec<_>>()
+        .join(" "))
+}
+
+fn bounded_evidence(sections: Vec<Section>) -> Result<Vec<Evidence>, PortError> {
+    let mut evidence = sections
+        .into_iter()
+        .map(|section| section.evidence)
+        .collect::<Vec<_>>();
+    let mut ids = BTreeSet::new();
+    if evidence
+        .iter()
+        .any(|item| !ids.insert(item.evidence_id.clone()))
+    {
+        return Err(invalid());
+    }
+    while serde_json::to_vec(&evidence).map_err(|_| invalid())?.len() > MAX_BYTES {
+        if evidence.pop().is_none() {
+            return Err(invalid());
+        }
+    }
+    Ok(evidence)
 }
 
 fn bounded_execution(

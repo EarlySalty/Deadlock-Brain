@@ -176,7 +176,7 @@ fn real_pg_search_enforces_scopes_receipts_published_head_entity_and_limits() {
                 SELECT 1,n,ARRAY['Baba Start'],repeat('Baba 🧠 ',300),CASE WHEN n=1 THEN ARRAY[1::bigint] ELSE '{}'::bigint[] END,
                     'https://github.com/EarlySalty/Deadlock-Docs/blob/7b0f0e645f026214f28b99dddbb18bd477bc2819/public/fixture.html#L'||n||'-L'||n,n FROM generate_series(1,6) n;
             INSERT INTO docs.section(page_id,ordinal,heading_path,body,entity_ids,url,receipt_id)
-                VALUES (2,0,ARRAY['Geheim'], 'Baba private-only', '{}','https://internal.example/docs/fixture#private',7);
+                VALUES (2,0,ARRAY['Geheim'], 'Baba private-only überleben', '{}','https://internal.example/docs/fixture#private',7);
             UPDATE raw.run SET status='succeeded' WHERE id=1;
             INSERT INTO canon.source_head(source_id,published_revision_id) VALUES (1,1);
             UPDATE raw.source SET last_complete_revision='7b0f0e645f026214f28b99dddbb18bd477bc2819' WHERE id=1;
@@ -331,6 +331,57 @@ fn real_pg_search_enforces_scopes_receipts_published_head_entity_and_limits() {
     assert!(internal_port
         .validate_publication(&query(), &internal_context(), &internal_evidence)
         .is_err());
+    let matching_texts = [
+        "Baba\nprivate-only".to_owned(),
+        "Baba\0private-only\tüberleben".into(),
+        format!("{}private-only", "Baba ".repeat(128)),
+        format!("{}private-only", "überleben ".repeat(64)),
+        format!("Baba{}private-only", " ".repeat(600)),
+        format!(
+            "Baba{}private-only",
+            " ".repeat(32_768 - "Baba".len() - "private-only".len())
+        ),
+    ];
+    let empty_texts = [
+        "\0\u{0001}\u{007f}\t\r\n \u{2003}".to_owned(),
+        format!("Baba{}p5suffixnichtvorhanden", " ".repeat(600)),
+        format!("{}p5suffixnichtvorhanden", "Baba überleben ".repeat(40)),
+    ];
+    for text in &matching_texts {
+        let mut probe = query();
+        probe.text = text.clone();
+        probe.validate().unwrap();
+        let evidence = internal_port.retrieve(&probe, &internal_context()).unwrap();
+        assert_eq!(evidence, internal_evidence);
+        assert!(evidence.len() <= MAX_SECTIONS);
+        assert!(serde_json::to_vec(&evidence).unwrap().len() <= MAX_BYTES);
+        internal_port
+            .validate_evidence(&probe, &internal_context(), &evidence, false)
+            .unwrap();
+        for scope in ["docs.public", "bot.public"] {
+            assert!(tools
+                .reader
+                .retrieve(&probe, &context(scope))
+                .unwrap()
+                .is_empty());
+            assert!(internal_port.retrieve(&probe, &context(scope)).is_err());
+        }
+    }
+    for text in &empty_texts {
+        let mut probe = query();
+        probe.text = text.clone();
+        probe.validate().unwrap();
+        assert!(internal_port
+            .retrieve(&probe, &internal_context())
+            .unwrap()
+            .is_empty());
+        internal_port
+            .validate_evidence(&probe, &internal_context(), &[], false)
+            .unwrap();
+        assert!(internal_port
+            .validate_evidence(&probe, &internal_context(), &internal_evidence, false)
+            .is_err());
+    }
     for scope in ["docs.public", "bot.public"] {
         assert!(internal_port.retrieve(&query(), &context(scope)).is_err());
     }
@@ -391,6 +442,38 @@ fn real_pg_search_enforces_scopes_receipts_published_head_entity_and_limits() {
             .status,
         403
     );
+    for (texts, expected_status) in [
+        (
+            matching_texts.as_slice(),
+            brain_contracts::internal_api::InternalStatus::Answered,
+        ),
+        (
+            empty_texts.as_slice(),
+            brain_contracts::internal_api::InternalStatus::InsufficientEvidence,
+        ),
+    ] {
+        for text in texts {
+            let mut probe = operator_query.clone();
+            probe.text = text.clone();
+            let response = service.handle_query(
+                Some("Bearer synthetic-operator"),
+                &serde_json::to_vec(&probe).unwrap(),
+                brain_contracts::RequestDeadline::after(Duration::from_secs(10)),
+            );
+            assert_eq!(response.status, 200);
+            let answer: brain_contracts::internal_api::InternalAnswerResponse =
+                serde_json::from_str(&response.body).unwrap();
+            assert!(answer.validate(&probe.request_id));
+            assert_eq!(answer.status, expected_status);
+            if expected_status == brain_contracts::internal_api::InternalStatus::Answered {
+                assert_eq!(answer.excerpts.len(), 1);
+                assert_eq!(answer.excerpts[0].logical_id, "receipt/7");
+                assert_eq!(answer.excerpts[0].content, internal_evidence[0].content);
+            } else {
+                assert!(answer.excerpts.is_empty());
+            }
+        }
+    }
     runtime.block_on(async {
         sqlx::query("DELETE FROM canon.source_head WHERE source_id=1")
             .execute(&admin)
@@ -420,6 +503,16 @@ fn real_pg_search_enforces_scopes_receipts_published_head_entity_and_limits() {
         pool.close().await;
         admin.close().await;
     });
+    let mut normalized_empty = query();
+    normalized_empty.text = "\0\u{0001}\u{007f}".into();
+    assert!(tools
+        .reader
+        .retrieve(&normalized_empty, &internal_context())
+        .unwrap()
+        .is_empty());
+    let mut foreign = internal_context();
+    foreign.conversation_id = "foreign".into();
+    assert!(tools.reader.retrieve(&normalized_empty, &foreign).is_err());
 }
 
 fn query() -> Query {
@@ -483,6 +576,73 @@ fn section_fixture(id: i64, text: &str) -> Section {
         },
         value,
     }
+}
+
+#[test]
+fn internal_search_normalizes_permitted_controls_and_whitespace() {
+    let mut query = query();
+    query.text = " \tBaba\r\nprivate-only\u{2003}überleben\u{00a0} ".into();
+    query.validate().unwrap();
+    assert_eq!(
+        internal_search_text(&query).unwrap(),
+        "Baba private-only überleben"
+    );
+    for code in (0..=0x1f).chain(0x7f..=0x9f) {
+        let separator = char::from_u32(code).unwrap();
+        assert!(separator.is_control());
+        query.text = format!("Baba{separator}private-only");
+        query.validate().unwrap();
+        assert_eq!(internal_search_text(&query).unwrap(), "Baba private-only");
+    }
+    query.text = "\0\u{0001}\u{007f}\t\r\n \u{2003}".into();
+    query.validate().unwrap();
+    assert!(internal_search_text(&query).unwrap().is_empty());
+}
+
+#[test]
+fn internal_search_preserves_complete_long_ascii_and_unicode_inputs() {
+    let mut query = query();
+    for text in [
+        format!("{}private-only", "Baba ".repeat(128)),
+        format!("{}private-only", "überleben ".repeat(64)),
+    ] {
+        assert!(text.len() > 512);
+        query.text = text.clone();
+        query.validate().unwrap();
+        assert_eq!(internal_search_text(&query).unwrap(), text);
+    }
+    query.text = format!("Baba{}p5suffixnichtvorhanden", " ".repeat(600));
+    assert_eq!(
+        internal_search_text(&query).unwrap(),
+        "Baba p5suffixnichtvorhanden"
+    );
+    query.text = format!(
+        "Baba{}private-only",
+        " ".repeat(32_768 - "Baba".len() - "private-only".len())
+    );
+    assert_eq!(query.text.len(), 32_768);
+    query.validate().unwrap();
+    assert_eq!(internal_search_text(&query).unwrap(), "Baba private-only");
+}
+
+#[test]
+fn internal_search_validates_original_query_before_normalization() {
+    let mut query = query();
+    for text in [
+        String::new(),
+        " \t\n".into(),
+        "x".repeat(32_769),
+        "ä".repeat(16_385),
+        format!("Baba{}private-only", " ".repeat(32_768)),
+    ] {
+        query.text = text;
+        assert!(query.validate().is_err());
+        assert!(internal_search_text(&query).is_err());
+    }
+    query.text = "Baba".into();
+    query.request_id = "invalid\nidentifier".into();
+    assert!(query.validate().is_err());
+    assert!(internal_search_text(&query).is_err());
 }
 
 #[test]
@@ -637,6 +797,31 @@ fn public_dependencies_preserve_real_scopes_and_receipt_url() {
         assert!(validate_access(&query(), &context("docs.public"), dependency, purpose).is_ok());
         assert!(validate_access(&query(), &context("bot.public"), dependency, purpose).is_err());
     }
+}
+
+#[test]
+fn internal_evidence_bound_accounts_for_the_complete_serialized_list() {
+    let make = || {
+        (1..=MAX_SECTIONS as i64)
+            .map(|id| section_fixture(id, &"\"\\🧠".repeat(375)))
+            .collect::<Vec<_>>()
+    };
+    let complete = make()
+        .into_iter()
+        .map(|section| section.evidence)
+        .collect::<Vec<_>>();
+    assert!(serde_json::to_vec(&complete).unwrap().len() > MAX_BYTES);
+    let bounded = bounded_evidence(make()).unwrap();
+    assert!(!bounded.is_empty());
+    assert!(bounded.len() < MAX_SECTIONS);
+    assert!(serde_json::to_vec(&bounded).unwrap().len() <= MAX_BYTES);
+    assert_eq!(bounded, complete[..bounded.len()]);
+    assert_eq!(bounded_evidence(make()).unwrap(), bounded);
+    assert!(bounded_evidence(Vec::new()).unwrap().is_empty());
+    assert!(bounded_evidence(vec![section_fixture(1, &"x".repeat(MAX_BYTES))])
+        .unwrap()
+        .is_empty());
+    assert!(bounded_evidence(vec![section_fixture(1, "a"), section_fixture(1, "b")]).is_err());
 }
 
 #[test]
