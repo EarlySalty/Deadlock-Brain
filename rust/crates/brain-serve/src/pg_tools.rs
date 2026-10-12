@@ -317,11 +317,13 @@ impl<T: ToolExecutionPort> ToolExecutionPort for PgTools<T> {
             if dependency.game_context.is_some() || dependency.evidence.is_empty() {
                 return Err(invalid());
             }
-            let current =
-                self.canonical_execution(query, context, "revalidation", &dependency.request)?;
-            if current.dependencies.len() != 1
-                || current.dependencies[0].evidence != dependency.evidence
-            {
+            let current = self.canonical_execution(
+                query,
+                context,
+                "revalidation",
+                &dependency.request.without_canonical_result(),
+            )?;
+            if current.dependencies.as_slice() != std::slice::from_ref(dependency) {
                 return Err(PortError::Unavailable(
                     "Veröffentlichte Spielwerte haben sich geändert.".into(),
                 ));
@@ -527,7 +529,8 @@ async fn bounded_execution(
                     request: request.clone(),
                     game_context: None,
                     evidence,
-                }],
+                }
+                .with_canonical_result(&value)?],
                 usage: Usage::default(),
             });
         }

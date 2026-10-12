@@ -234,8 +234,19 @@ impl Repository {
                 target,
             ]);
         } else {
-            cmd.args(["ls-tree", "-r", "-z", target]);
+            return self.paths(target, &[]);
         }
+        self.stream(cmd, base.is_some())
+    }
+
+    pub fn paths(&self, target: &str, paths: &[&str]) -> Result<Changes> {
+        ensure!(valid_oid(target), "git_revision_invalid");
+        let mut cmd = command(&self.path);
+        cmd.args(["ls-tree", "-r", "-z", target, "--"]).args(paths);
+        self.stream(cmd, false)
+    }
+
+    fn stream(&self, mut cmd: Command, diff: bool) -> Result<Changes> {
         let mut child = cmd
             .stdout(Stdio::piped())
             .spawn()
@@ -244,7 +255,7 @@ impl Repository {
         Ok(Changes {
             child,
             reader,
-            diff: base.is_some(),
+            diff,
             timeout: self.timeout,
         })
     }
