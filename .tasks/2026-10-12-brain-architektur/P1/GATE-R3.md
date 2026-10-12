@@ -29,3 +29,13 @@ Matching formatter, strict all-target Clippy, optimized check/build and affected
 Save complete patch including new files, exact commands, final counts and source hashes under a fresh `/tmp/p1-gate-r3-121638e5-*`. Return promptly after verification, at most 200 words plus structured paths/counts. Do not prolong the final handover with extra audits or repeat already completed checks. Record earlier failing attempts separately. Return no ALLOW/main/live claim. Parent can independently use saved verified artifacts if the final report stalls.
 
 Routing: parent `121638e5-3cc5-4f1c-870e-ccf3f7d0895b`, P1 T3 `66bd78fd-84f1-4012-8682-8fe5e8e9a301`, main orchestrator `89e002a7-758e-449d-9968-eec29a019a78`. Return through this native workflow only. No user questions, additional T3 threads or SendMessage to active workflow actors.
+
+## Verified correction
+
+Workflow `wf_746f8f61-28c`, task `wy9asb4k2`, completed FIXED. The parent checked all six source hashes, patch hash and actual logs, integrated byte-identical sources, and matched the workspace manifest/lock. Patch SHA-256: `33e243de21828507126b183b935d64b7aa23112343913e9c69df4683851d33b2`.
+
+`serve.published_receipt` admits receipts from succeeded runs below the published source head. Current fact/alias/relation surfaces share that filter. `serve.entity_identity` selects a successful original receipt or current corrected canonical evidence for an identity first observed in a failed run. Exact/fuzzy resolution and hero/ability profile projections use the same resolved identity. Receipt loading rejects failed receipts; bounded execution additionally checks each citation against its actual source revision. Immutable original identities/receipts and the dedicated role boundary remain unchanged. The materialized profile projects canonical facts without directly joining raw runs or parsing raw bodies; lifecycle eligibility is supplied by its serving views.
+
+Actual final checks: PgTools five passed/86 filtered, ordered migration registry five passed/44 filtered, schema/publication one passed/zero filtered, actual Git/Postgres recovery seven passed/19 filtered. Total 18 passed, zero failed/ignored, 149 filtered. The preceding recovery filter ran zero tests and is explicitly excluded. No unchanged-source baseline was taken or claimed. Formatter, strict all-target Clippy and optimized build exit zero; the verify-profile artifact is not production release proof.
+
+Durable evidence: `/home/nathanael/.local/state/brain-p1-proof-20261012-121638e5-Dr2MKo/gate-round-three-correction`. Parent owns exact committed-HEAD gate four. Main merge and production acceptance remain pending.

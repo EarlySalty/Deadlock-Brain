@@ -453,23 +453,43 @@ $completed$;
 CREATE CONSTRAINT TRIGGER completed_run AFTER UPDATE ON raw.run DEFERRABLE INITIALLY DEFERRED
     FOR EACH ROW EXECUTE FUNCTION raw.check_completed_run();
 
+CREATE VIEW serve.published_receipt AS
+SELECT p.*, v.source_revision FROM canon.receipt p
+JOIN canon.revision v ON v.id = p.revision_id
+JOIN raw.run r ON r.id = v.raw_run_id AND r.status = 'succeeded'
+JOIN canon.source_head h ON h.source_id = p.source_id AND h.published_revision_id >= p.revision_id;
+
 CREATE VIEW serve.current_fact AS
-SELECT f.*, s.section, s.unit, s.value_type, s.display_order, v.source_revision
+SELECT f.*, s.section, s.unit, s.value_type, s.display_order, p.source_revision
 FROM canon.fact f JOIN canon.stat s ON s.key = f.stat_key
 JOIN canon.source_head h ON h.source_id = f.source_id
-JOIN canon.revision v ON v.id = f.valid_from_revision_id
+JOIN serve.published_receipt p ON p.id = f.receipt_id
 WHERE f.valid_from_revision_id <= h.published_revision_id
     AND (f.valid_to_revision_id IS NULL OR f.valid_to_revision_id > h.published_revision_id);
 CREATE VIEW serve.current_alias AS
-SELECT a.*, v.source_revision FROM canon.alias a JOIN canon.source_head h ON h.source_id = a.source_id
-JOIN canon.revision v ON v.id = a.valid_from_revision_id
+SELECT a.*, p.source_revision FROM canon.alias a JOIN canon.source_head h ON h.source_id = a.source_id
+JOIN serve.published_receipt p ON p.id = a.receipt_id
 WHERE a.valid_from_revision_id <= h.published_revision_id
     AND (a.valid_to_revision_id IS NULL OR a.valid_to_revision_id > h.published_revision_id);
 CREATE VIEW serve.current_relation AS
-SELECT r.*, v.source_revision FROM canon.relation r JOIN canon.source_head h ON h.source_id = r.source_id
-JOIN canon.revision v ON v.id = r.valid_from_revision_id
+SELECT r.*, p.source_revision FROM canon.relation r JOIN canon.source_head h ON h.source_id = r.source_id
+JOIN serve.published_receipt p ON p.id = r.receipt_id
 WHERE r.valid_from_revision_id <= h.published_revision_id
     AND (r.valid_to_revision_id IS NULL OR r.valid_to_revision_id > h.published_revision_id);
+
+CREATE VIEW serve.entity_identity AS
+SELECT e.id AS entity_id, proof.id AS receipt_id, proof.source_revision
+FROM canon.entity e
+JOIN canon.receipt original_proof ON original_proof.id = e.identity_receipt_id
+JOIN canon.revision original_revision ON original_revision.id = original_proof.revision_id
+JOIN raw.run original_run ON original_run.id = original_revision.raw_run_id
+JOIN serve.published_receipt proof ON proof.id = CASE WHEN original_run.status = 'failed' THEN (
+    SELECT min(receipt_id) FROM (
+        SELECT receipt_id FROM serve.current_fact WHERE entity_id = e.id
+        UNION ALL SELECT receipt_id FROM serve.current_alias WHERE entity_id = e.id
+        UNION ALL SELECT receipt_id FROM serve.current_relation WHERE from_entity_id = e.id OR to_entity_id = e.id
+    ) evidence
+) ELSE original_proof.id END;
 
 CREATE FUNCTION serve.atomic_fact(entity_id bigint, stat_key text, value_num numeric, value_text text, value_json jsonb,
     unit text, condition jsonb, receipt_id bigint, source_revision text) RETURNS jsonb
@@ -483,25 +503,14 @@ $fact$;
 CREATE MATERIALIZED VIEW serve.hero_profile AS
 SELECT e.id AS entity_id, e.key, jsonb_build_object(
     'entity_id', e.id, 'kind', e.kind, 'key', e.key, 'status', 'unknown',
-    'citation', proof.id::text, 'patch', NULL, 'source_revision', identity_revision.source_revision,
+    'citation', identity_proof.receipt_id::text, 'patch', NULL, 'source_revision', identity_proof.source_revision,
     'facts', identity_facts.rows, 'truncated', identity_facts.omitted_count > 0, 'omitted_count', identity_facts.omitted_count
 ) AS identity,
 jsonb_build_object('facts', stats.rows, 'truncated', stats.omitted_count > 0, 'omitted_count', stats.omitted_count) AS stats,
 jsonb_build_object('facts', weapon.rows, 'truncated', weapon.omitted_count > 0, 'omitted_count', weapon.omitted_count) AS weapon,
 jsonb_build_object('links', abilities.rows, 'truncated', abilities.omitted_count > 0, 'omitted_count', abilities.omitted_count) AS abilities
 FROM canon.entity e
-JOIN canon.receipt original_proof ON original_proof.id = e.identity_receipt_id
-JOIN canon.revision original_revision ON original_revision.id = original_proof.revision_id
-JOIN raw.run original_run ON original_run.id = original_revision.raw_run_id
-JOIN canon.receipt proof ON proof.id = CASE WHEN original_run.status = 'failed' THEN (
-    SELECT min(receipt_id) FROM (
-        SELECT receipt_id FROM serve.current_fact WHERE entity_id = e.id
-        UNION ALL SELECT receipt_id FROM serve.current_alias WHERE entity_id = e.id
-        UNION ALL SELECT receipt_id FROM serve.current_relation WHERE from_entity_id = e.id
-    ) evidence
-) ELSE original_proof.id END
-JOIN canon.revision identity_revision ON identity_revision.id = proof.revision_id
-JOIN canon.source_head identity_head ON identity_head.source_id = proof.source_id AND identity_head.published_revision_id >= proof.revision_id
+JOIN serve.entity_identity identity_proof ON identity_proof.entity_id = e.id
 CROSS JOIN LATERAL (
     SELECT coalesce(jsonb_agg(serve.atomic_fact(f.entity_id, f.stat_key, f.value_num, f.value_text, f.value_json, f.unit, f.condition, f.receipt_id, f.source_revision)
         ORDER BY f.display_order, f.stat_key, f.source_id, f.id), '[]') AS rows,
@@ -530,16 +539,11 @@ CROSS JOIN LATERAL (
         'facts', facts.rows, 'truncated', facts.omitted_count > 0, 'omitted_count', facts.omitted_count)
         ORDER BY r.slot, r.source_id, r.id), '[]') AS rows,
         coalesce(max(r.total), 0) - count(*) AS omitted_count
-    FROM (SELECT r.*, ability.key AS ability_key, ability.identity_receipt_id, av.source_revision AS identity_source_revision,
+    FROM (SELECT r.*, ability.key AS ability_key, ap.receipt_id AS identity_receipt_id, ap.source_revision AS identity_source_revision,
             count(*) OVER () AS total
         FROM serve.current_relation r
         JOIN canon.entity ability ON ability.id = r.to_entity_id
-        JOIN canon.receipt original_ap ON original_ap.id = ability.identity_receipt_id
-        JOIN canon.revision original_av ON original_av.id = original_ap.revision_id
-        JOIN raw.run original_ar ON original_ar.id = original_av.raw_run_id
-        JOIN canon.receipt ap ON ap.id = CASE WHEN original_ar.status = 'failed' THEN r.receipt_id ELSE original_ap.id END
-        JOIN canon.revision av ON av.id = ap.revision_id
-        JOIN canon.source_head ah ON ah.source_id = ap.source_id AND ah.published_revision_id >= ap.revision_id
+        JOIN serve.entity_identity ap ON ap.entity_id = ability.id
         WHERE r.from_entity_id = e.id AND r.kind = 'has_ability'
         ORDER BY r.slot, r.source_id, r.id LIMIT 4) r
     CROSS JOIN LATERAL (

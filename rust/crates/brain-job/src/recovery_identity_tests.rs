@@ -128,6 +128,32 @@ async fn corrected_wiki_snapshot_rebuilds_unchanged_names_and_failed_identity_pr
     );
     assert_eq!(profiles[1].0, "hero_old");
     assert_eq!(profiles[1].1["source_revision"], initial);
+    for (_, identity, abilities) in &profiles {
+        let mut projections = vec![identity];
+        for link in abilities["links"].as_array().unwrap() {
+            projections.extend([link, &link["identity"]]);
+        }
+        for projection in projections {
+            let citation = projection["citation"]
+                .as_str()
+                .unwrap()
+                .parse::<i64>()
+                .unwrap();
+            let (revision, status, published): (String, String, bool) = sqlx::query_as(
+                "SELECT v.source_revision,r.status,h.published_revision_id>=v.id
+                FROM canon.receipt p JOIN canon.revision v ON v.id=p.revision_id
+                JOIN raw.run r ON r.id=v.raw_run_id JOIN canon.source_head h ON h.source_id=p.source_id
+                WHERE p.id=$1",
+            )
+            .bind(citation)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(projection["source_revision"], revision);
+            assert_eq!(status, "succeeded");
+            assert!(published);
+        }
+    }
     let entities_after: Value =
         sqlx::query_scalar("SELECT jsonb_agg(to_jsonb(e) ORDER BY id) FROM canon.entity e")
             .fetch_one(&pool)

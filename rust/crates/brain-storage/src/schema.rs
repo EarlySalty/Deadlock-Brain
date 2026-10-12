@@ -21,11 +21,12 @@ const GAMEFACTS_V1_SHAPE_PROBE: &str = "SELECT s.id,s.last_complete_revision,o.i
     v.id,v.source_revision,h.published_revision_id,p.id,c.id,c.raw_object_id,c.value_sha256,
     e.id,e.identity_receipt_id,d.key,d.section,d.unit,f.id,f.receipt_id,f.valid_from_revision_id,f.valid_to_revision_id,
     a.alias_norm,a.receipt_id,l.slot,l.receipt_id,j.id,j.counts,k.epoch,t.question_sha256,
-    hp.entity_id,hp.identity,hp.stats,hp.weapon,hp.abilities,cf.receipt_id,ca.alias_norm,cr.slot
+    hp.entity_id,hp.identity,hp.stats,hp.weapon,hp.abilities,cf.receipt_id,ca.alias_norm,cr.slot,
+    pr.id,pr.source_revision,ei.entity_id,ei.receipt_id,ei.source_revision
     FROM raw.source s,raw.object o,raw.run r,raw.run_object ro,canon.revision v,canon.source_head h,
     canon.patch p,canon.receipt c,canon.entity e,canon.stat d,canon.fact f,canon.alias a,canon.relation l,
     ops.job_run j,ops.job_lease k,ops.answer_trace t,serve.hero_profile hp,serve.current_fact cf,
-    serve.current_alias ca,serve.current_relation cr LIMIT 0";
+    serve.current_alias ca,serve.current_relation cr,serve.published_receipt pr,serve.entity_identity ei LIMIT 0";
 const GAMEFACTS_ROLE_BOOTSTRAP: &str = "DO $roles$
     BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='brain_tool') THEN

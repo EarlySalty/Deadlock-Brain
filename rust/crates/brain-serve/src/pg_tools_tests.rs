@@ -9,6 +9,9 @@ use brain_contracts::{
 use brain_kernel::{AnswerKernelPort, CachedKernel, GameContextResolver, Kernel};
 use std::sync::{Arc, Mutex};
 
+#[path = "pg_tools_recovery_tests.rs"]
+mod recovery;
+
 struct ScratchPg {
     directory: std::path::PathBuf,
     _root: tempfile::TempDir,
@@ -303,9 +306,9 @@ fn canonical_metadata_does_not_interpret_source_value_or_condition_keys() {
     let value = json!({"identity":{"citation":"1","patch":null,"source_revision":"a"},
         "stats":{"facts":[{"stat_key":"stats.any","value":{"citation":"source-value"},
         "condition":{"citation":"source-condition"},"citation":"2","patch":null,"source_revision":"a"}]}});
-    let mut ids = BTreeSet::new();
+    let mut ids = BTreeMap::new();
     citations(&value, &mut ids).unwrap();
-    assert_eq!(ids, BTreeSet::from([1, 2]));
+    assert_eq!(ids, BTreeMap::from([(1, "a".into()), (2, "a".into())]));
     let mut changed = value;
     changed["stats"]["facts"][0]["condition"] = Value::Null;
     assert!(citations(&changed, &mut ids).is_err());

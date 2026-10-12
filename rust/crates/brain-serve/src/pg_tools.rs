@@ -7,38 +7,37 @@ use brain_contracts::{
 };
 use serde_json::{json, Value};
 use sqlx::{postgres::PgConnectOptions, PgConnection, PgPool, Row};
-use std::{collections::BTreeSet, future::Future, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    future::Future,
+    time::Duration,
+};
 
 const MAX_BYTES: usize = 16_384;
 const MAX_EVIDENCE: usize = 100;
 const EXACT: &str = "SELECT * FROM (
     SELECT DISTINCT ON (a.entity_id) a.entity_id, e.kind, e.key, a.alias_norm, a.lang,
         a.receipt_id::text AS citation, a.source_revision,
-        e.identity_receipt_id::text AS identity_citation, v.source_revision AS identity_revision
+        i.receipt_id::text AS identity_citation, i.source_revision AS identity_revision
     FROM serve.current_alias a JOIN canon.entity e ON e.id=a.entity_id
-    JOIN canon.receipt p ON p.id=e.identity_receipt_id
-    JOIN canon.revision v ON v.id=p.revision_id
-    JOIN canon.source_head h ON h.source_id=p.source_id AND h.published_revision_id>=p.revision_id
+    JOIN serve.entity_identity i ON i.entity_id=e.id
     WHERE a.alias_norm=$1 AND ($2::text IS NULL OR e.kind=$2)
     ORDER BY a.entity_id, a.id
 ) candidates ORDER BY entity_id LIMIT $3";
 const FUZZY: &str = "SELECT * FROM (
     SELECT DISTINCT ON (a.entity_id) a.entity_id, e.kind, e.key, a.alias_norm, a.lang,
         a.receipt_id::text AS citation, a.source_revision,
-        e.identity_receipt_id::text AS identity_citation, v.source_revision AS identity_revision,
+        i.receipt_id::text AS identity_citation, i.source_revision AS identity_revision,
         public.similarity(a.alias_norm,$1) AS similarity
     FROM serve.current_alias a JOIN canon.entity e ON e.id=a.entity_id
-    JOIN canon.receipt p ON p.id=e.identity_receipt_id
-    JOIN canon.revision v ON v.id=p.revision_id
-    JOIN canon.source_head h ON h.source_id=p.source_id AND h.published_revision_id>=p.revision_id
+    JOIN serve.entity_identity i ON i.entity_id=e.id
     WHERE a.alias_norm OPERATOR(public.%) $1 AND ($2::text IS NULL OR e.kind=$2)
     ORDER BY a.entity_id, public.similarity(a.alias_norm,$1) DESC, a.id
 ) candidates ORDER BY similarity DESC, entity_id LIMIT $3";
 const RECEIPTS: &str = "SELECT p.id, p.raw_object_id, p.source_id, p.revision_id,
     p.locator_kind, p.locator, encode(p.value_sha256,'hex') AS value_sha256,
-    p.extractor, p.extractor_version, v.source_revision
-    FROM canon.receipt p JOIN canon.revision v ON v.id=p.revision_id
-    JOIN canon.source_head h ON h.source_id=p.source_id AND h.published_revision_id>=p.revision_id
+    p.extractor, p.extractor_version, p.source_revision
+    FROM serve.published_receipt p
     WHERE p.id=ANY($1::bigint[]) ORDER BY p.id LIMIT 100";
 
 fn invalid() -> PortError {
@@ -411,7 +410,7 @@ fn error_execution(id: &str, name: ToolName, code: &str, message: &str) -> ToolE
     }
 }
 
-fn citations(value: &Value, ids: &mut BTreeSet<i64>) -> Result<(), PortError> {
+fn citations(value: &Value, ids: &mut BTreeMap<i64, String>) -> Result<(), PortError> {
     match value {
         Value::Object(object) => {
             if let Some(citation) = object.get("citation") {
@@ -420,17 +419,20 @@ fn citations(value: &Value, ids: &mut BTreeSet<i64>) -> Result<(), PortError> {
                     .and_then(|id| id.parse::<i64>().ok())
                     .filter(|id| *id > 0)
                     .ok_or_else(invalid)?;
+                let revision = object
+                    .get("source_revision")
+                    .and_then(Value::as_str)
+                    .filter(|revision| !revision.is_empty())
+                    .ok_or_else(invalid)?;
                 if object.get("patch") != Some(&Value::Null)
-                    || !object
-                        .get("source_revision")
-                        .and_then(Value::as_str)
-                        .is_some_and(|revision| !revision.is_empty())
                     || (object.contains_key("stat_key")
                         && !object.get("condition").is_some_and(Value::is_object))
+                    || ids
+                        .insert(id, revision.to_owned())
+                        .is_some_and(|previous| previous != revision)
                 {
                     return Err(invalid());
                 }
-                ids.insert(id);
             }
             for key in [
                 "identity",
@@ -498,13 +500,13 @@ async fn bounded_execution(
     mut value: Value,
 ) -> Result<ToolExecution, PortError> {
     loop {
-        let mut ids = BTreeSet::new();
+        let mut ids = BTreeMap::new();
         citations(&value, &mut ids)?;
         let result = ToolResult {
             call_id: id.into(),
             name: request.name(),
             result: value.clone(),
-            evidence_ids: ids.iter().map(ToString::to_string).collect(),
+            evidence_ids: ids.keys().map(ToString::to_string).collect(),
             is_error: false,
         };
         if fits(&result, ids.len())? {
@@ -512,7 +514,7 @@ async fn bounded_execution(
                 return Err(invalid());
             }
             let rows = sqlx::query(RECEIPTS)
-                .bind(ids.iter().copied().collect::<Vec<_>>())
+                .bind(ids.keys().copied().collect::<Vec<_>>())
                 .fetch_all(&mut *connection)
                 .await
                 .map_err(database_error)?;
@@ -521,7 +523,16 @@ async fn bounded_execution(
             }
             let evidence = rows
                 .into_iter()
-                .map(receipt_evidence)
+                .map(|row| {
+                    let id = row.try_get::<i64, _>("id").map_err(database_error)?;
+                    let revision = row
+                        .try_get::<String, _>("source_revision")
+                        .map_err(database_error)?;
+                    if ids.get(&id) != Some(&revision) {
+                        return Err(invalid());
+                    }
+                    receipt_evidence(row)
+                })
                 .collect::<Result<Vec<_>, _>>()?;
             return Ok(ToolExecution {
                 result,
