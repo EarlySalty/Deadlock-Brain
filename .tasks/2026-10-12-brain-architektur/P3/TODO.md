@@ -1,19 +1,25 @@
-# P3 pending dependency and verification
+# P3 paused for ingestion redesign
 
-Status: P1 checkpoint 2, 3ef22729188f435f070e6ef8182a90a28df6659c, merged without rebase in 9f3766af5a2e8681c78855098a533ac4eb158286. P3's reserved version 2 is appended to the published registry. Verification is blocked on the orchestrator's explicit release of build slots after P1 is live. The 08:12 CEST directive prohibits new cargo-slot jobs. No P3 build job is running. The orchestrator explicitly confirmed preserving this branch/worktree, without main merge or discard; a WIP checkpoint is authorized.
-
-Published interface-only checkpoint: 3bf1b2e28f6c53b7be89932f68264d3a03a28474, pushed to origin/feat/brain-p3-timers-20261012. The isolated contract check passed 108 tests with zero ignored and the production consumer build passed. It is not a runtime or live acceptance proof.
+Pause decision: 2026-10-12, 16:45 CEST. The user stopped P1 and will rethink its ingestion design. P3 is paused because it depends on P1. This supersedes the earlier plan to resume after P1 live and a build-slot release. Await a new briefing before starting workers, fixers, builds, tests, reviews or implementation. Preserve the branch and worktree; no main merge, deploy, discard or cleanup.
 
 Worktree: /home/nathanael/.worktrees/Deadlock-Brain-p3-timers
 Branch: feat/brain-p3-timers-20261012
-Evidence and decisions: AUFTRAG.md in this directory.
+Pushed implementation WIP: c7b185afc4c5ce51d043def262615e2df7e409f5
+Pushed interface-only checkpoint: 3bf1b2e28f6c53b7be89932f68264d3a03a28474
+P1 checkpoint incorporated: 3ef22729188f435f070e6ef8182a90a28df6659c
+Dependency merge: 9f3766af5a2e8681c78855098a533ac4eb158286
+Evidence and decision history: AUFTRAG.md in this directory.
 
-## Resume without rebuilding prior work
+The WIP preserves the closed get_timer request, timer extractor, bounded Postgres read path, receipt-backed fixtures and timer-specific migration. Reserved version 2 is registered against P1's old ordered registry, and the private direct-SQL fixtures stamp installed versions. These integration adaptations remain unexecuted. They must not be assumed compatible with the redesigned ingestion path. Later P1 corrections were not chased.
 
-1. P1 checkpoint 2 integration is complete. The registry contains versions 1 and 2; P3's SQL remains timer-specific. Private direct-SQL fixtures now stamp their installed versions, matching P1's runner-owned ledger convention. Later P1 corrections arrive through main after P1 merges; do not chase later P1 branch commits or request further interfaces.
-2. Keep all Cargo jobs held until the orchestrator explicitly frees the slots. Non-build source, SQL and notes work is allowed. Existing P3 runtime files are restored and byte-verified; the uniquely identified own stash was removed only after comparison.
-3. Once slots are released, run the corrected real-PG indexed-key test, the previously unreached storage checks and the explicit public Store proof with both public source checkouts. Measure actual scoped cgroup limit/peak separately from compiler memory. Recheck matching formatter, strict lint, build and existing tests on the integrated state.
-4. Require P1's old ingestion runs to be completed and published before activating the incremented extractor. Integrate the current main state without downgrading the extractor version and recalculate the tool-definition count. Gate the verified implementation and hand its branch to the responsible integrator. No P3 main merge or deploy before P1 live and gate ALLOW.
-5. Prove live get_timer with a genuinely sourced timer, raw-object receipt resolution, no fabricated urn first-spawn value, ordered trace without legacy asset loading, production indexed EXPLAIN and actual job/serve memory. Cleanup only after responsible integration and live acceptance.
+P3's tracked checks and read-only reviewer had completed before the hold; no P3 worker, fixer or Cargo job is known to remain active. No new job was started during the hold. The continuation-note change is a documentation checkpoint, not a verified runtime release.
 
-The first edited-target run had one P3 plan-fixture failure; its correction has not run. No full green P3 PostgreSQL verification, gate ALLOW, main merge, deploy or live proof is claimed. Preserve unfinished files rather than discard or commit them as verified implementation merely to satisfy the stop hook.
+## Continuation after the new briefing
+
+1. Read the redesigned ingestion contract and ownership in the new briefing. Reassess the Store API, migration registry/version reservation, raw-object receipt and occurrence-aware locator contracts before adapting the preserved draft. Do not automatically resume the old P1 rollout plan or request interfaces from the stopped worker.
+2. Reconcile the new approved base and extractor-version policy without rewriting applied migrations, relabelling receipts/runs or bypassing guards. Recalculate the actual tool-definition count after integration. The former p1-v1 unfinished-run activation precondition is historical and must be reevaluated against the new design.
+3. Once jobs are explicitly authorized, run the corrected real-PG indexed-key test, the previously unreached storage checks and the explicit public Store/raw-receipt/idempotence proof using both public source checkouts. Measure actual scoped cgroup limit/peak separately from compiler memory. Run the matching formatter, strict lint, build and existing tests on the integrated state.
+4. Complete independent acceptance and the local merge gate on the final implementation. The responsible integrator decides main integration and deploy according to the new briefing. Do not use this WIP checkpoint as gate or live approval.
+5. Preserve the timer acceptance unless the new briefing changes it: source-backed get_timer, raw-object-resolving citation, no fabricated urn first-spawn value, ordered trace without legacy asset loading, production indexed EXPLAIN and actual job/serve memory. Cleanup follows approved integration and live acceptance.
+
+Open evidence: the first edited-target run had one P3 plan-fixture failure; its correction has not run. No full green P3 PostgreSQL verification, gate ALLOW, main merge, deploy or live proof is claimed. The public Store/cgroup proof and productive timer/urn response evidence are still missing. Existing logs and source observations are preserved in AUFTRAG.md, not treated as proof of the future redesign.
