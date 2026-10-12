@@ -356,6 +356,7 @@ pub fn extract(bytes: &[u8], language: &'static str) -> Result<Extraction> {
 
 pub fn prove(bytes: &[u8], extraction: &Extraction) -> Result<()> {
     let records = records(bytes)?;
+    let mut verified = 0;
     for (position, record) in records.iter().enumerate() {
         let identity: Identity = serde_json::from_str(record.get())?;
         let prefix = format!("/{position}/");
@@ -459,6 +460,7 @@ pub fn prove(bytes: &[u8], extraction: &Extraction) -> Result<()> {
                     "assets_proof_upgrade_operation"
                 );
             }
+            verified += 1;
         }
         for edge in extraction
             .edges
@@ -480,16 +482,7 @@ pub fn prove(bytes: &[u8], extraction: &Extraction) -> Result<()> {
         }
     }
     ensure!(
-        extraction
-            .facts
-            .iter()
-            .chain(extraction.edges.iter().map(|edge| &edge.proof))
-            .all(|fact| fact
-                .locator
-                .split('/')
-                .nth(1)
-                .and_then(|v| v.parse::<usize>().ok())
-                .is_some_and(|position| position < records.len())),
+        verified == extraction.facts.len() + extraction.edges.len(),
         "assets_proof_record"
     );
     Ok(())

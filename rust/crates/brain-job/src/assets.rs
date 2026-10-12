@@ -52,6 +52,10 @@ pub async fn ingest(config: &Config) -> Result<Counts> {
     let mut counts = Counts::default();
     let mut unmapped = 0;
     let result = async {
+        for (language, code) in [("english", "en"), ("german", "de")] {
+            let locator = format!("{BASE_URL}/v1/assets/items?language={language}");
+            unmapped += store.replay(&locator, code, &mut counts).await?;
+        }
         let http = store.during(client(config.state()?)).await?;
         let manifest = store
             .during(fetch(

@@ -104,6 +104,50 @@ fn repeated_upgrades_keep_occurrence_conditions_and_escaped_names_keep_lexeme_ha
 }
 
 #[test]
+fn every_fact_and_edge_requires_a_canonical_record_leaf_and_original_hash() {
+    let bytes = br#"[{"id":1,"class_name":"upgrade_base","type":"upgrade","name":"Base\\/item"},{"id":2,"class_name":"upgrade_parent","type":"upgrade","component_items":["upgrade_base"]}]"#;
+    let extracted = extract(bytes, "en").unwrap();
+    prove(bytes, &extracted).unwrap();
+    for locator in [
+        "/0",
+        "/00/class_name",
+        "/+0/class_name",
+        "/0/missing",
+        "/2/class_name",
+        "/0/class_name/child",
+    ] {
+        let mut mutated = extract(bytes, "en").unwrap();
+        mutated.facts[0].locator = locator.into();
+        mutated.facts[0].hash[0] ^= 1;
+        assert!(prove(bytes, &mutated).is_err(), "fact {locator}");
+    }
+    for edge in 0..extracted.edges.len() {
+        for locator in [
+            "/1",
+            "/01/component_items/0",
+            "/+1/component_items/0",
+            "/1/missing",
+            "/2/component_items/0",
+            "/1/component_items/00",
+        ] {
+            let mut mutated = extract(bytes, "en").unwrap();
+            mutated.edges[edge].proof.locator = locator.into();
+            mutated.edges[edge].proof.hash[0] ^= 1;
+            assert!(prove(bytes, &mutated).is_err(), "edge {edge} {locator}");
+        }
+        let mut mutated = extract(bytes, "en").unwrap();
+        mutated.edges[edge].proof.hash[0] ^= 1;
+        assert!(prove(bytes, &mutated).is_err());
+        let mut mutated = extract(bytes, "en").unwrap();
+        mutated.edges[edge].to = "upgrade_base".into();
+        assert!(prove(bytes, &mutated).is_err());
+        let mut mutated = extract(bytes, "en").unwrap();
+        mutated.edges[edge].from = "upgrade_parent".into();
+        assert!(prove(bytes, &mutated).is_err());
+    }
+}
+
+#[test]
 #[ignore = "requires an explicitly downloaded public upstream payload"]
 fn public_payload_preserves_toxic_bullets_and_real_ability_atoms() {
     let directory = std::path::PathBuf::from(

@@ -24,6 +24,67 @@ async fn pool(scratch: &scratch_pg::ScratchPg, user: &str, database: &str) -> Pg
         .unwrap()
 }
 
+async fn publish_old_extractor(pool: &PgPool, locator: &str, hash: &[u8]) -> (i64, i64, i64) {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let job: i64 = sqlx::query_scalar("INSERT INTO ops.job_run(job,extractor,extractor_version) VALUES ('ingest-assets','brain-assets','p2-old') RETURNING id")
+        .fetch_one(&mut *tx).await.unwrap();
+    let (source, base): (i64, String) = sqlx::query_as(
+        "SELECT id,last_complete_revision FROM raw.source WHERE locator=$1 FOR UPDATE",
+    )
+    .bind(locator)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let (object, target): (i64, String) = sqlx::query_as("SELECT id,revision FROM raw.object WHERE source_id=$1 AND external_id='items/en.json' AND content_sha256=$2")
+        .bind(source).bind(hash).fetch_one(&mut *tx).await.unwrap();
+    let raw_run: i64 = sqlx::query_scalar("INSERT INTO raw.run(source_id,job_run_id,base_revision,target_revision,extractor,extractor_version) VALUES ($1,$2,$3,$4,'brain-assets','p2-old') RETURNING id")
+        .bind(source).bind(job).bind(base).bind(&target).fetch_one(&mut *tx).await.unwrap();
+    let revision: i64 = sqlx::query_scalar("INSERT INTO canon.revision(source_id,raw_run_id,source_revision,extractor,extractor_version) VALUES ($1,$2,$3,'brain-assets','p2-old') RETURNING id")
+        .bind(source).bind(raw_run).bind(&target).fetch_one(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO raw.run_object(run_id,path,object_id,action,parse_status) VALUES ($1,'items/en.json',$2,'upsert','succeeded')")
+        .bind(raw_run).bind(object).execute(&mut *tx).await.unwrap();
+    for table in ["fact", "alias", "relation"] {
+        sqlx::query(&format!("UPDATE canon.{table} a SET valid_to_revision_id=$2 FROM canon.receipt r WHERE a.source_id=$1 AND a.source_path='items/en.json' AND a.valid_to_revision_id IS NULL AND r.id=a.receipt_id AND r.extractor='brain-assets'"))
+            .bind(source).bind(revision).execute(&mut *tx).await.unwrap();
+    }
+    let proof: i64 = sqlx::query_scalar("INSERT INTO canon.receipt(raw_object_id,source_id,revision_id,locator_kind,locator,value_sha256,extractor,extractor_version) VALUES ($1,$2,$3,'json_pointer','/0/properties/AbilityCooldown/value',$4,'brain-assets','p2-old') RETURNING id")
+        .bind(object).bind(source).bind(revision).bind(Sha256::digest(b"24.0").to_vec()).fetch_one(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,source_id,source_path,value_num,receipt_id,valid_from_revision_id) SELECT id,'ability.AbilityCooldown',$1,'items/en.json',24.0,$2,$3 FROM canon.entity WHERE kind='ability' AND key='viscous_goo_grenade'")
+        .bind(source).bind(proof).bind(revision).execute(&mut *tx).await.unwrap();
+    sqlx::query(
+        "UPDATE raw.run SET status='succeeded',last_completed_path='items/en.json' WHERE id=$1",
+    )
+    .bind(raw_run)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE raw.source SET last_complete_revision=$2 WHERE id=$1")
+        .bind(source)
+        .bind(target)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE canon.source_head SET published_revision_id=$2 WHERE source_id=$1")
+        .bind(source)
+        .bind(revision)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE ops.job_run SET status='succeeded',finished_at=clock_timestamp() WHERE id=$1",
+    )
+    .bind(job)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    (revision, raw_run, object)
+}
+
 #[tokio::test]
 async fn raw_reversion_dedup_rollback_publication_and_source_separation_use_postgres() {
     let scratch = scratch_pg::ScratchPg::start();
@@ -156,7 +217,100 @@ async fn raw_reversion_dedup_rollback_publication_and_source_separation_use_post
         .unwrap(),
         1
     );
+    let hash = Sha256::digest(b).to_vec();
+    let (old_revision, old_run, current_object) = publish_old_extractor(&pool, en, &hash).await;
+    let unchanged_sources: Vec<(i64, Option<String>, Option<String>)> = sqlx::query_as("SELECT f.id,f.value_num::text,f.value_text FROM serve.current_fact f JOIN raw.source s ON s.id=f.source_id WHERE s.locator<>$1 ORDER BY f.id")
+        .bind(en).fetch_all(&pool).await.unwrap();
+    let raw_before: i64 = sqlx::query_scalar("SELECT count(*) FROM raw.object")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let replay = Store::start(pool.clone(), 300).await.unwrap();
+    let mut replay_counts = Counts::default();
+    assert_eq!(
+        replay.replay(en, "en", &mut replay_counts).await.unwrap(),
+        0
+    );
+    assert_eq!(replay_counts.raw_inserted, 0);
+    assert_eq!(replay_counts.raw_reused, 1);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM raw.object")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        raw_before
+    );
+    let (new_revision, version, object, target, value, receipt_version, receipt_hash): (i64, String, i64, String, String, String, Vec<u8>) = sqlx::query_as("SELECT v.id,v.extractor_version,r.raw_object_id,v.source_revision,f.value_num::text,r.extractor_version,r.value_sha256 FROM canon.source_head h JOIN canon.revision v ON v.id=h.published_revision_id JOIN serve.current_fact f ON f.source_id=h.source_id JOIN canon.receipt r ON r.id=f.receipt_id JOIN raw.source s ON s.id=h.source_id WHERE s.locator=$1 AND f.stat_key='ability.AbilityCooldown'")
+        .bind(en).fetch_one(&pool).await.unwrap();
+    assert!(new_revision > old_revision);
+    assert_eq!(version, brain_job::assets::VERSION);
+    assert_eq!(object, current_object);
+    assert_eq!(target, hex::encode(&hash));
+    assert_eq!(value, "24.0");
+    assert_eq!(receipt_version, brain_job::assets::VERSION);
+    assert_eq!(receipt_hash, Sha256::digest(b"24.0").to_vec());
+    let rebuilt: (i64, bool) = sqlx::query_as("SELECT count(*),bool_and(r.extractor_version=$2 AND r.raw_object_id=$3 AND r.revision_id=$4) FROM serve.current_fact f JOIN canon.receipt r ON r.id=f.receipt_id JOIN raw.source s ON s.id=f.source_id WHERE s.locator=$1")
+        .bind(en).bind(brain_job::assets::VERSION).bind(current_object).bind(new_revision).fetch_one(&pool).await.unwrap();
+    assert_eq!(rebuilt, (4, true));
+    assert_eq!(sqlx::query_scalar::<_, String>("SELECT f.value_text FROM serve.current_fact f JOIN raw.source s ON s.id=f.source_id WHERE s.locator=$1 AND f.stat_key='identity.name'").bind(en).fetch_one(&pool).await.unwrap(), "Splatter changed");
+    assert_eq!(
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT status,extractor_version FROM raw.run WHERE id=$1"
+        )
+        .bind(old_run)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        ("succeeded".into(), "p2-old".into())
+    );
+    assert_eq!(sqlx::query_as::<_, (i64, Option<String>, Option<String>)>("SELECT f.id,f.value_num::text,f.value_text FROM serve.current_fact f JOIN raw.source s ON s.id=f.source_id WHERE s.locator<>$1 ORDER BY f.id").bind(en).fetch_all(&pool).await.unwrap(), unchanged_sources);
+    let repeated_before: (i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM raw.object),(SELECT count(*) FROM canon.fact),(SELECT count(*) FROM canon.receipt)")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(
+        replay.replay(en, "en", &mut replay_counts).await.unwrap(),
+        0
+    );
+    replay
+        .object(en, "en", b, &mut replay_counts)
+        .await
+        .unwrap();
+    assert_eq!(replay_counts.raw_reused, 1);
+    assert_eq!(replay_counts.sources_unchanged, 1);
+    assert_eq!(sqlx::query_as::<_, (i64, i64, i64)>("SELECT (SELECT count(*) FROM raw.object),(SELECT count(*) FROM canon.fact),(SELECT count(*) FROM canon.receipt)").fetch_one(&pool).await.unwrap(), repeated_before);
+    let unavailable: anyhow::Result<()> = replay
+        .during(async { anyhow::bail!("assets_refresh_unavailable") })
+        .await;
+    assert!(unavailable.is_err());
+    replay
+        .finish(&replay_counts, 0, unavailable.is_err())
+        .await
+        .unwrap();
+    assert_eq!(sqlx::query_as::<_, (String, i64, i64)>("SELECT status,(counts->>'raw_inserted')::bigint,(counts->>'raw_reused')::bigint FROM ops.job_run WHERE id=$1").bind(replay.job).fetch_one(&pool).await.unwrap(), ("failed".into(), 0, 1));
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT published_revision_id FROM canon.source_head h JOIN raw.source s ON s.id=h.source_id WHERE s.locator=$1").bind(en).fetch_one(&pool).await.unwrap(), new_revision);
+    publish_old_extractor(&pool, en, &hash).await;
     let fenced = Store::start(pool.clone(), 300).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let pending: i64 = sqlx::query_scalar("INSERT INTO raw.run(source_id,job_run_id,base_revision,target_revision,extractor,extractor_version) SELECT s.id,r.job_run_id,s.last_complete_revision,s.last_complete_revision,'brain-assets','p2-old' FROM raw.source s JOIN canon.source_head h ON h.source_id=s.id JOIN canon.revision v ON v.id=h.published_revision_id JOIN raw.run r ON r.id=v.raw_run_id WHERE s.locator=$1 RETURNING id")
+        .bind(en).fetch_one(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let before: (i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM raw.object),(SELECT count(*) FROM canon.receipt),(SELECT count(*) FROM raw.run)")
+        .fetch_one(&pool).await.unwrap();
+    assert!(fenced.replay(en, "en", &mut replay_counts).await.is_err());
+    assert_eq!(sqlx::query_as::<_, (i64,i64,i64)>("SELECT (SELECT count(*) FROM raw.object),(SELECT count(*) FROM canon.receipt),(SELECT count(*) FROM raw.run)").fetch_one(&pool).await.unwrap(), before);
+    assert_eq!(
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT status,extractor_version FROM raw.run WHERE id=$1"
+        )
+        .bind(pending)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        ("running".into(), "p2-old".into())
+    );
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
         .execute(&mut *tx)
@@ -167,6 +321,11 @@ async fn raw_reversion_dedup_rollback_publication_and_source_separation_use_post
         .await
         .unwrap();
     tx.commit().await.unwrap();
+    let lost = fenced
+        .replay(en, "en", &mut replay_counts)
+        .await
+        .unwrap_err();
+    assert_eq!(lost.to_string(), "assets_lease_lost");
     assert!(fenced.object(en, "en", b, &mut counts).await.is_err());
     assert_eq!(sqlx::query_as::<_, (i64,i64,i64)>("SELECT (SELECT count(*) FROM raw.object),(SELECT count(*) FROM canon.receipt),(SELECT count(*) FROM raw.run)").fetch_one(&pool).await.unwrap(), before);
     pool.close().await;

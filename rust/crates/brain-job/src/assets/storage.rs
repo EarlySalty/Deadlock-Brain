@@ -75,6 +75,16 @@ impl Store {
         }
     }
 
+    pub async fn replay(
+        &self,
+        locator: &str,
+        language: &'static str,
+        counts: &mut Counts,
+    ) -> Result<u64> {
+        let result = retry(|| self.object_once(locator, language, None)).await?;
+        Ok(completed(counts, result))
+    }
+
     pub async fn object(
         &self,
         locator: &str,
@@ -82,59 +92,90 @@ impl Store {
         bytes: &[u8],
         counts: &mut Counts,
     ) -> Result<u64> {
-        ensure!(
-            matches!(language, "en" | "de")
-                && locator.len() <= 2048
-                && bytes.len() <= super::MAX_BYTES,
-            "assets_object_input"
-        );
-        let hash = Sha256::digest(bytes).to_vec();
-        let target = hex::encode(&hash);
-        let result = retry(|| self.object_once(locator, language, bytes, &hash, &target)).await?;
-        let Some((inserted, unmapped)) = result else {
+        let result = retry(|| self.object_once(locator, language, Some(bytes))).await?;
+        if result.is_none() {
             counts.sources_unchanged += 1;
-            return Ok(0);
-        };
-        if inserted {
-            counts.raw_inserted += 1;
-        } else {
-            counts.raw_reused += 1;
         }
-        counts.objects_completed += 1;
-        counts.sources_completed += 1;
-        Ok(unmapped)
+        Ok(completed(counts, result))
     }
 
     async fn object_once(
         &self,
         locator: &str,
         language: &'static str,
-        bytes: &[u8],
-        hash: &[u8],
-        target: &str,
+        bytes: Option<&[u8]>,
     ) -> Result<Option<(bool, u64)>> {
+        ensure!(
+            matches!(language, "en" | "de")
+                && locator.len() <= 2048
+                && bytes.is_none_or(|bytes| bytes.len() <= super::MAX_BYTES),
+            "assets_object_input"
+        );
         let mut tx = transaction(&self.pool).await?;
         self.renew_tx(&mut tx).await?;
-        sqlx::query("INSERT INTO raw.source(kind,locator) VALUES ('assets_api',$1) ON CONFLICT(locator) DO NOTHING").bind(locator).execute(&mut *tx).await?;
-        let (source, base): (i64, Option<String>) = sqlx::query_as("SELECT id,last_complete_revision FROM raw.source WHERE locator=$1 AND enabled FOR UPDATE")
-            .bind(locator).fetch_one(&mut *tx).await?;
-        let version: Option<String> = sqlx::query_scalar("SELECT v.extractor_version FROM canon.source_head h JOIN canon.revision v ON v.id=h.published_revision_id WHERE h.source_id=$1 AND v.extractor=$2")
+        if bytes.is_some() {
+            sqlx::query("INSERT INTO raw.source(kind,locator) VALUES ('assets_api',$1) ON CONFLICT(locator) DO NOTHING").bind(locator).execute(&mut *tx).await?;
+        }
+        let source: Option<(i64, Option<String>)> = sqlx::query_as("SELECT id,last_complete_revision FROM raw.source WHERE locator=$1 AND kind='assets_api' AND enabled FOR UPDATE")
+            .bind(locator).fetch_optional(&mut *tx).await?;
+        let Some((source, base)) = source else {
+            ensure!(bytes.is_none(), "assets_source_unavailable");
+            tx.commit().await?;
+            return Ok(None);
+        };
+        let head: Option<(String, String, i64)> = sqlx::query_as("SELECT v.extractor_version,v.source_revision,v.raw_run_id FROM canon.source_head h JOIN canon.revision v ON v.id=h.published_revision_id WHERE h.source_id=$1 AND v.extractor=$2")
             .bind(source).bind(EXTRACTOR).fetch_optional(&mut *tx).await?;
-        if base.as_deref() == Some(target) && version.as_deref() == Some(VERSION) {
+        let path = format!("items/{language}.json");
+        let replay: Option<(i64, Vec<u8>, Vec<u8>)> = if bytes.is_none() {
+            let Some((version, revision, raw_run)) = &head else {
+                tx.commit().await?;
+                return Ok(None);
+            };
+            if version == VERSION {
+                tx.commit().await?;
+                return Ok(None);
+            }
+            ensure!(base.as_ref() == Some(revision), "assets_replay_head");
+            Some(sqlx::query_as("SELECT o.id,o.body,o.content_sha256 FROM raw.run r JOIN raw.run_object ro ON ro.run_id=r.id JOIN raw.object o ON o.id=ro.object_id WHERE r.id=$1 AND r.source_id=$2 AND r.status='succeeded' AND ro.path=$3 AND ro.action='upsert' AND ro.parse_status='succeeded' AND o.source_id=$2 AND o.external_id=$3 AND o.media_type='application/json'")
+                .bind(raw_run).bind(source).bind(&path).fetch_one(&mut *tx).await?)
+        } else {
+            None
+        };
+        let bytes = bytes
+            .or_else(|| replay.as_ref().map(|(_, body, _)| body.as_slice()))
+            .context("assets_replay_bytes")?;
+        ensure!(bytes.len() <= super::MAX_BYTES, "assets_payload_limit");
+        let hash = Sha256::digest(bytes).to_vec();
+        let target = hex::encode(&hash);
+        if let Some((_, _, stored_hash)) = &replay {
+            ensure!(
+                stored_hash == &hash && base.as_ref() == Some(&target),
+                "assets_replay_hash"
+            );
+        }
+        if base.as_ref() == Some(&target)
+            && head
+                .as_ref()
+                .is_some_and(|(version, _, _)| version == VERSION)
+        {
             tx.commit().await?;
             return Ok(None);
         }
-        let path = format!("items/{language}.json");
         let raw_run: i64 = sqlx::query_scalar("INSERT INTO raw.run(source_id,job_run_id,base_revision,target_revision,extractor,extractor_version) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id")
-            .bind(source).bind(self.job).bind(base).bind(target).bind(EXTRACTOR).bind(VERSION).fetch_one(&mut *tx).await?;
+            .bind(source).bind(self.job).bind(base).bind(&target).bind(EXTRACTOR).bind(VERSION).fetch_one(&mut *tx).await?;
         let revision = sqlx::query_scalar("INSERT INTO canon.revision(source_id,raw_run_id,source_revision,extractor,extractor_version) VALUES ($1,$2,$3,$4,$5) RETURNING id")
-            .bind(source).bind(raw_run).bind(target).bind(EXTRACTOR).bind(VERSION).fetch_one(&mut *tx).await?;
-        let inserted: Option<i64> = sqlx::query_scalar("INSERT INTO raw.object(source_id,external_id,revision,content_sha256,media_type,body) VALUES ($1,$2,$3,$4,'application/json',$5) ON CONFLICT(source_id,external_id,content_sha256) DO NOTHING RETURNING id")
-            .bind(source).bind(&path).bind(target).bind(hash).bind(bytes).fetch_optional(&mut *tx).await?;
-        let object = match inserted {
-            Some(id) => id,
-            None => sqlx::query_scalar("SELECT id FROM raw.object WHERE source_id=$1 AND external_id=$2 AND content_sha256=$3")
-                .bind(source).bind(&path).bind(hash).fetch_one(&mut *tx).await?,
+            .bind(source).bind(raw_run).bind(&target).bind(EXTRACTOR).bind(VERSION).fetch_one(&mut *tx).await?;
+        let inserted: Option<i64> = if replay.is_some() {
+            None
+        } else {
+            sqlx::query_scalar("INSERT INTO raw.object(source_id,external_id,revision,content_sha256,media_type,body) VALUES ($1,$2,$3,$4,'application/json',$5) ON CONFLICT(source_id,external_id,content_sha256) DO NOTHING RETURNING id")
+                .bind(source).bind(&path).bind(&target).bind(&hash).bind(bytes).fetch_optional(&mut *tx).await?
+        };
+        let object = match (replay.as_ref(), inserted) {
+            (Some((id, _, _)), _) => *id,
+            (None, Some(id)) => id,
+            (None, None) => sqlx::query_scalar("SELECT id FROM raw.object WHERE source_id=$1 AND external_id=$2 AND content_sha256=$3")
+                .bind(source).bind(&path).bind(&hash).fetch_one(&mut *tx).await?,
         };
         sqlx::query(
             "INSERT INTO raw.run_object(run_id,path,object_id,action) VALUES ($1,$2,$3,'upsert')",
@@ -149,7 +190,7 @@ impl Store {
             .fetch_one(&mut *tx)
             .await?;
         ensure!(
-            stored == bytes && Sha256::digest(&stored).as_slice() == hash,
+            stored == bytes && Sha256::digest(&stored).as_slice() == hash.as_slice(),
             "assets_stored_bytes"
         );
         let extracted = extraction::extract(&stored, language)?;
@@ -193,7 +234,7 @@ impl Store {
             .await?;
         sqlx::query("UPDATE raw.source SET last_complete_revision=$2 WHERE id=$1")
             .bind(source)
-            .bind(target)
+            .bind(&target)
             .execute(&mut *tx)
             .await?;
         sqlx::query("INSERT INTO canon.source_head(source_id,published_revision_id) VALUES ($1,$2) ON CONFLICT(source_id) DO UPDATE SET published_revision_id=EXCLUDED.published_revision_id")
@@ -217,6 +258,20 @@ impl Store {
             Ok(())
         }).await
     }
+}
+
+fn completed(counts: &mut Counts, result: Option<(bool, u64)>) -> u64 {
+    let Some((inserted, unmapped)) = result else {
+        return 0;
+    };
+    if inserted {
+        counts.raw_inserted += 1;
+    } else {
+        counts.raw_reused += 1;
+    }
+    counts.objects_completed += 1;
+    counts.sources_completed += 1;
+    unmapped
 }
 
 async fn receipt(tx: &mut Transaction<'_, Postgres>, run: &Run, proof: &Assertion) -> Result<i64> {
