@@ -4,10 +4,12 @@ This is a preparation document, not evidence of execution. The user directive at
 
 ## Release prerequisites
 
-1. Published P1 checkpoint `ddbeb2fea2b5975bc2161a7a2fb10cbe19c78512`, including ordered migration commit `3ef22729`, was imported into the P5 primary/schema feature branches as `df72e6b0`/`3776447b`. Complete additive registration of the unchanged standalone P5 migration as version 5 through the actual `GAMEFACTS_MIGRATIONS` interface and SELECT-only preflight; do not create another runner or ledger. Its source-only registration workflow is not runtime proof. Keep the shared extractor dispatch additive. At final integration use the current origin/main extractor version plus one and actual registry size.
+1. Published P1 checkpoint ddbeb2fe supplied the ordered migration interface from 3ef22729; later published corrections through 1e9bc821 were imported/pushed as primary eadd02cd and schema bcaada67. P5 version 5 and its shared semantic catalog checker are now source-registered through the existing runner/ledger, with standalone SQL unchanged. Finish deferred compiler, PostgreSQL-16/catalog and registration/reapply verification; source review is not runtime proof. Keep extractor dispatch additive. At final integration use the current origin/main extractor version plus one and actual registry size.
 2. Before activating the bumped extractor, finish or publish unfinished runs of the previous version under the existing job/release serialization. An aggregate inspection of raw.run status and extractor_version must establish zero old pending runs. Do not relabel runs or bypass guards.
 3. Once build slots are cleared, finish affected formatting, build, Clippy and existing tests, including real scratch-Postgres receipt, scope, publication and bounded-output contracts. Review the exact integration HEAD and obtain local gate ALLOW. No unverified source commit or main publication.
 4. Verify P1 is live and no brain-release process exists. Use the shared release/deploy locks and existing plan/build/verify/install wrapper from a clean worktree matching verified origin/main. Release installation owns serve restart. Confirm migration 5 and the released brain-job ingest-docs dispatch before running the job.
+
+The binding contract uses owner-only check-gamefacts/up-gamefacts validation before pointer activation. The source-registered Docs checker participates in that path. Do not invent extra health/LocalPgReader monitoring or runtime rights; a readyz 200 alone does not establish any P5 live acceptance point.
 
 ## System-unit preparation
 
