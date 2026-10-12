@@ -1,0 +1,12 @@
+feat(brain): Add direct hourly gamefiles job unit templates
+
+Run the release's Rust brain-job directly with the existing Infisical
+credential pattern and an hourly timer. Keep unit scope unchanged for
+P0b's system-manager migration.
+
+Source templates were independently reviewed. User-manager memory
+control is not enforced on this host; approved runtime acceptance uses
+independent maximum-RSS measurements below 300 MB. Installation and live
+job proof remain pending.
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>

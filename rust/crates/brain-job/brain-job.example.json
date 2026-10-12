@@ -1,0 +1,16 @@
+{
+  "postgres": {
+    "socket_dir": "/run/deadlock-brain-postgresql",
+    "port": 5446,
+    "username": "brain_ingest",
+    "database": "brain",
+    "auth": "password",
+    "password_env": "BRAIN_PG_INGEST_PASSWORD",
+    "max_connections": 2
+  },
+  "infisical_config": "/etc/deadlock-brain/infisical.json",
+  "state_directory": "/var/lib/deadlock-brain-job",
+  "lease_seconds": 300,
+  "git_timeout_seconds": 1800,
+  "max_blob_bytes": 33554432
+}

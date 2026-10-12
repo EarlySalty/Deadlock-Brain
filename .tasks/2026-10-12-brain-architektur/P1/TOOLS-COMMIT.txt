@@ -1,0 +1,13 @@
+feat(brain): Serve bounded canonical hero tools and ordered answer traces
+
+Append find_entity and get_hero through the existing tool composition,
+with a read-only brain_tool pool, receipt-backed results and bounded
+serialized output. Record actual tool calls and answer accounting through
+a separate brain_service trace writer while preserving publication paths.
+
+Independent Rust and adversarial reviews passed. Verified with 209
+serving/kernel tests, 14 unchanged ignored probes, owned formatting,
+strict all-target Clippy and the matching brain-serve release build.
+Live answer and repository-I/O proof remain pending.
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
