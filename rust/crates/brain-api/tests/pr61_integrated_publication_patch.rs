@@ -157,14 +157,14 @@ impl AnswerProviderPort for CountingProvider {
         self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(evidence.len(), 1);
         assert!(evidence[0].content.contains("650"));
-        Ok(ProviderAnswer {
-            text: "Fixture health: 650".into(),
-            cited_evidence_ids: vec![evidence[0].evidence_id.clone()],
-            usage: brain_contracts::Usage {
+        Ok(ProviderAnswer::prose(
+            "Fixture health explanation".into(),
+            vec![evidence[0].evidence_id.clone()],
+            brain_contracts::Usage {
                 network_rounds: 1,
                 ..brain_contracts::Usage::default()
             },
-        })
+        ))
     }
 }
 #[tokio::test]
@@ -173,7 +173,7 @@ async fn proven_internal_explain_cache_hit_cannot_be_reused_for_publication() {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
-    let store = repository(vec![fact("internal-p1", 650, false, Some("p1"))]).await;
+    let store = repository(vec![fact("deadlock-assets-heroes", 650, false, Some("p1"))]).await;
     let calls = Arc::new(AtomicUsize::new(0));
     let kernel = CachedKernel::new(
         Kernel::new(
@@ -202,7 +202,7 @@ async fn proven_internal_explain_cache_hit_cannot_be_reused_for_publication() {
 }
 #[tokio::test]
 async fn internal_fact_read_does_not_grant_external_publication() {
-    let store = repository(vec![fact("internal-p1", 650, false, Some("p1"))]).await;
+    let store = repository(vec![fact("deadlock-assets-heroes", 650, false, Some("p1"))]).await;
     let kernel = CachedKernel::new(
         Kernel::new(ReleaseRetriever::new(store, 10), NoProvider),
         8,
@@ -224,8 +224,8 @@ async fn internal_fact_read_does_not_grant_external_publication() {
 #[tokio::test]
 async fn publication_filter_cannot_turn_a_known_old_patch_into_an_external_fallback() {
     let store = repository(vec![
-        fact("internal-p1", 650, false, Some("p1")),
-        fact("public-p0", 999, true, Some("p0")),
+        fact("deadlock-assets-heroes", 650, false, Some("p1")),
+        fact("legacy-entities", 999, true, Some("p0")),
     ])
     .await;
     let kernel = CachedKernel::new(
@@ -246,13 +246,13 @@ async fn publication_filter_cannot_turn_a_known_old_patch_into_an_external_fallb
 }
 #[tokio::test]
 async fn publication_permission_does_not_authorize_a_mismatched_patch() {
-    let store = repository(vec![fact("public-p0", 999, true, Some("p0"))]).await;
+    let store = repository(vec![fact("legacy-entities", 999, true, Some("p0"))]).await;
     let kernel = Kernel::new(ReleaseRetriever::new(store, 10), NoProvider);
     assert_not_published(&public_answer(kernel, &query("external-wrong-patch")));
 }
 #[tokio::test]
 async fn unknown_origin_patch_is_not_invented_from_the_corpus_version() {
-    let store = repository(vec![fact("public-unknown", 650, true, None)]).await;
+    let store = repository(vec![fact("deadlock-wiki-deadlock-data", 650, true, None)]).await;
     let kernel = Kernel::new(ReleaseRetriever::new(store, 10), NoProvider);
     let mut request = query("internal-unknown-patch");
     // Unknown validity may answer an unscoped fact question. A patch-specific

@@ -11,6 +11,8 @@ mod health;
 mod operator_socket;
 mod secrets;
 mod service;
+#[cfg(test)]
+mod structured_probe_tests;
 
 pub use config::Config;
 pub use secrets::Secrets;

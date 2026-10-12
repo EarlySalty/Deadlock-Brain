@@ -1994,11 +1994,7 @@ mod tests {
         .validate(&[definition()])
         .is_err());
         assert!(turn.into_answer().is_err());
-        let answer = ProviderAnswer {
-            text: "Antwort".into(),
-            cited_evidence_ids: vec!["e1".into()],
-            usage: Usage::default(),
-        };
+        let answer = ProviderAnswer::prose("Antwort".into(), vec!["e1".into()], Usage::default());
         assert_eq!(
             ProviderTurn::Final {
                 answer: answer.clone(),

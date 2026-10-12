@@ -110,11 +110,11 @@ impl AnswerProviderPort for Provider {
         evidence: &[Evidence],
     ) -> Result<ProviderAnswer, PortError> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        Ok(ProviderAnswer {
-            text: "successful fixture".into(),
-            cited_evidence_ids: vec![evidence[0].evidence_id.clone()],
-            usage: Usage::default(),
-        })
+        Ok(ProviderAnswer::prose(
+            "successful fixture".into(),
+            vec![evidence[0].evidence_id.clone()],
+            Usage::default(),
+        ))
     }
 }
 struct TrackedKernel {

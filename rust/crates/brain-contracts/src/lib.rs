@@ -536,6 +536,43 @@ pub struct ProviderAnswer {
     pub cited_evidence_ids: Vec<String>,
     #[serde(default)]
     pub usage: Usage,
+    #[serde(default)]
+    pub structured: Option<answer_contract::StructuredAnswer>,
+}
+
+impl ProviderAnswer {
+    pub fn prose(text: String, cited_evidence_ids: Vec<String>, usage: Usage) -> Self {
+        Self {
+            structured: Some(answer_contract::StructuredAnswer::prose(
+                text.clone(),
+                cited_evidence_ids.clone(),
+            )),
+            text,
+            cited_evidence_ids,
+            usage,
+        }
+    }
+
+    pub fn render(
+        &mut self,
+        evidence: &[Evidence],
+    ) -> std::result::Result<(), answer_contract::AnswerViolation> {
+        let structured = self
+            .structured
+            .as_ref()
+            .ok_or(answer_contract::AnswerViolation::Format)?;
+        if self.cited_evidence_ids != structured.cited_evidence_ids {
+            return Err(answer_contract::AnswerViolation::Citation);
+        }
+        self.text = structured.render(evidence)?;
+        Ok(())
+    }
+
+    pub fn is_social(&self) -> bool {
+        self.structured
+            .as_ref()
+            .is_some_and(|answer| answer.kind == answer_contract::AnswerKind::Social)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

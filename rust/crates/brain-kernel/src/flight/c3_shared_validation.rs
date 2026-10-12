@@ -48,11 +48,11 @@ impl AnswerProviderPort for Provider {
             .unwrap()
             .recv_timeout(Duration::from_secs(3))
             .unwrap();
-        Ok(ProviderAnswer {
-            text: "grounded leader answer".into(),
-            cited_evidence_ids: vec![evidence[0].evidence_id.clone()],
-            usage: Usage::default(),
-        })
+        Ok(ProviderAnswer::prose(
+            "grounded leader answer".into(),
+            vec![evidence[0].evidence_id.clone()],
+            Usage::default(),
+        ))
     }
 }
 #[test]

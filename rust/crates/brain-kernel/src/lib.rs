@@ -579,13 +579,13 @@ mod tests {
             _evidence: &[Evidence],
         ) -> Result<ProviderAnswer, PortError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            Ok(ProviderAnswer {
-                text: "erklärt".into(),
-                cited_evidence_ids: _evidence
+            Ok(ProviderAnswer::prose(
+                "erklärt".into(),
+                _evidence
                     .iter()
                     .map(|item| item.evidence_id.clone())
                     .collect(),
-                usage: Usage {
+                Usage {
                     provider: Some("fixture".into()),
                     model: Some("fixture".into()),
                     input_tokens: 10,
@@ -593,7 +593,7 @@ mod tests {
                     network_rounds: 1,
                     cost_micros: 0,
                 },
-            })
+            ))
         }
     }
 
@@ -655,6 +655,7 @@ mod tests {
 
     fn canonical_fact() -> Evidence {
         let mut fact = evidence("fact", EvidenceKind::Fact, SourceVisibility::Public, &[]);
+        fact.source_id = "deadlock-assets-heroes".into();
         fact.logical_id = "entity/hero/Abrams".into();
         fact.content = "hero: Abrams\nhealth: 650".into();
         fact.provenance = Some(brain_contracts::ChunkProvenance {
@@ -679,7 +680,7 @@ mod tests {
     }
 
     #[test]
-    fn non_fact_profiles_keep_empty_knowledge_model_answers() {
+    fn non_fact_profiles_refuse_uncited_grounded_answers() {
         for profile in [AnswerProfile::Explain, AnswerProfile::Coaching] {
             let calls = Arc::new(AtomicUsize::new(0));
             let kernel = Kernel::new(
@@ -690,7 +691,7 @@ mod tests {
             )
             .with_quality_filters(false);
             let answer = kernel.answer(&query(profile), &context(&[], &["public"]));
-            assert_eq!(answer.status, AnswerStatus::Unverified);
+            assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
             assert!(!answer.text.is_empty());
             assert!(answer.citations.is_empty());
             assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -770,13 +771,13 @@ mod tests {
     }
 
     #[test]
-    fn relaxed_tool_quality_allows_uncited_final_but_keeps_private_dependency_checks() {
+    fn relaxed_tool_quality_refuses_uncited_final_and_keeps_private_dependency_checks() {
         let call = find_call("first");
         let (kernel, _) = tool_kernel(std::slice::from_ref(&call), vec![final_turn(&[])]);
         let answer = kernel
             .with_quality_filters(false)
             .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
-        assert_eq!(answer.status, AnswerStatus::Unverified);
+        assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
         let (kernel, state) = tool_kernel(
             std::slice::from_ref(&call),
             vec![tool_turn(vec![call.clone()]), final_turn(&[])],
@@ -1576,17 +1577,17 @@ mod tests {
         }
     }
     fn final_turn(ids: &[&str]) -> brain_contracts::ProviderTurn {
-        ProviderAnswer {
-            text: "belegte Fixtureantwort".into(),
-            cited_evidence_ids: ids.iter().map(|id| (*id).into()).collect(),
-            usage: Usage {
+        ProviderAnswer::prose(
+            "belegte Fixtureantwort".into(),
+            ids.iter().map(|id| (*id).into()).collect(),
+            Usage {
                 input_tokens: 30,
                 output_tokens: 40,
                 network_rounds: 1,
                 cost_micros: 3,
                 ..Usage::default()
             },
-        }
+        )
         .into()
     }
     fn tool_kernel(
@@ -1707,7 +1708,7 @@ mod tests {
                 assert_eq!(result.accounting.observed.cost_micros, 5);
                 assert!(!result.accounting.unaccounted);
             } else {
-                assert_eq!(result.value.status, AnswerStatus::Unverified);
+                assert_eq!(result.value.status, AnswerStatus::InsufficientEvidence);
                 assert_eq!(result.accounting.observed, model_usage);
             }
         }
@@ -2529,7 +2530,7 @@ mod tests {
                 if cited {
                     AnswerStatus::Answered
                 } else {
-                    AnswerStatus::Unavailable
+                    AnswerStatus::InsufficientEvidence
                 }
             );
             assert_eq!(answer.accounting.observed.network_rounds, 2);
@@ -2837,14 +2838,14 @@ mod tests {
             final_turn(&[]),
             final_turn(&["missing"]),
             brain_contracts::ProviderTurn::Final {
-                answer: ProviderAnswer {
-                    text: "abgeschnitten".into(),
-                    cited_evidence_ids: vec![],
-                    usage: Usage {
+                answer: ProviderAnswer::prose(
+                    "abgeschnitten".into(),
+                    vec![],
+                    Usage {
                         network_rounds: 1,
                         ..Usage::default()
                     },
-                },
+                ),
                 finish_reason: brain_contracts::ProviderFinishReason::MaxTokens,
             },
         ] {

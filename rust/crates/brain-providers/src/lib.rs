@@ -534,7 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn relaxed_quality_delivers_model_text_without_exposing_envelope_or_ids() {
+    fn relaxed_quality_cannot_bypass_the_structured_answer_contract() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
@@ -568,27 +568,14 @@ mod tests {
         let mut config = ProviderConfig::codex_subscription(format!("http://{address}/v1"));
         config.quality_filters = false;
         let provider = CodexSubscriptionProvider::new(config).unwrap();
-        for expected in [
-            "Pocket unter Druck setzen .",
-            "Abstand halten",
-            "Deckung nutzen",
-            "Ohne passende Quellen trotzdem antworten.",
-            "Teilantwort ",
-            "Deckung nutzen  ",
-            "Teilantwort ",
-            "Deckung nutzen.",
-            "Abstand halten.",
-            "Deckung nutzen. ",
-            "Abstand halten.",
-            "Deckung nutzen.",
-        ] {
-            let response = provider
+        for _ in 0..12 {
+            let failure = provider
                 .answer_accounted(&query(), &context(), &[])
-                .unwrap();
-            assert_eq!(response.value.text, expected);
-            assert!(response.value.cited_evidence_ids.is_empty());
-            assert_eq!(response.accounting.observed.input_tokens, 12);
-            assert_eq!(response.accounting.observed.output_tokens, 3);
+                .unwrap_err();
+            assert!(matches!(failure.error, PortError::InvalidResponse(_)));
+            let accounting = failure.accounting.unwrap();
+            assert_eq!(accounting.observed.input_tokens, 12);
+            assert_eq!(accounting.observed.output_tokens, 3);
         }
         server.join().unwrap();
     }
@@ -614,7 +601,7 @@ mod tests {
             assert_eq!(payload["messages"].as_array().unwrap().len(), 1);
             assert_eq!(payload["tools"], serde_json::json!([]));
             assert_eq!(payload["tool_choice"], serde_json::json!({"type":"none"}));
-            let response = r#"{"model":"gpt-6-luna","stop_reason":"end_turn","content":[{"type":"thinking","thinking":"Nicht ausgeben"},{"type":"text","text":"Antwort"}],"usage":{"input_tokens":12,"output_tokens":3}}"#;
+            let response = r#"{"model":"gpt-6-luna","stop_reason":"end_turn","content":[{"type":"thinking","thinking":"Nicht ausgeben"},{"type":"text","text":"{\"kind\":\"social\",\"parts\":[{\"kind\":\"prose\",\"text\":\"Antwort\"}],\"cited_evidence_ids\":[]}"}],"usage":{"input_tokens":12,"output_tokens":3}}"#;
             write!(
                 stream,
                 "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -655,7 +642,7 @@ mod tests {
                     )
                     .unwrap();
                 } else {
-                    let body = r#"{"model":"fixture-model","choices":[{"finish_reason":"stop","message":{"content":"Abrams Antwort"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#;
+                    let body = r#"{"model":"fixture-model","choices":[{"finish_reason":"stop","message":{"content":"{\"kind\":\"social\",\"parts\":[{\"kind\":\"prose\",\"text\":\"Abrams Antwort\"}],\"cited_evidence_ids\":[]}"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#;
                     write!(
                         stream,
                         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -667,15 +654,20 @@ mod tests {
             }
         });
 
+        let mut context = context();
+        context.budget.max_input_tokens = u32::try_from(
+            2 * brain_contracts::provider_input::grounded_input_ceiling(&query(), &[]),
+        )
+        .unwrap();
         let result = provider(format!("http://{address}"))
-            .answer(&query(), &context(), &[])
+            .answer(&query(), &context, &[])
             .unwrap();
         assert_eq!(result.text, "Abrams Antwort");
         assert_eq!(result.usage.network_rounds, 2);
         assert!(result.usage.input_tokens > 12);
-        assert!(result.usage.input_tokens <= context().budget.max_input_tokens as u64);
+        assert!(result.usage.input_tokens <= context.budget.max_input_tokens as u64);
         assert!(result.usage.output_tokens > 3);
-        assert!(result.usage.output_tokens <= context().budget.max_output_tokens as u64);
+        assert!(result.usage.output_tokens <= context.budget.max_output_tokens as u64);
         server.join().unwrap();
     }
 

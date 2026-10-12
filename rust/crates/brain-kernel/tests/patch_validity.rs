@@ -15,7 +15,7 @@ use std::{
 fn source(patch: Option<&str>) -> SourceRecordV2 {
     let content = "hero: Abrams\nhealth: 650";
     let mut r = SourceRecordV2 {
-        source_id: "wiki".into(),
+        source_id: "deadlock-wiki-deadlock-data".into(),
         logical_id: "entity/hero/Abrams".into(),
         revision: 1,
         content: content.into(),
@@ -128,11 +128,11 @@ impl AnswerProviderPort for Provider {
         if let Some((store, head)) = &self.change {
             store.apply_record(head.clone())?;
         }
-        Ok(ProviderAnswer {
-            text: "PATCH_BOUND_650".into(),
-            cited_evidence_ids: vec![evidence[0].evidence_id.clone()],
-            usage: Usage::default(),
-        })
+        Ok(ProviderAnswer::prose(
+            "PATCH_BOUND_VALUE".into(),
+            vec![evidence[0].evidence_id.clone()],
+            Usage::default(),
+        ))
     }
 }
 
@@ -219,7 +219,7 @@ async fn cached_provider_answer_is_not_reused_after_head_patch_change() {
     q.request_id = "q3".into();
     let answer = kernel.answer(&q, &context());
     assert_ne!(answer.status, AnswerStatus::Answered);
-    assert!(!answer.text.contains("PATCH_BOUND_650"));
+    assert!(!answer.text.contains("PATCH_BOUND_VALUE"));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
@@ -238,7 +238,7 @@ async fn head_patch_change_during_provider_call_blocks_handoff() {
     q.profile = AnswerProfile::Explain;
     let answer = kernel.answer(&q, &context());
     assert_eq!(answer.status, AnswerStatus::UnauthorizedEvidence);
-    assert!(!answer.text.contains("PATCH_BOUND_650"));
+    assert!(!answer.text.contains("PATCH_BOUND_VALUE"));
 }
 
 #[tokio::test]
@@ -246,7 +246,7 @@ async fn unknown_patch_fact_cannot_hide_a_conflict_with_known_fact() {
     let known = source(Some("p1"));
     let mut unknown = source(None);
     let mut origin = origin_from_record(&unknown).unwrap();
-    unknown.source_id = "other-wiki".into();
+    unknown.source_id = "legacy-entities".into();
     unknown.content = "hero: Abrams\nhealth: 700".into();
     unknown.content_hash =
         "5d21ea6a6f4dcf1224a0d35b1f5e2eaeb208e2ad78c8f1cfe84a8f17af732b39".into();

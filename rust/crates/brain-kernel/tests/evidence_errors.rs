@@ -41,16 +41,16 @@ impl AnswerProviderPort for Provider {
         evidence: &[Evidence],
     ) -> Result<ProviderAnswer, PortError> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        Ok(ProviderAnswer {
-            text: "Sensitive grounded answer".into(),
-            cited_evidence_ids: vec![evidence[0].evidence_id.clone()],
-            usage: Usage {
+        Ok(ProviderAnswer::prose(
+            "Sensitive grounded answer".into(),
+            vec![evidence[0].evidence_id.clone()],
+            Usage {
                 input_tokens: 10,
                 output_tokens: 5,
                 network_rounds: 1,
                 ..Usage::default()
             },
-        })
+        ))
     }
 }
 async fn fixture(fail_at: usize, every: usize, error: PortError) -> FaultReader {

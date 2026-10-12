@@ -78,16 +78,16 @@ impl AnswerProviderPort for Provider {
             .unwrap()
             .recv_timeout(Duration::from_secs(5))
             .unwrap();
-        Ok(ProviderAnswer {
-            text: "leader text derived from uncited B".into(),
-            cited_evidence_ids: vec![evidence
+        Ok(ProviderAnswer::prose(
+            "leader text derived from uncited B".into(),
+            vec![evidence
                 .iter()
                 .find(|e| e.logical_id == "a")
                 .unwrap()
                 .evidence_id
                 .clone()],
-            usage: Usage::default(),
-        })
+            Usage::default(),
+        ))
     }
 }
 

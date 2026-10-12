@@ -72,6 +72,7 @@ fn context() -> AuthorizedContext {
 async fn patch_agnostic_fact_does_not_establish_release_patch_or_mode() {
     let s = MemoryRepository::default();
     let mut fact = record(1);
+    fact.source_id = "deadlock-assets-heroes".into();
     fact.logical_id = "entity/hero/Abrams".into();
     fact.content = "hero: Abrams\nhealth: 650".into();
     fact.metadata.insert("kind".into(), "fact".into());
@@ -166,6 +167,7 @@ async fn asset_hero_entity_and_field_records_share_identity() {
     }
     for i in 0..110 {
         let mut unrelated = record(1);
+        unrelated.source_id = "deadlock-assets-heroes".into();
         unrelated.logical_id = format!("entity/hero/Unrelated{i}");
         unrelated.content = format!("hero: Unrelated{i}\nhealth: 500\n");
         unrelated.metadata.insert("kind".into(), "fact".into());
@@ -344,20 +346,20 @@ impl AnswerProviderPort for Provider {
             changed.allowed_scopes.insert("private".into());
             store.apply_record(changed).unwrap();
         }
-        Ok(ProviderAnswer {
-            text: "fixture grounded answer".into(),
-            cited_evidence_ids: if self.forged {
+        Ok(ProviderAnswer::prose(
+            "fixture grounded answer".into(),
+            if self.forged {
                 vec!["invented".into()]
             } else {
                 evidence.iter().map(|e| e.evidence_id.clone()).collect()
             },
-            usage: Usage {
+            Usage {
                 input_tokens: 10,
                 output_tokens: 5,
                 network_rounds: 1,
                 ..Usage::default()
             },
-        })
+        ))
     }
 }
 #[tokio::test]
@@ -436,7 +438,7 @@ async fn forged_provider_citation_is_rejected_and_failure_not_cached() {
     );
     for _ in 0..2 {
         let answer = cache.answer(&query(), &context());
-        assert_eq!(answer.status, AnswerStatus::ProviderError);
+        assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
         assert!(answer.citations.is_empty());
     }
     assert_eq!(calls.load(Ordering::SeqCst), 2);
@@ -451,16 +453,16 @@ impl AnswerProviderPort for Unanswered {
         evidence: &[Evidence],
     ) -> Result<ProviderAnswer, PortError> {
         assert!(!evidence.is_empty());
-        Ok(ProviderAnswer {
-            text: String::new(),
-            cited_evidence_ids: Vec::new(),
-            usage: Usage {
+        Ok(ProviderAnswer::prose(
+            String::new(),
+            Vec::new(),
+            Usage {
                 input_tokens: 10,
                 output_tokens: 5,
                 network_rounds: 1,
                 ..Usage::default()
             },
-        })
+        ))
     }
 }
 

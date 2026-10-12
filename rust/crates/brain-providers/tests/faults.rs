@@ -159,7 +159,7 @@ fn fixture_requests<F: FnOnce(ProviderConfig) -> R, R>(
         Arc::try_unwrap(requests).unwrap().into_inner().unwrap(),
     )
 }
-const CHAT: &str = r#"{"model":"fixture-model","choices":[{"finish_reason":"stop","message":{"content":"fixture answer"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#;
+const CHAT: &str = r#"{"model":"fixture-model","choices":[{"finish_reason":"stop","message":{"content":"{\"kind\":\"social\",\"parts\":[{\"kind\":\"prose\",\"text\":\"fixture answer\"}],\"cited_evidence_ids\":[]}"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#;
 
 fn definitions() -> Vec<ToolDefinition> {
     vec![ToolDefinition {
@@ -216,6 +216,28 @@ fn append_result(conversation: &mut ToolConversation, blocks: Vec<ModelBlock>) {
 }
 fn turn_context() -> AuthorizedContext {
     context().with_request_deadline().into_owned()
+}
+fn retry_context(tools: &[ToolDefinition]) -> AuthorizedContext {
+    let input = [
+        brain_contracts::provider_input::ToolWireFormat::Native,
+        brain_contracts::provider_input::ToolWireFormat::OpenAiCompatible,
+    ]
+    .into_iter()
+    .map(|format| {
+        brain_contracts::provider_input::grounded_turn_input_ceiling(
+            &query(),
+            &[],
+            tools,
+            &ToolConversation::default(),
+            format,
+        )
+        .unwrap()
+    })
+    .max()
+    .unwrap();
+    let mut context = turn_context();
+    context.budget.max_input_tokens = u32::try_from(2 * input).unwrap();
+    context
 }
 fn turn_provider(native: bool, config: ProviderConfig) -> Box<dyn AnswerProviderPort> {
     if native {
@@ -426,7 +448,7 @@ fn fehlerabrechnung_retry_und_spaeterer_parserfehler_kumulieren_reservierung_und
                 input_micros_per_token: 1,
                 output_micros_per_token: 2,
             });
-            let mut context = turn_context();
+            let mut context = retry_context(&definitions());
             context.budget.max_output_tokens = 40;
             OpenAiCompatibleProvider::new(config)
                 .unwrap()
@@ -469,7 +491,7 @@ fn fehlerabrechnung_http_retry_usage_ist_beobachtet_und_nicht_zweimal_reserviert
                 .unwrap()
                 .answer_turn_accounted(
                     &query(),
-                    &turn_context(),
+                    &retry_context(&definitions()),
                     &[],
                     &definitions(),
                     &ToolConversation::default(),
@@ -521,7 +543,7 @@ fn transiente_http_fehlerkoerper_erhalten_status_retry_und_reservierung() {
                             input_micros_per_token: 1,
                             output_micros_per_token: 2,
                         });
-                        let mut context = turn_context();
+                        let mut context = retry_context(&definitions());
                         context.budget.max_output_tokens = 40;
                         let deadline = context.request_deadline.as_ref().unwrap().expires_at();
                         let result = turn_provider(native, config).answer_turn_accounted(
@@ -700,7 +722,7 @@ fn transiente_http_fehlerkoerper_timeout_respektiert_die_urspruengliche_frist() 
                 ],
                 |mut config| {
                     config.timeout = Duration::from_millis(1000);
-                    let mut context = turn_context();
+                    let mut context = retry_context(&definitions());
                     context.budget.max_output_tokens = 40;
                     if expires {
                         context.deadline_ms = 5000;
@@ -832,7 +854,7 @@ fn fehlerabrechnung_erfolg_traegt_messung_und_retriereservierung_getrennt() {
         |config| {
             OpenAiCompatibleProvider::new(config)
                 .unwrap()
-                .answer_accounted(&query(), &context(), &[])
+                .answer_accounted(&query(), &retry_context(&[]), &[])
         },
     );
     assert_eq!(calls, 2);
@@ -1127,7 +1149,7 @@ fn final_answer_json_rejects_duplicate_decoded_keys_in_both_wire_forms() {
 }
 
 #[test]
-fn legacy_final_text_keeps_plain_answers_but_rejects_duplicate_json_without_evidence() {
+fn legacy_final_text_is_rejected_without_a_structured_contract() {
     for native in [false, true] {
         for (text, valid) in [
             (r#"{"text":"A","text":"B","cited_evidence_ids":[]}"#, false),
@@ -1140,9 +1162,9 @@ fn legacy_final_text_keeps_plain_answers_but_rejects_duplicate_json_without_evid
                 false,
             ),
             (r#"{"nested":[{"value":1,"value":2}]}"#, false),
-            (r#"{"left":{"value":null},"right":{"value":1}}"#, true),
-            ("[null,1.25,-0.0,1e30]", true),
-            ("plain text", true),
+            (r#"{"left":{"value":null},"right":{"value":1}}"#, false),
+            ("[null,1.25,-0.0,1e30]", false),
+            ("plain text", false),
         ] {
             let body = wire_response(
                 native,
@@ -1191,7 +1213,7 @@ fn both_wire_forms_preserve_tools_nullable_content_and_two_turn_binding() {
             }
             let final_body = final_response(
                 native,
-                serde_json::json!({"text":"Belegte Antwort","cited_evidence_ids":["e1"]}),
+                serde_json::json!({"kind":"grounded","parts":[{"kind":"prose","text":"Belegte Antwort"}],"cited_evidence_ids":["e1"]}),
             );
             let ((first_turn, final_turn, total), calls, requests) = fixture_requests(
                 vec![
@@ -1457,7 +1479,8 @@ fn known_finish_reasons_must_match_complete_turns() {
                 vec![tool_block("call-1")]
             } else {
                 vec![ModelBlock::Text {
-                    text: serde_json::json!({"text":"","cited_evidence_ids":[]}).to_string(),
+                    text: serde_json::json!({"kind":"grounded","parts":[],"cited_evidence_ids":[]})
+                        .to_string(),
                 }]
             };
             for reason in [
@@ -1641,28 +1664,31 @@ fn final_tool_answers_keep_json_citation_and_no_answer_contract() {
     for native in [false, true] {
         for (envelope, valid) in [
             (
-                serde_json::json!({"text":"Antwort","cited_evidence_ids":["e1"]}),
+                serde_json::json!({"kind":"grounded","parts":[{"kind":"prose","text":"Antwort"}],"cited_evidence_ids":["e1"]}),
                 true,
             ),
-            (serde_json::json!({"text":"","cited_evidence_ids":[]}), true),
             (
-                serde_json::json!({"text":"Antwort","cited_evidence_ids":["foreign"]}),
+                serde_json::json!({"kind":"grounded","parts":[],"cited_evidence_ids":[]}),
+                true,
+            ),
+            (
+                serde_json::json!({"kind":"grounded","parts":[{"kind":"prose","text":"Antwort"}],"cited_evidence_ids":["foreign"]}),
                 false,
             ),
             (
-                serde_json::json!({"text":"Antwort","cited_evidence_ids":["e1","e1"]}),
+                serde_json::json!({"kind":"grounded","parts":[{"kind":"prose","text":"Antwort"}],"cited_evidence_ids":["e1","e1"]}),
                 false,
             ),
             (
-                serde_json::json!({"text":"Antwort","cited_evidence_ids":[]}),
+                serde_json::json!({"kind":"grounded","parts":[{"kind":"prose","text":"Antwort"}],"cited_evidence_ids":[]}),
                 false,
             ),
             (
-                serde_json::json!({"text":" ","cited_evidence_ids":[]}),
+                serde_json::json!({"kind":"grounded","parts":[{"kind":"prose","text":" "}],"cited_evidence_ids":[]}),
                 false,
             ),
             (
-                serde_json::json!({"text":"Antwort","cited_evidence_ids":["e1"],"extra":true}),
+                serde_json::json!({"kind":"grounded","parts":[{"kind":"prose","text":"Antwort"}],"cited_evidence_ids":["e1"],"extra":true}),
                 false,
             ),
         ] {
@@ -1721,7 +1747,7 @@ fn retries_charge_full_wire_input_output_and_configured_cost() {
                 input_micros_per_token: 1,
                 output_micros_per_token: 2,
             });
-            let mut context = turn_context();
+            let mut context = retry_context(&definitions());
             context.budget.max_output_tokens = 40;
             context.budget.max_cost_micros = 1_000_000;
             let provider = OpenAiCompatibleProvider::new(config).unwrap();
@@ -1976,7 +2002,10 @@ fn grounded_no_answer_signal_is_exact_and_preserves_usage() {
         patch: None,
     };
     for (text, valid) in [("", true), ("Keine passende Antwort", false), (" ", false)] {
-        let envelope = serde_json::json!({"text":text,"cited_evidence_ids":[]}).to_string();
+        let envelope = serde_json::to_string(
+            &brain_contracts::answer_contract::StructuredAnswer::prose(text.into(), vec![]),
+        )
+        .unwrap();
         let body = serde_json::json!({"model":"fixture-model","choices":[{"finish_reason":"stop","message":{"content":envelope}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}).to_string();
         let (result, calls) = fixture(
             vec![(Duration::ZERO, json_response("200 OK", &body))],
@@ -2013,7 +2042,7 @@ fn server_error_retries_but_retry_after_beyond_deadline_does_not() {
         |c| {
             OpenAiCompatibleProvider::new(c)
                 .unwrap()
-                .answer(&query(), &context(), &[])
+                .answer(&query(), &retry_context(&[]), &[])
         },
     );
     assert!(result.is_ok());
@@ -2022,7 +2051,7 @@ fn server_error_retries_but_retry_after_beyond_deadline_does_not() {
     let (result, calls) = fixture(vec![(Duration::ZERO, response)], |c| {
         OpenAiCompatibleProvider::new(c)
             .unwrap()
-            .answer(&query(), &context(), &[])
+            .answer(&query(), &retry_context(&[]), &[])
     });
     assert_eq!(result.unwrap_err(), PortError::BudgetExceeded);
     assert_eq!(calls, 1);

@@ -24,7 +24,12 @@ fn scopes() -> BTreeSet<String> {
 }
 fn record(id: &str, revision: u64, publication: bool) -> SourceRecordV2 {
     let mut record = SourceRecordV2 {
-        source_id: format!("publication-{id}"),
+        source_id: if id == "a" {
+            "deadlock-assets-heroes"
+        } else {
+            "legacy-entities"
+        }
+        .into(),
         logical_id: "entity/hero/Abrams".into(),
         revision,
         content_hash: id.repeat(64),
@@ -133,20 +138,20 @@ impl AnswerProviderPort for Provider {
         );
         let a = evidence
             .iter()
-            .find(|e| e.source_id == "publication-a")
+            .find(|e| e.source_id == "deadlock-assets-heroes")
             .unwrap();
-        assert!(evidence.iter().any(|e| e.source_id == "publication-b"));
+        assert!(evidence.iter().any(|e| e.source_id == "legacy-entities"));
         if let Some(store) = &self.revoke {
             store.apply_record(record("b", 2, false)).unwrap();
         }
-        Ok(ProviderAnswer {
-            text: "derived from uncited B: 700".into(),
-            cited_evidence_ids: vec![a.evidence_id.clone()],
-            usage: Usage {
+        Ok(ProviderAnswer::prose(
+            "derived from uncited B".into(),
+            vec![a.evidence_id.clone()],
+            Usage {
                 network_rounds: 1,
                 ..Usage::default()
             },
-        })
+        ))
     }
 }
 fn service<K: AnswerKernelPort>(kernel: K) -> brain_api::ApiService<K> {

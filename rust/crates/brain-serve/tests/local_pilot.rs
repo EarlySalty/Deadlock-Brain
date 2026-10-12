@@ -1237,7 +1237,7 @@ async fn provider(
     }
     let id = input["evidence"][0]["id"].as_str().unwrap();
     let answer =
-        json!({"text": input["evidence"][0]["content"], "cited_evidence_ids": [id]}).to_string();
+        json!({"kind":"grounded","parts":[{"kind":"prose","text":input["evidence"][0]["content"]}],"cited_evidence_ids": [id]}).to_string();
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/json")],
