@@ -396,6 +396,37 @@ fn release_status(value: &str) -> Option<&'static str> {
     }
 }
 
+fn validate_number(value: &str) -> Result<()> {
+    ensure!(value.len() <= 64, "numeric_size");
+    json_text::number(value).map_err(anyhow::Error::msg)?;
+    let magnitude = value.strip_prefix('-').unwrap_or(value);
+    let (mantissa, exponent) = match magnitude.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => {
+            (mantissa, exponent.parse::<i32>().context("numeric_domain")?)
+        }
+        None => (magnitude, 0),
+    };
+    ensure!(
+        (-i32::MAX / 2..=i32::MAX / 2).contains(&exponent),
+        "numeric_domain"
+    );
+    let (integer, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let first_nonzero = integer
+        .bytes()
+        .chain(fraction.bytes())
+        .position(|digit| digit != b'0');
+    let integer_width = first_nonzero.map_or(1, |position| {
+        (integer.len() as i64 + i64::from(exponent) - position as i64).max(1)
+    });
+    let scale = (fraction.len() as i64 - i64::from(exponent)).max(0);
+    let sign = i64::from(value.starts_with('-') && first_nonzero.is_some());
+    ensure!(
+        sign + integer_width + if scale > 0 { scale + 1 } else { 0 } <= 64,
+        "numeric_size"
+    );
+    Ok(())
+}
+
 fn push_assertion(
     output: &mut Vec<Assertion>,
     remaining: &mut usize,
@@ -411,7 +442,7 @@ fn push_assertion(
     );
     let value = match &fact.value {
         Atom::Number(value) => {
-            ensure!(value.len() <= 64, "numeric_size");
+            validate_number(value)?;
             value
         }
         Atom::Text(value) => {

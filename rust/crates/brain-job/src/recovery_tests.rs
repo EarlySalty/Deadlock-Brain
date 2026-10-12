@@ -274,6 +274,7 @@ async fn verify_proofs(pool: &PgPool, source: Source) {
 enum TargetFailure {
     Malformed,
     Oversized,
+    Numeric(&'static str),
     NonUtf8Path,
     ControlPath,
     Gitlink,
@@ -352,6 +353,15 @@ async fn recovery(source: Source, failure: TargetFailure, introduced: bool) {
             );
             upstream.commit(Some(&initial))
         }
+        TargetFailure::Numeric(value) => {
+            let bytes = if source.key == "deadlock-data" {
+                format!(r#"{{"hero_old":{{"MaxHealth":{value}}}}}"#)
+            } else {
+                format!(r#"hero_old {{ m_mapStartingStats {{ EMaxHealth "{value}" }} }}"#)
+            };
+            upstream.file(hero_path, Some(bytes.as_bytes()));
+            upstream.commit(Some(&initial))
+        }
         TargetFailure::NonUtf8Path | TargetFailure::ControlPath => {
             std::fs::write(
                 upstream
@@ -418,6 +428,7 @@ async fn recovery(source: Source, failure: TargetFailure, introduced: bool) {
     let reason = match failure {
         TargetFailure::Malformed => "invalid_source_target",
         TargetFailure::Oversized => "git_blob_size",
+        TargetFailure::Numeric(_) => "numeric_",
         TargetFailure::NonUtf8Path => "git_path_utf8",
         TargetFailure::ControlPath => "git_path_invalid",
         TargetFailure::Gitlink => "git_diff_metadata",
