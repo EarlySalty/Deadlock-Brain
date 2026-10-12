@@ -424,6 +424,15 @@ pub struct GetHeroRequest {
     pub sections: Option<Vec<HeroSection>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanonicalPatchHistoryRequest {
+    pub entity: u64,
+    pub since: Option<String>,
+    pub until: Option<String>,
+    pub limit: Option<usize>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "name", content = "arguments", rename_all = "snake_case")]
 pub enum ToolSubrequest {
@@ -438,6 +447,7 @@ pub enum ToolSubrequest {
     DeadlockData(DeadlockDataRequest),
     FindEntity(FindEntityRequest),
     GetHero(GetHeroRequest),
+    CanonicalPatchHistory(CanonicalPatchHistoryRequest),
 }
 
 impl ToolSubrequest {
@@ -452,6 +462,9 @@ impl ToolSubrequest {
             }
             ToolName::DamageCalculate => {
                 serde_json::from_value(arguments.clone()).map(Self::DamageCalculate)
+            }
+            ToolName::PatchHistory if arguments["entity"].is_number() => {
+                serde_json::from_value(arguments.clone()).map(Self::CanonicalPatchHistory)
             }
             ToolName::PatchHistory => {
                 serde_json::from_value(arguments.clone()).map(Self::PatchHistory)
@@ -501,6 +514,19 @@ impl ToolSubrequest {
             Self::DamageCalculate(request) => {
                 validate_numeric_id(request.hero_id)?;
                 request.scenario.validate()
+            }
+            Self::CanonicalPatchHistory(request) => {
+                validate_numeric_id(request.entity)?;
+                for patch in request.since.iter().chain(&request.until) {
+                    validate_canonical_text(patch)?;
+                }
+                if request
+                    .limit
+                    .is_some_and(|limit| !(1..=20).contains(&limit))
+                {
+                    return Err(invalid("Patchverlauf erlaubt ein bis 20 Ergebnisse"));
+                }
+                Ok(())
             }
             Self::PatchHistory(request) => {
                 validate_entity(&request.entity)?;
@@ -986,6 +1012,9 @@ impl ToolExecution {
         let expected_game = if matches!(
             request.name(),
             ToolName::ServerKnowledge | ToolName::FindEntity | ToolName::GetHero
+        ) || matches!(
+            request.subrequest(),
+            ToolSubrequest::CanonicalPatchHistory(_)
         ) {
             None
         } else {

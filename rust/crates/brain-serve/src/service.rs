@@ -1,5 +1,7 @@
 #[path = "answer_trace.rs"]
 mod answer_trace;
+#[path = "pg_patch_tools.rs"]
+mod pg_patch_tools;
 #[path = "pg_tools.rs"]
 mod pg_tools;
 
@@ -619,7 +621,11 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             prepared.discord_live.clone(),
         )
         .with_provider(&prepared.config.provider);
+        #[rustfmt::skip]
+        let patch_answer_kernel = {
+        let patch_pool = gamefacts_pool.clone();
         answer_kernel = answer_kernel.with_tools(
+            answer_trace::TracedTools(pg_patch_tools::PgPatchTools::from_traced(
             answer_trace::TracedTools(pg_tools::PgTools::new(
                 crate::deadlock_data::Tools {
                     knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(
@@ -635,12 +641,18 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                 gamefacts_pool,
                 tokio::runtime::Handle::current(),
             )),
+                patch_pool,
+                tokio::runtime::Handle::current(),
+            )),
             resolver,
             format!(
                 "{}:{}",
                 prepared.config.provider.base_url, prepared.config.provider.model
             ),
         );
+            answer_kernel
+        };
+        answer_kernel = patch_answer_kernel;
     }
     let kernel = CachedKernel::new(
         answer_kernel,
