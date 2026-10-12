@@ -38,6 +38,36 @@ fn json_value(bytes: &[u8], pointer: &str) -> Result<Vec<u8>, Rejection> {
     Ok(value.get().as_bytes().to_vec())
 }
 
+fn offset(text: &str) -> Result<usize, Rejection> {
+    if text.is_empty()
+        || (text.len() > 1 && text.starts_with('0'))
+        || !text.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err(invalid());
+    }
+    text.parse().map_err(|_| invalid())
+}
+
+fn byte_ranges(bytes: &[u8], locator: &str) -> Result<Vec<u8>, Rejection> {
+    let mut value = Vec::new();
+    let mut previous_end = 0;
+    for (index, range) in locator.split(',').enumerate() {
+        let (start, end) = range.split_once('-').ok_or_else(invalid)?;
+        let (start, end) = (offset(start)?, offset(end)?);
+        if index >= limits::BYTE_RANGES
+            || start >= end
+            || (index > 0 && start < previous_end)
+            || end > bytes.len()
+            || value.len() + (end - start) > limits::BYTE_RANGE_BYTES
+        {
+            return Err(invalid());
+        }
+        value.extend_from_slice(&bytes[start..end]);
+        previous_end = end;
+    }
+    Ok(value)
+}
+
 struct ValueIndex<'a> {
     bytes: &'a [u8],
     kv: Option<BTreeMap<String, String>>,
@@ -48,6 +78,7 @@ impl ValueIndex<'_> {
         match receipt.locator_kind.as_str() {
             "raw_bytes" if receipt.locator.is_empty() => Ok(self.bytes.to_vec()),
             "json_pointer" => json_value(self.bytes, &receipt.locator),
+            "byte_ranges" => byte_ranges(self.bytes, &receipt.locator),
             "kv_path" => {
                 if self.kv.is_none() {
                     let input = std::str::from_utf8(self.bytes).map_err(|_| invalid())?;
@@ -108,7 +139,12 @@ pub fn verify(bytes: &[u8], set: &FactSet) -> Result<(), Rejection> {
         if *hash != receipt.value_sha256 {
             return Err(invalid());
         }
-        if numeric && matches!(receipt.locator_kind.as_str(), "json_pointer" | "kv_path") {
+        if numeric
+            && matches!(
+                receipt.locator_kind.as_str(),
+                "json_pointer" | "kv_path" | "byte_ranges"
+            )
+        {
             number.clone()?;
         }
     }

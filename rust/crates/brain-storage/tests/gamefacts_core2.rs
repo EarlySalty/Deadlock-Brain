@@ -125,6 +125,71 @@ fn kv_paths_keep_occurrences_arrays_escaped_keys_and_original_scalar_tokens() {
 }
 
 #[test]
+fn byte_ranges_concatenate_ordered_disjoint_bounded_original_bytes() {
+    let bytes = b"# Title\nintro\n## Section\nbody text\n";
+    for (locator, value) in [
+        ("0-7", "# Title"),
+        ("0-7,14-24", "# Title## Section"),
+        ("2-7,7-8", "Title\n"),
+        ("25-34", "body text"),
+    ] {
+        assert_eq!(
+            receipts::value_bytes(bytes, &receipt("byte_ranges", locator, value)).unwrap(),
+            value.as_bytes()
+        );
+    }
+    for locator in [
+        "",
+        "7-0",
+        "3-3",
+        "0-7,5-9",
+        "14-24,0-7",
+        "0-36",
+        "00-7",
+        "-1-7",
+        "0-7,",
+        "0_7",
+        "0-7 ",
+        "0-99999999999999999999999",
+    ] {
+        assert!(
+            receipts::value_bytes(bytes, &receipt("byte_ranges", locator, "")).is_err(),
+            "{locator:?}"
+        );
+    }
+    let many = vec![b'x'; limits::BYTE_RANGE_BYTES + 2];
+    let ranges = |count: usize| {
+        (0..count)
+            .map(|i| format!("{}-{}", i * 2, i * 2 + 1))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let at_cap = ranges(limits::BYTE_RANGES);
+    assert_eq!(
+        receipts::value_bytes(&many, &receipt("byte_ranges", &at_cap, ""))
+            .unwrap()
+            .len(),
+        limits::BYTE_RANGES
+    );
+    let over = ranges(limits::BYTE_RANGES + 1);
+    assert!(receipts::value_bytes(&many, &receipt("byte_ranges", &over, "")).is_err());
+    let full = format!("0-{}", limits::BYTE_RANGE_BYTES);
+    assert!(receipts::value_bytes(&many, &receipt("byte_ranges", &full, "")).is_ok());
+    let too_long = format!("0-{}", limits::BYTE_RANGE_BYTES + 1);
+    assert!(receipts::value_bytes(&many, &receipt("byte_ranges", &too_long, "")).is_err());
+    let set = FactSet {
+        facts: vec![Fact {
+            entity_key: "doc_test".into(),
+            stat_key: "section".into(),
+            value: FactValue::Text("# Title## Section".into()),
+            receipt: receipt("byte_ranges", "0-7,14-24", "# Title## Section"),
+        }],
+        ..FactSet::default()
+    };
+    receipts::verify(bytes, &set).unwrap();
+}
+
+#[test]
 fn a_full_factset_uses_no_extra_success_marker_row() {
     let mut set = FactSet {
         entities: (0..limits::ROWS)
