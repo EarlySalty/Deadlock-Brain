@@ -5,7 +5,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use std::{path::PathBuf, process::ExitCode, time::Duration};
 
 const USAGE: &str =
-    "Aufruf: brain-job ingest <source> --config <local-postgres.json> --input <git-repository>";
+    "Aufruf: brain-job ingest <source> --config <local-postgres.json> --input <git-repository> | brain-job audit-receipts --config <local-postgres.json>";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -33,23 +33,34 @@ async fn run() -> anyhow::Result<()> {
         println!("{USAGE}");
         return Ok(());
     }
+    let audit = args.len() == 3 && args[0] == "audit-receipts" && args[1] == "--config";
     anyhow::ensure!(
-        args.len() == 6 && args[0] == "ingest" && args[2] == "--config" && args[4] == "--input",
+        audit
+            || (args.len() == 6
+                && args[0] == "ingest"
+                && args[2] == "--config"
+                && args[4] == "--input"),
         "Ungültiger Aufruf"
     );
-    let source = args[1]
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("Ungültige Quelle"))?;
-    let loader = SOURCES
-        .iter()
-        .find(|(name, _)| *name == source)
-        .map(|(_, loader)| *loader)
-        .ok_or_else(|| anyhow::anyhow!("Unbekannte Quelle"))?;
+    let ingestion = if audit {
+        None
+    } else {
+        let source = args[1]
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Ungültige Quelle"))?;
+        let loader = SOURCES
+            .iter()
+            .find(|(name, _)| *name == source)
+            .map(|(_, loader)| *loader)
+            .ok_or_else(|| anyhow::anyhow!("Unbekannte Quelle"))?;
+        Some((source, loader))
+    };
     anyhow::ensure!(
         std::env::var_os("PGOPTIONS").is_none(),
         "PGOPTIONS ist unzulässig"
     );
-    let config: Config = serde_json::from_reader(std::fs::File::open(&args[3])?)?;
+    let config: Config =
+        serde_json::from_reader(std::fs::File::open(&args[if audit { 2 } else { 3 }])?)?;
     anyhow::ensure!(
         config.socket.is_absolute()
             && config.port != 0
@@ -75,6 +86,19 @@ async fn run() -> anyhow::Result<()> {
         .await?;
     let result = async {
         PgStore::new(pool.clone()).check_gamefacts_schema().await?;
+        if audit {
+            let report = brain_job::receipt_audit::run(&pool).await?;
+            println!(
+                "run={} sampled={} verified_receipts={} rejected_receipts={} rejected_objects={}",
+                report.run_id,
+                report.sampled,
+                report.verified_receipts,
+                report.rejected_receipts,
+                report.rejected_objects
+            );
+            return anyhow::Ok(());
+        }
+        let (source, loader) = ingestion.ok_or_else(|| anyhow::anyhow!("Ungültiger Aufruf"))?;
         let input = PathBuf::from(&args[5]);
         let report = ingest(
             &GameFactsStore::new(pool.clone()),

@@ -74,6 +74,21 @@ pub(super) fn parse(input: &str) -> Result<Vec<Leaf>, &'static str> {
     }
     Ok(p.leaves)
 }
+
+pub(super) fn parse_with_budget(input: &str, budget: Budget) -> Result<Vec<Leaf>, &'static str> {
+    let mut p = Parser {
+        input,
+        index: 0,
+        budget,
+        leaves: Vec::new(),
+    };
+    p.value("", 0)?;
+    p.space();
+    if p.index != input.len() {
+        return Err("invalid_json_preserved_as_text");
+    }
+    Ok(p.leaves)
+}
 struct Parser<'a> {
     input: &'a str,
     index: usize,

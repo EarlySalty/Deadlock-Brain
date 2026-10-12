@@ -12,6 +12,9 @@ impl Budget {
             remaining: MAX_BYTES,
         }
     }
+    pub fn with_limit(bytes: usize) -> Self {
+        Self { remaining: bytes }
+    }
     pub fn charge(&mut self, bytes: usize) -> Result<(), &'static str> {
         self.remaining = self.remaining.checked_sub(bytes).ok_or(EXCEEDED)?;
         Ok(())

@@ -47,6 +47,30 @@ pub(super) fn parse(input: &str) -> Result<Vec<Leaf>, &'static str> {
     Ok(parser.leaves)
 }
 
+pub(super) fn parse_with_budget(
+    input: &str,
+    mut budget: Budget,
+) -> Result<Vec<Leaf>, &'static str> {
+    let body = if input.starts_with("<!--") {
+        let end = input.find("-->").ok_or("Nicht geschlossener KV3-Kopf")?;
+        &input[end + 3..]
+    } else {
+        input
+    };
+    let tokens = tokenize(body, &mut budget)?;
+    let mut parser = Parser {
+        budget: &mut budget,
+        tokens: &tokens,
+        index: 0,
+        leaves: Vec::new(),
+    };
+    parser.value("", &[], 0)?;
+    if parser.index != tokens.len() {
+        return Err("Nicht vollständig ausgewertete KV3-Tokens");
+    }
+    Ok(parser.leaves)
+}
+
 struct Parser<'a> {
     budget: &'a mut Budget,
     tokens: &'a [Token],
