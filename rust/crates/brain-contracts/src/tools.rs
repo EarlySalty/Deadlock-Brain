@@ -23,6 +23,7 @@ pub enum ToolName {
     DeadlockData,
     FindEntity,
     GetHero,
+    GetTimer,
 }
 
 impl ToolName {
@@ -39,6 +40,7 @@ impl ToolName {
             Self::DeadlockData => "deadlock_data",
             Self::FindEntity => "find_entity",
             Self::GetHero => "get_hero",
+            Self::GetTimer => "get_timer",
         }
     }
 }
@@ -424,6 +426,10 @@ pub struct GetHeroRequest {
     pub sections: Option<Vec<HeroSection>>,
 }
 
+#[path = "timer.rs"]
+mod timer;
+pub use timer::{GetTimerRequest, TimerKind};
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "name", content = "arguments", rename_all = "snake_case")]
 pub enum ToolSubrequest {
@@ -438,6 +444,7 @@ pub enum ToolSubrequest {
     DeadlockData(DeadlockDataRequest),
     FindEntity(FindEntityRequest),
     GetHero(GetHeroRequest),
+    GetTimer(GetTimerRequest),
 }
 
 impl ToolSubrequest {
@@ -466,6 +473,7 @@ impl ToolSubrequest {
             }
             ToolName::FindEntity => serde_json::from_value(arguments.clone()).map(Self::FindEntity),
             ToolName::GetHero => serde_json::from_value(arguments.clone()).map(Self::GetHero),
+            ToolName::GetTimer => serde_json::from_value(arguments.clone()).map(Self::GetTimer),
         };
         parsed.map_err(|_| invalid("Werkzeugargumente passen nicht zur typisierten Unteranfrage"))
     }
@@ -588,6 +596,7 @@ impl ToolSubrequest {
                 }
                 Ok(())
             }
+            Self::GetTimer(request) => request.validate(),
             Self::GetHero(request) => {
                 validate_numeric_id(request.hero)?;
                 if let Some(patch) = &request.patch {
@@ -985,7 +994,10 @@ impl ToolExecution {
         }
         let expected_game = if matches!(
             request.name(),
-            ToolName::ServerKnowledge | ToolName::FindEntity | ToolName::GetHero
+            ToolName::ServerKnowledge
+                | ToolName::FindEntity
+                | ToolName::GetHero
+                | ToolName::GetTimer
         ) {
             None
         } else {
