@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly Deadlock Brain ingestion job (%i)
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=2min
+Persistent=true
+Unit=brain-job@%i.service
+
+[Install]
+WantedBy=timers.target

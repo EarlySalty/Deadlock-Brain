@@ -1,0 +1,12 @@
+feat(brain): Add receipt-backed gamefacts schema and isolated migration track
+
+Add raw, canon, docs, serve and ops gamefacts storage with bounded hero
+profiles, fenced publication and least-privilege roles. Keep existing
+migration tracks and applied migration bytes unchanged.
+
+Verified with the real scratch PostgreSQL role, receipt, concurrency and
+planner contracts, 66 storage tests, rustfmt and strict Clippy. The
+migrator build succeeds and embeds the current SQL. Production migration
+remains delegated to the pre-activation release hook.
+
+Co-Authored-By: Claude Code <noreply@anthropic.com>
