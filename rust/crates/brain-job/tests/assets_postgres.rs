@@ -109,6 +109,16 @@ async fn raw_reversion_dedup_rollback_publication_and_source_separation_use_post
     .execute(&owner)
     .await
     .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../../scripts/migrations/2026-10-12-brain-gamefacts-p2-assets-v1.sql"
+    ))
+    .execute(&owner)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO ops.gamefacts_schema_version(version) VALUES (1),(3)")
+        .execute(&owner)
+        .await
+        .unwrap();
     sqlx::query("ALTER ROLE brain_ingest SET default_transaction_isolation='repeatable read'")
         .execute(&admin)
         .await
@@ -207,6 +217,54 @@ async fn raw_reversion_dedup_rollback_publication_and_source_separation_use_post
         .await
         .is_err());
     assert_eq!(sqlx::query_as::<_, (i64,i64,i64)>("SELECT (SELECT count(*) FROM raw.object),(SELECT count(*) FROM canon.receipt),(SELECT count(*) FROM raw.run)").fetch_one(&pool).await.unwrap(), before);
+    let items = br#"[{"id":100,"class_name":"upgrade_component","type":"upgrade","name":"Component","cost":500},{"id":101,"class_name":"upgrade_toxic_bullets","type":"upgrade","name":"Toxic Bullets","cost":3200,"description":{"passive":"Bleed."},"component_items":["upgrade_component"]}]"#;
+    let item_source = "synthetic://positive-items";
+    store
+        .object(item_source, "en", items, &mut counts)
+        .await
+        .unwrap();
+    let item_cost: (String, String, Vec<u8>) = sqlx::query_as("SELECT f.value_num::text,r.locator,r.value_sha256 FROM serve.current_fact f JOIN canon.entity e ON e.id=f.entity_id JOIN canon.receipt r ON r.id=f.receipt_id WHERE e.kind='item' AND e.key='upgrade_toxic_bullets' AND f.stat_key='item.cost'")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(
+        item_cost,
+        (
+            "3200".into(),
+            "/1/cost".into(),
+            Sha256::digest(b"3200").to_vec()
+        )
+    );
+    let edges: Vec<(String, String, String, String, Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT edge.kind,f.key,t.key,r.locator,r.value_sha256,o.body FROM serve.current_relation edge JOIN canon.entity f ON f.id=edge.from_entity_id AND f.kind='item' JOIN canon.entity t ON t.id=edge.to_entity_id AND t.kind='item' JOIN canon.receipt r ON r.id=edge.receipt_id JOIN raw.object o ON o.id=r.raw_object_id WHERE edge.kind IN ('component_of','upgrades_to') ORDER BY edge.kind")
+        .fetch_all(&pool).await.unwrap();
+    assert_eq!(edges.len(), 2);
+    for ((kind, from, to, locator, hash, body), expected_kind) in
+        edges.into_iter().zip(["component_of", "upgrades_to"])
+    {
+        assert_eq!(kind, expected_kind);
+        assert_eq!(from, "upgrade_component");
+        assert_eq!(to, "upgrade_toxic_bullets");
+        assert_eq!(locator, "/1/component_items/0");
+        assert_eq!(hash, Sha256::digest(br#""upgrade_component""#).to_vec());
+        assert_eq!(body, items);
+    }
+    let item_card: serde_json::Value =
+        sqlx::query_scalar("SELECT card FROM serve.item_card WHERE key='upgrade_toxic_bullets'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(item_card["identity"]["kind"], "item");
+    assert_eq!(item_card["links"]["links"].as_array().unwrap().len(), 2);
+    assert!(item_card["facts"]["facts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|fact| fact["stat_key"] == "item.cost" && fact["value"] == 3200));
+    let items_before: (i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM raw.object),(SELECT count(*) FROM canon.fact),(SELECT count(*) FROM canon.receipt)")
+        .fetch_one(&pool).await.unwrap();
+    store
+        .object(item_source, "en", items, &mut counts)
+        .await
+        .unwrap();
+    assert_eq!(sqlx::query_as::<_, (i64, i64, i64)>("SELECT (SELECT count(*) FROM raw.object),(SELECT count(*) FROM canon.fact),(SELECT count(*) FROM canon.receipt)").fetch_one(&pool).await.unwrap(), items_before);
     store.finish(&counts, 0, false).await.unwrap();
     assert_eq!(
         sqlx::query_scalar::<_, i64>(

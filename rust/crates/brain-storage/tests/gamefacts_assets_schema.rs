@@ -139,7 +139,7 @@ async fn rejected(pool: &PgPool, sql: &str, code: &str) {
     );
 }
 
-async fn relation_contracts(ingest: &PgPool, owner: &PgPool) {
+async fn relation_contracts(ingest: &PgPool) {
     for slot in ["NULL", "0", "5"] {
         rejected(ingest, &format!("INSERT INTO canon.relation(from_entity_id,kind,to_entity_id,slot,receipt_id,source_id,source_path,valid_from_revision_id) VALUES (1,'has_ability',2,{slot},15,2,'abilities.json',2)"), "23514").await;
     }
@@ -163,14 +163,7 @@ async fn relation_contracts(ingest: &PgPool, owner: &PgPool) {
     .await;
     rejected(ingest, "DELETE FROM canon.receipt WHERE id=1", "42501").await;
     rejected(ingest, "INSERT INTO canon.fact(entity_id,stat_key,source_id,source_path,value_text,receipt_id,valid_from_revision_id) VALUES (3,'damage',2,'abilities.json','wrong type',15,2)", "P0001").await;
-    let entity_kind: String = sqlx::query_scalar("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='canon.entity'::regclass AND conname='entity_kind_check'")
-        .fetch_one(owner).await.unwrap();
-    if entity_kind.contains("item") {
-        item_relation_contracts(ingest).await;
-    } else {
-        rejected(ingest, "INSERT INTO canon.entity(kind,key,identity_receipt_id) VALUES ('item','not-yet-p3',15)", "23514").await;
-        println!("ITEM_INTEGRATION_PREREQUISITE: the actual P1 entity-kind extension is not installed; positive item edges and item cards remain unproven");
-    }
+    item_relation_contracts(ingest).await;
 }
 
 async fn item_relation_contracts(ingest: &PgPool) {
@@ -255,6 +248,7 @@ async fn serving_contracts(owner: &PgPool, ingest: &PgPool) {
             .fetch_all(owner)
             .await
             .unwrap();
+    assert_eq!(item_cards.len(), 2);
     for item in item_cards {
         assert_eq!(item["links"]["links"].as_array().unwrap().len(), 2);
         for link in item["links"]["links"].as_array().unwrap() {
@@ -401,6 +395,10 @@ async fn p1_upgrade_priority_receipts_bounds_and_roles_on_real_postgres() {
     let owner = scratch.pool("brain_assets", "brain_migrate").await;
     let ingest = scratch.pool("brain_assets", "brain_ingest").await;
     sqlx::raw_sql(P1).execute(&owner).await.unwrap();
+    sqlx::query("INSERT INTO ops.gamefacts_schema_version(version) VALUES (1)")
+        .execute(&owner)
+        .await
+        .unwrap();
     sqlx::raw_sql(SEED).execute(&ingest).await.unwrap();
     let before = snapshot(&owner).await;
     let original_index: String =
@@ -408,8 +406,9 @@ async fn p1_upgrade_priority_receipts_bounds_and_roles_on_real_postgres() {
             .fetch_one(&owner)
             .await
             .unwrap();
-    sqlx::raw_sql(P2).execute(&owner).await.unwrap();
     let store = PgStore::new(owner.clone());
+    assert!(store.check_gamefacts_schema().await.is_err());
+    store.migrate_gamefacts().await.unwrap();
     store.check_gamefacts_schema().await.unwrap();
     assert_eq!(snapshot(&owner).await, before);
     store.migrate_gamefacts().await.unwrap();
@@ -426,7 +425,7 @@ async fn p1_upgrade_priority_receipts_bounds_and_roles_on_real_postgres() {
         .unwrap();
     assert_eq!(card["facts"]["facts"].as_array().unwrap().len(), 3);
     sqlx::raw_sql(ASSETS).execute(&ingest).await.unwrap();
-    relation_contracts(&ingest, &owner).await;
+    relation_contracts(&ingest).await;
     serving_contracts(&owner, &ingest).await;
     bounded_cards(&owner, &ingest).await;
     serialized_publication_refresh(&owner, &ingest).await;
@@ -472,19 +471,19 @@ async fn p1_upgrade_priority_receipts_bounds_and_roles_on_real_postgres() {
         tx.rollback().await.unwrap();
     }
     store.check_gamefacts_schema().await.unwrap();
-    let p1_version: Vec<i32> =
-        sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version")
+    let versions: Vec<i32> =
+        sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version ORDER BY version")
             .fetch_all(&owner)
             .await
             .unwrap();
-    assert_eq!(p1_version, [1]);
+    assert_eq!(versions, [1, 3]);
     reader.close().await;
     ingest.close().await;
     owner.close().await;
     admin.close().await;
 }
 
-async fn public_fixture_database(scratch: &Scratch, simulate_item_kind: bool) -> PgPool {
+async fn public_fixture_database(scratch: &Scratch) -> PgPool {
     let admin = scratch.pool("postgres", "brain_test_dba").await;
     sqlx::raw_sql("CREATE ROLE brain_migrate LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
         CREATE ROLE brain_ingest LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
@@ -498,17 +497,11 @@ async fn public_fixture_database(scratch: &Scratch, simulate_item_kind: bool) ->
     admin.close().await;
     let owner = scratch.pool("brain_public", "brain_migrate").await;
     sqlx::raw_sql(P1).execute(&owner).await.unwrap();
-    if simulate_item_kind {
-        sqlx::raw_sql(
-            "ALTER TABLE canon.entity DROP CONSTRAINT entity_kind_check,
-            ADD CONSTRAINT entity_kind_check CHECK(kind IN ('hero','ability','item'))",
-        )
+    sqlx::raw_sql(P2).execute(&owner).await.unwrap();
+    sqlx::query("INSERT INTO ops.gamefacts_schema_version(version) VALUES (1),(3)")
         .execute(&owner)
         .await
         .unwrap();
-        println!("ITEM_KIND_SIMULATION_ONLY: this isolated fixture is not integrated P1 proof");
-    }
-    sqlx::raw_sql(P2).execute(&owner).await.unwrap();
     sqlx::raw_sql("BEGIN;
         INSERT INTO ops.job_run(job,extractor,extractor_version) VALUES ('ingest-assets','brain-assets','v1');
         INSERT INTO raw.source(kind,locator) VALUES ('assets','public-fixture://client6774');
@@ -812,7 +805,7 @@ async fn qualified_rows(owner: &PgPool, entity: i64, stat: &str) -> Vec<Value> {
 #[tokio::test]
 async fn qualified_source_semantics_receipts_and_ambiguous_entries_on_real_postgres() {
     let scratch = Scratch::new();
-    let owner = public_fixture_database(&scratch, false).await;
+    let owner = public_fixture_database(&scratch).await;
     sqlx::raw_sql("BEGIN;
         INSERT INTO ops.job_run(job,extractor,extractor_version)
             VALUES ('ingest-gamefiles','hero-ability-atoms','p1-v2'),('ingest-assets','brain-assets','v1');
@@ -996,7 +989,7 @@ async fn qualified_source_semantics_receipts_and_ambiguous_entries_on_real_postg
 #[tokio::test]
 async fn public_ability_values_descriptions_and_all_upgrade_tiers_survive_real_projection() {
     let scratch = Scratch::new();
-    let owner = public_fixture_database(&scratch, false).await;
+    let owner = public_fixture_database(&scratch).await;
     let mut inserted = Vec::new();
     for record in public_records()
         .into_iter()
@@ -1014,9 +1007,9 @@ async fn public_ability_values_descriptions_and_all_upgrade_tiers_survive_real_p
 }
 
 #[tokio::test]
-async fn public_item_cost_and_effects_survive_explicit_test_only_kind_simulation() {
+async fn public_item_cost_and_effects_survive_real_p1_kinds_and_p2_projection() {
     let scratch = Scratch::new();
-    let owner = public_fixture_database(&scratch, true).await;
+    let owner = public_fixture_database(&scratch).await;
     let record = public_records()
         .into_iter()
         .find(|r| r["key"] == "upgrade_toxic_bullets")
