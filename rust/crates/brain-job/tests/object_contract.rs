@@ -482,6 +482,530 @@ async fn localized_ability_names_use_receipt_backed_identity_without_prefixes() 
 }
 
 #[tokio::test]
+async fn localization_uses_current_source_evidence_without_replacing_cross_source_identity() {
+    let scratch = Scratch::new();
+    let pool = scratch.ingest_pool().await;
+    let store = Store::start(pool.clone(), 300).await.unwrap();
+    let mut counts = Counts::default();
+    let tracking = Source::ALL[1];
+    let tracking_id = store.source(tracking).await.unwrap();
+    let tracking_run = store
+        .begin_run(tracking_id, &"a".repeat(40))
+        .await
+        .unwrap()
+        .unwrap();
+    let tracking_path = "game/citadel/pak01_dir/scripts/abilities.vdata";
+    let tracking_bytes = br#"viscous_goo_grenade { m_eAbilityType "EAbilityType_Signature" m_mapAbilityProperties { AbilityCooldown { m_strValue "26.0" } } }"#;
+    store
+        .object(
+            &tracking_run,
+            tracking,
+            tracking_path,
+            Some(blob(tracking_bytes)),
+            &mut counts,
+        )
+        .await
+        .unwrap();
+    store.publish(&tracking_run).await.unwrap();
+    let identity_query =
+        "SELECT e.identity_receipt_id,r.source_id,r.revision_id,r.locator,r.value_sha256
+        FROM canon.entity e JOIN canon.receipt r ON r.id=e.identity_receipt_id
+        WHERE e.kind='ability' AND e.key='viscous_goo_grenade'";
+    let original: (i64, i64, i64, String, Vec<u8>) = sqlx::query_as(identity_query)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(original.1, tracking_id);
+    assert_eq!(original.2, tracking_run.revision);
+    assert_eq!(
+        original.3,
+        "/viscous_goo_grenade/0/m_mapAbilityProperties/0/AbilityCooldown/0/m_strValue/0"
+    );
+    assert_eq!(original.4, Sha256::digest(b"26.0").to_vec());
+    let original_object: (String, Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT o.external_id,o.body,o.content_sha256 FROM canon.receipt r
+        JOIN raw.object o ON o.id=r.raw_object_id WHERE r.id=$1",
+    )
+    .bind(original.0)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        original_object,
+        (
+            tracking_path.into(),
+            tracking_bytes.to_vec(),
+            Sha256::digest(tracking_bytes).to_vec()
+        )
+    );
+    let source = Source::ALL[0];
+    let source_id = store.source(source).await.unwrap();
+    let run = store
+        .begin_run(source_id, &"b".repeat(40))
+        .await
+        .unwrap()
+        .unwrap();
+    store
+        .object(
+            &run,
+            source,
+            "data/json/ability-data.json",
+            Some(blob(
+                br#"{"viscous_goo_grenade":{"Name":"Splatter","AbilityCooldown":26.0}}"#,
+            )),
+            &mut counts,
+        )
+        .await
+        .unwrap();
+    let localized_bytes = br#"{"viscous_goo_grenade":"Glibber"}"#;
+    let localized_path = "data/localizations/german.json";
+    store
+        .object(
+            &run,
+            source,
+            localized_path,
+            Some(blob(localized_bytes)),
+            &mut counts,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM serve.current_alias WHERE lang='de'")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    store.publish(&run).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM serve.current_fact WHERE source_id=$1 AND source_path='data/json/ability-data.json'"
+        )
+        .bind(source_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        2
+    );
+    let mut previous_receipt = original.0;
+    let mut revision = run.revision;
+    for index in 0..2 {
+        if index == 1 {
+            let next = store
+                .begin_run(source_id, &"c".repeat(40))
+                .await
+                .unwrap()
+                .unwrap();
+            store
+                .object(
+                    &next,
+                    source,
+                    localized_path,
+                    Some(blob(localized_bytes)),
+                    &mut counts,
+                )
+                .await
+                .unwrap();
+            store.publish(&next).await.unwrap();
+            revision = next.revision;
+        }
+        let localized: (i64, i64, i64, String, String, Vec<u8>) = sqlx::query_as(
+            "SELECT a.receipt_id,r.source_id,r.revision_id,a.alias_norm,r.locator,r.value_sha256
+            FROM serve.current_alias a JOIN canon.entity e ON e.id=a.entity_id
+            JOIN canon.receipt r ON r.id=a.receipt_id
+            WHERE e.key='viscous_goo_grenade' AND a.lang='de' AND a.valid_from_revision_id=$1",
+        )
+        .bind(revision)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_ne!(localized.0, original.0);
+        assert_ne!(localized.0, previous_receipt);
+        previous_receipt = localized.0;
+        assert_eq!(localized.1, source_id);
+        assert_eq!(localized.2, revision);
+        assert_eq!(localized.3, "glibber");
+        assert_eq!(localized.4, "/viscous_goo_grenade");
+        assert_eq!(localized.5, Sha256::digest(br#""Glibber""#).to_vec());
+        let localized_object: (String, Vec<u8>, Vec<u8>) = sqlx::query_as(
+            "SELECT o.external_id,o.body,o.content_sha256 FROM canon.receipt r
+            JOIN raw.object o ON o.id=r.raw_object_id WHERE r.id=$1",
+        )
+        .bind(localized.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            localized_object,
+            (
+                localized_path.into(),
+                localized_bytes.to_vec(),
+                Sha256::digest(localized_bytes).to_vec()
+            )
+        );
+        let preserved: (i64, i64, i64, String, Vec<u8>) = sqlx::query_as(identity_query)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(preserved, original);
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT alias_norm FROM serve.current_alias WHERE lang='de'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        "glibber"
+    );
+    assert_eq!(counts.raw_inserted, 3);
+    assert_eq!(counts.raw_reused, 1);
+    store.finish(&counts, false).await.unwrap();
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn localization_excludes_removed_deleted_unknown_and_unrelated_entity_evidence() {
+    let scratch = Scratch::new();
+    let pool = scratch.ingest_pool().await;
+    let store = Store::start(pool.clone(), 300).await.unwrap();
+    let mut counts = Counts::default();
+    let tracking = Source::ALL[1];
+    let tracking_id = store.source(tracking).await.unwrap();
+    let unpublished = store
+        .begin_run(tracking_id, &"a".repeat(40))
+        .await
+        .unwrap()
+        .unwrap();
+    store
+        .object(
+            &unpublished,
+            tracking,
+            "game/citadel/pak01_dir/scripts/abilities.vdata",
+            Some(blob(br#"ability_unpublished { m_eAbilityType "EAbilityType_Signature" m_mapAbilityProperties { AbilityCooldown { m_strValue "26.0" } } }"#)),
+            &mut counts,
+        )
+        .await
+        .unwrap();
+    let source = Source::ALL[0];
+    let source_id = store.source(source).await.unwrap();
+    let initial = store
+        .begin_run(source_id, &"b".repeat(40))
+        .await
+        .unwrap()
+        .unwrap();
+    let ability_path = "data/json/ability-data.json";
+    let hero_path = "data/json/hero-data.json";
+    store
+        .object(
+            &initial,
+            source,
+            ability_path,
+            Some(blob(
+                br#"{"ability_live":{"AbilityCooldown":26},"ability_removed":{"Name":"Removed"},"ability_":{"AbilityCooldown":30}}"#,
+            )),
+            &mut counts,
+        )
+        .await
+        .unwrap();
+    store
+        .object(
+            &initial,
+            source,
+            hero_path,
+            Some(blob(
+                br#"{"hero_links":{"BoundAbilities":{"1":{"Key":"ability_reference_only"}}}}"#,
+            )),
+            &mut counts,
+        )
+        .await
+        .unwrap();
+    store.publish(&initial).await.unwrap();
+    let next = store
+        .begin_run(source_id, &"c".repeat(40))
+        .await
+        .unwrap()
+        .unwrap();
+    store
+        .object(
+            &next,
+            source,
+            ability_path,
+            Some(blob(
+                br#"{"ability_live":{"AbilityCooldown":27},"ability_":{"AbilityCooldown":31}}"#,
+            )),
+            &mut counts,
+        )
+        .await
+        .unwrap();
+    let localized_path = "data/localizations/german.json";
+    let localized_bytes = r#"{"ability_live":"Aktuell","ability_removed":"Entfernt","hero_links":"Verknüpft","ability_reference_only":"Nur Referenz","ability_unpublished":"Unveröffentlicht","ability_unknown":"Unbekannt","ability_":"Präfix"}"#.as_bytes();
+    store
+        .object(
+            &next,
+            source,
+            localized_path,
+            Some(blob(localized_bytes)),
+            &mut counts,
+        )
+        .await
+        .unwrap();
+    store.publish(&next).await.unwrap();
+    let aliases: Vec<(String, String)> = sqlx::query_as(
+        "SELECT e.key,a.alias_norm FROM serve.current_alias a
+        JOIN canon.entity e ON e.id=a.entity_id WHERE a.lang='de' ORDER BY e.key",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        aliases,
+        vec![
+            ("ability_".into(), "präfix".into()),
+            ("ability_live".into(), "aktuell".into()),
+            ("hero_links".into(), "verknüpft".into())
+        ]
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM canon.alias a JOIN canon.entity e ON e.id=a.entity_id
+            WHERE e.key='ability_' AND a.lang='und'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM canon.entity WHERE key IN ('ability_reference_only','ability_unpublished','ability_removed')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        3
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM canon.entity WHERE key='ability_unknown'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0
+    );
+    let deleted = store
+        .begin_run(source_id, &"d".repeat(40))
+        .await
+        .unwrap()
+        .unwrap();
+    for path in [ability_path, hero_path] {
+        store
+            .object(&deleted, source, path, None, &mut counts)
+            .await
+            .unwrap();
+    }
+    store
+        .object(
+            &deleted,
+            source,
+            localized_path,
+            Some(blob(localized_bytes)),
+            &mut counts,
+        )
+        .await
+        .unwrap();
+    store.publish(&deleted).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM serve.current_alias WHERE lang='de'")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM serve.current_fact WHERE source_id=$1")
+            .bind(source_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    store.finish(&counts, true).await.unwrap();
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn localization_requires_applicable_extractor_version_evidence() {
+    let scratch = Scratch::new();
+    let pool = scratch.ingest_pool().await;
+    let owner = scratch.pool("brain_job_test", "brain_migrate").await;
+    sqlx::raw_sql(
+        "CREATE FUNCTION ops.test_old_extractor() RETURNS trigger LANGUAGE plpgsql
+        SET search_path=pg_catalog,pg_temp AS $fixture$
+        BEGIN
+            NEW.extractor_version := 'p0-v0';
+            RETURN NEW;
+        END
+        $fixture$;",
+    )
+    .execute(&owner)
+    .await
+    .unwrap();
+    for table in ["raw.run", "canon.revision", "canon.receipt"] {
+        sqlx::query(&format!(
+            "CREATE TRIGGER test_old_extractor BEFORE INSERT ON {table}
+            FOR EACH ROW EXECUTE FUNCTION ops.test_old_extractor()"
+        ))
+        .execute(&owner)
+        .await
+        .unwrap();
+    }
+    let store = Store::start(pool.clone(), 300).await.unwrap();
+    let source = Source::ALL[0];
+    let source_id = store.source(source).await.unwrap();
+    let mut counts = Counts::default();
+    let stale = store
+        .begin_run(source_id, &"a".repeat(40))
+        .await
+        .unwrap()
+        .unwrap();
+    let bytes = br#"{"ability_stale":{"Name":"Old","AbilityCooldown":26}}"#;
+    store
+        .object(
+            &stale,
+            source,
+            "data/json/ability-data.json",
+            Some(blob(bytes)),
+            &mut counts,
+        )
+        .await
+        .unwrap();
+    store.publish(&stale).await.unwrap();
+    for table in ["raw.run", "canon.revision", "canon.receipt"] {
+        sqlx::query(&format!("DROP TRIGGER test_old_extractor ON {table}"))
+            .execute(&owner)
+            .await
+            .unwrap();
+    }
+    let identity: (i64, String) = sqlx::query_as(
+        "SELECT e.identity_receipt_id,r.extractor_version FROM canon.entity e
+        JOIN canon.receipt r ON r.id=e.identity_receipt_id WHERE e.key='ability_stale'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(identity.1, "p0-v0");
+    let current = store
+        .begin_run(source_id, &"b".repeat(40))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(current.full);
+    let path = "data/localizations/german.json";
+    let localized = br#"{"ability_stale":"Aktuell"}"#;
+    store
+        .object(&current, source, path, Some(blob(localized)), &mut counts)
+        .await
+        .unwrap();
+    store.publish(&current).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM canon.alias WHERE lang='de'")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    let refreshed = store
+        .begin_run(source_id, &"c".repeat(40))
+        .await
+        .unwrap()
+        .unwrap();
+    store
+        .object(
+            &refreshed,
+            source,
+            "data/json/ability-data.json",
+            Some(blob(bytes)),
+            &mut counts,
+        )
+        .await
+        .unwrap();
+    store
+        .object(&refreshed, source, path, Some(blob(localized)), &mut counts)
+        .await
+        .unwrap();
+    store.publish(&refreshed).await.unwrap();
+    let preserved: (i64, String) = sqlx::query_as(
+        "SELECT e.identity_receipt_id,r.extractor_version FROM canon.entity e
+        JOIN canon.receipt r ON r.id=e.identity_receipt_id WHERE e.key='ability_stale'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(preserved, identity);
+    let receipt_version: String = sqlx::query_scalar(
+        "SELECT r.extractor_version FROM serve.current_alias a
+        JOIN canon.receipt r ON r.id=a.receipt_id WHERE a.lang='de'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(receipt_version, extract::VERSION);
+    store.finish(&counts, false).await.unwrap();
+    owner.close().await;
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn startup_requires_v1_capability_with_singleton_and_multi_version_tables() {
+    let scratch = Scratch::new();
+    let pool = scratch.ingest_pool().await;
+    let owner = scratch.pool("brain_job_test", "brain_migrate").await;
+    for definition in [
+        "singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton), version integer NOT NULL CHECK(version=1)",
+        "version integer PRIMARY KEY CHECK(version>0)",
+    ] {
+        sqlx::raw_sql(&format!(
+            "DROP TABLE ops.gamefacts_schema_version;
+            CREATE TABLE ops.gamefacts_schema_version({definition});
+            GRANT SELECT ON ops.gamefacts_schema_version TO brain_ingest;
+            INSERT INTO ops.gamefacts_schema_version(version) VALUES(1);"
+        ))
+        .execute(&owner)
+        .await
+        .unwrap();
+        if !definition.starts_with("singleton") {
+            sqlx::query("INSERT INTO ops.gamefacts_schema_version(version) VALUES(2)")
+                .execute(&owner)
+                .await
+                .unwrap();
+        }
+        let store = Store::start(pool.clone(), 300).await.unwrap();
+        store.finish(&Counts::default(), false).await.unwrap();
+        sqlx::query("DELETE FROM ops.gamefacts_schema_version WHERE version=1")
+            .execute(&owner)
+            .await
+            .unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM ops.job_run")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let error = Store::start(pool.clone(), 300).await.err().unwrap();
+        assert_eq!(error.to_string(), "schema_version");
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM ops.job_run")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            count
+        );
+    }
+    owner.close().await;
+    pool.close().await;
+}
+
+#[tokio::test]
 #[ignore]
 async fn immutable_public_objects_persist_with_independently_resolved_receipts() {
     let root = PathBuf::from(
