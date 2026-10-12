@@ -384,6 +384,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "brain-job"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "brain-storage",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
 name = "brain-kernel"
 version = "0.1.0"
 dependencies = [
