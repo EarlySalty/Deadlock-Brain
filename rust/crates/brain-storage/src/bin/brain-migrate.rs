@@ -1,12 +1,10 @@
-//! Administrative entrypoint, intentionally separate from service startup.
-//! Local Unix socket/peer auth only. No password, DSN, environment fallback, or secret file.
 use brain_contracts::store::STORE_VERSION;
 use brain_storage::{PgStore, CORE_SCHEMA_VERSION};
 use serde::Deserialize;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use std::{path::PathBuf, process::ExitCode, time::Duration};
 
-const USAGE: &str = "Aufruf: brain-migrate <check|up|check-entity-profiles|up-entity-profiles|check-response-audit|up-response-audit> --config <non-secret-local-postgres.json>";
+const USAGE: &str = "Aufruf: brain-migrate <check|up|check-entity-profiles|up-entity-profiles|check-response-audit|up-response-audit|check-gamefacts|up-gamefacts> --config <non-secret-local-postgres.json>";
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
@@ -45,6 +43,8 @@ async fn main() -> ExitCode {
             "up-entity-profiles",
             "check-response-audit",
             "up-response-audit",
+            "check-gamefacts",
+            "up-gamefacts",
         ]
         .iter()
         .any(|command| args[0] == *command)
@@ -53,9 +53,13 @@ async fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     match run(
-        args[0] == "up" || args[0] == "up-entity-profiles" || args[0] == "up-response-audit",
+        args[0] == "up"
+            || args[0] == "up-entity-profiles"
+            || args[0] == "up-response-audit"
+            || args[0] == "up-gamefacts",
         args[0] == "check-entity-profiles" || args[0] == "up-entity-profiles",
         args[0] == "check-response-audit" || args[0] == "up-response-audit",
+        args[0] == "check-gamefacts" || args[0] == "up-gamefacts",
         PathBuf::from(&args[2]),
     )
     .await
@@ -72,6 +76,7 @@ async fn run(
     upgrade: bool,
     entity_profiles: bool,
     response_audit: bool,
+    gamefacts: bool,
     path: PathBuf,
 ) -> Result<(), String> {
     if std::env::var_os("PGOPTIONS").is_some() {
@@ -81,8 +86,6 @@ async fn run(
     let config: Config =
         serde_json::from_reader(file).map_err(|_| "invalid migration config JSON")?;
     config.validate()?;
-    // An explicit empty password prevents ambient credentials from being used. All connection
-    // coordinates are mandatory; this executable is for local peer-authenticated maintenance.
     let options = PgConnectOptions::new_without_pgpass()
         .host(&config.socket.to_string_lossy())
         .port(config.port)
@@ -98,7 +101,13 @@ async fn run(
         .await
         .map_err(|_| "local PostgreSQL connection failed (check peer auth and role)")?;
     let store = PgStore::new(pool.clone());
-    let result = if response_audit {
+    let result = if gamefacts {
+        if upgrade {
+            store.migrate_gamefacts().await
+        } else {
+            store.check_gamefacts_schema().await
+        }
+    } else if response_audit {
         if upgrade {
             store.migrate_response_audit().await
         } else {
@@ -114,6 +123,10 @@ async fn run(
     };
     pool.close().await;
     result.map_err(|e| e.to_string())?;
+    if gamefacts {
+        println!("Spielwertschema: Prüfung bestanden");
+        return Ok(());
+    }
     if response_audit {
         println!("Lokale Antwortdiagnostik: Prüfung bestanden");
         return Ok(());
