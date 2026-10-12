@@ -72,17 +72,17 @@ fn mappings(
             (
                 "RejuvinatorBuffDuration",
                 "m_flRejuvinatorBuffDuration",
-                "timer.buff_duration_seconds",
+                "timer_buff_duration_seconds",
             ),
             (
                 "RejuvinatorDropDuration",
                 "m_flRejuvinatorDropDuration",
-                "timer.drop_duration_seconds",
+                "timer_drop_duration_seconds",
             ),
             (
                 "RejuvinatorExpirationWarningTiming",
                 "m_flRejuvinatorExpirationWarningTiming",
-                "timer.expiration_warning_seconds",
+                "timer_expiration_warning_seconds",
             ),
         ] {
             add(
@@ -90,7 +90,7 @@ fn mappings(
                 if json { json_field } else { kv_field },
                 "rejuvenator",
                 stat,
-                stat == "timer.buff_duration_seconds",
+                stat == "timer_buff_duration_seconds",
             )?;
         }
     } else {
@@ -99,12 +99,12 @@ fn mappings(
                 (
                     "InitialSpawnTime",
                     "m_flInitialSpawnTime",
-                    "timer.first_spawn_seconds",
+                    "timer_first_spawn_seconds",
                 ),
                 (
                     "RespawnTime",
                     "m_flRespawnTime",
-                    "timer.respawn_interval_seconds",
+                    "timer_respawn_interval_seconds",
                 ),
             ] {
                 add(
@@ -112,7 +112,7 @@ fn mappings(
                     if json { json_field } else { kv_field },
                     "soul_box",
                     stat,
-                    *root == BOXES[0] && stat == "timer.first_spawn_seconds",
+                    *root == BOXES[0] && stat == "timer_first_spawn_seconds",
                 )?;
             }
         }
@@ -120,17 +120,17 @@ fn mappings(
             (
                 "SpawnIntervalInSeconds",
                 "m_iSpawnIntervalInSeconds",
-                "timer.respawn_interval_seconds",
+                "timer_respawn_interval_seconds",
             ),
             (
                 "SpawnIntervalChange",
                 "m_iSpawnIntervalChange",
-                "timer.respawn_interval_change_seconds",
+                "timer_respawn_interval_change_seconds",
             ),
             (
                 "SpawnIntervalMin",
                 "m_iSpawnIntervalMin",
-                "timer.respawn_interval_min_seconds",
+                "timer_respawn_interval_min_seconds",
             ),
         ] {
             add(
@@ -138,7 +138,7 @@ fn mappings(
                 if json { json_field } else { kv_field },
                 "mid_boss",
                 stat,
-                stat == "timer.respawn_interval_seconds",
+                stat == "timer_respawn_interval_seconds",
             )?;
         }
     }

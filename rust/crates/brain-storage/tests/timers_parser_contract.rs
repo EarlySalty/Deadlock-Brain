@@ -26,7 +26,7 @@ fn numeric_timer_values_keep_exact_raw_lexemes_and_locators() {
     assert!(facts
         .iter()
         .filter(|fact| fact.timer == "mid_boss")
-        .all(|fact| fact.stat != "timer.first_spawn_seconds"));
+        .all(|fact| fact.stat != "timer_first_spawn_seconds"));
     let kv = br#"<!-- kv3 encoding:text --> { citadel_breakable_prop_drop_gold = { m_flInitialSpawnTime = 180 } neutral_camp_midboss = { m_iSpawnIntervalInSeconds = 120 m_iSpawnIntervalMin = 60 } }"#;
     let facts = values(
         "gametracking",
@@ -37,7 +37,7 @@ fn numeric_timer_values_keep_exact_raw_lexemes_and_locators() {
     assert_eq!(facts.len(), 3);
     let fact = facts
         .iter()
-        .find(|fact| fact.timer == "mid_boss" && fact.stat == "timer.respawn_interval_seconds")
+        .find(|fact| fact.timer == "mid_boss" && fact.stat == "timer_respawn_interval_seconds")
         .unwrap();
     assert_eq!(
         fact.locator,
@@ -95,7 +95,7 @@ fn required_empty_properties_reject_and_optional_empty_properties_emit_no_fact()
         assert_eq!(values(source, path, required_empty).unwrap_err(), "timer_property_missing");
         let facts = values(source, path, optional_empty).unwrap();
         assert_eq!(facts.len(), 1);
-        assert_eq!(facts[0].stat, "timer.buff_duration_seconds");
+        assert_eq!(facts[0].stat, "timer_buff_duration_seconds");
         assert_eq!(facts[0].numeric, "120");
     }
     for value in ["null", "\"120\"", "[120]"] {
@@ -133,7 +133,7 @@ fn input_limit_is_supplied_by_the_caller_and_urn_spawn_is_not_invented() {
     let facts = values("deadlock-data", "data/json/generic-data.json", bytes).unwrap();
     assert_eq!(facts.len(), 1);
     assert_eq!(facts[0].timer, "rejuvenator");
-    assert_eq!(facts[0].stat, "timer.buff_duration_seconds");
+    assert_eq!(facts[0].stat, "timer_buff_duration_seconds");
     assert!(values("other", "data/json/misc-data.json", b"malformed")
         .unwrap()
         .is_empty());

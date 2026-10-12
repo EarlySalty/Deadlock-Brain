@@ -66,7 +66,7 @@ fn facts(raw: &RawObject) -> Result<FactSet, Rejection> {
                 receipt: receipt.clone(),
             });
         }
-        let stat_key = value.stat.replace('.', "_");
+        let stat_key = limits::normalize_key(value.stat);
         let payload = json!({
             "value":value.numeric,
             "unit":"s",

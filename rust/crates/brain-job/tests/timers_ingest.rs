@@ -7,7 +7,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
-    Row,
+    PgPool, Row,
 };
 
 #[path = "../../brain-storage/tests/support/scratch_pg.rs"]
@@ -62,8 +62,13 @@ fn actual_extractor_preserves_numeric_text_conditions_and_verified_receipts() {
     ));
 }
 
-#[tokio::test]
-async fn timer_poison_objects_reject_atomically_and_the_real_run_succeeds() {
+struct Database {
+    _pg: scratch_pg::ScratchPg,
+    admin: PgPool,
+    writer: PgPool,
+}
+
+async fn database() -> Database {
     let pg = scratch_pg::ScratchPg::start();
     let options = PgConnectOptions::new_without_pgpass()
         .host(&pg.directory.join("socket").to_string_lossy())
@@ -95,6 +100,18 @@ async fn timer_poison_objects_reject_atomically_and_the_real_run_succeeds() {
         .connect_with(options)
         .await
         .unwrap();
+    Database {
+        _pg: pg,
+        admin,
+        writer,
+    }
+}
+
+#[tokio::test]
+async fn timer_poison_objects_reject_atomically_and_the_real_run_succeeds() {
+    let db = database().await;
+    let admin = db.admin.clone();
+    let writer = db.writer.clone();
     let store = GameFactsStore::new(writer.clone());
     let large = input(&format!(
         "1.{}",
