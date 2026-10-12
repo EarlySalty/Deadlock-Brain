@@ -13,7 +13,11 @@ Integrator: this P2 session, after P1r is live and the local gate allows the fin
 
 - `../CONTRACT_INGEST_V2.md` and `../REDESIGN-INGEST.md` in the domain task directory are authoritative.
 - `../BRIEFING_WELLE2_GEMEINSAM.md` supplies the runtime tool contract; its old ingestion lifecycle is superseded.
-- Core prerequisite: `feat/brain-p1r-hero-slice-20261012`. Merge the published checkpoint, never rebase published P2 work.
+- Published core: `4cc0cf5d1843897b7519214cb2117e1aa8f848ed`, merged at `e2e91e5a92884a7be7e37f1c1d29d1107011d6d2`. Actual API names win over abbreviated contract stand-ins. No later P1r merge until its SHA is explicitly forwarded; never rebase published P2 work.
+- Core files and migration v1 are frozen. Only the package module declaration in `brain-job/src/lib.rs`, extractor registration, source registration and reserved migration entry may be added. Other core needs go to the main orchestrator with exact signatures.
+- Core 2 is routed by the main orchestrator: applied-object idempotence with rejected-object retry, streamed multi-object sources, `RAW_BYTES`, `validate_numeric_lexeme`, and `kv_path`. Do not duplicate these changes or ask for them again.
+- Every gamefacts tool and serve view reads only `serve.current_entity`, `serve.current_alias`, `serve.current_fact`, `serve.current_relation`, or views built on them. Never read `canon.*` or `raw.*` in tools or serve views; P9 quarantine is inherited through `serve.published_receipt`.
+- Extraction has no database or catalog lookup. Cross-package references are emitted by normalized key or alias text, resolved at read time, and hidden while unresolved. The qualified-fact representation for conditions and units remains an open core contract; do not silently omit it or encode JSON as scalar text.
 - All compiler checks use the current `cargo-slot` routing and Rust build rules.
 
 ## Ownership
