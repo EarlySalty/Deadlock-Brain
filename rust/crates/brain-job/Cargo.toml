@@ -1,0 +1,19 @@
+[package]
+name = "brain-job"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+brain-contracts = { path = "../brain-contracts" }
+clap.workspace = true
+deadlock-brain-core = { path = "../deadlock-brain-core" }
+hex.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
+sqlx = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["process", "io-util", "fs", "sync", "macros"] }
+
+[dev-dependencies]
+tempfile.workspace = true
