@@ -3,11 +3,11 @@ BEGIN;
 CREATE TABLE ops.receipt_audit (
     job_run_id bigint NOT NULL REFERENCES ops.job_run(id) ON DELETE RESTRICT,
     receipt_id bigint NOT NULL REFERENCES canon.receipt(id) ON DELETE RESTRICT,
-    outcome text NOT NULL CHECK (outcome IN ('verified', 'mismatch', 'unsupported', 'unreadable')),
+    outcome text NOT NULL CHECK (outcome IN ('match', 'mismatch', 'locator_not_found', 'unsupported_locator_kind')),
     observed_value_sha256 bytea CHECK (octet_length(observed_value_sha256) = 32),
     recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (job_run_id, receipt_id),
-    CHECK (outcome <> 'verified' OR observed_value_sha256 IS NOT NULL)
+    CHECK (outcome <> 'match' OR observed_value_sha256 IS NOT NULL)
 );
 CREATE INDEX receipt_audit_receipt_idx ON ops.receipt_audit(receipt_id, recorded_at DESC);
 
@@ -35,7 +35,7 @@ CREATE FUNCTION ops.quarantine_audited_receipts() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $quarantine$
 BEGIN
     INSERT INTO canon.receipt_quarantine(receipt_id, job_run_id)
-        SELECT receipt_id, job_run_id FROM audit_results WHERE outcome = 'mismatch'
+        SELECT receipt_id, job_run_id FROM audit_results WHERE outcome IN ('mismatch', 'locator_not_found')
         ON CONFLICT (receipt_id) DO NOTHING;
     IF FOUND THEN
         PERFORM serve.refresh_hero_profile();

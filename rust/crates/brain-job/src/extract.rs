@@ -751,9 +751,99 @@ pub fn prove(source: Source, path: &str, bytes: &[u8], assertions: &[Assertion])
     Ok(())
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RawLocatorHash {
+    Found(Vec<u8>),
+    LocatorNotFound,
+    UnsupportedLocatorKind,
+}
+
+pub fn raw_locator_hashes(
+    bytes: &[u8],
+    locator_kind: &str,
+    locators: &[&str],
+) -> Result<Vec<RawLocatorHash>> {
+    ensure!(
+        locators.len() <= 200 && locators.iter().all(|locator| locator.len() <= 2048),
+        "receipt_locator_batch_limit"
+    );
+    if locators.is_empty() {
+        return Ok(Vec::new());
+    }
+    let path = match locator_kind {
+        "json_pointer" => "receipt.json",
+        "kv_pointer" => "receipt.kv",
+        _ => return Ok(vec![RawLocatorHash::UnsupportedLocatorKind; locators.len()]),
+    };
+    let leaves = leaves(path, bytes)?;
+    let requested: std::collections::BTreeSet<_> = locators.iter().copied().collect();
+    let hashes: BTreeMap<_, _> = leaves
+        .iter()
+        .filter(|leaf| requested.contains(leaf.pointer.as_str()))
+        .map(|leaf| {
+            (
+                leaf.pointer.as_str(),
+                Sha256::digest(leaf.lexeme.as_bytes()).to_vec(),
+            )
+        })
+        .collect();
+    Ok(locators
+        .iter()
+        .map(|locator| {
+            hashes
+                .get(locator)
+                .cloned()
+                .map(RawLocatorHash::Found)
+                .unwrap_or(RawLocatorHash::LocatorNotFound)
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receipt_hashes_preserve_raw_lexemes_without_extractor_membership() {
+        let bytes = br#"{"ignored":{"number":1e2,"escaped":"x y"}}"#;
+        let hashes = raw_locator_hashes(
+            bytes,
+            "json_pointer",
+            &["/ignored/number", "/ignored/escaped", "/missing"],
+        )
+        .unwrap();
+        assert_eq!(
+            hashes,
+            vec![
+                RawLocatorHash::Found(Sha256::digest(b"1e2").to_vec()),
+                RawLocatorHash::Found(Sha256::digest(br#""x y""#).to_vec()),
+                RawLocatorHash::LocatorNotFound,
+            ]
+        );
+        assert_eq!(
+            raw_locator_hashes(bytes, "future_pointer", &["/ignored/number"]).unwrap(),
+            vec![RawLocatorHash::UnsupportedLocatorKind]
+        );
+    }
+
+    #[test]
+    fn receipt_hashes_distinguish_kv_occurrences() {
+        let bytes = br#"hero { Health "100" Health "200" }"#;
+        let hashes = raw_locator_hashes(
+            bytes,
+            "kv_pointer",
+            &["/hero/0/Health/0", "/hero/0/Health/1", "/hero/0/Health/2"],
+        )
+        .unwrap();
+        assert_eq!(
+            hashes,
+            vec![
+                RawLocatorHash::Found(Sha256::digest(b"100").to_vec()),
+                RawLocatorHash::Found(Sha256::digest(b"200").to_vec()),
+                RawLocatorHash::LocatorNotFound,
+            ]
+        );
+    }
 
     #[test]
     fn numeric_lexemes_upgrade_conditions_and_links_are_proven() {

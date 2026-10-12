@@ -1,6 +1,7 @@
 pub mod config;
 pub mod extract;
 pub mod git;
+pub mod receipt_audit;
 pub mod store;
 
 use anyhow::Result;
