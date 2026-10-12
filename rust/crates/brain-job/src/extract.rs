@@ -771,22 +771,43 @@ pub fn raw_locator_hashes(
     if locators.is_empty() {
         return Ok(Vec::new());
     }
-    let path = match locator_kind {
-        "json_pointer" => "receipt.json",
-        "kv_pointer" => "receipt.kv",
-        _ => return Ok(vec![RawLocatorHash::UnsupportedLocatorKind; locators.len()]),
+    if !matches!(locator_kind, "json_pointer" | "kv_pointer") {
+        return Ok(vec![RawLocatorHash::UnsupportedLocatorKind; locators.len()]);
+    }
+    ensure!(bytes.len() <= 16 * 1024 * 1024, "extraction_input_limit");
+    let content = std::str::from_utf8(bytes)
+        .context("extraction_utf8")?
+        .trim_start_matches('\u{feff}');
+    let leaves: Vec<(String, String)> = if locator_kind == "json_pointer" {
+        json_text::parse(content)
+            .map_err(anyhow::Error::msg)
+            .context("json_parse")?
+            .into_iter()
+            .map(|leaf| (leaf.pointer, leaf.lexeme))
+            .collect()
+    } else if content.trim_start().starts_with("<!--")
+        || content.trim_start().starts_with('{')
+        || content.contains(" = ")
+    {
+        kv3::parse(content.trim_start())
+            .map_err(anyhow::Error::msg)
+            .context("kv3_parse")?
+            .into_iter()
+            .map(|leaf| (leaf.pointer, leaf.lexeme))
+            .collect()
+    } else {
+        kv::parse(content)
+            .map_err(anyhow::Error::msg)
+            .context("kv_parse")?
+            .into_iter()
+            .map(|leaf| (leaf.pointer, leaf.value))
+            .collect()
     };
-    let leaves = leaves(path, bytes)?;
     let requested: std::collections::BTreeSet<_> = locators.iter().copied().collect();
     let hashes: BTreeMap<_, _> = leaves
         .iter()
-        .filter(|leaf| requested.contains(leaf.pointer.as_str()))
-        .map(|leaf| {
-            (
-                leaf.pointer.as_str(),
-                Sha256::digest(leaf.lexeme.as_bytes()).to_vec(),
-            )
-        })
+        .filter(|(pointer, _)| requested.contains(pointer.as_str()))
+        .map(|(pointer, lexeme)| (pointer.as_str(), Sha256::digest(lexeme.as_bytes()).to_vec()))
         .collect();
     Ok(locators
         .iter()
@@ -1007,5 +1028,119 @@ mod tests {
             &facts,
         )
         .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod receipt_locator_regression_tests {
+    use super::*;
+
+    #[test]
+    fn kv3_nonsemantic_members_keep_their_raw_locators() {
+        for bytes in [
+            br#"{ other = { text = "value" } }"#.as_slice(),
+            br#"<!-- kv3 encoding:text --> { other = { text = "value" } }"#.as_slice(),
+            br#"{other={text="value"}}"#.as_slice(),
+            "\u{feff}  { other = { text = \"value\" } }".as_bytes(),
+        ] {
+            assert_eq!(
+                raw_locator_hashes(bytes, "kv_pointer", &["/other/0/text/0"]).unwrap(),
+                vec![RawLocatorHash::Found(
+                    Sha256::digest(br#""value""#).to_vec()
+                )]
+            );
+        }
+    }
+
+    #[test]
+    fn kv_root_and_nested_occurrences_preserve_parser_lexemes() {
+        for (bytes, first, second) in [
+            (
+                br#"other { text "a\nb" text "1e2" } other { text "last" } "a~/b" "root""#.as_slice(),
+                br#"a\nb"#.as_slice(),
+                b"1e2".as_slice(),
+            ),
+            (
+                br#"{ other = { text = "a\nb" text = 1e2 } other = { text = "last" } "a~/b" = "root" }"#.as_slice(),
+                br#""a\nb""#.as_slice(),
+                b"1e2".as_slice(),
+            ),
+        ] {
+            let hashes = raw_locator_hashes(
+                bytes,
+                "kv_pointer",
+                &["/other/0/text/0", "/other/0/text/1", "/other/1/text/0", "/a~0~1b/0", "/other/2/text/0"],
+            ).unwrap();
+            let kv3 = bytes.starts_with(b"{");
+            assert_eq!(hashes, vec![
+                RawLocatorHash::Found(Sha256::digest(first).to_vec()),
+                RawLocatorHash::Found(Sha256::digest(second).to_vec()),
+                RawLocatorHash::Found(Sha256::digest(if kv3 { br#""last""#.as_slice() } else { b"last".as_slice() }).to_vec()),
+                RawLocatorHash::Found(Sha256::digest(if kv3 { br#""root""#.as_slice() } else { b"root".as_slice() }).to_vec()),
+                RawLocatorHash::LocatorNotFound,
+            ]);
+        }
+    }
+
+    #[test]
+    fn json_and_kv3_share_exact_scalar_lexeme_hashes() {
+        let expected = vec![
+            RawLocatorHash::Found(Sha256::digest(br#""a\nb""#).to_vec()),
+            RawLocatorHash::Found(Sha256::digest(b"1e2").to_vec()),
+            RawLocatorHash::Found(Sha256::digest(b"true").to_vec()),
+            RawLocatorHash::Found(Sha256::digest(b"null").to_vec()),
+            RawLocatorHash::LocatorNotFound,
+        ];
+        assert_eq!(
+            raw_locator_hashes(
+                br#"{"a~/b":"a\nb","number":1e2,"flags":[true,null]}"#,
+                "json_pointer",
+                &["/a~0~1b", "/number", "/flags/0", "/flags/1", "/missing"],
+            )
+            .unwrap(),
+            expected
+        );
+        assert_eq!(
+            raw_locator_hashes(
+                br#"{ "a~/b" = "a\nb" number = 1e2 flags = [ true, null ] }"#,
+                "kv_pointer",
+                &[
+                    "/a~0~1b/0",
+                    "/number/0",
+                    "/flags/0/[0]",
+                    "/flags/0/[1]",
+                    "/missing/0"
+                ],
+            )
+            .unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn receipt_hashes_match_existing_extractor_receipts_for_all_formats() {
+        for (source, path, bytes) in [
+            (
+                Source::ALL[0],
+                "data/json/hero-data.json",
+                br#"{"hero_baba":{"Name":"Baba","MaxHealth":780.0}}"#.as_slice(),
+            ),
+            (
+                Source::ALL[1],
+                "game/citadel/pak01_dir/scripts/heroes.vdata",
+                br#"hero_baba { m_eHeroDevelopmentState "EHeroDevState_Release" m_mapStartingStats { EMaxHealth "780.0" } }"#.as_slice(),
+            ),
+            (
+                Source::ALL[1],
+                "game/citadel/pak01_dir/scripts/heroes.vdata",
+                br#"<!-- kv3 encoding:text --> { hero_baba = { m_eHeroDevelopmentState = "EHeroDevState_Release" m_mapStartingStats = { EMaxHealth = 780.0 } } }"#.as_slice(),
+            ),
+        ] {
+            let facts = extract(source, path, bytes).unwrap();
+            assert_eq!(facts.len(), 2);
+            let locators: Vec<_> = facts.iter().map(|fact| fact.locator.as_str()).collect();
+            let hashes = raw_locator_hashes(bytes, facts[0].locator_kind, &locators).unwrap();
+            assert_eq!(hashes, facts.into_iter().map(|fact| RawLocatorHash::Found(fact.hash)).collect::<Vec<_>>());
+        }
     }
 }
