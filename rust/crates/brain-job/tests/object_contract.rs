@@ -92,6 +92,10 @@ impl Scratch {
         .execute(&owner)
         .await
         .unwrap();
+        sqlx::query("INSERT INTO ops.gamefacts_schema_version(version) VALUES(1)")
+            .execute(&owner)
+            .await
+            .unwrap();
         sqlx::query("ALTER ROLE brain_ingest SET default_transaction_isolation='repeatable read'")
             .execute(&admin)
             .await
