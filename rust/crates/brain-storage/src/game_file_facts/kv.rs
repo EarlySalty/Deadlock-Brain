@@ -19,7 +19,18 @@ enum Token {
 }
 
 pub(super) fn parse(input: &str) -> Result<Vec<Entry>, &'static str> {
-    parse_with_budget(input, Budget::new())
+    let mut budget = Budget::new();
+    let tokens = tokenize(input, &mut budget)?;
+    if tokens.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut index = 0;
+    let mut entries = Vec::new();
+    parse_scope(&tokens, &mut index, "", false, 0, &mut entries, &mut budget)?;
+    if index != tokens.len() {
+        return Err("Nicht vollständig ausgewertete KV-Tokens");
+    }
+    Ok(entries)
 }
 
 pub(super) fn parse_with_budget(

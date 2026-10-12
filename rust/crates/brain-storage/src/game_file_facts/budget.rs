@@ -8,7 +8,9 @@ pub struct Budget {
 }
 impl Budget {
     pub fn new() -> Self {
-        Self::with_limit(MAX_BYTES)
+        Self {
+            remaining: MAX_BYTES,
+        }
     }
     pub fn with_limit(bytes: usize) -> Self {
         Self { remaining: bytes }

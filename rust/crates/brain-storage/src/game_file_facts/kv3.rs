@@ -26,7 +26,25 @@ enum Token {
 }
 
 pub(super) fn parse(input: &str) -> Result<Vec<Leaf>, &'static str> {
-    parse_with_budget(input, Budget::new())
+    let body = if input.starts_with("<!--") {
+        let end = input.find("-->").ok_or("Nicht geschlossener KV3-Kopf")?;
+        &input[end + 3..]
+    } else {
+        input
+    };
+    let mut budget = Budget::new();
+    let tokens = tokenize(body, &mut budget)?;
+    let mut parser = Parser {
+        budget: &mut budget,
+        tokens: &tokens,
+        index: 0,
+        leaves: Vec::new(),
+    };
+    parser.value("", &[], 0)?;
+    if parser.index != tokens.len() {
+        return Err("Nicht vollständig ausgewertete KV3-Tokens");
+    }
+    Ok(parser.leaves)
 }
 
 pub(super) fn parse_with_budget(

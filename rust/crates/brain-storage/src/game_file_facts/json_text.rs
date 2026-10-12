@@ -61,7 +61,18 @@ pub(super) fn number(text: &str) -> Result<(Value, Option<&'static str>), &'stat
 }
 
 pub(super) fn parse(input: &str) -> Result<Vec<Leaf>, &'static str> {
-    parse_with_budget(input, Budget::new())
+    let mut p = Parser {
+        input,
+        index: 0,
+        budget: Budget::new(),
+        leaves: Vec::new(),
+    };
+    p.value("", 0)?;
+    p.space();
+    if p.index != input.len() {
+        return Err("invalid_json_preserved_as_text");
+    }
+    Ok(p.leaves)
 }
 
 pub(super) fn parse_with_budget(input: &str, budget: Budget) -> Result<Vec<Leaf>, &'static str> {
