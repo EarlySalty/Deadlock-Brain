@@ -1,0 +1,21 @@
+[Unit]
+Description=Deadlock Brain receipt audit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nathanael
+Group=nathanael
+WorkingDirectory=/opt/deadlock-brain/current
+LoadCredential=infisical-token:/home/nathanael/.config/infisical-tokens/infisical-token-bots
+ExecStart=/opt/deadlock-brain/current/bin/brain-job --config /etc/deadlock-brain/brain-job.json audit-receipts
+TimeoutStartSec=115s
+TimeoutStopSec=5s
+Restart=no
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+MemoryAccounting=yes
+MemoryMax=512M
+MemorySwapMax=0
