@@ -4,10 +4,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::entity_profile::EntityKind;
+#[path = "timer.rs"]
+mod timer;
 use crate::{
     Accounted, AuthorizedContext, Evidence, PortError, PortFailure, ProviderAnswer, Query, Usage,
     UsageAccounting,
 };
+pub use timer::{GetTimerRequest, TimerKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -21,6 +24,7 @@ pub enum ToolName {
     GameRules,
     ServerKnowledge,
     DeadlockData,
+    GetTimer,
 }
 
 impl ToolName {
@@ -35,6 +39,7 @@ impl ToolName {
             Self::GameRules => "game_rules",
             Self::ServerKnowledge => "server_knowledge",
             Self::DeadlockData => "deadlock_data",
+            Self::GetTimer => "get_timer",
         }
     }
 }
@@ -397,6 +402,7 @@ pub enum ToolSubrequest {
     GameRules(GameRulesRequest),
     ServerKnowledge(ServerKnowledgeRequest),
     DeadlockData(DeadlockDataRequest),
+    GetTimer(GetTimerRequest),
 }
 
 impl ToolSubrequest {
@@ -423,6 +429,7 @@ impl ToolSubrequest {
             ToolName::ServerKnowledge => {
                 serde_json::from_value(arguments.clone()).map(Self::ServerKnowledge)
             }
+            ToolName::GetTimer => serde_json::from_value(arguments.clone()).map(Self::GetTimer),
         };
         parsed.map_err(|_| invalid("Werkzeugargumente passen nicht zur typisierten Unteranfrage"))
     }
@@ -430,6 +437,7 @@ impl ToolSubrequest {
     fn validate(&self) -> Result<(), PortError> {
         match self {
             Self::EntityFind(request) => validate_text(&request.query),
+            Self::GetTimer(request) => request.validate(),
             Self::EntityProfile(request) => {
                 validate_entity(&request.entity)?;
                 validate_fields(&request.fields, true)?;
@@ -911,7 +919,10 @@ impl ToolExecution {
             }
             return Ok(());
         }
-        let expected_game = if request.name() == ToolName::ServerKnowledge {
+        let expected_game = if matches!(
+            request.name(),
+            ToolName::ServerKnowledge | ToolName::GetTimer
+        ) {
             None
         } else {
             let game = game_context

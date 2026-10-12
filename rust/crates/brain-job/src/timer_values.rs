@@ -1,0 +1,240 @@
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
+
+#[path = "../../brain-storage/src/game_file_facts/budget.rs"]
+mod budget;
+#[path = "../../brain-storage/src/game_file_facts/json_text.rs"]
+mod json_text;
+#[path = "../../brain-storage/src/game_file_facts/kv3.rs"]
+mod kv3;
+
+const BOXES: &[&str] = &[
+    "citadel_breakable_prop_drop_gold",
+    "citadel_breakable_prop_box_multi",
+    "citadel_breakable_prop_tough_crate",
+    "citadel_breakable_prop_wooden_crate",
+];
+
+#[derive(Debug, PartialEq)]
+pub struct TimerValue {
+    pub timer: &'static str,
+    pub stat: &'static str,
+    pub source_entity: String,
+    pub numeric: String,
+    pub locator_kind: &'static str,
+    pub locator: String,
+    pub value_sha256: Vec<u8>,
+    pub flags: Vec<String>,
+}
+
+pub fn accepts(source: &str, path: &str) -> bool {
+    matches!(
+        (source, path),
+        (
+            "deadlock-data",
+            "data/json/misc-data.json" | "data/json/generic-data.json"
+        ) | (
+            "gametracking",
+            "game/citadel/pak01_dir/scripts/misc.vdata"
+                | "game/citadel/pak01_dir/scripts/generic_data.vdata"
+        )
+    )
+}
+
+struct Mapping {
+    root: String,
+    field: String,
+    timer: &'static str,
+    stat: &'static str,
+}
+
+fn mappings(
+    path: &str,
+    normalize: &impl Fn(&str) -> Result<String, &'static str>,
+) -> Result<Vec<Mapping>, &'static str> {
+    let json = path.ends_with(".json");
+    let mut values = Vec::new();
+    let mut add = |root: &str, field: &str, timer, stat| -> Result<(), &'static str> {
+        values.push(Mapping {
+            root: normalize(root)?,
+            field: normalize(field)?,
+            timer,
+            stat,
+        });
+        Ok(())
+    };
+    if path.ends_with("generic-data.json") || path.ends_with("generic_data.vdata") {
+        let root = if json { "RejuvParams" } else { "m_RejuvParams" };
+        for (json_field, kv_field, stat) in [
+            (
+                "RejuvinatorBuffDuration",
+                "m_flRejuvinatorBuffDuration",
+                "timer.buff_duration_seconds",
+            ),
+            (
+                "RejuvinatorDropDuration",
+                "m_flRejuvinatorDropDuration",
+                "timer.drop_duration_seconds",
+            ),
+            (
+                "RejuvinatorExpirationWarningTiming",
+                "m_flRejuvinatorExpirationWarningTiming",
+                "timer.expiration_warning_seconds",
+            ),
+        ] {
+            add(
+                root,
+                if json { json_field } else { kv_field },
+                "rejuvenator",
+                stat,
+            )?;
+        }
+    } else {
+        for root in BOXES {
+            for (json_field, kv_field, stat) in [
+                (
+                    "InitialSpawnTime",
+                    "m_flInitialSpawnTime",
+                    "timer.first_spawn_seconds",
+                ),
+                (
+                    "RespawnTime",
+                    "m_flRespawnTime",
+                    "timer.respawn_interval_seconds",
+                ),
+            ] {
+                add(
+                    root,
+                    if json { json_field } else { kv_field },
+                    "soul_box",
+                    stat,
+                )?;
+            }
+        }
+        for (json_field, kv_field, stat) in [
+            (
+                "SpawnIntervalInSeconds",
+                "m_iSpawnIntervalInSeconds",
+                "timer.respawn_interval_seconds",
+            ),
+            (
+                "SpawnIntervalChange",
+                "m_iSpawnIntervalChange",
+                "timer.respawn_interval_change_seconds",
+            ),
+            (
+                "SpawnIntervalMin",
+                "m_iSpawnIntervalMin",
+                "timer.respawn_interval_min_seconds",
+            ),
+        ] {
+            add(
+                "neutral_camp_midboss",
+                if json { json_field } else { kv_field },
+                "mid_boss",
+                stat,
+            )?;
+        }
+    }
+    Ok(values)
+}
+
+struct SourceKeys {
+    original: String,
+    occurrence: usize,
+    fields: BTreeSet<String>,
+}
+
+fn parts(pointer: &str, json: bool) -> Option<(&str, usize, &str, bool)> {
+    let mut parts = pointer.strip_prefix('/')?.split('/');
+    let root = parts.next()?;
+    let occurrence = if json { 0 } else { parts.next()?.parse().ok()? };
+    let field = parts.next()?;
+    if !json {
+        parts.next()?.parse::<usize>().ok()?;
+    }
+    Some((root, occurrence, field, parts.next().is_none()))
+}
+
+pub fn parse(
+    source: &str,
+    path: &str,
+    bytes: &[u8],
+    max_input_bytes: usize,
+    normalize: impl Fn(&str) -> Result<String, &'static str>,
+) -> Result<Vec<TimerValue>, &'static str> {
+    if !accepts(source, path) {
+        return Ok(Vec::new());
+    }
+    if bytes.len() > max_input_bytes {
+        return Err("raw_object_limit");
+    }
+    let input = std::str::from_utf8(bytes)
+        .map_err(|_| "invalid_utf8")?
+        .trim_start_matches('\u{feff}')
+        .trim_start();
+    let json = path.ends_with(".json");
+    let leaves = if json {
+        json_text::parse(input)
+    } else {
+        kv3::parse(input)
+    }
+    .map_err(|code| {
+        if code == "duplicate_json_keys_preserved_as_text" {
+            "key_collision"
+        } else {
+            code
+        }
+    })?;
+    let mappings = mappings(path, &normalize)?;
+    let mut objects: BTreeMap<String, SourceKeys> = BTreeMap::new();
+    let mut output = Vec::new();
+    for leaf in leaves {
+        let Some((root, occurrence, field, scalar)) = parts(&leaf.pointer, json) else {
+            continue;
+        };
+        let root_key = normalize(root)?;
+        let field_key = normalize(field)?;
+        let mapping = mappings
+            .iter()
+            .find(|mapping| mapping.root == root_key && mapping.field == field_key);
+        if !scalar {
+            if mapping.is_some() {
+                return Err("timer_numeric_value");
+            }
+            continue;
+        }
+        let object = objects.entry(root_key).or_insert_with(|| SourceKeys {
+            original: root.to_owned(),
+            occurrence,
+            fields: BTreeSet::new(),
+        });
+        if object.original != root
+            || object.occurrence != occurrence
+            || !object.fields.insert(field_key)
+        {
+            return Err("key_collision");
+        }
+        let Some(mapping) = mapping else {
+            continue;
+        };
+        if leaf.numeric_representation.is_none() {
+            return Err("timer_numeric_value");
+        }
+        if !matches!(leaf.value, Value::Number(_) | Value::String(_)) {
+            return Err("timer_numeric_value");
+        }
+        output.push(TimerValue {
+            timer: mapping.timer,
+            stat: mapping.stat,
+            source_entity: root.to_owned(),
+            value_sha256: Sha256::digest(leaf.lexeme.as_bytes()).to_vec(),
+            numeric: leaf.lexeme,
+            locator_kind: if json { "json_pointer" } else { "kv_path" },
+            locator: leaf.pointer,
+            flags: leaf.flags,
+        });
+    }
+    Ok(output)
+}
