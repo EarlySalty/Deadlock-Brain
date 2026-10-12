@@ -778,47 +778,97 @@ pub fn raw_locator_hashes(
     let content = std::str::from_utf8(bytes)
         .context("extraction_utf8")?
         .trim_start_matches('\u{feff}');
-    let leaves: Vec<(String, String)> = if locator_kind == "json_pointer" {
-        json_text::parse(content)
-            .map_err(anyhow::Error::msg)
+    let requested: std::collections::BTreeSet<_> = locators.iter().copied().collect();
+    let hashes: BTreeMap<String, Vec<u8>> = if locator_kind == "json_pointer" {
+        json_document::parse(content)
             .context("json_parse")?
             .into_iter()
-            .map(|leaf| (leaf.pointer, leaf.lexeme))
+            .filter(|leaf| requested.contains(leaf.pointer.as_str()))
+            .map(|leaf| {
+                (
+                    leaf.pointer,
+                    Sha256::digest(leaf.lexeme.as_bytes()).to_vec(),
+                )
+            })
             .collect()
     } else if content.trim_start().starts_with("<!--")
         || content.trim_start().starts_with('{')
         || content.contains(" = ")
     {
-        kv3::parse(content.trim_start())
+        kv_document::raw_locator_hashes(content, locators)
             .map_err(anyhow::Error::msg)
             .context("kv3_parse")?
-            .into_iter()
-            .map(|leaf| (leaf.pointer, leaf.lexeme))
-            .collect()
     } else {
         kv::parse(content)
             .map_err(anyhow::Error::msg)
             .context("kv_parse")?
             .into_iter()
-            .map(|leaf| (leaf.pointer, leaf.value))
+            .filter(|leaf| requested.contains(leaf.pointer.as_str()))
+            .map(|leaf| (leaf.pointer, Sha256::digest(leaf.value.as_bytes()).to_vec()))
             .collect()
     };
-    let requested: std::collections::BTreeSet<_> = locators.iter().copied().collect();
-    let hashes: BTreeMap<_, _> = leaves
-        .iter()
-        .filter(|(pointer, _)| requested.contains(pointer.as_str()))
-        .map(|(pointer, lexeme)| (pointer.as_str(), Sha256::digest(lexeme.as_bytes()).to_vec()))
-        .collect();
     Ok(locators
         .iter()
         .map(|locator| {
-            hashes
-                .get(locator)
-                .cloned()
-                .map(RawLocatorHash::Found)
-                .unwrap_or(RawLocatorHash::LocatorNotFound)
+            if unsupported_raw_locator(locator_kind, locator) {
+                RawLocatorHash::UnsupportedLocatorKind
+            } else {
+                hashes
+                    .get(*locator)
+                    .cloned()
+                    .map(RawLocatorHash::Found)
+                    .unwrap_or(RawLocatorHash::LocatorNotFound)
+            }
         })
         .collect())
+}
+
+pub(crate) fn unsupported_raw_locator(locator_kind: &str, locator: &str) -> bool {
+    if !matches!(locator_kind, "json_pointer" | "kv_pointer") {
+        return true;
+    }
+    let Some(pointer) = locator.strip_prefix('/') else {
+        return false;
+    };
+    let parts: Vec<_> = pointer.split('/').collect();
+    let tier = match parts.as_slice() {
+        [entity, "Upgrades", tier, stat]
+            if locator_kind == "json_pointer"
+                && !entity.is_empty()
+                && valid_key(entity)
+                && !stat.is_empty() =>
+        {
+            *tier
+        }
+        [entity, root, "m_vecAbilityUpgrades", upgrades, tier, "m_vecPropertyUpgrades", properties, property, "m_strBonus", bonus]
+            if locator_kind == "kv_pointer"
+                && !entity.is_empty()
+                && valid_key(entity)
+                && [root, upgrades, properties, bonus]
+                    .iter()
+                    .all(|occurrence| occurrence.parse::<usize>().is_ok())
+                && property
+                    .strip_prefix('[')
+                    .and_then(|index| index.strip_suffix(']'))
+                    .is_some_and(|index| index.parse::<usize>().is_ok()) =>
+        {
+            let Some(tier) = tier
+                .strip_prefix('[')
+                .and_then(|tier| tier.strip_suffix(']'))
+            else {
+                return false;
+            };
+            tier
+        }
+        _ => return false,
+    };
+    let digits = tier
+        .strip_prefix('-')
+        .or_else(|| tier.strip_prefix('+'))
+        .unwrap_or(tier);
+    !digits.is_empty()
+        && digits.bytes().all(|byte| byte.is_ascii_digit())
+        && !tier.parse::<u32>().is_ok_and(|index| index < 3)
 }
 
 #[cfg(test)]
@@ -1141,6 +1191,142 @@ mod receipt_locator_regression_tests {
             let locators: Vec<_> = facts.iter().map(|fact| fact.locator.as_str()).collect();
             let hashes = raw_locator_hashes(bytes, facts[0].locator_kind, &locators).unwrap();
             assert_eq!(hashes, facts.into_iter().map(|fact| RawLocatorHash::Found(fact.hash)).collect::<Vec<_>>());
+        }
+    }
+}
+
+#[cfg(test)]
+mod receipt_root_budget_and_tier_tests {
+    use super::*;
+
+    #[test]
+    fn large_json_and_kv3_receipts_use_accepted_per_root_parser_budgets() {
+        let filler = "x".repeat(1000);
+        let mut json = String::from(r#"{"hero_baba":{"Name":"Baba","MaxHealth":780.0}"#);
+        let mut kv3 = String::from("{ hero_baba = { m_eHeroDevelopmentState = \"EHeroDevState_Release\" m_mapStartingStats = { EMaxHealth = 780.0 } }");
+        for index in 0..4000 {
+            json.push_str(&format!(r#", "other{index}":"{filler}""#));
+            kv3.push_str(&format!(" other{index} = \"{filler}\""));
+        }
+        json.push('}');
+        kv3.push('}');
+        for (source, path, input, nonsemantic) in [
+            (
+                Source::ALL[0],
+                "data/json/hero-data.json",
+                json,
+                "/other3999",
+            ),
+            (
+                Source::ALL[1],
+                "game/citadel/pak01_dir/scripts/heroes.vdata",
+                kv3,
+                "/other3999/0",
+            ),
+        ] {
+            let facts = extract(source, path, input.as_bytes()).unwrap();
+            assert_eq!(facts.len(), 2);
+            let mut locators: Vec<_> = facts.iter().map(|fact| fact.locator.as_str()).collect();
+            locators.extend([nonsemantic, "/missing"]);
+            let mut expected: Vec<_> = facts
+                .iter()
+                .map(|fact| RawLocatorHash::Found(fact.hash.clone()))
+                .collect();
+            expected.push(RawLocatorHash::Found(
+                Sha256::digest(format!("\"{filler}\"").as_bytes()).to_vec(),
+            ));
+            expected.push(RawLocatorHash::LocatorNotFound);
+            assert_eq!(
+                raw_locator_hashes(input.as_bytes(), facts[0].locator_kind, &locators).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn json_upgrade_receipts_classify_explicit_unsupported_tiers_without_membership() {
+        for upgrades in [
+            r#"[{"UnrecognizedStat":-12.0},{"UnrecognizedStat":1e2},{"UnrecognizedStat":0.50},{"UnrecognizedStat":7}]"#,
+            r#"{"0":{"UnrecognizedStat":-12.0},"1":{"UnrecognizedStat":1e2},"2":{"UnrecognizedStat":0.50},"3":{"UnrecognizedStat":7},"4294967294":{"UnrecognizedStat":7},"4294967295":{"UnrecognizedStat":7},"4294967296":{"UnrecognizedStat":7},"-1":{"UnrecognizedStat":7}}"#,
+        ] {
+            let input = format!(r#"{{"ability_test":{{"Upgrades":{upgrades}}}}}"#);
+            let locators: Vec<_> = [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4294967294",
+                "4294967295",
+                "4294967296",
+                "-1",
+            ]
+            .iter()
+            .map(|tier| format!("/ability_test/Upgrades/{tier}/UnrecognizedStat"))
+            .collect();
+            let requested: Vec<_> = locators.iter().map(String::as_str).collect();
+            let mut expected: Vec<_> = ["-12.0", "1e2", "0.50"]
+                .iter()
+                .map(|lexeme| RawLocatorHash::Found(Sha256::digest(lexeme.as_bytes()).to_vec()))
+                .collect();
+            expected.extend(vec![RawLocatorHash::UnsupportedLocatorKind; 5]);
+            assert_eq!(
+                raw_locator_hashes(input.as_bytes(), "json_pointer", &requested).unwrap(),
+                expected
+            );
+        }
+        for locator in [
+            "/ability_test/Other/Upgrades/3/UnrecognizedStat",
+            "/ability_test/Upgrades/metadata/UnrecognizedStat",
+            "/Upgrades/3/UnrecognizedStat",
+            "/ability_test/Upgrades/3/UnrecognizedStat/nested",
+        ] {
+            assert!(!unsupported_raw_locator("json_pointer", locator));
+        }
+        assert_eq!(
+            raw_locator_hashes(
+                br#"{"ability_test":{"Other":{"Upgrades":{"3":{"UnrecognizedStat":7}}}}}"#,
+                "json_pointer",
+                &["/ability_test/Other/Upgrades/3/UnrecognizedStat"]
+            )
+            .unwrap(),
+            vec![RawLocatorHash::Found(Sha256::digest(b"7").to_vec())]
+        );
+        assert!(raw_locator_hashes(
+            br#"{"other":invalid}"#,
+            "json_pointer",
+            &["/ability_test/Upgrades/3/UnrecognizedStat"]
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn kv3_upgrade_receipts_keep_supported_lexemes_and_occurrence_aware_classification() {
+        let input = br#"{ ability_test = { m_vecAbilityUpgrades = [ { m_vecPropertyUpgrades = [ { m_strBonus = -12.0 } ] }, { m_vecPropertyUpgrades = [ { m_strBonus = 1e2 } ] }, { m_vecPropertyUpgrades = [ { m_strBonus = 0.50 } ] }, { m_vecPropertyUpgrades = [ { m_strBonus = 7 } ] } ] } }"#;
+        let locators: Vec<_> = (0..4).map(|tier| format!("/ability_test/0/m_vecAbilityUpgrades/0/[{tier}]/m_vecPropertyUpgrades/0/[0]/m_strBonus/0")).collect();
+        let requested: Vec<_> = locators.iter().map(String::as_str).collect();
+        let mut expected: Vec<_> = ["-12.0", "1e2", "0.50"]
+            .iter()
+            .map(|lexeme| RawLocatorHash::Found(Sha256::digest(lexeme.as_bytes()).to_vec()))
+            .collect();
+        expected.push(RawLocatorHash::UnsupportedLocatorKind);
+        assert_eq!(
+            raw_locator_hashes(input, "kv_pointer", &requested).unwrap(),
+            expected
+        );
+        for tier in ["3", "4294967294", "4294967295", "4294967296", "-1"] {
+            let locator = format!("/ability_test/1/m_vecAbilityUpgrades/2/[{tier}]/m_vecPropertyUpgrades/1/[5]/m_strBonus/3");
+            assert!(unsupported_raw_locator("kv_pointer", &locator));
+            assert_eq!(
+                raw_locator_hashes(input, "kv_pointer", &[&locator]).unwrap(),
+                vec![RawLocatorHash::UnsupportedLocatorKind]
+            );
+        }
+        for locator in [
+            "/ability_test/0/other/0/m_vecAbilityUpgrades/0/[3]/m_vecPropertyUpgrades/0/[0]/m_strBonus/0",
+            "/ability_test/0/m_vecAbilityUpgrades/0/[3]/other/0/[0]/m_strBonus/0",
+            "/ability_test/0/m_vecAbilityUpgrades/0/[3]/m_vecPropertyUpgrades/0/key/m_strBonus/0",
+        ] {
+            assert!(!unsupported_raw_locator("kv_pointer", locator));
         }
     }
 }

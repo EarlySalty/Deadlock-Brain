@@ -294,6 +294,10 @@ async fn real_receipt_audit_quarantines_only_corrupted_fact_and_bounds_sample() 
     .await
     .unwrap();
     assert_eq!(status, "partial");
+    upgrade_receipts_preserve_hashes_and_never_quarantine_unsupported_tiers(
+        &owner, &writer, unknown,
+    )
+    .await;
     sqlx::query("UPDATE canon.receipt SET locator_kind='json_pointer' WHERE id=$1")
         .bind(unknown)
         .execute(&owner)
@@ -322,14 +326,14 @@ async fn real_receipt_audit_quarantines_only_corrupted_fact_and_bounds_sample() 
         outcomes,
         vec![
             ("locator_not_found".into(), 1),
-            ("match".into(), 205),
+            ("match".into(), 211),
             ("mismatch".into(), 1),
-            ("unsupported_locator_kind".into(), 1),
+            ("unsupported_locator_kind".into(), 21),
         ]
     );
     let completed: i64 = sqlx::query_scalar("SELECT count(*) FROM ops.job_run WHERE job='audit-receipts' AND finished_at IS NOT NULL AND status IN ('succeeded','partial')")
         .fetch_one(&owner).await.unwrap();
-    assert_eq!(completed, 5);
+    assert_eq!(completed, 31);
     let isolation: String = sqlx::query_scalar("SHOW default_transaction_isolation")
         .fetch_one(&writer)
         .await
@@ -338,4 +342,92 @@ async fn real_receipt_audit_quarantines_only_corrupted_fact_and_bounds_sample() 
     writer.close().await;
     owner.close().await;
     admin.close().await;
+}
+
+async fn upgrade_receipts_preserve_hashes_and_never_quarantine_unsupported_tiers(
+    owner: &PgPool,
+    writer: &PgPool,
+    receipt: i64,
+) {
+    let original: (i64, String, String, Vec<u8>) = sqlx::query_as(
+        "SELECT raw_object_id,locator_kind,locator,value_sha256 FROM canon.receipt WHERE id=$1",
+    )
+    .bind(receipt)
+    .fetch_one(owner)
+    .await
+    .unwrap();
+    let original_raw: (Vec<u8>, Vec<u8>) =
+        sqlx::query_as("SELECT body,content_sha256 FROM raw.object WHERE id=$1")
+            .bind(original.0)
+            .fetch_one(owner)
+            .await
+            .unwrap();
+    for (kind, bytes) in [
+        ("json_pointer", br#"{"ability_test":{"Upgrades":[{"UnrecognizedStat":-12.0},{"UnrecognizedStat":1e2},{"UnrecognizedStat":0.50},{"UnrecognizedStat":7}]}}"#.as_slice()),
+        ("kv_pointer", br#"{ ability_test = { m_vecAbilityUpgrades = [ { m_vecPropertyUpgrades = [ { m_strBonus = -12.0 } ] }, { m_vecPropertyUpgrades = [ { m_strBonus = 1e2 } ] }, { m_vecPropertyUpgrades = [ { m_strBonus = 0.50 } ] }, { m_vecPropertyUpgrades = [ { m_strBonus = 7 } ] } ] } }"#.as_slice()),
+    ] {
+        let locator = |tier: &str| if kind == "json_pointer" {
+            format!("/ability_test/Upgrades/{tier}/UnrecognizedStat")
+        } else {
+            format!("/ability_test/0/m_vecAbilityUpgrades/0/[{tier}]/m_vecPropertyUpgrades/0/[0]/m_strBonus/0")
+        };
+        sqlx::query("UPDATE raw.object SET body=$2,content_sha256=$3 WHERE id=$1")
+            .bind(original.0).bind(bytes).bind(Sha256::digest(bytes).to_vec()).execute(owner).await.unwrap();
+        for (tier, lexeme) in [("0", "-12.0"), ("1", "1e2"), ("2", "0.50")] {
+            let hash = Sha256::digest(lexeme.as_bytes()).to_vec();
+            sqlx::query("UPDATE canon.receipt SET locator_kind=$2,locator=$3,value_sha256=$4 WHERE id=$1")
+                .bind(receipt).bind(kind).bind(locator(tier)).bind(&hash).execute(owner).await.unwrap();
+            let counts = audit_pool(writer, 16 * 1024 * 1024).await.unwrap();
+            assert_eq!((counts.sampled, counts.matched, counts.mismatched, counts.locator_not_found, counts.unsupported_locator_kind), (1, 1, 0, 0, 0));
+            let observed: Vec<u8> = sqlx::query_scalar("SELECT observed_value_sha256 FROM ops.receipt_audit WHERE receipt_id=$1 ORDER BY job_run_id DESC LIMIT 1")
+                .bind(receipt).fetch_one(owner).await.unwrap();
+            assert_eq!(observed, hash);
+        }
+        for raw_mismatch in [false, true] {
+            let hash = if raw_mismatch { vec![0; 32] } else { Sha256::digest(bytes).to_vec() };
+            sqlx::query("UPDATE raw.object SET content_sha256=$2 WHERE id=$1")
+                .bind(original.0).bind(hash).execute(owner).await.unwrap();
+            for tier in ["3", "4294967294", "4294967295", "4294967296", "-1"] {
+                sqlx::query("UPDATE canon.receipt SET locator_kind=$2,locator=$3,value_sha256=$4 WHERE id=$1")
+                    .bind(receipt).bind(kind).bind(locator(tier)).bind(vec![0u8; 32]).execute(owner).await.unwrap();
+                let counts = audit_pool(writer, 16 * 1024 * 1024).await.unwrap();
+                assert_eq!((counts.sampled, counts.matched, counts.mismatched, counts.locator_not_found, counts.unsupported_locator_kind), (1, 0, 0, 0, 1));
+                let result: (String, String, Option<Vec<u8>>) = sqlx::query_as("SELECT j.status,a.outcome,a.observed_value_sha256 FROM ops.job_run j JOIN ops.receipt_audit a ON a.job_run_id=j.id WHERE a.receipt_id=$1 ORDER BY j.id DESC LIMIT 1")
+                    .bind(receipt).fetch_one(owner).await.unwrap();
+                assert_eq!(result, ("partial".into(), "unsupported_locator_kind".into(), None));
+                let flagged: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM canon.receipt_quarantine WHERE receipt_id=$1)")
+                    .bind(receipt).fetch_one(owner).await.unwrap();
+                assert!(!flagged);
+            }
+        }
+    }
+    let invalid = b"{invalid".as_slice();
+    sqlx::query("UPDATE raw.object SET body=$2,content_sha256=$3 WHERE id=$1")
+        .bind(original.0)
+        .bind(invalid)
+        .bind(Sha256::digest(invalid).to_vec())
+        .execute(owner)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE canon.receipt SET locator_kind='json_pointer',locator='/ability_test/Upgrades/3/UnrecognizedStat' WHERE id=$1")
+        .bind(receipt).execute(owner).await.unwrap();
+    assert!(audit_pool(writer, 16 * 1024 * 1024).await.is_err());
+    let failed: (String, i64) = sqlx::query_as("SELECT status,(SELECT count(*) FROM ops.receipt_audit a WHERE a.job_run_id=j.id) FROM ops.job_run j WHERE job='audit-receipts' ORDER BY id DESC LIMIT 1")
+        .fetch_one(owner).await.unwrap();
+    assert_eq!(failed, ("failed".into(), 0));
+    sqlx::query("UPDATE raw.object SET body=$2,content_sha256=$3 WHERE id=$1")
+        .bind(original.0)
+        .bind(original_raw.0)
+        .bind(original_raw.1)
+        .execute(owner)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE canon.receipt SET locator_kind=$2,locator=$3,value_sha256=$4 WHERE id=$1")
+        .bind(receipt)
+        .bind(original.1)
+        .bind(original.2)
+        .bind(original.3)
+        .execute(owner)
+        .await
+        .unwrap();
 }
