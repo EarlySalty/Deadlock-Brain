@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::entity_profile::EntityKind;
 use crate::{
@@ -83,6 +84,7 @@ impl ToolCall {
             name: self.name,
             arguments: self.arguments.clone(),
             subrequest,
+            canonical_result_sha256: None,
         })
     }
 }
@@ -759,6 +761,8 @@ pub struct ToolRequest {
     arguments: Value,
     #[serde(skip)]
     subrequest: ToolSubrequest,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    canonical_result_sha256: Option<[u8; 32]>,
 }
 
 impl ToolRequest {
@@ -772,6 +776,13 @@ impl ToolRequest {
 
     pub fn subrequest(&self) -> &ToolSubrequest {
         &self.subrequest
+    }
+
+    pub fn without_canonical_result(&self) -> Self {
+        Self {
+            canonical_result_sha256: None,
+            ..self.clone()
+        }
     }
 }
 
@@ -951,6 +962,19 @@ pub struct ToolEvidenceDependency {
     pub evidence: Vec<Evidence>,
 }
 
+impl ToolEvidenceDependency {
+    pub fn with_canonical_result(mut self, result: &Value) -> Result<Self, PortError> {
+        self.request.canonical_result_sha256 = Some(canonical_result_sha256(result)?);
+        Ok(self)
+    }
+}
+
+fn canonical_result_sha256(result: &Value) -> Result<[u8; 32], PortError> {
+    let bytes = serde_json::to_vec(result)
+        .map_err(|_| invalid("Kanonisches Werkzeugergebnis ist ungültig"))?;
+    Ok(Sha256::digest(bytes).into())
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ToolExecution {
     pub result: ToolResult,
@@ -1011,9 +1035,16 @@ impl ToolExecution {
             game.validate()?;
             Some(game)
         };
+        let mut expected_request = request.clone();
+        if matches!(request.name(), ToolName::FindEntity | ToolName::GetHero) {
+            expected_request.canonical_result_sha256 =
+                Some(canonical_result_sha256(&self.result.result)?);
+        }
         let mut ids = BTreeSet::new();
         for dependency in &self.dependencies {
-            if &dependency.request != request || dependency.game_context.as_ref() != expected_game {
+            if dependency.request != expected_request
+                || dependency.game_context.as_ref() != expected_game
+            {
                 return Err(invalid(
                     "Belegabhängigkeit gehört nicht zur gebundenen Unteranfrage",
                 ));
@@ -1705,7 +1736,9 @@ mod tests {
                     request: request.clone(),
                     game_context: None,
                     evidence: vec![receipt],
-                }],
+                }
+                .with_canonical_result(&json!({"entity_id":7,"citation":"42"}))
+                .unwrap()],
                 usage: Usage::default(),
             };
             let game = PinnedGameContext {
@@ -1715,6 +1748,16 @@ mod tests {
             };
             assert!(execution.validate_for(&call, &request, None).is_ok());
             assert!(execution.validate_for(&call, &request, Some(&game)).is_ok());
+            assert_eq!(
+                execution.dependencies[0].request.without_canonical_result(),
+                request
+            );
+            let mut changed_result = execution.clone();
+            changed_result.result.result["omitted_count"] = serde_json::json!(1);
+            assert!(changed_result.validate_for(&call, &request, None).is_err());
+            let mut unbound = execution.clone();
+            unbound.dependencies[0].request = request.clone();
+            assert!(unbound.validate_for(&call, &request, None).is_err());
             let mut invalid = execution.clone();
             invalid.dependencies[0].game_context = Some(game);
             assert!(invalid.validate_for(&call, &request, None).is_err());
