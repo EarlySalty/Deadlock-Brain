@@ -11,10 +11,16 @@ pub(crate) const RESPONSE_AUDIT_SHAPE_PROBE: &str = "SELECT count(*)=11 FROM (VA
     JOIN pg_attribute a ON a.attrelid=to_regclass('brain.response_deviations_v1') AND a.attname=expected.name
     WHERE a.atttypid=expected.type::regtype AND a.attnotnull AND NOT a.attisdropped";
 
-const GAMEFACTS_MIGRATIONS: &[(i32, &str)] = &[(
-    1,
-    include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"),
-)];
+const GAMEFACTS_MIGRATIONS: &[(i32, &str)] = &[
+    (
+        1,
+        include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"),
+    ),
+    (
+        4,
+        include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-p4-patches-v1.sql"),
+    ),
+];
 const GAMEFACTS_V1_MIN_SERIALIZE_TRIGGERS: i64 = 14;
 const GAMEFACTS_V1_SHAPE_PROBE: &str = "SELECT s.id,s.last_complete_revision,o.id,o.content_sha256,o.body,
     r.id,r.base_revision,r.target_revision,r.extractor_version,ro.run_id,ro.path,ro.parse_status,
