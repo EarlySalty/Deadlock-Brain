@@ -51,7 +51,7 @@ impl Upstream {
             .arg(format!("--base-path={}", root.path().display()))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::inherit())
             .spawn()
             .unwrap();
         let mut upstream = Self {
@@ -65,10 +65,23 @@ impl Upstream {
         tokio::time::timeout(Duration::from_secs(8), async {
             loop {
                 assert!(upstream.daemon.try_wait().unwrap().is_none());
-                if tokio::net::TcpStream::connect(address).await.is_ok() {
+                if tokio::process::Command::new("/usr/bin/git")
+                    .env_clear()
+                    .env("PATH", "/usr/bin:/bin")
+                    .env("GIT_CONFIG_NOSYSTEM", "1")
+                    .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                    .args(["ls-remote", upstream.source.url])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .kill_on_drop(true)
+                    .status()
+                    .await
+                    .unwrap()
+                    .success()
+                {
                     break;
                 }
-                tokio::task::yield_now().await;
             }
         })
         .await
@@ -109,6 +122,10 @@ impl Upstream {
 
     fn commit(&self, parent: Option<&str>) -> String {
         self.git(&["add", "-A"]);
+        self.commit_index(parent)
+    }
+
+    fn commit_index(&self, parent: Option<&str>) -> String {
         let tree = self.git(&["write-tree"]);
         let mut arguments = vec!["commit-tree", &tree, "-m", "fixture"];
         if let Some(parent) = parent {
@@ -253,7 +270,27 @@ async fn verify_proofs(pool: &PgPool, source: Source) {
     }
 }
 
-async fn recovery(source: Source, oversized: bool, introduced: bool) {
+#[derive(Clone, Copy, Debug)]
+enum TargetFailure {
+    Malformed,
+    Oversized,
+    NonUtf8Path,
+    ControlPath,
+    Gitlink,
+}
+
+impl TargetFailure {
+    fn invalid_path(self) -> Option<&'static std::ffi::OsStr> {
+        use std::os::unix::ffi::OsStrExt;
+        match self {
+            Self::NonUtf8Path => Some(std::ffi::OsStr::from_bytes(b"zz-invalid-\xff")),
+            Self::ControlPath => Some(std::ffi::OsStr::new("zz-invalid-\n")),
+            _ => None,
+        }
+    }
+}
+
+async fn recovery(source: Source, failure: TargetFailure, introduced: bool) {
     let pg = ScratchPg::start();
     let (admin, pool) = database(&pg).await;
     let upstream = Upstream::start(source).await;
@@ -292,31 +329,145 @@ async fn recovery(source: Source, oversized: bool, introduced: bool) {
     assert_eq!(counts.sources_completed, 1);
     let expected = current(&pool).await;
     let aliases = super::localized_aliases(&pool).await;
+    let head: (String, i64) = sqlx::query_as(
+        "SELECT s.last_complete_revision,h.published_revision_id FROM raw.source s
+        JOIN canon.source_head h ON h.source_id=s.id WHERE s.id=$1",
+    )
+    .bind(source_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     store.finish(&counts, false).await.unwrap();
     upstream.file(ability_path, Some(bad_ability));
-    let oversized_bytes = vec![b'x'; 2048];
-    upstream.file(
-        hero_path,
-        Some(if oversized { &oversized_bytes } else { b"{" }),
-    );
-    let bad = upstream.commit(Some(&initial));
+    let bad = match failure {
+        TargetFailure::Malformed | TargetFailure::Oversized => {
+            let oversized_bytes = vec![b'x'; 2048];
+            upstream.file(
+                hero_path,
+                Some(if matches!(failure, TargetFailure::Oversized) {
+                    &oversized_bytes
+                } else {
+                    b"{"
+                }),
+            );
+            upstream.commit(Some(&initial))
+        }
+        TargetFailure::NonUtf8Path | TargetFailure::ControlPath => {
+            std::fs::write(
+                upstream
+                    .root
+                    .path()
+                    .join("files")
+                    .join(failure.invalid_path().unwrap()),
+                b"unsupported filename",
+            )
+            .unwrap();
+            upstream.commit(Some(&initial))
+        }
+        TargetFailure::Gitlink => {
+            upstream.git(&["add", "-A"]);
+            upstream.git(&[
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                &format!("160000,{initial},zz-invalid-gitlink"),
+            ]);
+            upstream.commit_index(Some(&initial))
+        }
+    };
+    let correct = || {
+        if let Some(path) = failure.invalid_path() {
+            std::fs::remove_file(upstream.root.path().join("files").join(path)).unwrap();
+        }
+        if matches!(failure, TargetFailure::Gitlink) {
+            upstream.git(&["update-index", "--force-remove", "zz-invalid-gitlink"]);
+        }
+        upstream.file(hero_path, Some(hero));
+        upstream.file(ability_path, if introduced { None } else { Some(ability) });
+        upstream.commit(Some(&bad))
+    };
     store = Store::start(pool.clone(), 300).await.unwrap();
     counts = Counts::default();
-    let error = source_ingest(&store, &repository, source, &mut counts)
-        .await
-        .unwrap_err();
-    assert!(error.downcast_ref::<InvalidTarget>().is_some());
+    let pending_run = if introduced {
+        assert_eq!(repository.fetch(source).await.unwrap(), bad);
+        let run = store.begin_run(source_id, &bad).await.unwrap().unwrap();
+        store.finish(&counts, true).await.unwrap();
+        store = Store::start(pool.clone(), 300).await.unwrap();
+        Some(run.id)
+    } else {
+        None
+    };
+    let corrected = pending_run.map(|_| correct());
+    let error = ingest_source(
+        &store,
+        &repository,
+        canonical_source(source),
+        1024,
+        &mut counts,
+        async {
+            assert!(
+                pending_run.is_none(),
+                "invalid pending target fetched upstream"
+            );
+            repository.fetch(source).await
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(error.downcast_ref::<InvalidTarget>().is_some(), "{error:#}");
+    let reason = match failure {
+        TargetFailure::Malformed => "invalid_source_target",
+        TargetFailure::Oversized => "git_blob_size",
+        TargetFailure::NonUtf8Path => "git_path_utf8",
+        TargetFailure::ControlPath => "git_path_invalid",
+        TargetFailure::Gitlink => "git_diff_metadata",
+    };
+    assert!(format!("{error:#}").contains(reason));
     assert_eq!(counts.raw_inserted, 1);
     assert_eq!(counts.objects_completed, 1);
     assert_eq!(current(&pool).await, expected);
-    store.finish(&counts, true).await.unwrap();
-    let failed_run: i64 =
-        sqlx::query_scalar("SELECT id FROM raw.run WHERE source_id=$1 AND target_revision=$2")
+    assert_eq!(super::localized_aliases(&pool).await, aliases);
+    assert!(store.pending(source_id).await.unwrap().is_none());
+    let (failed_run, status): (i64, String) =
+        sqlx::query_as("SELECT id,status FROM raw.run WHERE source_id=$1 AND target_revision=$2")
             .bind(source_id)
             .bind(&bad)
             .fetch_one(&pool)
             .await
             .unwrap();
+    assert_eq!(status, "failed");
+    if let Some(id) = pending_run {
+        assert_eq!(failed_run, id);
+    }
+    store.finish(&counts, true).await.unwrap();
+    let job: (String, String, bool) = sqlx::query_as(
+        "SELECT status,error_code,finished_at IS NOT NULL FROM ops.job_run WHERE id=$1",
+    )
+    .bind(store.job)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(job, ("failed".into(), "ingest_failed".into(), true));
+    let head_after: (String, i64) = sqlx::query_as(
+        "SELECT s.last_complete_revision,h.published_revision_id FROM raw.source s
+        JOIN canon.source_head h ON h.source_id=s.id WHERE s.id=$1",
+    )
+    .bind(source_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(head_after, head);
+    for table in ["fact", "alias", "relation"] {
+        let leaked: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM serve.current_{table} a JOIN canon.receipt p ON p.id=a.receipt_id JOIN canon.revision v ON v.id=p.revision_id JOIN raw.run r ON r.id=v.raw_run_id WHERE r.status<>'succeeded'"))
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(leaked, 0);
+    }
+    println!(
+        "fail closed {} {failure:?} pending={}: run={failed_run} raw_status={status} ops_status={} no_publication=true head_unchanged=true error={error:#}",
+        source.key,
+        pending_run.is_some(),
+        job.0
+    );
     let revision: Value =
         sqlx::query_scalar("SELECT to_jsonb(v) FROM canon.revision v WHERE raw_run_id=$1")
             .bind(failed_run)
@@ -345,28 +496,7 @@ async fn recovery(source: Source, oversized: bool, introduced: bool) {
             .fetch_one(&pool)
             .await
             .unwrap();
-    store = Store::start(pool.clone(), 300).await.unwrap();
-    counts = Counts::default();
-    assert!(source_ingest(&store, &repository, source, &mut counts)
-        .await
-        .is_err());
-    assert_eq!(counts.objects_completed, 0);
-    let resumed: i64 =
-        sqlx::query_scalar("SELECT id FROM raw.run WHERE source_id=$1 AND status='running'")
-            .bind(source_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(resumed, failed_run);
-    store.finish(&counts, true).await.unwrap();
-    rejects(
-        &pool,
-        &format!("UPDATE raw.run SET status='failed' WHERE id={failed_run}"),
-    )
-    .await;
-    upstream.file(hero_path, Some(hero));
-    upstream.file(ability_path, if introduced { None } else { Some(ability) });
-    let corrected = upstream.commit(Some(&bad));
+    let corrected = corrected.unwrap_or_else(correct);
     store = Store::start(pool.clone(), 300).await.unwrap();
     counts = Counts::default();
     source_ingest(&store, &repository, source, &mut counts)
@@ -429,7 +559,7 @@ async fn recovery(source: Source, oversized: bool, introduced: bool) {
     assert_eq!(entities_after, entities);
     verify_proofs(&pool, source).await;
     println!(
-        "recovered {} oversized={oversized} introduced={introduced}: {}",
+        "recovered {} failure={failure:?} introduced={introduced}: {}",
         source.key,
         counts.value()
     );
@@ -468,27 +598,53 @@ async fn recovery(source: Source, oversized: bool, introduced: bool) {
 #[tokio::test]
 async fn wiki_malformed_target_recovers_reverted_and_deleted_partial_assertions() {
     for introduced in [false, true] {
-        recovery(Source::ALL[0], false, introduced).await;
+        recovery(Source::ALL[0], TargetFailure::Malformed, introduced).await;
     }
 }
 
 #[tokio::test]
 async fn wiki_oversized_target_recovers_reverted_and_deleted_partial_assertions() {
     for introduced in [false, true] {
-        recovery(Source::ALL[0], true, introduced).await;
+        recovery(Source::ALL[0], TargetFailure::Oversized, introduced).await;
     }
 }
 
 #[tokio::test]
 async fn gametracking_malformed_target_recovers_reverted_and_deleted_partial_assertions() {
     for introduced in [false, true] {
-        recovery(Source::ALL[1], false, introduced).await;
+        recovery(Source::ALL[1], TargetFailure::Malformed, introduced).await;
     }
 }
 
 #[tokio::test]
 async fn gametracking_oversized_target_recovers_reverted_and_deleted_partial_assertions() {
     for introduced in [false, true] {
-        recovery(Source::ALL[1], true, introduced).await;
+        recovery(Source::ALL[1], TargetFailure::Oversized, introduced).await;
+    }
+}
+
+#[tokio::test]
+async fn wiki_git_validation_fails_closed_before_explicit_rerun() {
+    for failure in [
+        TargetFailure::NonUtf8Path,
+        TargetFailure::ControlPath,
+        TargetFailure::Gitlink,
+    ] {
+        for introduced in [false, true] {
+            recovery(Source::ALL[0], failure, introduced).await;
+        }
+    }
+}
+
+#[tokio::test]
+async fn gametracking_git_validation_fails_closed_before_explicit_rerun() {
+    for failure in [
+        TargetFailure::NonUtf8Path,
+        TargetFailure::ControlPath,
+        TargetFailure::Gitlink,
+    ] {
+        for introduced in [false, true] {
+            recovery(Source::ALL[1], failure, introduced).await;
+        }
     }
 }

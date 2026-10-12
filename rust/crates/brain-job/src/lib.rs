@@ -3,7 +3,7 @@ pub mod extract;
 pub mod git;
 pub mod store;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use config::Config;
 use git::{Repository, Source};
 use std::{collections::BTreeMap, future::Future};
@@ -62,22 +62,10 @@ async fn ingest_source(
     fetch: impl Future<Output = Result<String>>,
 ) -> Result<()> {
     let source_id = store.source(source).await?;
-    let mut invalid = None;
     if let Some(run) = store.pending(source_id).await? {
-        if let Err(error) = process(store, repository, source, &run, max_bytes, counts).await {
-            if error.downcast_ref::<InvalidTarget>().is_none() {
-                return Err(error);
-            }
-            invalid = Some((run, error));
-        }
+        process(store, repository, source, &run, max_bytes, counts).await?;
     }
     let target = store.during(fetch).await?;
-    if let Some((run, error)) = invalid {
-        if run.target == target {
-            return Err(error);
-        }
-        store.fail(&run).await?;
-    }
     if let Some(run) = store.begin_run(source_id, &target).await? {
         process(store, repository, source, &run, max_bytes, counts).await?;
     } else {
@@ -87,6 +75,26 @@ async fn ingest_source(
 }
 
 async fn process(
+    store: &Store,
+    repository: &Repository,
+    source: Source,
+    run: &Run,
+    max_bytes: usize,
+    counts: &mut Counts,
+) -> Result<()> {
+    let result = process_target(store, repository, source, run, max_bytes, counts).await;
+    if let Err(error) = &result {
+        if error.downcast_ref::<InvalidTarget>().is_some() {
+            store
+                .fail(run)
+                .await
+                .with_context(|| format!("fail_source_run: {error:#}"))?;
+        }
+    }
+    result
+}
+
+async fn process_target(
     store: &Store,
     repository: &Repository,
     source: Source,

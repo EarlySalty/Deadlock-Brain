@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin, ChildStdout, Command},
 };
 
@@ -288,30 +288,35 @@ pub fn valid_oid(value: &str) -> bool {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
+fn invalid_target(reason: &'static str) -> anyhow::Error {
+    anyhow::Error::new(crate::InvalidTarget).context(reason)
+}
+
 async fn delimited(
-    reader: &mut BufReader<ChildStdout>,
+    reader: &mut (impl AsyncBufRead + Unpin),
     delimiter: u8,
     limit: usize,
     timeout: Duration,
 ) -> Result<Option<Vec<u8>>> {
     let mut bytes = Vec::new();
+    let mut oversized = false;
     loop {
         let buffer = tokio::time::timeout(timeout, reader.fill_buf())
             .await
             .context("git_stream_timeout")??;
         if buffer.is_empty() {
-            ensure!(bytes.is_empty(), "git_truncated_record");
+            ensure!(bytes.is_empty() && !oversized, "git_truncated_record");
             return Ok(None);
         }
         let end = buffer.iter().position(|b| *b == delimiter);
         let count = end.map_or(buffer.len(), |i| i + 1);
-        ensure!(
-            bytes.len().saturating_add(count) <= limit,
-            "git_record_size"
-        );
-        bytes.extend_from_slice(&buffer[..count]);
+        oversized |= bytes.len().saturating_add(count) > limit;
+        if !oversized {
+            bytes.extend_from_slice(&buffer[..count]);
+        }
         reader.consume(count);
         if end.is_some() {
+            ensure!(!oversized, invalid_target("git_record_size"));
             bytes.pop();
             return Ok(Some(bytes));
         }
@@ -331,7 +336,11 @@ impl Changes {
             return Ok(None);
         };
         if self.diff {
-            let header = std::str::from_utf8(&record).context("git_diff_utf8")?;
+            let path = delimited(&mut self.reader, 0, 2049, self.timeout)
+                .await?
+                .context("git_diff_path")?;
+            let header = std::str::from_utf8(&record)
+                .map_err(|error| invalid_target("git_diff_utf8").context(error))?;
             let fields: Vec<_> = header.split(' ').collect();
             ensure!(
                 fields.len() == 5
@@ -339,43 +348,41 @@ impl Changes {
                     && valid_mode(fields[1])
                     && valid_oid(fields[2])
                     && valid_oid(fields[3]),
-                "git_diff_metadata"
+                invalid_target("git_diff_metadata")
             );
-            let path = delimited(&mut self.reader, 0, 2049, self.timeout)
-                .await?
-                .context("git_diff_path")?;
             let path = checked_path(&path)?;
             let oid = match fields[4] {
                 "D" => {
                     ensure!(
                         fields[1] == "000000" && fields[3].bytes().all(|b| b == b'0'),
-                        "git_diff_deletion"
+                        invalid_target("git_diff_deletion")
                     );
                     None
                 }
                 "A" | "M" | "T" => {
                     ensure!(
                         matches!(fields[1], "100644" | "100755" | "120000"),
-                        "git_diff_mode"
+                        invalid_target("git_diff_mode")
                     );
                     Some(fields[3].to_owned())
                 }
-                _ => bail!("git_diff_action"),
+                _ => bail!(invalid_target("git_diff_action")),
             };
             Ok(Some(Change { path, oid }))
         } else {
             let split = record
                 .iter()
                 .position(|b| *b == b'\t')
-                .context("git_tree_metadata")?;
-            let header = std::str::from_utf8(&record[..split]).context("git_tree_utf8")?;
+                .ok_or_else(|| invalid_target("git_tree_metadata"))?;
+            let header = std::str::from_utf8(&record[..split])
+                .map_err(|error| invalid_target("git_tree_utf8").context(error))?;
             let fields: Vec<_> = header.split(' ').collect();
             ensure!(
                 fields.len() == 3
                     && fields[1] == "blob"
                     && valid_oid(fields[2])
                     && matches!(fields[0], "100644" | "100755" | "120000"),
-                "git_tree_metadata"
+                invalid_target("git_tree_metadata")
             );
             Ok(Some(Change {
                 path: checked_path(&record[split + 1..])?,
@@ -386,14 +393,15 @@ impl Changes {
 }
 
 fn checked_path(bytes: &[u8]) -> Result<String> {
-    let path = std::str::from_utf8(bytes).context("git_path_utf8")?;
+    let path = std::str::from_utf8(bytes)
+        .map_err(|error| invalid_target("git_path_utf8").context(error))?;
     ensure!(
         !path.is_empty()
             && path.len() <= 512
             && !path.starts_with('/')
             && !path.chars().any(char::is_control)
             && !path.split('/').any(|part| matches!(part, "" | "." | "..")),
-        "git_path_invalid"
+        invalid_target("git_path_invalid")
     );
     Ok(path.to_owned())
 }
@@ -412,18 +420,23 @@ impl Blobs {
         let header = delimited(&mut self.output, b'\n', 256, self.timeout)
             .await?
             .context("git_blob_header")?;
-        let header = std::str::from_utf8(&header).context("git_blob_metadata")?;
+        let header = std::str::from_utf8(&header)
+            .map_err(|error| invalid_target("git_blob_metadata").context(error))?;
         let fields: Vec<_> = header.split(' ').collect();
+        ensure!(fields.as_slice() != [oid, "missing"], "git_blob_metadata");
         ensure!(
-            fields.len() == 3 && fields[0] == oid && fields[1] == "blob",
-            "git_blob_type"
+            fields.len() == 3 && fields[0] == oid,
+            invalid_target("git_blob_metadata")
         );
-        let size: usize = fields[2].parse().context("git_blob_size")?;
+        ensure!(fields[1] == "blob", invalid_target("git_blob_type"));
         ensure!(
             fields[2].bytes().all(|b| b.is_ascii_digit()),
-            "git_blob_size"
+            invalid_target("git_blob_size")
         );
-        ensure!(size <= self.limit, crate::InvalidTarget);
+        let size: usize = fields[2]
+            .parse()
+            .map_err(|error| invalid_target("git_blob_size").context(error))?;
+        ensure!(size <= self.limit, invalid_target("git_blob_size"));
         let mut bytes = Vec::with_capacity(size);
         let mut hash = Sha256::new();
         let mut chunk = [0; 64 * 1024];
@@ -516,10 +529,10 @@ mod tests {
         assert_eq!(blob.hash, Sha256::digest(bytes).to_vec());
         blobs.finish().await.unwrap();
         let mut bounded = repository.blobs(4).unwrap();
-        assert!(bounded.read(&oid).await.is_err());
+        assert_invalid(bounded.read(&oid).await.err().unwrap(), "git_blob_size");
         drop(bounded);
         let mut wrong_type = repository.blobs(4096).unwrap();
-        assert!(wrong_type.read(&a).await.is_err());
+        assert_invalid(wrong_type.read(&a).await.err().unwrap(), "git_blob_type");
         drop(wrong_type);
         let mut deleted = repository.changes(Some(&a), &b).unwrap();
         let deletion = deleted.next().await.unwrap().unwrap();
@@ -535,11 +548,163 @@ mod tests {
         );
     }
 
+    fn assert_invalid(error: anyhow::Error, reason: &str) {
+        assert!(
+            error.downcast_ref::<crate::InvalidTarget>().is_some(),
+            "{error:#}"
+        );
+        assert!(format!("{error:#}").contains(reason), "{error:#}");
+    }
+
+    #[tokio::test]
+    async fn complete_record_size_limits_do_not_reclassify_incomplete_streams() {
+        for limit in [4096, 2049, 256] {
+            let mut exact = vec![b'x'; limit - 1];
+            exact.push(0);
+            let mut reader = BufReader::with_capacity(7, exact.as_slice());
+            assert_eq!(
+                delimited(&mut reader, 0, limit, Duration::from_secs(30))
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .len(),
+                limit - 1
+            );
+            let mut oversized = vec![b'x'; limit];
+            oversized.push(0);
+            let mut reader = BufReader::with_capacity(7, oversized.as_slice());
+            assert_invalid(
+                delimited(&mut reader, 0, limit, Duration::from_secs(30))
+                    .await
+                    .unwrap_err(),
+                "git_record_size",
+            );
+            for size in [1, limit + 64] {
+                let incomplete = vec![b'x'; size];
+                let mut reader = BufReader::with_capacity(7, incomplete.as_slice());
+                let error = delimited(&mut reader, 0, limit, Duration::from_secs(30))
+                    .await
+                    .unwrap_err();
+                assert!(error.downcast_ref::<crate::InvalidTarget>().is_none());
+                assert_eq!(error.to_string(), "git_truncated_record");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn real_git_tree_and_diff_reject_gitlinks_and_non_utf8_paths() {
+        let state = tempfile::tempdir().unwrap();
+        let repository = Repository::open(state.path(), Source::ALL[0], 30)
+            .await
+            .unwrap();
+        let empty = fixture_git(&repository.path, &["mktree"], b"");
+        let base = fixture_git(&repository.path, &["commit-tree", &empty], b"base\n");
+        let blob = fixture_git(
+            &repository.path,
+            &["hash-object", "-w", "--stdin"],
+            b"fixture",
+        );
+        for (record, tree_reason, diff_reason) in [
+            (
+                format!("160000 commit {base}\tgitlink\0").into_bytes(),
+                "git_tree_metadata",
+                "git_diff_metadata",
+            ),
+            (
+                [format!("100644 blob {blob}\tbad-").as_bytes(), b"\xff\0"].concat(),
+                "git_path_utf8",
+                "git_path_utf8",
+            ),
+            (
+                format!("100644 blob {blob}\tbad-\n\0").into_bytes(),
+                "git_path_invalid",
+                "git_path_invalid",
+            ),
+            (
+                format!("100644 blob {blob}\t{}\0", "x".repeat(513)).into_bytes(),
+                "git_path_invalid",
+                "git_path_invalid",
+            ),
+            (
+                format!("100644 blob {blob}\t{}\0", "x".repeat(5000)).into_bytes(),
+                "git_record_size",
+                "git_record_size",
+            ),
+        ] {
+            let tree = fixture_git(&repository.path, &["mktree", "-z"], &record);
+            let target = fixture_git(
+                &repository.path,
+                &["commit-tree", &tree, "-p", &base],
+                b"invalid\n",
+            );
+            let mut full = repository.changes(None, &target).unwrap();
+            assert_invalid(full.next().await.err().unwrap(), tree_reason);
+            let mut diff = repository.changes(Some(&base), &target).unwrap();
+            assert_invalid(diff.next().await.err().unwrap(), diff_reason);
+        }
+    }
+
+    #[tokio::test]
+    async fn real_git_process_failure_and_interruption_remain_transient() {
+        let state = tempfile::tempdir().unwrap();
+        let repository = Repository::open(state.path(), Source::ALL[0], 30)
+            .await
+            .unwrap();
+        let mut missing = repository.changes(None, &"0".repeat(40)).unwrap();
+        let error = missing.next().await.err().unwrap();
+        assert!(error.downcast_ref::<crate::InvalidTarget>().is_none());
+        assert_eq!(error.to_string(), "git_tree_failed");
+        let blob = fixture_git(
+            &repository.path,
+            &["hash-object", "-w", "--stdin"],
+            b"fixture",
+        );
+        let entries = (0..2000)
+            .map(|index| format!("100644 blob {blob}\t{index:04}-{}\n", "x".repeat(240)))
+            .collect::<String>();
+        let tree = fixture_git(&repository.path, &["mktree"], entries.as_bytes());
+        let target = fixture_git(&repository.path, &["commit-tree", &tree], b"interrupt\n");
+        let mut interrupted = repository.changes(None, &target).unwrap();
+        assert!(interrupted.next().await.unwrap().is_some());
+        interrupted.child.start_kill().unwrap();
+        let error = loop {
+            match interrupted.next().await {
+                Ok(Some(_)) => {}
+                Ok(None) => panic!("interrupted git unexpectedly succeeded"),
+                Err(error) => break error,
+            }
+        };
+        assert!(error.downcast_ref::<crate::InvalidTarget>().is_none());
+        assert!(matches!(
+            error.to_string().as_str(),
+            "git_tree_failed" | "git_truncated_record"
+        ));
+        let mut retry = repository.changes(None, &target).unwrap();
+        let mut count = 0;
+        while retry.next().await.unwrap().is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 2000);
+        let mut missing_blob = repository.blobs(1024).unwrap();
+        let error = missing_blob.read(&"0".repeat(40)).await.err().unwrap();
+        assert!(error.downcast_ref::<crate::InvalidTarget>().is_none());
+        assert_eq!(error.to_string(), "git_blob_metadata");
+    }
+
     #[test]
     fn metadata_paths_and_object_ids_reject_executable_input() {
         for invalid in ["", "../outside", "/absolute", "x//y", "x/./y", "line\nfeed"] {
-            assert!(checked_path(invalid.as_bytes()).is_err());
+            assert_invalid(
+                checked_path(invalid.as_bytes()).unwrap_err(),
+                "git_path_invalid",
+            );
         }
+        assert_invalid(checked_path(b"bad-\xff").unwrap_err(), "git_path_utf8");
+        assert_invalid(
+            checked_path(&vec![b'x'; 513]).unwrap_err(),
+            "git_path_invalid",
+        );
+        assert!(checked_path(&vec![b'x'; 512]).is_ok());
         assert!(checked_path(b"folder/file with spaces.json").is_ok());
         assert!(valid_oid(&"a".repeat(40)));
         assert!(valid_oid(&"a".repeat(64)));
