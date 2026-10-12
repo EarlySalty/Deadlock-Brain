@@ -76,6 +76,11 @@ async fn public_profiles_use_the_isolated_role_and_recheck_source_grants() {
         .unwrap();
     store.migrate_site_profiles().await.unwrap();
     store.migrate_site_profiles().await.unwrap();
+    let index_ready: bool = sqlx::query_scalar("SELECT indisvalid AND indisready AND indpred IS NOT NULL FROM pg_index WHERE indexrelid=to_regclass('brain.entity_profile_facts_site_v1')")
+        .fetch_one(&owner)
+        .await
+        .unwrap();
+    assert!(index_ready);
     pg.grants();
     let record = source();
     store.apply(&record).await.unwrap();

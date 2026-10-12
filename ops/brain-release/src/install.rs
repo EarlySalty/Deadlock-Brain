@@ -118,6 +118,9 @@ impl Installer {
     }
 
     fn check_target(&self, target: &Path, parent: &str) -> Result<()> {
+        if parent == "maintenance-releases" && target == self.root.join("current/bin") {
+            return Ok(());
+        }
         ensure!(
             target.parent() == Some(self.root.join(parent).as_path()),
             "Releasezeiger außerhalb des Layouts"
@@ -130,6 +133,14 @@ impl Installer {
         )?;
         fs_safe::checked_path(target, self.owner, true)?;
         Ok(())
+    }
+
+    fn next_target(&self, parent: &str, sha: &str) -> PathBuf {
+        if parent == "maintenance-releases" {
+            self.root.join("current/bin")
+        } else {
+            self.root.join(parent).join(sha)
+        }
     }
 
     pub fn stage(&self, bundle: &Path, manifest: &Manifest) -> Result<()> {
@@ -322,15 +333,12 @@ impl Installer {
         let result = (|| {
             preflight()?;
             self.atomic_link("current", Some(&self.root.join("releases").join(sha)))?;
-            self.atomic_link(
-                "maintenance-current",
-                Some(&self.root.join("maintenance-releases").join(sha)),
-            )?;
+            self.atomic_link("maintenance-current", Some(&self.root.join("current/bin")))?;
             ensure!(
                 self.link_target("current", "releases")?
                     == Some(self.root.join("releases").join(sha))
                     && self.link_target("maintenance-current", "maintenance-releases")?
-                        == Some(self.root.join("maintenance-releases").join(sha)),
+                        == Some(self.root.join("current/bin")),
                 "Zeigerprüfung fehlgeschlagen"
             );
             self.installed(sha)?;
@@ -382,6 +390,7 @@ impl Installer {
                     self.check_target(&target, parent)?;
                     ensure!(
                         Some(target.clone()) == *previous
+                            || target == self.next_target(parent, &pending.sha)
                             || target == self.root.join(parent).join(&pending.sha),
                         "Fremdes Symlinkziel verhindert Rückweg"
                     );
@@ -420,7 +429,9 @@ impl Installer {
         ] {
             let current = self.link_target(name, parent)?;
             ensure!(
-                current == *previous || current == Some(self.root.join(parent).join(&pending.sha)),
+                current == *previous
+                    || current == Some(self.next_target(parent, &pending.sha))
+                    || current == Some(self.root.join(parent).join(&pending.sha)),
                 "Zeiger seit Abbruch fremd verändert"
             );
         }
@@ -482,11 +493,19 @@ mod tests {
         next.source.sha = "d".repeat(40);
         install.stage(&bundle, &next).unwrap();
         install.activate(&next.source.sha).unwrap();
+        assert_eq!(
+            fs::canonicalize(root.join("maintenance-current/brain-serve")).unwrap(),
+            fs::canonicalize(root.join("current/bin/brain-serve")).unwrap()
+        );
+        assert_eq!(
+            fs::read_link(root.join("maintenance-current")).unwrap(),
+            root.join("current/bin")
+        );
         install.activate(&manifest.source.sha).unwrap();
         assert_eq!(install.installed(&next.source.sha).unwrap(), next);
         assert_eq!(
             fs::read_link(root.join("maintenance-current")).unwrap(),
-            root.join("maintenance-releases").join(&manifest.source.sha)
+            root.join("current/bin")
         );
     }
 
@@ -592,7 +611,7 @@ mod tests {
         assert!(!root.join(".deploy-pending.json").exists());
         assert_eq!(
             fs::read_link(root.join("maintenance-current")).unwrap(),
-            root.join("maintenance-releases").join(&manifest.source.sha)
+            root.join("current/bin")
         );
     }
 
@@ -708,7 +727,7 @@ mod tests {
             install
                 .link_target("maintenance-current", "maintenance-releases")
                 .unwrap(),
-            Some(root.join("maintenance-releases").join(&manifest.source.sha))
+            Some(root.join("current/bin"))
         );
         assert!(!root.join(".deploy-pending.json").exists());
     }
@@ -840,7 +859,7 @@ mod tests {
                 installer
                     .link_target("maintenance-current", "maintenance-releases")
                     .unwrap(),
-                Some(root.join("maintenance-releases").join(&manifest.source.sha))
+                Some(root.join("current/bin"))
             );
             assert!(!exists(&root.join(".deploy-pending.json")).unwrap());
             assert!(!exists(&root.join(".deploy-pending.json.tmp")).unwrap());
