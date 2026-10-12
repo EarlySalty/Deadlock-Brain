@@ -1,5 +1,7 @@
 # P9 receipt audit
 
+Paused by the explicit 2026-10-12 16:45 user decision: P1 is stopped pending ingestion redesign. No new jobs or workers. Keep the branch and worktrees; resume only with a new briefing. Continuation state and verification boundaries are preserved in `TODO.md`.
+
 Goal: daily verification of at most 200 published canonical receipts against their immutable raw objects, quarantine mismatches or missing raw locators and exclude quarantined receipts from serving. Record audit outcomes in ops. No ingestion data-quality changes or other packages' work.
 
 Acceptance: deliberately corrupt one receipt in isolated PostgreSQL, execute the real audit, and prove exactly its fact disappears from serve results while canon history remains. Production acceptance additionally requires an actual system-unit run below 120 seconds and 200 MB measured with the enforced cgroup-v1 peak. Integration and deployment remain blocked until P1 is live and the local merge gate allows the exact integration state.
