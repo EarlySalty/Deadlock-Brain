@@ -90,14 +90,16 @@ pub(super) fn selected_hashes(
         budget,
         leaves: Vec::new(),
         selection: Some(selection),
-        active: requested.iter().map(|r| (*r, *r)).collect(),
+        active: Vec::new(),
     };
-    p.value("", 0)?;
-    p.space();
-    if p.index != input.len() {
-        return Err("invalid_json_preserved_as_text");
-    }
+    p.selected(requested)?;
     Ok(p.selection.map(|s| s.hashes).unwrap_or_default())
+}
+struct Cursor<'a> {
+    original: &'a str,
+    remaining: &'a str,
+    depth: usize,
+    start: usize,
 }
 struct Parser<'a, 'r> {
     input: &'a str,
@@ -108,6 +110,133 @@ struct Parser<'a, 'r> {
     active: Vec<(&'r str, &'r str)>,
 }
 impl Parser<'_, '_> {
+    fn selected(&mut self, requested: &BTreeSet<&str>) -> Result<(), &'static str> {
+        self.space();
+        let mut cursors: Vec<_> = requested
+            .iter()
+            .map(|pointer| Cursor {
+                original: pointer,
+                remaining: pointer,
+                depth: 0,
+                start: self.index,
+            })
+            .collect();
+        let mut stack = Vec::<usize>::new();
+        let mut keys = Vec::<(usize, String)>::new();
+        loop {
+            if self.consume(b'{') {
+                self.budget.reserve(&mut stack)?;
+                stack.push(((self.index - 1) << 1) | 1);
+                if !self.consume(b'}') {
+                    self.selected_key(&stack, &mut keys, &mut cursors)?;
+                    continue;
+                }
+                stack.pop();
+            } else if self.consume(b'[') {
+                self.budget.reserve(&mut stack)?;
+                stack.push(0);
+                if !self.consume(b']') {
+                    self.selected_child(&mut cursors, stack.len() - 1, "", Some(0));
+                    continue;
+                }
+                stack.pop();
+            } else {
+                self.value_inner("", 0)?;
+            }
+            self.selected_end(&mut cursors, stack.len())?;
+            loop {
+                let Some(frame) = stack.last_mut() else {
+                    self.space();
+                    if self.index != self.input.len() {
+                        return Err("invalid_json_preserved_as_text");
+                    }
+                    keys.sort_unstable();
+                    if keys.windows(2).any(|pair| pair[0] == pair[1]) {
+                        return Err("duplicate_json_keys_preserved_as_text");
+                    }
+                    return Ok(());
+                };
+                let object = *frame & 1 == 1;
+                if self.consume(if object { b'}' } else { b']' }) {
+                    stack.pop();
+                    self.selected_end(&mut cursors, stack.len())?;
+                    continue;
+                }
+                if !self.consume(b',') {
+                    return Err("invalid_json_preserved_as_text");
+                }
+                if object {
+                    self.selected_key(&stack, &mut keys, &mut cursors)?;
+                } else {
+                    *frame += 2;
+                    let element = *frame >> 1;
+                    self.selected_child(&mut cursors, stack.len() - 1, "", Some(element));
+                }
+                break;
+            }
+        }
+    }
+    fn selected_key(
+        &mut self,
+        stack: &[usize],
+        keys: &mut Vec<(usize, String)>,
+        cursors: &mut [Cursor<'_>],
+    ) -> Result<(), &'static str> {
+        let (key, _) = self.string()?;
+        if !self.consume(b':') {
+            return Err("invalid_json_preserved_as_text");
+        }
+        self.selected_child(cursors, stack.len() - 1, &key, None);
+        self.budget.reserve(keys)?;
+        self.budget.charge(key.capacity())?;
+        keys.push((stack[stack.len() - 1] >> 1, key));
+        Ok(())
+    }
+    fn selected_child(
+        &mut self,
+        cursors: &mut [Cursor<'_>],
+        depth: usize,
+        token: &str,
+        element: Option<usize>,
+    ) {
+        self.space();
+        for cursor in cursors.iter_mut().filter(|c| c.depth == depth) {
+            let Some(path) = cursor.remaining.strip_prefix('/') else {
+                continue;
+            };
+            let (key, rest) = path
+                .split_once('/')
+                .map_or((path, ""), |(key, _)| (key, &path[key.len()..]));
+            let key = key.replace("~1", "/").replace("~0", "~");
+            let matches = match element {
+                Some(index) => {
+                    !(key.len() > 1 && key.starts_with('0'))
+                        && key.parse::<usize>().ok() == Some(index)
+                }
+                None => key == token,
+            };
+            if matches {
+                cursor.remaining = rest;
+                cursor.depth += 1;
+                cursor.start = self.index;
+            }
+        }
+    }
+    fn selected_end(
+        &mut self,
+        cursors: &mut [Cursor<'_>],
+        depth: usize,
+    ) -> Result<(), &'static str> {
+        for cursor in cursors.iter_mut().filter(|c| c.depth == depth) {
+            if cursor.remaining.is_empty() {
+                if let Some(selection) = &mut self.selection {
+                    selection.record(cursor.original, &self.input[cursor.start..self.index])?;
+                }
+            }
+            cursor.depth = usize::MAX;
+        }
+        Ok(())
+    }
     fn space(&mut self) {
         while self
             .input
@@ -330,6 +459,90 @@ mod tests {
         );
         assert!(parse(r#"{"x":1,"x":2}"#).is_err());
         assert!(parse(r#"{"a":{"x":1},"b":{"x":2}}"#).is_ok());
+    }
+    #[test]
+    fn selected_depth_matches_core_without_changing_generic_guard() {
+        use crate::gamefacts::{receipts, Receipt};
+        use sha2::{Digest, Sha256};
+        for depth in [129, 2000] {
+            let text = format!("  {}1{}  ", "[".repeat(depth), "]".repeat(depth));
+            let pointer = "/0".repeat(depth);
+            let requested = BTreeSet::from(["", "/+0", pointer.as_str()]);
+            let hashes =
+                selected_hashes(&text, &requested, Budget::with_limit(64 * 1024 * 1024)).unwrap();
+            for locator in requested {
+                let receipt = Receipt {
+                    locator_kind: "json_pointer".into(),
+                    locator: locator.into(),
+                    value_sha256: [0; 32],
+                };
+                let bytes = receipts::value_bytes(text.as_bytes(), &receipt).unwrap();
+                assert_eq!(hashes[locator], <[u8; 32]>::from(Sha256::digest(bytes)));
+            }
+            assert_eq!(
+                parse(&text).unwrap_err(),
+                "json_depth_exceeded_preserved_as_text"
+            );
+        }
+    }
+    #[test]
+    fn selected_deep_arrays_and_objects_are_stack_safe_and_bounded() {
+        use sha2::{Digest, Sha256};
+        std::thread::Builder::new()
+            .stack_size(64 * 1024)
+            .spawn(|| {
+                for (open, close, depth) in [("[", "]", 2_000_000), ("{\"\":", "}", 800_000)] {
+                    let text = format!(
+                        "{{\"deep\":{}1{},\"x\":1}}",
+                        open.repeat(depth),
+                        close.repeat(depth)
+                    );
+                    let requested = BTreeSet::from(["", "/x", "/missing"]);
+                    let hashes =
+                        selected_hashes(&text, &requested, Budget::with_limit(64 * 1024 * 1024))
+                            .unwrap();
+                    assert_eq!(
+                        hashes[""],
+                        <[u8; 32]>::from(Sha256::digest(text.as_bytes()))
+                    );
+                    assert_eq!(hashes["/x"], <[u8; 32]>::from(Sha256::digest(b"1")));
+                    assert!(!hashes.contains_key("/missing"));
+                    let collision =
+                        text.replace(",\"x\":1}", ",\"outside\":{\"a\":1,\"\\u0061\":2},\"x\":1}");
+                    assert_eq!(
+                        selected_hashes(
+                            &collision,
+                            &requested,
+                            Budget::with_limit(64 * 1024 * 1024)
+                        )
+                        .unwrap_err(),
+                        "duplicate_json_keys_preserved_as_text"
+                    );
+                    let invalid = text.replacen("1", "01", 1);
+                    assert!(selected_hashes(
+                        &invalid,
+                        &requested,
+                        Budget::with_limit(64 * 1024 * 1024)
+                    )
+                    .is_err());
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    #[test]
+    fn selected_paths_do_not_resume_in_unrelated_siblings() {
+        let requested = BTreeSet::from(["/a/missing/x", "/a/00", "/b/+0", "/c/01"]);
+        let hashes = selected_hashes(
+            r#"{"a":[{}],"other":{"missing":{"x":1}},"b":[1],"c":{"01":2}}"#,
+            &requested,
+            Budget::new(),
+        )
+        .unwrap();
+        assert_eq!(hashes.len(), 2);
+        assert!(hashes.contains_key("/b/+0"));
+        assert!(hashes.contains_key("/c/01"));
     }
     #[test]
     fn numeric_lexemes_are_never_rounded() {

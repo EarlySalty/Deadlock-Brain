@@ -148,7 +148,25 @@ async fn large_valid_receipts_remain_published() {
     let array = format!("[{}1]", "1,".repeat(41999));
     let near_raw_limit = format!("[{}1]", "1,".repeat(1_999_999));
     let near_kv_budget = format!("[{}1]", "1,".repeat(599_999));
+    let deep_129 = format!("{}1{}", "[".repeat(129), "]".repeat(129));
+    let deep_2000 = format!("{}1{}", "[".repeat(2000), "]".repeat(2000));
+    let pointer_129 = format!("json:|{}", "/0".repeat(129));
+    let pointer_2000 = format!("json:|{}", "/0".repeat(2000));
+    let deep_limit = format!(
+        "{{\"deep\":{}1{},\"x\":1}}",
+        "[".repeat(2_000_000),
+        "]".repeat(2_000_000)
+    );
+    let deep_objects = format!(
+        "{{\"deep\":{}1{},\"x\":1}}",
+        "{\"\":".repeat(800_000),
+        "}".repeat(800_000)
+    );
     for (path, bytes) in [
+        (pointer_129.as_str(), deep_129.into_bytes()),
+        (pointer_2000.as_str(), deep_2000.into_bytes()),
+        ("json:/deep/0|/x", deep_limit.into_bytes()),
+        ("json:|/x", deep_objects.into_bytes()),
         ("json:|/41999", array.as_bytes().to_vec()),
         (
             "kv:/values/0/[0]|/values/0/[41999]",
@@ -180,7 +198,7 @@ async fn large_valid_receipts_remain_published() {
     }
     assert_eq!(
         count(&pool, "SELECT count(*) FROM serve.published_receipt").await,
-        8
+        16
     );
     let audit = receipt_audit::run(&pool).await.unwrap();
     assert_eq!(
@@ -190,11 +208,18 @@ async fn large_valid_receipts_remain_published() {
             audit.rejected_receipts,
             audit.rejected_objects
         ),
-        (8, 8, 0, 0)
+        (16, 16, 0, 0),
+        "{:?}",
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT code,detail FROM ops.receipt_audit_rejection"
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap()
     );
     assert_eq!(
         count(&pool, "SELECT count(*) FROM serve.published_receipt").await,
-        8
+        16
     );
     assert_eq!(
         count(&pool, "SELECT count(*) FROM canon.receipt_quarantine").await,
@@ -206,7 +231,7 @@ async fn large_valid_receipts_remain_published() {
     );
     assert_eq!(
         count(&pool, "SELECT count(*) FROM serve.current_fact").await,
-        4
+        8
     );
     pool.close().await;
 }

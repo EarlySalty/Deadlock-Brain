@@ -75,6 +75,18 @@ impl Budget {
         self.remaining = self.remaining.checked_sub(bytes).ok_or(EXCEEDED)?;
         Ok(())
     }
+    pub(super) fn reserve<T>(&mut self, values: &mut Vec<T>) -> Result<(), &'static str> {
+        if values.len() == values.capacity() {
+            let additional = values.capacity().clamp(4, 4096);
+            self.charge(
+                additional
+                    .checked_mul(std::mem::size_of::<T>())
+                    .ok_or(EXCEEDED)?,
+            )?;
+            values.reserve_exact(additional);
+        }
+        Ok(())
+    }
     pub fn expanded(&mut self, lengths: &[usize], overhead: usize) -> Result<(), &'static str> {
         let bytes = lengths
             .iter()
