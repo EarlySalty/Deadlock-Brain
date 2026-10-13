@@ -3,10 +3,18 @@ use brain_contracts::PortError;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, Row};
 
-pub const MIGRATIONS: &[(i32, &str)] = &[(
-    1,
-    include_str!("../../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"),
-)];
+pub const MIGRATIONS: &[(i32, &str)] = &[
+    (
+        1,
+        include_str!("../../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"),
+    ),
+    (
+        7,
+        include_str!(
+            "../../../../../scripts/migrations/2026-10-13-brain-gamefacts-run-local-v7.sql"
+        ),
+    ),
+];
 
 fn invalid() -> PortError {
     PortError::InvalidResponse("Spielwertschema fehlt, ist verändert oder nicht kompatibel".into())
@@ -93,14 +101,33 @@ async fn check(connection: &mut PgConnection, migrations: &[(i32, &str)]) -> Res
         AND NOT has_schema_privilege('brain_ingest','canon','CREATE')
         AND NOT has_table_privilege('brain_ingest','raw.object','UPDATE,DELETE,TRUNCATE')
         AND NOT has_table_privilege('brain_ingest','canon.receipt','UPDATE,DELETE,TRUNCATE')
-        AND NOT has_column_privilege('brain_ingest','canon.fact','value_num','UPDATE')
+        AND NOT has_any_column_privilege('brain_ingest','canon.fact','UPDATE')
         AND NOT has_table_privilege('brain_tool','canon.fact','INSERT,UPDATE,DELETE,TRUNCATE')
         AND NOT has_table_privilege('brain_service','canon.fact','INSERT,UPDATE,DELETE,TRUNCATE')
         AND NOT has_schema_privilege('brain_tool','raw','USAGE')
         AND NOT has_schema_privilege('brain_tool','ops','USAGE')")
-        .fetch_one(connection).await.map_err(|_| invalid())?;
+        .fetch_one(&mut *connection).await.map_err(|_| invalid())?;
     if !valid {
         return Err(invalid());
+    }
+    if migrations.iter().any(|(version, _)| *version == 7) {
+        let protected: bool = sqlx::query_scalar("SELECT EXISTS(
+            SELECT 1 FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
+            WHERE p.oid=to_regprocedure('canon.write_run_fact(bigint,text,double precision,text,boolean,bigint,bigint)')
+                AND r.rolname='brain_migrate' AND p.prosecdef
+                AND p.proconfig=ARRAY['search_path=pg_catalog']
+                AND has_function_privilege('brain_ingest',p.oid,'EXECUTE')
+                AND NOT has_function_privilege('brain_tool',p.oid,'EXECUTE')
+                AND NOT has_function_privilege('brain_service',p.oid,'EXECUTE')
+        ) AND EXISTS(
+            SELECT 1 FROM pg_trigger t WHERE t.tgrelid='ops.ingest_run'::regclass
+                AND t.tgname='keep_published_run' AND t.tgenabled='O'
+                AND t.tgfoid=to_regprocedure('ops.keep_published_run()')
+        )")
+            .fetch_one(&mut *connection).await.map_err(|_| invalid())?;
+        if !protected {
+            return Err(invalid());
+        }
     }
     Ok(())
 }
