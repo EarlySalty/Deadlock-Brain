@@ -1,6 +1,28 @@
 # P3 resume, 2026-10-13
 
-Current candidate merges the explicitly forwarded P1r core 3a checkpoint 982645cf325952b56c782fe690f6e23a5a76bf17 without rebasing onto the published P3 checkpoint 5e1ebb31. The only shared test conflict was resolved by retaining P1r's registry-tolerant tool assertions. pg_tools_tests.rs differs from the owner checkpoint only by the two-line Timer test module registration. There are no production-core or migration changes in this merge. Hero and TimerExtractor remain registered; migrations remain 1, 2, 7. Version 7 belongs to P1r. Final gate is next; no ALLOW or live deployment is claimed.
+Current published checkpoint: 87f681633da7c4a2442d192a0345eda7dc79ce26, clean and pushed. It merges the explicitly forwarded P1r core 3a checkpoint 982645cf325952b56c782fe690f6e23a5a76bf17 without rebasing onto P3 checkpoint 5e1ebb31. The only shared test conflict was resolved by retaining P1r's registry-tolerant tool assertions. pg_tools_tests.rs differs from the owner checkpoint only by the two-line Timer test module registration. There are no production-core or migration changes in this merge. Hero and TimerExtractor remain registered; migrations remain 1, 2, 7. Version 7 belongs to P1r. Actual gate round 2 returned BLOCK; no ALLOW or live deployment is claimed.
+
+## Actual local gate, round 2
+
+`python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/Deadlock-Brain-p3-timers --base origin/main --head feat/brain-p3-timers-20261012-v2` completed on published 87f681633da7c4a2442d192a0345eda7dc79ce26 with EXIT=1. Base origin/main was freshly fetched and remained edf503b280777524093307a97fabbb1bdba83d7c. Log: /tmp/brain-p3-core3a-local-gate-20261013.log.
+
+Actual configured verdict: `[gpt-6.1-sol] BLOCK: Published data remains mutable, and valid same-run replays can be rejected.`
+
+1. Reported BLOCKING: core v7 fact write permits a failed valid_from_run paired with a succeeded receipt; direct v1 INSERT grants permit additions to published runs. Reported twins include receipts, entities, identities, aliases, facts and relations.
+2. Reported BLOCKING: the cumulative receipt cap for the same raw/run/extractor can reject a valid repeated A after B in one run at the cap, leaving B while the run succeeds. Core receipt-producing paths are the empty marker, entities, aliases, facts and relations.
+3. Reported NIT: verify that release units::install actually installs both added job templates.
+
+A fresh native read-only fixer independently confirmed both BLOCKING mechanisms from the executable code/SQL and checked all twins. These are code-verified findings, not newly executed runtime reproductions. Core v1 allows six direct INSERT paths and publishes facts by receipt run while valid_from_run is independently set; core v7 does not guard those direct INSERTs. A succeeded receipt paired with a failed fact run can expose a row, and a subsequent run-local UPSERT can retract it. Required owner correction: additive DB-enforced run/receipt consistency and published-content write protection synchronized with publication; do not edit frozen migrations 1/7.
+
+The second finding is a concrete per-application/cumulative-bound mismatch: central limits allow 4096 FactSet rows, but the deferred v1 receipt cap aggregates raw/run/extractor. Valid same-run A and B each emit 4096 receipts; the final A targets the original raw ID, reaches 8192 in that group, and rolls back. The Runner records an object rejection and still succeeds, leaving B. The rejection is observable in counters; no fully silent failure claim is made. Empty-marker, entity, alias, fact and relation receipt insertion paths all use the same helper. Entity-identity reuses its entity receipt. Required owner correction: preserve the per-application bound and correct renewed-publication order, not increase the limit or skip the final A.
+
+For the NIT, units::install does exist at ops/brain-release/src/units.rs:90-158. Its registry at lines 9-25 includes only three long-running services, not either job template. The targeted release-code search found no other job-template installation path. Template installation must remain separate from enabling/starting instances; simply adding templates to the existing start-and-cgroup-check list would be incorrect. No live installation or service state was inspected.
+
+All corrections are shared-core/release-owner work for P1r, not P3. No Timer extractor/source/tool/view fix is necessary for these findings. The actual BLOCK and successful core-3a checks were sent to the responsible orchestrator; the confirmed ownership report is the next handover. Frozen shared core remains unchanged. No unchanged gate retry, alternate-reviewer vote, trigger bypass, test skip, main merge, deployment or cleanup was attempted.
+
+WIRKUNGSPRUEFUNG[WP-1]: 3 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 0/0 geprüft
+
+MERGEPROTOKOLL[MS-1]: 0 Git-Schritte einzeln | Anläufe: 2 | Gate: BLOCK
 
 ## Core 3a verification
 
