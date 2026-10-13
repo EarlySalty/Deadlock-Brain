@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Deadlock Brain: Architektur heute und Ziel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--bg:#0f1216;--panel:#171b21;--lane:#1b2027;--lane2:#161a20;--line:#2b323c;--text:#e6e9ee;--muted:#9aa4b2;--ok:#2f7d5b;--okfill:#18322a;--bad:#d64545;--badfill:#3a1a1c;--accent:#e0a63a;--blue:#4d8fd6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{padding:22px 28px 10px}
+h1{margin:0 0 4px;font-size:24px}
+.sub{color:var(--muted);margin:0}
+.tabs{display:flex;gap:8px;padding:12px 28px 0}
+.tab{background:var(--panel);color:var(--text);border:1px solid var(--line);border-bottom:none;padding:9px 20px;border-radius:8px 8px 0 0;cursor:pointer;font-size:15px}
+.tab[aria-selected="true"]{background:var(--lane);border-color:var(--accent);color:var(--accent);font-weight:600}
+main{border-top:1px solid var(--line);padding:16px 28px 40px}
+.intro{max-width:1100px;margin:0 0 12px;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:18px;margin:0 0 12px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{display:inline-block;width:18px;height:12px;border-radius:3px;border:2px solid}
+.sw.ok{border-color:var(--ok);background:var(--okfill)}
+.sw.bad{border-color:var(--bad);background:var(--badfill)}
+.sw.n{border-color:#3c4654;background:#20262e}
+.badge{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#1a1300;font-weight:700;font-size:12px}
+.wrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.stage{position:relative;width:1500px;margin:0 auto}
+.stage svg.arrows{position:absolute;left:0;top:0;z-index:1;pointer-events:none}
+.lane{position:absolute;left:8px;right:8px;border-radius:8px;z-index:0}
+.lane .lt{position:absolute;left:12px;top:10px;width:118px;font-weight:700;font-size:14px;color:#c9d1dc;line-height:1.25}
+.grp{position:absolute;border:1px dashed #3c4654;border-radius:10px;z-index:0}
+.grp span{position:absolute;right:10px;top:4px;font-size:12px;color:#7d8896}
+.box{position:absolute;z-index:2;border-radius:7px;border:1.6px solid #3c4654;background:#20262e;padding:7px 10px 8px;font-size:12.5px;color:#b9c2ce;line-height:1.38;cursor:default}
+.box.bad{border:2.2px solid #d64545;background:#3a1a1c}
+.box.ok{border-color:#2f7d5b;background:#18322a}
+.box .t{font-weight:700;font-size:13.5px;color:#f2f4f7;margin-bottom:2px}
+.box .r{color:#ff8a8a}
+.step{position:absolute;z-index:3;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;background:#e0a63a;color:#1a1300;border:2px solid #1a1300;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px;margin-top:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px}
+.card h2{font-size:17px;margin:0 0 8px}
+.card ol,.card ul{margin:0;padding-left:22px}
+.card li{margin:4px 0}
+.card li b{color:var(--text)}
+.card .m{color:var(--muted)}
+.bad-t{color:#ff8a8a}
+.box.stopped{border-style:dashed}
+.status-list{list-style:none;padding:0!important}
+.status-list li{padding:10px 0;border-bottom:1px solid var(--line)}
+.status-list li:last-child{border-bottom:0}
+.status{display:inline-block;padding:2px 8px;margin-right:6px;border:1px solid #3c4654;border-radius:4px;font-size:12px;font-weight:600}
+.status.live{color:#8cdbb4;border-color:var(--ok);background:var(--okfill)}
+.status.work{color:#e9be6b;border-color:#946c27;background:#302716}
+.status.stopped{color:#ffaaaa;border-color:var(--bad);background:var(--badfill)}
+.status.open{color:#b9c2ce}
+.date{font-size:12px;color:var(--muted)}
+.status-list p{margin:5px 0 0}
+.status-list details{margin-top:5px;color:var(--muted);font-size:13px}
+.status-list code{overflow-wrap:anywhere}
+.tab:focus-visible,.wrap:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:600px){header{padding:18px 16px 8px}.tabs{padding:10px 16px 0}main{padding:14px 16px 28px}.cols{grid-template-columns:minmax(0,1fr)}.card{padding:12px 14px}}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header>
+<h1>Deadlock Brain: Architektur</h1>
+<p class="sub">Stand 13.10.2026. „Heute“ zeigt den geprüften Betrieb, „Ziel“ den Zielaufbau und den Stand der Umbauschritte.</p>
+</header>
+<div class="tabs" role="tablist">
+<button class="tab" role="tab" id="t-ist" aria-selected="true" data-view="ist">Heute</button>
+<button class="tab" role="tab" id="t-ziel" aria-selected="false" data-view="ziel">Ziel</button>
+</div>
+<main>
+<section id="v-ist">
+<p class="intro">So steht das Brain am 13.10.2026. Rot markiert ist, was dem Zielbild widerspricht. Gestrichelte Kästen und Leitungen gehören zu gestoppten Strecken. Die Mengen im Speicher stammen aus der Messung vom 11.10.; der Betrieb wurde heute erneut geprüft. Fahre mit der Maus über einen Kasten für Details.</p>
+<div class="legend">
+<span><i class="sw bad"></i>widerspricht dem Ziel</span>
+<span><i class="sw n"></i>passt oder neutral</span>
+<span><i class="sw ok"></i>bereits im Ziel</span>
+<span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" stroke="#d64545" stroke-width="2"/></svg>Datenfluss, der wegfallen soll</span>
+<span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" stroke="#6f7c8c" stroke-width="2"/></svg>Datenfluss</span>
+</div>
+<div class="wrap" tabindex="0" aria-label="Heutiger Aufbau, horizontal scrollbar"><div class="stage" id="stage-ist"></div></div>
+<div class="cols">
+<div class="card">
+<h2>Was dem Ziel widerspricht</h2>
+<ol>
+<li><b>Alte Nebenstrecken:</b> dl-knowledge und die Pflege sind seit dem 12.10. gestoppt. Ihr Code und ihre gespeicherten Daten sind noch vorhanden.</li>
+<li><b>Spieldaten an vielen Orten:</b> zwei Postgres-Datenbanken, dazu eine Kopie der alten Tabellen, Dateien auf der Platte und Live-Abrufe während der Antwort.</li>
+<li><b>Daten werden vorab geladen:</b> vor jeder Antwort wird ein ganzes Release in den Speicher gelesen; Werkzeuge laden ganze Datenpakete. Die gestoppte Pflege lud komplette Git-Snapshots (1,7 bis 3,5 GB).</li>
+<li><b>Steckbrief mit eigener Strecke:</b> aus Git-Snapshots abgeleitet, als Textblöcke und HTML-Dateien gespeichert, nicht aus Postgres-Fakten gebaut.</li>
+<li><b>Prüfung zum Teil da:</b> Antworten brauchen Belege und Bots schweigen sonst. Die Grenze von 20 Millionen Token schützt aber nichts, und Belege werden bei jeder Anfrage neu aus Git gelesen.</li>
+</ol>
+</div>
+<div class="card">
+<h2>Betrieb heute</h2>
+<ul>
+<li>brain-serve, Webseite und Freigabewächter laufen aus demselben Release ef0418d5. Zugangsdaten kommen über systemd, ohne Python.</li>
+<li>Die sechs Nebentimer stehen seit dem 09.10. still und bleiben gestoppt. Entscheidung 2a vom 12.10.</li>
+<li>Pflege-Timer und dl-knowledge sind seit dem 12.10. um 00:21 gestoppt und deaktiviert. Die Pflege läuft nicht mehr alle 5 Minuten.</li>
+<li>brain-serve nutzt eine Konfiguration. Die gestoppte Pflege aktiviert keine neuen Releases.</li>
+<li>System-Dienste erzwingen Speichergrenzen: brain-serve 512 MiB, Webseite 256 MiB, Freigabewächter 64 MiB. Das Ziel unter 200 MB für brain-serve ist noch offen.</li>
+</ul>
+</div>
+</div>
+</section>
+<section id="v-ziel" hidden>
+<p class="intro">Ein Brain, eine Datenbank. Alle Spieldaten liegen in Postgres, Guides und Tipps in den Docs. Das Modell bekommt nichts vorab und fragt bei Bedarf gezielt über Werkzeuge nach. Die Kreise zeigen die Reihenfolge der Umbauschritte.</p>
+<div class="legend">
+<span><i class="sw ok"></i>Baustein im Ziel</span>
+<span><i class="badge">1</i>Umbauschritt</span>
+<span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" stroke="#e0a63a" stroke-width="2" stroke-dasharray="6 4"/></svg>Weg der Umbauschritte</span>
+<span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" stroke="#4d8fd6" stroke-width="2"/></svg>Datenfluss</span>
+</div>
+<div class="progress" aria-label="Stand der Umbauschritte am 13.10.2026">
+<span class="status live">0, 0b: live seit 12.10.</span>
+<span class="status work">1, 2, 3, 4, 5, 9: in Arbeit am 13.10.</span>
+<span class="status open">6, 7, 8: offen am 13.10.</span>
+<span class="status open">10: geplant am 12.10.</span>
+<span class="status stopped">P1: gestoppt am 12.10.</span>
+<p class="intro" style="margin-top:8px">Die Einzelstände stehen unter dem Diagramm. Pflege und dl-knowledge bleiben aus; die sechs Nebentimer bleiben nach Entscheidung 2a gestoppt.</p>
+</div>
+<div class="wrap" tabindex="0" aria-label="Zielaufbau, horizontal scrollbar"><div class="stage" id="stage-ziel"></div></div>
+<div class="cols">
+<div class="card">
+<h2>Umbauschritte: Stand 13.10.2026</h2>
+<p class="m">„Live“ heißt im laufenden Betrieb. „In Arbeit“ heißt noch nicht auf main. „Offen“ heißt noch nicht begonnen. „Gestoppt“ heißt bewusst angehalten.</p>
+<ul class="status-list">
+<li><span class="status live">live</span><span class="date">12.10.2026</span><p><b>0: Ein Release.</b> brain-serve, Webseite und Freigabewächter aus demselben Ordner, Zugangsdaten über systemd, ohne Python. <span class="m">Auf main: c7123fe7.</span></p></li>
+<li><span class="status live">live</span><span class="date">12.10.2026</span><p><b>0b: Speichergrenzen erzwingen.</b> Die drei Dienste laufen als System-Dienste unter dem eigenen Nutzer. Grenzen: 512, 256 und 64 MiB. <span class="m">Auf main: ef0418d5.</span></p></li>
+<li><span class="status work">in Arbeit</span><span class="date">13.10.2026</span><p><b>1: Baba aus Postgres.</b> Neuer Anlauf P1r mit einfacherem Einlesen. Zuerst Helden aus einer Quelle; Fähigkeiten, zweite Quelle und Übersetzungen folgen einzeln. Prüfung: Antwort mit Beleg, Einlesen unter 300 MB, kein Snapshot.</p><details><summary>Arbeitszweig und erster Anlauf</summary><p><code>feat/brain-p1r-hero-slice-20261012</code>, noch nicht auf main.</p><p><span class="status stopped">gestoppt</span> P1 wurde am 12.10. nach fünf abgelehnten Prüfrunden angehalten. Fehlerhafte Quelldateien konnten das Einlesen dauerhaft blockieren.</p></details></li>
+<li><span class="status work">in Arbeit</span><span class="date">13.10.2026</span><p><b>2: Items und Fähigkeiten.</b> Assets API einlesen, get_item, get_ability, compare.</p><details><summary>Arbeitszweig</summary><p><code>feat/brain-p2-items-abilities-20261012-v2</code>, noch nicht auf main.</p></details></li>
+<li><span class="status work">in Arbeit</span><span class="date">13.10.2026</span><p><b>3: Timer.</b> Urne, Soul Boxes und Spawns über get_timer.</p><details><summary>Arbeitszweig</summary><p><code>feat/brain-p3-timers-20261012-v2</code>, noch nicht auf main.</p></details></li>
+<li><span class="status work">in Arbeit</span><span class="date">13.10.2026</span><p><b>4: Patches.</b> Patchnotes einlesen, patch_history.</p><details><summary>Arbeitszweig</summary><p><code>feat/brain-p4-patches-20261012-v2</code>, noch nicht auf main.</p></details></li>
+<li><span class="status work">in Arbeit</span><span class="date">13.10.2026</span><p><b>5: Docs.</b> Guides und Tipps über search_docs; Discord soll ohne dl-knowledge auskommen.</p><details><summary>Arbeitszweig</summary><p><code>feat/brain-p5-docs-20261012-v2</code>, noch nicht auf main.</p></details></li>
+<li><span class="status open">offen</span><span class="date">13.10.2026</span><p><b>6: Nur noch Werkzeuge.</b> Vorabladen entfernen, Zahlen gegen Fakten prüfen, echte Grenzen. Ziel: brain-serve unter 200 MB.</p></li>
+<li><span class="status open">offen</span><span class="date">13.10.2026</span><p><b>7: Steckbrief umstellen.</b> Die Webseite soll den Steckbrief direkt aus Postgres zeigen. Die alte Pflege-Strecke bleibt bis dahin gestoppt.</p></li>
+<li><span class="status open">offen</span><span class="date">13.10.2026</span><p><b>8: Aufräumen.</b> Alte Tabellen, Kopien, ungenutzter Code und alte Releases. Nur mit deiner Freigabe.</p></li>
+<li><span class="status work">in Arbeit</span><span class="date">13.10.2026</span><p><b>9: Belege prüfen.</b> Täglich eine Stichprobe gegen die Rohdaten.</p><details><summary>Arbeitszweig</summary><p><code>feat/brain-p9-receipt-audit-20261012-v2</code>, noch nicht auf main.</p></details></li>
+<li><span class="status open">offen</span><span class="date">geplant am 12.10.2026</span><p><b>10: Meta-Statistik.</b> Nach den Schritten 2 bis 5: Helden- und Item-Statistiken von deadlock-api stündlich in Postgres speichern und dauerhaft behalten. Kein Löschen älterer Stände.</p></li>
+</ul>
+<p class="m">Schritte 2 bis 5 und die Belegprüfung laufen parallel. Quelle: origin/main, die genannten Arbeitszweige, der heute geprüfte Dienstzustand und die Entscheidungen vom 12.10. in TODO.md um 17:47 und 18:01.</p>
+</div>
+<div class="card">
+<h2>So entsteht eine Antwort</h2>
+<ol>
+<li>Discord, Twitch, MCP oder Webseite stellen die Frage an das Brain.</li>
+<li>Das Modell bekommt die Frage und die Liste der Werkzeuge, aber keine Daten.</li>
+<li>Es ruft Werkzeuge auf, zum Beispiel get_hero für Baba. Jede Zeile kommt mit Beleg und Patch.</li>
+<li>Die Prüfung vergleicht jede genannte Zahl und jede Quelle mit dem, was die Werkzeuge geliefert haben.</li>
+<li>Stimmt alles, geht die Antwort mit Quellen raus. Sonst sagt das Brain, dass es nicht sicher ist; Discord und Twitch schweigen.</li>
+</ol>
+<h2 style="margin-top:14px">Belege ohne Snapshots</h2>
+<ul>
+<li>Beim Einlesen wird jeder Wert zusammen mit seinem Beleg gespeichert: welche Quelle, welche Stelle, welcher Stand.</li>
+<li>Beim Antworten wird nichts neu geladen; der Beleg ist die Quelle.</li>
+</ul>
+</div>
+</div>
+</section>
+</main>
+<script>
+const NS="http://www.w3.org/2000/svg";
+const W=1500;
+const LX=150;
+const views={
+ist:{
+height:1010,
+lanes:[
+["Quellen",16,140],["Einlesen und Timer",168,150],["Speicher",330,180],["Antwortkern",522,190],["Adapter",724,112],["Prozesse und Arbeitsspeicher",848,150]
+],
+groups:[{x:LX-8,y:534,w:1100,h:168,label:"brain-serve"}],
+boxes:[
+{id:"assets",x:LX,y:34,w:124,t:"Assets API",l:["ganze Datenpakete","in Postgres gespiegelt"]},
+{id:"live",x:LX+133,y:34,w:124,t:"deadlock-api.com",l:["Statistik live","während der Antwort"],bad:1,d:"Ranglisten werden bei jeder passenden Frage live abgerufen statt aus Postgres gelesen."},
+{id:"git",x:LX+266,y:34,w:124,t:"Spieldateien",l:["Git: GameTracking,","deadlock-data"]},
+{id:"patch",x:LX+399,y:34,w:124,t:"Patchnotes",l:["vom Patchnotes-Bot","in der zentralen DB"]},
+{id:"sheet",x:LX+532,y:34,w:124,t:"Google Sheet",l:["Timer gestoppt"],bad:1,d:"Keine Quelle im Zielbild."},
+{id:"wiki",x:LX+665,y:34,w:124,t:"Wiki",l:["als Dateien","Timer gestoppt"],bad:1,d:"Liegt als Dateien auf der Platte, nicht in Postgres."},
+{id:"forum",x:LX+798,y:34,w:124,t:"Forum",l:["nur über Brave"],bad:1,d:"Braucht einen Brave-Browser mit eigenem Wächterdienst."},
+{id:"yt",x:LX+931,y:34,w:124,t:"YouTube",l:["Timer gestoppt"],bad:1,d:"Der Timer ist inaktiv. Der letzte Lauf scheiterte, weil eine Datei im Release fehlte."},
+{id:"docs",x:LX+1064,y:34,w:124,t:"Docs HTML",l:["182 Seiten"]},
+{id:"repos",x:LX+1197,y:34,w:130,t:"Code-Repos (9)",l:["Stoff für KI-Doku"]},
+{id:"maint",x:LX,y:184,w:300,t:"Pflege-Timer gestoppt",l:["seit 12.10., 00:21 deaktiviert","kein regelmäßiger Lauf","alte Snapshot-Strecke bleibt aus"],bad:1,stopped:1,d:"brain-maintenance.timer ist deaktiviert, brain-maintenance.service inaktiv. Frühere Läufe luden 1,7 bis 3,5 GB und bauten Steckbrief-Fakten und HTML-Dateien."},
+{id:"side",x:LX+320,y:184,w:270,t:"Sechs Nebentimer",l:["seit 09.10. gestoppt","bleiben aus: Entscheidung 2a","Zugangsdaten über systemd"],bad:1,stopped:1,d:"patchnotes-sync, sheet-sync, build-data, wiki-refresh, youtube-learning, dl-brain-feeder. Alle sechs Timer sind inaktiv, ohne nächsten Lauf; sie sind nicht deaktiviert."},
+{id:"aimod",x:LX+610,y:184,w:270,t:"KI in der Pflege gestoppt",l:["alter Code noch vorhanden","codex und Jev direkt","kein laufender Pflege-Auftrag"],bad:1,stopped:1,d:"Die frühere Pflege ging am zentralen Anbieter vorbei. Seit dem 12.10. ist die Pflege gestoppt."},
+{id:"activ",x:LX+900,y:184,w:280,t:"Alte Aktivierung gestoppt",l:["kein Pflege-Release aktiviert","alte Strecke noch vorhanden","Konfiguration bleibt unverändert"],bad:1,stopped:1,d:"Die gestoppte Pflege aktiviert keine neuen Releases. Die neue Betriebsstrecke nutzt ein gemeinsames Release."},
+{id:"central",x:LX,y:346,w:270,t:"Zentrale DB (deadlock)",l:["Schema brain: 55 Tabellen","1,3 GB, alter Python-Speicher","mit Bots geteilt"],bad:1,d:"Zweiter Speicher für Spieldaten. Seit 09.10. schreibt nur noch der Patchnotes-Bot hinein."},
+{id:"legacy",x:LX+290,y:346,w:200,t:"brain_legacy",l:["Kopie der zentralen","Tabellen in der Brain-DB"],bad:1,d:"Doppelte Daten, nur für die Übernahme gebaut."},
+{id:"braindb",x:LX+510,y:346,w:330,t:"Brain-DB (brain)",l:["eigener Postgres, nur lokal","Spiegel der Assets API","!Steckbrief-Fakten: 1,5 GB Textblöcke","!280 Releases für die Antwort"],d:"Socket 5446. Die Datenbank selbst passt, ihr Inhalt ist auf die alte Strecke zugeschnitten."},
+{id:"files",x:LX+860,y:346,w:230,t:"Dateien",l:["Wiki-Kopie","Steckbrief als HTML","Git-Klone, Repo-Ordner"],bad:1,d:"Spieldaten außerhalb von Postgres."},
+{id:"dlk",x:LX+1110,y:346,w:220,t:"dl-knowledge gestoppt",l:["seit 12.10., 00:21 deaktiviert","alter Suchindex noch vorhanden"],bad:1,stopped:1,d:"Der eigene Suchdienst für Discord ist inaktiv und deaktiviert. Die Umstellung der Docs auf das Brain läuft in Schritt 5."},
+{id:"pre",x:LX+8,y:560,w:260,t:"Vorabladen",l:["liest das ganze Release","in den Speicher","bevor das Modell fragt"],bad:1,d:"Das Modell bekommt fertige Treffer statt selbst gezielt nachzufragen."},
+{id:"tools",x:LX+288,y:560,w:270,t:"9 Werkzeuge",l:["laden ganze Datenpakete","lesen Git bei jeder Anfrage","holen Statistik live"],bad:1,d:"entity_find, entity_profile, hero_compare, damage_calculate, patch_history, build_plan, game_rules, server_knowledge, deadlock_data."},
+{id:"prov",x:LX+578,y:560,w:220,t:"Modellzugang",l:["zentraler Anbieter","Modell aus der Konfiguration"],d:"Passt zum Ziel."},
+{id:"gate",x:LX+818,y:560,w:265,t:"Prüfung",l:["Antwort nur mit Beleg","Bots schweigen sonst","!Grenze 20 Mio. Token"],d:"Teilweise erfüllt. Zahlen werden noch nicht gegen Fakten geprüft."},
+{id:"discord",x:LX,y:740,w:300,t:"Discord",l:["Brain aktiv, dl-knowledge aus"],d:"Die Verbindung zum Brain bleibt. Der zusätzliche Suchdienst ist seit dem 12.10. gestoppt."},
+{id:"twitch",x:LX+330,y:740,w:300,t:"Twitch",l:["fragt nur das Brain"]},
+{id:"mcp",x:LX+660,y:740,w:300,t:"MCP",l:["fragt nur das Brain"]},
+{id:"web",x:LX+990,y:740,w:337,t:"Webseite",l:["Steckbrief aus HTML-Dateien"],bad:1},
+{id:"pr1",x:LX,y:864,w:200,t:"Pflege gestoppt",l:["kein laufender Dienst","Timer deaktiviert"],bad:1,stopped:1},
+{id:"pr2",x:LX+220,y:864,w:200,t:"Ein Release",l:["ef0418d5","seit 12.10. live"],ok:1},
+{id:"pr3",x:LX+440,y:864,w:200,t:"brain-serve",l:["System-Dienst","Grenze: 512 MiB"],ok:1},
+{id:"pr4",x:LX+660,y:864,w:200,t:"Webseite",l:["System-Dienst","Grenze: 256 MiB"],ok:1},
+{id:"pr5",x:LX+880,y:864,w:220,t:"Freigabewächter",l:["System-Dienst","Grenze: 64 MiB"],ok:1},
+{id:"pr6",x:LX+1120,y:864,w:207,t:"Grenzen erzwungen",l:["für diese drei Dienste","seit 12.10. live"],ok:1}
+],
+arrows:[
+["assets","braindb",{via:[[212,146],[146,146],[146,338],[825,338]]}],
+["git","maint",{bus:154,bad:1}],
+["docs","maint",{bus:154,bad:1}],
+["repos","aimod",{bus:174,bad:1}],
+["sheet","side",{bus:166,bad:1}],
+["wiki","side",{bus:166,bad:1}],
+["forum","side",{bus:166,bad:1}],
+["yt","side",{bus:166,bad:1}],
+["patch","side",{bus:166,bad:1}],
+["aimod","maint",{via:[[895,298],[460,298],[460,176],[300,176]],bad:1}],
+["maint","activ",{bus:310,bad:1,toBottom:1}],
+["side","central",{bus:330,bad:1}],
+["maint","braindb",{bus:318,bad:1}],
+["maint","files",{bus:318,bad:1}],
+["docs","dlk",{via:[[1276,146],[1488,146],[1488,334],[1370,334]],bad:1}],
+["central","legacy",{side:1,bad:1}],
+["braindb","pre",{bus:508,bad:1}],
+["braindb","tools",{bus:526}],
+["git","tools",{via:[[478,146],[140,146],[140,542],[573,542]],bad:1}],
+["live","tools",{via:[[345,146],[140,146],[140,542],[573,542]],bad:1}],
+["pre","prov",{bus:678,bad:1,toBottom:1}],
+["tools","prov",{side:1}],
+["prov","gate",{side:1}],
+["gate","discord",{bus:698}],
+["gate","twitch",{bus:698}],
+["gate","mcp",{bus:698}],
+["gate","web",{bus:698}],
+["dlk","discord",{bus:718,bad:1}],
+["files","web",{via:[[1125,494],[1248,494],[1248,714],[1308.5,714]],bad:1}]
+]
+},
+ziel:{
+height:1030,
+lanes:[
+["Quellen",16,112],["Ein Programm, ein Release",140,132],["Postgres, eine Datenbank",284,190],["Antwortkern",486,230],["Adapter",728,112],["Prozesse",852,160]
+],
+groups:[{x:LX-8,y:300,w:1345,h:160,label:"brain"}],
+boxes:[
+{id:"s_assets",x:LX,y:34,w:250,t:"Assets API",l:["Namen, Aliase, Bilder,","Beschreibungen"],ok:1},
+{id:"s_git",x:LX+270,y:34,w:250,t:"Spieldateien (Git)",l:["die echten Zahlen aus dem Spiel,","versioniert je Commit"],ok:1},
+{id:"s_patch",x:LX+540,y:34,w:250,t:"Patchnotes",l:["was Valve geändert hat,","mit Datum: setzt die Patch-Grenzen"],ok:1},
+{id:"s_docs",x:LX+810,y:34,w:250,t:"Docs HTML",l:["Guides, Tipps, Erklärungen"],ok:1},
+{id:"j_assets",x:LX,y:158,w:250,t:"Assets einlesen",l:["nur Geändertes speichern","stündlich"],ok:1},
+{id:"j_git",x:LX+270,y:158,w:250,t:"Spieldateien einlesen",l:["nur geänderte Dateien","bei neuem Patch, sonst stündlich"],ok:1},
+{id:"j_patch",x:LX+540,y:158,w:250,t:"Patchnotes einlesen",l:["neue Einträge","alle 5 Minuten"],ok:1},
+{id:"j_docs",x:LX+810,y:158,w:250,t:"Docs einlesen",l:["in Abschnitte teilen","bei Änderung, sonst stündlich"],ok:1},
+{id:"j_audit",x:LX+1080,y:158,w:247,t:"Belege prüfen",l:["täglich eine Stichprobe","gegen die Rohdaten"],ok:1},
+{id:"raw",x:LX+8,y:322,w:290,t:"Rohdaten",l:["was die Quelle geliefert hat,","Byte für Byte, mit Stand"],ok:1},
+{id:"fact",x:LX+328,y:322,w:330,t:"Fakten mit Patch und Beleg",l:["ein Wert pro Zeile","gültig ab Patch, bis Patch","Beleg: Quelle und Stelle"],ok:1},
+{id:"view",x:LX+688,y:322,w:300,t:"Ansichten",l:["Steckbrief je Held","Item, Fähigkeit, Timer","nur aus den Fakten gebaut"],ok:1},
+{id:"dsec",x:LX+1018,y:322,w:300,t:"Docs-Abschnitte",l:["durchsuchbar","mit Verweis auf Helden und Items"],ok:1},
+{id:"toolbox",x:LX,y:504,w:520,t:"Werkzeuge (kleine, gezielte Abfragen)",l:["find_entity: Namen auflösen","get_hero: Steckbrief eines Helden","get_ability / get_item: Fähigkeit, Item","get_timer: Urne, Soul Boxes, Spawns","compare: bis zu 4 Einträge vergleichen","patch_history: Änderungen je Patch","search_docs: Guides und Tipps"],ok:1,d:"Jede Abfrage hat ein Limit und einen Index. Jede Zeile kommt mit Beleg und Patch."},
+{id:"model",x:LX+550,y:504,w:250,t:"Modell",l:["über den zentralen Anbieter","bekommt nichts vorab","fragt Werkzeuge bei Bedarf","höchstens 4 Runden"],ok:1},
+{id:"check",x:LX+830,y:504,w:240,t:"Prüfung",l:["jede Quelle belegt","jede Zahl gegen Fakten","sonst: nicht sicher"],ok:1},
+{id:"out",x:LX+1100,y:504,w:227,t:"Ergebnis",l:["Antwort mit Quellen","oder: nicht sicher","Bots schweigen dann"],ok:1},
+{id:"a_discord",x:LX,y:744,w:300,t:"Discord",l:["nur über das Brain"],ok:1},
+{id:"a_twitch",x:LX+330,y:744,w:300,t:"Twitch",l:["nur über das Brain"],ok:1},
+{id:"a_mcp",x:LX+660,y:744,w:300,t:"MCP",l:["nur über das Brain"],ok:1},
+{id:"a_web",x:LX+990,y:744,w:337,t:"Webseite",l:["Steckbrief aus den Ansichten"],ok:1},
+{id:"p_rel",x:LX,y:870,w:300,t:"Ein Release",l:["alle Dienste aus einem Ordner","eine Konfiguration","Zugangsdaten über systemd"],ok:1},
+{id:"p_mem",x:LX+330,y:870,w:300,t:"Speichergrenze je Dienst",l:["brain-serve unter 200 MB","Einlesen unter 300 MB","als System-Dienst erzwungen"],ok:1},
+{id:"p_units",x:LX+660,y:870,w:300,t:"Dienste",l:["brain-serve, Webseite, Postgres","Einlese-Timer"],ok:1},
+{id:"p_clean",x:LX+990,y:870,w:337,t:"Aufräumen",l:["alte Tabellen, Kopien, alter Code","nur mit Freigabe"],ok:1}
+],
+arrows:[
+["s_assets","j_assets",{}],["s_git","j_git",{}],["s_patch","j_patch",{}],["s_docs","j_docs",{}],["j_patch","j_git",{side:1}],
+["j_assets","raw",{bus:276}],["j_git","raw",{bus:276}],["j_patch","raw",{bus:276}],["j_docs","dsec",{bus:292}],
+["raw","fact",{side:1}],["fact","view",{side:1}],
+["j_audit","fact",{bus:306,dash:1}],
+["view","toolbox",{bus:470}],["fact","toolbox",{bus:470}],["dsec","toolbox",{bus:470}],
+["toolbox","model",{side:1}],["model","check",{side:1}],["check","out",{side:1}],
+["out","a_discord",{bus:706}],["out","a_twitch",{bus:706}],["out","a_mcp",{bus:706}],["out","a_web",{bus:706}],
+["view","a_web",{via:[[988,454],[1488,454],[1488,726],[1308.5,726]]}]
+],
+steps:[
+["p_rel",0],["p_mem","0b"],["j_git",1],["j_assets",2],["view",3],["j_patch",4],["j_docs",5],["model",6],["a_web",7],["p_clean",8],["j_audit",9]
+]
+}
+};
+function el(n,a,p){const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e}
+function div(cls,css,p){const d=document.createElement("div");d.className=cls;Object.assign(d.style,css);p.appendChild(d);return d}
+function render(name){
+const v=views[name];const st=document.getElementById("stage-"+name);
+st.style.height=v.height+"px";
+v.lanes.forEach(([label,y,h],i)=>{const l=div("lane",{top:y+"px",height:h+"px",background:i%2?"#161a20":"#1b2027"},st);div("lt",{},l).textContent=label});
+(v.groups||[]).forEach(g=>{const d=div("grp",{left:g.x+"px",top:g.y+"px",width:g.w+"px",height:g.h+"px"},st);const s=document.createElement("span");s.textContent=g.label;d.appendChild(s)});
+const map={};
+v.boxes.forEach(b=>{
+const d=div("box"+(b.bad?" bad":b.ok?" ok":"")+(b.stopped?" stopped":""),{left:b.x+"px",top:b.y+"px",width:b.w+"px"},st);
+d.dataset.id=b.id;
+div("t",{},d).textContent=b.t;
+b.l.forEach(s=>{const red=s[0]==="!";const x=div(red?"r":"",{},d);x.textContent=red?s.slice(1):s});
+d.title=b.t+": "+b.l.map(s=>s.replace(/^!/,"")).join(", ")+(b.d?". "+b.d:"");
+b.node=d;map[b.id]=b;
+});
+const svg=el("svg",{class:"arrows",width:W,height:v.height,viewBox:"0 0 "+W+" "+v.height},null);
+st.appendChild(svg);
+const defs=el("defs",{},svg);
+[["n","#6f7c8c"],["b","#d64545"],["z","#4d8fd6"]].forEach(([id,c])=>{const m=el("marker",{id:name+"-m"+id,viewBox:"0 0 10 10",refX:"9",refY:"5",markerWidth:"7",markerHeight:"7",orient:"auto-start-reverse"},defs);el("path",{d:"M0,0 L10,5 L0,10 z",fill:c},m)});
+v.boxes.forEach(b=>{b.h=b.node.offsetHeight});
+v.arrows.forEach(([f,t,o])=>{
+const a=map[f],b=map[t];o=o||{};
+const color=o.bad?"#d64545":name==="ziel"?"#4d8fd6":"#6f7c8c";
+const mk="url(#"+name+"-m"+(o.bad?"b":name==="ziel"?"z":"n")+")";
+let pts;
+if(o.side){
+const ltr=b.x>a.x,x1=ltr?a.x+a.w:a.x,x2=ltr?b.x:b.x+b.w;
+const y1=a.y+a.h/2,y2=b.y+b.h/2,mx=(x1+x2)/2;
+pts=[[x1,y1],[mx,y1],[mx,y2],[x2,y2]];
+}else{
+const x1=a.x+a.w/2,y1=a.y+a.h,x2=b.x+b.w/2,y2=o.toBottom?b.y+b.h:b.y;
+const bus=o.bus==null?(y1+y2)/2:o.bus;
+pts=[[x1,y1],...(o.via||[[x1,bus],[x2,bus]]),[x2,y2]];
+}
+const stopped=a.stopped||b.stopped;
+const d=pts.map(([x,y],i)=>(i?"L":"M")+x+","+y).join(" ");
+const path=el("path",{d,fill:"none",stroke:color,"stroke-width":o.bad?2:1.8,"stroke-dasharray":stopped?"5 4":o.dash?"5 4":"","marker-end":mk,opacity:stopped?.5:.9,"data-from":f,"data-to":t},svg);
+el("title",{},path).textContent=a.t+" → "+b.t+(stopped?" (gestoppt)":"");
+});
+if(v.steps){
+const pts=v.steps.map(([id,n])=>{const b=map[id];return{n,x:b.x+b.w-13,y:b.y-13}});
+const ys=[...new Set(pts.map(q=>q.y))].sort((a,b)=>a-b),rail=W-6;
+el("path",{d:`M${rail},${ys[0]} V${ys[ys.length-1]}`,fill:"none",stroke:"#e0a63a","stroke-width":2.2,"stroke-dasharray":"7 5",opacity:.55},svg);
+ys.forEach(y=>{const x=Math.min(...pts.filter(q=>q.y===y).map(q=>q.x));el("path",{d:`M${x},${y} H${rail}`,fill:"none",stroke:"#e0a63a","stroke-width":2.2,"stroke-dasharray":"7 5",opacity:.55},svg)});
+pts.forEach(q=>{const s=div("step",{left:q.x+"px",top:q.y+"px"},st);s.textContent=String(q.n)});
+}
+}
+render("ist");
+let zielDone=false;
+document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
+document.querySelectorAll(".tab").forEach(o=>o.setAttribute("aria-selected",o===t?"true":"false"));
+document.getElementById("v-ist").hidden=t.dataset.view!=="ist";
+document.getElementById("v-ziel").hidden=t.dataset.view!=="ziel";
+if(t.dataset.view==="ziel"&&!zielDone){zielDone=true;render("ziel")}
+}));
+if(location.hash==="#ziel")document.getElementById("t-ziel").click();
+</script>
+</body>
+</html>
