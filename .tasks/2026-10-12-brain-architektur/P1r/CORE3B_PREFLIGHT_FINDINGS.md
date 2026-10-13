@@ -22,6 +22,19 @@ These are schema-drift/preflight defects, not failures of the correctly installe
 
 Preflight decomposition writer `abcb0fe3fd50aeaab` and reviewer `a2f955c15495a91ea` in `wf_42f07e77-403` completed clean `e2701a5c7efe384d4468c8dd7f36dbda1ff60a37`. Eleven tests and matching checks passed independently; all 15 SQL literals remained byte-identical. Parent integrated V10 plus the refactor as `25949841db7e290296f62e22051e48edaeb358b8` with source parity verified.
 
-Fresh metadata fixer `a9400505b71534b08`, workflow `wf_8248d105-58f`, task `w3yaaqoqx`, now owns only migrations.rs/migrations_tests.rs from basee270. It closes these three confirmed gaps after the completed refactor handover, with no overlapping writer. Independent source/runtime verification follows. Preserve small helpers, frozen SQL and lawful administrator-only evidence probes.
+Signed-body/ACL fixer `a9400505b71534b08`, workflow `wf_8248d105-58f`, task `w3yaaqoqx`, completed clean `c4f0372ec6b96526a0ecccf1fe47642ffe91cbb9`, only migrations.rs/migrations_tests.rs. All three original gaps close. Author and fresh reviewer `aaf7dc85e4e1dec07` each ran20 actual tests/check/strict Clippy/fmt, including139 intentional V7/V8/V10/ACL fault configurations. Frozen SQL unchanged; no parent integration/publication yet.
+
+## Execution-attribute follow-up
+
+Fresh independent PG16 proof `/tmp/brain-review-c4f037-proof.log` confirms two additional false accepts against c4:
+
+1. V7 `canon.write_run_fact(... ) STRICT` passes all six exact audit predicates but silently skips normal calls containing nullable fact fields. Successful call leaves2facts instead of3; the same arguments write3 after restoring CALLED ON NULL INPUT.
+2. V8 `canon.guard_fact_integrity() STABLE` passes preflight but lawful INSERT fails0A000 because its SELECT FOR UPDATE requires volatile execution.
+
+All15 other independent metadata negatives reject, legitimate old raw/new refs and administrator-only receipt corruption remain legal, and the reviewer confirms its own private PG stopped with no lasting fixture changes. Review BLOCK is scoped code review, not a second parent gate.
+
+Fresh isolated fixer `a0e16c2aa7cc16ad9`, workflow `wf_6cd1b9e2-5de`, task `wy4l9cn8n`, owns only migrations.rs/migrations_tests.rs after c4's completed handover. Inspect signed execution attributes systematically across all six V7/V8/V9/V10 functions, including non-STRICT/VOLATILE/PARALLEL UNSAFE/non-LEAKPROOF defaults and relevant support hooks. Preserve bodies/signatures/ACLs/trigger metadata, private helpers, sparse registries, frozen SQL and positive nullable-write behavior. Fresh independent review follows.
+
+The orchestrator's separate duplicate-JSON ingest request from P9 ef62ecdf is owned by `aa5265444d730dd69`, workflow `wf_3d709ae4-e23`, task `w1k8wvbs8`, in disjoint receipt-parser/storage-test files. Details and combined acceptance are in TODO.md; P2 slot mapping remains outside P1r.
 
 Core3b remains unpublished. Own local gate count remains one BLOCK and zero ALLOW. No main merge, deployment, production ingestion, timer activation or live answer acceptance is claimed.
