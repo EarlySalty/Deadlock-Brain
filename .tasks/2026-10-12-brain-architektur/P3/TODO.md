@@ -68,6 +68,23 @@ The read-only reviewer confirmed this qualified offline index claim with zero ne
 
 Post-publication formatter and strict four-package all-target Clippy also passed on c8c5125c, logs /tmp/brain-p3-published-fmt-check-20261013.log and /tmp/brain-p3-published-all-targets-clippy-20261013.log. Production/test files were restored exactly after the temporary A/B/A observation; remaining changes are proof notes only.
 
-Remaining: merge the next P1r preflight checkpoint when forwarded, obtain the core reversion-contract decision, prove a successful real CLI job and peak, final local gate, then P1r handover. Live answer/trace and system-unit/cgroup proof belong to the integrator after verified main deployment. No ALLOW or live proof exists yet. This verified P3 checkpoint is an intermediate branch publication, not the agreed gate-ready handover or a completed deployment.
+Remaining: merge the next P1r preflight checkpoint when forwarded, obtain the core reversion-contract decision, prove a successful real CLI job and peak, resolve the actual local gate findings below, then P1r handover. Live answer/trace and system-unit/cgroup proof belong to the integrator after verified main deployment. No ALLOW or live proof exists yet. This verified P3 checkpoint is an intermediate branch publication, not the agreed gate-ready handover or a completed deployment.
+
+## Actual local gate, round 1
+
+The gate entry point is /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py. The configured review chain starts with gpt-6.1-sol and falls back to claude-opus-5-5 only on a technical failure. No model override was used.
+
+`python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/Deadlock-Brain-p3-timers --base origin/main --head feat/brain-p3-timers-20261012-v2` completed with EXIT=1 on published HEAD 98aea3ca1b4a6da670d8828b7024eeeb16080375. Log: /tmp/brain-p3-local-gate-20261013.log. Gate: `[gpt-6.1-sol] BLOCK: The ingest CLI is broken, and source reversions silently retain stale values.`
+
+1. migrations.rs:66: ingest-role structural preflight reads inaccessible serve views. Previously reproduced, assigned to P1r.
+2. gamefacts.rs:222 and brain-job/src/lib.rs:84: historical was_applied skips renewed A publication after B. Previously reproduced, assigned to P1r.
+3. brain-job/src/sources.rs:45: deadlock-data loads hero-data.json but the current registry only has TimerExtractor. A fresh native fixer confirmed the silent ignored-object path and traced the missing hero wiring to P1r/AUFTRAG.md:19. Both inherited P1r checkpoints had an empty extractor registry; P3 removed no hero registration. BRIEFING_P3.md:14 permits game files or deadlock-data, and the registered gametracking loader supplies both accepted KV3 files. JSON timer ingestion through deadlock-data is not an additional mandatory P3 source. This is a real inherited P1r source/registry gap, not authority to change the shared loader or waive the gate.
+4. NIT in ops/brain-job@.service:14: the fresh fixer confirmed v1-specific checks, but ops/brain-release/P0b.md:3,41 explicitly specifies a v1 host and assigns the templates to P1. No target-host defect was established. Live applicability remains the integrator's check; no service operation was performed.
+
+The fresh read-only fixer found no necessary P3-owned correction that can resolve the actual BLOCK. Shared core files remain unchanged. The two explicitly assigned owner fixes and the inherited source/registry gap need an owner checkpoint before another substantive gate round.
+
+No main merge, deployment or cleanup was attempted. No unchanged gate rerun or waiver was used.
+
+MERGEPROTOKOLL[MS-1]: 0 Git-Schritte einzeln | Anläufe: 1 | Gate: BLOCK
 
 Public fixtures: GameTracking e6bb7e33d212b110d138f98427ef37f9a80c2839 at /tmp/brain-p3-public-core2-20261013.o4gMBt/gametracking.git on ionos, local symlink to /tmp/brain-p3-public-v2-20261012.TOVndF/gametracking.git. Core hero fixture 2a26e26535a390c309e300e2c7b2763fa5ad7abd at /tmp/brain-p3-core2-hero-fixture-20261013.KdtU5H/hero.git on both hosts. Fixtures are public raw data; no downloaded scripts executed.
