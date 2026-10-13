@@ -21,6 +21,7 @@ pub enum ToolName {
     GameRules,
     ServerKnowledge,
     DeadlockData,
+    SearchDocs,
 }
 
 impl ToolName {
@@ -35,6 +36,7 @@ impl ToolName {
             Self::GameRules => "game_rules",
             Self::ServerKnowledge => "server_knowledge",
             Self::DeadlockData => "deadlock_data",
+            Self::SearchDocs => "search_docs",
         }
     }
 }
@@ -444,6 +446,7 @@ pub enum ToolSubrequest {
     GameRules(GameRulesRequest),
     ServerKnowledge(ServerKnowledgeRequest),
     DeadlockData(DeadlockDataRequest),
+    SearchDocs(SearchDocsRequest),
 }
 
 impl ToolSubrequest {
@@ -467,6 +470,7 @@ impl ToolSubrequest {
             ToolName::DeadlockData => {
                 serde_json::from_value(arguments.clone()).map(Self::DeadlockData)
             }
+            ToolName::SearchDocs => serde_json::from_value(arguments.clone()).map(Self::SearchDocs),
             ToolName::ServerKnowledge => {
                 serde_json::from_value(arguments.clone()).map(Self::ServerKnowledge)
             }
@@ -578,6 +582,7 @@ impl ToolSubrequest {
                 }
                 Ok(())
             }
+            Self::SearchDocs(request) => request.validate(),
             Self::ServerKnowledge(request) => {
                 validate_text(&request.question)?;
                 if let Some(id) = request.public_channel_id {
@@ -958,7 +963,9 @@ impl ToolExecution {
             }
             return Ok(());
         }
-        let expected_game = if request.name() == ToolName::ServerKnowledge {
+        let expected_game = if request.name() == ToolName::ServerKnowledge
+            || request.name() == ToolName::SearchDocs
+        {
             None
         } else {
             let game = game_context
