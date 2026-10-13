@@ -11,15 +11,16 @@ fn request() -> ToolRequest {
     .unwrap()
 }
 
-fn receipt(id: i64, padding: usize) -> Evidence {
-    receipt_evidence(
-        json!({"receipt_id":id,"source_id":"official-patchnotes","evidence_revision":1,
+fn receipt_row(id: i64, padding: usize) -> Value {
+    json!({"receipt_id":id,"source_id":"official-patchnotes","evidence_revision":1,
         "receipt":{"citation":id.to_string(),"raw_object_id":9,"ingest_run_id":1,"source":"official-patchnotes",
-            "source_revision":"feed1","path":"post/9","content_sha256":"ab".repeat(32),
+            "source_revision":"feed1","path":format!("post/9{}", "x".repeat(padding)),"content_sha256":"ab".repeat(32),
             "locator_kind":"json_pointer","locator":"/raw_content","value_sha256":"cd".repeat(32),
-            "extractor":"patchnotes","extra":"x".repeat(padding),"patch":null}}),
-    )
-    .unwrap()
+            "extractor":"patchnotes","patch":null}})
+}
+
+fn receipt(id: i64, padding: usize) -> Evidence {
+    receipt_evidence(receipt_row(id, padding)).unwrap()
 }
 
 fn change(id: i64, statement: &str) -> Value {
@@ -165,13 +166,25 @@ fn receipt_identity_does_not_depend_on_the_requested_patch() {
         first.dependencies[0].evidence,
         second.dependencies[0].evidence
     );
-    let mut row = json!({"receipt_id":1,"source_id":"official-patchnotes","evidence_revision":1,
-        "receipt":serde_json::from_str::<Value>(&receipt(1,0).content).unwrap()});
+    let mut row = receipt_row(1, 0);
     row["receipt"]["patch"] = json!("p1");
     assert!(receipt_evidence(row.clone()).is_err());
     row["receipt"]["patch"] = Value::Null;
     row["receipt"]["value_sha256"] = json!("invalid");
     assert!(receipt_evidence(row).is_err());
+}
+
+#[test]
+fn normalization_still_requires_the_raw_content_hash() {
+    let evidence = receipt(1, 0);
+    assert_eq!(evidence.source_id, "canon.source/official-patchnotes");
+    let content: Value = serde_json::from_str(&evidence.content).unwrap();
+    assert!(content.get("content_sha256").is_none());
+    for hash in [Value::Null, json!("invalid"), json!("gg".repeat(32))] {
+        let mut row = receipt_row(1, 0);
+        row["receipt"]["content_sha256"] = hash;
+        assert!(receipt_evidence(row).is_err());
+    }
 }
 
 #[test]

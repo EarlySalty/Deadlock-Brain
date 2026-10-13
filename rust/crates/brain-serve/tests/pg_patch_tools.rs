@@ -1,6 +1,7 @@
 use brain_contracts::{
-    tools::canonical_patch_history_definition, AuthorizedContext, PortError, Principal, Query,
-    ToolCall, ToolExecution, ToolName,
+    tools::canonical_patch_history_definition, AuthorizedContext, PinnedGameContext, PortError,
+    Principal, Query, ToolCall, ToolExecution, ToolExecutionPort, ToolName, ToolRequest,
+    ToolValidationPurpose,
 };
 use brain_serve::pg_patch_tools::{execute_patch_history, validate_patch_dependency};
 use brain_storage::{
@@ -20,6 +21,9 @@ use std::collections::BTreeSet;
 
 #[path = "../../brain-storage/tests/support/scratch_pg.rs"]
 mod scratch_pg;
+
+#[path = "../src/pg_patch_tools.rs"]
+mod p4_unit_contracts;
 
 struct Database {
     admin: PgPool,
@@ -447,7 +451,12 @@ fn verify_receipts(execution: &ToolExecution, objects: &[RawObject]) {
         assert_eq!(content["source"], raw.source);
         assert_eq!(content["source_revision"], raw.revision);
         assert_eq!(content["path"], raw.path);
-        assert_eq!(content["content_sha256"], hex::encode(raw.content_sha256));
+        assert!(content.get("content_sha256").is_none());
+        assert_eq!(
+            <[u8; 32]>::from(Sha256::digest(&raw.bytes)),
+            raw.content_sha256
+        );
+        assert_eq!(evidence.source_id, format!("canon.source/{}", raw.source));
         assert_eq!(content["citation"], evidence.citation);
         assert_eq!(content["ingest_run_id"].as_u64(), Some(evidence.revision));
         let receipt = Receipt {
@@ -649,9 +658,9 @@ async fn real_current_projection_and_composed_patch_history() {
     validate_patch_dependency(&db.reader, &query, &context, &execution.dependencies[0])
         .await
         .unwrap();
-    let request = &execution.dependencies[0].request;
+    let request = execution.dependencies[0].request.without_canonical_result();
     assert!(matches!(
-        execute_patch_history(&db.admin, &query, &context, "patch-call", request).await,
+        execute_patch_history(&db.admin, &query, &context, "patch-call", &request).await,
         Err(PortError::PermissionDenied(_))
     ));
     assert!(sqlx::query("SELECT bytes FROM raw.object")
@@ -944,7 +953,7 @@ async fn real_current_projection_and_composed_patch_history() {
         .execute(&mut *slow).await.unwrap();
     slow.commit().await.unwrap();
     assert!(matches!(
-        execute_patch_history(&db.reader, &query, &context, "timeout-proof", request).await,
+        execute_patch_history(&db.reader, &query, &context, "timeout-proof", &request).await,
         Err(PortError::Unavailable(_))
     ));
     let mut restore = db.admin.begin().await.unwrap();
@@ -1117,6 +1126,130 @@ async fn incoherent_heads_and_removed_statements_are_hidden() {
         .unwrap();
     assert_eq!(changes, 0);
     println!("P4_HEAD_PROOF mismatched raw/run/extractor hidden, complete statement removal hidden through real GameFactsStore and brain_tool queries");
+    db.close().await;
+}
+
+struct NoOtherTools;
+
+impl ToolExecutionPort for NoOtherTools {
+    fn execute(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        _: Option<&PinnedGameContext>,
+        _: &str,
+        _: &ToolRequest,
+    ) -> Result<ToolExecution, PortError> {
+        panic!("canonical patch execution must not reach the delegate")
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn quarantined_omitted_middle_post_invalidates_every_validation_purpose() {
+    let pg = scratch_pg::ScratchPg::start();
+    let db = Database::start(&pg).await;
+    db.publish(
+        "heroes",
+        "baba",
+        "hero",
+        json!({"key":"hero_baba","aliases":["Baba"],"health":500}),
+        true,
+    )
+    .await;
+    let entity = db.hero_id("hero_baba").await;
+    for index in 1..=3 {
+        db.publish(
+            "deadlock_patchnotes_db",
+            &index.to_string(),
+            &format!("r{index}"),
+            patch(
+                index,
+                &format!("p{index}"),
+                &format!("2026-10-0{index}T12:00:00Z"),
+                vec![change(
+                    1,
+                    "baba",
+                    "health",
+                    &format!("Baba: health changed from {index} to {}", index + 1),
+                )],
+            ),
+            false,
+        )
+        .await;
+    }
+    let all = db
+        .execute(json!({"entity":entity,"since":"p1","until":"p3"}))
+        .await;
+    assert_eq!(rows(&all).len(), 3);
+    let middle = rows(&all).iter().find(|row| row["patch"] == "p2").unwrap();
+    let hidden = middle["citation"].as_str().unwrap().parse::<i64>().unwrap();
+    let arguments = json!({"entity":entity,"since":"p1","until":"p3","limit":1});
+    let stale = db.execute(arguments.clone()).await;
+    assert_eq!(rows(&stale).len(), 1);
+    assert_eq!(rows(&stale)[0]["patch"], "p3");
+    assert_eq!(stale.result.result["omitted_count"], 2);
+    assert!(!stale.result.evidence_ids.contains(&hidden.to_string()));
+    let port = brain_serve::pg_patch_port::PgPatchToolPort::new(
+        NoOtherTools,
+        db.reader.clone(),
+        tokio::runtime::Handle::current(),
+    )
+    .unwrap();
+    let (query, context) = query_context();
+    for purpose in [
+        ToolValidationPurpose::Provider,
+        ToolValidationPurpose::Publication,
+        ToolValidationPurpose::Cache,
+    ] {
+        port.validate_dependencies(&query, &context, None, &stale.dependencies, purpose)
+            .unwrap();
+    }
+    let definition: String =
+        sqlx::query_scalar("SELECT pg_get_viewdef('serve.published_receipt'::regclass, true)")
+            .fetch_one(&db.admin)
+            .await
+            .unwrap();
+    db.quarantine(&definition, &[hidden]).await;
+    let fresh = db.execute(arguments).await;
+    assert_eq!(rows(&fresh), rows(&stale));
+    assert_eq!(fresh.result.evidence_ids, stale.result.evidence_ids);
+    assert_eq!(
+        fresh.dependencies[0].evidence,
+        stale.dependencies[0].evidence
+    );
+    assert_eq!(fresh.result.result["omitted_count"], 1);
+    assert_eq!(
+        fresh.result.result["current_official_patch"],
+        stale.result.result["current_official_patch"]
+    );
+    assert_eq!(fresh.result.result["range"], stale.result.result["range"]);
+    assert_eq!(
+        fresh.dependencies[0].request.without_canonical_result(),
+        stale.dependencies[0].request.without_canonical_result()
+    );
+    assert_ne!(fresh.dependencies[0].request, stale.dependencies[0].request);
+    let mut result = fresh.result.result.clone();
+    result["omitted_count"] = json!(2);
+    assert_eq!(result, stale.result.result);
+    for purpose in [
+        ToolValidationPurpose::Provider,
+        ToolValidationPurpose::Publication,
+        ToolValidationPurpose::Cache,
+    ] {
+        assert!(matches!(
+            port.validate_dependencies(&query, &context, None, &stale.dependencies, purpose),
+            Err(PortError::Unavailable(_))
+        ));
+        port.validate_dependencies(&query, &context, None, &fresh.dependencies, purpose)
+            .unwrap();
+    }
+    db.quarantine(&definition, &[]).await;
+    assert_eq!(
+        db.execute(json!({"entity":entity,"since":"p1","until":"p3","limit":1}))
+            .await,
+        stale
+    );
+    println!("P4_OMISSION_SEAL_PROOF three posts/runs, only omitted middle receipt quarantined, selected row/evidence unchanged, omitted_count 2->1, stale seal rejected for Provider/Publication/Cache");
     db.close().await;
 }
 

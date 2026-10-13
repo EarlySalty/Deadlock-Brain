@@ -149,7 +149,7 @@ fn typed_canonical_validation_still_bounds_loose_schemas() {
 }
 
 fn execution(call: &ToolCall, request: &brain_contracts::ToolRequest) -> ToolExecution {
-    ToolExecution {
+    let mut execution = ToolExecution {
         result: ToolResult {
             call_id: call.id.clone(),
             name: call.name,
@@ -176,7 +176,61 @@ fn execution(call: &ToolCall, request: &brain_contracts::ToolRequest) -> ToolExe
             }],
         }],
         usage: Usage::default(),
+    };
+    if matches!(
+        request.subrequest(),
+        ToolSubrequest::CanonicalPatchHistory(_)
+    ) {
+        execution.dependencies[0] = execution.dependencies[0]
+            .clone()
+            .with_canonical_result(&execution.result)
+            .unwrap();
     }
+    execution
+}
+
+#[test]
+fn canonical_result_seals_all_metadata_and_ignores_only_the_call_id() {
+    let call = call(json!({"entity":1,"limit":1}));
+    let request = call
+        .validate(&[canonical_patch_history_definition()])
+        .unwrap();
+    let execution = execution(&call, &request);
+    execution.validate_for(&call, &request, None).unwrap();
+    assert_eq!(
+        execution.dependencies[0].request.without_canonical_result(),
+        request
+    );
+    let mut unbound = execution.clone();
+    unbound.dependencies[0].request = request.clone();
+    assert!(unbound.validate_for(&call, &request, None).is_err());
+    for (field, value) in [
+        ("omitted_count", json!(1)),
+        ("omitted_count_is_lower_bound", json!(true)),
+        ("truncated", json!(true)),
+        ("completeness", json!("changed")),
+        ("current_official_patch", json!({"label":"new"})),
+        ("range", json!({"since":"older"})),
+        ("changes", json!([])),
+    ] {
+        let mut changed = execution.clone();
+        changed.result.result[field] = value;
+        assert!(
+            changed.validate_for(&call, &request, None).is_err(),
+            "{field}"
+        );
+    }
+    let mut changed = execution.clone();
+    changed.result.evidence_ids.clear();
+    assert!(changed.validate_for(&call, &request, None).is_err());
+    let mut changed = execution.clone();
+    changed.result.is_error = true;
+    assert!(changed.validate_for(&call, &request, None).is_err());
+    let mut renamed_call = call.clone();
+    renamed_call.id = "revalidation".into();
+    let mut renamed = execution;
+    renamed.result.call_id.clone_from(&renamed_call.id);
+    renamed.validate_for(&renamed_call, &request, None).unwrap();
 }
 
 #[test]

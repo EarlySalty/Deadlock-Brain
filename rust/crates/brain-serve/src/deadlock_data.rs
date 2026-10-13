@@ -1478,7 +1478,7 @@ impl<T: ToolExecutionPort> ToolExecutionPort for Tools<T> {
 
 #[cfg(test)]
 #[path = "../../brain-storage/tests/support/scratch_pg.rs"]
-mod scratch_pg;
+pub(crate) mod scratch_pg;
 
 #[cfg(test)]
 mod tests {
