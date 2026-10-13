@@ -1,6 +1,6 @@
 # P3 resume, 2026-10-13
 
-Current candidate is the automatic, no-rebase merge of explicitly approved origin/main 0b105f92abaa2697b9c93e20483c60e8d7c8a3b1 into the published P3 branch. The orchestrator's direct 23:15 go-ahead was received after the earlier delivery hold. Hero and TimerExtractor remain registered, with sparse migrations 1, 2, 7, 8, 9, 10. Both additive P3 registrations survived unchanged. No applied migration was edited. The earlier implementation checkpoint 87f68163 and its gate history are retained below; a new actual gate on this candidate remains pending. No ALLOW or live deployment is claimed.
+Current candidate includes the automatic, no-rebase merge of explicitly approved origin/main 0b105f92abaa2697b9c93e20483c60e8d7c8a3b1, published as c9c8c936, and the subsequently fetched release-only main fix eea3c4ecd890f0620a701697ce116d14a25076d4, also merged automatically without conflicts. This follows the direct 23:15 instruction to merge later P1r-F fixes again. Hero and TimerExtractor remain registered, with sparse migrations 1, 2, 7, 8, 9, 10. Both additive P3 registrations survived unchanged. No applied migration was edited. The earlier implementation checkpoint 87f68163 and its gate history are retained below; a new actual gate on this candidate remains pending. No ALLOW or P3 live deployment is claimed.
 
 ## Current main-merge verification
 
@@ -26,6 +26,16 @@ Final main-based verification task bed8uplmy completed with EXIT=0 on 2026-10-14
 Current main-based affected checks total 68 passed, 0 failed, 0 ignored across the four completed runs (19 Job, 32 Storage, 10 Migration, 7 PG tools). No source-regression baseline is claimed. The inherited 112-pass Contracts suite is historical and is not added to this current total. Source/fixture setup failures above were resolved, not omitted. Final branch publication and actual gate remain pending; live answer/trace and system-unit/cgroup proof remain the integrator's work.
 
 TESTNACHWEIS[TW-1]: 68 passed, 0 ignored | Baseline: not measured
+
+## Subsequent main release update
+
+Fresh origin/main advanced to eea3c4ecd890f0620a701697ce116d14a25076d4 after the first verified merge. Its six-file delta contains the inherited credential-startup mitigation and owner notes, not application/core/migration changes. It was merged automatically without rebasing or conflicts. The job remains oneshot, the three application units use exec, and post-start checks are combined into one fail-fast short shell without changing the asserted cgroup/credential boundaries. No unit, override, credential or live service was modified by P3.
+
+Matching helper checks completed in task b38f2oii6 with EXIT=0: `cargo-slot +1.97.1 fmt --manifest-path ops/brain-release/Cargo.toml --all -- --check`; `CARGO_SLOT_REMOTE=1 cargo-slot +1.97.1 test --manifest-path ops/brain-release/Cargo.toml --locked --jobs 3 units::tests -- --include-ignored --nocapture` passed 7/0/0, 25 filtered; matching remote `check --all-targets` and `clippy --all-targets -- -D warnings` also passed. Logs: /tmp/brain-p3-later-main-release-{fmt,tests,check,clippy}-20261014.log. Total matching checks now comprise 75 passed, 0 failed, 0 ignored. Existing private Timer index/RSS evidence still records its actual 0b105f92 source snapshot, not a new live probe.
+
+A fresh native whole-diff reviewer is checking the current merged candidate before the gate. Its initial default root cargo check failed because this repository has no root Cargo.toml; this is a reviewer setup error, not a source-regression baseline. The same reviewer was resumed with the correct rust/Cargo.toml manifest and cargo-slot command. No substantive verdict has yet been received.
+
+TESTNACHWEIS[TW-1]: 75 passed, 0 ignored | Baseline: not measured
 
 ## Earlier user route decision, 2026-10-13 21:55 Europe/Berlin
 
