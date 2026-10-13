@@ -1,28 +1,37 @@
-# P9 Sol continuation, 2026-10-13
+# P9 continuation, 2026-10-13
 
 Assigned worktree: `/home/nathanael/.worktrees/Deadlock-Brain-p9-receipt-audit`.
 Published branch: `feat/brain-p9-receipt-audit-20261012-v2`.
-HEAD and origin: `8c6812a5f8af83d9c0471f8fa7e071cd8db08fa0`, merge parents exactly `00013430` and authorized core 2b `9f75588d`.
+Verified code checkpoint: `7114a694`, including explicitly authorized P1r core `9f75588d` and PG tools `e8a1ef45`. Documentation-only descendants may follow.
 
-## Salvage and integration
+## Integrated
 
-`fix/p9-review-shadow` had no commits beyond `00013430`. Its three dirty files were copied by diff from the old agent worktree, which remains unchanged. The abandoned changes were incomplete: independent SQL review found same-run rank ties and late publication from an older run could still expose historical evidence.
+The old `fix/p9-review-shadow` ref had no commits beyond `00013430`. Its three dirty files were salvaged by diff from the old agent worktree, which remains unchanged. Independent SQL review found same-run rank ties and late publication from an older run could still expose history.
 
-Fresh fixer `ae7598eee9dffa83a` produced and pushed `8c6812a5` on `fix/brain-p9-boundary-ae7598`. It preserves the small audit functions, separates direct/shadow provenance, uses full `(ingest_run_id,id)` rank and a persistent serving exclusion boundary, tests both historical-evidence defects through the real Store, adopts core RAW_BYTES/kv_path/byte_ranges parity, and registers migration 6 through the normal sparse migration path. The parent adopted its exact merge commit by fast-forward and pushed the assigned branch. The parent's interrupted core merge was aborted only after preserving its own preexisting salvage in `/tmp/p9-sol-salvage-before-ff.DNFGjE.patch`; only those backed-up own files were cleared before fast-forward. No foreign worktree was changed or deleted.
+Fresh round 1 produced `8c6812a5`: small audit functions, separate direct/shadow provenance, full `(ingest_run_id,id)` rank, persistent historical serving exclusion, actual Store regressions, core RAW_BYTES/kv_path/byte_ranges parity and normal sparse migration 6 registration. The parent adopted this exact merge commit and published it. Its interrupted merge was aborted after backing up its own preexisting salvage to `/tmp/p9-sol-salvage-before-ff.DNFGjE.patch`; no foreign worktree was altered or deleted.
 
-## Verification and gate
+Authorized PG tools checkpoint `e8a1ef45` was merged and published at `3468f221`. Receipt evidence queries were checked to read `serve.published_receipt`, with tool queries via serving views; P9 does not invent a receipt format. The next P1r receipt-format documentation checkpoint is still pending.
 
-Rust 1.97.1, strict all-target Clippy and formatter passed. Tests: 5 brain-job passed, 1 cache test ignored; 11 bounded parser/kernel passed; 2 migration regression tests passed. Total 18 passed, 1 ignored. Logs: `/tmp/p9-ae7598-fmt-197.log`, `/tmp/p9-ae7598-clippy-197.log`, `/tmp/p9-ae7598-job-test-197.log`, `/tmp/p9-ae7598-kernel-test-197.log`, `/tmp/p9-ae7598-migration-test-197.log`. Explicit job build passed under Rust 1.97.1, exit 0, log `/tmp/p9-ae7598-build-197.log`. No failed test was classified as preexisting.
+Round 2 produced `ec82a32a` on `fix/p9-object-rejected-r2`, incorporated and published at `7114a694`. Both P9 trigger filters now quarantine compatible `object_rejected` outcomes. Genuine Store checks cover hash, UTF-8, parser, collision and size failures, same-run and late historical evidence, bounded counters, newer healthy evidence, canon retention, role visibility and rollback. The P9 unit now carries the existing ingest template's LoadCredential. Integrated source matches the tested fixer tree except task notes.
 
-Local gate round 1 is BLOCK, exact output `/tmp/p9-ae7598-gate.log`:
-- Frozen core `GameFactsStore::was_applied`, gamefacts.rs:222, treats any historical successful raw/extractor pair as current. Source A -> B -> A skips final A and keeps B served. The shared skip is brain-job/lib.rs:83. This affects all canonical serving types and must be routed to P1r; P9 has no authority to modify these core files.
-- P9 SQL quarantine filters at 63 and 81 exclude `object_rejected`, leaving compatible raw/locator/hash/parser rejection receipts visible. This is in P9 scope and is being fixed in a fresh round.
-- Nonblocking unit nit: audit service lacks the existing ingest template's LoadCredential despite sharing Config::pool and possible Infisical authentication. Round 2 may add the existing managed bootstrap credential to the P9-owned unit, never read or create token files.
+## Checks
 
-Fresh fixer `a406544e9dc9c2bc6` is active in its isolated worktree at base `8c6812a5`. Owned writes are the P9 SQL migration, real PostgreSQL test and P9 service only. It must quarantine compatible object rejections, preserve unsupported-kind skipping and historical/newer evidence behavior, run matching checks once, commit/push and re-gate. Frozen core is read-only. No further agents or T3 threads are authorized inside a fixer.
+Round 1 Rust 1.97.1 formatter, strict all-target Clippy and brain-job build passed. Tests: 5 brain-job passed, 1 cache test ignored; 11 bounded parser/kernel passed; 2 migration regressions passed. Logs `/tmp/p9-ae7598-{fmt,clippy,job-test,kernel-test,migration-test,build}-197.log`.
+
+Round 2 Rust 1.97.1 formatter, strict all-target Clippy and brain-job build passed. Final tests: 5 brain-job passed, 1 ignored; 2 migration regressions passed. Unchanged kernel tests were not repeated. Logs `/tmp/p9-r2-fmt.log`, `/tmp/p9-r2-clippy-final.log`, `/tmp/p9-r2-job-test.log`, `/tmp/p9-r2-migrations-test.log`, `/tmp/p9-r2-build.log`. The first remote job test failed with SQLSTATE 23505 in the new test fixture. The fixture was corrected before the final local passing run; this was neither a baseline nor an environment failure. `systemd-analyze verify` failed because the current live release does not contain brain-job; no unit was installed or started. Log `/tmp/p9-r2-unit.log`.
+
+## Gate blockers and active work
+
+Gate round 1: BLOCK, `/tmp/p9-ae7598-gate.log` (P9 object-rejection fail-open plus inherited core reversion).
+Gate round 2: BLOCK, exit 1, `/tmp/p9-r2-gate.log`:
+1. P9: a rejected raw object with more than 200 current receipts retains unsampled published receipts. An object-wide rejection boundary must also suppress their historical logical peers without inflating sampled audit counters.
+2. Frozen P1r: `brain-job/lib.rs:83` / `GameFactsStore::was_applied` treats any historical successful application as current. A -> B -> A skips final A and serves B. Already routed to orchestrator; P9 has no core write authority.
+3. Frozen P1r: `gamefacts/receipts.rs:21` overwrites duplicate JSON keys; root/container receipt validation also lacks collision rejection. Ingestion accepts a document that the audit rejects. This needs an authorized P1r correction or explicit receipt-contract decision, not a local parser fork.
+
+Fresh round 3 fixer `ac9cef3d6baa50c6a` is active in its isolated worktree, based on `7114a694`. Write set: P9 SQL migration and P9 PostgreSQL test only. It must add object-wide persistent exclusion, indexed if needed; cover >200 receipts with bounded counters, hidden historical peers and newer healthy publication; preserve existing proofs; run affected checks, commit/push and re-gate. Core files remain frozen. No new agents/threads inside a fixer.
 
 ## Continue
 
-Incorporate round 2's verified branch, inspect its acceptance evidence and publish the assigned branch. Route the A -> B -> A gate blocker to P1r and merge only an explicitly authorized corrective checkpoint. Then rerun affected checks and the exact local gate. Only P1r integrates main and deploys. No ALLOW, main merge, deployment, timer activation or production cgroup/time proof has been claimed.
+Incorporate the verified round 3 branch, independently inspect acceptance and publish the assigned branch. Merge P1r corrective checkpoints only when explicitly authorized. Re-run affected checks and the exact local gate for the combined head. No ALLOW, gate-ready, main merge, deployment, timer activation or production cgroup/time proof has been claimed. Only P1r integrates main and deploys; feature/fixer branches are not permission to merge blocked code into main.
 
-Environment: put `/home/nathanael/.cargo/bin` first in PATH; the session otherwise resolves system Cargo 1.75. Initial remote builds could not write Git config because ionos was full; the orchestrator repaired capacity at 09:50. Normal remote-first cargo-slot works again. Do not delete remote workspaces, stop foreign builds or manipulate shared locks. The first Rust reviewer returned no assessment while validation was queued; the independent SQL reviewer established the two actual defects and the runner refactoring parity.
+Environment: put `/home/nathanael/.cargo/bin` first in PATH, Rust 1.97.1, cargo-slot with jobs 3 and normal remote-first routing. The initial ionos disk-full condition was repaired by the orchestrator at 09:50. The later ECONNREFUSED was a local proxy outage, explicitly not quota; round 2 resumed its preserved work after recovery. Never delete remote workspaces, stop foreign builds or manipulate shared locks. The initial Rust reviewer returned no assessment while validation was queued; independent SQL review established the actual shadow defects and runner parity.
