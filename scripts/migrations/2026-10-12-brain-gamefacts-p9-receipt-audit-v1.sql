@@ -90,39 +90,66 @@ CREATE TRIGGER receipt_audit_quarantine AFTER INSERT ON ops.receipt_audit
     EXECUTE FUNCTION ops.quarantine_audited_receipts();
 
 CREATE OR REPLACE VIEW serve.published_receipt AS
+WITH boundary AS MATERIALIZED(
+    SELECT bad.id,bad.ingest_run_id FROM (
+        SELECT receipt_id FROM canon.receipt_quarantine WHERE cause='audited'
+        UNION
+        SELECT affected.id FROM ops.receipt_audit_rejection rejected
+            JOIN canon.receipt affected ON affected.raw_object_id=rejected.raw_object_id
+    ) b JOIN canon.receipt bad ON bad.id=b.receipt_id
+), shadowed AS MATERIALIZED(
+    SELECT older.id FROM boundary bad
+    JOIN canon.fact c ON c.receipt_id=bad.id
+    JOIN canon.fact o USING(entity_id,stat_key)
+    JOIN canon.receipt older ON older.id=o.receipt_id AND (older.ingest_run_id,older.id)<(bad.ingest_run_id,bad.id)
+    UNION ALL
+    SELECT older.id FROM boundary bad
+    JOIN canon.alias c ON c.receipt_id=bad.id
+    JOIN canon.alias o USING(entity_id,alias_norm,lang)
+    JOIN canon.receipt older ON older.id=o.receipt_id AND (older.ingest_run_id,older.id)<(bad.ingest_run_id,bad.id)
+    UNION ALL
+    SELECT older.id FROM boundary bad
+    JOIN canon.relation c ON c.receipt_id=bad.id
+    JOIN canon.relation o USING(from_entity,kind,to_entity)
+    JOIN canon.receipt older ON older.id=o.receipt_id AND (older.ingest_run_id,older.id)<(bad.ingest_run_id,bad.id)
+    UNION ALL
+    SELECT older.id FROM boundary bad
+    JOIN canon.entity_identity c ON c.receipt_id=bad.id
+    JOIN canon.entity_identity o USING(entity_id)
+    JOIN canon.receipt older ON older.id=o.receipt_id AND (older.ingest_run_id,older.id)<(bad.ingest_run_id,bad.id)
+)
 SELECT r.*,o.source,o.revision,o.revision AS source_revision,o.path,o.content_sha256
 FROM canon.receipt r JOIN ops.ingest_run run ON run.id=r.ingest_run_id AND run.status='succeeded'
 JOIN raw.object o ON o.id=r.raw_object_id
 WHERE NOT EXISTS(SELECT 1 FROM canon.receipt_quarantine q WHERE q.receipt_id=r.id)
 AND NOT EXISTS(SELECT 1 FROM ops.receipt_audit_rejection rejected WHERE rejected.raw_object_id=r.raw_object_id)
-AND NOT EXISTS(
-    SELECT 1 FROM (
-        SELECT receipt_id FROM canon.receipt_quarantine WHERE cause='audited'
-        UNION ALL
-        SELECT affected.id FROM ops.receipt_audit_rejection rejected
-            JOIN canon.receipt affected ON affected.raw_object_id=rejected.raw_object_id
-    ) boundary JOIN canon.receipt bad ON bad.id=boundary.receipt_id
-    WHERE (r.ingest_run_id,r.id)<(bad.ingest_run_id,bad.id)
-    AND (
-        EXISTS(SELECT 1 FROM canon.fact c JOIN canon.fact o USING(entity_id,stat_key)
-            WHERE c.receipt_id=bad.id AND o.receipt_id=r.id)
-        OR EXISTS(SELECT 1 FROM canon.alias c JOIN canon.alias o USING(entity_id,alias_norm,lang)
-            WHERE c.receipt_id=bad.id AND o.receipt_id=r.id)
-        OR EXISTS(SELECT 1 FROM canon.relation c JOIN canon.relation o USING(from_entity,kind,to_entity)
-            WHERE c.receipt_id=bad.id AND o.receipt_id=r.id)
-        OR EXISTS(SELECT 1 FROM canon.entity_identity c JOIN canon.entity_identity o USING(entity_id)
-            WHERE c.receipt_id=bad.id AND o.receipt_id=r.id)
+AND NOT EXISTS(SELECT 1 FROM shadowed s WHERE s.id=r.id);
+
+CREATE FUNCTION ops.sample_receipt_audit()
+RETURNS TABLE(id bigint,raw_object_id bigint,locator_kind text,locator text,value_sha256 bytea)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $sample$
+    WITH serving AS(
+        SELECT receipt_id FROM serve.current_fact
+        UNION SELECT receipt_id FROM serve.current_alias
+        UNION SELECT receipt_id FROM serve.current_relation
+        UNION SELECT receipt_id FROM serve.current_entity
     )
-);
+    SELECT p.id,p.raw_object_id,p.locator_kind,p.locator,p.value_sha256
+    FROM serving s JOIN serve.published_receipt p ON p.id=s.receipt_id
+    LEFT JOIN LATERAL(
+        SELECT a.run_id FROM ops.receipt_audit a WHERE a.receipt_id=s.receipt_id
+        ORDER BY a.run_id DESC LIMIT 1
+    ) last ON true
+    ORDER BY last.run_id NULLS FIRST,p.id LIMIT 200
+$sample$;
 
 REVOKE ALL ON ops.receipt_audit_run,ops.receipt_audit_rejection,ops.receipt_audit,canon.receipt_quarantine
     FROM PUBLIC,brain_tool,brain_ingest,brain_service;
-REVOKE ALL ON FUNCTION ops.serialize_receipt_audit_write(),ops.quarantine_audited_receipts()
+REVOKE ALL ON FUNCTION ops.serialize_receipt_audit_write(),ops.quarantine_audited_receipts(),ops.sample_receipt_audit()
     FROM PUBLIC,brain_tool,brain_ingest,brain_service;
+GRANT EXECUTE ON FUNCTION ops.sample_receipt_audit() TO brain_ingest;
 GRANT USAGE ON SEQUENCE ops.receipt_audit_run_id_seq TO brain_ingest;
-GRANT SELECT ON ops.receipt_audit_run,ops.receipt_audit_rejection,ops.receipt_audit,canon.receipt_quarantine,serve.published_receipt,
-    serve.current_fact,serve.current_alias,serve.current_relation,serve.current_entity TO brain_ingest;
-GRANT USAGE ON SCHEMA serve TO brain_ingest;
+GRANT SELECT ON ops.receipt_audit_run,ops.receipt_audit_rejection,ops.receipt_audit,canon.receipt_quarantine TO brain_ingest;
 GRANT INSERT(sampled,verified_receipts,rejected_receipts,rejected_objects),
     UPDATE(finished,sampled,verified_receipts,rejected_receipts,rejected_objects) ON ops.receipt_audit_run TO brain_ingest;
 GRANT INSERT(run_id,raw_object_id,code,detail) ON ops.receipt_audit_rejection TO brain_ingest;
