@@ -7,7 +7,7 @@ use brain_contracts::{
     SourceVisibility, ToolExecution, ToolRequest, ToolValidationPurpose,
 };
 use sqlx::{postgres::PgRow, PgPool, Row};
-use std::{collections::BTreeSet, future::Future, time::Duration};
+use std::{borrow::Cow, collections::BTreeSet, future::Future, time::Duration};
 
 mod ports {
     use super::{invalid, DocsReader};
@@ -328,6 +328,7 @@ impl DocsReader {
         if search.is_empty() {
             return Ok((Vec::new(), false));
         }
+        let search = compact_plain_search(search);
         let budget = context.remaining_time()?.min(Duration::from_millis(500));
         let rows = blocking(&self.runtime, async {
             tokio::time::timeout(budget, async {
@@ -347,7 +348,7 @@ impl DocsReader {
                 }
                 let rows = sqlx::query(SEARCH)
                     .bind(allowed)
-                    .bind(search)
+                    .bind(search.as_ref())
                     .bind(entity)
                     .bind((limit + 1) as i64)
                     .fetch_all(&mut *tx)
@@ -367,6 +368,30 @@ impl DocsReader {
             .map(|row| section(row, context))
             .collect::<Result<Vec<_>, _>>()?;
         Ok((sections, truncated))
+    }
+}
+
+fn compact_plain_search(search: &str) -> Cow<'_, str> {
+    if search
+        .split_ascii_whitespace()
+        .any(|term| term.eq_ignore_ascii_case("or") || !term.chars().all(char::is_alphanumeric))
+    {
+        return Cow::Borrowed(search);
+    }
+    let mut seen = BTreeSet::new();
+    let mut terms = Vec::new();
+    let mut repeated = false;
+    for term in search.split_ascii_whitespace() {
+        if seen.insert(term) {
+            terms.push(term);
+        } else {
+            repeated = true;
+        }
+    }
+    if repeated {
+        Cow::Owned(terms.join(" "))
+    } else {
+        Cow::Borrowed(search)
     }
 }
 
