@@ -402,6 +402,208 @@ async fn reader_is_scoped_bounded_and_revalidates_published_state() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn internal_reader_uses_query_bounds_and_authorizes_empty_searches() {
+    use brain_contracts::{tools::SearchDocsRequest, RetrievalPort};
+
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    document(&pool, "public/baba.html", 1, None, true).await;
+    let (page, _) = document(&pool, "internal/baba.html", 2, None, true).await;
+    let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
+    let adapter = pg_docs::InternalDocsReader::new(reader.clone());
+    let (mut query, ctx) = context(true);
+    let original = adapter.retrieve(&query, &ctx).unwrap();
+    assert_eq!(original.len(), 1);
+    assert_eq!(original[0].source_id, format!("docs.internal/{page}"));
+    for text in [
+        format!("{}Baba", "Baba ".repeat(128)),
+        format!("{}erklärt", "erklärt ".repeat(64)),
+        format!("{}   ", "Baba ".repeat(6553)),
+    ] {
+        query.text = text;
+        query.validate().unwrap();
+        assert!(
+            internal_docs::internal_search_text(&query).unwrap().len()
+                > SearchDocsRequest::MAX_QUERY_BYTES
+        );
+        assert!(query.text.len() <= 32_768);
+        let evidence = adapter.retrieve(&query, &ctx).unwrap();
+        assert_eq!(evidence, original);
+        assert!(evidence.len() <= SearchDocsRequest::MAX_RESULTS);
+        assert!(serde_json::to_vec(&evidence).unwrap().len() <= 16_384);
+        adapter
+            .validate_evidence(&query, &ctx, &evidence, false)
+            .unwrap();
+        assert!(adapter
+            .validate_evidence(&query, &ctx, &evidence, true)
+            .is_err());
+        assert!(adapter
+            .validate_publication(&query, &ctx, &evidence)
+            .is_err());
+        query.text.push_str(" p5suffixnichtvorhanden");
+        if query.text.len() <= 32_768 {
+            assert!(adapter.retrieve(&query, &ctx).unwrap().is_empty());
+            assert!(adapter
+                .validate_evidence(&query, &ctx, &evidence, false)
+                .is_err());
+        }
+    }
+    query.text = "\0\u{0001}\u{007f}\t\r\n \u{2003}".into();
+    query.validate().unwrap();
+    assert!(adapter.retrieve(&query, &ctx).unwrap().is_empty());
+    adapter.validate_evidence(&query, &ctx, &[], false).unwrap();
+    let mut denied = ctx.clone();
+    denied.principal.provider_egress.insert("public".into());
+    assert!(matches!(
+        adapter.retrieve(&query, &denied),
+        Err(brain_contracts::PortError::PermissionDenied(_))
+    ));
+    assert!(matches!(
+        reader.retrieve(&query, &denied),
+        Err(brain_contracts::PortError::PermissionDenied(_))
+    ));
+    assert!(adapter
+        .validate_evidence(&query, &denied, &[], false)
+        .is_err());
+    for text in [" ".into(), "x".repeat(32_769), "ä".repeat(16_385)] {
+        query.text = text;
+        assert!(adapter.retrieve(&query, &ctx).is_err());
+        assert!(adapter.validate_evidence(&query, &ctx, &[], false).is_err());
+    }
+    let definition = ToolDefinition {
+        name: ToolName::SearchDocs,
+        description: "Sucht veröffentlichte Dokumentabschnitte.".into(),
+        input_schema: SearchDocsRequest::input_schema(),
+    };
+    for text in ["B".repeat(513), "ä".repeat(257), "\u{0001}".into()] {
+        let arguments = serde_json::json!({"query":text});
+        assert!(SearchDocsRequest::parse(&arguments).is_err());
+        assert!(ToolCall {
+            id: "bounded".into(),
+            name: ToolName::SearchDocs,
+            arguments
+        }
+        .validate(std::slice::from_ref(&definition))
+        .is_err());
+    }
+    let arguments = serde_json::json!({"query":format!("{}  ", "Baba ".repeat(102))});
+    assert_eq!(arguments["query"].as_str().unwrap().len(), 512);
+    let request = ToolCall {
+        id: "bounded".into(),
+        name: ToolName::SearchDocs,
+        arguments,
+    }
+    .validate(std::slice::from_ref(&definition))
+    .unwrap();
+    let tools = pg_docs::DocsTools::new(None, reader, definition).unwrap();
+    let (public_query, public_ctx) = context(false);
+    let execution = brain_contracts::ToolExecutionPort::execute(
+        &tools,
+        &public_query,
+        &public_ctx,
+        None,
+        "bounded",
+        &request,
+    )
+    .unwrap();
+    assert_eq!(execution.dependencies[0].evidence.len(), 1);
+    assert_eq!(
+        execution.dependencies[0].evidence[0].visibility,
+        brain_contracts::SourceVisibility::Public
+    );
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn serving_preserves_extractor_language_values_and_receipts() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    let (page, _) = document(&pool, "public/baba.html", 1, None, true).await;
+    document(&pool, "internal/baba.html", 2, None, true).await;
+    let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
+    let (query, ctx) = context(false);
+    let original = reader.retrieve(&query, &ctx).unwrap();
+    let (internal_query, internal_ctx) = context(true);
+    let adapter = pg_docs::InternalDocsReader::new(reader.clone());
+    let internal =
+        brain_contracts::RetrievalPort::retrieve(&adapter, &internal_query, &internal_ctx).unwrap();
+    let definition = ToolDefinition {
+        name: ToolName::SearchDocs,
+        description: "Sucht veröffentlichte Dokumentabschnitte.".into(),
+        input_schema: brain_contracts::tools::SearchDocsRequest::input_schema(),
+    };
+    let request = ToolCall {
+        id: "language".into(),
+        name: ToolName::SearchDocs,
+        arguments: serde_json::json!({"query":"Baba"}),
+    }
+    .validate(std::slice::from_ref(&definition))
+    .unwrap();
+    let tools = pg_docs::DocsTools::new(None, reader.clone(), definition).unwrap();
+    for lang in [
+        "de-DE-1996".into(),
+        "zh-Hant-TW".into(),
+        "en-Latn-US-variant".into(),
+        " deutsch ".into(),
+        "日本語".into(),
+        "a".repeat(brain_storage::gamefacts::limits::TEXT_BYTES),
+        "ä".repeat(brain_storage::gamefacts::limits::TEXT_BYTES / 2),
+    ] {
+        assert!(!lang.trim().is_empty());
+        assert!(!lang.chars().any(char::is_control));
+        assert!(lang.len() <= brain_storage::gamefacts::limits::TEXT_BYTES);
+        sqlx::query("UPDATE canon.fact SET value_text=$1 WHERE stat_key='doc_lang'")
+            .bind(&lang)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let projected: String =
+            sqlx::query_scalar("SELECT lang FROM serve.doc_page WHERE page_id=$1")
+                .bind(page)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(projected, lang);
+        let section_lang: String =
+            sqlx::query_scalar("SELECT lang FROM serve.doc_section WHERE page_id=$1")
+                .bind(page)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(section_lang, lang);
+        assert_eq!(reader.retrieve(&query, &ctx).unwrap(), original);
+        reader
+            .validate_evidence(&query, &ctx, &original, ToolValidationPurpose::Cache)
+            .unwrap();
+        assert_eq!(
+            brain_contracts::RetrievalPort::retrieve(&adapter, &internal_query, &internal_ctx)
+                .unwrap(),
+            internal
+        );
+        let execution = brain_contracts::ToolExecutionPort::execute(
+            &tools, &query, &ctx, None, "language", &request,
+        )
+        .unwrap();
+        assert_eq!(execution.dependencies[0].evidence, original);
+    }
+    for lang in [
+        String::new(),
+        " \u{2003}\u{00a0}".into(),
+        "de\n".into(),
+        "de\u{0085}".into(),
+        "de\u{009f}".into(),
+    ] {
+        sqlx::query("UPDATE canon.fact SET value_text=$1 WHERE stat_key='doc_lang'")
+            .bind(lang)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(reader.retrieve(&query, &ctx).unwrap().is_empty());
+    }
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn search_terms_can_span_title_headings_and_body_chunks() {
     let pg = scratch_pg::ScratchPg::start();
     let pool = setup(&pg).await;

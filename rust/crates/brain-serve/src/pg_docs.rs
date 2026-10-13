@@ -252,7 +252,13 @@ impl DocsReader {
             return Err(invalid());
         }
         let search = SearchDocsRequest::parse(request.arguments())?;
-        let (sections, truncated) = self.select(query, context, &search)?;
+        let (sections, truncated) = self.select(
+            query,
+            context,
+            &search.query,
+            search.entity,
+            search.limit.unwrap_or(MAX_SECTIONS),
+        )?;
         bounded_execution(call_id, request, sections, truncated)
     }
 
@@ -261,12 +267,8 @@ impl DocsReader {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<Vec<Evidence>, PortError> {
-        let search = SearchDocsRequest {
-            query: crate::internal_docs::internal_search_text(query)?,
-            entity: None,
-            limit: Some(MAX_SECTIONS),
-        };
-        let (sections, _) = self.select(query, context, &search)?;
+        let search = crate::internal_docs::internal_search_text(query)?;
+        let (sections, _) = self.select(query, context, &search, None, MAX_SECTIONS)?;
         bounded_evidence(sections)
     }
 
@@ -306,21 +308,26 @@ impl DocsReader {
         &self,
         query: &Query,
         context: &AuthorizedContext,
-        search: &SearchDocsRequest,
+        search: &str,
+        entity: Option<u64>,
+        limit: usize,
     ) -> Result<(Vec<Section>, bool), PortError> {
         let visibility = scopes(query, context)?;
-        search.validate()?;
+        if !(1..=MAX_SECTIONS).contains(&limit) {
+            return Err(invalid());
+        }
         let allowed = match visibility {
             SourceVisibility::Public => "public",
             SourceVisibility::Internal => "internal",
             _ => return Err(invalid()),
         };
-        let limit = search.limit.unwrap_or(MAX_SECTIONS);
-        let entity = search
-            .entity
+        let entity = entity
             .map(i64::try_from)
             .transpose()
             .map_err(|_| invalid())?;
+        if search.is_empty() {
+            return Ok((Vec::new(), false));
+        }
         let budget = context.remaining_time()?.min(Duration::from_millis(500));
         let rows = blocking(&self.runtime, async {
             tokio::time::timeout(budget, async {
@@ -340,7 +347,7 @@ impl DocsReader {
                 }
                 let rows = sqlx::query(SEARCH)
                     .bind(allowed)
-                    .bind(&search.query)
+                    .bind(search)
                     .bind(entity)
                     .bind((limit + 1) as i64)
                     .fetch_all(&mut *tx)
