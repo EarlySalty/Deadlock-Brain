@@ -1,0 +1,731 @@
+{
+  "date": "2026-10-13",
+  "owner": "ac6d053a000dfc88c",
+  "branch": "verify/brain-p5-native-20261013-ac6d",
+  "worktree": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c",
+  "production_library_and_application_source_sha": "ca357031d2f048b48def2ba4ff6a8676900b8af0",
+  "earlier_evidence_commit_kept": "28b6a9638cf454061a09189226fa1270370f5177",
+  "earlier_evidence_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.tasks/2026-10-12-brain-architektur/P5/VERIFY_NATIVE_AC6D_20261013.json",
+  "earlier_failures": "Initial standalone checks and the interrupted17-minute native slot wait remain historical failures. They did not prove runtime behavior. This round uses the existing full pinned Rust workspace instead.",
+  "temporary_fixture_wiring": {
+    "bin_targets": [
+      "p5-native-ac6d-store-r2 in brain-job",
+      "p5-native-ac6d-entity-r2 in brain-serve"
+    ],
+    "test_and_bench": false,
+    "dependency_changes": false,
+    "lockfile_changes": false,
+    "library_or_application_source_changes": false,
+    "manifest_registration_only": "Six appended lines per owned manifest; restored byte-for-byte after verification, never committed.",
+    "exact_registration_fields": [
+      {
+        "manifest": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/Cargo.toml",
+        "bin": {
+          "name": "p5-native-ac6d-store-r2",
+          "path": "../../../.verification-ac6d/r2/store.rs",
+          "test": false,
+          "bench": false
+        }
+      },
+      {
+        "manifest": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-serve/Cargo.toml",
+        "bin": {
+          "name": "p5-native-ac6d-entity-r2",
+          "path": "../../../.verification-ac6d/r2/entity.rs",
+          "test": false,
+          "bench": false
+        }
+      }
+    ],
+    "composition": "The original Store/corpus proof b17d4a6 imports the actual brain-job library. Its entity mode ingests the real Docs corpus and public Hero blob and executes the separate brain-serve proof executable against the same private PG. That executable imports unchanged production pg_tools.rs directly. Diagnostic SQL verifies returned IDs are not doc_page; it does not implement FindEntity."
+  },
+  "sqlx_workspace_environment_repair": {
+    "workspace_root": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust",
+    "resolved_packages": 412,
+    "metadata_from_previously_failing_dbrain_normalize_manifest_is_valid": true,
+    "existing_dependency_resolution_unchanged": true,
+    "cargo_toolchain": "1.97.1",
+    "remote_jobs": 3,
+    "native_build_jobs": 3,
+    "native_profile": "verify",
+    "compilation_inside_measurement": false
+  },
+  "counter_read_privileges_verified_before_ingestion": {
+    "memory.max_usage_in_bytes": 5500928,
+    "memory.failcnt": 0,
+    "memory.limit_in_bytes": 536870912,
+    "memory.use_hierarchy": 1,
+    "memory_membership": [
+      "/system.slice/p5-native-ac6d-r2-counter-read.service"
+    ],
+    "scope": "Python counter-read privilege diagnostic only; not an ingestion or Git/Postgres peak proof"
+  },
+  "private_pg_socket_path_setup": "Nested initial TMPDIR would yield a113-byte Unix socket pathname beyond the107-byte usable limit. The temporary controller uses fresh owned /tmp/p5-ac6d-r2-store and /tmp/p5-ac6d-r2-entity directories, with an89-byte modeled pathname; the existing ScratchPg helper and PostgreSQL configuration are unchanged.",
+  "corpus_read_only_repository": "/home/nathanael/repos/Deadlock-Docs",
+  "corpus_revision": "400231af7e8196e145111e4150c2e24c2ab79fb5",
+  "corpus_fetched_or_changed": false,
+  "hero_fixture": {
+    "path": "/tmp/p1r-hero-a314-fixture-GInzyzvn/hero-data.json",
+    "revision": "2a26e26535a390c309e300e2c7b2763fa5ad7abd",
+    "sha256": "947c26790e067109f6cca4085649ed56e446bc5f4c9c571cd396290f802a3456"
+  },
+  "native_private_pg_runs": {
+    "store": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "corpus": [
+        {
+          "revision": "400231af7e8196e145111e4150c2e24c2ab79fb5",
+          "documents": 180,
+          "bytes": 928009,
+          "largest_bytes": 27558,
+          "first_accepted_rejected_ignored": [
+            163,
+            16,
+            1
+          ],
+          "repeat_accepted_rejected_ignored": [
+            0,
+            16,
+            164
+          ],
+          "snapshot_raw_facts_receipts_entity_identities": [
+            183,
+            2458,
+            2623,
+            165
+          ],
+          "rejection_counts": [
+            [
+              "invalid_docs",
+              16
+            ]
+          ],
+          "rerun_raw_and_canonical_growth": 0
+        }
+      ],
+      "kernel_memory_high_water_bytes": 126345216,
+      "kernel_memory_high_water_decimal_mb": 126.345216,
+      "kernel_memory_high_water_mib": 120.4921875,
+      "kernel_memory_failcnt": 0,
+      "kernel_memory_use_hierarchy": 1,
+      "kernel_memory_limit_bytes": 536870912,
+      "under_300_decimal_mb": true,
+      "backend_membership_matches": 1,
+      "monitor": {
+        "unit": "p5-native-ac6d-r2-store.service",
+        "run_tag": "r2c",
+        "source_sha": "ca357031d2f048b48def2ba4ff6a8676900b8af0",
+        "command": [
+          "sudo",
+          "-n",
+          "systemd-run",
+          "--unit=p5-native-ac6d-r2-store.service",
+          "--service-type=oneshot",
+          "--no-block",
+          "--uid=nathanael",
+          "--remain-after-exit",
+          "-p",
+          "MemoryAccounting=yes",
+          "-p",
+          "MemoryMax=512M",
+          "-p",
+          "WorkingDirectory=/tmp/p5-native-ac6d-20261013",
+          "-p",
+          "StandardOutput=append:/tmp/p5-native-ac6d-20261013/r2c-store.log",
+          "-p",
+          "StandardError=append:/tmp/p5-native-ac6d-20261013/r2c-store.log",
+          "--setenv",
+          "TMPDIR=/tmp/p5-ac6d-r2c-store",
+          "--setenv",
+          "BRAIN_DOCS_CORPUS_REPOSITORY=/home/nathanael/repos/Deadlock-Docs",
+          "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-store-r2",
+          "store"
+        ],
+        "completed_marker": true,
+        "elapsed_seconds": 7.192753080045804,
+        "samples": 1717,
+        "nominal_interval_seconds": 0.002,
+        "maximum_observed_sample_gap_seconds": 0.09073722595348954,
+        "sampled_kernel_high_water_bytes": 126345216,
+        "sampled_failcnt_max": 0,
+        "limits_bytes": [
+          536870912
+        ],
+        "use_hierarchy": [
+          1
+        ],
+        "process_audit_errors": [
+          {
+            "pid": 2678462,
+            "field": "executable",
+            "error": "permission_denied"
+          }
+        ],
+        "service_state": "Result=success\nExecMainStatus=0\nActiveState=active\nSubState=exited\n",
+        "private_pg_work_directory": "/tmp/p5-ac6d-r2c-store",
+        "private_pg_work_directory_remaining_entries": 0,
+        "cargo_artifacts": [
+          {
+            "package_id": "path+file:///home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job#0.1.0",
+            "manifest_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/Cargo.toml",
+            "target": {
+              "kind": [
+                "bin"
+              ],
+              "crate_types": [
+                "bin"
+              ],
+              "name": "p5-native-ac6d-store-r2",
+              "src_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/../../../.verification-ac6d/r2/store.rs",
+              "edition": "2021",
+              "doc": true,
+              "doctest": false,
+              "test": false
+            },
+            "profile": {
+              "opt_level": "1",
+              "debuginfo": 0,
+              "debug_assertions": false,
+              "overflow_checks": false,
+              "test": false
+            },
+            "executable": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-store-r2",
+            "fresh": false
+          },
+          {
+            "package_id": "path+file:///home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-serve#0.1.0",
+            "manifest_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-serve/Cargo.toml",
+            "target": {
+              "kind": [
+                "bin"
+              ],
+              "crate_types": [
+                "bin"
+              ],
+              "name": "p5-native-ac6d-entity-r2",
+              "src_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-serve/../../../.verification-ac6d/r2/entity.rs",
+              "edition": "2021",
+              "doc": true,
+              "doctest": false,
+              "test": false
+            },
+            "profile": {
+              "opt_level": "1",
+              "debuginfo": 0,
+              "debug_assertions": false,
+              "overflow_checks": false,
+              "test": false
+            },
+            "executable": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-entity-r2",
+            "fresh": false
+          }
+        ],
+        "executable_sha256": {
+          "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-store-r2": "f4bb78ad2260cf3fbac089220bfeeb048c33711c3b437cb1b2552da6fef1d725",
+          "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-entity-r2": "26403eb4186571be85f275d82046234631065f4341e870b739ece73447f97d59"
+        }
+      },
+      "observed_process_count": 184,
+      "observed_comms": [
+        "(store-r2)",
+        "git",
+        "initdb",
+        "p5-native-ac6d-",
+        "pg_ctl",
+        "postgres",
+        "sh"
+      ],
+      "observed_executables": [
+        "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-store-r2",
+        "/usr/bin/dash",
+        "/usr/bin/git",
+        "/usr/lib/postgresql/16/bin/initdb",
+        "/usr/lib/postgresql/16/bin/pg_ctl",
+        "/usr/lib/postgresql/16/bin/postgres"
+      ],
+      "observed_memory_cgroup_paths": [
+        "/system.slice/p5-native-ac6d-r2-store.service"
+      ],
+      "full_process_inventory_path": "/tmp/p5-native-ac6d-20261013/r2c-store-cgroup.json",
+      "private_pg_remaining_entries": 0,
+      "sampled_process_audit_errors": [
+        {
+          "pid": 2678462,
+          "field": "executable",
+          "error": "permission_denied"
+        }
+      ],
+      "log_run_tag": "r2c",
+      "log_sha256": "108b4fc201270f1921cccc762c16f24a60165387e439ad7cbc0f6c5eddd7e6ad",
+      "original_store_numeric_receipt": "DOCS_STORE_PROOF first=1/2/0 second=0/2/1 internal=1/0/0 raw=4 facts=32 receipts=34 sections=12 ranged_receipts=12 distinct_ranges=6 poison_facts=0",
+      "rust_store_process_only_vm_hwm_kib": 7884
+    },
+    "entity": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "corpus": [
+        {
+          "revision": "400231af7e8196e145111e4150c2e24c2ab79fb5",
+          "documents": 180,
+          "bytes": 928009,
+          "largest_bytes": 27558,
+          "first_accepted_rejected_ignored": [
+            164,
+            16,
+            0
+          ],
+          "repeat_accepted_rejected_ignored": [
+            0,
+            16,
+            164
+          ],
+          "snapshot_raw_facts_receipts_entity_identities": [
+            180,
+            2442,
+            2606,
+            164
+          ],
+          "rejection_counts": [
+            [
+              "invalid_docs",
+              16
+            ]
+          ],
+          "rerun_raw_and_canonical_growth": 0
+        }
+      ],
+      "kernel_memory_high_water_bytes": 111755264,
+      "kernel_memory_high_water_decimal_mb": 111.755264,
+      "kernel_memory_high_water_mib": 106.578125,
+      "kernel_memory_failcnt": 0,
+      "kernel_memory_use_hierarchy": 1,
+      "kernel_memory_limit_bytes": 536870912,
+      "under_300_decimal_mb": true,
+      "backend_membership_matches": 1,
+      "monitor": {
+        "unit": "p5-native-ac6d-r2-entity.service",
+        "run_tag": "r2",
+        "source_sha": "ca357031d2f048b48def2ba4ff6a8676900b8af0",
+        "command": [
+          "sudo",
+          "-n",
+          "systemd-run",
+          "--unit=p5-native-ac6d-r2-entity.service",
+          "--service-type=oneshot",
+          "--no-block",
+          "--uid=nathanael",
+          "--remain-after-exit",
+          "-p",
+          "MemoryAccounting=yes",
+          "-p",
+          "MemoryMax=512M",
+          "-p",
+          "WorkingDirectory=/tmp/p5-native-ac6d-20261013",
+          "-p",
+          "StandardOutput=append:/tmp/p5-native-ac6d-20261013/r2-entity.log",
+          "-p",
+          "StandardError=append:/tmp/p5-native-ac6d-20261013/r2-entity.log",
+          "--setenv",
+          "TMPDIR=/tmp/p5-ac6d-r2-entity",
+          "--setenv",
+          "BRAIN_DOCS_CORPUS_REPOSITORY=/home/nathanael/repos/Deadlock-Docs",
+          "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-store-r2",
+          "entity",
+          "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-entity-r2"
+        ],
+        "completed_marker": true,
+        "elapsed_seconds": 10.91087768599391,
+        "samples": 1844,
+        "nominal_interval_seconds": 0.002,
+        "maximum_observed_sample_gap_seconds": 0.3316386300139129,
+        "sampled_kernel_high_water_bytes": 111755264,
+        "sampled_failcnt_max": 0,
+        "limits_bytes": [
+          536870912
+        ],
+        "use_hierarchy": [
+          1
+        ],
+        "service_state": "Result=success\nExecMainStatus=0\nActiveState=active\nSubState=exited\n",
+        "private_pg_work_directory": "/tmp/p5-ac6d-r2-entity",
+        "private_pg_work_directory_remaining_entries": 0,
+        "cargo_artifacts": [
+          {
+            "package_id": "path+file:///home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job#0.1.0",
+            "manifest_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/Cargo.toml",
+            "target": {
+              "kind": [
+                "bin"
+              ],
+              "crate_types": [
+                "bin"
+              ],
+              "name": "p5-native-ac6d-store-r2",
+              "src_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/../../../.verification-ac6d/r2/store.rs",
+              "edition": "2021",
+              "doc": true,
+              "doctest": false,
+              "test": false
+            },
+            "profile": {
+              "opt_level": "1",
+              "debuginfo": 0,
+              "debug_assertions": false,
+              "overflow_checks": false,
+              "test": false
+            },
+            "executable": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-store-r2",
+            "fresh": false
+          },
+          {
+            "package_id": "path+file:///home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-serve#0.1.0",
+            "manifest_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-serve/Cargo.toml",
+            "target": {
+              "kind": [
+                "bin"
+              ],
+              "crate_types": [
+                "bin"
+              ],
+              "name": "p5-native-ac6d-entity-r2",
+              "src_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-serve/../../../.verification-ac6d/r2/entity.rs",
+              "edition": "2021",
+              "doc": true,
+              "doctest": false,
+              "test": false
+            },
+            "profile": {
+              "opt_level": "1",
+              "debuginfo": 0,
+              "debug_assertions": false,
+              "overflow_checks": false,
+              "test": false
+            },
+            "executable": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-entity-r2",
+            "fresh": false
+          }
+        ],
+        "executable_sha256": {
+          "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-store-r2": "f4bb78ad2260cf3fbac089220bfeeb048c33711c3b437cb1b2552da6fef1d725",
+          "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-entity-r2": "26403eb4186571be85f275d82046234631065f4341e870b739ece73447f97d59"
+        }
+      },
+      "observed_process_count": 146,
+      "observed_comms": [
+        "git",
+        "initdb",
+        "p5-native-ac6d-",
+        "pg_ctl",
+        "postgres",
+        "sh"
+      ],
+      "observed_executables": [
+        "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-entity-r2",
+        "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-store-r2",
+        "/usr/bin/dash",
+        "/usr/bin/git",
+        "/usr/lib/postgresql/16/bin/initdb",
+        "/usr/lib/postgresql/16/bin/pg_ctl",
+        "/usr/lib/postgresql/16/bin/postgres"
+      ],
+      "observed_memory_cgroup_paths": [
+        "/system.slice/p5-native-ac6d-r2-entity.service"
+      ],
+      "full_process_inventory_path": "/tmp/p5-native-ac6d-20261013/r2-entity-cgroup.json",
+      "private_pg_remaining_entries": 0,
+      "sampled_process_audit_errors": [],
+      "log_run_tag": "r2",
+      "log_sha256": "e4a2a9d314f3ff4affd8efd808468374e0941da5c88db51af58f7b51a4352c18",
+      "find_entity_actual": {
+        "dependencies": 1,
+        "evidence_ids_count": 3,
+        "input": {
+          "text": "Baba"
+        },
+        "output": {
+          "ambiguous": false,
+          "entities": [
+            {
+              "alias": "baba",
+              "citation": "gamefacts.receipt.v1:sha256:3a872acac58412b08e295cd6dc905f054b3a408531d11b672d65d1fcd5db9a72",
+              "entity_id": 168,
+              "identity": {
+                "citation": "gamefacts.receipt.v1:sha256:ff91cff5a42ea5d74d6bed26db6f3da538f8dbd48a1ec24e750b466b8ecfb7aa",
+                "entity_id": 168,
+                "facts": [
+                  {
+                    "citation": "gamefacts.receipt.v1:sha256:71533b524f3f47768a74ce4297c4ffd8307b3b72190d995fa08001528807d620",
+                    "condition": {},
+                    "patch": null,
+                    "source_revision": "2a26e26535a390c309e300e2c7b2763fa5ad7abd",
+                    "stat_key": "name_en",
+                    "value": "Baba"
+                  }
+                ],
+                "key": "hero_baba",
+                "kind": "hero",
+                "name_de": null,
+                "name_en": "Baba",
+                "omitted_count": 0,
+                "patch": null,
+                "source_revision": "2a26e26535a390c309e300e2c7b2763fa5ad7abd",
+                "truncated": false
+              },
+              "key": "hero_baba",
+              "kind": "hero",
+              "language": "en",
+              "name_de": null,
+              "name_en": "Baba",
+              "patch": null,
+              "score": 1.0,
+              "source_revision": "2a26e26535a390c309e300e2c7b2763fa5ad7abd"
+            }
+          ],
+          "match": "exact",
+          "omitted_count": 0,
+          "omitted_count_is_lower_bound": false,
+          "resolved": true,
+          "truncated": false
+        },
+        "output_bytes": 1375
+      },
+      "doc_carriers": 164,
+      "visible_docs": 164,
+      "doc_aliases": 0,
+      "returned_doc_pages": 0,
+      "hero_ingest_accepted_rejected_ignored": [
+        1,
+        0,
+        0
+      ]
+    }
+  },
+  "initial_successful_store_run_before_monitor_startup_fix": {
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0,
+    "kernel_memory_high_water_bytes": 131543040,
+    "kernel_memory_high_water_mib": 125.44921875,
+    "monitor": {
+      "unit": "p5-native-ac6d-r2-store.service",
+      "source_sha": "ca357031d2f048b48def2ba4ff6a8676900b8af0",
+      "command": [
+        "sudo",
+        "-n",
+        "systemd-run",
+        "--unit=p5-native-ac6d-r2-store.service",
+        "--service-type=oneshot",
+        "--uid=nathanael",
+        "--remain-after-exit",
+        "-p",
+        "MemoryAccounting=yes",
+        "-p",
+        "MemoryMax=512M",
+        "-p",
+        "WorkingDirectory=/tmp/p5-native-ac6d-20261013",
+        "-p",
+        "StandardOutput=append:/tmp/p5-native-ac6d-20261013/r2-store.log",
+        "-p",
+        "StandardError=append:/tmp/p5-native-ac6d-20261013/r2-store.log",
+        "--setenv",
+        "TMPDIR=/tmp/p5-ac6d-r2-store",
+        "--setenv",
+        "BRAIN_DOCS_CORPUS_REPOSITORY=/home/nathanael/repos/Deadlock-Docs",
+        "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-store-r2",
+        "store"
+      ],
+      "completed_marker": true,
+      "elapsed_seconds": 0.04200249910354614,
+      "samples": 0,
+      "nominal_interval_seconds": 0.002,
+      "maximum_observed_sample_gap_seconds": 0.0,
+      "sampled_kernel_high_water_bytes": null,
+      "sampled_failcnt_max": null,
+      "limits_bytes": [],
+      "use_hierarchy": [],
+      "processes_observed": {},
+      "service_state": "Result=success\nExecMainStatus=0\nActiveState=active\nSubState=exited\n",
+      "private_pg_work_directory": "/tmp/p5-ac6d-r2-store",
+      "private_pg_work_directory_remaining_entries": 0,
+      "cargo_artifacts": [
+        {
+          "package_id": "path+file:///home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job#0.1.0",
+          "manifest_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/Cargo.toml",
+          "target": {
+            "kind": [
+              "bin"
+            ],
+            "crate_types": [
+              "bin"
+            ],
+            "name": "p5-native-ac6d-store-r2",
+            "src_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/../../../.verification-ac6d/r2/store.rs",
+            "edition": "2021",
+            "doc": true,
+            "doctest": false,
+            "test": false
+          },
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": false,
+            "overflow_checks": false,
+            "test": false
+          },
+          "executable": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-store-r2",
+          "fresh": false
+        },
+        {
+          "package_id": "path+file:///home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-serve#0.1.0",
+          "manifest_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-serve/Cargo.toml",
+          "target": {
+            "kind": [
+              "bin"
+            ],
+            "crate_types": [
+              "bin"
+            ],
+            "name": "p5-native-ac6d-entity-r2",
+            "src_path": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-serve/../../../.verification-ac6d/r2/entity.rs",
+            "edition": "2021",
+            "doc": true,
+            "doctest": false,
+            "test": false
+          },
+          "profile": {
+            "opt_level": "1",
+            "debuginfo": 0,
+            "debug_assertions": false,
+            "overflow_checks": false,
+            "test": false
+          },
+          "executable": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-entity-r2",
+          "fresh": false
+        }
+      ],
+      "executable_sha256": {
+        "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-store-r2": "f4bb78ad2260cf3fbac089220bfeeb048c33711c3b437cb1b2552da6fef1d725",
+        "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/target/verify/p5-native-ac6d-entity-r2": "26403eb4186571be85f275d82046234631065f4341e870b739ece73447f97d59"
+      }
+    },
+    "limit": "Blocking systemd-run with Type=oneshot returned after the proof finished, so this first run has0 membership samples and its0.042s elapsed value is post-run monitor time, not ingestion duration. The Rust in-process kernel high-water read and original proof assertions passed. It was repeated with --no-block for a real process inventory and duration."
+  },
+  "maximum_recorded_kernel_high_water_bytes_across_successful_runs": 131543040,
+  "maximum_recorded_kernel_high_water_mib_across_successful_runs": 125.44921875,
+  "every_recorded_successful_run_under_300_decimal_mb": true,
+  "measurement_controller_failure_chronology": {
+    "aborted_r2b_store": {
+      "run": "r2b-store",
+      "status": "measurement_controller_aborted",
+      "error_type": "PermissionError",
+      "errno": 13,
+      "field": "/proc/2656076/exe",
+      "rust_proof_completed": false,
+      "remediation": "Optional executable metadata now records permission_denied explicitly without privilege escalation; all Rust proof assertions remain unchanged.",
+      "unit_stop_executed": true
+    },
+    "subsequent_pre_start_refusal": "The failed owned unit was still loaded; the controller correctly refused reuse before starting a new proof.",
+    "owned_cleanup_after_abort": "MainPID=0, ControlGroup empty, ExecMainStatus=15 verified; reset-failed was scoped to p5-native-ac6d-r2-store.service. Only the newly created owned /tmp/p5-ac6d-r2b-store directory was removed. No foreign process, lock or service was changed.",
+    "fix": "The optional /proc/PID/exe lookup now records permission_denied for a transient controlled pre-exec process and continues the inventory. No sudo read or protection bypass was used. All original Rust assertions and both compiled executables remained unchanged.",
+    "successful_rerun": "r2c-store;1 optional executable-metadata permission denial is explicitly retained in the final process audit."
+  },
+  "matching_checks": {
+    "native_build": {
+      "exit_code": 0,
+      "warning_count": 0
+    },
+    "rustfmt_pinned_scratch_files": {
+      "exit_code": 0
+    },
+    "strict_clippy_remote_first_full_workspace": {
+      "exit_code": 0,
+      "warnings": 0,
+      "errors": 0,
+      "host": "ionos",
+      "jobs": 3,
+      "reported_seconds": 92
+    },
+    "production_package_extractor_and_contract_lines": 798,
+    "maximum_allowed_lines": 799
+  },
+  "memory_metric_scope_and_limitations": [
+    "Recorded Linux cgroup-v1 memory.max_usage_in_bytes kernel high-water counter, read by the still-running proof process after ingestion and private PG cleanup. It is not a sampled sum of process RSS.",
+    "Each fresh isolated system unit includes its precompiled Rust proof binary, owned Git children, initdb/pg_ctl and private PG server/backends. The entity unit also includes the actual PgTools proof child.",
+    "Private PG backend membership is asserted equal to the proof process memory-controller membership. The external sampler reads cgroup.procs and process comm/executable/membership only, never argv or environ.",
+    "Sampler interval is nominal2ms; measured sample counts and maximum observed gaps are retained per mode. Short-lived children may be absent from the sampled process inventory. The final in-process kernel high-water read covers ingestion despite membership sampling gaps.",
+    "The counter includes charged anonymous/shared/file-cache memory; shared pages are not double-counted as an RSS sum. Warm shared corpus or executable cache pages can remain charged to another cgroup, so this is not a physical system-wide combined RSS/PSS peak.",
+    "The recorded counter is through the final read, not an after-exit counter. The unit cgroup can disappear when its last process exits.",
+    "This is real native private-PG verification against unchanged production libraries. It is not deployment, a live production job cgroup measurement or evidence that Docs adapters are composed in the live forwarded runtime."
+  ],
+  "runtime_proof_cases": {
+    "passed": 3,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0,
+    "distinct_contracts": 2,
+    "one_store_repeat_for_corrected_process_audit": true
+  },
+  "measurement_controller_failed_attempts_not_completed_rust_proof_cases": 2,
+  "production_source_hashes": {
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/Cargo.lock": "2f7fd89e5a51897b257f357426393d0ab9430612ee95f15043da46f9fad855ce",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/src/lib.rs": "a2e21ae3f748ee2e9a00a166aef7fdfd1257dca952f7a0ddc20cd9dd5d0df6a3",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/src/docs_extract.rs": "42ea674d0f2ec48d9f70ce1cf706112199297c8b8b6b64689043adf4fef10160",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/src/docs_source.rs": "f9d1f430aa04debaacdd849625348344a40edd99e0a526ac6cfae3b9d1d9ed81",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/src/hero.rs": "052e546d1ed5c558ec22d00bb4f80d3ff5093458dbfdc6c6b05dc700d2ea813f",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-storage/src/gamefacts.rs": "5e891d32b87b4a826efaed641eb141845939b6447c0099698053cce8f806263b",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-serve/src/pg_tools.rs": "ff1f3cbd64da418b329f387f3f23a763d181fce0acbe5beb9cd7e051b2ffe273",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-storage/tests/support/scratch_pg.rs": "30c382d8e9c516657f9c80eff592c02c70e679896ae14955f33c8bd4b8e7a210"
+  },
+  "scratch_and_log_hashes": {
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/r2/store.rs": "3452b4fd2c37c0966f9bcbab89a30a7a7643b8ff5a37fed09f4e0ea822c87288",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/r2/entity.rs": "d7e9b7a7005fd6aaa89d7a3240068f02ba47f72e325bbdafb055c5662faae0a1",
+    "/tmp/p5-native-ac6d-20261013/prepare_r2.py": "6839989ab9eb9d71932f60e13ecd5c8dd0ccd8f3674d827c171abd30dd50a59f",
+    "/tmp/p5-native-ac6d-20261013/store_extension_r2.rs": "04b7fd9f6e9f3d29270354d4501556d2468cb2e56cec6f8ef36849d4722eaa37",
+    "/tmp/p5-native-ac6d-20261013/measure_r2.py": "697463f0d6ca31af2c89a817ca4aa0f856c240a414876cf73189c1685f1c0c81",
+    "/tmp/p5-native-ac6d-20261013/build-workspace-r2.jsonl": "391ead6f755ea7e0952c4c9b966e72fed659316aeaa09051e11f873bdbf1df89",
+    "/tmp/p5-native-ac6d-20261013/clippy-workspace-r2.log": "3d8ec8e9c87ecf14f862a973d9f04e239df789c76be3538a1bc1099a893635ee",
+    "/tmp/p5-native-ac6d-20261013/r2-store.log": "17b3a903957b9e1569c4b8f4c0ffaaef48d50d46670a40836cdfbec78f448969",
+    "/tmp/p5-native-ac6d-20261013/r2-store-cgroup.json": "2fee419a60d78e68c3365efe315fd268478bfa3ecad927e99bfcc03efd23f763",
+    "/tmp/p5-native-ac6d-20261013/r2-entity.log": "e4a2a9d314f3ff4affd8efd808468374e0941da5c88db51af58f7b51a4352c18",
+    "/tmp/p5-native-ac6d-20261013/r2-entity-cgroup.json": "95011749284d113ea90268870828bfa7cac072cfdacfc6cea71d476011a2ae74",
+    "/tmp/p5-native-ac6d-20261013/r2c-store.log": "108b4fc201270f1921cccc762c16f24a60165387e439ad7cbc0f6c5eddd7e6ad",
+    "/tmp/p5-native-ac6d-20261013/r2c-store-cgroup.json": "6591b4afe1f966f67f5f2e53607e55eb280c5edc3db0f0c7ba8b377d1f6481d5",
+    "/tmp/p5-native-ac6d-20261013/r2b-store-controller-error.json": "f8f37f47add5df0f6ea09fadf6d8dc5487384986bc7da70ddf44d3c31444fc4e",
+    "/tmp/p5-native-ac6d-20261013/r2-production-source-hashes-before.json": "cece316c9620d6393d98e5143376c8f0a820f08eaab63d69d403d57446cf0fe1",
+    "/tmp/p5-native-ac6d-20261013/workspace-metadata-r2-before.json": "25410ff23fe9f4f2f15fbb05827445a1fc66eb3a2f79164bd879af2c6efa95c5",
+    "/tmp/p5-native-ac6d-20261013/workspace-metadata-r2-wired.json": "25ae158b5b4b0696e39c93378639bd1623339fb6c756f7f397384027ed1c1212",
+    "/tmp/p5-native-ac6d-20261013/sqlx-metadata-r2-full.json": "0acf7c22894a5e40ff1936e9f1ebb1078db5521bc933faf91df6c94f9a8db651"
+  },
+  "reproduce_commands": {
+    "cwd": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c",
+    "workspace_metadata": "/home/nathanael/.cargo/bin/cargo +1.97.1 metadata --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/Cargo.toml --locked --offline --format-version 1",
+    "temporary_bin_registration": "Re-add the recorded test=false bin targets to the owned manifests only; do not add dependencies or change Cargo.lock. Keep the retained scratch files at their recorded paths.",
+    "native_build": "CARGO_REMOTE_JOBS=3 cargo-slot +1.97.1 build --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/Cargo.toml --locked -j 3 -p brain-job -p brain-serve --bin p5-native-ac6d-store-r2 --bin p5-native-ac6d-entity-r2 --message-format=json-render-diagnostics --config 'env.SQLX_OFFLINE.value=\"true\"' --config env.SQLX_OFFLINE.force=true --config 'env.SQLX_OFFLINE_DIR.value=\"/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/.sqlx\"' --config env.SQLX_OFFLINE_DIR.force=true",
+    "strict_clippy": "CARGO_REMOTE_JOBS=3 cargo-slot +1.97.1 clippy --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/Cargo.toml --locked -j 3 -p brain-job -p brain-serve --bin p5-native-ac6d-store-r2 --bin p5-native-ac6d-entity-r2 --config 'env.SQLX_OFFLINE.value=\"true\"' --config env.SQLX_OFFLINE.force=true --config 'env.SQLX_OFFLINE_DIR.value=\"/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/.sqlx\"' --config env.SQLX_OFFLINE_DIR.force=true -- -D warnings",
+    "format": "/home/nathanael/.cargo/bin/rustfmt +1.97.1 --edition 2021 --check --config skip_children=true /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/r2/store.rs /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/r2/entity.rs",
+    "artifact_selection": "measure_r2.py reads exact compiler-artifact executable fields from the successful Cargo JSON output, verifies both executables exist, and hashes them. No target path is guessed and no artifact tree is copied.",
+    "store": "python3 -I /tmp/p5-native-ac6d-20261013/measure_r2.py store r2d",
+    "entity": "python3 -I /tmp/p5-native-ac6d-20261013/measure_r2.py entity r2d",
+    "rerun_isolation": "The recorded store/entity default logs are retained and must not be overwritten. The r2d commands use fresh bounded tags for new logs and private PG directories. The task-owned fixed unit name may be reused only when systemctl reports not-found, yielding a fresh invocation/cgroup. Existing or failed units are refused; never reset a foreign unit. Keep the compiled final-counter unit path consistent. Restore owned temporary manifest registrations after the needed Cargo checks."
+  },
+  "main_fetched_or_merged": false,
+  "core_or_migration_changes": false,
+  "gate_rerun": false,
+  "deployment_live_or_discord_activation": false,
+  "live_acceptance_claim": false,
+  "protocols": [
+    "TESTNACHWEIS[TW-1]: 3 passed, 0 ignored | Baseline: 0 rot",
+    "WIRKUNGSPRUEFUNG[WP-1]: 2 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 2/2 geprüft"
+  ],
+  "findings": [
+    "Sixteen corpus documents remain rejected as invalid_docs; no source-content or parser-policy repair was made.",
+    "Private fixture success does not establish live runtime composition or deployment cgroup acceptance. The earlier Core gate BLOCK is not rerolled."
+  ],
+  "baseline_limit": "The zero-red baseline is the supplied parent baseline, not a newly executed full production suite. Three completed native admin/proof executions cover two distinct contracts, including the Store process-audit repeat. They are not the24 Docs or4 shared PgTools parent tests. The interrupted controller attempt and its subsequent refused pre-start reuse are separately retained, not counted as successful Rust cases."
+}
