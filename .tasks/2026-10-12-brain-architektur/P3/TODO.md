@@ -2,6 +2,17 @@
 
 Verified implementation checkpoint: 87f681633da7c4a2442d192a0345eda7dc79ce26, published; subsequent branch changes are proof notes only. It merges the explicitly forwarded P1r core 3a checkpoint 982645cf325952b56c782fe690f6e23a5a76bf17 without rebasing onto P3 checkpoint 5e1ebb31. The only shared test conflict was resolved by retaining P1r's registry-tolerant tool assertions. pg_tools_tests.rs differs from the owner checkpoint only by the two-line Timer test module registration. There are no production-core or migration changes in this merge. Hero and TimerExtractor remain registered; migrations remain 1, 2, 7. Version 7 belongs to P1r. Actual gate round 2 returned BLOCK; no ALLOW or live deployment is claimed.
 
+## Current route after user decision, 2026-10-13 21:55 Europe/Berlin
+
+The orchestrator forwarded the user's replacement route: P1r-F is a dedicated finish team going directly to gate, main integration, release and live proof. The old P1r thread is stopped; core 3b will NOT be published. P1r-F answers no core questions. The previous core-3b dependency and ownership restriction below are historical, not the current next action.
+
+1. Keep the P3 branch published and finish core-independent work. This is complete: Timer extraction/serving, public receipts, poison isolation, unchanged repeat, real A -> B -> A recovery, private ingest-role CLI, process RSS, natural timer-key index and the existing affected checks are recorded below. No unchanged full-suite or known-BLOCK gate rerun is useful before the base changes.
+2. Wait for the responsible orchestrator's explicit message that P1r-F is merged to main. Then freshly fetch origin/main and merge it into this branch, without rebasing or force-pushing.
+3. P3 then owns any remaining core correction blocking its gate, within this branch, additively. If a new core migration is necessary, use EXACTLY version 22, as the follow-up user correction reserved it for P3. Do not pick the next free version. Versions 11 through 20 remain reserved for P1r-F. P3's original package migration remains version 2. Never edit applied migrations.
+4. Run matching build/formatter/linter and existing affected tests plus real timer/CLI evidence against the merged base; perform the actual local gate. A fresh native fixer is required per substantive BLOCK round. No ALLOW claim until the gate returns ALLOW. Main integration, release and live acceptance still require the responsible integrator.
+
+No P1r-F question, new thread, unforwarded checkpoint merge, version-22 migration or production change has been attempted during this hold.
+
 ## Actual local gate, round 2
 
 `python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/Deadlock-Brain-p3-timers --base origin/main --head feat/brain-p3-timers-20261012-v2` completed on published 87f681633da7c4a2442d192a0345eda7dc79ce26 with EXIT=1. Base origin/main was freshly fetched and remained edf503b280777524093307a97fabbb1bdba83d7c. Log: /tmp/brain-p3-core3a-local-gate-20261013.log.
