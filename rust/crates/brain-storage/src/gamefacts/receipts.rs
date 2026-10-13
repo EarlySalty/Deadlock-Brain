@@ -1,5 +1,6 @@
 use super::{limits, FactSet, FactValue, Receipt, Rejection};
-use serde_json::value::RawValue;
+#[path = "receipts_json.rs"]
+mod json;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -8,34 +9,6 @@ fn invalid() -> Rejection {
         "invalid_receipt",
         "Beleg verweist nicht auf den gespeicherten Rohwert",
     )
-}
-
-fn json_value(bytes: &[u8], pointer: &str) -> Result<Vec<u8>, Rejection> {
-    let mut value: Box<RawValue> = serde_json::from_slice(bytes).map_err(|_| invalid())?;
-    if !pointer.is_empty() {
-        let path = pointer.strip_prefix('/').ok_or_else(invalid)?;
-        for token in path.split('/') {
-            let key = token.replace("~1", "/").replace("~0", "~");
-            value = match value.get().as_bytes().first() {
-                Some(b'{') => {
-                    let mut fields: BTreeMap<String, Box<RawValue>> =
-                        serde_json::from_str(value.get()).map_err(|_| invalid())?;
-                    fields.remove(&key).ok_or_else(invalid)?
-                }
-                Some(b'[') => {
-                    if key.len() > 1 && key.starts_with('0') {
-                        return Err(invalid());
-                    }
-                    let index = key.parse::<usize>().map_err(|_| invalid())?;
-                    let values: Vec<Box<RawValue>> =
-                        serde_json::from_str(value.get()).map_err(|_| invalid())?;
-                    values.into_iter().nth(index).ok_or_else(invalid)?
-                }
-                _ => return Err(invalid()),
-            };
-        }
-    }
-    Ok(value.get().as_bytes().to_vec())
 }
 
 fn offset(text: &str) -> Result<usize, Rejection> {
@@ -70,14 +43,28 @@ fn byte_ranges(bytes: &[u8], locator: &str) -> Result<Vec<u8>, Rejection> {
 
 struct ValueIndex<'a> {
     bytes: &'a [u8],
+    json: Option<json::Index<'a>>,
     kv: Option<BTreeMap<String, String>>,
 }
 
-impl ValueIndex<'_> {
+impl<'a> ValueIndex<'a> {
+    fn new(bytes: &'a [u8]) -> Result<Self, Rejection> {
+        Ok(Self {
+            bytes,
+            json: json::Index::parse(bytes)?,
+            kv: None,
+        })
+    }
+
     fn value(&mut self, receipt: &Receipt) -> Result<Vec<u8>, Rejection> {
         match receipt.locator_kind.as_str() {
             "raw_bytes" if receipt.locator.is_empty() => Ok(self.bytes.to_vec()),
-            "json_pointer" => json_value(self.bytes, &receipt.locator),
+            "json_pointer" => self
+                .json
+                .as_mut()
+                .ok_or_else(invalid)?
+                .value(&receipt.locator)
+                .map(<[u8]>::to_vec),
             "byte_ranges" => byte_ranges(self.bytes, &receipt.locator),
             "kv_path" => {
                 if self.kv.is_none() {
@@ -99,7 +86,7 @@ impl ValueIndex<'_> {
 }
 
 pub fn value_bytes(bytes: &[u8], receipt: &Receipt) -> Result<Vec<u8>, Rejection> {
-    ValueIndex { bytes, kv: None }.value(receipt)
+    ValueIndex::new(bytes)?.value(receipt)
 }
 
 pub fn verify(bytes: &[u8], set: &FactSet) -> Result<(), Rejection> {
@@ -121,7 +108,7 @@ pub fn verify(bytes: &[u8], set: &FactSet) -> Result<(), Rejection> {
                 .map(|r| (&r.receipt, matches!(r.value, FactValue::Number(_)))),
         )
         .chain(set.relations.iter().map(|r| (&r.receipt, false)));
-    let mut values = ValueIndex { bytes, kv: None };
+    let mut values = ValueIndex::new(bytes)?;
     let mut hashes = BTreeMap::new();
     for (receipt, numeric) in receipts {
         let key = (&receipt.locator_kind, &receipt.locator);
