@@ -32,6 +32,22 @@ Sol resumed 2026-10-13. Current verified P4 code checkpoint: `1628ba07` on `feat
 
 Runtime fix67ae30ad is normally merged and published through parent1628ba07. The actual owner FindEntity/GetHero and P4 adapter emit byte-identical overlapping receipts in a real PostgreSQL/kernel loop. CanonicalPatchHistory uses the existing central complete-result digest; omission-only quarantine changes reject stale dependencies for Provider, Publication and Cache. Legacy pinning and the complete 16384-byte bound remain intact. Final affected runtime checks: 246 passed, 0 failed, 0 ignored, 0 filtered; formatter/compiler/Clippy exit 0. Commands, actual logs, hashes and earlier failed attempts are in `RUNTIME_VERIFICATION.txt`. The fresh reviewer confirmed the published parent's tested code equality and these fixes. This is not a productive service, gate or live claim.
 
+## Merge-gate startup blocker, 2026-10-13
+
+The stop hook requested completion of the parent and four contained worker branches. The assigned package rules still reserve main/deploy for P1r and prohibit deleting the old worker worktrees. Refreshed origin/main remains edf503b280777524093307a97fabbb1bdba83d7c; the published P1r candidate remains e8a1ef45788faeb988464bf44bf8f0932f12c09c.
+
+Actual required gate command, run twice (initial attempt plus one startup retry):
+
+```text
+python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/Deadlock-Brain-p4-patches --base main --head feat/brain-p4-patches-20261012-v2
+```
+
+Both attempts exited 2 without a reviewer verdict. gpt-6.1-sol failed while bwrap mounted the review output; claude-opus-5-5 failed at unshare. Both reported `Cannot allocate memory`. Task IDs: bi48r795i and bl6gkl7gd. Output files are retained under `/tmp/claude-1000/-home-nathanael--worktrees-Deadlock-Brain-p4-patches/58c3ac6f-3049-4932-93a8-78e1ab4d2a1e/tasks/`. This is no ALLOW and no code BLOCK. Read-only diagnostics showed approximately 12 GB available memory, no effective user-slice memory cap, 92 mounts against 100000 and high user/mount namespace limits; the precise sandbox allocation cause is not established. No protection bypass, foreign-process termination, gate change, merge or branch deletion was attempted.
+
+The independent oversized-post source/report finding remains unresolved regardless of gate startup. Continue with the actual P1r source-item/report interface, targeted source fix and required regression; restore normal review sandbox startup before obtaining ALLOW.
+
+MERGEPROTOKOLL[MS-1]: 0 Git-Schritte einzeln | Anläufe: 2 | Gate: kein Urteil, Exit 2, bwrap/unshare Cannot allocate memory
+
 ## Open
 
 1. Receive the P1r nonfatal source-item/report checkpoint required by the orchestrator's conditional 8-MiB acceptance. Current `patch_source.rs:337-340` still aborts on an oversized row. Frozen Core `process` propagates `object?` at lib.rs:75, RunReport exposes only counts at lines 41-44, and Store.reject requires a captured raw object ID. P4 cannot honestly report an uncaptured failed item through this API. P1r must publish the minimal interface for source-item identity, failure reason and actual byte size visible in the run report, with continuation for this item class and fatal infrastructure errors preserved. No fake/truncated post bytes, loader DB writer, silent skip, log-only substitute or streaming contract.
