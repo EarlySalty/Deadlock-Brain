@@ -60,7 +60,7 @@ BEGIN
     END IF;
     INSERT INTO canon.receipt_quarantine AS q(receipt_id,run_id,audited_receipt_id,cause)
         SELECT DISTINCT ON(receipt_id) receipt_id,run_id,receipt_id,'audited' FROM audit_results
-        WHERE outcome IN('mismatch','locator_not_found') ORDER BY receipt_id,run_id DESC
+        WHERE outcome IN('mismatch','locator_not_found','object_rejected') ORDER BY receipt_id,run_id DESC
         ON CONFLICT(receipt_id) DO UPDATE SET run_id=EXCLUDED.run_id,
             audited_receipt_id=EXCLUDED.audited_receipt_id,cause='audited',quarantined_at=clock_timestamp()
         WHERE q.cause='shadowed';
@@ -78,7 +78,7 @@ BEGIN
                 WHERE c.receipt_id=a.receipt_id
         ) peer
         JOIN canon.receipt older ON older.id=peer.receipt_id AND (older.ingest_run_id,older.id)<(bad.ingest_run_id,bad.id)
-        WHERE a.outcome IN('mismatch','locator_not_found')
+        WHERE a.outcome IN('mismatch','locator_not_found','object_rejected')
         ORDER BY older.id,a.run_id DESC,a.receipt_id
         ON CONFLICT(receipt_id) DO NOTHING;
     RETURN NULL;
