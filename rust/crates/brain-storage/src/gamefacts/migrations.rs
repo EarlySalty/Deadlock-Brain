@@ -84,6 +84,8 @@ const APPLICATION_CAP_AUDIT_SQL: &str = "SELECT EXISTS(
             WHERE p.oid=to_regprocedure('canon.check_object_rows()')
                 AND r.rolname='brain_migrate' AND NOT p.prosecdef
                 AND p.prorettype='pg_catalog.trigger'::regtype AND p.prosrc=$1
+                AND NOT p.proisstrict AND p.provolatile='v' AND p.proparallel='u'
+                AND NOT p.proleakproof AND p.prosupport=0
                 AND p.proconfig=ARRAY['search_path=pg_catalog']
                 AND NOT has_function_privilege('brain_ingest',p.oid,'EXECUTE')
                 AND NOT has_function_privilege('brain_tool',p.oid,'EXECUTE')
@@ -121,6 +123,8 @@ const RUN_FACT_PROTECTION_AUDIT_SQL: &str = "SELECT NOT EXISTS (
                     AND p.prokind='f' AND p.pronargs=required.arguments AND p.pronargdefaults=0
                     AND p.proallargtypes IS NULL AND p.provariadic=0 AND NOT p.proretset
                     AND p.prorettype=pg_catalog.to_regtype(required.return_type)
+                    AND NOT p.proisstrict AND p.provolatile='v' AND p.proparallel='u'
+                    AND NOT p.proleakproof AND p.prosupport=0
                     AND p.proconfig=ARRAY['search_path=pg_catalog']
                     AND NOT EXISTS (
                         SELECT 1 FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a
@@ -154,6 +158,8 @@ const FACT_INTEGRITY_AUDIT_SQL: &str = "SELECT EXISTS (
                 AND p.prokind='f' AND p.pronargs=0 AND p.pronargdefaults=0
                 AND p.proallargtypes IS NULL AND p.provariadic=0 AND NOT p.proretset
                 AND p.prorettype='pg_catalog.trigger'::regtype AND p.prosrc=$1
+                AND NOT p.proisstrict AND p.provolatile='v' AND p.proparallel='u'
+                AND NOT p.proleakproof AND p.prosupport=0
                 AND p.proconfig=ARRAY['search_path=pg_catalog']
                 AND NOT EXISTS (
                     SELECT 1 FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a
@@ -189,6 +195,8 @@ const PUBLISHED_INSERTS_AUDIT_SQL: &str = "SELECT NOT EXISTS (
                     AND p.prokind='f' AND p.pronargs=0 AND p.pronargdefaults=0
                     AND p.proallargtypes IS NULL AND p.provariadic=0 AND NOT p.proretset
                     AND p.prorettype='pg_catalog.trigger'::regtype AND p.prosrc=required.body
+                    AND NOT p.proisstrict AND p.provolatile='v' AND p.proparallel='u'
+                    AND NOT p.proleakproof AND p.prosupport=0
                     AND p.proconfig=ARRAY['search_path=pg_catalog']
                     AND NOT EXISTS (
                         SELECT 1 FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a

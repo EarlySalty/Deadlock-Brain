@@ -853,6 +853,153 @@ async fn publication_preflight_rejects_signed_body_and_conditional_trigger_drift
 }
 
 #[tokio::test]
+async fn signed_execution_defaults_are_checked_before_writes_and_allow_nullable_facts() {
+    use crate::gamefacts::{Counts, Entity, Fact, FactSet, FactValue, GameFactsStore, Receipt};
+
+    let (_pg, admin, writer) = preflight_fixture().await;
+    assert!(published_upgrade_snapshot(&admin)
+        .await
+        .iter()
+        .all(Vec::is_empty));
+    for (version, function, signature, delimiter) in [
+        (
+            7,
+            "canon.write_run_fact",
+            "canon.write_run_fact(bigint,text,double precision,text,boolean,bigint,bigint)",
+            "$fact$",
+        ),
+        (
+            7,
+            "ops.keep_published_run",
+            "ops.keep_published_run()",
+            "$run$",
+        ),
+        (
+            8,
+            "canon.guard_fact_integrity",
+            "canon.guard_fact_integrity()",
+            "$fact$",
+        ),
+        (
+            9,
+            "canon.check_object_rows",
+            "canon.check_object_rows()",
+            "$rows$",
+        ),
+        (
+            10,
+            "canon.guard_receipt_insert",
+            "canon.guard_receipt_insert()",
+            "$receipt$",
+        ),
+        (
+            10,
+            "canon.guard_reference_insert",
+            "canon.guard_reference_insert()",
+            "$reference$",
+        ),
+    ] {
+        let defaults: bool = sqlx::query_scalar("SELECT NOT proisstrict AND provolatile='v' AND proparallel='u' AND NOT proleakproof AND prosupport=0 FROM pg_proc WHERE oid=to_regprocedure($1)")
+            .bind(signature).fetch_one(&admin).await.unwrap();
+        assert!(defaults, "{signature}");
+        let template = MIGRATIONS.iter().find(|(v, _)| *v == version).unwrap().1;
+        let sql = sql_and_checksum(template).0;
+        let definition = sql.split_once(&format!("FUNCTION {function}(")).unwrap().1;
+        let (header, rest) = definition.split_once(delimiter).unwrap();
+        let body = rest.split_once(delimiter).unwrap().0;
+        let restore =
+            format!("CREATE OR REPLACE FUNCTION {function}({header}{delimiter}{body}{delimiter};");
+        for change in [
+            "STRICT",
+            "STABLE",
+            "IMMUTABLE",
+            "PARALLEL RESTRICTED",
+            "PARALLEL SAFE",
+            "LEAKPROOF",
+            "SUPPORT pg_catalog.textlike_support",
+        ] {
+            assert_preflight_fault(
+                &admin,
+                &writer,
+                &format!("ALTER FUNCTION {signature} {change}"),
+                &restore,
+            )
+            .await;
+        }
+    }
+    let store = GameFactsStore::new(writer.pool.clone());
+    let run = store.begin_run("execution").await.unwrap();
+    let raw = store
+        .capture(
+            run,
+            "execution",
+            "r1",
+            "values.json",
+            br#"{"number":120,"text":"nullable","boolean":true}"#.to_vec(),
+        )
+        .await
+        .unwrap();
+    let receipt = Receipt {
+        locator_kind: "raw_bytes".into(),
+        locator: String::new(),
+        value_sha256: raw.content_sha256,
+    };
+    let set = FactSet {
+        entities: vec![Entity {
+            kind: "hero".into(),
+            key: "hero_execution".into(),
+            receipt: receipt.clone(),
+        }],
+        facts: [
+            ("number", FactValue::Number(120.0)),
+            ("text", FactValue::Text("nullable".into())),
+            ("boolean", FactValue::Bool(true)),
+        ]
+        .into_iter()
+        .map(|(key, value)| Fact {
+            entity_key: "hero_execution".into(),
+            stat_key: key.into(),
+            value,
+            receipt: receipt.clone(),
+        })
+        .collect(),
+        ..FactSet::default()
+    };
+    store.apply(run, &raw, "execution", &set).await.unwrap();
+    let values: Vec<serde_json::Value> = sqlx::query_scalar("SELECT jsonb_build_array(stat_key,value_num,value_text,value_bool) FROM canon.fact ORDER BY stat_key")
+        .fetch_all(&admin).await.unwrap();
+    assert_eq!(
+        values,
+        vec![
+            serde_json::json!(["boolean", null, null, true]),
+            serde_json::json!(["number", 120, null, null]),
+            serde_json::json!(["text", null, "nullable", null]),
+        ]
+    );
+    store
+        .finish_run(run, true, Counts::default())
+        .await
+        .unwrap();
+    let visible: i64 = sqlx::query_scalar("SELECT count(*) FROM serve.current_fact")
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+    assert_eq!(visible, 3);
+    let before = published_upgrade_snapshot(&admin).await;
+    let mut corruption = admin.begin().await.unwrap();
+    let changed = sqlx::query("UPDATE canon.receipt SET value_sha256=decode(repeat('00',32),'hex') WHERE ingest_run_id=$1")
+        .bind(run).execute(&mut *corruption).await.unwrap();
+    assert_eq!(changed.rows_affected(), 4);
+    writer.check_gamefacts_schema().await.unwrap();
+    corruption.rollback().await.unwrap();
+    assert_eq!(published_upgrade_snapshot(&admin).await, before);
+    writer.check_gamefacts_schema().await.unwrap();
+    println!("42 signed execution mutations rejected before run/data creation; 3 nullable facts written and published; admin receipt corruption allowed and rolled back");
+    writer.pool.close().await;
+    admin.close().await;
+}
+
+#[tokio::test]
 async fn mutation_preflight_rejects_table_and_column_grants_without_restricting_admin() {
     let (_pg, admin, writer) = preflight_fixture().await;
     for (relation, column) in [
