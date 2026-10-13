@@ -5,6 +5,9 @@ use brain_job::{ingest, registry::EXTRACTORS, GameFactsStore, InputObject};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
+#[path = "pg_asset_slot_tests.rs"]
+mod slot_tests;
+
 struct NoLegacy;
 impl ToolExecutionPort for NoLegacy {
     fn definitions(
@@ -350,6 +353,15 @@ fn public_assets_source_reaches_the_actual_item_executor() {
         std::fs::write(cache.path().join(format!("{language}.json")), bytes)
             .expect("own public snapshot");
     }
+    let parts: Vec<Vec<u8>> = runtime.block_on(sqlx::query_scalar(
+        "SELECT bytes FROM raw.object WHERE source='assets' AND path LIKE 'heroes/en/%/%.response' ORDER BY length(split_part(path,'/',4)),split_part(path,'/',4)")
+        .fetch_all(&admin)).expect("archived public heroes response");
+    assert!(!parts.is_empty());
+    std::fs::write(
+        cache.path().join("heroes-en.json"),
+        parts.into_iter().flatten().collect::<Vec<_>>(),
+    )
+    .expect("own public heroes snapshot");
     let repeated = runtime
         .block_on(ingest(
             &store,

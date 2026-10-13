@@ -37,7 +37,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: ToolName::GetAbility,
-            description: "Liest eine veröffentlichte Fähigkeitskarte. Genau eine Auswahl verwenden: ability als kanonische Datenbank-ID aus find_entity oder hero als kanonische Helden-ID zusammen mit slot eins bis vier. Keine öffentlichen Spiel-IDs verwenden. Mehrdeutige Slots werden nicht geraten. Werte, Upgrades, Bedingungen und Quellenbelege unverändert beachten. Fehlender Patch oder current bedeutet beobachteter Quellenstand; historische Patches sind nicht verfügbar. Fehlende oder ausgelassene Fakten nicht ergänzen.".into(),
+            description: "Liest eine veröffentlichte Fähigkeitskarte. Genau eine Auswahl verwenden: ability als kanonische Datenbank-ID aus find_entity oder hero als kanonische Helden-ID zusammen mit slot eins bis vier, wobei vier die ultimative Fähigkeit ist. Keine öffentlichen Spiel-IDs verwenden. Mehrdeutige Slots werden nicht geraten. Werte, Upgrades, Bedingungen und Quellenbelege unverändert beachten. Fehlender Patch oder current bedeutet beobachteter Quellenstand; historische Patches sind nicht verfügbar. Fehlende oder ausgelassene Fakten nicht ergänzen.".into(),
             input_schema: json!({"type":"object","additionalProperties":false,"properties":{
                 "ability":{"type":"integer","minimum":1,"maximum":i64::MAX},
                 "hero":{"type":"integer","minimum":1,"maximum":i64::MAX},
@@ -108,8 +108,7 @@ fn fact_fields(value: &Value) -> Result<(), PortError> {
     Ok(())
 }
 
-fn receipted_fact(value: &Value, ids: &mut BTreeSet<String>) -> Result<(), PortError> {
-    receipt(value, ids)?;
+fn qualifier_receipts(value: &Value, ids: &mut BTreeSet<String>) -> Result<(), PortError> {
     if let Some(qualifiers) = value.get("qualifiers") {
         for qualifier in qualifiers.as_array().ok_or_else(invalid)? {
             row_receipt(qualifier, ids)?;
@@ -120,6 +119,12 @@ fn receipted_fact(value: &Value, ids: &mut BTreeSet<String>) -> Result<(), PortE
             }
         }
     }
+    Ok(())
+}
+
+fn receipted_fact(value: &Value, ids: &mut BTreeSet<String>) -> Result<(), PortError> {
+    receipt(value, ids)?;
+    qualifier_receipts(value, ids)?;
     fact_fields(value)
 }
 
@@ -172,6 +177,7 @@ fn section_receipts(value: &Value, key: &str, ids: &mut BTreeSet<String>) -> Res
             receipted_fact(row, ids)?;
         } else {
             receipt(row, ids)?;
+            qualifier_receipts(row, ids)?;
             identity_receipts(&row["identity"], ids)?;
             if row["entity_id"] != row["identity"]["entity_id"] {
                 return Err(invalid());
@@ -233,18 +239,23 @@ fn card_matches(value: &Value, request: &ToolRequest) -> bool {
             let Some(rows) = value["abilities"]["links"].as_array() else {
                 return false;
             };
-            let mut selected = false;
-            for row in rows.iter().filter(|row| selection_link(row, request)) {
-                if entity.is_none()
-                    || row["to_entity_id"].as_u64() != entity
-                    || row["entity_id"].as_u64() != ability.hero
-                    || row["identity"]["kind"] != "hero"
-                {
-                    return false;
-                }
-                selected = true;
+            let matching: Vec<_> = rows
+                .iter()
+                .filter(|row| selection_link(row, request))
+                .collect();
+            if matching.len() != 1 {
+                return false;
             }
-            selected
+            let row = matching[0];
+            let qualifiers = row["qualifiers"].as_array();
+            entity.is_some()
+                && row["to_entity_id"].as_u64() == entity
+                && row["entity_id"].as_u64() == ability.hero
+                && row["identity"]["kind"] == "hero"
+                && qualifiers.is_some_and(|qualifiers| {
+                    let slots: Vec<_> = qualifiers.iter().filter(|q| q["key"] == "slot").collect();
+                    slots.len() == 1 && slots[0]["value"] == row["slot"]
+                })
         }
         _ => false,
     }

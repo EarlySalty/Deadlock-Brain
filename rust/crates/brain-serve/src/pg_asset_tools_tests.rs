@@ -183,9 +183,7 @@ fn slot_selection_keeps_at_least_one_relation_receipt_when_trimming() {
     let mut row = fact(1, "ability.damage", 5);
     row["value"] = json!("x".repeat(MAX_RESULT_BYTES));
     let mut value = card(vec![row]);
-    let link = json!({"entity_id":2,"kind":"has_ability","slot":3,
-        "from_entity_id":2,"to_entity_id":1,"citation":"6","patch":null,
-        "source_revision":"assets-a","identity":identity(2)});
+    let link = ability_link(2, 1, 3, 6);
     value["abilities"] = json!({"links":[link.clone()],"omitted_count":0,"truncated":false});
     let selection = request(ToolName::GetAbility, json!({"hero":2,"slot":3}));
     let bounded = bounded_card_result("slot-test", &selection, value.clone())
@@ -459,7 +457,9 @@ fn card_results_are_bound_to_the_requested_identity_and_current_selection() {
 fn ability_link(hero: u64, ability: u64, slot: u8, citation: u64) -> Value {
     json!({"entity_id":hero,"kind":"has_ability","slot":slot,
         "from_entity_id":hero,"to_entity_id":ability,"citation":citation.to_string(),
-        "patch":null,"source_revision":"assets-a","identity":identity(hero)})
+        "patch":null,"source_revision":"assets-a","identity":identity(hero),
+        "qualifiers":[{"key":"slot","value":slot,"citation":citation.to_string(),
+            "patch":null,"source_revision":"assets-a"}]})
 }
 
 #[test]
