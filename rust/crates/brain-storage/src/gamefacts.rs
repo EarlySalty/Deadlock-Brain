@@ -33,7 +33,7 @@ async fn capture(
             bytes,
         });
     }
-    let row = sqlx::query("SELECT id,source,revision,path,bytes FROM raw.object WHERE source_path_sha256=$1 AND content_sha256=$2")
+    let row = sqlx::query("SELECT id,source,revision,path FROM raw.object WHERE source_path_sha256=$1 AND content_sha256=$2")
         .bind(source_path_sha256).bind(content_sha256.as_slice()).fetch_one(pool).await?;
     if row.try_get::<String, _>("source")? != source || row.try_get::<String, _>("path")? != path {
         return Err(sqlx::Error::Protocol(
@@ -46,7 +46,7 @@ async fn capture(
         revision: row.try_get("revision")?,
         path: row.try_get("path")?,
         content_sha256,
-        bytes: row.try_get("bytes")?,
+        bytes,
     })
 }
 
@@ -216,6 +216,11 @@ impl GameFactsStore {
         bytes: Vec<u8>,
     ) -> Result<RawObject, sqlx::Error> {
         capture(&self.pool, run, source, revision, path, bytes).await
+    }
+
+    pub async fn was_applied(&self, raw: i64, extractor: &str) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM canon.receipt receipt JOIN ops.ingest_run run ON run.id=receipt.ingest_run_id WHERE receipt.raw_object_id=$1 AND receipt.extractor=$2 AND run.status='succeeded')")
+            .bind(raw).bind(extractor).fetch_one(&self.pool).await
     }
 
     pub async fn apply(
