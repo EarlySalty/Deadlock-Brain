@@ -217,7 +217,7 @@ arrows:[
 ["yt","side",{bus:166,bad:1}],
 ["patch","side",{bus:166,bad:1}],
 ["aimod","maint",{via:[[895,298],[460,298],[460,176],[300,176]],bad:1}],
-["maint","activ",{bus:310,bad:1,toBottom:1}],
+["maint","activ",{bus:310,bad:1,toSide:1}],
 ["side","central",{bus:330,bad:1}],
 ["maint","braindb",{bus:318,bad:1}],
 ["maint","files",{bus:318,bad:1}],
@@ -227,7 +227,7 @@ arrows:[
 ["braindb","tools",{bus:526}],
 ["git","tools",{via:[[478,146],[140,146],[140,542],[573,542]],bad:1}],
 ["live","tools",{via:[[345,146],[140,146],[140,542],[573,542]],bad:1}],
-["pre","prov",{bus:678,bad:1,toBottom:1}],
+["pre","prov",{bus:678,bad:1,toSide:1}],
 ["tools","prov",{side:1}],
 ["prov","gate",{side:1}],
 ["gate","discord",{bus:698}],
@@ -306,7 +306,6 @@ const svg=el("svg",{class:"arrows",width:W,height:v.height,viewBox:"0 0 "+W+" "+
 st.appendChild(svg);
 const defs=el("defs",{},svg);
 [["n","#6f7c8c"],["b","#d64545"],["z","#4d8fd6"]].forEach(([id,c])=>{const m=el("marker",{id:name+"-m"+id,viewBox:"0 0 10 10",refX:"9",refY:"5",markerWidth:"7",markerHeight:"7",orient:"auto-start-reverse"},defs);el("path",{d:"M0,0 L10,5 L0,10 z",fill:c},m)});
-v.boxes.forEach(b=>{b.h=b.node.offsetHeight});
 v.arrows.forEach(([f,t,o])=>{
 const a=map[f],b=map[t];o=o||{};
 const color=o.bad?"#d64545":name==="ziel"?"#4d8fd6":"#6f7c8c";
@@ -314,12 +313,15 @@ const mk="url(#"+name+"-m"+(o.bad?"b":name==="ziel"?"z":"n")+")";
 let pts;
 if(o.side){
 const ltr=b.x>a.x,x1=ltr?a.x+a.w:a.x,x2=ltr?b.x:b.x+b.w;
-const y1=a.y+a.h/2,y2=b.y+b.h/2,mx=(x1+x2)/2;
+const y1=a.y+20,y2=b.y+20,mx=(x1+x2)/2;
 pts=[[x1,y1],[mx,y1],[mx,y2],[x2,y2]];
 }else{
-const x1=a.x+a.w/2,y1=a.y+a.h,x2=b.x+b.w/2,y2=o.toBottom?b.y+b.h:b.y;
-const bus=o.bus==null?(y1+y2)/2:o.bus;
-pts=[[x1,y1],...(o.via||[[x1,bus],[x2,bus]]),[x2,y2]];
+const x1=a.x+a.w,y1=a.y+20;
+const gap=Math.min(W-x1,...v.boxes.filter(c=>c.y===a.y&&c.x>=x1).map(c=>c.x-x1));
+const exit=x1+Math.min(6,gap/2),x2=o.toSide?b.x:b.x+b.w/2,y2=o.toSide?b.y+20:b.y;
+const bus=o.bus==null?b.y-28:o.bus;
+const via=o.via?[[exit,o.via[0][1]],...o.via.slice(1)]:o.toSide?[[exit,bus],[x2-6,bus],[x2-6,y2]]:[[exit,bus],[x2,bus]];
+pts=[[x1,y1],[exit,y1],...via,[x2,y2]];
 }
 const stopped=a.stopped||b.stopped;
 const d=pts.map(([x,y],i)=>(i?"L":"M")+x+","+y).join(" ");
