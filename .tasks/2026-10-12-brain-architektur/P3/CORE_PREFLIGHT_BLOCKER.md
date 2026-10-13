@@ -1,5 +1,9 @@
 # P1r-owned verification history, 2026-10-13
 
+## Actual source gate outcome
+
+Published integrated source aafba4c0e856d98dd7a816306694018ee138a9d4 received actual local `[gpt-6.1-sol] ALLOW: No grounded merge-blocking defect found in the supplied revision snapshots and diff.` Retry task bp4o9qhm0 completed EXIT=0; log /tmp/brain-p3-final-local-gate-retry-20261014.log. Its first attempt exited2 before either critic could start, with the required unshare wrapper's Cannot allocate memory; minimal same-namespace reproduction exited1. This was a technical environment failure, not a new BLOCK, quota or reviewer vote. No wrapper/protection/model/capacity modification or foreign process stop was performed. Exact command and proof details are in P3/TODO.md. Final matching evidence is113/0/0. No remaining code finding, migration22, P3 merge to main, deployment, service change, cleanup or live acceptance is claimed. A documentation-only publication of this actual result requires its own gate on its resulting HEAD before handover.
+
 ## Current approved main-merge candidate, verified 2026-10-14
 
 The orchestrator's direct 23:15 go-ahead authorized merging origin/main 0b105f92abaa2697b9c93e20483c60e8d7c8a3b1 into P3. The automatic no-rebase merge retained Hero+Timer and sparse migrations 1/2/7/8/9/10. The resumed native fixer confirmed both prior core BLOCKING mechanisms and the template-installation NIT are resolved. A suspected application_xid override was disproven by the actual named-column INSERT grants and explicit preflight/SQLSTATE 42501 test. No additional P3 core correction or migration 22 is currently necessary; applied migrations remain unchanged. This is code/SQL verification, not a new gate verdict.

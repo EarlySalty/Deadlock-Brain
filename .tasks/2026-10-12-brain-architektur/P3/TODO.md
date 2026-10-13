@@ -1,6 +1,19 @@
 # P3 resume, 2026-10-13
 
-Current candidate includes the automatic, no-rebase merge of explicitly approved origin/main 0b105f92abaa2697b9c93e20483c60e8d7c8a3b1, published as c9c8c936, and the subsequently fetched release-only main fix eea3c4ecd890f0620a701697ce116d14a25076d4, published as 87ed7cc7, followed by the automatic citation-fix merge f948a44b. Every merge was without rebase or conflicts. This follows the direct 23:15 instruction to merge later P1r-F fixes again. Hero and TimerExtractor remain registered, with sparse migrations 1, 2, 7, 8, 9, 10. Both additive P3 registrations survived unchanged. No applied migration was edited. The earlier implementation checkpoint 87f68163 and its gate history are retained below; a new actual gate on this candidate remains pending. No ALLOW or P3 live deployment is claimed.
+Current candidate includes the automatic, no-rebase merge of explicitly approved origin/main 0b105f92abaa2697b9c93e20483c60e8d7c8a3b1, published as c9c8c936, and the subsequently fetched release-only main fix eea3c4ecd890f0620a701697ce116d14a25076d4, published as 87ed7cc7, followed by the automatic citation-fix merge f948a44b. Every merge was without rebase or conflicts. This follows the direct 23:15 instruction to merge later P1r-F fixes again. Hero and TimerExtractor remain registered, with sparse migrations 1, 2, 7, 8, 9, 10. Both additive P3 registrations survived unchanged. No applied migration was edited. The earlier implementation checkpoint 87f68163 and its gate history are retained below. The actual final source gate on aafba4c0 returned ALLOW after one technical wrapper-failure retry, documented below. P3 live deployment is not claimed.
+
+## Actual final gate on the integrated code
+
+Published source candidate aafba4c0e856d98dd7a816306694018ee138a9d4 includes main f948a44b28f85e97e9109231b329721e718c2f6f and independently verified Timer citation fix f682b579. Worktree was clean. No additional migration22 was created; registered versions remain [1,2,7,8,9,10].
+
+The exact local command was `python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/Deadlock-Brain-p3-timers --base origin/main --head feat/brain-p3-timers-20261012-v2`. First attempt exited2 without a verdict: both configured models failed before starting because the mandatory unshare wrapper returned Cannot allocate memory. Log /tmp/brain-p3-final-local-gate-20261014.log. The same required user/mount/PID namespace command against /usr/bin/true reproduced EXIT=1. Read-only memory/capacity diagnostics were performed; no wrapper, protection, capacity setting, model or foreign process was changed, and this was not reported as a quota or code BLOCK.
+
+The one permitted technical retry actually completed EXIT=0 with `[gpt-6.1-sol] ALLOW: No grounded merge-blocking defect found in the supplied revision snapshots and diff.` Log /tmp/brain-p3-final-local-gate-retry-20261014.log. This is an actual gate ALLOW on aafba4c0, not the earlier independent reviewer report. Matching checks total113 passed, zero failed/ignored; all relevant formatter/check/strict-Clippy checks passed. Public ingest/repeat/exact receipts and qualified offline timer-index/RSS evidence are retained with their actual measured source snapshot, not claimed as live acceptance.
+
+This record is documentation-only after the source ALLOW. The final handover carries the actual gated publication SHA; if this record creates a new HEAD, that HEAD receives its own actual local gate. P3 does not merge to main, deploy, restart services or clean either worktree. Integrator owns P1r-F live ordering, Timer ingest/live answer/trace, system-unit/cgroup acceptance and cleanup after verified main deployment. Leave isolated fix branch/worktree intact for ancestry-checked cleanup then.
+
+TESTNACHWEIS[TW-1]: 113 passed, 0 ignored | Baseline: not measured
+WIRKUNGSPRUEFUNG[WP-1]: 0 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 0/0 geprüft
 
 ## Current main-merge verification
 
