@@ -63,7 +63,9 @@ WHERE e.kind='doc_page' AND e.source='deadlock-docs' AND e.source_revision ~ '^[
     AND p.value_text::text !~ '(^|/)[.]{1,2}(/|$)|//|\\|[[:cntrl:]]'
     AND octet_length(p.value_text) BETWEEN 1 AND 2048
     AND octet_length(t.value_text) BETWEEN 1 AND 512 AND t.value_text::text !~ '[[:cntrl:]]'
-    AND l.value_text::text ~ '^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})?$' AND octet_length(l.value_text)<=16
+    AND octet_length(l.value_text) BETWEEN 1 AND 16384
+    AND btrim(l.value_text::text,U&'\0020\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000')<>''
+    AND l.value_text::text !~ U&'[\0001-\001F\007F-\009F]'
     AND n.value_num BETWEEN 1 AND 4096 AND n.value_num=trunc(n.value_num);
 
 CREATE VIEW serve.doc_section AS
