@@ -1,6 +1,12 @@
 # P1r-owned verification history, 2026-10-13
 
-## Current route after user decision, 2026-10-13 21:55 Europe/Berlin
+## Current approved main-merge candidate, verified 2026-10-14
+
+The orchestrator's direct 23:15 go-ahead authorized merging origin/main 0b105f92abaa2697b9c93e20483c60e8d7c8a3b1 into P3. The automatic no-rebase merge retained Hero+Timer and sparse migrations 1/2/7/8/9/10. The resumed native fixer confirmed both prior core BLOCKING mechanisms and the template-installation NIT are resolved. A suspected application_xid override was disproven by the actual named-column INSERT grants and explicit preflight/SQLSTATE 42501 test. No additional P3 core correction or migration 22 is currently necessary; applied migrations remain unchanged. This is code/SQL verification, not a new gate verdict.
+
+Actual main-based full Job tests passed 19/0/0 with original public blobs, formatter passed, and the real brain_ingest CLI accepted both Timer objects and ignored unchanged repeat with stable counts 2/14/26. Successful process RSS 8828/6548 KB; natural timer_key_idx scan under the labelled 1500-alias public catalog fixture, Execution Time 3.636 ms, Planning Time 3.843 ms. The private probe was independently verified stopped (pg_ctl status 3). See P3/TODO.md for exact logs and the corrected Cargo fixture setup. Current affected checks completed: 68 passed, 0 failed, 0 ignored (19 Job, 32 Storage, 10 Migration, 7 PG tools), strict four-package all-target Clippy and final formatter passed. The inherited sparse-registry assertion was corrected solely to include P3's existing version 2; the corrected migration suite passed. Final gate/ALLOW and live-unit/cgroup acceptance remain open. No main merge, deployment or cleanup by P3.
+
+## Earlier user route decision, 2026-10-13 21:55 Europe/Berlin
 
 P1r-F replaces the stopped P1r thread and goes directly to gate, main integration, release and live proof. Core 3b will not be published and P1r-F answers no core questions. P3 waits for the orchestrator's explicit main-merge message, then merges freshly fetched origin/main into its published branch without rebasing or force-pushing. Any remaining core blocker is then P3's additive correction in this branch. The follow-up user correction reserves migration version 22 for such a P3 core fix; do not choose the next free version. Versions 11 through 20 belong to P1r-F, and P3's package version remains 2. Applied migrations remain immutable. Independent Timer work and proof publication are complete; no production change or new migration has been made during the hold. Final ALLOW and live acceptance are still pending.
 
