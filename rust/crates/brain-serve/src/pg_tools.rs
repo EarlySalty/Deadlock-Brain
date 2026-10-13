@@ -1,3 +1,6 @@
+#[path = "meta_stats_tools.rs"]
+mod meta_stats_tools;
+
 use brain_contracts::{
     canonical_receipt::{format_receipt, CanonicalReceipt},
     tools::{BuildPlanRequest, CanonicalEntityKind, GetHeroRequest, HeroSection},
@@ -221,6 +224,13 @@ impl<T> PgTools<T> {
                     };
                     profile
                 }
+                ToolSubrequest::GetMetaStats(meta) => {
+                    let Some(value) = meta_stats_tools::read(&mut connection, meta).await? else {
+                        return Ok(error_execution(call_id, request.name(), "meta_stats_not_found",
+                            "Für diese Auswahl ist keine veröffentlichte Metastatistik gespeichert."));
+                    };
+                    value
+                }
                 _ => return Err(invalid()),
             };
             let execution = bounded_execution(&mut connection, call_id, request, result).await?;
@@ -340,7 +350,10 @@ impl<T: ToolExecutionPort> ToolExecutionPort for PgTools<T> {
 }
 
 pub(super) fn canonical(name: ToolName) -> bool {
-    matches!(name, ToolName::FindEntity | ToolName::GetHero)
+    matches!(
+        name,
+        ToolName::FindEntity | ToolName::GetHero | ToolName::GetMetaStats
+    )
 }
 
 fn kind_name(kind: CanonicalEntityKind) -> &'static str {
@@ -368,6 +381,7 @@ fn definitions() -> Vec<ToolDefinition> {
                 "hero":{"type":"integer","minimum":1,"maximum":i64::MAX},
                 "patch":{"type":"string","minLength":1,"maxLength":128},
                 "sections":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"string","enum":["stats","abilities","weapon"]}}}})},
+        meta_stats_tools::definition(),
     ]
 }
 

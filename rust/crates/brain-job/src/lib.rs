@@ -2,6 +2,8 @@
 
 pub mod config;
 pub mod hero;
+pub mod meta_source;
+pub mod meta_stats;
 pub mod registry;
 pub mod sources;
 pub use brain_storage::gamefacts::{

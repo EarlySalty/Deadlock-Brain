@@ -5,10 +5,13 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::entity_profile::EntityKind;
+#[path = "meta_stats.rs"]
+mod meta_stats;
 use crate::{
     Accounted, AuthorizedContext, Evidence, PortError, PortFailure, ProviderAnswer, Query, Usage,
     UsageAccounting,
 };
+pub use meta_stats::{GetMetaStatsRequest, MetaStatKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -24,6 +27,7 @@ pub enum ToolName {
     DeadlockData,
     FindEntity,
     GetHero,
+    GetMetaStats,
 }
 
 impl ToolName {
@@ -40,6 +44,7 @@ impl ToolName {
             Self::DeadlockData => "deadlock_data",
             Self::FindEntity => "find_entity",
             Self::GetHero => "get_hero",
+            Self::GetMetaStats => "get_meta_stats",
         }
     }
 }
@@ -440,6 +445,7 @@ pub enum ToolSubrequest {
     DeadlockData(DeadlockDataRequest),
     FindEntity(FindEntityRequest),
     GetHero(GetHeroRequest),
+    GetMetaStats(GetMetaStatsRequest),
 }
 
 impl ToolSubrequest {
@@ -468,6 +474,9 @@ impl ToolSubrequest {
             }
             ToolName::FindEntity => serde_json::from_value(arguments.clone()).map(Self::FindEntity),
             ToolName::GetHero => serde_json::from_value(arguments.clone()).map(Self::GetHero),
+            ToolName::GetMetaStats => {
+                serde_json::from_value(arguments.clone()).map(Self::GetMetaStats)
+            }
         };
         parsed.map_err(|_| invalid("Werkzeugargumente passen nicht zur typisierten Unteranfrage"))
     }
@@ -603,6 +612,7 @@ impl ToolSubrequest {
                 }
                 Ok(())
             }
+            Self::GetMetaStats(request) => request.validate(),
         }
     }
 }
@@ -1018,7 +1028,10 @@ impl ToolExecution {
         }
         let expected_game = if matches!(
             request.name(),
-            ToolName::ServerKnowledge | ToolName::FindEntity | ToolName::GetHero
+            ToolName::ServerKnowledge
+                | ToolName::FindEntity
+                | ToolName::GetHero
+                | ToolName::GetMetaStats
         ) {
             None
         } else {
@@ -1045,7 +1058,10 @@ impl ToolExecution {
             Some(game)
         };
         let mut expected_request = request.clone();
-        if matches!(request.name(), ToolName::FindEntity | ToolName::GetHero) {
+        if matches!(
+            request.name(),
+            ToolName::FindEntity | ToolName::GetHero | ToolName::GetMetaStats
+        ) {
             expected_request.canonical_result_sha256 = Some(canonical_result_sha256(&self.result)?);
         }
         let mut ids = BTreeSet::new();
@@ -2315,6 +2331,7 @@ mod tests {
             ToolName::DeadlockData,
             ToolName::FindEntity,
             ToolName::GetHero,
+            ToolName::GetMetaStats,
         ];
         for name in names {
             let encoded = serde_json::to_value(name).unwrap();
