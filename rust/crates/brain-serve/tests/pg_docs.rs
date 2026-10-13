@@ -15,9 +15,6 @@ use pg_docs::DocsReader;
 use sqlx::{postgres::PgConnectOptions, PgPool, Row};
 use std::collections::BTreeSet;
 
-const MIGRATION: &str =
-    include_str!("../../../../scripts/migrations/2026-10-13-brain-gamefacts-p5-docs-v1.sql");
-
 async fn setup(pg: &scratch_pg::ScratchPg) -> PgPool {
     let pool = PgPool::connect_with(
         PgConnectOptions::new_without_pgpass()
@@ -28,17 +25,43 @@ async fn setup(pg: &scratch_pg::ScratchPg) -> PgPool {
     )
     .await
     .unwrap();
-    sqlx::raw_sql("CREATE ROLE brain_migrate; CREATE ROLE brain_ingest; CREATE ROLE brain_service; CREATE ROLE brain_tool; CREATE ROLE brain_readonly LOGIN; GRANT brain_tool TO brain_readonly WITH INHERIT FALSE, SET TRUE;")
+    sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly LOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate")
         .execute(&pool).await.unwrap();
-    let base = brain_storage::gamefacts::limits::render_sql(include_str!(
-        "../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"
-    ))
-    .replace("{{HERO_PROFILE}}", "");
-    sqlx::raw_sql(&base).execute(&pool).await.unwrap();
-    sqlx::raw_sql(MIGRATION).execute(&pool).await.unwrap();
-    sqlx::raw_sql("CREATE TABLE canon.test_quarantine(receipt_id bigint PRIMARY KEY); CREATE OR REPLACE VIEW serve.published_receipt AS SELECT r.*,o.source,o.revision,o.revision AS source_revision,o.path,o.content_sha256 FROM canon.receipt r JOIN ops.ingest_run run ON run.id=r.ingest_run_id AND run.status='succeeded' JOIN raw.object o ON o.id=r.raw_object_id WHERE NOT EXISTS(SELECT 1 FROM canon.test_quarantine q WHERE q.receipt_id=r.id)")
+    brain_storage::PgStore::new(pool.clone())
+        .migrate_gamefacts()
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE TABLE canon.test_quarantine(receipt_id bigint PRIMARY KEY); ALTER TABLE canon.test_quarantine OWNER TO brain_migrate; CREATE OR REPLACE VIEW serve.published_receipt AS SELECT r.*,o.source,o.revision,o.revision AS source_revision,o.path,o.content_sha256 FROM canon.receipt r JOIN ops.ingest_run run ON run.id=r.ingest_run_id AND run.status='succeeded' JOIN raw.object o ON o.id=r.raw_object_id WHERE NOT EXISTS(SELECT 1 FROM canon.test_quarantine q WHERE q.receipt_id=r.id)")
         .execute(&pool).await.unwrap();
     pool
+}
+
+#[tokio::test]
+async fn registered_docs_migration_is_recorded_and_idempotent() {
+    use sha2::{Digest, Sha256};
+
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    let store = brain_storage::PgStore::new(pool.clone());
+    let versions = "SELECT version,checksum FROM ops.gamefacts_schema_version ORDER BY version";
+    let before: Vec<(i32, Vec<u8>)> = sqlx::query_as(versions).fetch_all(&pool).await.unwrap();
+    assert_eq!(before.iter().map(|(v, _)| *v).collect::<Vec<_>>(), [1, 5]);
+    let rendered = brain_storage::gamefacts::limits::render_sql(include_str!(
+        "../../../../scripts/migrations/2026-10-13-brain-gamefacts-p5-docs-v1.sql"
+    ));
+    assert_eq!(before[1].1, Sha256::digest(rendered.as_bytes()).to_vec());
+    let objects = "SELECT to_regclass('serve.doc_page')::oid::bigint,to_regclass('serve.doc_section')::oid::bigint,to_regprocedure('serve.doc_meta(text)')::oid::bigint,to_regprocedure('serve.doc_tsv(text)')::oid::bigint,to_regclass('canon.doc_body_fts')::oid::bigint";
+    let installed: (i64, i64, i64, i64, i64) =
+        sqlx::query_as(objects).fetch_one(&pool).await.unwrap();
+    store.check_gamefacts_schema().await.unwrap();
+    store.migrate_gamefacts().await.unwrap();
+    let after: Vec<(i32, Vec<u8>)> = sqlx::query_as(versions).fetch_all(&pool).await.unwrap();
+    assert_eq!(before, after);
+    let unchanged: (i64, i64, i64, i64, i64) =
+        sqlx::query_as(objects).fetch_one(&pool).await.unwrap();
+    assert_eq!(installed, unchanged);
+    store.check_gamefacts_schema().await.unwrap();
+    pool.close().await;
 }
 
 async fn receipt(pool: &PgPool, raw: i64, run: i64, section: bool) -> i64 {

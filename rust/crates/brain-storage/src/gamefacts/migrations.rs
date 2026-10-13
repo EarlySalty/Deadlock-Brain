@@ -3,10 +3,16 @@ use brain_contracts::PortError;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, Row};
 
-pub const MIGRATIONS: &[(i32, &str)] = &[(
-    1,
-    include_str!("../../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"),
-)];
+pub const MIGRATIONS: &[(i32, &str)] = &[
+    (
+        1,
+        include_str!("../../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"),
+    ),
+    (
+        5,
+        include_str!("../../../../../scripts/migrations/2026-10-13-brain-gamefacts-p5-docs-v1.sql"),
+    ),
+];
 
 fn invalid() -> PortError {
     PortError::InvalidResponse("Spielwertschema fehlt, ist verändert oder nicht kompatibel".into())
