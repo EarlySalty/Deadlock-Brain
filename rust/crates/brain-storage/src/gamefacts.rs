@@ -5,7 +5,7 @@ mod types;
 pub use types::*;
 
 use sha2::{Digest, Sha256};
-use sqlx::{PgConnection, PgPool, Row};
+use sqlx::{Connection, PgConnection, PgPool, Row};
 
 async fn capture(
     pool: &PgPool,
@@ -199,6 +199,14 @@ pub struct GameFactsStore {
 impl GameFactsStore {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    pub async fn lock_run(&self) -> Result<PgConnection, sqlx::Error> {
+        let mut connection = PgConnection::connect_with(&self.pool.connect_options()).await?;
+        sqlx::query("SELECT pg_advisory_lock(742110026114::bigint)")
+            .execute(&mut connection)
+            .await?;
+        Ok(connection)
     }
 
     pub async fn begin_run(&self, source: &str) -> Result<i64, sqlx::Error> {

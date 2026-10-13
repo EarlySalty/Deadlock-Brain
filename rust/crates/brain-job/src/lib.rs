@@ -51,6 +51,7 @@ pub async fn ingest<I>(
 where
     I: IntoIterator<Item = anyhow::Result<InputObject>>,
 {
+    let _run_guard = store.lock_run().await?;
     let run_id = store.begin_run(source).await?;
     let mut counts = Counts::default();
     let result = process(store, run_id, source, objects, extractors, &mut counts).await;
