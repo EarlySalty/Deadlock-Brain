@@ -1,0 +1,85 @@
+P4 schema and query measurement, 2026-10-13
+
+Scope
+The reserved sparse migration entry is version 4. The previously unapplied P4 migration is named 2026-10-12-brain-gamefacts-p4-patches-v1.sql. Core migration v1, current_* views, storage/core, extractors and productive tool implementations are unchanged by this branch.
+
+The nullable valid_from_patch and valid_to_patch columns reference generic canon.entity patch identities. Identity guards check kind/key and protect referenced identities against renaming/retyping. Existing facts stay unassigned; the upgrade probe verifies unchanged old fact values and relfilenode. No timestamp/revision mapping, row backfill, persisted serving projection or refresh writer was added. Grants for assigning these boundaries were not added.
+
+Reference-index contract
+The serving migration requires the coordinated P4 version-2 extractor format:
+patch_change_r<lowercase SHA-256 hex of normalized_reference UTF-8>_<physical_statement_index>
+This stores a reference fingerprint, not resolved hero membership. It must be released coherently with the parent's version-2 extractor/re-extraction checkpoint. Old experimental statement keys are not interpreted as version-2 keys.
+
+The additive fact_patch_reference B-tree covers (stat_key COLLATE "C", entity_id). A hero's currently coherent published aliases determine fingerprint-prefix lower/upper bounds. A correlated LATERAL candidate query applies these bounds to serve.current_fact before JSON validation. DISTINCT ON includes stat_key, so this narrowing preserves latest-row selection. The original JSON reference must still equal the current alias; the fingerprint is not treated as authoritative identity. Published-alias conflicts hide ambiguous references. Patch raw/run/extractor coherence, official metadata receipts and the published_receipt quarantine boundary remain required. Catalog metadata is checked in one per-patch aggregate with the three expected pointer receipts.
+
+Measurement artifact and exact code state
+Probe: /tmp/p4-schema-probe-a852.py
+Probe SHA-256: fb27661f4a5668b5e1e8f353809811e342b60ea5e056957230f98f72b92ef3bf
+Result: /tmp/p4-perf-probe-a852.log
+Result SHA-256: e252d72943e30c83c929c8bdd7c3b5702919411d78383981eaaf587ae2a31ec2
+Migration: /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-a852aea1944696bb6/scripts/migrations/2026-10-12-brain-gamefacts-p4-patches-v1.sql
+Migration SHA-256: bc849a1a5e130487e8da4052168ca07a0b81bf4fb06f6f26a6a180b641d7ebee
+Reproduction invocation: python3 -I /tmp/p4-schema-probe-a852.py
+The temporary Python file is a one-shot admin measurement input, not production or repository application code.
+
+Database and fixture
+A private disposable PostgreSQL 16 instance is initialized with trust authentication, UTF-8 and no locale, an isolated temporary Unix socket, port 55439 and listen_addresses=''. The instance is stopped and its own temporary directory removed after the probe. No production database or account credentials are used.
+
+The actual core-v1 and P4 SQL are applied. The synthetic fixture has 132 patch posts, 2621 statement facts, two hero identities/aliases and three Baba statements. The first post has one statement; the other 131 have twenty each. All patch release times are 2026-10-01T12:00:00Z, so the measured inclusive range includes all 132 posts. Distinct synthetic post text prevents accidental reuse of identical statement payloads from being the workload's premise.
+
+Patch raw byte lengths total exactly 746135 and have maximum 64006. The first post has 2 bytes; the next has 64006; 129 have 5247 each; the final one has 5264. These bytes are synthetic padding, and fixture receipts/hashes are DBA-inserted placeholders. This benchmark is not an ingestion, receipt-authenticity or official-content proof. The post count/raw-volume targets come from the parent's reported feed inventory. Twenty changes per additional post is a disclosed load model, not a measured production canonical change count. Serving correctness/real receipt validation is covered separately by the GameFactsStore scratch tests.
+
+Query and planner method
+The probe reads the actual CHANGES constant from /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-a852aea1944696bb6/rust/crates/brain-serve/src/pg_patch_tools.rs rather than substituting a simplified query. PREPARE uses (bigint,bigint,text,text), with EXECUTE p4(1,NULL,'2026-10-01T12:00:00Z','2026-10-01T12:00:00Z'). The request selects the three Baba changes across the entire fixture, rather than benchmarking an empty response.
+
+Standard planner, seqscan, JIT and automatic prepared-plan selection remain enabled/default. No forced index/JIT setting is used for the final acceptance measurement. An earlier forced non-sequential diagnostic was used only to inspect index eligibility before optimization; it is not acceptance evidence.
+
+The initial default EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) returns three rows: execution 5.817 ms, planning 101.241 ms. The plan contains a fact_patch_reference scan with both alias-fingerprint range bounds, one loop and three candidate rows. Metadata lookups use the same index with the three metadata stat keys and the specific patch entity ID, three rows for each of three patch loops. These are default-planner index accesses, not settings-forced scans.
+
+Prepared measurements run in private psql sessions as brain_tool, within REPEATABLE READ READ ONLY transactions and with local statement_timeout='500ms'. Each session uses ten warmups followed by 100 samples. p95 is the nearest-rank 95th sorted observation (zero-based index 94), not an interpolated percentile.
+
+Instrumented session
+The 100 measured statements are EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) EXECUTE of the actual prepared CHANGES query. All 100 plans report three actual result rows. pg_prepared_statements reports five custom and 105 generic plans after the ten warmups and 100 measured statements.
+p95 execution: 5.659 ms
+p95 planning: 0.078 ms
+p95 per-sample planning plus execution: 5.725 ms
+The last value is the percentile of each sample's sum, not the sum of the separate percentiles. EXPLAIN timing/instrumentation overhead is included in these measurements.
+
+Client query-roundtrip session
+A separate private psql session prepares the same query with the same role, isolation, timeout, parameters and planner defaults. psql timing is enabled for 110 ordinary EXECUTE calls; the first ten timings are discarded. The next 100 are the reported sample set. COMMIT timing is excluded.
+p95 actual prepared CHANGES query roundtrip: 4.264 ms
+This psql timing includes the local query roundtrip and result handling. It excludes connection setup, PREPARE, transaction setup/commit, the rest of the tool's queries, Rust tool dispatch, response serialization and any production network path. It is not a whole-tool latency or production-performance claim. Cold planning is reported separately above and is not hidden by the warm-query number.
+
+Relevant verification
+Upgrade/index/identity probe: 1 passed, 0 failed, 0 ignored, 0 filtered.
+/home/nathanael/.local/bin/cargo-slot test --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-a852aea1944696bb6/rust/Cargo.toml --locked --jobs 3 -p brain-storage --test gamefacts_patch_migration -- --include-ignored --nocapture
+Log: /tmp/p4-migration-test-final-a852.log
+
+Sparse registry probes already executed: 2 passed, 0 failed, 0 ignored, 44 filtered.
+/home/nathanael/.local/bin/cargo-slot test --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-a852aea1944696bb6/rust/Cargo.toml --locked --jobs 3 -p brain-storage --lib gamefacts::migrations -- --include-ignored --nocapture
+Log: /tmp/p4-registry-test-a852.log
+
+Affected serving probes: 3 passed, 0 failed, 0 ignored, 0 filtered.
+/home/nathanael/.local/bin/cargo-slot test --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-a852aea1944696bb6/rust/Cargo.toml --locked --jobs 3 -p brain-serve --test pg_patch_tools -- --include-ignored --nocapture
+Log: /tmp/p4-serve-test-final-a852.log
+The existing tests retain raw/run/extractor mismatch, supersession, ambiguous alias, complete citation, quarantine, budget, role, read-only and 500 ms timeout checks. Additional checks reject a corrupted fingerprint as hero membership and preserve exact Unicode/quote/backslash reference binding.
+
+Scoped formatter: exit 0.
+/home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-a852aea1944696bb6/rust/Cargo.toml --check --package brain-storage --package brain-serve
+Log: /tmp/p4-migration-fmt-final-a852.log
+
+Scoped compiler: exit 0.
+/home/nathanael/.local/bin/cargo-slot check --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-a852aea1944696bb6/rust/Cargo.toml --locked --jobs 3 -p brain-storage -p brain-serve --tests
+Log: /tmp/p4-migration-check-final-a852.log
+
+Scoped Clippy: exit 0, warnings denied.
+/home/nathanael/.local/bin/cargo-slot clippy --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-a852aea1944696bb6/rust/Cargo.toml --locked --jobs 3 -p brain-storage -p brain-serve --tests -- -D warnings
+Log: /tmp/p4-migration-clippy-final-a852.log
+
+Earlier attempts and exclusions
+The unrelated ignored Core2 KV3-cache test was mistakenly started without its required BRAIN_CORE2_KV3_REPOSITORY; it reported five passed and one failed for the missing cache environment. That attempt is not called green or a flake. Its repeat was cancelled as directed by the parent because Core2 had already been verified separately and this branch does not change KV3/limits/receipts/store. Log: /tmp/p4-core2-test-a852.log.
+
+The new serving corruption probe initially used nonexistent canon.fact.raw_object_id. Its fixture mutation was corrected to find canon.receipt IDs for the scratch raw object, with rows_affected=1 asserted. The final three serving tests above passed after that correction. Own test-fallback markers were archived after the causes were fixed; no foreign locks, processes or artifacts were removed.
+
+Remaining acceptance boundary
+The equivalent reference-plus-patch-entity indexed access is proven, but there is no physically stored resolved (hero_entity_id,patch_id) membership index. Hero membership remains read-time alias resolution as required. Numeric historical hero state still needs evidenced patch assignments and an authorized published historical-read interface. This branch does not infer those assignments, modify shared current_fact/hero_profile or broaden canon/raw reader grants. No main integration, gate ALLOW, deployment or live proof is claimed.

@@ -216,7 +216,7 @@ async fn publish(store: &GameFactsStore, source: &str, value: Value, hero: bool)
             run,
             source,
             "revision-1",
-            "object.json",
+            if hero { "object.json" } else { "287" },
             serde_json::to_vec(&value).unwrap(),
         )
         .await
@@ -260,10 +260,15 @@ async fn publish(store: &GameFactsStore, source: &str, value: Value, hero: bool)
                 receipt: receipt(&raw, Some(&format!("/{field}"))),
             });
         }
-        set.facts.push(Fact { entity_key: "patch_287".into(), stat_key: "patch_change_0".into(), value: FactValue::Text(json!({"reference":"baba","subject":"Baba","statement_index":0,"context_index":null,"stat_label":"health","old":"600","new":"650","line_text":value["raw_content"]}).to_string()), receipt: receipt(&raw, Some("/raw_content")) });
+        set.facts.push(Fact { entity_key: "patch_287".into(), stat_key: format!("patch_change_r{:x}_0", Sha256::digest(b"baba")), value: FactValue::Text(json!({"reference":"baba","subject":"Baba","statement_index":0,"context_index":null,"stat_label":"health","old":"600","new":"650","line_text":value["raw_content"]}).to_string()), receipt: receipt(&raw, Some("/raw_content")) });
     }
     store
-        .apply(run, &raw, if hero { "hero" } else { "patchnotes" }, &set)
+        .apply(
+            run,
+            &raw,
+            if hero { "hero" } else { "v1:10:patchnotes:1:2" },
+            &set,
+        )
         .await
         .unwrap();
     store
@@ -295,28 +300,17 @@ async fn database(pg: &scratch_pg::ScratchPg) -> (PgPool, PgPool, PgPool) {
         .await
         .unwrap();
     sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly NOLOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate").execute(&admin).await.unwrap();
-    PgStore::new(admin.clone())
-        .migrate_gamefacts()
-        .await
-        .unwrap();
-    let mut transaction = admin.begin().await.unwrap();
-    sqlx::query("SET LOCAL ROLE brain_migrate")
-        .execute(&mut *transaction)
-        .await
-        .unwrap();
-    let projection =
-        include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-p4-patches-v2.sql")
-            .trim()
-            .strip_prefix("BEGIN;")
-            .unwrap()
-            .trim()
-            .strip_suffix("COMMIT;")
+    let schema = PgStore::new(admin.clone());
+    schema.migrate_gamefacts().await.unwrap();
+    schema.check_gamefacts_schema().await.unwrap();
+    schema.migrate_gamefacts().await.unwrap();
+    schema.check_gamefacts_schema().await.unwrap();
+    let versions: Vec<i32> =
+        sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version ORDER BY version")
+            .fetch_all(&admin)
+            .await
             .unwrap();
-    sqlx::raw_sql(projection)
-        .execute(&mut *transaction)
-        .await
-        .unwrap();
-    transaction.commit().await.unwrap();
+    assert_eq!(versions, [1, 4]);
     let reader = PgPoolOptions::new()
         .max_connections(2)
         .after_connect(|connection, _| {
