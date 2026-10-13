@@ -1,8 +1,18 @@
 # P4 continuation point
 
-Opus takeover 2026-10-12 20:00 CEST after Codex thread ff1b2d74 hit its weekly limit.
+Sol resumed 2026-10-13. Current published checkpoint: `158cc695` on `feat/brain-p4-patches-20261012-v2`.
 
-## Done and verified on branch feat/brain-p4-patches-20261012-v2
+## Resume progress 2026-10-13
+
+- `64fc6527` merged published P1r Core 2 and Core 2b through `9f75588d`; sparse migration registry and streaming sources are available. Dependency/module merge conflicts preserved both sides. Formatter passed. The standalone lib check was stopped before acquiring a slot; compiler-backed checks will run on the integrated loader/migration state.
+- `158cc695` added the package-owned five-minute `brain-job@deadlock_patchnotes_db.timer`; systemd calendar and unit verification passed. No timer/service was activated.
+- Live feed catalog checked read-only through Infisical: 132 posts, 132 dated, 746135 raw-content bytes total, largest 64006 bytes, three posts containing Baba. Columns verified: id bigint; title/url/raw_content/translated_content text; posted_at timestamptz. No credentials or raw DB contents printed.
+- Active isolated workers: source loader `agent-ae1a42b9495225b9d`; additive migration `agent-a852aea1944696bb6`. Both worktrees are under `/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/`. Independent source acceptance reviewer `ad9ea46b6c54d7f38` is read-only.
+- Build issue: ionos `/dev/vda1` has zero free bytes and fails Git mirror config.lock creation. cargo-slot falls back to local slots, currently occupied. An earlier two-minute background check was killed while waiting, not a test failure. No foreign artifacts or processes were touched.
+- P1r hero tool is absent on the published Core 2 checkpoint. Exact `(entity_id, patch_id)` index conflicts with the approved generic-fact/read-time alias projection unless the review identifies an existing compatible access path. Neither acceptance point is claimed complete.
+
+## Previously done and verified
+
 
 - 4fcf6bad: pure extractor `brain-job/src/patch_extract.rs` plus contract tests, 796 lines. patch_extract_contract 9/9 passed, including the real Store poison run on scratch Postgres (value_too_large and key_collision rejected, run succeeded, following run free).
 - 68cfc1cc: serve-only projection SQL (`serve.p4_patch_catalog`, `serve.p4_patch_change`, `serve.p4_patch_receipt`) and canonical patch_history tool. No canon/raw reads. patch_history_canonical 5/5, brain-serve lib pg_patch 9/9, pg_patch_tools scratch-PG integration 2/2.
@@ -11,7 +21,8 @@ Opus takeover 2026-10-12 20:00 CEST after Codex thread ff1b2d74 hit its weekly l
 
 ## Open
 
-1. Core 2 SHA: merge when forwarded, then add the patchnotes multi-object source loader with one sources.rs line.
-2. Migration v4 registration: `migrations.rs` enforces contiguous versions, so v4 can only be appended after P3=2 and P2=3 are on main. Rename file to the `-v1` naming at integration.
-3. Acceptance gaps to check: index on (entity_id, patch_id) and under 5 ms, optional `patch` parameter on get_hero, ingest peak memory and second-run zero raw objects.
-4. Fresh full-diff reviewer against REDESIGN-INGEST.md and CONTRACT_INGEST_V2.md, then gate after P1r live.
+1. Integrate the streamed patchnotes loader from the isolated source worker, then verify real-core idempotence and peak memory.
+2. Integrate the additive v4 migration registration and nullable patch-boundary columns from the schema worker; the sparse core registry now permits v4 independently of v2/v3.
+3. Resolve remaining acceptance: indexed query under 5 ms and optional `patch` on get_hero when its owning P1r interface is published. No invented patch-to-commit mapping.
+4. Finish independent full-diff review against REDESIGN-INGEST.md and CONTRACT_INGEST_V2.md, fix concrete findings, then gate after P1r live. Only the responsible integrator merges/deploys.
+
