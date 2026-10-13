@@ -852,15 +852,7 @@ async fn publication_preflight_rejects_signed_body_and_conditional_trigger_drift
     admin.close().await;
 }
 
-#[tokio::test]
-async fn signed_execution_defaults_are_checked_before_writes_and_allow_nullable_facts() {
-    use crate::gamefacts::{Counts, Entity, Fact, FactSet, FactValue, GameFactsStore, Receipt};
-
-    let (_pg, admin, writer) = preflight_fixture().await;
-    assert!(published_upgrade_snapshot(&admin)
-        .await
-        .iter()
-        .all(Vec::is_empty));
+async fn assert_signed_execution_faults(admin: &sqlx::PgPool, writer: &PgStore) {
     for (version, function, signature, delimiter) in [
         (
             7,
@@ -899,35 +891,53 @@ async fn signed_execution_defaults_are_checked_before_writes_and_allow_nullable_
             "$reference$",
         ),
     ] {
-        let defaults: bool = sqlx::query_scalar("SELECT NOT proisstrict AND provolatile='v' AND proparallel='u' AND NOT proleakproof AND prosupport=0 FROM pg_proc WHERE oid=to_regprocedure($1)")
-            .bind(signature).fetch_one(&admin).await.unwrap();
-        assert!(defaults, "{signature}");
-        let template = MIGRATIONS.iter().find(|(v, _)| *v == version).unwrap().1;
-        let sql = sql_and_checksum(template).0;
-        let definition = sql.split_once(&format!("FUNCTION {function}(")).unwrap().1;
-        let (header, rest) = definition.split_once(delimiter).unwrap();
-        let body = rest.split_once(delimiter).unwrap().0;
-        let restore =
-            format!("CREATE OR REPLACE FUNCTION {function}({header}{delimiter}{body}{delimiter};");
-        for change in [
-            "STRICT",
-            "STABLE",
-            "IMMUTABLE",
-            "PARALLEL RESTRICTED",
-            "PARALLEL SAFE",
-            "LEAKPROOF",
-            "SUPPORT pg_catalog.textlike_support",
-        ] {
-            assert_preflight_fault(
-                &admin,
-                &writer,
-                &format!("ALTER FUNCTION {signature} {change}"),
-                &restore,
-            )
-            .await;
-        }
+        assert_signed_execution_function_faults(
+            admin,
+            writer,
+            (version, function, signature, delimiter),
+        )
+        .await;
     }
-    let store = GameFactsStore::new(writer.pool.clone());
+}
+
+async fn assert_signed_execution_function_faults(
+    admin: &sqlx::PgPool,
+    writer: &PgStore,
+    target: (i32, &str, &str, &str),
+) {
+    let (version, function, signature, delimiter) = target;
+    let defaults: bool = sqlx::query_scalar("SELECT NOT proisstrict AND provolatile='v' AND proparallel='u' AND NOT proleakproof AND prosupport=0 FROM pg_proc WHERE oid=to_regprocedure($1)")
+        .bind(signature).fetch_one(admin).await.unwrap();
+    assert!(defaults, "{signature}");
+    let template = MIGRATIONS.iter().find(|(v, _)| *v == version).unwrap().1;
+    let sql = sql_and_checksum(template).0;
+    let definition = sql.split_once(&format!("FUNCTION {function}(")).unwrap().1;
+    let (header, rest) = definition.split_once(delimiter).unwrap();
+    let body = rest.split_once(delimiter).unwrap().0;
+    let restore =
+        format!("CREATE OR REPLACE FUNCTION {function}({header}{delimiter}{body}{delimiter};");
+    for change in [
+        "STRICT",
+        "STABLE",
+        "IMMUTABLE",
+        "PARALLEL RESTRICTED",
+        "PARALLEL SAFE",
+        "LEAKPROOF",
+        "SUPPORT pg_catalog.textlike_support",
+    ] {
+        assert_preflight_fault(
+            admin,
+            writer,
+            &format!("ALTER FUNCTION {signature} {change}"),
+            &restore,
+        )
+        .await;
+    }
+}
+
+async fn write_nullable_execution_facts(store: &crate::gamefacts::GameFactsStore) -> i64 {
+    use crate::gamefacts::{Entity, Fact, FactSet, FactValue, Receipt};
+
     let run = store.begin_run("execution").await.unwrap();
     let raw = store
         .capture(
@@ -966,8 +976,18 @@ async fn signed_execution_defaults_are_checked_before_writes_and_allow_nullable_
         ..FactSet::default()
     };
     store.apply(run, &raw, "execution", &set).await.unwrap();
+    run
+}
+
+async fn assert_nullable_execution_facts(
+    admin: &sqlx::PgPool,
+    store: &crate::gamefacts::GameFactsStore,
+    run: i64,
+) {
+    use crate::gamefacts::Counts;
+
     let values: Vec<serde_json::Value> = sqlx::query_scalar("SELECT jsonb_build_array(stat_key,value_num,value_text,value_bool) FROM canon.fact ORDER BY stat_key")
-        .fetch_all(&admin).await.unwrap();
+        .fetch_all(admin).await.unwrap();
     assert_eq!(
         values,
         vec![
@@ -981,19 +1001,42 @@ async fn signed_execution_defaults_are_checked_before_writes_and_allow_nullable_
         .await
         .unwrap();
     let visible: i64 = sqlx::query_scalar("SELECT count(*) FROM serve.current_fact")
-        .fetch_one(&admin)
+        .fetch_one(admin)
         .await
         .unwrap();
     assert_eq!(visible, 3);
-    let before = published_upgrade_snapshot(&admin).await;
+}
+
+async fn assert_admin_receipt_corruption_rollback(
+    admin: &sqlx::PgPool,
+    writer: &PgStore,
+    run: i64,
+) {
+    let before = published_upgrade_snapshot(admin).await;
     let mut corruption = admin.begin().await.unwrap();
     let changed = sqlx::query("UPDATE canon.receipt SET value_sha256=decode(repeat('00',32),'hex') WHERE ingest_run_id=$1")
         .bind(run).execute(&mut *corruption).await.unwrap();
     assert_eq!(changed.rows_affected(), 4);
     writer.check_gamefacts_schema().await.unwrap();
     corruption.rollback().await.unwrap();
-    assert_eq!(published_upgrade_snapshot(&admin).await, before);
+    assert_eq!(published_upgrade_snapshot(admin).await, before);
     writer.check_gamefacts_schema().await.unwrap();
+}
+
+#[tokio::test]
+async fn signed_execution_defaults_are_checked_before_writes_and_allow_nullable_facts() {
+    use crate::gamefacts::GameFactsStore;
+
+    let (_pg, admin, writer) = preflight_fixture().await;
+    assert!(published_upgrade_snapshot(&admin)
+        .await
+        .iter()
+        .all(Vec::is_empty));
+    assert_signed_execution_faults(&admin, &writer).await;
+    let store = GameFactsStore::new(writer.pool.clone());
+    let run = write_nullable_execution_facts(&store).await;
+    assert_nullable_execution_facts(&admin, &store, run).await;
+    assert_admin_receipt_corruption_rollback(&admin, &writer, run).await;
     println!("42 signed execution mutations rejected before run/data creation; 3 nullable facts written and published; admin receipt corruption allowed and rolled back");
     writer.pool.close().await;
     admin.close().await;
