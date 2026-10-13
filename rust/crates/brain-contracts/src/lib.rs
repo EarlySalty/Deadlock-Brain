@@ -10,6 +10,7 @@ pub mod answer_contract;
 mod deadline;
 pub use deadline::RequestDeadline;
 pub mod bot_tasks;
+pub mod canonical_receipt;
 pub mod discord_task;
 pub mod domain;
 pub mod domain_knowledge;

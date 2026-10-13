@@ -389,6 +389,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "brain-storage",
+ "dbrain-sources",
  "deadlock-brain-core",
  "html5ever",
  "scraper",
