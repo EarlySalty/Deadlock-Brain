@@ -20,9 +20,15 @@ Integrator: P1r. This P2 session publishes a verified gate-ready feature branch;
 - Extraction has no database or catalog lookup. Cross-package references are emitted by normalized key or alias text, resolved at read time, and hidden while unresolved. The approved representation keeps conditions and units in P2 qualifier sidecars and Serve projections without changing the frozen Fact model. Do not silently omit qualifiers or encode JSON as scalar text.
 - All compiler checks use the current `cargo-slot` routing and Rust build rules.
 
+## Approved slot mapping, 2026-10-13
+
+The orchestrator assigns slot mapping to P2; P1r does not supply it. Extract explicit `items.signature1` through `items.signature4` from the existing Assets Heroes endpoint through a P2-owned registered extractor. Publish one `hero has_ability ability` relation per explicit field with a scalar `slot` qualifier (1, 2, 3, 4; 4 denotes ultimate) and a canonical relation receipt. Resolve both ends through Core identity using source identifiers, not display names or list order. Ability references use source `class_name` to the already published P2 ability entity; hero identity must match what P1r actually publishes. Unresolved references are rejected per input item with a reason, never invented.
+
+Read these mappings through an additive P2 Serve projection. Do not modify the P1r Hero extractor, frozen hero profile or Core types. Verify actual captured input with 41 heroes and 164 mappings, positive selector execution, unresolved/ambiguous refusal, exact receipts, stale-run isolation and unchanged replay. Continue to an actual local gate ALLOW. Core 3b remains unavailable until explicitly forwarded after P1r publication.
+
 ## Ownership
 
-- Extractor worker: P2 Assets extractor and focused lexical, collision, oversize, and poison-run tests only. Pure `RawObject` to `Outcome`; central `limits::validate` before writes; extractor and tests together below 800 lines. No replacement core, store, or guessed core row types.
+- Extractor worker: P2 Assets extractor and focused lexical, collision, oversize, and poison-run tests. Pure `RawObject` to `Outcome`; central `limits::validate` before writes. The orchestrator's 2026-10-13 clarification supersedes the aggregate size limit: each production file must stay below or at 800 lines, split along responsibilities; test files and static fixtures are exempt. No blanket exception, replacement core, store, or guessed core row types.
 - Cards worker: P2 typed contracts, item/ability/compare serving modules, focused serving tests, and additive version-3 migration/views/indexes/grants. Reuse only P2-owned semantics from the reference branch. No copied constraint guards or alterations of the core migration.
 - Parent integration worker, after the actual core arrives: minimal append-only shared wiring, source dispatch, ordered migration registration, actual core compatibility, timer contract and integrated verification. One writer per shared path.
 
