@@ -390,6 +390,7 @@ dependencies = [
  "anyhow",
  "brain-storage",
  "chrono",
+ "dbrain-sources",
  "deadlock-brain-core",
  "serde",
  "serde_json",

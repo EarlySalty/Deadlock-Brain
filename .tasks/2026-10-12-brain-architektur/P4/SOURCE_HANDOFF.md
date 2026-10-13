@@ -44,6 +44,20 @@ Fresh affected test total:18 passed,0 failed,0 ignored,2 filtered. The new singl
 
 The updated worst-bounded workload measured client peak254627840 bytes, below300000000, and repeat raw4 to4, delta0. The existing132-post repeat remains covered. This is scratch verification, not a productive run or Core-level skipped-item report.
 
+## Core3 composition checks, 2026-10-13
+
+The parent normally composed approved19dec0c9 and then losslessly restarted its uncommitted merge at approved982645cf, preserving P4's migration4 alongside reserved core7. Core3a has no production/migration changes; final P4 adapter patches do not alter source/storage paths. The canonical adapter and owner fixture runtime are now verified separately in RUNTIME_VERIFICATION.txt. Remaining production owner coherence and final gate are still open; these source/schema results are not ALLOW or live acceptance.
+
+Source tests on the composed Core3 tree:6 passed/0 failed/0 ignored,1 unrelated lib test outside the source filter. Real oversize JSON/count/continuation proof remains green; new worst-bounded client peak260386816 bytes and raw4→4, delta0. Log `/tmp/p4-core3-source-tests-20261013.log`. Compiler check of brain-job/storage/contracts/serve with --tests exited0; log `/tmp/p4-core3-merge-check-20261013.log`.
+
+Fixture-backed tests used existing public paths with dotted Cargo env config: `env.BRAIN_HERO_FIXTURE.value="/tmp/p1r-hero-a314-fixture-GInzyzvn/hero-data.json"`, force=true; `env.BRAIN_CORE2_HERO_REPOSITORY.value="/tmp/brain-core2-cache-wf-7f1dca25-SbrUuw"`, force=true. Pinned Git fixture2a26e26535a390c309e300e2c7b2763fa5ad7abd was verified. Normal cargo-slot test with --locked --jobs3, --include-ignored --nocapture --test-threads=1 and targets ingest/hero/patch_extract_contract passed4+7+9,0 failed/ignored/filtered. This time the existing optional hero/cache proofs actually ran. Log `/tmp/p4-core3-ingest-hero-extract-fixture-20261013.log`.
+
+Sparse registry tests passed3/0/0 (44 unrelated unit tests outside the filter), and P4 upgrade/idempotence test passed1/0/0 with versions[1,4,7], unchanged fact/relfilenode, null unproven patch history, FK/identity guards and unchanged grants. Logs `/tmp/p4-core3-registry-tests-20261013.log` and `/tmp/p4-core3-patch-migration-tests-20261013.log`. Fresh source/ingest/hero/extractor/registry/P4-upgrade total30 passed,0 failed,0 ignored,45 disclosed filters.
+
+The first general hero attempt lacked BRAIN_HERO_FIXTURE on ionos:5 passed/2 failed, not a code flake or green proof. Subsequent inspection of its retained log shows the local fallback also completed with5 passed/2 failed and exit101 despite the attempted stop; it was not a zero-result run. The cause was fixed with the documented existing public fixtures, and only this exact workspace's empty fallback marker was cleared before the successful normal remote rerun. Earlier log `/tmp/p4-core3-ingest-hero-extract-20261013.log` is retained. No production secret, real feed read, external AI call or service change was involved.
+
+Composed brain-job/storage Clippy with --all-targets -- -D warnings exited0 through the normal remote wrapper; log `/tmp/p4-core3-job-storage-clippy-20261013.log`. The brain-job executable build from the same job exited0 locally in verify profile; log `/tmp/p4-core3-job-build-20261013.log`. Background job bc3f7oezz completed with exit0.
+
 ## Earlier component verification
 
 Manifest: `/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ae1a42b9495225b9d/rust/Cargo.toml`.

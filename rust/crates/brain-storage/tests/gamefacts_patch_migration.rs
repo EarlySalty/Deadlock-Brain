@@ -95,7 +95,7 @@ async fn patch_migration_preserves_existing_facts_and_checks_patch_identity() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(versions, [1, 4]);
+    assert_eq!(versions, [1, 4, 7]);
     let reference_index: String =
         sqlx::query_scalar("SELECT pg_get_indexdef('canon.fact_patch_reference'::regclass)")
             .fetch_one(&pool)
@@ -144,6 +144,6 @@ async fn patch_migration_preserves_existing_facts_and_checks_patch_identity() {
     let columns: Vec<String> = sqlx::query_scalar("SELECT column_name::text FROM information_schema.columns WHERE table_schema='canon' AND table_name='fact' AND column_name IN ('valid_from_patch','valid_to_patch') AND is_nullable='YES' ORDER BY column_name")
         .fetch_all(&pool).await.unwrap();
     assert_eq!(columns, ["valid_from_patch", "valid_to_patch"]);
-    println!("P4_MIGRATION_PROOF sparse [1,4], upgrade and rerun, unchanged fact/relfilenode, null unproven history, both patch identity guards and foreign keys, unchanged grants");
+    println!("P4_MIGRATION_PROOF sparse [1,4,7], upgrade and rerun, unchanged fact/relfilenode, null unproven history, both patch identity guards and foreign keys, unchanged grants");
     pool.close().await;
 }

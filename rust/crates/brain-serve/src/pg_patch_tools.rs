@@ -1,12 +1,15 @@
 use brain_contracts::{
+    canonical_receipt::{format_receipt, CanonicalReceipt},
     tools::{canonical_patch_history_definition, CanonicalPatchHistoryRequest},
-    AuthorizedContext, Evidence, EvidenceKind, PortError, Query, SourceVisibility, ToolCall,
-    ToolEvidenceDependency, ToolExecution, ToolName, ToolRequest, ToolResult, ToolSubrequest,
-    Usage,
+    AuthorizedContext, Evidence, PortError, Query, ToolCall, ToolEvidenceDependency, ToolExecution,
+    ToolName, ToolRequest, ToolResult, ToolSubrequest, Usage,
 };
 use serde_json::{json, Value};
 use sqlx::{Connection, PgConnection, PgPool};
-use std::{collections::BTreeSet, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 const MAX_BYTES: usize = 16_384;
 const CURRENT: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
@@ -282,13 +285,14 @@ async fn history_execution(
         .into_iter()
         .map(receipt_evidence)
         .collect::<Result<Vec<_>, _>>()?;
-    if evidence
+    let resolved_ids = evidence
         .iter()
-        .map(|evidence| evidence.evidence_id.clone())
-        .collect::<BTreeSet<_>>()
-        != ids
-        || evidence.len() != ids.len()
-    {
+        .map(|evidence| {
+            CanonicalReceipt::from_evidence(evidence)
+                .map(|receipt| receipt.raw_receipt_id.to_string())
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    if resolved_ids != ids || evidence.len() != ids.len() {
         return Err(invalid());
     }
     bound_execution(id, request, value, &evidence)
@@ -378,26 +382,67 @@ fn receipt_evidence(row: Value) -> Result<Evidence, PortError> {
             return Err(invalid());
         }
     }
-    let content = json!({"citation":citation,"raw_object_id":content["raw_object_id"],"source":source,
-        "ingest_run_id":revision,"source_revision":content["source_revision"],
-        "path":content["path"],"locator_kind":content["locator_kind"],"locator":content["locator"],
-        "value_sha256":content["value_sha256"],"extractor":content["extractor"],"patch":null});
-    let evidence = Evidence {
-        evidence_id: citation.clone(),
-        source_id: format!("canon.source/{source}"),
-        logical_id: format!("receipt/{id}"),
-        revision,
-        kind: EvidenceKind::Fact,
-        content: content.to_string(),
-        citation,
-        visibility: SourceVisibility::Public,
-        allowed_scopes: BTreeSet::new(),
-        score: 1.0,
-        provenance: None,
+    format_receipt(&CanonicalReceipt {
+        raw_receipt_id: id,
+        raw_object_id: content["raw_object_id"].as_i64().ok_or_else(invalid)?,
+        ingest_run_id: content["ingest_run_id"].as_i64().ok_or_else(invalid)?,
+        source: source.into(),
+        source_revision: content["source_revision"]
+            .as_str()
+            .ok_or_else(invalid)?
+            .into(),
+        path: content["path"].as_str().ok_or_else(invalid)?.into(),
+        locator_kind: content["locator_kind"].as_str().ok_or_else(invalid)?.into(),
+        locator: content["locator"].as_str().ok_or_else(invalid)?.into(),
+        value_sha256: content["value_sha256"].as_str().ok_or_else(invalid)?.into(),
+        extractor: content["extractor"].as_str().ok_or_else(invalid)?.into(),
         patch: None,
-    };
-    evidence.validate().map_err(|_| invalid())?;
-    Ok(evidence)
+    })
+}
+
+fn remap_citations(
+    value: &mut Value,
+    receipts: &BTreeMap<String, Evidence>,
+) -> Result<(), PortError> {
+    fn citation(value: &mut Value, receipts: &BTreeMap<String, Evidence>) -> Result<(), PortError> {
+        let receipt = value
+            .as_str()
+            .and_then(|id| receipts.get(id))
+            .ok_or_else(invalid)?;
+        *value = json!(receipt.evidence_id);
+        Ok(())
+    }
+    fn patch_citations(
+        value: &mut Value,
+        receipts: &BTreeMap<String, Evidence>,
+    ) -> Result<(), PortError> {
+        for field in [
+            "head_citation",
+            "label_citation",
+            "released_at_citation",
+            "url_citation",
+        ] {
+            citation(&mut value[field], receipts)?;
+        }
+        Ok(())
+    }
+    patch_citations(&mut value["current_official_patch"], receipts)?;
+    for bound in ["since", "until"] {
+        if !value["range"][bound].is_null() {
+            patch_citations(&mut value["range"][bound], receipts)?;
+        }
+    }
+    for change in value["changes"].as_array_mut().ok_or_else(invalid)? {
+        citation(&mut change["citation"], receipts)?;
+        patch_citations(change, receipts)?;
+        for field in ["binding_citation", "entity_citation"] {
+            citation(&mut change[field], receipts)?;
+        }
+        if !change["stat_citation"].is_null() {
+            citation(&mut change["stat_citation"], receipts)?;
+        }
+    }
+    Ok(())
 }
 
 fn bound_execution(
@@ -406,27 +451,38 @@ fn bound_execution(
     mut value: Value,
     evidence: &[Evidence],
 ) -> Result<ToolExecution, PortError> {
+    let mut receipts = BTreeMap::new();
+    for evidence in evidence {
+        let metadata = CanonicalReceipt::from_evidence(evidence)?;
+        if receipts
+            .insert(metadata.raw_receipt_id.to_string(), evidence.clone())
+            .is_some()
+        {
+            return Err(invalid());
+        }
+    }
     loop {
         if value["changes"].as_array().ok_or_else(invalid)?.is_empty() {
             return Ok(error_execution(id, request.name(), "result_too_large"));
         }
         let ids = receipt_ids(&value)?;
-        let selected = evidence
+        let selected = ids
             .iter()
-            .filter(|evidence| ids.contains(&evidence.evidence_id))
-            .cloned()
-            .collect::<Vec<_>>();
-        if selected.len() != ids.len() {
-            return Err(invalid());
-        }
+            .map(|id| receipts.get(id).cloned().ok_or_else(invalid))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut result = ToolResult {
+            call_id: id.into(),
+            name: request.name(),
+            result: value.clone(),
+            evidence_ids: selected
+                .iter()
+                .map(|evidence| evidence.evidence_id.clone())
+                .collect(),
+            is_error: false,
+        };
+        remap_citations(&mut result.result, &receipts)?;
         let mut execution = ToolExecution {
-            result: ToolResult {
-                call_id: id.into(),
-                name: request.name(),
-                result: value.clone(),
-                evidence_ids: ids.into_iter().collect(),
-                is_error: false,
-            },
+            result,
             dependencies: vec![ToolEvidenceDependency {
                 request: request.clone(),
                 game_context: None,

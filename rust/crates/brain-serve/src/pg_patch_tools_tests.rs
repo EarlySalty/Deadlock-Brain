@@ -188,6 +188,110 @@ fn normalization_still_requires_the_raw_content_hash() {
 }
 
 #[test]
+fn canonical_formatter_remaps_only_authoritative_citations_and_seals_the_result() {
+    let mut value = history(vec![change(1, "Baba: health changed")]);
+    value["changes"][0]["old"] = json!({"citation":"999"});
+    value["changes"][0]["new"] = json!({"head_citation":"not-a-receipt"});
+    value["changes"][0]["stat_citation"] = json!("106");
+    value["range"]["since"] = patch_citations(110);
+    value["range"]["until"] = patch_citations(110);
+    let ids = receipt_ids(&value).unwrap();
+    let proofs = ids
+        .iter()
+        .map(|id| receipt(id.parse().unwrap(), 0))
+        .collect::<Vec<_>>();
+    let original = value.clone();
+    let execution = bound_execution("patch-call", &request(), value, &proofs).unwrap();
+    assert!(!execution.result.is_error);
+    let mapped = &execution.result.result;
+    for (before, after) in [
+        (
+            &original["current_official_patch"],
+            &mapped["current_official_patch"],
+        ),
+        (&original["range"]["since"], &mapped["range"]["since"]),
+        (&original["range"]["until"], &mapped["range"]["until"]),
+    ] {
+        for field in [
+            "head_citation",
+            "label_citation",
+            "released_at_citation",
+            "url_citation",
+        ] {
+            let id = before[field].as_str().unwrap().parse().unwrap();
+            assert_eq!(after[field], receipt(id, 0).evidence_id);
+        }
+    }
+    for field in [
+        "citation",
+        "head_citation",
+        "label_citation",
+        "released_at_citation",
+        "url_citation",
+        "binding_citation",
+        "entity_citation",
+        "stat_citation",
+    ] {
+        let id = original["changes"][0][field]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(mapped["changes"][0][field], receipt(id, 0).evidence_id);
+    }
+    assert_eq!(
+        execution.result.result["changes"][0]["old"]["citation"],
+        "999"
+    );
+    assert_eq!(
+        execution.result.result["changes"][0]["new"]["head_citation"],
+        "not-a-receipt"
+    );
+    assert_eq!(
+        execution
+            .result
+            .evidence_ids
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>(),
+        proofs
+            .iter()
+            .map(|evidence| evidence.evidence_id.clone())
+            .collect()
+    );
+    assert!(execution
+        .result
+        .evidence_ids
+        .iter()
+        .all(|id| id.starts_with(brain_contracts::canonical_receipt::RECEIPT_ID_PREFIX)));
+    execution
+        .validate_for(
+            &ToolCall {
+                id: "patch-call".into(),
+                name: ToolName::PatchHistory,
+                arguments: json!({"entity":7}),
+            },
+            &request(),
+            None,
+        )
+        .unwrap();
+    let mut tampered = execution.clone();
+    tampered.result.result["changes"][0]["citation"] = json!("1");
+    assert!(tampered
+        .validate_for(
+            &ToolCall {
+                id: "patch-call".into(),
+                name: ToolName::PatchHistory,
+                arguments: json!({"entity":7}),
+            },
+            &request(),
+            None
+        )
+        .is_err());
+    ensure_size(&execution).unwrap();
+}
+
+#[test]
 fn missing_or_ambiguous_patches_and_historical_mapping_have_no_evidence() {
     assert_eq!(
         select_patch(Vec::new()).error_code(),

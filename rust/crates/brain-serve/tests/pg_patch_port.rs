@@ -1,4 +1,5 @@
 use brain_contracts::{
+    canonical_receipt::CanonicalReceipt,
     tools::{canonical_patch_history_definition, BuildPlanRequest},
     Accounted, AuthorizedContext, PinnedGameContext, PortError, PortFailure, Principal, Query,
     ToolCall, ToolDefinition, ToolEvidenceDependency, ToolExecution, ToolExecutionPort, ToolName,
@@ -320,7 +321,7 @@ async fn database(pg: &scratch_pg::ScratchPg) -> (PgPool, PgPool, PgPool) {
             .fetch_all(&admin)
             .await
             .unwrap();
-    assert_eq!(versions, [1, 4]);
+    assert_eq!(versions, [1, 4, 7]);
     let reader = PgPoolOptions::new()
         .max_connections(2)
         .after_connect(|connection, _| {
@@ -429,7 +430,11 @@ async fn adapter_executes_real_pg_and_revalidates_without_legacy_pin_or_retrieva
         let content_hash: String = sqlx::query_scalar(
             "SELECT receipt->>'content_sha256' FROM serve.p4_patch_receipt WHERE receipt_id=$1",
         )
-        .bind(evidence.evidence_id.parse::<i64>().unwrap())
+        .bind(
+            CanonicalReceipt::from_evidence(evidence)
+                .unwrap()
+                .raw_receipt_id,
+        )
         .fetch_one(&reader)
         .await
         .unwrap();
@@ -517,7 +522,25 @@ async fn adapter_executes_real_pg_and_revalidates_without_legacy_pin_or_retrieva
         wrong_role.execute(&query, &context, None, "wrong-role", &request),
         Err(PortError::PermissionDenied(_))
     ));
-    sqlx::query("UPDATE ops.ingest_run SET status='failed' WHERE id=(SELECT max(id) FROM ops.ingest_run WHERE source='deadlock_patchnotes_db')").execute(&admin).await.unwrap();
+    assert!(sqlx::query("UPDATE ops.ingest_run SET status='failed' WHERE id=(SELECT max(id) FROM ops.ingest_run WHERE source='deadlock_patchnotes_db')").execute(&admin).await.is_err());
+    let definition: String =
+        sqlx::query_scalar("SELECT pg_get_viewdef('serve.published_receipt'::regclass, true)")
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+    let mut quarantine = admin.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE brain_migrate")
+        .execute(&mut *quarantine)
+        .await
+        .unwrap();
+    sqlx::raw_sql(&format!(
+        "CREATE OR REPLACE VIEW serve.published_receipt AS SELECT p.* FROM ({}) p WHERE p.source <> 'deadlock_patchnotes_db'",
+        definition.trim_end_matches(';')
+    ))
+    .execute(&mut *quarantine)
+    .await
+    .unwrap();
+    quarantine.commit().await.unwrap();
     assert!(port
         .validate_dependencies(
             &query,
@@ -741,7 +764,7 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
     )
     .await;
     publish(&store, "deadlock_patchnotes_db", json!({"title":"Patch 287","posted_at":"2026-10-10T12:00:00Z","url":"https://store.steampowered.com/news/app/1422450/view/287","raw_content":"Baba health increased from 600 to 650"}), false).await;
-    sqlx::query("ALTER ROLE brain_readonly LOGIN")
+    sqlx::raw_sql("ALTER ROLE brain_readonly LOGIN; ALTER ROLE brain_service LOGIN")
         .execute(&admin)
         .await
         .unwrap();
@@ -752,7 +775,7 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
         .database("postgres")
         .password("")
         .ssl_mode(PgSslMode::Disable);
-    let pool = pg_tools::tool_pool(options, std::time::Duration::from_secs(2));
+    let pool = pg_tools::tool_pool(options.clone(), std::time::Duration::from_secs(2));
     let tools = pg_tools::PgTools::new(
         PgPatchToolPort::new(
             EmptyDelegate,
@@ -835,6 +858,15 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
             .unwrap();
     }
     let count = expected.len();
+    let expected_numeric_ids = expected
+        .values()
+        .map(|evidence| {
+            CanonicalReceipt::from_evidence(evidence)
+                .unwrap()
+                .raw_receipt_id
+                .to_string()
+        })
+        .collect::<BTreeSet<_>>();
     let input_budget = combined_input_budget(&query, &definitions, &[&find, &hero, &patch]);
     context.budget.max_input_tokens = input_budget;
     let kernel = brain_kernel::Kernel::new(NoRetrieval, CombinedProvider { expected }).with_tools(
@@ -842,6 +874,13 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
         NoPin,
         "fixture",
     );
+    let kernel = brain_kernel::CachedKernel::new(kernel, 8, std::time::Duration::from_secs(30));
+    let trace_writer = answer_trace::PgTraceWriter::new(
+        options.username("brain_service"),
+        tokio::runtime::Handle::current(),
+        std::time::Duration::from_secs(2),
+    );
+    let kernel = answer_trace::TracedKernel::new(kernel, Some(Arc::new(trace_writer)));
     let accounted = kernel.answer_for_publication_accounted(&query, &context);
     let answer = accounted.value;
     assert_eq!(
@@ -854,7 +893,38 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
         "{answer:?}"
     );
     assert_eq!(answer.citations.len(), count);
-    println!("P4_OWNER_RECEIPT_PROOF actual pg_tools.rs FindEntity/GetHero + PgPatchToolPort, real scratch PostgreSQL, alias/entity/stat Evidence byte equality, real three-tool kernel publication loop, all validation purposes, exact_input_budget={input_budget}");
+    query.request_id = "warm-port-test".into();
+    let warm = kernel.answer_for_publication_accounted(&query, &context);
+    assert_eq!(
+        warm.value.status,
+        brain_contracts::AnswerStatus::Answered,
+        "{warm:?}"
+    );
+    assert_eq!(warm.value.citations, answer.citations);
+    let traces: Vec<(Value, Value)> =
+        sqlx::query_as("SELECT tool_calls,citation_ids FROM ops.answer_trace ORDER BY id")
+            .fetch_all(&admin)
+            .await
+            .unwrap();
+    assert_eq!(traces.len(), 2);
+    assert_eq!(
+        traces[0].0,
+        json!(["find_entity", "get_hero", "patch_history"])
+    );
+    assert_eq!(traces[1].0, json!([]));
+    for (_, citations) in traces {
+        let numeric_ids = citations
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap().to_owned())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(numeric_ids, expected_numeric_ids);
+        assert!(numeric_ids
+            .iter()
+            .all(|id| id.parse::<i64>().is_ok_and(|id| id > 0)));
+    }
+    println!("P4_OWNER_RECEIPT_PROOF actual pg_tools.rs FindEntity/GetHero + PgPatchToolPort, real scratch PostgreSQL, alias/entity/stat Evidence byte equality, real three-tool kernel publication loop, all validation purposes, exact_input_budget={input_budget}, canonical hash IDs and cold/warm numeric PostgreSQL traces");
     pool.close().await;
     reader.close().await;
     writer.close().await;

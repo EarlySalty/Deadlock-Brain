@@ -1,3 +1,65 @@
+P4 Core3a canonical-format verification, 2026-10-13
+
+Parent worktree: /home/nathanael/.worktrees/Deadlock-Brain-p4-patches
+Parent branch: feat/brain-p4-patches-20261012-v2
+Normal composition: parent77245b07 and approved982645cf325952b56c782fe690f6e23a5a76bf17, no rebase or broken intermediate19 commit.
+Worker: /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-a477e3abbfdfb2d36
+Worker base:88cb3f9d7e6d7142ebd4f9075eb30ce563c800d0, normal pending merge982.
+
+Parent independently read actual final log markers/hashes and applied the exact verified incremental artifact. All four P4 files, five shared mechanical resolutions and owner pg_tools_tests.rs cmp-identical to the final worker. Final integrated cargo-slot +1.97.1 fmt --all -- --check and both diff whitespace checks exit0. Frozen owner production/receipt formatter/hero SQL remain exactly the approved checkpoint; only additive P4 shared registrations are retained.
+
+Final artifact
+Full four-file patch: /tmp/p4-gate-r1-pg-LKliLN/p4-canonical-adapter-final-core3a.patch
+SHA256731d3f0c2245fadc056b70c4b70776a5e398600493d42ba2a5f35b3d1219beb4
+Increment against transferred adapter: /tmp/p4-gate-r1-pg-LKliLN/p4-fixture-bounding-final-against-transferred.patch
+SHA256c30bfee467c00856ad3e744d39f62e750ce506a96fc3d107b5e441cc21b19beb
+
+File SHA256
+pg_patch_tools.rs:48174a6278772a0e615ce37e3bc461cae479524a7dd5693c08f1f5f105390688
+pg_patch_tools_tests.rs:a57a2965ef2f297ebb1c7f79685e781e89b98e970a17bb41375fbf6d27bf17c6
+pg_patch_tools integration:777d8ab072ba89b52a42a63d97eea7381937a9490072ad277fe9c60cafe9aec0
+pg_patch_port integration:7dd1395f4905c2c2d4fc864735b900d977011cd1a93cf298b49892cf6f758dff
+
+Final actual standalone:15 passed/0 failed/0 ignored/0 filtered, local exit0.
+Log:/tmp/p4-gate-r1-pg-LKliLN/patch-tools-final-unfiltered-tests.log
+SHA2569edd03679e3cfd79627c5c9d578e80968b3605bb7112196192d184837592947a
+Final actual combined owner/P4 port on982:11 passed/0 failed/0 ignored/0 filtered, local exit0.
+Log:/tmp/p4-gate-r1-pg-LKliLN/core3a-combined-patch-port-tests.log
+SHA256c96a172244df7882e1c92871db232994f5f028f5f9615bc4fc58243815355d8a
+Final worker Clippy lib/both targets, -D warnings:exit0.
+Log:/tmp/p4-gate-r1-pg-LKliLN/core3a-final-adapter-clippy.log
+SHA256024a908bde730c160ed9ed0f1c665501f18cf1f30666923d96e6df3f9db2f461
+
+Requested shared parent suite
+/home/nathanael/.local/bin/cargo-slot +1.97.1 test --manifest-path /home/nathanael/.worktrees/Deadlock-Brain-p4-patches/rust/Cargo.toml --locked --jobs 3 -p brain-serve --lib service::pg_tools -- --include-ignored --nocapture --test-threads=1
+Actual4 passed/0 failed/0 ignored/98 unrelated filters, local exit0. These four tests overlap the combined port target; do not count them twice as unique tests.
+Failed-run fixture proof:stored facts2, failed_runs1, published_receipts0, profiles0.
+Log:/tmp/p4-core3a-service-pg-tools-20261013.log
+SHA256cca940395a65be2504a1c898f96d897ebce4902104d961c66d99fd3d328c63af
+
+Canonical-format proof
+Public CanonicalReceipt/format_receipt reused exactly; authoritative output citations remapped to content IDs. Complete final bounded ToolResult sealed through the central existing protocol. Numeric raw_receipt_id decoded for SQL/trace keys, including warm cache.
+Actual owner FindEntity/GetHero and P4 kernel publication:byte-identical overlapping Evidence, Provider/Publication/Cache validation, cold/warm PostgreSQL trace IDs, centrally derived scripted fixture budget54851. No production budget/provider/model/cost changes or external AI calls.
+Two original statements independently visible with exact original-byte receipts:full reconstructed sealed two-row16625 bytes, final one-row14611, omitted_count1.
+Three real CHANGES projection rows and independent bounded proof of every original receipt:full reconstructed sealed21740 bytes, two-row prefix19714, actual final14407. limit1 selects p3; only omitted middle receipt quarantined; selected row/evidence byte-identical; omission2->1 rejects stale dependencies for all three purposes and accepts fresh; restoration byte-identical.
+Production bounds unchanged:brain_tool, read-only repeatable read,500ms aggregate/statement timeout,LIMIT20,complete execution strictly below16384, legacy pinning. No receipt consolidation or production SQL/view/index/migration changes. Test-only ANALYZE calibrates real disposable fixture tables, with sanitized failure diagnostics.
+
+Timing boundary
+Complete actual fixture tool-path peaks485813/141104/163265/349318 microseconds; narrow500ms headroom, no claim of variance elimination. Final full-run EXPLAIN planning127.098ms/execution7.067ms is a tiny-fixture diagnostic, not the independent prepared-query p95 acceptance in PERFORMANCE.txt. Earlier383.485/48.961 and later successful93.019/3.747 remain disclosed.
+
+Earlier attempts retained, not final green proof
+Old19 combined target10 passed/1 failed/0 ignored/0 filtered, frozen terminal-status fixture rejected by v7; corrected by approved982 and now actually green.
+Parent original standalone remote13/2/0/0, exit101; retained log also confirms local fallback12/3/0/0, exit101 despite attempted stop. It was not zero-test.
+Worker full attempts12/3/0/0 then14/1/0/0. Instrumentation E0277/E0599 compile error exit101, zero tests, immediately corrected with rsplit. Scoped diagnostic0/1/0/14 reproduced501.225ms; later diagnostic1/0/0/14 did not trigger failure activity/post-failure EXPLAIN. Final full unfiltered15/0/0/0 and982 port11/0/0/0 are actual results, not a flake pardon.
+Retained logs:patch-tools-size-proof-tests.log,patch-tools-size-proof-analyzed-tests.log,patch-tools-planning-diagnostic.log,patch-tools-planning-diagnostic-fixed.log,patch-tools-active-backend-diagnostic.log under /tmp/p4-gate-r1-pg-LKliLN/.
+Scratch server log:/tmp/p4-patch-tools-timeout-3661553-1791902057011116390.log; local sanitized timing/activity inspection only, no raw DB output.
+Slot-wait attempts ran0 tests and have no verdict. No remote/local marker, gate, planner setting, timeout or protection bypass.
+
+Source/storage/contract proofs on the composed production tree remain separately recorded:source/schema30 passed with45 filters, peak260386816 bytes/raw delta0; contract/kernel226 passed with no filters/ignored; source/storage Clippy and ingestion build exit0. Core3a adds no production/migration change, and final P4 patch does not alter those paths.
+Original owner production hero/alias coherence finding remains unresolved. Green runtime tests do not establish ALLOW, main/deploy/service activation or live acceptance. Required full gate must review the complete published baseline.
+
+Historical e8 numeric-format runtime proof follows; superseded by the Core3a content-addressed format above.
+
 P4 runtime-contract verification, 2026-10-13
 
 Worktree: /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-aa59d1688bbf86f50

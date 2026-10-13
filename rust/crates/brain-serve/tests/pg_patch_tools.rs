@@ -1,7 +1,7 @@
 use brain_contracts::{
-    tools::canonical_patch_history_definition, AuthorizedContext, PinnedGameContext, PortError,
-    Principal, Query, ToolCall, ToolExecution, ToolExecutionPort, ToolName, ToolRequest,
-    ToolValidationPurpose,
+    canonical_receipt::CanonicalReceipt, tools::canonical_patch_history_definition,
+    AuthorizedContext, PinnedGameContext, PortError, Principal, Query, ToolCall, ToolExecution,
+    ToolExecutionPort, ToolName, ToolRequest, ToolValidationPurpose,
 };
 use brain_serve::pg_patch_tools::{execute_patch_history, validate_patch_dependency};
 use brain_storage::{
@@ -17,7 +17,7 @@ use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
     PgPool,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[path = "../../brain-storage/tests/support/scratch_pg.rs"]
 mod scratch_pg;
@@ -31,6 +31,8 @@ struct Database {
     writer: PgPool,
     store: GameFactsStore,
     log: std::path::PathBuf,
+    tool_calls: std::sync::atomic::AtomicU64,
+    tool_peak_us: std::sync::atomic::AtomicU64,
 }
 
 impl Database {
@@ -59,12 +61,15 @@ impl Database {
                 .fetch_all(&admin)
                 .await
                 .unwrap();
-        assert_eq!(versions, [1, 4]);
+        assert_eq!(versions, [1, 4, 7]);
         let reader = PgPoolOptions::new()
             .max_connections(2)
             .after_connect(|connection, _| {
                 Box::pin(async move {
                     sqlx::query("SET log_statement='all'")
+                        .execute(&mut *connection)
+                        .await?;
+                    sqlx::query("SET log_min_duration_statement=0")
                         .execute(&mut *connection)
                         .await?;
                     sqlx::query("SET ROLE brain_tool")
@@ -94,6 +99,8 @@ impl Database {
             reader,
             store: GameFactsStore::new(writer.clone()),
             log: pg.directory.join("postgres.log"),
+            tool_calls: Default::default(),
+            tool_peak_us: Default::default(),
             writer,
         }
     }
@@ -164,6 +171,10 @@ impl Database {
     }
 
     async fn execute(&self, arguments: Value) -> ToolExecution {
+        sqlx::query("ANALYZE raw.object, canon.entity, canon.entity_identity, canon.receipt, canon.alias, canon.fact, ops.ingest_run")
+            .execute(&self.admin)
+            .await
+            .unwrap();
         let id = "\"".repeat(512);
         let request = ToolCall {
             id: id.clone(),
@@ -173,17 +184,90 @@ impl Database {
         .validate(&[canonical_patch_history_definition()])
         .unwrap();
         let (query, context) = query_context();
+        let started = std::time::Instant::now();
         match execute_patch_history(&self.reader, &query, &context, &id, &request).await {
-            Ok(execution) => execution,
+            Ok(execution) => {
+                self.tool_calls
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.tool_peak_us.fetch_max(
+                    started.elapsed().as_micros().try_into().unwrap(),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                execution
+            }
             Err(error) => {
+                let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
                 let log = std::fs::read_to_string(&self.log).unwrap();
+                let nonce = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos();
+                let saved_log = std::env::temp_dir().join(format!(
+                    "p4-patch-tools-timeout-{}-{nonce}.log",
+                    std::process::id()
+                ));
+                std::fs::write(&saved_log, &log).unwrap();
+                let activity: Value = sqlx::query_scalar("SELECT coalesce(jsonb_agg(jsonb_build_object('pid',pid,'state',state,'wait_type',wait_event_type,'wait',wait_event,'age_ms',extract(epoch FROM clock_timestamp()-query_start)*1000)),'[]'::jsonb) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND backend_type='client backend' AND state='active'")
+                    .fetch_one(&self.admin)
+                    .await
+                    .unwrap();
+                let mut plan_timing = Value::Null;
+                if request.arguments().get("since").is_none()
+                    && request.arguments().get("until").is_none()
+                {
+                    let patch: Option<i64> = sqlx::query_scalar("SELECT patch_id FROM serve.p4_patch_catalog ORDER BY released_at DESC,patch_id DESC LIMIT 1")
+                        .fetch_optional(&self.admin)
+                        .await
+                        .unwrap();
+                    let plan: Value = sqlx::query_scalar(&format!(
+                        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {}",
+                        changes_sql()
+                    ))
+                    .bind(request.arguments()["entity"].as_i64().unwrap())
+                    .bind(patch)
+                    .bind(None::<String>)
+                    .bind(None::<String>)
+                    .fetch_one(&self.admin)
+                    .await
+                    .unwrap();
+                    plan_timing = json!({"planning_ms":plan[0]["Planning Time"],"execution_ms":plan[0]["Execution Time"],"total_cost":plan[0]["Plan"]["Total Cost"],"jit_total_ms":plan[0]["JIT"]["Timing"]["Total"]});
+                }
                 let errors = log
                     .lines()
                     .filter(|line| line.contains("ERROR:"))
                     .collect::<Vec<_>>();
+                let last_sql = log
+                    .rsplit("LOG: ")
+                    .map(str::trim_start)
+                    .find(|statement| {
+                        statement.starts_with("execute ")
+                            || statement.starts_with("statement:")
+                            || statement.contains(" ms  parse ")
+                    })
+                    .unwrap_or_default();
+                let phase = [
+                    "serve.p4_patch_receipt",
+                    "serve.p4_patch_change",
+                    "serve.p4_patch_catalog",
+                    "current_user",
+                    "COMMIT",
+                    "ROLLBACK",
+                ]
+                .into_iter()
+                .find(|phase| last_sql.contains(phase))
+                .unwrap_or("connection_or_transaction");
+                let durations = log
+                    .lines()
+                    .rev()
+                    .filter_map(|line| line.split_once("duration: "))
+                    .filter_map(|(_, tail)| tail.split_once(" ms"))
+                    .map(|(duration, _)| duration)
+                    .take(6)
+                    .collect::<Vec<_>>();
                 panic!(
-                    "Request {:?}: {error:?}, scratch SQL errors: {errors:?}",
-                    request.arguments()
+                    "Request {:?}: {error:?}, tool_elapsed_ms={elapsed_ms:.3}, last_sql_phase={phase}, recent_statement_ms={durations:?}, activity={activity}, post_failure_explain={plan_timing}, scratch SQL errors: {errors:?}, scratch_log={}",
+                    request.arguments(),
+                    saved_log.display()
                 );
             }
         }
@@ -211,10 +295,25 @@ impl Database {
     }
 
     async fn close(&self) {
+        let calls = self.tool_calls.load(std::sync::atomic::Ordering::Relaxed);
+        let peak_us = self.tool_peak_us.load(std::sync::atomic::Ordering::Relaxed);
+        println!(
+            "P4_RUNTIME_TIMING_PROOF actual complete tool calls={calls}, peak_wall_us={peak_us}, pool/transaction/SQL/fetch/format/bounding/seal/validation included, unchanged 500ms aggregate and statement timeout"
+        );
         self.reader.close().await;
         self.writer.close().await;
         self.admin.close().await;
     }
+}
+
+fn changes_sql() -> &'static str {
+    include_str!("../src/pg_patch_tools.rs")
+        .split_once("const CHANGES: &str = \"")
+        .unwrap()
+        .1
+        .split_once("\";")
+        .unwrap()
+        .0
 }
 
 fn collect_plan_indexes(value: &Value, indexes: &mut BTreeSet<String>) {
@@ -397,7 +496,73 @@ fn error(execution: &ToolExecution, code: &str) {
     assert!(execution.result.evidence_ids.is_empty());
 }
 
+fn raw_receipt_id(execution: &ToolExecution, citation: &Value) -> i64 {
+    let id = citation.as_str().unwrap();
+    let evidence = execution.dependencies[0]
+        .evidence
+        .iter()
+        .find(|evidence| evidence.evidence_id == id)
+        .unwrap();
+    CanonicalReceipt::from_evidence(evidence)
+        .unwrap()
+        .raw_receipt_id
+}
+
+fn projected_execution(
+    bounded: &ToolExecution,
+    parts: &[&ToolExecution],
+    total: usize,
+) -> ToolExecution {
+    let mut execution = bounded.clone();
+    let changes = parts
+        .iter()
+        .flat_map(|part| rows(part).iter().cloned())
+        .collect::<Vec<_>>();
+    let omitted = total - changes.len();
+    execution.result.result["changes"] = json!(changes);
+    execution.result.result["omitted_count"] = json!(omitted);
+    execution.result.result["truncated"] = json!(omitted > 0);
+    let evidence = std::iter::once(bounded)
+        .chain(parts.iter().copied())
+        .flat_map(|part| &part.dependencies[0].evidence)
+        .map(|evidence| {
+            let receipt = CanonicalReceipt::from_evidence(evidence).unwrap();
+            (receipt.raw_receipt_id.to_string(), evidence.clone())
+        })
+        .collect::<BTreeMap<_, _>>()
+        .into_values()
+        .collect::<Vec<_>>();
+    execution.result.evidence_ids = evidence
+        .iter()
+        .map(|evidence| evidence.evidence_id.clone())
+        .collect();
+    execution.dependencies[0].request = bounded.dependencies[0].request.without_canonical_result();
+    execution.dependencies[0].evidence = evidence;
+    execution.dependencies[0] = execution.dependencies[0]
+        .clone()
+        .with_canonical_result(&execution.result)
+        .unwrap();
+    execution
+}
+
+fn execution_bytes(execution: &ToolExecution) -> usize {
+    let request = execution.dependencies[0].request.without_canonical_result();
+    let call = ToolCall {
+        id: execution.result.call_id.clone(),
+        name: request.name(),
+        arguments: request.arguments().clone(),
+    };
+    execution.validate_for(&call, &request, None).unwrap();
+    assert_eq!(execution.result.call_id, "\"".repeat(512));
+    serde_json::to_vec(execution).unwrap().len()
+}
+
 fn verify_receipts(execution: &ToolExecution, objects: &[RawObject]) {
+    verify_receipt_integrity(execution, objects);
+    assert!(execution_bytes(execution) < 16_384);
+}
+
+fn verify_receipt_integrity(execution: &ToolExecution, objects: &[RawObject]) {
     let mut citations = BTreeSet::new();
     for patch in [
         &execution.result.result["current_official_patch"],
@@ -457,7 +622,9 @@ fn verify_receipts(execution: &ToolExecution, objects: &[RawObject]) {
             raw.content_sha256
         );
         assert_eq!(evidence.source_id, format!("canon.source/{}", raw.source));
-        assert_eq!(content["citation"], evidence.citation);
+        let metadata = CanonicalReceipt::from_evidence(evidence).unwrap();
+        assert_eq!(evidence.citation, evidence.evidence_id);
+        assert_eq!(content["raw_receipt_id"], metadata.raw_receipt_id);
         assert_eq!(content["ingest_run_id"].as_u64(), Some(evidence.revision));
         let receipt = Receipt {
             locator_kind: content["locator_kind"].as_str().unwrap().into(),
@@ -473,7 +640,6 @@ fn verify_receipts(execution: &ToolExecution, objects: &[RawObject]) {
         assert_eq!(content["patch"], Value::Null);
         assert!(evidence.patch.is_none());
     }
-    assert!(serde_json::to_vec(execution).unwrap().len() < 16_384);
 }
 
 #[tokio::test]
@@ -564,15 +730,9 @@ async fn real_current_projection_and_composed_patch_history() {
     assert_eq!(rows(&execution)[1]["stat_key"], Value::Null);
     assert_eq!(rows(&execution)[1]["line_text"], line);
     verify_receipts(&execution, &[baba.clone(), infernus.clone(), first.clone()]);
-    let changes_sql = include_str!("../src/pg_patch_tools.rs")
-        .split_once("const CHANGES: &str = \"")
-        .unwrap()
-        .1
-        .split_once("\";")
-        .unwrap()
-        .0;
     let plan: Value = sqlx::query_scalar(&format!(
-        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {changes_sql}"
+        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {}",
+        changes_sql()
     ))
     .bind(id)
     .bind(None::<i64>)
@@ -594,11 +754,7 @@ async fn real_current_projection_and_composed_patch_history() {
             .await
             .unwrap();
     let first_rows = rows(&execution);
-    let lexical_id = first_rows[0]["citation"]
-        .as_str()
-        .unwrap()
-        .parse::<i64>()
-        .unwrap();
+    let lexical_id = raw_receipt_id(&execution, &first_rows[0]["citation"]);
     db.quarantine(&published_definition, &[lexical_id]).await;
     let narrowed = db.execute(json!({"entity":id})).await;
     assert_eq!(rows(&narrowed).len(), 1);
@@ -606,7 +762,7 @@ async fn real_current_projection_and_composed_patch_history() {
     assert!(!narrowed
         .result
         .evidence_ids
-        .contains(&lexical_id.to_string()));
+        .contains(&first_rows[0]["citation"].as_str().unwrap().to_owned()));
     for field in [
         "binding_citation",
         "entity_citation",
@@ -615,11 +771,7 @@ async fn real_current_projection_and_composed_patch_history() {
         "released_at_citation",
         "url_citation",
     ] {
-        let hidden = first_rows[0][field]
-            .as_str()
-            .unwrap()
-            .parse::<i64>()
-            .unwrap();
+        let hidden = raw_receipt_id(&execution, &first_rows[0][field]);
         db.quarantine(&published_definition, &[hidden]).await;
         let count: i64 =
             sqlx::query_scalar("SELECT count(*) FROM serve.p4_patch_receipt WHERE receipt_id=$1")
@@ -637,11 +789,7 @@ async fn real_current_projection_and_composed_patch_history() {
             },
         );
     }
-    let hidden_stat = first_rows[0]["stat_citation"]
-        .as_str()
-        .unwrap()
-        .parse::<i64>()
-        .unwrap();
+    let hidden_stat = raw_receipt_id(&execution, &first_rows[0]["stat_citation"]);
     db.quarantine(&published_definition, &[hidden_stat]).await;
     let no_stat = db.execute(json!({"entity":id})).await;
     assert_eq!(rows(&no_stat).len(), 2);
@@ -651,7 +799,7 @@ async fn real_current_projection_and_composed_patch_history() {
     assert!(!no_stat
         .result
         .evidence_ids
-        .contains(&hidden_stat.to_string()));
+        .contains(&first_rows[0]["stat_citation"].as_str().unwrap().to_owned()));
     db.quarantine(&published_definition, &[]).await;
     assert_eq!(db.execute(json!({"entity":id})).await, execution);
     let (query, context) = query_context();
@@ -708,7 +856,27 @@ async fn real_current_projection_and_composed_patch_history() {
     let bounded = db
         .execute(json!({"entity":id,"since":"p1","until":"p2"}))
         .await;
-    assert_eq!(rows(&bounded).len(), 2);
+    let complete = projected_execution(&bounded, &[&execution], 2);
+    assert_eq!(rows(&complete), rows(&execution));
+    verify_receipt_integrity(
+        &complete,
+        &[
+            baba.clone(),
+            infernus.clone(),
+            first.clone(),
+            second.clone(),
+        ],
+    );
+    let complete_bytes = execution_bytes(&complete);
+    let bounded_bytes = execution_bytes(&bounded);
+    assert!(complete_bytes >= 16_384);
+    assert_eq!(rows(&bounded), &rows(&execution)[..1]);
+    assert_eq!(bounded.result.result["omitted_count"], 1);
+    assert_eq!(bounded.result.result["truncated"], true);
+    assert_eq!(bounded.result.result["omitted_count_is_lower_bound"], false);
+    println!(
+        "P4_PROJECTION_BOUND_PROOF two original statements independently visible with exact original-byte receipts; full sealed two-row execution={complete_bytes} bytes, final one-row execution={bounded_bytes} bytes, omitted_count=1, limit=16384, worst_call_id=512 escaped quotes"
+    );
     assert_eq!(
         bounded.result.result["current_official_patch"]["label"],
         "p2"
@@ -1148,47 +1316,131 @@ impl ToolExecutionPort for NoOtherTools {
 async fn quarantined_omitted_middle_post_invalidates_every_validation_purpose() {
     let pg = scratch_pg::ScratchPg::start();
     let db = Database::start(&pg).await;
-    db.publish(
-        "heroes",
-        "baba",
-        "hero",
-        json!({"key":"hero_baba","aliases":["Baba"],"health":500}),
-        true,
-    )
-    .await;
-    let entity = db.hero_id("hero_baba").await;
-    for index in 1..=3 {
-        db.publish(
-            "deadlock_patchnotes_db",
-            &index.to_string(),
-            &format!("r{index}"),
-            patch(
-                index,
-                &format!("p{index}"),
-                &format!("2026-10-0{index}T12:00:00Z"),
-                vec![change(
-                    1,
-                    "baba",
-                    "health",
-                    &format!("Baba: health changed from {index} to {}", index + 1),
-                )],
-            ),
-            false,
+    let hero = db
+        .publish(
+            "heroes",
+            "baba",
+            "hero",
+            json!({"key":"hero_baba","aliases":["Baba"],"health":500}),
+            true,
         )
         .await;
+    let entity = db.hero_id("hero_baba").await;
+    let mut objects = vec![hero];
+    for index in 1..=3 {
+        objects.push(
+            db.publish(
+                "deadlock_patchnotes_db",
+                &index.to_string(),
+                &format!("r{index}"),
+                patch(
+                    index,
+                    &format!("p{index}"),
+                    &format!("2026-10-0{index}T12:00:00Z"),
+                    vec![change(
+                        1,
+                        "baba",
+                        "health",
+                        &format!("Baba: health changed from {index} to {}", index + 1),
+                    )],
+                ),
+                false,
+            )
+            .await,
+        );
+    }
+    let projection = sqlx::query_scalar::<_, Value>(changes_sql())
+        .bind(entity)
+        .bind(None::<i64>)
+        .bind(Some("2026-10-01T12:00:00Z"))
+        .bind(Some("2026-10-03T12:00:00Z"))
+        .fetch_all(&db.reader)
+        .await
+        .unwrap();
+    assert_eq!(projection.len(), 3);
+    assert_eq!(
+        projection
+            .iter()
+            .map(|row| &row["patch"])
+            .collect::<Vec<_>>(),
+        [&json!("p3"), &json!("p2"), &json!("p1")]
+    );
+    let mut parts = Vec::new();
+    for projected in &projection {
+        let label = &projected["patch"];
+        let part = db
+            .execute(json!({"entity":entity,"since":label,"until":label}))
+            .await;
+        assert_eq!(rows(&part).len(), 1);
+        let row = &rows(&part)[0];
+        for field in [
+            "id",
+            "entity_id",
+            "stat_key",
+            "old",
+            "new",
+            "line_text",
+            "patch",
+            "statement_index",
+            "source_revision",
+        ] {
+            assert_eq!(row[field], projected[field]);
+        }
+        for field in [
+            "citation",
+            "head_citation",
+            "label_citation",
+            "released_at_citation",
+            "url_citation",
+            "binding_citation",
+            "entity_citation",
+            "stat_citation",
+        ] {
+            assert_eq!(
+                raw_receipt_id(&part, &row[field]).to_string(),
+                projected[field].as_str().unwrap()
+            );
+        }
+        verify_receipts(&part, &objects);
+        parts.push(part);
     }
     let all = db
         .execute(json!({"entity":entity,"since":"p1","until":"p3"}))
         .await;
-    assert_eq!(rows(&all).len(), 3);
-    let middle = rows(&all).iter().find(|row| row["patch"] == "p2").unwrap();
-    let hidden = middle["citation"].as_str().unwrap().parse::<i64>().unwrap();
+    let complete = projected_execution(&all, &[&parts[0], &parts[1], &parts[2]], 3);
+    let prefix = projected_execution(&all, &[&parts[0], &parts[1]], 3);
+    assert_eq!(rows(&complete).len(), 3);
+    verify_receipt_integrity(&complete, &objects);
+    verify_receipt_integrity(&prefix, &objects);
+    let complete_bytes = execution_bytes(&complete);
+    let prefix_bytes = execution_bytes(&prefix);
+    let bounded_bytes = execution_bytes(&all);
+    assert!(complete_bytes >= 16_384);
+    assert!(prefix_bytes >= 16_384);
+    assert_eq!(rows(&all), rows(&parts[0]));
+    assert_eq!(all.result.result["omitted_count"], 2);
+    assert_eq!(all.result.result["truncated"], true);
+    assert_eq!(all.result.result["omitted_count_is_lower_bound"], false);
+    verify_receipts(&all, &objects);
+    println!(
+        "P4_THREE_POST_BOUND_PROOF real CHANGES projection=3 rows, independent bounded requests verify every original-byte receipt; full sealed three-row execution={complete_bytes} bytes, two-row prefix={prefix_bytes} bytes, final one-row execution={bounded_bytes} bytes, limit=16384, worst_call_id=512 escaped quotes"
+    );
+    let middle = &rows(&parts[1])[0];
+    assert_eq!(middle["patch"], "p2");
+    let hidden = raw_receipt_id(&parts[1], &middle["citation"]);
     let arguments = json!({"entity":entity,"since":"p1","until":"p3","limit":1});
     let stale = db.execute(arguments.clone()).await;
     assert_eq!(rows(&stale).len(), 1);
     assert_eq!(rows(&stale)[0]["patch"], "p3");
     assert_eq!(stale.result.result["omitted_count"], 2);
-    assert!(!stale.result.evidence_ids.contains(&hidden.to_string()));
+    assert_eq!(rows(&stale), rows(&all));
+    assert_eq!(stale.result.evidence_ids, all.result.evidence_ids);
+    assert_eq!(stale.dependencies[0].evidence, all.dependencies[0].evidence);
+    verify_receipts(&stale, &objects);
+    assert!(!stale
+        .result
+        .evidence_ids
+        .contains(&middle["citation"].as_str().unwrap().to_owned()));
     let port = brain_serve::pg_patch_port::PgPatchToolPort::new(
         NoOtherTools,
         db.reader.clone(),
