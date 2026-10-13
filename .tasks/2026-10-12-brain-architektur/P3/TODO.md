@@ -6,6 +6,8 @@ Starting remote HEAD: 8254393a8434b3446b9e575ca42e40639ec6d2b7, clean. Earlier v
 
 ## Published and built
 
+Verified P3 implementation checkpoint c8c5125c is committed and pushed. The worktree was clean after publication; later proof-note updates are a separate documentation checkpoint.
+
 P1r core 2/2b through 9f75588d was merged at 7c820bec. The PG executor checkpoint e8a1ef45788faeb988464bf44bf8f0932f12c09c is merged at e8e3e577 and pushed to this branch. Tool contract conflicts retain both P3 and P1r additions. Remote `cargo-slot check --manifest-path rust/Cargo.toml --release --locked --jobs 3 -p brain-serve` passed, log /tmp/brain-p3-pg-checkpoint-build-20261013.log.
 
 P1r alone integrates/deploys per the current resume contract. P3 does not merge main, deploy or operate services. P3 is not gate-ready or live.
@@ -50,6 +52,22 @@ A native read-only reviewer rechecked the current prefix correction and PG timer
 
 WIRKUNGSPRUEFUNG[WP-1]: 1 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 2/2 geprüft
 
-Remaining: obtain the P1r preflight fix, prove a successful real CLI job and peak, demonstrate a timer-key-bound index scan without forcing the planner or mislabelling ingest_run_pkey, final local gate, then P1r handover. Current tiny real timer-only plan runs in 0.369 ms but does not demonstrate the required timer-key index scan. Do not count that as index acceptance. No ALLOW or live proof exists yet. This verified P3 checkpoint is an intermediate branch publication, not the agreed gate-ready handover or a completed deployment.
+The orchestrator has assigned both the serve-read preflight blocker and A -> B -> A freshness to P1r and will forward a new core checkpoint. A -> B -> A is observed against the real Store: restoring 120.00 after 125 yields ignored=1 and still serves 125. See CORE_PREFLIGHT_BLOCKER.md and /tmp/brain-p3-core-aba-observation-20261013.log. Temporary observation code was removed; no stale-value assertion was added to the published tests. P3 remains unchanged in the core; the owner checkpoint must reconcile raw-byte deduplication with renewed publication.
+
+## Timer-key index proof
+
+The catalog-cardinality benchmark now proves the timer-key-bound Index Scan naturally, without changing planner settings. See timer-index-proof.json. The real public GameTracking source produced 14 timer facts; these stayed unchanged while 1500 aliases from pinned public convars.json were projected as clearly labelled benchmark rule entities/aliases. That background projection is not a new production extractor or a claim about the live catalog.
+
+The exact timer_query.sql ran as brain_readonly -> brain_tool in a read-only transaction with 500 ms statement timeout. EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) shows Index Scan using timer_key_idx, Index Cond `((alias_norm)::text = 'soul_box'::text)`, 4 rows, 2 shared-hit blocks. Execution Time 3.506 ms, Planning Time 3.904 ms. Full plan on ionos: /tmp/brain-p3-index-probe-20261013-yl307673/plan.json; local log /tmp/brain-p3-catalog-index-locked-proof-20261013.log. The actual cargo-remote workspace lock protected the verification binary/source snapshot. Private PostgreSQL stopped afterward.
+
+Fixture loading used a DBA-only scratch login because the core ingest-role preflight is still blocked. Its successful job peak of 8600 KB is a source-processing observation, not proof of the production ingest role or a system-unit cgroup peak. Those acceptance items remain open.
+
+The one-shot admin probe /tmp/brain-p3-index-probe-20261013.py has since been prepared to accept a final optional job_role argument, restricted to brain_core_test or brain_ingest, and to check unchanged repeat raw/fact/receipt counts. Its brain_ingest variant is not yet executed. After the forwarded P1r checkpoint, recompile through cargo-slot, copy this updated temporary probe to ionos, then execute it under /home/naniadm/cargo-remote/locks/ws-c07868587935c61f.lock with the same public fixture paths plus final argument brain_ingest. This is disposable verification tooling, not production code. Do not substitute the DBA result for that check.
+
+The read-only reviewer confirmed this qualified offline index claim with zero new findings: the evidence proves access under the disclosed benchmark cardinality, not the live plan, ingest-role CLI authorization or cgroup peak. Later optional-role/repeat-check probe edits are not evidence of the completed original run.
+
+Post-publication formatter and strict four-package all-target Clippy also passed on c8c5125c, logs /tmp/brain-p3-published-fmt-check-20261013.log and /tmp/brain-p3-published-all-targets-clippy-20261013.log. Production/test files were restored exactly after the temporary A/B/A observation; remaining changes are proof notes only.
+
+Remaining: merge the next P1r preflight checkpoint when forwarded, obtain the core reversion-contract decision, prove a successful real CLI job and peak, final local gate, then P1r handover. Live answer/trace and system-unit/cgroup proof belong to the integrator after verified main deployment. No ALLOW or live proof exists yet. This verified P3 checkpoint is an intermediate branch publication, not the agreed gate-ready handover or a completed deployment.
 
 Public fixtures: GameTracking e6bb7e33d212b110d138f98427ef37f9a80c2839 at /tmp/brain-p3-public-core2-20261013.o4gMBt/gametracking.git on ionos, local symlink to /tmp/brain-p3-public-v2-20261012.TOVndF/gametracking.git. Core hero fixture 2a26e26535a390c309e300e2c7b2763fa5ad7abd at /tmp/brain-p3-core2-hero-fixture-20261013.KdtU5H/hero.git on both hosts. Fixtures are public raw data; no downloaded scripts executed.

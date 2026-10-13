@@ -17,4 +17,19 @@ The orchestrator confirmed this blocker is assigned to P1r and will forward the 
 
 P1r must fix the role-aware structural preflight or supply an explicitly reviewed migration granting the intended minimum access. Do not edit applied migration v1. P3 has not changed the frozen core validation or widened ingest privileges. The real CLI acceptance and successful CLI memory measurement remain blocked, not passed.
 
-Separate core-owned review concern, not yet executed as a reproduction: historical `was_applied` lookup in brain-job/src/lib.rs skips A after A -> B -> A, leaving serving on B. Raw deduplication and renewed publication freshness need an owner decision. This is not established as an executed regression result.
+## Core reversion observation, now executed
+
+A separate core-owned freshness issue is now reproduced, not merely a review hypothesis. Temporary instrumentation in the existing private PostgreSQL timer Store test fed A (120.00), B (125), then exactly the original A bytes under revision aba_reversion. It used the real ingestion registry, TimerExtractor and GameFactsStore, writer role brain_ingest, and the actual read-only brain_tool timer SQL.
+
+Observed output in /tmp/brain-p3-core-aba-observation-20261013.log:
+
+```
+P3_ABA_REVERSION_COUNTS=(0, 0, 1)
+P3_ABA_CURRENT_VALUE="125" RESTORED_SOURCE_VALUE=120.00
+```
+
+The observational run completed: 1 passed, 0 failed, 0 ignored, 2 filtered. That green status only means the observation ran; it does not establish correct source freshness. The temporary instrumentation was removed afterward, restoring timers_ingest.rs exactly to published c8c5125c. No new test asserting this stale behavior was committed.
+
+The orchestrator confirmed A -> B -> A is also assigned to P1r as a core blocker for the next checkpoint. P3 must remain unchanged there and merge the forwarded owner fix.
+
+Cause remains the historical was_applied check in brain-job/src/lib.rs:84-86 and the unrestricted historical EXISTS in brain-storage/src/gamefacts.rs:221-223: an earlier successful extraction of A skips renewed publication after B. The unchanged-content skip clause in CONTRACT_INGEST_V2.md and current-source serving goals need to be reconciled by P1r/the orchestrator. Distinguish raw-byte deduplication from renewed publication freshness; do not add leases, pending state or a P3 workaround. P3 core files remain unchanged.
