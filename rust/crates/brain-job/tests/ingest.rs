@@ -53,7 +53,9 @@ impl Extractor for Corrected {
             return Outcome::Ignored;
         };
         set.facts.truncate(1);
-        set.facts[0].value = FactValue::Number(150.0);
+        if let Some(fact) = set.facts.first_mut() {
+            fact.value = FactValue::Number(150.0);
+        }
         Outcome::Accepted(set)
     }
 }
@@ -343,22 +345,98 @@ async fn poison_isolation_publication_retry_and_immutable_migration() {
         .unwrap();
     assert_eq!(rejected_again.counts.rejected, 1);
     let before_empty = count(&admin, "SELECT count(*) FROM canon.receipt").await;
-    for _ in 0..2 {
-        let empty = ingest(&store, "stub", [input("empty", "r1")], &[&stub])
-            .await
-            .unwrap();
-        assert_eq!(
-            (
-                empty.counts.accepted,
-                empty.counts.rejected,
-                empty.counts.ignored
-            ),
-            (1, 0, 0)
-        );
-    }
+    let facts_before_empty = count(&admin, "SELECT count(*) FROM canon.fact").await;
+    let raw_before_empty = count(&admin, "SELECT count(*) FROM raw.object").await;
+    let empty = ingest(&store, "stub", [input("empty", "r1")], &[&stub])
+        .await
+        .unwrap();
+    assert_eq!(
+        empty.counts,
+        brain_job::Counts {
+            accepted: 1,
+            rejected: 0,
+            ignored: 0
+        }
+    );
+    let marker = sqlx::query("SELECT o.id,o.content_sha256,r.extractor,r.locator_kind,r.locator,r.value_sha256 FROM canon.receipt r JOIN raw.object o ON o.id=r.raw_object_id WHERE r.ingest_run_id=$1")
+        .bind(empty.run_id).fetch_one(&admin).await.unwrap();
+    let empty_id = marker.get::<i64, _>("id");
+    let discriminator = brain_job::extractor_id("stub", "1");
+    assert_eq!(marker.get::<String, _>("extractor"), discriminator);
+    assert_eq!(marker.get::<String, _>("locator_kind"), "raw_bytes");
+    assert_eq!(marker.get::<String, _>("locator"), "");
+    assert_eq!(
+        marker.get::<Vec<u8>, _>("value_sha256"),
+        marker.get::<Vec<u8>, _>("content_sha256")
+    );
+    assert!(store.was_applied(empty_id, &discriminator).await.unwrap());
+    let calls_after_empty = stub.0.load(Ordering::Relaxed);
+    let empty_rerun = ingest(&store, "stub", [input("empty", "r2")], &[&stub])
+        .await
+        .unwrap();
+    assert_eq!(
+        empty_rerun.counts,
+        brain_job::Counts {
+            accepted: 0,
+            rejected: 0,
+            ignored: 1
+        }
+    );
+    assert_eq!(stub.0.load(Ordering::Relaxed), calls_after_empty);
     assert_eq!(
         count(&admin, "SELECT count(*) FROM canon.receipt").await,
-        before_empty
+        before_empty + 1
+    );
+    assert_eq!(
+        count(&admin, "SELECT count(*) FROM raw.object").await,
+        raw_before_empty + 1
+    );
+    assert_eq!(
+        count(&admin, "SELECT count(*) FROM canon.fact").await,
+        facts_before_empty
+    );
+    let upgraded_discriminator = brain_job::extractor_id("stub", "2");
+    assert!(!store
+        .was_applied(empty_id, &upgraded_discriminator)
+        .await
+        .unwrap());
+    let empty_upgraded = ingest(&store, "stub", [input("empty", "r2")], &[&Corrected("2")])
+        .await
+        .unwrap();
+    assert_eq!(
+        empty_upgraded.counts,
+        brain_job::Counts {
+            accepted: 1,
+            rejected: 0,
+            ignored: 0
+        }
+    );
+    assert!(store
+        .was_applied(empty_id, &upgraded_discriminator)
+        .await
+        .unwrap());
+    let empty_upgraded_rerun = ingest(&store, "stub", [input("empty", "r2")], &[&Corrected("2")])
+        .await
+        .unwrap();
+    assert_eq!(
+        empty_upgraded_rerun.counts,
+        brain_job::Counts {
+            accepted: 0,
+            rejected: 0,
+            ignored: 1
+        }
+    );
+    assert_eq!(
+        count(&admin, "SELECT count(*) FROM canon.receipt").await,
+        before_empty + 2
+    );
+    assert_eq!(
+        count(&admin, "SELECT count(*) FROM raw.object").await,
+        raw_before_empty + 1
+    );
+    assert_eq!(
+        count(&admin, "SELECT count(*) FROM canon.fact").await,
+        facts_before_empty
     );
     let calls = stub.0.load(Ordering::Relaxed);
     let oversized = ingest(

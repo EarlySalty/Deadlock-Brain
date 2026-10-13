@@ -74,10 +74,23 @@ async fn write(
     raw: i64,
     extractor: &str,
     set: &FactSet,
+    bytes: &[u8],
 ) -> Result<(), sqlx::Error> {
     sqlx::query("SELECT pg_advisory_xact_lock(742110026113::bigint)")
         .execute(&mut *connection)
         .await?;
+    if set.entities.is_empty()
+        && set.aliases.is_empty()
+        && set.facts.is_empty()
+        && set.relations.is_empty()
+    {
+        let value = Receipt {
+            locator_kind: "raw_bytes".into(),
+            locator: String::new(),
+            value_sha256: Sha256::digest(bytes).into(),
+        };
+        receipt(connection, run, raw, extractor, &value).await?;
+    }
     for row in &set.entities {
         let receipt = receipt(connection, run, raw, extractor, &row.receipt).await?;
         sqlx::query("INSERT INTO canon.entity(kind,key,receipt_id) VALUES($1,$2,$3) ON CONFLICT(key) DO NOTHING")
@@ -152,7 +165,7 @@ async fn write_object(
         tx.rollback().await.map_err(sql_rejection)?;
         return Err(rejection);
     }
-    if let Err(error) = write(&mut tx, run, raw, extractor, set).await {
+    if let Err(error) = write(&mut tx, run, raw, extractor, set, &bytes).await {
         tx.rollback().await.map_err(sql_rejection)?;
         return Err(sql_rejection(error));
     }
