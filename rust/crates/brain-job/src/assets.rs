@@ -29,6 +29,7 @@ impl Extractor for Assets {
                 path.strip_prefix(prefix).is_some_and(|tail| {
                     tail.strip_suffix(".json")
                         .or_else(|| tail.strip_suffix(".oversized"))
+                        .or_else(|| tail.strip_suffix(".collision"))
                         .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
                 })
             }))
@@ -42,6 +43,9 @@ impl Extractor for Assets {
         }
         if raw.path.ends_with(".oversized") {
             return Outcome::Rejected(rejection("raw_too_large"));
+        }
+        if raw.path.ends_with(".collision") {
+            return Outcome::Rejected(rejection("key_collision"));
         }
         match extract(raw) {
             Ok(set) if set.entities.is_empty() => Outcome::Ignored,
@@ -158,6 +162,30 @@ fn leaves<'a>(raw: &'a RawValue, prefix: String) -> Result<Vec<Leaf<'a>>, &'stat
     }
     Ok(result)
 }
+fn identity(object: &RawValue) -> Result<Option<(u64, String, &'static str)>, &'static str> {
+    let members: Members<'_> = serde_json::from_str(object.get()).map_err(|_| "assets_identity")?;
+    let member = |key: &str| {
+        members
+            .0
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| *value)
+    };
+    let text =
+        |key: &str| member(key).and_then(|value| serde_json::from_str::<String>(value.get()).ok());
+    let kind = match text("type").as_deref() {
+        Some("ability") => "ability",
+        Some("upgrade") => "item",
+        _ => return Ok(None),
+    };
+    let id = member("id")
+        .ok_or("assets_identity")?
+        .get()
+        .parse::<u64>()
+        .map_err(|_| "assets_identity")?;
+    let class_name = text("class_name").ok_or("assets_identity")?;
+    Ok(Some((id, class_name, kind)))
+}
 fn records(bytes: &[u8]) -> Result<Vec<Record<'_>>, &'static str> {
     let raw: &RawValue = serde_json::from_slice(bytes).map_err(|_| "assets_json")?;
     let array = raw.get().starts_with('[');
@@ -179,25 +207,9 @@ fn records(bytes: &[u8]) -> Result<Vec<Record<'_>>, &'static str> {
             String::new()
         };
         let leaves = leaves(object, prefix.clone())?;
-        let text = |pointer: &str| {
-            leaves
-                .iter()
-                .find(|leaf| leaf.pointer == format!("{prefix}{pointer}") && leaf.textual)
-                .map(|leaf| leaf.text.as_str())
+        let Some((id, class_name, kind)) = identity(object)? else {
+            continue;
         };
-        let kind = match text("/type") {
-            Some("ability") => "ability",
-            Some("upgrade") => "item",
-            _ => continue,
-        };
-        let id = leaves
-            .iter()
-            .find(|leaf| leaf.pointer == format!("{prefix}/id") && leaf.numeric)
-            .ok_or("assets_identity")?
-            .text
-            .parse::<u64>()
-            .map_err(|_| "assets_identity")?;
-        let class_name = text("/class_name").ok_or("assets_identity")?.to_owned();
         if !ids.insert(id) || !classes.insert(limits::normalize_key(&class_name)) {
             return Err("key_collision");
         }

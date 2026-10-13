@@ -108,6 +108,33 @@ fn published_complete_responses_restore_replayed_slots_and_bind_reused_chunks() 
             execution.result.result["abilities"]["links"][0]["source_revision"],
             expected
         );
+        let original_ability: i64 = runtime
+            .block_on(
+                sqlx::query_scalar("SELECT id FROM serve.current_entity WHERE key=$1")
+                    .bind(
+                        original[0]["items"]["signature1"]
+                            .as_str()
+                            .expect("original ability key"),
+                    )
+                    .fetch_one(&admin),
+            )
+            .expect("original published ability");
+        let (direct_call, direct_request) =
+            self::call(ToolName::GetAbility, json!({"ability":original_ability}));
+        let direct = tools
+            .execute(&query, &context, None, &direct_call.id, &direct_request)
+            .expect("direct card after mapping replacement");
+        assert!(!direct.result.is_error);
+        let linked = direct.result.result["links"]["links"]
+            .as_array()
+            .expect("direct links")
+            .iter()
+            .any(|link| link["kind"] == "has_ability" && link["from_entity_id"] == hero_id);
+        assert_eq!(
+            linked,
+            !bytes.ends_with(&b),
+            "{label}: current direct hero link"
+        );
         for purpose in [
             ToolValidationPurpose::Provider,
             ToolValidationPurpose::Publication,
@@ -136,6 +163,53 @@ fn published_complete_responses_restore_replayed_slots_and_bind_reused_chunks() 
         .block_on(sqlx::query_as(counts).fetch_one(&admin))
         .expect("replayed counts");
     assert_eq!(before, after);
+    let source_before: String = runtime
+        .block_on(
+            sqlx::query_scalar("SELECT revision FROM serve.p2_hero_slot_source").fetch_one(&admin),
+        )
+        .expect("last valid source");
+    for malformed in [b"[not-json".as_slice(), b"{}".as_slice()] {
+        std::fs::write(cache.path().join("heroes-en.json"), malformed)
+            .expect("malformed replacement");
+        let report = runtime
+            .block_on(ingest(
+                &store,
+                "assets",
+                brain_job::assets::source::load(cache.path(), false),
+                EXTRACTORS,
+            ))
+            .expect("quarantined replacement");
+        assert_eq!(report.counts.accepted, 0);
+        assert_eq!(report.counts.rejected, 1);
+        let source: String = runtime
+            .block_on(
+                sqlx::query_scalar("SELECT revision FROM serve.p2_hero_slot_source")
+                    .fetch_one(&admin),
+            )
+            .expect("retained source");
+        assert_eq!(source, source_before);
+        let total: i64 = runtime
+            .block_on(
+                sqlx::query_scalar("SELECT count(*) FROM serve.p2_hero_slot").fetch_one(&admin),
+            )
+            .expect("retained mappings");
+        assert_eq!(total, 164);
+        let (query, context) = query_context();
+        let (call, request) = call(ToolName::GetAbility, json!({"hero":hero_id,"slot":1}));
+        let execution = tools
+            .execute(&query, &context, None, &call.id, &request)
+            .expect("retained live selector");
+        assert!(!execution.result.is_error);
+        for purpose in [
+            ToolValidationPurpose::Provider,
+            ToolValidationPurpose::Publication,
+            ToolValidationPurpose::Cache,
+        ] {
+            tools
+                .validate_dependencies(&query, &context, None, &execution.dependencies, purpose)
+                .expect("retained published dependencies");
+        }
+    }
     std::fs::write(cache.path().join("heroes-en.json"), b"[]").expect("published empty source");
     runtime
         .block_on(ingest(
@@ -149,6 +223,33 @@ fn published_complete_responses_restore_replayed_slots_and_bind_reused_chunks() 
         .block_on(sqlx::query_scalar("SELECT count(*) FROM serve.p2_hero_slot").fetch_one(&admin))
         .expect("empty mapping selection");
     assert_eq!(total, 0);
+    let retired_ability: i64 = runtime
+        .block_on(
+            sqlx::query_scalar("SELECT id FROM serve.current_entity WHERE key=$1")
+                .bind(
+                    original[0]["items"]["signature1"]
+                        .as_str()
+                        .expect("original ability key"),
+                )
+                .fetch_one(&admin),
+        )
+        .expect("published ability remains");
+    let (query, context) = query_context();
+    let (call, request) = call(ToolName::GetAbility, json!({"ability":retired_ability}));
+    let direct = tools
+        .execute(&query, &context, None, &call.id, &request)
+        .expect("direct ability card after empty source");
+    assert!(!direct.result.is_error);
+    assert_eq!(direct.result.result["links"]["omitted_count"], 0);
+    assert_eq!(direct.result.result["links"]["truncated"], false);
+    assert!(
+        direct.result.result["links"]["links"]
+            .as_array()
+            .expect("card links")
+            .iter()
+            .all(|link| link["kind"] != "has_ability"),
+        "direct card must not expose retired hero links"
+    );
     let peers = serde_json::to_vec(&changed[1..]).expect("removed hero response");
     std::fs::write(cache.path().join("heroes-en.json"), peers).expect("removed hero");
     runtime
