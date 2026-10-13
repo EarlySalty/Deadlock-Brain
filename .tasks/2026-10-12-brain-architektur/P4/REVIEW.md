@@ -1,5 +1,18 @@
 # P4 independent review follow-up
 
+## Actual second full gate, published126f6f39
+
+Command: `python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/Deadlock-Brain-p4-patches --base origin/main --head feat/brain-p4-patches-20261012-v2`. Fresh baselineedf503b2, head126f6f397580491ee4fec8edc40e84a2a782c5c0. Taskbxr8zwqe2 exited1 with actual gpt-6.1-sol BLOCK: Current-state reads and publication guards remain incorrect; valid replay can publish stale data. Log `/tmp/p4-core3a-gate-20261013.log`, SHA256cc7059a769ab6502ca774d816ac942fbe91142b7a0e9f88893f4ce61a838981f.
+
+Critic's three blocking claims, pending fresh causal validation except the already verified coherence issue:
+1. `scripts/migrations/2026-10-13-brain-gamefacts-run-local-v7.sql:17`, with direct fact INSERT grant at v1:147 and publication at v1:117: mismatched failed valid_from_run/succeeded receipt can insert a visible fact and conflict replacement can withdraw it with an unpublished receipt. Both insertion and replacement require protection.
+2. `brain-storage/src/gamefacts/hero_profile.sql:22,55,71` plus exact/fuzzy aliases `brain-serve/src/pg_tools.rs:18,26`: old names/stats/weapon/aliases remain under a newer identity without raw/run/extractor coherence. This original finding survived unchanged owner production in Core3a.
+3. `scripts/migrations/2026-10-12-brain-gamefacts-v1.sql:55`:4096-receipt cap accumulates across applications of the same raw/run/extractor; same-run A,B,A can reject finalA and publishB. Entity/alias/fact/relation/empty-set receipt-writer twins need verification.
+
+Nits: owner service.rs:623 still lacks productive PgPatchToolPort composition; gate omitted units::install context, so ops/brain-release/src/main.rs:136 new unit install coverage requires actual implementation inspection. Fresh isolated round2 fixer a70de76e5a6a76d45 is proving exact causes and twins using synthetic scratch PG and read-only Core inspection. It may write only a new causal report, not frozen production or applied migrations. No reduced-diff review, alternate-model BLOCK reroll, relaxed grants or marker/slot bypass.
+
+MERGEPROTOKOLL[MS-1]: 8 Git-Schritte einzeln | Anläufe: 2 inhaltliche Reviews | Gate: gpt-6.1-sol BLOCK, Exit1,3 owner/Core findings
+
 ## Final verified adapter on Core3a
 
 Parent independently verified final artifacts/logs and transferred the exact tested P4 fixture correction. Full artifact SHA256731d3f0c2245fadc056b70c4b70776a5e398600493d42ba2a5f35b3d1219beb4; incremental SHA256c30bfee467c00856ad3e744d39f62e750ce506a96fc3d107b5e441cc21b19beb. All four P4 files, five mechanical resolutions and the owner test are cmp-identical to the tested final worker. Final standalone15/0/0/0 and combined port11/0/0/0 passed; integrated formatter/whitespace and final worker Clippy exit0. Owner failed-run fixture is closed on982; actual kernel/cold/warm traces and complete canonical result sealing are green. Commands/log hashes and retained earlier red attempts are in RUNTIME_VERIFICATION.txt.

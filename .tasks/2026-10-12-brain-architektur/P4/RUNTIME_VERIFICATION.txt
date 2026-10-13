@@ -30,6 +30,11 @@ Final worker Clippy lib/both targets, -D warnings:exit0.
 Log:/tmp/p4-gate-r1-pg-LKliLN/core3a-final-adapter-clippy.log
 SHA256024a908bde730c160ed9ed0f1c665501f18cf1f30666923d96e6df3f9db2f461
 
+Exact final worker commands
+/home/nathanael/.local/bin/cargo-slot +1.97.1 test --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-a477e3abbfdfb2d36/rust/Cargo.toml --locked -p brain-serve --test pg_patch_tools --jobs 3 -- --include-ignored --test-threads=1 --nocapture
+/home/nathanael/.local/bin/cargo-slot +1.97.1 test --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-a477e3abbfdfb2d36/rust/Cargo.toml --locked -p brain-serve --test pg_patch_port --jobs 3 -- --include-ignored --test-threads=1 --nocapture
+/home/nathanael/.local/bin/cargo-slot +1.97.1 clippy --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-a477e3abbfdfb2d36/rust/Cargo.toml --locked -p brain-serve --lib --test pg_patch_tools --test pg_patch_port --jobs 3 -- -D warnings
+
 Requested shared parent suite
 /home/nathanael/.local/bin/cargo-slot +1.97.1 test --manifest-path /home/nathanael/.worktrees/Deadlock-Brain-p4-patches/rust/Cargo.toml --locked --jobs 3 -p brain-serve --lib service::pg_tools -- --include-ignored --nocapture --test-threads=1
 Actual4 passed/0 failed/0 ignored/98 unrelated filters, local exit0. These four tests overlap the combined port target; do not count them twice as unique tests.
@@ -56,7 +61,7 @@ Scratch server log:/tmp/p4-patch-tools-timeout-3661553-1791902057011116390.log; 
 Slot-wait attempts ran0 tests and have no verdict. No remote/local marker, gate, planner setting, timeout or protection bypass.
 
 Source/storage/contract proofs on the composed production tree remain separately recorded:source/schema30 passed with45 filters, peak260386816 bytes/raw delta0; contract/kernel226 passed with no filters/ignored; source/storage Clippy and ingestion build exit0. Core3a adds no production/migration change, and final P4 patch does not alter those paths.
-Original owner production hero/alias coherence finding remains unresolved. Green runtime tests do not establish ALLOW, main/deploy/service activation or live acceptance. Required full gate must review the complete published baseline.
+Original owner production hero/alias coherence finding remains unresolved. Required full gate actually ran against freshedf503b2 on committed/published126f6f397580491ee4fec8edc40e84a2a782c5c0, taskbxr8zwqe2, exit1 with gpt-6.1-sol BLOCK. Three findings address publication fact INSERT/replacement guards, current hero/alias coherence and same-run per-application receipt cap; fresh round2 causal verification is pending. Exact critic log `/tmp/p4-core3a-gate-20261013.log`, SHA256cc7059a769ab6502ca774d816ac942fbe91142b7a0e9f88893f4ce61a838981f. Green runtime tests do not establish ALLOW, main/deploy/service activation or live acceptance.
 
 Historical e8 numeric-format runtime proof follows; superseded by the Core3a content-addressed format above.
 

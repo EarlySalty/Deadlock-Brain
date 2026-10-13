@@ -1,6 +1,6 @@
 # P4 continuation point
 
-Sol resumed 2026-10-13. Current verified P4 code checkpoint: `0a79e1e4` on `feat/brain-p4-patches-20261012-v2`. Approved owner e8a1ef45 and runtime fix67ae30ad are retained through parent1628ba07;0a79e1e4 adds the verified orchestrator-approved source skip/log/count fix. Runtime proof246 passed and fresh source/ingest/extractor proof18 passed are recorded separately. Documentation HEAD may advance independently.
+Sol resumed 2026-10-13. Current tested P4/Core3a code checkpoint: `126f6f397580491ee4fec8edc40e84a2a782c5c0` on `feat/brain-p4-patches-20261012-v2`, clean and published. Normal parents77245b07 and approved982645cf; final canonical receipt/runtime adaptation is verified and source skip/log/count0a79e1e4 is retained. Gate round2 is BLOCK, not ALLOW. Documentation HEAD may advance independently.
 
 ## Resume progress 2026-10-13
 
@@ -100,9 +100,21 @@ Actual new-format sizes16625→14611 and21740/19714→14407 preserve all origina
 
 The normal approved982 composition is ready for its verified branch commit/push and the required full gate. Original owner production coherence finding remains openly unresolved. No main merge/deploy/service activation or ALLOW is inferred from green tests.
 
+## Actual second gate BLOCK on published126f6f39
+
+Verified normal Core3a merge committed126f6f397580491ee4fec8edc40e84a2a782c5c0 and pushed to the assigned branch; clean before review. Fresh fetched origin/main remainsedf503b280777524093307a97fabbb1bdba83d7c. Required full gate taskbxr8zwqe2 exited1 with actual gpt-6.1-sol verdict: Current-state reads and publication guards remain incorrect; valid replay can publish stale data. Log `/tmp/p4-core3a-gate-20261013.log`, SHA256cc7059a769ab6502ca774d816ac942fbe91142b7a0e9f88893f4ce61a838981f. This is content round2, not a startup/tool failure or alternate-model retry.
+
+Three gate findings: v7 publication protection permits direct receipt/run-mismatched fact INSERT and subsequent replacement of visible rows with unpublished receipts; owner hero_profile and exact/fuzzy aliases still lack raw/run/extractor coherence; v1 receipt cap accumulates across same-run A,B,A applications and can reject finalA/publishB. Gate locations/nits are in REVIEW.md. These are critic findings pending fresh causal round2 verification, not independently proven new findings by the parent. Known owner coherence remains previously verified. Applied migration SQL and owner/Core stay frozen.
+
+Fresh native round2 fixer a70de76e5a6a76d45 is reproducing causes/twins only in its own worktree/scratch PG, and checking the unit-install nit. Its only repo write set is P4/GATE_ROUND2_FIXER.md; no authorization to edit frozen production, migrations or service wiring. No existing green broad suite is duplicated. No ALLOW/main/deploy/service activation or cleanup.
+
+A regular pinned cargo-slot build of brain-serve is running separately to complete the matching non-deploy artifact check, taskbnwl0sz52, log `/tmp/p4-core3a-serve-build-20261013.log`. No result is inferred; no release profile, install or runtime change.
+
+MERGEPROTOKOLL[MS-1]: 8 Git-Schritte einzeln | Anläufe: 2 inhaltliche Reviews | Gate: gpt-6.1-sol BLOCK, Exit1,3 owner/Core findings
+
 ## Open
 
-1. Commit/push the verified normal Core3a composition and run the required full gate against the fresh published baseline. On a further actual BLOCK use a fresh fixer. The remaining owner coherence finding is still open; current verdict remains BLOCK, not ALLOW.
+1. Receive the fresh round2 causal report and request the smallest authorized P1r additive repair checkpoint for confirmed frozen-Core findings. Preserve published126f6f39 and all proof; no gate reroll before a cause is fixed, and no unapproved owner edits. Current verdict is BLOCK.
 2. Coordinate P1r's owner-controlled service wrapper insertion. Optional get_hero.patch must retain historical_patch_unavailable without evidenced assignments.
 3. Hand over the gate-ready branch according to the assigned P1r live/integration order. Only the responsible integrator merges/deploys; no source activation or live acceptance is claimed.
 
