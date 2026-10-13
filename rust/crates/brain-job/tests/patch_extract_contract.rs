@@ -72,7 +72,6 @@ fn changes(set: &FactSet) -> Vec<Value> {
         .map(|fact| serde_json::from_str(text(&fact.value)).unwrap())
         .collect()
 }
-
 fn parse(content: &str) -> Vec<Value> {
     changes(&accepted("42", &envelope(content)))
 }
@@ -107,16 +106,13 @@ fn complete_statements_emit_patch_owned_alias_text_and_source_stat_labels() {
         .iter()
         .map(|fact| fact.stat_key.as_str())
         .collect();
-    assert_eq!(
-        keys,
-        [
-            "label",
-            "released_at",
-            "official_url",
-            "patch_change_2",
-            "patch_change_4"
-        ]
-    );
+    assert_eq!(keys.len(), 5);
+    assert_eq!(&keys[..3], ["label", "released_at", "official_url"]);
+    for (key, reference, index) in [(&keys[3], "baba", 2), (&keys[4], "sinclair", 4)] {
+        let fingerprint = Sha256::digest(reference.as_bytes());
+        assert_eq!(*key, format!("patch_change_r{fingerprint:x}_{index}"));
+    }
+    assert_eq!(PatchExtractor.version(), "2");
     let rows = parse("- Baba: Damage increased from 1 to 2");
     assert_eq!(rows[0]["stat_label"], "Damage");
 }
