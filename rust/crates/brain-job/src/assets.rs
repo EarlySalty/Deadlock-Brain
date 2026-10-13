@@ -7,6 +7,7 @@ use serde::{Deserialize, Deserializer};
 use serde_json::{json, value::RawValue, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+pub mod hero_slots;
 pub mod source;
 pub struct Assets;
 impl Extractor for Assets {

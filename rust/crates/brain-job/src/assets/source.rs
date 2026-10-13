@@ -4,21 +4,25 @@ use dbrain_sources::assets_api::{BASE_URL, ENDPOINTS};
 use deadlock_brain_core::http::{HttpClient, SourceHttpOptions};
 use serde_json::value::RawValue;
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, BTreeSet, VecDeque},
     io::Read,
     path::{Path, PathBuf},
 };
 
 struct Payload {
+    kind: &'static str,
     language: &'static str,
     revision: String,
     bytes: Vec<u8>,
     ranges: Option<VecDeque<(usize, usize, usize)>>,
+    collisions: BTreeSet<usize>,
+    snapshot_offset: usize,
     parent_offset: usize,
 }
 struct Objects {
     cache: PathBuf,
     fetch: bool,
+    heroes_pending: bool,
     languages: std::array::IntoIter<&'static str, 2>,
     payload: Option<Payload>,
 }
@@ -27,15 +31,26 @@ pub fn load(cache: &Path, fetch: bool) -> InputObjects {
     Box::new(Objects {
         cache: cache.into(),
         fetch,
+        heroes_pending: fetch || cache.join("heroes-en.json").is_file(),
         languages: ["en", "de"].into_iter(),
         payload: None,
     })
 }
-fn get(cache: PathBuf, language: &'static str, fetch: bool) -> anyhow::Result<Vec<u8>> {
+fn get(
+    cache: PathBuf,
+    kind: &'static str,
+    language: &'static str,
+    fetch: bool,
+) -> anyhow::Result<Vec<u8>> {
     if !fetch {
         let limit = SourceHttpOptions::default().max_bytes;
         let mut bytes = Vec::new();
-        std::fs::File::open(cache.join(format!("{language}.json")))
+        let filename = if kind == "heroes" {
+            format!("heroes-{language}.json")
+        } else {
+            format!("{language}.json")
+        };
+        std::fs::File::open(cache.join(filename))
             .context("Assets-Testquelle fehlt")?
             .take((limit + 1) as u64)
             .read_to_end(&mut bytes)?;
@@ -48,7 +63,7 @@ fn get(cache: PathBuf, language: &'static str, fetch: bool) -> anyhow::Result<Ve
     std::thread::spawn(move || {
         let endpoint = ENDPOINTS
             .iter()
-            .find(|(kind, _)| *kind == "items")
+            .find(|(name, _)| *name == kind)
             .context("Assets-Endpunkt fehlt")?
             .1;
         let language = if language == "de" {
@@ -57,8 +72,9 @@ fn get(cache: PathBuf, language: &'static str, fetch: bool) -> anyhow::Result<Ve
             "english"
         };
         let client = HttpClient::new("brain-job/assets", cache)?;
+        let separator = if endpoint.contains('?') { '&' } else { '?' };
         let response = client.get_bounded(
-            &format!("{BASE_URL}{endpoint}?language={language}"),
+            &format!("{BASE_URL}{endpoint}{separator}language={language}"),
             SourceHttpOptions::default(),
         )?;
         anyhow::ensure!(
@@ -85,6 +101,27 @@ fn ranges(bytes: &[u8]) -> anyhow::Result<VecDeque<(usize, usize, usize)>> {
         })
         .collect())
 }
+fn collisions(bytes: &[u8], rows: &VecDeque<(usize, usize, usize)>) -> BTreeSet<usize> {
+    #[derive(serde::Deserialize)]
+    struct Identity {
+        class_name: String,
+    }
+    let mut identities = BTreeMap::<String, Vec<usize>>::new();
+    for &(index, offset, length) in rows {
+        if let Ok(value) = serde_json::from_slice::<Identity>(&bytes[offset..offset + length]) {
+            identities
+                .entry(crate::limits::normalize_key(&value.class_name))
+                .or_default()
+                .push(index);
+        }
+    }
+    identities
+        .into_values()
+        .filter(|positions| positions.len() > 1)
+        .flatten()
+        .collect()
+}
+
 impl Iterator for Objects {
     type Item = anyhow::Result<InputObject>;
     fn next(&mut self) -> Option<Self::Item> {
@@ -97,7 +134,8 @@ impl Iterator for Objects {
                     return Some(Ok(InputObject {
                         revision: payload.revision.clone(),
                         path: format!(
-                            "items/{}/{}/{offset}.response",
+                            "{}/{}/{}/{offset}.response",
+                            payload.kind,
                             payload.language,
                             payload
                                 .revision
@@ -107,17 +145,38 @@ impl Iterator for Objects {
                         bytes: payload.bytes[offset..end].to_vec(),
                     }));
                 }
+                if payload.kind == "heroes"
+                    && (payload.snapshot_offset < payload.bytes.len()
+                        || payload.snapshot_offset == 0)
+                {
+                    let offset = payload.snapshot_offset;
+                    let end = (offset + crate::limits::RAW_BYTES).min(payload.bytes.len());
+                    payload.snapshot_offset = end.max(1);
+                    return Some(Ok(InputObject {
+                        revision: payload.revision.clone(),
+                        path: format!("heroes/en/observed/{offset}.snapshot"),
+                        bytes: payload.bytes[offset..end].to_vec(),
+                    }));
+                }
                 if payload.ranges.is_none() {
                     match ranges(&payload.bytes) {
-                        Ok(rows) => payload.ranges = Some(rows),
+                        Ok(rows) => {
+                            if payload.kind == "heroes" {
+                                payload.collisions = collisions(&payload.bytes, &rows);
+                            }
+                            payload.ranges = Some(rows);
+                        }
                         Err(_) => {
                             let oversized = payload.bytes.len() > crate::limits::RAW_BYTES;
                             let object = InputObject {
                                 revision: payload.revision.clone(),
                                 path: if oversized {
-                                    format!("items/{}.invalid-response", payload.language)
+                                    format!(
+                                        "{}/{}.invalid-response",
+                                        payload.kind, payload.language
+                                    )
                                 } else {
-                                    format!("items/{}.json", payload.language)
+                                    format!("{}/{}.json", payload.kind, payload.language)
                                 },
                                 bytes: if oversized {
                                     payload.bytes[..crate::limits::RAW_BYTES].to_vec()
@@ -138,27 +197,52 @@ impl Iterator for Objects {
                     return Some(Ok(InputObject {
                         revision: payload.revision.clone(),
                         path: format!(
-                            "items/{}/{index}.{}",
-                            payload.language,
-                            if oversized { "oversized" } else { "json" }
+                            "{}/{index}.{}",
+                            if payload.kind == "heroes" {
+                                format!(
+                                    "heroes/en/{}",
+                                    payload
+                                        .revision
+                                        .strip_prefix("sha256:")
+                                        .unwrap_or(&payload.revision)
+                                )
+                            } else {
+                                format!("{}/{}", payload.kind, payload.language)
+                            },
+                            if oversized {
+                                "oversized"
+                            } else if payload.collisions.contains(&index) {
+                                "collision"
+                            } else {
+                                "json"
+                            }
                         ),
                         bytes: payload.bytes[offset..end].to_vec(),
                     }));
                 }
                 self.payload = None;
             }
-            let language = self.languages.next()?;
-            match get(self.cache.clone(), language, self.fetch) {
+            let (kind, language) = if let Some(language) = self.languages.next() {
+                ("items", language)
+            } else if std::mem::take(&mut self.heroes_pending) {
+                ("heroes", "en")
+            } else {
+                return None;
+            };
+            match get(self.cache.clone(), kind, language, self.fetch) {
                 Ok(bytes) => {
                     let revision = format!(
                         "sha256:{}",
                         brain_storage::entity_profile::derivation::sha256(&bytes)
                     );
                     self.payload = Some(Payload {
+                        kind,
                         language,
                         revision,
                         bytes,
                         ranges: None,
+                        collisions: BTreeSet::new(),
+                        snapshot_offset: 0,
                         parent_offset: 0,
                     });
                 }
@@ -183,12 +267,16 @@ mod tests {
             Objects {
                 cache: PathBuf::new(),
                 fetch: false,
+                heroes_pending: false,
                 languages: ["en", "de"].into_iter(),
                 payload: Some(Payload {
+                    kind: "items",
                     language: "en",
                     revision,
                     bytes,
                     ranges: None,
+                    collisions: BTreeSet::new(),
+                    snapshot_offset: 0,
                     parent_offset: 0,
                 }),
             }
@@ -213,12 +301,16 @@ mod tests {
         let mut objects = Objects {
             cache: PathBuf::new(),
             fetch: false,
+            heroes_pending: false,
             languages: ["en", "de"].into_iter(),
             payload: Some(Payload {
+                kind: "items",
                 language: "en",
                 revision: "fixture".into(),
                 bytes: bytes.clone(),
                 ranges: None,
+                collisions: BTreeSet::new(),
+                snapshot_offset: 0,
                 parent_offset: 0,
             }),
         };

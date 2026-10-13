@@ -30,36 +30,18 @@ pub(crate) async fn read(
         }
         ToolSubrequest::GetAbility(ability) => {
             let selection = if let (Some(hero), Some(slot)) = (ability.hero, ability.slot) {
-                let profile = sqlx::query_scalar::<_,Value>(
-                    "SELECT jsonb_build_object('identity',identity,'abilities',abilities) FROM serve.hero_profile WHERE entity_id=$1 LIMIT 1")
-                    .bind(hero as i64).fetch_optional(&mut *connection).await.map_err(database_error)?;
-                let Some(profile) = profile else {
-                    return Ok(None);
-                };
-                if profile["abilities"]["available"] != true
-                    || profile["abilities"]["truncated"] != false
-                    || profile["abilities"]["omitted_count"].as_u64() != Some(0)
-                {
-                    return Ok(None);
-                }
-                let Some(links) = profile["abilities"]["links"].as_array() else {
-                    return Ok(None);
-                };
-                let matching: Vec<_> = links
-                    .iter()
-                    .filter(|row| {
-                        row["kind"] == "has_ability"
-                            && row["from_entity_id"].as_u64() == Some(hero)
-                            && row["slot"].as_u64() == Some(u64::from(slot))
-                    })
-                    .collect();
-                if matching.len() != 1 {
+                let links = sqlx::query_scalar::<_, Value>(
+                    "SELECT link FROM serve.p2_hero_slot WHERE from_entity_id=$1 AND slot=$2 LIMIT 2",
+                )
+                .bind(hero as i64)
+                .bind(i32::from(slot))
+                .fetch_all(&mut *connection)
+                .await
+                .map_err(database_error)?;
+                if links.len() != 1 {
                     return Ok(None);
                 }
-                let mut link = (*matching[0]).clone();
-                link["entity_id"] = serde_json::json!(hero);
-                link["identity"] = profile["identity"].clone();
-                Some(link)
+                links.into_iter().next()
             } else {
                 None
             };
