@@ -74,7 +74,8 @@ Active native fixers have disjoint ownership and no production permission:
 
 - `wf_c1b9207b-12b`, task `whdrfk3te`, writer `a05f227691ccb578d`: new fact-integrity migration v8, storage registration/preflight and real ingest-role regression. Fresh database verifier follows its clean committed handover. No brain-job/Serve/helper writes.
 - `wf_92d74192-3a9`, task `wnauaxhar`, writer `ad4f47fc09465e2d0`: wrapper installation of job service/timer templates without automatic start/enable, plus final cgroup-v1 peak capture. Fresh read-only Rust verifier follows. No storage/migration/job Rust writes.
-- Per-application-cap and Serve-fixture fixer starts only after the v8 handover because storage migration registration/preflight files overlap. It must be fresh, preserve1499-line brain-job scope, and run the actual affected Serve suite after v7/v8/new cap migration.
+- `wf_2238c73b-a0f`, task `wxfk4yufq`: urgent core3a test-only fixer, started after the main orchestrator's reproduced P3 request. Owns `brain-serve/src/pg_tools_tests.rs`, disjoint from both active fixers. Build the unpublished fixture failed from inception instead of demoting succeeded runs; derive tool assertions from actual registrations so extra wave2 adapters remain valid. Mandatory actual command includes `CARGO_SLOT_REMOTE=1`, `--release --locked --jobs3`, `-p brain-serve service::pg_tools`, `--include-ignored --nocapture` on real private PG. Publish this test-only core3a checkpoint before the next gate; no guard bypass, skips or weakening.
+- The per-application-cap fixer starts only after the v8 handover because storage migration registration/preflight files overlap. It must be fresh, preserve1499-line brain-job scope, and inspect any additional Serve-fixture need only after the core3a writer completes. P3 reproduction log: `/tmp/brain-p3-core3-pg-tool-count-corrected-tests-20261013.log`,6 passed1failed0ignored; failure23514 at802-805.
 
 Gate attempts:1 substantive BLOCK,0 ALLOW. Do not retry unchanged or use another model to overturn it. Maximum five failed rounds. The four-contract checkpoint remains published but is not fully accepted, main-ready or live.
 
@@ -90,8 +91,8 @@ Use existing `deadlock-brain answer` with normal client JSON outside the source 
 
 ## Next actions
 
-1. Finish and independently inspect the active v8 and disjoint release-wiring handovers. Preserve the original stash SHA and all clean worker commits.
-2. Start a fresh ordered cap/Serve-fixture fixer from the verified v8 candidate, then complete fresh Rust/PostgreSQL acceptance and matching actual runtime suites. Never duplicate or resume a still-running writer.
+1. Finish and independently inspect the urgent test-only core3a handover; publish its real-PG include-ignored proof before the next gate. Independently finish the disjoint v8 and release-wiring handovers. Preserve the original stash SHA and all clean worker commits.
+2. Start a fresh ordered application-cap fixer from the verified v8 candidate. Inspect remaining Serve fixture compatibility only after the core3a writer finishes, then complete fresh Rust/PostgreSQL acceptance and actual matching runtime suites. Never duplicate or resume a still-running writer.
 3. Integrate/publish the corrected combined candidate, fetch latest origin/main, and run a fresh whole-diff local `gate_hook.py --review` round2 on exact literals. No main integration before ALLOW and independent goal acceptance.
 4. Merge/push verified main, deploy through brain-release, real role-correct ingest, two live answers/traces, unchanged-repeat zero growth, final job peak<300MB, readyz and clean journal. Only then own branch/worktree cleanup after checked ancestry. Never delete old salvage worktrees or foreign jobs/caches.
 
