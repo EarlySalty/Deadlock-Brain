@@ -64,7 +64,10 @@ impl Extractor for Fixture {
                 receipt: raw_receipt,
             });
         }
-        if raw.path == "boundary_same_old" {
+        if matches!(
+            raw.path.as_str(),
+            "boundary_same_old" | "boundary_same_rejected_old"
+        ) {
             set.facts.clear();
         }
         if raw.path == "bulk" {
@@ -224,11 +227,12 @@ async fn boundary_visibility(admin: &PgPool, key: &str, expected: i64) {
     }
 }
 async fn rank_and_late_arrival_boundaries(admin: &PgPool, writer: &PgPool, store: &GameFactsStore) {
-    for late in [false, true] {
-        let prefix = if late {
-            "boundary_late"
-        } else {
-            "boundary_same"
+    for (late, object_rejected) in [(false, false), (true, false), (false, true), (true, true)] {
+        let prefix = match (late, object_rejected) {
+            (false, false) => "boundary_same",
+            (true, false) => "boundary_late",
+            (false, true) => "boundary_same_rejected",
+            (true, true) => "boundary_late_rejected",
         };
         let key = format!("hero_{prefix}");
         let old_run = store.begin_run("audit_fixture").await.unwrap();
@@ -253,24 +257,35 @@ async fn rank_and_late_arrival_boundaries(admin: &PgPool, writer: &PgPool, store
             .await
             .unwrap();
         boundary_visibility(admin, &key, 1).await;
-        sqlx::query("UPDATE canon.receipt SET value_sha256=$1 WHERE raw_object_id=$2")
+        let corrupt_sql = if object_rejected {
+            "UPDATE raw.object SET content_sha256=$1 WHERE id=$2"
+        } else {
+            "UPDATE canon.receipt SET value_sha256=$1 WHERE raw_object_id=$2"
+        };
+        sqlx::query(corrupt_sql)
             .bind(vec![0u8; 32])
             .bind(newest)
             .execute(admin)
             .await
             .unwrap();
         let report = receipt_audit::run(writer).await.unwrap();
+        let outcome = if object_rejected {
+            "object_rejected"
+        } else {
+            "mismatch"
+        };
         assert_eq!(
             count(
                 admin,
                 &format!(
-                    "SELECT count(*) FROM ops.receipt_audit WHERE run_id={} AND outcome='mismatch'",
+                    "SELECT count(*) FROM ops.receipt_audit WHERE run_id={} AND outcome='{outcome}'",
                     report.run_id
                 )
             )
             .await,
             4
         );
+        assert_eq!(report.rejected_objects, i32::from(object_rejected));
         boundary_visibility(admin, &key, 0).await;
         if late {
             apply_fixture(store, old_run, &format!("{prefix}_old"), br#"{"x":500}"#).await;
@@ -387,7 +402,16 @@ async fn real_store_quarantine_poison_continuation_idempotence_and_cap() {
     );
     seed(
         &store,
-        &["oversize", "collision", "missing", "good", "unsupported"],
+        &[
+            "oversize",
+            "collision",
+            "missing",
+            "good",
+            "unsupported",
+            "contenthash",
+            "invalid_utf8",
+            "parser",
+        ],
         ONE,
     )
     .await;
@@ -406,6 +430,23 @@ async fn real_store_quarantine_poison_continuation_idempotence_and_cap() {
         .await
         .unwrap();
     sqlx::raw_sql("UPDATE canon.receipt SET locator='/missing' WHERE locator_kind='json_pointer' AND raw_object_id IN(SELECT id FROM raw.object WHERE path='missing'); UPDATE canon.receipt SET locator_kind='future_pointer' WHERE raw_object_id IN(SELECT id FROM raw.object WHERE path='unsupported'); UPDATE raw.object SET bytes=decode('ff','hex') WHERE path='unsupported'").execute(&admin).await.unwrap();
+    sqlx::query("UPDATE raw.object SET content_sha256=$1 WHERE path='contenthash'")
+        .bind(vec![0u8; 32])
+        .execute(&admin)
+        .await
+        .unwrap();
+    for (path, bytes) in [
+        ("invalid_utf8", b"\xff".as_slice()),
+        ("parser", b"{".as_slice()),
+    ] {
+        sqlx::query("UPDATE raw.object SET bytes=$1,content_sha256=$2 WHERE path=$3")
+            .bind(bytes)
+            .bind(Sha256::digest(bytes).as_slice())
+            .bind(path)
+            .execute(&admin)
+            .await
+            .unwrap();
+    }
     let poison = receipt_audit::run(&writer).await.unwrap();
     assert_eq!(
         (
@@ -414,15 +455,47 @@ async fn real_store_quarantine_poison_continuation_idempotence_and_cap() {
             poison.rejected_receipts,
             poison.rejected_objects
         ),
-        (13, 6, 7, 2)
+        (19, 6, 13, 5)
     );
-    assert_eq!(count(&admin,"SELECT count(*) FROM ops.receipt_audit_rejection WHERE code IN('raw_size_limit','locator_collision')").await,2);
+    for code in [
+        "raw_size_limit",
+        "locator_collision",
+        "content_hash_mismatch",
+        "invalid_utf8",
+        "parser_rejection",
+    ] {
+        assert_eq!(count(&admin, &format!("SELECT count(*) FROM ops.receipt_audit_rejection WHERE run_id={} AND code='{code}'", poison.run_id)).await, 1);
+    }
     assert_eq!(
         count(&admin, "SELECT count(*) FROM canon.receipt_quarantine").await,
-        2
+        12
     );
     assert_eq!(count(&admin,"SELECT count(*) FROM ops.receipt_audit a JOIN canon.receipt r ON r.id=a.receipt_id JOIN raw.object o ON o.id=r.raw_object_id WHERE a.outcome='match' AND o.path='good'").await,2);
-    assert_eq!(count(&admin,"SELECT count(*) FROM canon.receipt_quarantine q JOIN canon.receipt r ON r.id=q.receipt_id JOIN raw.object o ON o.id=r.raw_object_id WHERE o.path IN('oversize','collision','unsupported')").await,0);
+    assert_eq!(count(&admin,"SELECT count(*) FROM canon.receipt_quarantine q JOIN canon.receipt r ON r.id=q.receipt_id JOIN raw.object o ON o.id=r.raw_object_id WHERE o.path IN('oversize','collision','contenthash','invalid_utf8','parser')").await,10);
+    assert_eq!(count(&admin,"SELECT count(*) FROM canon.receipt_quarantine q JOIN canon.receipt r ON r.id=q.receipt_id JOIN raw.object o ON o.id=r.raw_object_id WHERE o.path='unsupported'").await,0);
+    let rejected_ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT receipt_id FROM ops.receipt_audit WHERE run_id=$1 AND outcome='object_rejected'",
+    )
+    .bind(poison.run_id)
+    .fetch_all(&admin)
+    .await
+    .unwrap();
+    assert_eq!(rejected_ids.len(), 10);
+    for role in ["brain_tool", "brain_service"] {
+        let mut tx = admin.begin().await.unwrap();
+        sqlx::query(&format!("SET LOCAL ROLE {role}"))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let visible: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM serve.published_receipt WHERE id=ANY($1)")
+                .bind(&rejected_ids)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        assert_eq!(visible, 0);
+        tx.rollback().await.unwrap();
+    }
     let again = receipt_audit::run(&writer).await.unwrap();
     assert_eq!(
         (
@@ -431,13 +504,13 @@ async fn real_store_quarantine_poison_continuation_idempotence_and_cap() {
             again.rejected_receipts,
             again.rejected_objects
         ),
-        (12, 6, 6, 2)
+        (8, 6, 2, 0)
     );
     assert_eq!(
         count(&admin, "SELECT count(*) FROM canon.receipt").await,
-        14
+        20
     );
-    assert_eq!(count(&admin, "SELECT count(*) FROM canon.fact").await, 6);
+    assert_eq!(count(&admin, "SELECT count(*) FROM canon.fact").await, 9);
     assert_eq!(count(&admin,"SELECT count(*) FROM ops.receipt_audit_run WHERE status<>'succeeded' OR finished IS NULL").await,0);
     assert!(
         sqlx::query("INSERT INTO canon.receipt_quarantine(receipt_id,run_id) VALUES($1,$2)")
@@ -447,6 +520,12 @@ async fn real_store_quarantine_poison_continuation_idempotence_and_cap() {
             .await
             .is_err()
     );
+    seed(&store, &["transaction_poison"], ONE).await;
+    sqlx::query("UPDATE raw.object SET content_sha256=$1 WHERE path='transaction_poison'")
+        .bind(vec![0u8; 32])
+        .execute(&admin)
+        .await
+        .unwrap();
     let before = count(&admin, "SELECT count(*) FROM ops.receipt_audit_run").await;
     sqlx::raw_sql(
         "ALTER TABLE ops.receipt_audit ADD CONSTRAINT fail_audit CHECK(outcome<>'object_rejected') NOT VALID",
