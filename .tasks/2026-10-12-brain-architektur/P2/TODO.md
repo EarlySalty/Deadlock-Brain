@@ -1,6 +1,6 @@
 # P2 continuation, 2026-10-13
 
-Branch: `feat/brain-p2-items-abilities-20261012-v2`. Published HEAD: `f7da8b74e32af50c73c438adb6b3db7115e26767`. Approved checkpoints `9f75588d` and `e8a1ef45` were merged without rebasing. The approved Core 3 merge of `19dec0c96d4765cff9a9a5dd37f5ad2a84bbe7d5` is in progress. Core 3a `982645cf325952b56c782fe690f6e23a5a76bf17` was subsequently approved and fetched; its exact shared test fixture is adopted, with its provenance merge still outstanding. No main integration, deployment or service activation.
+Branch: `feat/brain-p2-items-abilities-20261012-v2`. Published code candidate: `194e6a702adc7149d61df5a27b248225722dad8d`. Approved checkpoints `9f75588d` and `e8a1ef45` were merged without rebasing. The verified Core 3/P2 integration is committed at `5036d12d`; approved Core 3a `982645cf325952b56c782fe690f6e23a5a76bf17` is merged at `194e6a70`. The latter merge changes P1r notes only because its exact shared fixture was already adopted and tested. No main integration, deployment or service activation. `origin/main` remains `edf503b280777524093307a97fabbb1bdba83d7c`; Core 3a is not its ancestor.
 
 ## Implementation, not yet gate-ready
 
@@ -40,4 +40,4 @@ The exact Core 3a shared fixture checks unique definitions and the required inde
 
 ## Next actions
 
-Explicitly stage own paths, commit the verified Core 3 merge, merge the approved Core 3a checkpoint without rebasing and push the assigned branch. Production checks are current; the Core 3a fixture is already included in those checks. Resolve the size-budget exception, then independently review and gate the published candidate. Hand over to P1r; do not integrate or deploy from this session.
+Record the handover state on this feature branch and run the local gate against the approved Core 3a dependency baseline. All production checks are current, and `git diff --exit-code 5036d12d HEAD -- rust scripts docs` confirms the provenance merge changes no checked code. Size-budget approval remains absent, so do not claim gate-ready even if a technical review allows. Hand over the verified branch and remaining decision to P1r; do not integrate or deploy from this session.
