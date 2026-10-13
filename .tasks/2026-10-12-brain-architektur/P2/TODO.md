@@ -42,6 +42,10 @@ The exact Core 3a shared fixture checks unique definitions and the required inde
 - P1r owns main integration and deployment. Publish only a verified candidate on this feature branch. Gate-ready requires current passing checks, fresh review and actual local gate ALLOW. No GitHub check substitutes for the gate.
 - Integrator still owes the live normal answer/answer_trace, Haze/Wraith comparison, positive slot-source evidence where available, actual job cgroup peak below 300 MB and controlled timer activation. No production proof is claimed here.
 
+## Orchestrator availability
+
+The common resume briefing assigns main orchestrator T3 thread `958d03f8-4b01-466d-87e7-6b0f2ebf14d4`. A single handover attempt with `t3-harness send --thread ... --file /tmp/p2-contract-question-4bbdfa7a.md` was refused with exit 1 because that thread had an active turn; no delivery is claimed. Subsequent `t3-thread.py read` reported `error: Claude usage limit reached` and an assistant reset time of 18:50 Europe/Berlin on 2026-10-13. Do not resend into this failed thread or create another T3 thread without orchestration approval. The question is also recorded in the P2 thread and this document. The missing slot contract, budget decision and P1r-only integration boundary remain unresolved; no main merge is permitted under the substantive BLOCK.
+
 ## Next actions
 
 Resume only against the approved slot-mapping contract/extraction ownership or an explicit selector-scope decision. Apply that approved work with a fresh fixer, run affected checks including a positive real-PG slot selection and ambiguous/missing refusal, then rerun the same judging critic where supported. Size-budget approval remains absent. All existing production checks passed on the unchanged published code, but the local gate is BLOCK and this branch is not gate-ready. P1r owns integration and deployment. Do not merge main, discard branch/worktree or reroll the unchanged BLOCK.
