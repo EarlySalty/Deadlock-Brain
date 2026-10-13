@@ -55,8 +55,33 @@ async fn check(connection: &mut PgConnection, migrations: &[(i32, &str)]) -> Res
     if recorded(connection).await? != expected {
         return Err(invalid());
     }
-    sqlx::query("SELECT o.bytes,o.content_sha256,r.status,r.finished,j.detail,e.key,i.receipt_id,a.alias_norm,f.value_bool,f.valid_to_run,l.to_entity,p.revision,ce.key,ca.alias_norm,cf.stat_key,cr.kind FROM raw.object o,ops.ingest_run r,ops.ingest_rejection j,canon.entity e,canon.entity_identity i,canon.alias a,canon.fact f,canon.relation l,serve.published_receipt p,serve.current_entity ce,serve.current_alias ca,serve.current_fact cf,serve.current_relation cr LIMIT 0")
+    sqlx::query("SELECT o.bytes,o.content_sha256,r.status,r.finished,j.detail,e.key,i.receipt_id,a.alias_norm,f.value_bool,f.valid_to_run,l.to_entity FROM raw.object o,ops.ingest_run r,ops.ingest_rejection j,canon.entity e,canon.entity_identity i,canon.alias a,canon.fact f,canon.relation l LIMIT 0")
         .fetch_all(&mut *connection).await.map_err(|_| invalid())?;
+    let shape: bool = sqlx::query_scalar(
+        "SELECT NOT EXISTS (
+        SELECT 1 FROM (VALUES
+            ('published_receipt','revision','text'),
+            ('current_entity','key','canon.key'),
+            ('current_alias','alias_norm','canon.short_text'),
+            ('current_fact','stat_key','canon.key'),
+            ('current_relation','kind','canon.key')
+        ) AS required(relation,column_name,type_name)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_namespace n
+            JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid
+            JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid
+            WHERE n.nspname='serve' AND c.relname=required.relation AND c.relkind='v'
+                AND a.attname=required.column_name AND a.attnum>0 AND NOT a.attisdropped
+                AND a.atttypid=pg_catalog.to_regtype(required.type_name)
+        )
+    )",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(|_| invalid())?;
+    if !shape {
+        return Err(invalid());
+    }
     let valid: bool = sqlx::query_scalar("SELECT
         (SELECT count(*)=4 FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname IN('raw','canon','serve','ops') AND r.rolname='brain_migrate')
         AND EXISTS(SELECT 1 FROM pg_roles WHERE rolname='brain_tool' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
