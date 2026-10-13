@@ -89,14 +89,27 @@ fn request(name: ToolName, arguments: Value) -> ToolRequest {
 }
 
 async fn publish(admin: &PgPool, name: &str, key: &str, revision: &str, large: bool) -> i64 {
-    let store = GameFactsStore::new(admin.clone());
-    let run = store.begin_run("fixture").await.unwrap();
     let values = if large {
         vec![Value::String("x".repeat(2_000)); 40]
     } else {
         vec![json!(780)]
     };
-    let bytes = serde_json::to_vec(&json!({"name":name,"values":values})).unwrap();
+    ingest_fixture(admin, name, key, revision, values, true).await
+}
+
+async fn ingest_fixture(
+    admin: &PgPool,
+    name: &str,
+    key: &str,
+    revision: &str,
+    values: Vec<Value>,
+    succeeded: bool,
+) -> i64 {
+    let store = GameFactsStore::new(admin.clone());
+    let run = store.begin_run("fixture").await.unwrap();
+    let large = values.len() > 1;
+    let bytes =
+        serde_json::to_vec(&json!({"name":name,"values":values,"revision":revision})).unwrap();
     let raw = store
         .capture(
             run,
@@ -130,7 +143,7 @@ async fn publish(admin: &PgPool, name: &str, key: &str, revision: &str, large: b
             value: if large {
                 FactValue::Text(value.as_str().unwrap().into())
             } else {
-                FactValue::Number(780.0)
+                FactValue::Number(value.as_f64().unwrap())
             },
             receipt: receipt(
                 "json_pointer",
@@ -158,7 +171,7 @@ async fn publish(admin: &PgPool, name: &str, key: &str, revision: &str, large: b
     store
         .finish_run(
             run,
-            true,
+            succeeded,
             Counts {
                 accepted: 1,
                 ..Counts::default()
@@ -166,7 +179,7 @@ async fn publish(admin: &PgPool, name: &str, key: &str, revision: &str, large: b
         )
         .await
         .unwrap();
-    sqlx::query_scalar("SELECT entity_id FROM serve.entity_identity WHERE key=$1")
+    sqlx::query_scalar("SELECT id FROM canon.entity WHERE key=$1")
         .bind(key)
         .fetch_one(admin)
         .await
@@ -277,7 +290,14 @@ impl AnswerProviderPort for ScriptedProvider {
         tools: &[ToolDefinition],
         conversation: &ToolConversation,
     ) -> Result<ProviderTurn, PortError> {
-        assert_eq!(tools.len(), 4);
+        let names: BTreeSet<_> = tools.iter().map(|tool| tool.name).collect();
+        assert_eq!(names.len(), tools.len());
+        assert!(BTreeSet::from([
+            ToolName::FindEntity,
+            ToolName::GetHero,
+            ToolName::ServerKnowledge,
+        ])
+        .is_subset(&names));
         let call = match conversation.messages.last() {
             None => ToolCall {
                 id: "find".into(),
@@ -658,36 +678,37 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
             .execute(&admin)
             .await
             .unwrap();
-        sqlx::query("UPDATE canon.fact SET value_num=781 WHERE entity_id=$1 AND stat_key='health'")
-            .bind(baba)
-            .execute(&admin)
-            .await
-            .unwrap();
     });
-    let changed_fact = tools
-        .execute(&query, &context, None, "changed-fact", &hero_request)
+    let mut changed_fact = hero.clone();
+    changed_fact.result.result["stats"]["facts"][0]["value"] = json!(781.0);
+    changed_fact.dependencies[0] = changed_fact.dependencies[0]
+        .clone()
+        .with_canonical_result(&changed_fact.result)
         .unwrap();
     assert_eq!(changed_fact.result.evidence_ids, hero.result.evidence_ids);
     assert_eq!(
         changed_fact.dependencies[0].evidence,
         hero.dependencies[0].evidence
     );
+    assert_eq!(
+        changed_fact.dependencies[0]
+            .request
+            .without_canonical_result(),
+        hero.dependencies[0].request.without_canonical_result()
+    );
+    assert_ne!(
+        changed_fact.dependencies[0].request,
+        hero.dependencies[0].request
+    );
     assert!(tools
         .validate_dependencies(
             &query,
             &context,
             None,
-            &hero.dependencies,
+            &changed_fact.dependencies,
             ToolValidationPurpose::Publication
         )
         .is_err());
-    runtime.block_on(async {
-        sqlx::query("UPDATE canon.fact SET value_num=780 WHERE entity_id=$1 AND stat_key='health'")
-            .bind(baba)
-            .execute(&admin)
-            .await
-            .unwrap();
-    });
     tools
         .validate_dependencies(
             &query,
@@ -766,9 +787,33 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
         };
         assert_eq!(trace_ids(&rows[0].1), trace_ids(&rows[1].1));
         assert_eq!(trace_ids(&rows[2].1), trace_ids(&rows[3].1));
-        publish(&admin, "Baba", "hero_baba", "r2", false).await;
+        assert_eq!(
+            ingest_fixture(&admin, "Baba", "hero_baba", "r2", vec![json!(781)], true).await,
+            baba
+        );
     });
     let tools = PgTools::new(Delegate, pool.clone(), runtime.handle().clone());
+    let fresh = tools
+        .execute(&query, &context, None, "fresh", &hero_request)
+        .unwrap();
+    assert_eq!(fresh.result.result["stats"]["facts"][0]["value"], 781.0);
+    assert_eq!(
+        fresh.result.result["stats"]["facts"][0]["source_revision"],
+        "r2"
+    );
+    assert_ne!(fresh.result.evidence_ids, hero.result.evidence_ids);
+    for purpose in [
+        ToolValidationPurpose::Provider,
+        ToolValidationPurpose::Publication,
+        ToolValidationPurpose::Cache,
+    ] {
+        assert!(tools
+            .validate_dependencies(&query, &context, None, &hero.dependencies, purpose)
+            .is_err());
+        tools
+            .validate_dependencies(&query, &context, None, &fresh.dependencies, purpose)
+            .unwrap();
+    }
     runtime.block_on(publish(&admin, "Baba", "hero_baba_twin", "r3", false));
     let ambiguous = tools
         .execute(
@@ -798,19 +843,49 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
             ToolValidationPurpose::Cache
         )
         .is_err());
-    runtime.block_on(async {
-        sqlx::query("UPDATE ops.ingest_run SET status='failed' WHERE source='fixture'")
-            .execute(&admin)
-            .await
-            .unwrap();
+    let unpublished = runtime.block_on(async {
+        let entity = ingest_fixture(
+            &admin,
+            "Unpublished",
+            "hero_unpublished",
+            "failed",
+            vec![json!(780)],
+            false,
+        )
+        .await;
+        let (facts, failed_runs, published_receipts, profiles): (i64, i64, i64, i64) =
+            sqlx::query_as("SELECT (SELECT count(*) FROM canon.fact WHERE entity_id=$1), (SELECT count(DISTINCT r.ingest_run_id) FROM canon.fact f JOIN canon.receipt r ON r.id=f.receipt_id JOIN ops.ingest_run run ON run.id=r.ingest_run_id WHERE f.entity_id=$1 AND run.status='failed'), (SELECT count(*) FROM canon.fact f JOIN serve.published_receipt r ON r.id=f.receipt_id WHERE f.entity_id=$1), (SELECT count(*) FROM serve.hero_profile WHERE entity_id=$1)")
+                .bind(entity)
+                .fetch_one(&admin)
+                .await
+                .unwrap();
+        assert_eq!((facts, failed_runs, published_receipts, profiles), (2, 1, 0, 0));
+        eprintln!("PostgreSQL fixture proof: facts={facts}, failed_runs={failed_runs}, published_receipts={published_receipts}, profiles={profiles}");
+        entity
     });
-    assert!(
-        tools
-            .execute(&query, &context, None, "unpublished", &hero_request)
-            .unwrap()
-            .result
-            .is_error
-    );
+    for unpublished_request in [
+        request(ToolName::GetHero, json!({"hero":unpublished})),
+        request(
+            ToolName::FindEntity,
+            json!({"text":"Unpublished","kind":"hero"}),
+        ),
+    ] {
+        let execution = tools
+            .execute(&query, &context, None, "unpublished", &unpublished_request)
+            .unwrap();
+        assert!(execution.result.is_error);
+        assert!(execution.result.evidence_ids.is_empty());
+        assert!(execution.dependencies.is_empty());
+    }
+    tools
+        .validate_dependencies(
+            &query,
+            &context,
+            None,
+            &fresh.dependencies,
+            ToolValidationPurpose::Cache,
+        )
+        .unwrap();
     runtime.block_on(async {
         pool.close().await;
         admin.close().await;

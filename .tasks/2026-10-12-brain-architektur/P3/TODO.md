@@ -1,8 +1,18 @@
 # P3 resume, 2026-10-13
 
-Current integration checkpoint: e51a2bd8, committed and pushed. It merges approved P1r core 3 (19dec0c96d4765cff9a9a5dd37f5ad2a84bbe7d5) without rebasing. Hero and TimerExtractor are both registered; migration versions are 1, 2, 7. Version 7 belongs to P1r, not P3. The three original functional gate blockers are resolved in this checkpoint. The orchestrator explicitly authorized finishing this intermediate merge while P1r corrects the inherited publication-mutation test in core 3a. No ALLOW or live deployment is claimed.
+Current candidate merges the explicitly forwarded P1r core 3a checkpoint 982645cf325952b56c782fe690f6e23a5a76bf17 without rebasing onto the published P3 checkpoint 5e1ebb31. The only shared test conflict was resolved by retaining P1r's registry-tolerant tool assertions. pg_tools_tests.rs differs from the owner checkpoint only by the two-line Timer test module registration. There are no production-core or migration changes in this merge. Hero and TimerExtractor remain registered; migrations remain 1, 2, 7. Version 7 belongs to P1r. Final gate is next; no ALLOW or live deployment is claimed.
 
-## Core 3 verification and next owner checkpoint
+## Core 3a verification
+
+- Exact shared suite: `CARGO_SLOT_REMOTE=1 cargo-slot test --manifest-path rust/Cargo.toml --release --locked --jobs 3 -p brain-serve service::pg_tools -- --include-ignored --nocapture`. Real remote PostgreSQL run: 7 passed, 0 failed, 0 ignored, 87 lib tests filtered, remote EXIT=0. Log: /tmp/brain-p3-core3a-pg-tool-tests-20261013.log. The failed-run fixture has 2 canon facts, 1 failed run, 0 published receipts and 0 Hero profiles. Both get_hero and find_entity return evidence-free errors for that fixture. Fresh r2 values and receipts are validated; the old dependency is rejected for Provider, Publication and Cache.
+- Timer PG integration remains green with canonical receipt equality and exact original lexemes. Bounded ToolResult is 14721 bytes; internal ToolExecution is 19526 bytes. Only ToolResult is subject to the strict 16384-byte bound.
+- Four-package formatter passed, EXIT=0, log /tmp/brain-p3-core3a-fmt-20261013.log. Strict all-target brain-serve Clippy passed, EXIT=0, log /tmp/brain-p3-core3a-clippy-20261013.log. Other production packages are unchanged from the already verified core-3 checkpoint; no redundant full-suite rerun was performed.
+
+TESTNACHWEIS[TW-1]: 7 passed, 0 ignored | Baseline: not measured
+
+The inherited red fixture described below is resolved by the approved owner correction. Existing private ingest-role CLI, repeat, reversion, exact receipts, process-RSS and natural-index evidence remains attached to e51a2bd8 because no implementation or migration changed in core 3a. Only P1r integrates/deploys and proves live answer/trace and system-unit/cgroup behavior after ALLOW.
+
+## Earlier core 3 verification and owner-test blocker
 
 - Real private PostgreSQL CLI as brain_ingest succeeded on both pinned GameTracking objects: first accepted=2/rejected=0/ignored=0, unchanged rerun accepted=0/rejected=0/ignored=2. Raw/fact/receipt counts remained 2/14/26. Process RSS peaks were 8816 KB first run and 6360 KB repeat. These are successful process measurements, not production-unit or cgroup peaks.
 - The same isolated CLI/index probe used actual registered migration SQL 1, 2, 7 and the exact timer_query.sql as brain_readonly -> brain_tool, read-only with 500 ms timeout. The labelled 1500-alias public catalog benchmark still has a natural timer_key_idx Index Scan, four matching aliases, two hit blocks, Execution Time 3.525 ms, Planning Time 3.457 ms. Timer facts stayed at 14. Log: /tmp/brain-p3-core3-cli-index-memory-20261013.log; full plan: /tmp/brain-p3-index-probe-20261013-2q30lr4w/plan.json. See timer-index-proof.json for the qualified current offline evidence.

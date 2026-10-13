@@ -1,6 +1,10 @@
 # P1r-owned verification history, 2026-10-13
 
-## Current state after approved core 3
+## Current state after approved core 3a
+
+The orchestrator explicitly forwarded and approved 982645cf325952b56c782fe690f6e23a5a76bf17. Its merge retains the owner's registry-tolerant assertions and failed-run fixture; pg_tools_tests.rs differs from that checkpoint only by P3's Timer test module registration. No production core or migration changed. The actual shared PG suite now passes: 7 passed, 0 failed, 0 ignored, remote EXIT=0, log /tmp/brain-p3-core3a-pg-tool-tests-20261013.log. Failed-run facts remain unpublished; both canonical tools return evidence-free errors. Formatter and strict affected-package all-target Clippy also passed. No original functional or inherited fixture blocker remains known; the final gate is still pending. Only P1r integrates/deploys.
+
+## Earlier core 3 state
 
 Approved owner checkpoint 19dec0c96d4765cff9a9a5dd37f5ad2a84bbe7d5 is merged and pushed in e51a2bd8. The preflight and A -> B -> A defects documented below are resolved, not current production-code blockers. The real private brain_ingest CLI accepted both pinned Timer objects, unchanged repeat ignored both with stable raw/fact/receipt counts 2/14/26, and successful process RSS was 8816 KB. Actual reversion restored 120.00, accepted=1/rejected=0/ignored=0, with raw_count=4. Logs: /tmp/brain-p3-core3-cli-index-memory-20261013.log and /tmp/brain-p3-core3-job-corrected-tests-20261013.log. No live/cgroup proof is claimed.
 
