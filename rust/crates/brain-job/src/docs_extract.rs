@@ -1,3 +1,6 @@
+use crate::{
+    limits, Entity, Extractor, Fact, FactSet, FactValue, Outcome, RawObject, Receipt, Rejection,
+};
 use anyhow::{ensure, Context, Result};
 use html5ever::{
     tendril::StrTendril,
@@ -8,34 +11,23 @@ use html5ever::{
 use scraper::{ElementRef, Html, Node, Selector};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap};
-const INTRO_SELECTOR: &str = "main > h1, main > p";
-#[derive(Clone, Copy)]
-pub(super) struct ParsingBounds {
-    pub raw_bytes: usize,
-    pub tokens: usize,
-    pub depth: usize,
-    pub sections: usize,
-    pub output_bytes: usize,
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct SectionProjection {
-    pub ordinal: usize,
+struct SectionProjection {
     pub source_key: Option<String>,
     pub locator: String,
     pub heading_path: Vec<String>,
     pub lines: (u64, u64),
     pub body: String,
-    pub value_sha256: [u8; 32],
+    pub byte_ranges: Vec<(usize, usize)>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct DocumentProjection {
+struct DocumentProjection {
     pub title: String,
     pub lang: String,
     pub sections: Vec<SectionProjection>,
 }
-pub(super) enum ReplayCoverage {
-    Complete,
-    Subset,
+#[derive(Clone, Copy)]
+struct Span {
+    lines: (u64, u64),
+    bytes: (usize, usize),
 }
 #[derive(Default)]
 struct Fingerprint {
@@ -90,7 +82,7 @@ impl RawSource<'_> {
         self.markup_end = self.feed_end;
         self.markup_line = self.feed_line;
     }
-    fn span(&mut self, tag: &Tag) -> Result<(u64, u64)> {
+    fn span(&mut self, tag: &Tag) -> Result<Span> {
         let raw = self
             .text
             .get(self.markup_end..self.feed_end)
@@ -116,10 +108,13 @@ impl RawSource<'_> {
                     .is_some_and(|b| b.is_ascii_whitespace() || matches!(b, b'/' | b'>')),
             "docs_raw_tag_name"
         );
-        let span = (
-            self.markup_line + raw[..offset].bytes().filter(|b| *b == b'\n').count() as u64,
-            self.feed_line,
-        );
+        let span = Span {
+            lines: (
+                self.markup_line + raw[..offset].bytes().filter(|b| *b == b'\n').count() as u64,
+                self.feed_line,
+            ),
+            bytes: (self.markup_end + offset, self.feed_end),
+        };
         self.advance();
         Ok(span)
     }
@@ -129,15 +124,15 @@ struct Frame {
     excluded: bool,
     member: Option<usize>,
 }
+#[derive(Default)]
 struct HtmlSink<'a> {
     raw: RawSource<'a>,
     tree: Fingerprint,
     frames: Vec<Frame>,
-    spans: Vec<(u64, u64)>,
+    spans: Vec<Span>,
     ids: BTreeSet<String>,
     counts: [usize; 4],
     tokens: usize,
-    bounds: ParsingBounds,
     error: Option<String>,
 }
 fn excluded(name: &str) -> bool {
@@ -165,12 +160,13 @@ impl HtmlSink<'_> {
             let frame = self.frames.pop().context("docs_unmatched_end")?;
             ensure!(frame.name == name, "docs_unbalanced_html");
             if let Some(index) = frame.member {
-                self.spans[index].1 = span.1;
+                self.spans[index].lines.1 = span.lines.1;
+                self.spans[index].bytes.1 = span.bytes.1;
                 self.tree.end(&name);
             }
             return Ok(TokenSinkResult::Continue);
         }
-        ensure!(self.frames.len() < self.bounds.depth, "docs_depth_budget");
+        ensure!(self.frames.len() < 64, "docs_depth_budget");
         let parent = self.frames.last();
         ensure!(parent.is_some() || name == "html", "docs_html_root");
         let skip = parent.is_some_and(|p| p.excluded)
@@ -237,17 +233,13 @@ impl HtmlSink<'_> {
     }
     fn token(&mut self, token: Token) -> Result<TokenSinkResult<()>> {
         self.tokens += 1;
-        ensure!(self.tokens <= self.bounds.tokens, "docs_token_budget");
+        ensure!(self.tokens <= limits::ROWS * 64, "docs_token_budget");
         match token {
             Token::TagToken(tag) => return self.tag(tag),
             Token::CharacterTokens(text) => match self.frames.last() {
                 None => ensure!(text.chars().all(char::is_whitespace), "docs_outside_html"),
                 Some(frame) if frame.member.is_some() && !frame.excluded => {
                     self.tree.text.push_str(&text);
-                    ensure!(
-                        self.tree.text.len() <= self.bounds.raw_bytes,
-                        "docs_text_budget"
-                    );
                 }
                 _ => {}
             },
@@ -264,41 +256,31 @@ impl TokenSink for HtmlSink<'_> {
         if self.error.is_some() {
             return TokenSinkResult::Continue;
         }
-        match self.token(token) {
-            Ok(result) => result,
-            Err(error) => {
-                self.error = Some(error.to_string());
-                TokenSinkResult::Continue
-            }
-        }
+        self.token(token).unwrap_or_else(|error| {
+            self.error = Some(error.to_string());
+            TokenSinkResult::Continue
+        })
     }
 }
 fn normalize(text: &str) -> String {
-    let mut result = String::new();
-    for word in text.split_whitespace() {
-        if !result.is_empty() {
-            result.push(' ');
-        }
-        result.push_str(word);
-    }
-    result
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 struct DomRange<'a> {
     element: ElementRef<'a>,
     start: usize,
     end: usize,
-    lines: (u64, u64),
+    span: Span,
 }
+#[derive(Default)]
 struct DomWalk<'a, 's> {
-    spans: std::slice::Iter<'s, (u64, u64)>,
+    spans: std::slice::Iter<'s, Span>,
     tree: Fingerprint,
     text: String,
     ranges: Vec<DomRange<'a>>,
-    bounds: ParsingBounds,
 }
 impl<'a> DomWalk<'a, '_> {
     fn walk(&mut self, element: ElementRef<'a>, depth: usize) -> Result<()> {
-        ensure!(depth < self.bounds.depth, "docs_depth_budget");
+        ensure!(depth < 64, "docs_depth_budget");
         let name = element.value().name();
         self.tree.start(name, element.value().attrs());
         let index = self.ranges.len();
@@ -306,7 +288,7 @@ impl<'a> DomWalk<'a, '_> {
             element,
             start: self.text.len(),
             end: self.text.len(),
-            lines: *self.spans.next().context("docs_html5_members")?,
+            span: *self.spans.next().context("docs_html5_members")?,
         });
         if !excluded(name) && !hidden(element) {
             if block(name) {
@@ -324,17 +306,13 @@ impl<'a> DomWalk<'a, '_> {
                     )?,
                     _ => {}
                 }
-                ensure!(
-                    self.text.len() <= self.bounds.output_bytes,
-                    "docs_projection_budget"
-                );
             }
             if block(name) && !void(name) {
                 self.text.push(' ');
             }
         }
         ensure!(
-            self.text.len() <= self.bounds.output_bytes,
+            self.text.len() <= limits::RAW_BYTES,
             "docs_projection_budget"
         );
         self.ranges[index].end = self.text.len();
@@ -345,22 +323,8 @@ impl<'a> DomWalk<'a, '_> {
 fn css(value: &str) -> Result<Selector> {
     Selector::parse(value).map_err(|_| anyhow::anyhow!("docs_selector"))
 }
-fn quoted_id(id: &str) -> String {
-    let mut result = String::new();
-    for ch in id.chars() {
-        match ch {
-            '"' | '\\' => {
-                result.push('\\');
-                result.push(ch);
-            }
-            ch if ch.is_control() => result.push_str(&format!("\\{:x} ", u32::from(ch))),
-            ch => result.push(ch),
-        }
-    }
-    result
-}
-pub(super) fn parse(bytes: &[u8], bounds: ParsingBounds) -> Result<DocumentProjection> {
-    ensure!(bytes.len() <= bounds.raw_bytes, "docs_raw_budget");
+fn parse(bytes: &[u8]) -> Result<DocumentProjection> {
+    ensure!(bytes.len() <= limits::RAW_BYTES, "docs_raw_budget");
     let text = std::str::from_utf8(bytes).context("docs_utf8")?;
     ensure!(
         bytes
@@ -376,14 +340,7 @@ pub(super) fn parse(bytes: &[u8], bounds: ParsingBounds) -> Result<DocumentProje
             markup_line: 1,
             ..RawSource::default()
         },
-        tree: Fingerprint::default(),
-        frames: Vec::new(),
-        spans: Vec::new(),
-        ids: BTreeSet::new(),
-        counts: [0; 4],
-        tokens: 0,
-        bounds,
-        error: None,
+        ..HtmlSink::default()
     };
     let mut tokenizer = Tokenizer::new(sink, Default::default());
     let mut input = BufferQueue::default();
@@ -412,10 +369,7 @@ pub(super) fn parse(bytes: &[u8], bounds: ParsingBounds) -> Result<DocumentProje
         .context("docs_html5_body")?;
     let mut walk = DomWalk {
         spans: sink.spans.iter(),
-        tree: Fingerprint::default(),
-        text: String::new(),
-        ranges: Vec::new(),
-        bounds,
+        ..DomWalk::default()
     };
     walk.walk(body, 0)?;
     ensure!(
@@ -425,12 +379,7 @@ pub(super) fn parse(bytes: &[u8], bounds: ParsingBounds) -> Result<DocumentProje
     let ranges: HashMap<_, _> = walk.ranges.iter().map(|r| (r.element.id(), r)).collect();
     let range_of = |e: ElementRef<'_>| ranges.get(&e.id()).copied().context("docs_html5_range");
     let html = document.root_element();
-    let lang = html
-        .value()
-        .attr("lang")
-        .filter(|v| !v.is_empty())
-        .context("docs_lang")?
-        .to_owned();
+    let lang = html.value().attr("lang").context("docs_lang")?.to_owned();
     let main = document
         .select(&css("body > main")?)
         .next()
@@ -471,15 +420,20 @@ pub(super) fn parse(bytes: &[u8], bounds: ParsingBounds) -> Result<DocumentProje
         lang,
         sections: Vec::new(),
     };
-    let mut remaining = bounds.output_bytes;
+    let mut remaining = limits::RAW_BYTES;
     push_section(
         &mut result,
-        (None, INTRO_SELECTOR.into()),
+        (None, "main > h1, main > p".into()),
         vec![title],
-        (first.lines.0, last.lines.1),
+        (
+            (first.span.lines.0, last.span.lines.1),
+            roots
+                .iter()
+                .map(|e| range_of(*e).map(|r| r.span.bytes))
+                .collect::<Result<_>>()?,
+        ),
         &walk.text[first.start..last.end],
         &mut remaining,
-        bounds,
     )?;
     let mut parents = HashMap::new();
     let heading_selector = css("h2, h3, h4, h5, h6")?;
@@ -508,12 +462,11 @@ pub(super) fn parse(bytes: &[u8], bounds: ParsingBounds) -> Result<DocumentProje
         ensure!(!heading.is_empty(), "docs_heading");
         let mut heading_path = result.sections[parent.unwrap_or(0)].heading_path.clone();
         heading_path.push(heading);
-        ensure!(heading_path.len() <= bounds.depth, "docs_depth_budget");
         let id = element.value().id().context("docs_section_id")?;
         let selector = format!(
-            "main{} section[id=\"{}\"]",
+            "main{} section[id={}]",
             if parent.is_some() { "" } else { " >" },
-            quoted_id(id)
+            serde_json::to_string(id)?
         );
         ensure!(css(&selector)?.matches(&element), "docs_html5_selector");
         parents.insert(element.id(), result.sections.len());
@@ -521,10 +474,9 @@ pub(super) fn parse(bytes: &[u8], bounds: ParsingBounds) -> Result<DocumentProje
             &mut result,
             (Some(id.into()), selector),
             heading_path,
-            range.lines,
+            (range.span.lines, vec![range.span.bytes]),
             &walk.text[range.start..range.end],
             &mut remaining,
-            bounds,
         )?;
     }
     Ok(result)
@@ -533,67 +485,182 @@ fn push_section(
     document: &mut DocumentProjection,
     key: (Option<String>, String),
     heading_path: Vec<String>,
-    lines: (u64, u64),
+    source: ((u64, u64), Vec<(usize, usize)>),
     text: &str,
     remaining: &mut usize,
-    bounds: ParsingBounds,
 ) -> Result<()> {
     ensure!(
-        document.sections.len() < bounds.sections,
+        document.sections.len() < limits::ROWS,
         "docs_section_budget"
     );
     let (source_key, locator) = key;
+    let (lines, byte_ranges) = source;
     let body = normalize(text);
-    ensure!(
-        !body.is_empty() && lines.0 > 0 && lines.1 >= lines.0,
-        "docs_section_projection"
-    );
-    for length in [
-        body.len(),
-        locator.len(),
-        source_key.as_ref().map_or(0, String::len),
-    ]
-    .into_iter()
-    .chain(heading_path.iter().map(String::len))
-    {
-        *remaining = remaining
-            .checked_sub(length)
-            .context("docs_projection_budget")?;
-    }
+    *remaining = remaining
+        .checked_sub(body.len())
+        .context("docs_projection_budget")?;
     document.sections.push(SectionProjection {
-        ordinal: document.sections.len(),
         source_key,
         locator,
         heading_path,
         lines,
-        value_sha256: Sha256::digest(body.as_bytes()).into(),
+        byte_ranges,
         body,
     });
     Ok(())
 }
-pub(super) fn replay(
-    bytes: &[u8],
-    bounds: ParsingBounds,
-    actual: &DocumentProjection,
-    coverage: ReplayCoverage,
-) -> Result<()> {
-    let expected = parse(bytes, bounds)?;
-    ensure!(
-        actual.title == expected.title && actual.lang == expected.lang,
-        "docs_proof_metadata"
-    );
-    if matches!(coverage, ReplayCoverage::Complete) {
-        ensure!(actual == &expected, "docs_proof_complete");
-    } else {
-        let mut seen = BTreeSet::new();
-        for section in &actual.sections {
-            ensure!(seen.insert(&section.locator), "docs_proof_duplicate");
-            let expected = expected
-                .sections
-                .get(section.ordinal)
-                .context("docs_proof_locator")?;
-            ensure!(section == expected, "docs_proof_projection");
+pub struct DocsExtractor;
+impl Extractor for DocsExtractor {
+    fn name(&self) -> &'static str {
+        "deadlock-docs"
+    }
+    fn accepts(&self, source: &str, path: &str) -> bool {
+        source == "deadlock-docs"
+            && (path.starts_with("public/") || path.starts_with("internal/"))
+            && path.ends_with(".html")
+    }
+    fn extract(&self, raw: &RawObject) -> Outcome {
+        if !self.accepts(&raw.source, &raw.path) {
+            return Outcome::Ignored;
+        }
+        match extract(raw) {
+            Ok(set) => Outcome::Accepted(set),
+            Err(error) => Outcome::Rejected(error),
         }
     }
+}
+fn bounded(value: &str, max: usize) -> std::result::Result<(), Rejection> {
+    if value.trim().is_empty() || value.len() > max || value.chars().any(char::is_control) {
+        return Err(Rejection::new(
+            "value_too_large",
+            "Dokumentwert überschreitet den Ausgabevertrag",
+        ));
+    }
     Ok(())
+}
+fn extract(raw: &RawObject) -> std::result::Result<FactSet, Rejection> {
+    bounded(&raw.path, 2048)?;
+    if raw.revision.len() != 40
+        || !raw
+            .revision
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        || !raw
+            .path
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"/-_.".contains(&b))
+        || raw
+            .path
+            .split('/')
+            .any(|p| p.is_empty() || matches!(p, "." | ".."))
+    {
+        return Err(Rejection::new(
+            "invalid_docs_path",
+            "Dokumentpfad oder Revision ist ungültig",
+        ));
+    }
+    let document = parse(&raw.bytes).map_err(|_| {
+        Rejection::new(
+            "invalid_docs",
+            "Dokumentstruktur oder Extraktionsgrenze ist ungültig",
+        )
+    })?;
+    bounded(&document.lang, limits::TEXT_BYTES)?;
+    let receipt = Receipt {
+        locator_kind: "raw_bytes".into(),
+        locator: String::new(),
+        value_sha256: Sha256::digest(&raw.bytes).into(),
+    };
+    let identity = format!("{}\0{}", raw.source, raw.path);
+    let key = format!("doc_{:x}", Sha256::digest(identity.as_bytes()));
+    let mut set = FactSet::default();
+    set.entities.push(Entity {
+        kind: "doc_page".into(),
+        key: key.clone(),
+        receipt: receipt.clone(),
+    });
+    let mut add = |stat_key: String, value: FactValue, receipt: &Receipt| {
+        set.facts.push(Fact {
+            entity_key: key.clone(),
+            stat_key,
+            value,
+            receipt: receipt.clone(),
+        });
+    };
+    for (name, value) in [
+        ("doc_path", FactValue::Text(raw.path.clone())),
+        ("doc_title", FactValue::Text(document.title)),
+        ("doc_lang", FactValue::Text(document.lang)),
+        (
+            "doc_section_count",
+            FactValue::Number(document.sections.len() as f64),
+        ),
+    ] {
+        add(name.into(), value, &receipt);
+    }
+    for (ordinal, section) in document.sections.into_iter().enumerate() {
+        if section.heading_path.len() > 16 || section.byte_ranges.len() > limits::BYTE_RANGES {
+            return Err(Rejection::new(
+                "value_too_large",
+                "Dokumentabschnitt überschreitet die Beleggrenze",
+            ));
+        }
+        for heading in &section.heading_path {
+            bounded(heading, 256)?;
+        }
+        bounded(&section.locator, limits::LOCATOR_BYTES)?;
+        if raw.path.starts_with("public/") {
+            let url = format!(
+                "https://github.com/EarlySalty/Deadlock-Docs/blob/{}/{}#L{}-L{}",
+                raw.revision, raw.path, section.lines.0, section.lines.1
+            );
+            bounded(&url, 256)?;
+        }
+        let mut hash = Sha256::new();
+        let mut size = 0;
+        let mut ranges = Vec::new();
+        for (start, end) in section.byte_ranges {
+            size += end - start;
+            if size > limits::BYTE_RANGE_BYTES {
+                return Err(Rejection::new(
+                    "value_too_large",
+                    "Abschnittsbeleg überschreitet die Byte-Grenze",
+                ));
+            }
+            hash.update(&raw.bytes[start..end]);
+            ranges.push(format!("{start}-{end}"));
+        }
+        let receipt = Receipt {
+            locator_kind: "byte_ranges".into(),
+            locator: ranges.join(","),
+            value_sha256: hash.finalize().into(),
+        };
+        let stem = match section.source_key {
+            None => "doc_intro".into(),
+            Some(id) => format!("doc_section_{}", limits::normalize_key(&id)),
+        };
+        let mut body = section.body.as_str();
+        let mut chunks = 0;
+        while !body.is_empty() {
+            let mut end = body.len().min(limits::TEXT_BYTES);
+            while !body.is_char_boundary(end) {
+                end -= 1;
+            }
+            add(
+                format!("{stem}_body_{chunks}"),
+                FactValue::Text(body[..end].into()),
+                &receipt,
+            );
+            body = &body[end..];
+            chunks += 1;
+        }
+        let metadata = serde_json::json!({"ordinal":ordinal,"locator":section.locator,"heading_path":section.heading_path,"line_start":section.lines.0,"line_end":section.lines.1,"chunks":chunks});
+        add(
+            format!("{stem}_meta"),
+            FactValue::Text(metadata.to_string()),
+            &receipt,
+        );
+    }
+    limits::validate(&set)?;
+    Ok(set)
 }
