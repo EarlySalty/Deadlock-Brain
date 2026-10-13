@@ -1,20 +1,15 @@
-use brain_job::{ingest, registry::EXTRACTORS, sources::SOURCES, GameFactsStore};
+use brain_job::{
+    config::Config,
+    ingest,
+    registry::EXTRACTORS,
+    sources::{self, SOURCES},
+    GameFactsStore,
+};
 use brain_storage::PgStore;
-use serde::Deserialize;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
-use std::{path::PathBuf, process::ExitCode, time::Duration};
+use std::{path::Path, process::ExitCode};
 
 const USAGE: &str =
-    "Aufruf: brain-job ingest <source> --config <local-postgres.json> --input <git-repository>";
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Config {
-    socket: PathBuf,
-    port: u16,
-    database: String,
-    user: String,
-}
+    "Aufruf: brain-job --config <brain-job.json> ingest <source> [--input <git-repository>]";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -33,11 +28,23 @@ async fn run() -> anyhow::Result<()> {
         println!("{USAGE}");
         return Ok(());
     }
-    anyhow::ensure!(
-        args.len() == 6 && args[0] == "ingest" && args[2] == "--config" && args[4] == "--input",
-        "Ungültiger Aufruf"
-    );
-    let source = args[1]
+    let (config_path, source, input) = match args.as_slice() {
+        [flag, config, command, source] if flag == "--config" && command == "ingest" => {
+            (config, source, None)
+        }
+        [flag, config, command, source, input_flag, input]
+            if flag == "--config" && command == "ingest" && input_flag == "--input" =>
+        {
+            (config, source, Some(input))
+        }
+        [command, source, flag, config, input_flag, input]
+            if command == "ingest" && flag == "--config" && input_flag == "--input" =>
+        {
+            (config, source, Some(input))
+        }
+        _ => anyhow::bail!("Ungültiger Aufruf"),
+    };
+    let source = source
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("Ungültige Quelle"))?;
     let loader = SOURCES
@@ -45,41 +52,24 @@ async fn run() -> anyhow::Result<()> {
         .find(|(name, _)| *name == source)
         .map(|(_, loader)| *loader)
         .ok_or_else(|| anyhow::anyhow!("Unbekannte Quelle"))?;
-    anyhow::ensure!(
-        std::env::var_os("PGOPTIONS").is_none(),
-        "PGOPTIONS ist unzulässig"
-    );
-    let config: Config = serde_json::from_reader(std::fs::File::open(&args[3])?)?;
-    anyhow::ensure!(
-        config.socket.is_absolute()
-            && config.port != 0
-            && [&config.database, &config.user]
-                .iter()
-                .all(|s| !s.trim().is_empty()
-                    && s.len() <= 128
-                    && !s.chars().any(char::is_control)),
-        "Ungültige lokale Datenbankkonfiguration"
-    );
-    let options = PgConnectOptions::new_without_pgpass()
-        .host(&config.socket.to_string_lossy())
-        .port(config.port)
-        .database(&config.database)
-        .username(&config.user)
-        .password("")
-        .ssl_mode(PgSslMode::Disable)
-        .application_name("brain-job");
-    let pool = PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect_with(options)
-        .await?;
+    let config = Config::load(Path::new(config_path))?;
+    let pool = config.pool().await?;
     let result = async {
         PgStore::new(pool.clone()).check_gamefacts_schema().await?;
-        let input = PathBuf::from(&args[5]);
+        let objects = match input {
+            Some(repository) => loader(Path::new(repository), false),
+            None => sources::fetch(
+                source,
+                config
+                    .source_cache
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("Quellen-Cache fehlt"))?,
+            ),
+        };
         let report = ingest(
             &GameFactsStore::new(pool.clone()),
             source,
-            std::iter::once_with(|| loader(&input)),
+            objects,
             EXTRACTORS,
         )
         .await?;
