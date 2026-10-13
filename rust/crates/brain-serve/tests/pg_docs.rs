@@ -15,9 +15,6 @@ use pg_docs::DocsReader;
 use sqlx::{postgres::PgConnectOptions, PgPool, Row};
 use std::collections::BTreeSet;
 
-const MIGRATION: &str =
-    include_str!("../../../../scripts/migrations/2026-10-13-brain-gamefacts-p5-docs-v1.sql");
-
 async fn setup(pg: &scratch_pg::ScratchPg) -> PgPool {
     let pool = PgPool::connect_with(
         PgConnectOptions::new_without_pgpass()
@@ -28,17 +25,46 @@ async fn setup(pg: &scratch_pg::ScratchPg) -> PgPool {
     )
     .await
     .unwrap();
-    sqlx::raw_sql("CREATE ROLE brain_migrate; CREATE ROLE brain_ingest; CREATE ROLE brain_service; CREATE ROLE brain_tool; CREATE ROLE brain_readonly LOGIN; GRANT brain_tool TO brain_readonly WITH INHERIT FALSE, SET TRUE;")
+    sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly LOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate")
         .execute(&pool).await.unwrap();
-    let base = brain_storage::gamefacts::limits::render_sql(include_str!(
-        "../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"
-    ))
-    .replace("{{HERO_PROFILE}}", "");
-    sqlx::raw_sql(&base).execute(&pool).await.unwrap();
-    sqlx::raw_sql(MIGRATION).execute(&pool).await.unwrap();
-    sqlx::raw_sql("CREATE TABLE canon.test_quarantine(receipt_id bigint PRIMARY KEY); CREATE OR REPLACE VIEW serve.published_receipt AS SELECT r.*,o.source,o.revision,o.revision AS source_revision,o.path,o.content_sha256 FROM canon.receipt r JOIN ops.ingest_run run ON run.id=r.ingest_run_id AND run.status='succeeded' JOIN raw.object o ON o.id=r.raw_object_id WHERE NOT EXISTS(SELECT 1 FROM canon.test_quarantine q WHERE q.receipt_id=r.id)")
+    brain_storage::PgStore::new(pool.clone())
+        .migrate_gamefacts()
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE TABLE canon.test_quarantine(receipt_id bigint PRIMARY KEY); ALTER TABLE canon.test_quarantine OWNER TO brain_migrate; CREATE OR REPLACE VIEW serve.published_receipt AS SELECT r.*,o.source,o.revision,o.revision AS source_revision,o.path,o.content_sha256 FROM canon.receipt r JOIN ops.ingest_run run ON run.id=r.ingest_run_id AND run.status='succeeded' JOIN raw.object o ON o.id=r.raw_object_id WHERE NOT EXISTS(SELECT 1 FROM canon.test_quarantine q WHERE q.receipt_id=r.id)")
         .execute(&pool).await.unwrap();
     pool
+}
+
+#[tokio::test]
+async fn registered_docs_migration_is_recorded_and_idempotent() {
+    use sha2::{Digest, Sha256};
+
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    let store = brain_storage::PgStore::new(pool.clone());
+    let versions = "SELECT version,checksum FROM ops.gamefacts_schema_version ORDER BY version";
+    let before: Vec<(i32, Vec<u8>)> = sqlx::query_as(versions).fetch_all(&pool).await.unwrap();
+    assert_eq!(
+        before.iter().map(|(v, _)| *v).collect::<Vec<_>>(),
+        [1, 5, 7]
+    );
+    let rendered = brain_storage::gamefacts::limits::render_sql(include_str!(
+        "../../../../scripts/migrations/2026-10-13-brain-gamefacts-p5-docs-v1.sql"
+    ));
+    assert_eq!(before[1].1, Sha256::digest(rendered.as_bytes()).to_vec());
+    let objects = "SELECT to_regclass('serve.doc_page')::oid::bigint,to_regclass('serve.doc_section')::oid::bigint,to_regprocedure('serve.doc_meta(text)')::oid::bigint,to_regprocedure('serve.doc_tsv(text)')::oid::bigint,to_regclass('canon.doc_body_fts')::oid::bigint";
+    let installed: (i64, i64, i64, i64, i64) =
+        sqlx::query_as(objects).fetch_one(&pool).await.unwrap();
+    store.check_gamefacts_schema().await.unwrap();
+    store.migrate_gamefacts().await.unwrap();
+    let after: Vec<(i32, Vec<u8>)> = sqlx::query_as(versions).fetch_all(&pool).await.unwrap();
+    assert_eq!(before, after);
+    let unchanged: (i64, i64, i64, i64, i64) =
+        sqlx::query_as(objects).fetch_one(&pool).await.unwrap();
+    assert_eq!(installed, unchanged);
+    store.check_gamefacts_schema().await.unwrap();
+    pool.close().await;
 }
 
 async fn receipt(pool: &PgPool, raw: i64, run: i64, section: bool) -> i64 {
@@ -666,6 +692,104 @@ async fn search_keeps_language_vectors_and_phrase_positions_independent() {
             .await
             .unwrap();
         assert_eq!(rows.len(), expected, "{query}");
+    }
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reader_compaction_preserves_websearch_membership_and_order() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    for (version, path) in [
+        (1, "public/first.html"),
+        (2, "public/second.html"),
+        (3, "internal/first.html"),
+        (4, "internal/second.html"),
+    ] {
+        let (page, _) = document(&pool, path, version, None, true).await;
+        sqlx::query("UPDATE canon.fact SET value_text=CASE stat_key::text WHEN 'doc_title' THEN 'Document' WHEN 'doc_intro_body_0' THEN 'alpha ' WHEN 'doc_intro_body_1' THEN $2 WHEN 'doc_intro_meta' THEN '{\"ordinal\":0,\"locator\":\"intro\",\"heading_path\":[],\"line_start\":1,\"line_end\":3,\"chunks\":2}' ELSE value_text END WHERE entity_id=$1")
+            .bind(page).bind(if version % 2 == 0 { "omega alpha und Häuser" } else { "omega und Häuser" })
+            .execute(&pool).await.unwrap();
+    }
+    let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
+    let definition = ToolDefinition {
+        name: ToolName::SearchDocs,
+        description: "Sucht veröffentlichte Dokumentabschnitte.".into(),
+        input_schema: brain_contracts::tools::SearchDocsRequest::input_schema(),
+    };
+    for internal in [false, true] {
+        let (mut query, ctx) = context(internal);
+        for text in [
+            "alpha alpha",
+            "alpha omega alpha",
+            "und und alpha",
+            "Haus Häuser Haus",
+            "alpha alpha p5suffixnichtvorhanden",
+            "\"alpha omega\"",
+            "\"omega alpha\"",
+            "\"alpha alpha\"",
+            "alpha -omega",
+            "alpha -p5suffixnichtvorhanden",
+            "alpha OR p5suffixnichtvorhanden",
+            "p5suffixnichtvorhanden or alpha",
+            "alpha Or alpha",
+            "alpha-alpha alpha-alpha",
+        ] {
+            query.text = text.into();
+            let rows = sqlx::query(include_str!("../src/pg_docs/search.sql"))
+                .bind(if internal { "internal" } else { "public" })
+                .bind(text)
+                .bind(None::<i64>)
+                .bind(6_i64)
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+            let expected: Vec<_> = rows
+                .iter()
+                .map(|row| row.get::<i64, _>("receipt_id").to_string())
+                .collect();
+            let evidence = reader.retrieve(&query, &ctx).unwrap();
+            assert_eq!(
+                evidence
+                    .iter()
+                    .map(|item| item.evidence_id.clone())
+                    .collect::<Vec<_>>(),
+                expected,
+                "{text}"
+            );
+            reader
+                .validate_evidence(&query, &ctx, &evidence, ToolValidationPurpose::Cache)
+                .unwrap();
+            let request = ToolCall {
+                id: "compaction".into(),
+                name: ToolName::SearchDocs,
+                arguments: serde_json::json!({"query":text}),
+            }
+            .validate(std::slice::from_ref(&definition))
+            .unwrap();
+            let execution = reader.search(&query, &ctx, "compaction", &request).unwrap();
+            assert_eq!(execution.result.evidence_ids, expected, "{text}");
+            for dependency in &execution.dependencies {
+                assert_eq!(dependency.request, request);
+                reader
+                    .validate_dependency(&query, &ctx, dependency, ToolValidationPurpose::Cache)
+                    .unwrap();
+            }
+        }
+    }
+    for (original, compact) in [
+        ("alpha alpha", "alpha"),
+        ("alpha omega alpha", "alpha omega"),
+        ("und und alpha", "und alpha"),
+        ("Haus Häuser Haus", "Haus Häuser"),
+    ] {
+        let same: bool = sqlx::query_scalar("SELECT bool_and(
+            (tsv @@ websearch_to_tsquery('pg_catalog.simple',$1))=(tsv @@ websearch_to_tsquery('pg_catalog.simple',$2))
+            AND (tsv_german @@ websearch_to_tsquery('pg_catalog.german',$1))=(tsv_german @@ websearch_to_tsquery('pg_catalog.german',$2))
+            AND ts_rank_cd(tsv,websearch_to_tsquery('pg_catalog.simple',$1))=ts_rank_cd(tsv,websearch_to_tsquery('pg_catalog.simple',$2))
+            AND ts_rank_cd(tsv_german,websearch_to_tsquery('pg_catalog.german',$1))=ts_rank_cd(tsv_german,websearch_to_tsquery('pg_catalog.german',$2))) FROM serve.doc_section")
+            .bind(original).bind(compact).fetch_one(&pool).await.unwrap();
+        assert!(same, "{original}");
     }
     pool.close().await;
 }
