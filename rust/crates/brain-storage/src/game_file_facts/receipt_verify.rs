@@ -108,50 +108,48 @@ fn raw_hashes<'a>(
     requests: &[Request<'a>],
     allocation: usize,
 ) -> Result<Hashes<'a>, Rejection> {
-    let mut leaves = BTreeMap::new();
-    if requests
+    let json_requested: BTreeSet<_> = requests
         .iter()
-        .any(|r| supported(format, r) && r.receipt.locator_kind == "json_pointer")
-    {
+        .filter(|r| supported(format, r) && r.receipt.locator_kind == "json_pointer")
+        .map(|r| r.receipt.locator.as_str())
+        .collect();
+    let json = if json_requested.is_empty() {
+        BTreeMap::new()
+    } else {
         let text = std::str::from_utf8(bytes).map_err(|_| Rejection::InvalidUtf8)?;
-        json_text::parse_with_budget(text, Budget::with_limit(allocation))
-            .map_err(parser_rejection)?;
-    }
+        json_text::selected_hashes(text, &json_requested, Budget::with_limit(allocation))
+            .map_err(parser_rejection)?
+    };
     let kv_path = requests
         .iter()
         .any(|r| supported(format, r) && r.receipt.locator_kind == "kv_path");
     let kv_pointer = requests
         .iter()
         .any(|r| supported(format, r) && r.receipt.locator_kind == "kv_pointer");
+    let mut leaves = BTreeMap::new();
     if kv_path || kv_pointer {
         let text = std::str::from_utf8(bytes).map_err(|_| Rejection::InvalidUtf8)?;
         let text = text.trim_start_matches('\u{feff}').trim_start();
         let budget = Budget::with_limit(allocation);
-        let values: Vec<_> = if kv_path || matches!(format, Format::Kv3) {
-            kv3::parse_with_budget(text, budget)
-                .map_err(parser_rejection)?
-                .into_iter()
-                .map(|l| (l.pointer, l.lexeme))
-                .collect()
-        } else {
-            kv::parse_with_budget(text, budget)
-                .map_err(parser_rejection)?
-                .into_iter()
-                .map(|e| (e.pointer, e.value))
-                .collect()
-        };
         let requested: BTreeSet<_> = requests
             .iter()
-            .filter(|r| supported(format, r))
+            .filter(|r| {
+                supported(format, r)
+                    && matches!(r.receipt.locator_kind.as_str(), "kv_path" | "kv_pointer")
+            })
             .map(|r| r.receipt.locator.as_str())
             .collect();
-        for (pointer, lexeme) in values {
-            if requested.contains(pointer.as_str())
-                && leaves
-                    .insert(pointer, Sha256::digest(lexeme.as_bytes()).into())
-                    .is_some()
-            {
-                return Err(Rejection::LocatorCollision);
+        if kv_path || matches!(format, Format::Kv3) {
+            leaves = kv3::selected_hashes(text, &requested, budget).map_err(parser_rejection)?;
+        } else {
+            for entry in kv::parse_with_budget(text, budget).map_err(parser_rejection)? {
+                if requested.contains(entry.pointer.as_str())
+                    && leaves
+                        .insert(entry.pointer, Sha256::digest(entry.value.as_bytes()).into())
+                        .is_some()
+                {
+                    return Err(Rejection::LocatorCollision);
+                }
             }
         }
     }
@@ -162,15 +160,13 @@ fn raw_hashes<'a>(
         if hashes.contains_key(&key) {
             continue;
         }
-        let hash = if matches!(
-            receipt.locator_kind.as_str(),
-            "raw_bytes" | "json_pointer" | "byte_ranges"
-        ) {
-            receipts::value_bytes(bytes, receipt)
+        let hash = match receipt.locator_kind.as_str() {
+            "raw_bytes" => Some(Sha256::digest(bytes).into()),
+            "json_pointer" => json.get(&receipt.locator).copied(),
+            "byte_ranges" => receipts::value_bytes(bytes, receipt)
                 .ok()
-                .map(|v| Sha256::digest(v).into())
-        } else {
-            leaves.get(&receipt.locator).copied()
+                .map(|v| Sha256::digest(v).into()),
+            _ => leaves.get(&receipt.locator).copied(),
         };
         hashes.insert(key, hash);
     }
@@ -232,6 +228,76 @@ mod tests {
             policy,
         )
         .unwrap()
+    }
+    fn audit_policy() -> Policy {
+        Policy {
+            max_raw_bytes: crate::gamefacts::limits::RAW_BYTES,
+            max_requests: 200,
+            max_locator_bytes: crate::gamefacts::limits::LOCATOR_BYTES,
+            parser_allocation_bytes: 64 * 1024 * 1024,
+        }
+    }
+    #[test]
+    fn selected_json_scales_to_raw_limit_without_fact_expansion() {
+        let array = format!("[{}1]", "1,".repeat(1_999_999));
+        let text = format!("{{\"values\":{array}}}");
+        let raw = raw(text.as_bytes());
+        let values = [
+            receipt("json_pointer", "/values", array.as_bytes()),
+            receipt("json_pointer", "/values/+1999999", b"1"),
+        ];
+        assert_eq!(
+            check(&raw, Format::Json, &values, audit_policy()),
+            values.map(|r| Verification::Receipt(ReceiptOutcome::Match(r.value_sha256)))
+        );
+    }
+    #[test]
+    fn selected_json_key_validation_is_bounded_and_detects_unselected_collisions() {
+        use std::fmt::Write;
+        let mut text = String::from("{");
+        for i in 0..280_000 {
+            write!(text, "\"k{i}\":1,").unwrap();
+        }
+        text.push_str("\"tail\":1}");
+        let values = [receipt("json_pointer", "/tail", b"1")];
+        let good = raw(text.as_bytes());
+        assert_eq!(
+            check(&good, Format::Json, &values, audit_policy()),
+            [Verification::Receipt(ReceiptOutcome::Match(
+                values[0].value_sha256
+            ))]
+        );
+        text.truncate(text.len() - 1);
+        text.push_str(",\"k0\":2}");
+        assert_eq!(
+            check(&raw(text.as_bytes()), Format::Json, &values, audit_policy()),
+            [Verification::ObjectRejected(Rejection::LocatorCollision)]
+        );
+    }
+    #[test]
+    fn selected_kv3_scales_near_core_budget_without_leaf_expansion() {
+        let text = format!(
+            "<!-- kv3 encoding:text --> {{ values = [{}1] x = 1.2300e+2 x = -0 }}",
+            "1,".repeat(599_999)
+        );
+        let raw = raw(text.as_bytes());
+        let values = [
+            receipt("kv_path", "/values/0/[599999]", b"1"),
+            receipt("kv_path", "/x/0", b"1.2300e+2"),
+            receipt("kv_path", "/x/1", b"-0"),
+        ];
+        assert_eq!(
+            check(&raw, Format::Json, &values, audit_policy()),
+            values
+                .clone()
+                .map(|r| Verification::Receipt(ReceiptOutcome::Match(r.value_sha256)))
+        );
+        let mut small = audit_policy();
+        small.parser_allocation_bytes = 1024 * 1024;
+        assert_eq!(
+            check(&raw, Format::Json, &values, small),
+            [Verification::ObjectRejected(Rejection::Parser(super::super::budget::EXCEEDED)); 3]
+        );
     }
     #[test]
     fn core_parity_includes_root_containers_escapes_and_numeric_lexemes() {

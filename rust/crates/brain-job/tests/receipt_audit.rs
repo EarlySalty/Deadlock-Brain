@@ -81,6 +81,135 @@ impl Extractor for Fixture {
         Outcome::Accepted(set)
     }
 }
+struct LargeFixture;
+impl Extractor for LargeFixture {
+    fn name(&self) -> &'static str {
+        "large_audit_fixture"
+    }
+    fn accepts(&self, _: &str, _: &str) -> bool {
+        true
+    }
+    fn extract(&self, raw: &RawObject) -> Outcome {
+        let kind = if raw.path.starts_with("json") {
+            "json_pointer"
+        } else {
+            "kv_path"
+        };
+        let (locator, scalar) = raw.path.split_once(':').unwrap().1.split_once('|').unwrap();
+        let mut receipt = Receipt {
+            locator_kind: kind.into(),
+            locator: locator.into(),
+            value_sha256: [0; 32],
+        };
+        receipt.value_sha256 =
+            Sha256::digest(receipts::value_bytes(&raw.bytes, &receipt).unwrap()).into();
+        let key = format!("hero_large_{}", raw.id);
+        Outcome::Accepted(FactSet {
+            entities: vec![Entity {
+                kind: "hero".into(),
+                key: key.clone(),
+                receipt: receipt.clone(),
+            }],
+            facts: vec![Fact {
+                entity_key: key,
+                stat_key: "health".into(),
+                value: FactValue::Number(1.0),
+                receipt: Receipt {
+                    locator_kind: kind.into(),
+                    locator: scalar.into(),
+                    value_sha256: Sha256::digest(b"1").into(),
+                },
+            }],
+            ..FactSet::default()
+        })
+    }
+}
+#[tokio::test]
+async fn large_valid_receipts_remain_published() {
+    let pg = scratch_pg::ScratchPg::start();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("")
+        .ssl_mode(PgSslMode::Disable);
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with(options)
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly NOLOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate").execute(&pool).await.unwrap();
+    PgStore::new(pool.clone())
+        .migrate_gamefacts()
+        .await
+        .unwrap();
+    let store = GameFactsStore::new(pool.clone());
+    let array = format!("[{}1]", "1,".repeat(41999));
+    let near_raw_limit = format!("[{}1]", "1,".repeat(1_999_999));
+    let near_kv_budget = format!("[{}1]", "1,".repeat(599_999));
+    for (path, bytes) in [
+        ("json:|/41999", array.as_bytes().to_vec()),
+        (
+            "kv:/values/0/[0]|/values/0/[41999]",
+            format!("{{ values = {array} }}").into_bytes(),
+        ),
+        (
+            "json:/values|/values/+1999999",
+            format!("{{\"values\":{near_raw_limit}}}").into_bytes(),
+        ),
+        (
+            "kv:/values/0/[0]|/values/0/[599999]",
+            format!("{{ values = {near_kv_budget} }}").into_bytes(),
+        ),
+    ] {
+        let report = ingest(
+            &store,
+            "large_audit_fixture",
+            [Ok(InputObject {
+                revision: "large".into(),
+                path: path.into(),
+                bytes,
+            })],
+            &[&LargeFixture],
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.counts.accepted, 1, "{path}");
+        assert_eq!(report.counts.rejected, 0, "{path}");
+    }
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM serve.published_receipt").await,
+        8
+    );
+    let audit = receipt_audit::run(&pool).await.unwrap();
+    assert_eq!(
+        (
+            audit.sampled,
+            audit.verified_receipts,
+            audit.rejected_receipts,
+            audit.rejected_objects
+        ),
+        (8, 8, 0, 0)
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM serve.published_receipt").await,
+        8
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM canon.receipt_quarantine").await,
+        0
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM ops.receipt_audit_rejection").await,
+        0
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM serve.current_fact").await,
+        4
+    );
+    pool.close().await;
+}
 const ONE: &[u8] = br#"{"x":1}"#;
 fn number(bytes: &[u8]) -> f64 {
     serde_json::from_slice::<serde_json::Value>(bytes).unwrap()["x"]
