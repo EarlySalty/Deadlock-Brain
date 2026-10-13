@@ -10,6 +10,19 @@ mod kv;
 #[path = "game_file_facts/kv3.rs"]
 mod kv3;
 
+pub(crate) fn kv3_lexemes(
+    input: &str,
+) -> Result<std::collections::BTreeMap<String, String>, &'static str> {
+    let input = input.trim_start_matches('\u{feff}').trim_start();
+    let mut lexemes = std::collections::BTreeMap::new();
+    for leaf in kv3::parse(input)? {
+        if lexemes.insert(leaf.pointer, leaf.lexeme).is_some() {
+            return Err("Mehrdeutiger KV3-Pfad");
+        }
+    }
+    Ok(lexemes)
+}
+
 pub fn extract_facts(path: &str, content: &str) -> (Vec<Value>, String) {
     let trimmed = content.trim_start_matches('\u{feff}').trim_start();
     if path.to_ascii_lowercase().ends_with(".json") {
