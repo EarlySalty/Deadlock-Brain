@@ -1,3 +1,3 @@
 use crate::Extractor;
 
-pub const EXTRACTORS: &[&dyn Extractor] = &[&crate::timers::TimerExtractor];
+pub const EXTRACTORS: &[&dyn Extractor] = &[&crate::hero::Hero, &crate::timers::TimerExtractor];

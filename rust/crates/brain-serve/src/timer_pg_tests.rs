@@ -114,6 +114,21 @@ fn timer_pg_executor_preserves_values_receipts_bounds_and_revalidation() {
         assert!(fact["patch"].is_null());
     }
     for evidence in &execution.dependencies[0].evidence {
+        let canonical =
+            brain_contracts::canonical_receipt::CanonicalReceipt::from_evidence(evidence).unwrap();
+        assert_eq!(
+            brain_contracts::canonical_receipt::format_receipt(&canonical).unwrap(),
+            *evidence
+        );
+        assert!(execution
+            .result
+            .evidence_ids
+            .contains(&evidence.evidence_id));
+        assert!(execution.result.result["facts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|fact| fact["citation"].as_str() == Some(evidence.evidence_id.as_str())));
         let metadata: Value = serde_json::from_str(&evidence.content).unwrap();
         let raw = runtime
             .block_on(

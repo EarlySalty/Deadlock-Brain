@@ -5,7 +5,7 @@ mod types;
 pub use types::*;
 
 use sha2::{Digest, Sha256};
-use sqlx::{PgConnection, PgPool, Row};
+use sqlx::{Connection, PgConnection, PgPool, Row};
 
 async fn capture(
     pool: &PgPool,
@@ -74,10 +74,23 @@ async fn write(
     raw: i64,
     extractor: &str,
     set: &FactSet,
+    bytes: &[u8],
 ) -> Result<(), sqlx::Error> {
     sqlx::query("SELECT pg_advisory_xact_lock(742110026113::bigint)")
         .execute(&mut *connection)
         .await?;
+    if set.entities.is_empty()
+        && set.aliases.is_empty()
+        && set.facts.is_empty()
+        && set.relations.is_empty()
+    {
+        let value = Receipt {
+            locator_kind: "raw_bytes".into(),
+            locator: String::new(),
+            value_sha256: Sha256::digest(bytes).into(),
+        };
+        receipt(connection, run, raw, extractor, &value).await?;
+    }
     for row in &set.entities {
         let receipt = receipt(connection, run, raw, extractor, &row.receipt).await?;
         sqlx::query("INSERT INTO canon.entity(kind,key,receipt_id) VALUES($1,$2,$3) ON CONFLICT(key) DO NOTHING")
@@ -115,7 +128,16 @@ async fn write(
             FactValue::Text(t) => (None, Some(t.as_str()), None),
             FactValue::Bool(b) => (None, None, Some(*b)),
         };
-        sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,value_num,value_text,value_bool,valid_from_run,receipt_id) VALUES($1,$2,$3,$4,$5,$6,$7)").bind(id).bind(key).bind(num).bind(text).bind(boolean).bind(run).bind(receipt).execute(&mut *connection).await?;
+        sqlx::query("SELECT canon.write_run_fact($1,$2,$3,$4,$5,$6,$7)")
+            .bind(id)
+            .bind(key)
+            .bind(num)
+            .bind(text)
+            .bind(boolean)
+            .bind(run)
+            .bind(receipt)
+            .execute(&mut *connection)
+            .await?;
     }
     for row in &set.relations {
         let from = entity(connection, &row.from_key).await?;
@@ -152,7 +174,7 @@ async fn write_object(
         tx.rollback().await.map_err(sql_rejection)?;
         return Err(rejection);
     }
-    if let Err(error) = write(&mut tx, run, raw, extractor, set).await {
+    if let Err(error) = write(&mut tx, run, raw, extractor, set, &bytes).await {
         tx.rollback().await.map_err(sql_rejection)?;
         return Err(sql_rejection(error));
     }
@@ -169,6 +191,30 @@ fn sql_rejection(error: sqlx::Error) -> Rejection {
         "sql_write",
         format!("Kanonischer Schreibvorgang fehlgeschlagen ({code})"),
     )
+}
+
+fn extractor_family(extractor: &str) -> Option<&str> {
+    let (length, rest) = extractor.strip_prefix("v1:")?.split_once(':')?;
+    let rest = rest
+        .get(length.parse::<usize>().ok()?..)?
+        .strip_prefix(':')?;
+    let (length, version) = rest.split_once(':')?;
+    if length.parse::<usize>().ok()? != version.len() {
+        return None;
+    }
+    extractor.get(..extractor.len() - rest.len())
+}
+
+async fn finish_run<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    run: i64,
+    succeeded: bool,
+    counts: Counts,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE ops.ingest_run SET finished=clock_timestamp(),status=$2,accepted=$3,rejected=$4,ignored=$5 WHERE id=$1")
+        .bind(run).bind(if succeeded { "succeeded" } else { "failed" })
+        .bind(counts.accepted).bind(counts.rejected).bind(counts.ignored).execute(executor).await?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -188,6 +234,14 @@ impl GameFactsStore {
         Self { pool }
     }
 
+    pub async fn lock_run(&self) -> Result<PgConnection, sqlx::Error> {
+        let mut connection = PgConnection::connect_with(&self.pool.connect_options()).await?;
+        sqlx::query("SELECT pg_advisory_lock(742110026114::bigint)")
+            .execute(&mut connection)
+            .await?;
+        Ok(connection)
+    }
+
     pub async fn begin_run(&self, source: &str) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar("INSERT INTO ops.ingest_run(source) VALUES($1) RETURNING id")
             .bind(source)
@@ -201,10 +255,17 @@ impl GameFactsStore {
         succeeded: bool,
         counts: Counts,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE ops.ingest_run SET finished=clock_timestamp(),status=$2,accepted=$3,rejected=$4,ignored=$5 WHERE id=$1")
-            .bind(run).bind(if succeeded { "succeeded" } else { "failed" })
-            .bind(counts.accepted).bind(counts.rejected).bind(counts.ignored).execute(&self.pool).await?;
-        Ok(())
+        finish_run(&self.pool, run, succeeded, counts).await
+    }
+
+    pub async fn finish_run_guarded(
+        &self,
+        guard: &mut PgConnection,
+        run: i64,
+        succeeded: bool,
+        counts: Counts,
+    ) -> Result<(), sqlx::Error> {
+        finish_run(guard, run, succeeded, counts).await
     }
 
     pub async fn capture(
@@ -219,8 +280,34 @@ impl GameFactsStore {
     }
 
     pub async fn was_applied(&self, raw: i64, extractor: &str) -> Result<bool, sqlx::Error> {
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM canon.receipt receipt JOIN ops.ingest_run run ON run.id=receipt.ingest_run_id WHERE receipt.raw_object_id=$1 AND receipt.extractor=$2 AND run.status='succeeded')")
-            .bind(raw).bind(extractor).fetch_one(&self.pool).await
+        self.was_applied_active(None, raw, extractor).await
+    }
+
+    pub async fn was_applied_in_run(
+        &self,
+        run: i64,
+        raw: i64,
+        extractor: &str,
+    ) -> Result<bool, sqlx::Error> {
+        self.was_applied_active(Some(run), raw, extractor).await
+    }
+
+    async fn was_applied_active(
+        &self,
+        active: Option<i64>,
+        raw: i64,
+        extractor: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let family = extractor_family(extractor);
+        let rows = sqlx::query("SELECT * FROM (SELECT DISTINCT ON(receipt.extractor) receipt.raw_object_id,receipt.extractor,receipt.ingest_run_id,receipt.id FROM raw.object target JOIN raw.object object ON object.source_path_sha256=target.source_path_sha256 AND object.source=target.source AND object.path=target.path JOIN canon.receipt receipt ON receipt.raw_object_id=object.id JOIN ops.ingest_run run ON run.id=receipt.ingest_run_id WHERE target.id=$1 AND (run.status='succeeded' OR run.id=$4) AND (receipt.extractor=$2 OR ($3::text IS NOT NULL AND starts_with(receipt.extractor,$3))) ORDER BY receipt.extractor,receipt.ingest_run_id DESC,receipt.id DESC) latest ORDER BY ingest_run_id DESC,id DESC")
+            .bind(raw).bind(extractor).bind(family).bind(active).fetch_all(&self.pool).await?;
+        for row in rows {
+            let applied: String = row.try_get("extractor")?;
+            if applied == extractor || family.is_some() && extractor_family(&applied) == family {
+                return Ok(row.try_get::<i64, _>("raw_object_id")? == raw && applied == extractor);
+            }
+        }
+        Ok(false)
     }
 
     pub async fn apply(
