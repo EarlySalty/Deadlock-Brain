@@ -14,9 +14,34 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 mod scratch_pg;
 
 struct Stub(AtomicUsize);
-struct Corrected;
+struct Corrected(&'static str);
+static STREAM_EXTRACTED: AtomicUsize = AtomicUsize::new(0);
+
+fn stream(repository: &std::path::Path, fetch: bool) -> brain_job::sources::InputObjects {
+    let repository = repository.to_path_buf();
+    Box::new((0..3).map(move |index| {
+        anyhow::ensure!(!fetch && repository.is_absolute(), "invalid stub input");
+        anyhow::ensure!(
+            STREAM_EXTRACTED.load(Ordering::SeqCst) == index,
+            "next object loaded before previous extraction"
+        );
+        let saved = std::process::Command::new("/usr/bin/psql")
+            .arg("-h").arg(repository.join("socket"))
+            .args(["-p", "55439", "-U", "brain_core_test", "-d", "postgres", "-w", "-Atqc",
+                "SELECT count(*) FROM canon.fact f JOIN canon.entity e ON e.id=f.entity_id WHERE e.key LIKE 'hero_stream%'"])
+            .env("PGPASSFILE", "/dev/null").env_remove("PGOPTIONS").env_remove("PGSERVICE")
+            .output()?;
+        anyhow::ensure!(saved.status.success(), "scratch query failed");
+        anyhow::ensure!(String::from_utf8(saved.stdout)?.trim().parse::<usize>()? == index,
+            "next object loaded before previous fact was committed");
+        input(&format!("stream{index}"), "stream_revision")
+    }))
+}
 
 impl Extractor for Corrected {
+    fn version(&self) -> &'static str {
+        self.0
+    }
     fn name(&self) -> &'static str {
         "stub"
     }
@@ -42,6 +67,12 @@ impl Extractor for Stub {
     }
     fn extract(&self, raw: &RawObject) -> Outcome {
         self.0.fetch_add(1, Ordering::Relaxed);
+        if raw.path.starts_with("stream") {
+            STREAM_EXTRACTED.fetch_add(1, Ordering::SeqCst);
+        }
+        if raw.path == "empty" {
+            return Outcome::Accepted(FactSet::default());
+        }
         let receipt = Receipt {
             locator_kind: "raw_bytes".into(),
             locator: "".into(),
@@ -178,10 +209,20 @@ async fn poison_isolation_publication_retry_and_immutable_migration() {
         .await
         .unwrap();
     assert_eq!(raw, input("good", "r1").unwrap().bytes);
+    let facts_before = count(&admin, "SELECT count(*) FROM canon.fact").await;
+    let receipts_before = count(&admin, "SELECT count(*) FROM canon.receipt").await;
     let second = ingest(&store, "stub", [input("good", "r2")], &[&stub])
         .await
         .unwrap();
-    assert_eq!(second.counts.accepted, 1);
+    assert_eq!((second.counts.accepted, second.counts.ignored), (0, 1));
+    assert_eq!(
+        count(&admin, "SELECT count(*) FROM canon.fact").await,
+        facts_before
+    );
+    assert_eq!(
+        count(&admin, "SELECT count(*) FROM canon.receipt").await,
+        receipts_before
+    );
     assert_eq!(count(&admin, "SELECT count(*) FROM raw.object").await, 3);
     let revision: String = sqlx::query_scalar(
         "SELECT source_revision FROM serve.current_fact WHERE stat_key='health'",
@@ -259,7 +300,7 @@ async fn poison_isolation_publication_retry_and_immutable_migration() {
         .await
         .unwrap();
     assert_eq!(retry.counts.accepted, 1);
-    assert_eq!(stub.0.load(Ordering::Relaxed), 8);
+    assert_eq!(stub.0.load(Ordering::Relaxed), 7);
     let crashed = store.begin_run("stub").await.unwrap();
     let crash = sqlx::query(
         "SELECT status,finished IS NOT NULL AS terminal FROM ops.ingest_run WHERE id=$1",
@@ -274,7 +315,7 @@ async fn poison_isolation_publication_retry_and_immutable_migration() {
         count(&admin, "SELECT count(*) FROM serve.hero_profile").await,
         3
     );
-    let corrected = ingest(&store, "stub", [input("large", "r1")], &[&Corrected])
+    let corrected = ingest(&store, "stub", [input("large", "r1")], &[&Corrected("1")])
         .await
         .unwrap();
     assert_eq!(
@@ -282,6 +323,73 @@ async fn poison_isolation_publication_retry_and_immutable_migration() {
         (1, 0)
     );
     assert_eq!(count(&admin, "SELECT count(*) FROM raw.object").await, 6);
+    let upgraded = ingest(&store, "stub", [input("good", "r2")], &[&Corrected("2")])
+        .await
+        .unwrap();
+    assert_eq!(upgraded.counts.accepted, 1);
+    let new_version: String =
+        sqlx::query_scalar("SELECT extractor FROM canon.receipt WHERE ingest_run_id=$1 LIMIT 1")
+            .bind(upgraded.run_id)
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+    assert_eq!(new_version, brain_job::extractor_id("stub", "2"));
+    let rerun = ingest(&store, "stub", [input("good", "r2")], &[&Corrected("2")])
+        .await
+        .unwrap();
+    assert_eq!((rerun.counts.accepted, rerun.counts.ignored), (0, 1));
+    let rejected_again = ingest(&store, "stub", [input("collision", "r1")], &[&stub])
+        .await
+        .unwrap();
+    assert_eq!(rejected_again.counts.rejected, 1);
+    let before_empty = count(&admin, "SELECT count(*) FROM canon.receipt").await;
+    for _ in 0..2 {
+        let empty = ingest(&store, "stub", [input("empty", "r1")], &[&stub])
+            .await
+            .unwrap();
+        assert_eq!(
+            (
+                empty.counts.accepted,
+                empty.counts.rejected,
+                empty.counts.ignored
+            ),
+            (1, 0, 0)
+        );
+    }
+    assert_eq!(
+        count(&admin, "SELECT count(*) FROM canon.receipt").await,
+        before_empty
+    );
+    let calls = stub.0.load(Ordering::Relaxed);
+    let oversized = ingest(
+        &store,
+        "stub",
+        [Ok(InputObject {
+            revision: "r1".into(),
+            path: "oversized".into(),
+            bytes: vec![b'x'; limits::RAW_BYTES + 1],
+        })],
+        &[&stub],
+    )
+    .await
+    .unwrap();
+    assert_eq!(oversized.counts.rejected, 1);
+    assert_eq!(stub.0.load(Ordering::Relaxed), calls);
+    let row = sqlx::query("SELECT octet_length(o.bytes) AS size,j.code FROM raw.object o JOIN ops.ingest_rejection j ON j.raw_object_id=o.id WHERE j.run_id=$1")
+        .bind(oversized.run_id).fetch_one(&admin).await.unwrap();
+    assert_eq!(row.get::<i32, _>("size") as usize, limits::RAW_BYTES + 1);
+    assert_eq!(row.get::<String, _>("code"), "raw_too_large");
+    let loader: brain_job::sources::Source = stream;
+    let streamed = ingest(&store, "stub", loader(&pg.directory, false), &[&stub])
+        .await
+        .unwrap();
+    assert_eq!(streamed.counts.accepted, 3);
+    assert_eq!(STREAM_EXTRACTED.load(Ordering::SeqCst), 3);
+    let missing = brain_job::sources::SOURCES[0].1(&pg.directory.join("missing"), false);
+    assert!(ingest(&store, "deadlock-data", missing, &[&stub])
+        .await
+        .is_err());
+    assert_eq!(count(&admin, "SELECT count(*) FROM ops.ingest_run WHERE source='deadlock-data' AND status='failed' AND finished IS NOT NULL").await, 1);
     let mut trace = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE brain_service")
         .execute(&mut *trace)
@@ -317,6 +425,12 @@ async fn poison_isolation_publication_retry_and_immutable_migration() {
 
 #[test]
 fn bounds_and_normalized_collisions_match_the_contract() {
+    assert_eq!(brain_job::extractor_id("stub", "1"), "v1:4:stub:1:1");
+    assert_eq!(brain_job::extractor_id("é:a", ":1"), "v1:4:é:a:2::1");
+    assert_ne!(
+        brain_job::extractor_id("a:b", "c"),
+        brain_job::extractor_id("a", "b:c")
+    );
     let raw = RawObject {
         id: 1,
         source: "stub".into(),
@@ -358,4 +472,21 @@ fn receipt_hashes_use_raw_json_tokens_without_float_roundtrips() {
         let value = brain_storage::gamefacts::receipts::value_bytes(bytes, &receipt).unwrap();
         assert_eq!(value, token.as_bytes());
     }
+}
+
+#[test]
+#[ignore = "requires the read-only deadlock-data cache at the attested revision"]
+fn cached_hero_source_yields_one_unchanged_original_blob() {
+    let repository = std::path::PathBuf::from(
+        std::env::var_os("BRAIN_CORE2_HERO_REPOSITORY").expect("cache path required"),
+    );
+    let expected = std::fs::read(repository.join("data/json/hero-data.json")).unwrap();
+    let mut objects = brain_job::sources::SOURCES[0].1(&repository, false);
+    drop(repository);
+    let raw = objects.next().unwrap().unwrap();
+    assert_eq!(raw.revision, "2a26e26535a390c309e300e2c7b2763fa5ad7abd");
+    assert_eq!(raw.path, "data/json/hero-data.json");
+    assert_eq!(raw.bytes.len(), 226_182);
+    assert_eq!(raw.bytes, expected);
+    assert!(objects.next().is_none());
 }
