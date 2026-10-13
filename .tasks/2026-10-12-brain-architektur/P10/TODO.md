@@ -12,12 +12,16 @@ Branch `feat/brain-p10-meta-stats-20261013`, based on core 3a `982645cf`.
   (`meta_source::window_start`), so the window no longer depends on API defaults.
   Live capture only: `--input <dir>` fails for this source.
 - `snapshot_at` is the UTC capture hour of the cited raw object (`source_revision`), not the ingest
-  run start. The tool picks `latest` and the 24 h / 7 d / 30 d points by `snapshot_at DESC`
-  (tie-break `run_id DESC`) within the key's newest 1000 rows from `fact_history` (at most one
-  row per hour, so at least 41 days of captures and enough for the 30 d point). The scan stays
-  bounded regardless of total history: with 9000 older rows the tool query ran in about 20 ms.
-  `meta_stats_pg_tests.rs` publishes runs out of capture order, so the last ingested run carries
-  an older capture hour and must not win as `latest`.
+  run start. Selection is driven by capture order, never by ingest order: view
+  `serve.meta_stat_capture` walks the stat set's raw objects through the partial index
+  `raw.object meta_stat_capture_order (path, revision COLLATE "C" DESC, id DESC)`, takes the newest
+  1000 captures (about 41 days) with their newest succeeded applying run, then looks up the key's
+  fact per capture via `fact_history`. `latest` and the 24 h / 7 d / 30 d points are picked by
+  `snapshot_at DESC, run_id DESC` inside that window. A key absent from all of the newest 1000
+  captures returns `meta_stats_not_found`.
+- `meta_stats_pg_tests.rs` publishes runs out of capture order and then 9000 later runs carrying
+  older capture hours; `latest` and the comparison points must still follow capture time. With
+  that data the tool query ran in about 55 ms on a loaded host (statement timeout 500 ms).
   Known edge: bytes identical to an older capture (A, B, A) reuse the old raw object and its hour,
   so the repeated A ranks by its first capture hour.
 - Extractor `meta_stats` (`rust/crates/brain-job/src/meta_stats.rs`): one entity per stat set
@@ -27,7 +31,8 @@ Branch `feat/brain-p10-meta-stats-20261013`, based on core 3a `982645cf`.
   A later hour with unchanged upstream bytes dedups on content hash and writes 0 raw objects.
   Changed bytes write one new fact row per entity per run; history kept forever (no pruning).
 - Migration v26 `scripts/migrations/2026-10-13-brain-gamefacts-p10-meta-stats-v26.sql`:
-  views `serve.meta_stat_set`, `serve.meta_stat` (SELECT for `brain_tool` only).
+  index `raw.meta_stat_capture_order`, views `serve.meta_stat_set`, `serve.meta_stat_capture`,
+  `serve.meta_stat` (SELECT for `brain_tool` only).
 - Tool `get_meta_stats` (`kind` hero|item plus `game_id` or `entity`): latest snapshot plus the
   snapshots at least 24 h, 7 d and 30 d older; each row with `snapshot_at`, `condition`, `citation`,
   `source_revision`, `patch: null`. Reads Postgres only, never deadlock-api.

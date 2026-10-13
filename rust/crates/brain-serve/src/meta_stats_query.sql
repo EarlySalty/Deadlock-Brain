@@ -1,8 +1,18 @@
-WITH history AS MATERIALIZED (
-    SELECT m.entity_id,m.run_id,m.snapshot_at FROM serve.meta_stat m
-    WHERE m.entity_id=(SELECT s.entity_id FROM serve.meta_stat_set s WHERE s.stat_set=$1)
-        AND m.stat_key=$2
-    ORDER BY m.run_id DESC LIMIT 1000
+WITH stat_set AS MATERIALIZED (
+    SELECT s.entity_id,s.path FROM serve.meta_stat_set s WHERE s.stat_set=$1
+), captures AS MATERIALIZED (
+    SELECT c.raw_object_id,c.run_id,c.snapshot_at FROM serve.meta_stat_capture c
+    WHERE c.path=(SELECT s.path FROM stat_set s)
+    ORDER BY c.capture_key DESC,c.raw_object_id DESC LIMIT 1000
+), history AS MATERIALIZED (
+    SELECT s.entity_id,c.run_id,c.snapshot_at FROM captures c
+    CROSS JOIN stat_set s
+    CROSS JOIN LATERAL (
+        SELECT 1 FROM serve.meta_stat m
+        WHERE m.entity_id=s.entity_id AND m.stat_key=$2 AND m.run_id=c.run_id
+            AND m.raw_object_id=c.raw_object_id
+        LIMIT 1
+    ) present
 ), latest AS MATERIALIZED (
     SELECT h.* FROM history h ORDER BY h.snapshot_at DESC,h.run_id DESC LIMIT 1
 ), picks AS (

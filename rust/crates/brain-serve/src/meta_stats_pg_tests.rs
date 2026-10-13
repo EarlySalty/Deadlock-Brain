@@ -133,8 +133,6 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
         let admin = sqlx::postgres::PgPoolOptions::new().max_connections(2).connect_with(options.clone()).await.unwrap();
         sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate").execute(&admin).await.unwrap();
         brain_storage::PgStore::new(admin.clone()).migrate_gamefacts().await.unwrap();
-        publish_snapshot(&admin, "2025-01-01T00:00:00Z", 1, true).await;
-        sqlx::raw_sql(OLDER_HISTORY).execute(&admin).await.unwrap();
         for (wins, revision) in [
             (502, "2026-09-28T05:00:00Z"),
             (505, "2026-10-06T05:00:00Z"),
@@ -145,6 +143,7 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
         ] {
             publish_snapshot(&admin, revision, wins, wins != 505).await;
         }
+        sqlx::raw_sql(OLDER_HISTORY).execute(&admin).await.unwrap();
         publish_identity(&admin).await;
         let entity: i64 = sqlx::query_scalar("SELECT id FROM canon.entity WHERE key='hero_meta_fixture'")
             .fetch_one(&admin).await.unwrap();
@@ -259,7 +258,10 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
             .unwrap()
     });
     assert!(
-        plan.iter().any(|line| line.contains("fact_history")),
+        plan.iter().any(|line| line.contains("fact_history"))
+            && plan
+                .iter()
+                .any(|line| line.contains("meta_stat_capture_order")),
         "{plan:#?}"
     );
     runtime.block_on(async {
