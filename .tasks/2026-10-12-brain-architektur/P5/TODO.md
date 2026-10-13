@@ -1,36 +1,41 @@
 # P5 continuation, 2026-10-13
 
 Branch: `feat/brain-p5-docs-20261012-v2`.
-Verified source checkpoint: `686250c7c1e2b3a5df6d75fdf2af2cec47eba69e`, pushed to origin.
+Latest source checkpoint: `86aec5c247302baa2d21011b46ddfeca8c19a666`, pushed to origin.
 Primary worktree: `/home/nathanael/.worktrees/Deadlock-Brain-p5-docs`.
-Full chronology and commands: [AUFTRAG.md](AUFTRAG.md).
+Chronology and exact evidence: [AUFTRAG.md](AUFTRAG.md).
 
-## Current state
+## Current source and verification
 
-The pending sparse-registry merge is finished at `4d213212`. The verified Docs fixer and expressly approved Core 3a checkpoint `982645cf325952b56c782fe690f6e23a5a76bf17` are merged without rebase at `686250c7`. All Rust files match worker final `86b52dcb58db789bf883d37ec643874784e53e18` exactly. Registry versions are 1, 5 and 7; P1r owns version 7. No migration body or frozen production core was changed.
+Sparse registry versions1/5/7 and approved Core3a `982645cf325952b56c782fe690f6e23a5a76bf17` are integrated without rebase. P1r owns version7; no migration body or frozen production core was edited.
 
-Parent verification `bu2dbo7pt`: formatter, storage/serve all-target check and strict Clippy pass; real native Docs suite 23 passed, 0 failed, 0 ignored, 0 filtered; shared service::pg_tools suite 4 passed, 0 failed, 0 ignored, 87 filtered. The 500 ms search deadline remains unchanged. Duplicate naked positive words are compacted at the shared selection path; phrases, OR, negation and punctuation retain their original input. Earlier unexplained short-query timeouts are recorded, not classified as flakes.
+Independent Rust review found that the original compaction guard permits hidden PostgreSQL OR syntax through Unicode `or²`. Fresh fixer `a2a497c3491682e4b` completed branch `fix/brain-p5-ascii-token-20261013` at `7cb601d0e3ca933d326c565a69aed83d6bbce09e`, based exactly on55b67439. Integrated at86aec5c2; complete Rust tree matches7cb601d0 byte-for-byte. Compaction now applies only to ASCII alphabetic tokens without standalone case-insensitive OR; Unicode, digits and punctuation retain the original search. Deadlines500ms, public512/internal32768-byte bounds, ranking and original ToolRequests remain unchanged.
 
-Independent Rust review completed with one confirmed HIGH finding at pg_docs.rs:377-392. Rust's alphanumeric guard accepts `or²`, but PG16 interprets it as OR followed by operand `²`. Input `alpha or² omega beta alpha` is compacted to `alpha or² omega beta`; against text `² omega beta`, the original fails membership while the compacted query matches, in both simple and German vectors (rank0 becomes0.1). The current verified-test checkpoint therefore remains semantically defective despite 27 passing tests. Fresh isolated fixer `a2a497c3491682e4b` owns only the guard and concrete real-PG regression in pg_docs.rs/tests, starting from55b67439. Limit rewriting to demonstrably plain PG tokens, preserve uncertain syntax, deadlines and all original request/query bounds. Do not duplicate this active fixer. Parent owns AUFTRAG/TODO; worker may create a new uniquely named round-evidence file only.
+Real PG counterexample: against text `² omega beta`, `alpha or² omega beta alpha` does not match while the old compacted query matches with rank0.1, in both simple/German vectors. The new regression guards retrieval, tool execution and both revalidation paths for public/internal scopes, including rejection of broadened Evidence. Existing baseline23 passed; new regression before fix failed0 passed/1 failed/23 filtered on remote and local fallback. Fixed worker Docs24 passed/0 failed/0 ignored/0 filtered; shared service::pg_tools4 passed/0 failed/0 ignored/136 filtered across its target invocations; remote targeted regression1 passed/23 filtered. Formatter/check/build/strict Clippy passed. Parent matching verification `bgyj8qqw1` completed successfully: formatter, all-target check and strict Clippy pass; serial native Docs24 passed/0 failed/0 ignored/0 filtered in17.55s; shared service::pg_tools4 passed/0 failed/0 ignored/87 filtered in1.80s. All Cargo stages exited0.
 
-## Gate status
+## Latest gate: substantive BLOCK
 
-No ALLOW. Worker gate initially BLOCKed the old failed-run fixture. Approved Core 3a fixes that exact contract conflict and the shared suite now passes. Final worker gate and one technical retry both exited 2 without a verdict: bwrap/unshare could not allocate memory while creating namespaces. Preserve logs `b2hkdctt5.output` and the first final attempt under the session task-log directory. Do not reroll an unchanged substantive BLOCK or bypass sandbox/gate controls. A later simple user-namespace diagnostic succeeded; that is not proof that the complete gate sandbox recovered.
+Changed-source gate on7cb601d0 against freshly fetched origin/main `edf503b280777524093307a97fabbb1bdba83d7c` returned BLOCK, exit1. No reroll. Evidence `/tmp/p5-ascii-gate-1-a2a497.log`.
 
-## Open acceptance and decisions
+1. Publication protection is bypassable: direct canon.fact INSERT permits valid_from_run to differ from its receipt's ingest_run_id; serve.current_fact publishes by receipt status. canon.write_run_fact checks the incoming pair but not the existing conflict row, allowing a mismatched visible row to be replaced by an unpublished receipt without retracting the succeeded run. Gate anchors migration7:17; v1 fact constraints/grants and serving selection confirm the paths statically.
+2. Receipt cap aggregates all applications sharing raw_object/run/extractor. Two individually valid4096-row A applications in one fresh [A,B,A] run can exceed that aggregate cap, reject final A and publish B. Gate anchor v1:55; entity/alias/fact/relation receipts and empty-set markers share the affected write path. Static verification confirms the aggregate trigger key; no parent-native Core repro is claimed.
 
-1. Canonical/public versus scoped internal Evidence remains undecided. Current Docs Prose/numeric receipts do not match the shared canonical formatter or trace resolver. Never relabel internal Docs Public or decorate canonical Evidence. Public tool receipts also need canonical-result binding after the boundary is decided.
-2. Actual sections reside in frozen core `canon.fact`; `serve.doc_section` is a view. Owned generated stored vectors plus GIN in migration 5 are approved, but the Docs-limited INSERT/UPDATE trigger exception needed to populate that owned table is unanswered. No core hook, trigger, poller or post-ingest refresh was added. Current source-fact GIN does not accelerate reconstructed serving search.
-3. Docs runtime composition is absent from the forwarded serving core. Fixture construction is not production reachability. The responsible owner must forward the permitted composition change.
-4. Combined ingestion peak including Git/Postgres children, real find_entity("Baba") alongside ingested Docs, independent whole-final-diff acceptance and live function remain unproven. The separate Store proof is preserved but unmerged because the extractor/test budget is 799 lines; the current pure extractor plus contracts uses 798. The 16 real corpus rejections are recorded and were not repaired out of scope.
+Both findings belong to frozen P1r Core. A fresh owner fixer and genuinely forwarded checkpoint are required. Do not patch applied migrations, add an unapproved core migration or reroll this BLOCK unchanged. Previous memory-only gate failures are historical, not the latest gate verdict.
 
-## Resume safely
+## Other open acceptance
 
-Receive the active fresh fixer's verified branch and inspect its concrete before/after PG proof. Resolve only verified owned findings with a fresh fixer when required. Obtain genuine decisions or forwarded owner checkpoints for the open boundaries before implementing them. Run matching checks and the canonical gate on the final changed source when the reviewer sandbox is operational. Hand over the branch and exact SHA to P1r; do not independently merge main, deploy or cut over Discord.
+- Canonical/public versus scoped internal Evidence remains undecided. Docs Prose/numeric receipts are incompatible with shared canonical receipt resolution and trace capture. Never relabel private Docs Public or decorate canonical Evidence. Public tools need canonical-result binding after the boundary is decided.
+- Owned generated vectors/GIN in migration5 are approved, but the Docs-limited INSERT/UPDATE trigger exception to populate an owned table from canon.fact is unanswered. No core hook, trigger, poller or refresh was added; existing fact GIN does not accelerate reconstructed serving search.
+- Docs adapters are not composed in the forwarded production runtime. A fixture is not runtime reachability. Release NIT inspected read-only: ops/brain-release/src/units.rs:9 lists only brain-serve, deadlock-brain-site and brain-browser-consent services; install():128 iterates that list, and main.rs:136/144 calls it. No brain-job service/timer template or separate job-unit install path appears in the searched release module/systemd inventory. This is a missing wrapper-delivery path, not a claim about actual live units; no installer/service action was run.
+- Combined ingestion peak including Git/Postgres, real find_entity("Baba") alongside ingested Docs, independent whole-final-diff acceptance and live function remain unproven. Pure extractor/contracts remain798/max799 lines. Separate Store proof stays unmerged;16 real corpus rejections were not repaired out of scope.
 
-Brain maintenance and dl-knowledge stay stopped. Do not touch ai-coach, foreign worktrees/builds/caches or production secrets/data. Bots WIP remains preserved at `3c28ce2583d1d06a78d91966a454d60b6e9d6fc0`; Discord remains unchanged until the replacement Brain is actually live.
+## Resume
 
-TESTNACHWEIS[TW-1]: 27 passed, 0 ignored | Baseline: 1 rot
-MERGEPROTOKOLL[MS-1]: 3 Git-Schritte einzeln | Anläufe: 0 | Gate: inherited final exit 2 twice, no verdict
+Route the two exact frozen-Core findings to P1r in this thread, not another session; await an approved checkpoint before changing Core. Obtain genuine decisions/forwarded composition for the other boundaries. Use a fresh fixer per substantive BLOCK, matching checks and a changed-source canonical gate. P1r owns main integration/deploy/live verification. Discord remains unchanged until the replacement Brain is live.
 
-The merge protocol counts parent registry commit, worker/Core3a feature merge and feature push. It is not a main merge or a new gate attempt.
+Do not start Brain maintenance/dl-knowledge, touch ai-coach, foreign checkouts/resources or production secrets/data. Bots WIP remains preserved at3c28ce2583d1d06a78d91966a454d60b6e9d6fc0.
+
+TESTNACHWEIS[TW-1]: 28 passed, 0 ignored | Baseline: 0 rot
+MERGEPROTOKOLL[MS-1]: 2 Git-Schritte einzeln | Anläufe: 0 | Gate: inherited worker BLOCK on frozen Core
+
+The protocol counts the parent feature merge and push, not a main merge or new parent gate attempt. Existing-suite baseline is23/0/0; the separately added concrete regression was red before the fix.
