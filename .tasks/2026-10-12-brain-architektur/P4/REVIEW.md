@@ -1,5 +1,19 @@
 # P4 independent review follow-up
 
+## Current review: published parent1628ba07, 2026-10-13
+
+Fresh read-only reviewer `a3f637df6130c3776` confirmed the actual integrated parent after approved owner merge and runtime fix67ae30ad. Shared receipt serialization and complete canonical result binding are fixed. Real PostgreSQL and the actual owner/kernel path prove receipt equality; omission-only quarantine changes reject stale seals for Provider, Publication and Cache. Final affected checks: 246 passed, 0 failed, 0 ignored, 0 filtered; formatter/compiler/Clippy exit 0. Evidence: `RUNTIME_VERIFICATION.txt`. Source/schema artifacts and owner service code were unchanged by the runtime fix.
+
+WIRKUNGSPRUEFUNG[WP-1]: 1 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 3/3 geprüft
+
+1. Oversized-post continuation/reporting remains unimplemented. The orchestrator accepted the 8-MiB cap without streaming raw, but requires a failed item with reason and actual size visible in the run report, followed by processing of later posts. `patch_source.rs:337-340` still produces a fatal source error; Core `lib.rs:75` propagates it. RunReport currently contains run_id/counts, and Store.reject requires a captured raw object ID. The missing owner-controlled nonfatal source-item/report interface is the concrete dependency. Fake raw bytes, a loader DB writer, silent skip and logging alone do not satisfy the condition.
+
+Owner service insertion and the documented receipt checkpoint remain handoff boundaries. No gate ALLOW, main integration, deployment or live acceptance is claimed.
+
+## Earlier review history
+
+The following findings describe earlier checkpoints; current dispositions are recorded above.
+
 Fresh read-only reviewer examined frozen Core2 `9f75588d`, parent production state `9192e226`, final source `5685f7e7` and schema `c4962120`. Component hashes matched commit blobs. No Cargo reruns or service changes were made by the reviewer.
 
 WIRKUNGSPRUEFUNG[WP-1]: 3 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 3/3 geprüft
