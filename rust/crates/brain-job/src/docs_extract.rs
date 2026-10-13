@@ -463,6 +463,7 @@ fn parse(bytes: &[u8]) -> Result<DocumentProjection> {
         let mut heading_path = result.sections[parent.unwrap_or(0)].heading_path.clone();
         heading_path.push(heading);
         let id = element.value().id().context("docs_section_id")?;
+        ensure!(!id.trim().is_empty(), "docs_section_id");
         let selector = format!(
             "main{} section[id={}]",
             if parent.is_some() { "" } else { " >" },
