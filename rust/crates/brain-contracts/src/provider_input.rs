@@ -381,7 +381,10 @@ pub fn grounded_turn_payload_with_quality(
                 );
                 if results.iter().any(|result| {
                     !result.is_error
-                        && matches!(result.name, ToolName::FindEntity | ToolName::GetHero)
+                        && matches!(
+                            result.name,
+                            ToolName::FindEntity | ToolName::GetHero | ToolName::GetTimer
+                        )
                 }) {
                     format.push_str(CANONICAL_CITATION_CONTRACT);
                 }
@@ -789,6 +792,14 @@ mod tests {
                 ToolName::GetHero,
                 json!({"hero":1}),
                 json!({"type":"object","properties":{"hero":{"type":"integer","minimum":1}},"required":["hero"],"additionalProperties":false}),
+            ),
+            (
+                ToolName::GetTimer,
+                json!({"timer":"urn","patch":"current"}),
+                json!({"type":"object","properties":{
+                    "timer":{"type":"string","enum":["urn","soul_box","mid_boss","rejuvenator"]},
+                    "patch":{"type":"string","minLength":1,"maxLength":128}},
+                    "required":["timer"],"additionalProperties":false}),
             ),
         ] {
             let definition = ToolDefinition {
