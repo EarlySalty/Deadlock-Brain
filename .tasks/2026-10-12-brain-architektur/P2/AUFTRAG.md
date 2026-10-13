@@ -7,17 +7,17 @@ Extend the P1r ingestion core with receipt-backed Assets item and ability facts,
 Branch: `feat/brain-p2-items-abilities-20261012-v2`.
 Base: `origin/main` at `edf503b280777524093307a97fabbb1bdba83d7c`.
 Reference only: `origin/feat/brain-p2-items-abilities-20261012` at `4d2fa43c0f32b02f4836756d86e7cdc10db75aa6`.
-Integrator: this P2 session, after P1r is live and the local gate allows the final SHA.
+Integrator: P1r. This P2 session publishes a verified gate-ready feature branch; it does not integrate main or deploy.
 
 ## Binding inputs
 
 - `../CONTRACT_INGEST_V2.md` and `../REDESIGN-INGEST.md` in the domain task directory are authoritative.
 - `../BRIEFING_WELLE2_GEMEINSAM.md` supplies the runtime tool contract; its old ingestion lifecycle is superseded.
-- Published core: `4cc0cf5d1843897b7519214cb2117e1aa8f848ed`, merged at `e2e91e5a92884a7be7e37f1c1d29d1107011d6d2`. Actual API names win over abbreviated contract stand-ins. No later P1r merge until its SHA is explicitly forwarded; never rebase published P2 work.
+- Approved checkpoints, merge without rebasing: Core 2b `9f75588ddee83422e6a7755865e4a5c44fa2e33d`, executor `e8a1ef45`, Core 3 `19dec0c96d4765cff9a9a5dd37f5ad2a84bbe7d5` and Core 3a `982645cf325952b56c782fe690f6e23a5a76bf17`. Receipts follow the exact shared Core 3 canonical formatter/resolver contract. Core 3a changes shared fixtures and P1r notes, not production code or migrations. Never rebase published P2 work.
 - Core files and migration v1 are frozen. Only the package module declaration in `brain-job/src/lib.rs`, extractor registration, source registration and reserved migration entry may be added. Other core needs go to the main orchestrator with exact signatures.
 - Core 2 is routed by the main orchestrator: applied-object idempotence with rejected-object retry, streamed multi-object sources, `RAW_BYTES`, `validate_numeric_lexeme`, and `kv_path`. Do not duplicate these changes or ask for them again.
 - Every gamefacts tool and serve view reads only `serve.current_entity`, `serve.current_alias`, `serve.current_fact`, `serve.current_relation`, or views built on them. Never read `canon.*` or `raw.*` in tools or serve views; P9 quarantine is inherited through `serve.published_receipt`.
-- Extraction has no database or catalog lookup. Cross-package references are emitted by normalized key or alias text, resolved at read time, and hidden while unresolved. The qualified-fact representation for conditions and units remains an open core contract; do not silently omit it or encode JSON as scalar text.
+- Extraction has no database or catalog lookup. Cross-package references are emitted by normalized key or alias text, resolved at read time, and hidden while unresolved. The approved representation keeps conditions and units in P2 qualifier sidecars and Serve projections without changing the frozen Fact model. Do not silently omit qualifiers or encode JSON as scalar text.
 - All compiler checks use the current `cargo-slot` routing and Rust build rules.
 
 ## Ownership

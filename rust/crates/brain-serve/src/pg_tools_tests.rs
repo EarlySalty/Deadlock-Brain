@@ -8,7 +8,7 @@ use brain_storage::gamefacts::{
     Alias, Counts, Entity, Fact, FactSet, FactValue, GameFactsStore, Receipt,
 };
 use sha2::{Digest, Sha256};
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use crate::deadlock_data::scratch_pg;
 
@@ -87,14 +87,27 @@ fn request(name: ToolName, arguments: Value) -> ToolRequest {
 }
 
 async fn publish(admin: &PgPool, name: &str, key: &str, revision: &str, large: bool) -> i64 {
-    let store = GameFactsStore::new(admin.clone());
-    let run = store.begin_run("fixture").await.unwrap();
     let values = if large {
         vec![Value::String("x".repeat(2_000)); 40]
     } else {
         vec![json!(780)]
     };
-    let bytes = serde_json::to_vec(&json!({"name":name,"values":values})).unwrap();
+    ingest_fixture(admin, name, key, revision, values, true).await
+}
+
+async fn ingest_fixture(
+    admin: &PgPool,
+    name: &str,
+    key: &str,
+    revision: &str,
+    values: Vec<Value>,
+    succeeded: bool,
+) -> i64 {
+    let store = GameFactsStore::new(admin.clone());
+    let run = store.begin_run("fixture").await.unwrap();
+    let large = values.len() > 1;
+    let bytes =
+        serde_json::to_vec(&json!({"name":name,"values":values,"revision":revision})).unwrap();
     let raw = store
         .capture(
             run,
@@ -128,7 +141,7 @@ async fn publish(admin: &PgPool, name: &str, key: &str, revision: &str, large: b
             value: if large {
                 FactValue::Text(value.as_str().unwrap().into())
             } else {
-                FactValue::Number(780.0)
+                FactValue::Number(value.as_f64().unwrap())
             },
             receipt: receipt(
                 "json_pointer",
@@ -156,7 +169,7 @@ async fn publish(admin: &PgPool, name: &str, key: &str, revision: &str, large: b
     store
         .finish_run(
             run,
-            true,
+            succeeded,
             Counts {
                 accepted: 1,
                 ..Counts::default()
@@ -164,7 +177,7 @@ async fn publish(admin: &PgPool, name: &str, key: &str, revision: &str, large: b
         )
         .await
         .unwrap();
-    sqlx::query_scalar("SELECT entity_id FROM serve.entity_identity WHERE key=$1")
+    sqlx::query_scalar("SELECT id FROM canon.entity WHERE key=$1")
         .bind(key)
         .fetch_one(admin)
         .await
@@ -198,6 +211,65 @@ impl brain_contracts::tools::GameContextResolver for NoPin {
     }
 }
 
+struct ThirdAdapter(CanonicalReceipt);
+
+impl ToolExecutionPort for ThirdAdapter {
+    fn definitions(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        _: Option<&PinnedGameContext>,
+    ) -> Result<Vec<ToolDefinition>, PortError> {
+        Ok(vec![ToolDefinition {
+            name: ToolName::ServerKnowledge,
+            description: "Independent shared-receipt adapter fixture".into(),
+            input_schema: json!({"type":"object","additionalProperties":false,"required":["question"],"properties":{"question":{"type":"string","minLength":1}}}),
+        }])
+    }
+
+    fn execute(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        _: Option<&PinnedGameContext>,
+        id: &str,
+        request: &ToolRequest,
+    ) -> Result<ToolExecution, PortError> {
+        assert_eq!(request.name(), ToolName::ServerKnowledge);
+        let evidence = format_receipt(&self.0)?;
+        Ok(ToolExecution {
+            result: ToolResult {
+                call_id: id.into(),
+                name: request.name(),
+                result: json!({"citation": evidence.evidence_id}),
+                evidence_ids: vec![evidence.evidence_id.clone()],
+                is_error: false,
+            },
+            dependencies: vec![ToolEvidenceDependency {
+                request: request.clone(),
+                game_context: None,
+                evidence: vec![evidence],
+            }],
+            usage: Usage::default(),
+        })
+    }
+
+    fn validate_dependencies(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        _: Option<&PinnedGameContext>,
+        dependencies: &[ToolEvidenceDependency],
+        _: ToolValidationPurpose,
+    ) -> Result<(), PortError> {
+        for dependency in dependencies {
+            assert_eq!(dependency.request.name(), ToolName::ServerKnowledge);
+            assert_eq!(dependency.evidence, vec![format_receipt(&self.0)?]);
+        }
+        Ok(())
+    }
+}
+
 struct ScriptedProvider;
 impl AnswerProviderPort for ScriptedProvider {
     fn answer(
@@ -216,7 +288,14 @@ impl AnswerProviderPort for ScriptedProvider {
         tools: &[ToolDefinition],
         conversation: &ToolConversation,
     ) -> Result<ProviderTurn, PortError> {
-        assert_eq!(tools.len(), 2);
+        let names: BTreeSet<_> = tools.iter().map(|tool| tool.name).collect();
+        assert_eq!(names.len(), tools.len());
+        assert!(BTreeSet::from([
+            ToolName::FindEntity,
+            ToolName::GetHero,
+            ToolName::ServerKnowledge,
+        ])
+        .is_subset(&names));
         let call = match conversation.messages.last() {
             None => ToolCall {
                 id: "find".into(),
@@ -233,15 +312,34 @@ impl AnswerProviderPort for ScriptedProvider {
                     arguments: json!({"hero":results[0].result["entities"][0]["entity_id"]}),
                 }
             }
-            Some(ToolMessage::ToolResults { results }) => {
+            Some(ToolMessage::ToolResults { results }) if results[0].name == ToolName::GetHero => {
                 assert!(!results[0].is_error);
                 assert!(!results[0].result["stats"]["facts"]
                     .as_array()
                     .unwrap()
                     .is_empty());
+                ToolCall {
+                    id: "third".into(),
+                    name: ToolName::ServerKnowledge,
+                    arguments: json!({"question":query.text}),
+                }
+            }
+            Some(ToolMessage::ToolResults { results }) => {
+                assert_eq!(results[0].name, ToolName::ServerKnowledge);
+                let cited_evidence_ids: BTreeSet<_> = conversation
+                    .messages
+                    .iter()
+                    .flat_map(|message| match message {
+                        ToolMessage::ToolResults { results } => results
+                            .iter()
+                            .flat_map(|result| result.evidence_ids.clone())
+                            .collect::<Vec<_>>(),
+                        _ => Vec::new(),
+                    })
+                    .collect();
                 return Ok(ProviderTurn::from(ProviderAnswer {
                     text: "Steckbrief aus veröffentlichten Spielwerten".into(),
-                    cited_evidence_ids: results[0].evidence_ids.clone(),
+                    cited_evidence_ids: cited_evidence_ids.into_iter().collect(),
                     usage: Usage {
                         network_rounds: 1,
                         ..Usage::default()
@@ -318,6 +416,43 @@ fn cited_rows_and_truncation_preserve_identity_and_strict_output_bounds() {
 }
 
 #[test]
+fn hash_citation_expansion_is_measured_before_result_binding() {
+    let receipt = CanonicalReceipt {
+        raw_receipt_id: 42,
+        raw_object_id: 7,
+        ingest_run_id: 3,
+        source: "fixture".into(),
+        source_revision: "r1".into(),
+        path: "hero.json".into(),
+        locator_kind: "raw_bytes".into(),
+        locator: String::new(),
+        value_sha256: "ab".repeat(32),
+        extractor: "fixture-v1".into(),
+        patch: None,
+    };
+    let evidence = format_receipt(&receipt).unwrap();
+    let mut result = ToolResult {
+        call_id: "boundary".into(),
+        name: ToolName::GetHero,
+        result: json!({"identity":{"citation":"42","source_revision":"r1","patch":null},"padding":""}),
+        evidence_ids: vec!["42".into()],
+        is_error: false,
+    };
+    let mut worst = result.clone();
+    worst.call_id = "\"".repeat(512);
+    let overhead = serde_json::to_vec(&worst).unwrap().len();
+    result.result["padding"] = json!("x".repeat(MAX_BYTES - overhead - 1));
+    assert!(fits(&result, 1).unwrap());
+    replace_citations(
+        &mut result.result,
+        &BTreeMap::from([(42, evidence.clone())]),
+    )
+    .unwrap();
+    result.evidence_ids = vec![evidence.evidence_id];
+    assert!(!fits(&result, 1).unwrap());
+}
+
+#[test]
 fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wiring() {
     let pg = scratch_pg::ScratchPg::start();
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -390,6 +525,30 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
     assert_eq!(hero.result.result["abilities"]["available"], false);
     assert_eq!(hero.result.result["stats"]["facts"][0]["value"], 780.0);
     assert!(serde_json::to_vec(&hero.result).unwrap().len() < MAX_BYTES);
+    let shared = find.dependencies[0]
+        .evidence
+        .iter()
+        .find(|evidence| hero.dependencies[0].evidence.contains(evidence))
+        .unwrap();
+    assert!(find.result.evidence_ids.contains(
+        &find.result.result["entities"][0]["citation"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    ));
+    assert!(shared
+        .evidence_id
+        .starts_with(brain_contracts::canonical_receipt::RECEIPT_ID_PREFIX));
+    let shared_metadata = CanonicalReceipt::from_evidence(shared).unwrap();
+    let third_metadata = runtime.block_on(async {
+        let row = sqlx::query(RECEIPTS)
+            .bind(vec![shared_metadata.raw_receipt_id])
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+        receipt_metadata(row).unwrap()
+    });
+    assert_eq!(format_receipt(&third_metadata).unwrap(), *shared);
     for evidence in &hero.dependencies[0].evidence {
         let metadata: Value = serde_json::from_str(&evidence.content).unwrap();
         assert_eq!(metadata["patch"], Value::Null);
@@ -486,9 +645,92 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
     assert!(tools
         .execute(&query, &denied, None, "denied", &hero_request)
         .is_err());
+    runtime.block_on(async {
+        sqlx::query("UPDATE canon.receipt SET extractor=$1 WHERE id=$2")
+            .bind(format!("{}.changed", shared_metadata.extractor))
+            .bind(shared_metadata.raw_receipt_id)
+            .execute(&admin)
+            .await
+            .unwrap();
+    });
+    let changed_receipt = tools
+        .execute(&query, &context, None, "changed-receipt", &hero_request)
+        .unwrap();
+    assert!(!changed_receipt
+        .result
+        .evidence_ids
+        .contains(&shared.evidence_id));
+    assert!(tools
+        .validate_dependencies(
+            &query,
+            &context,
+            None,
+            &hero.dependencies,
+            ToolValidationPurpose::Cache
+        )
+        .is_err());
+    runtime.block_on(async {
+        sqlx::query("UPDATE canon.receipt SET extractor=$1 WHERE id=$2")
+            .bind(&shared_metadata.extractor)
+            .bind(shared_metadata.raw_receipt_id)
+            .execute(&admin)
+            .await
+            .unwrap();
+    });
+    let mut changed_fact = hero.clone();
+    changed_fact.result.result["stats"]["facts"][0]["value"] = json!(781.0);
+    changed_fact.dependencies[0] = changed_fact.dependencies[0]
+        .clone()
+        .with_canonical_result(&changed_fact.result)
+        .unwrap();
+    assert_eq!(changed_fact.result.evidence_ids, hero.result.evidence_ids);
+    assert_eq!(
+        changed_fact.dependencies[0].evidence,
+        hero.dependencies[0].evidence
+    );
+    assert_eq!(
+        changed_fact.dependencies[0]
+            .request
+            .without_canonical_result(),
+        hero.dependencies[0].request.without_canonical_result()
+    );
+    assert_ne!(
+        changed_fact.dependencies[0].request,
+        hero.dependencies[0].request
+    );
+    assert!(tools
+        .validate_dependencies(
+            &query,
+            &context,
+            None,
+            &changed_fact.dependencies,
+            ToolValidationPurpose::Publication
+        )
+        .is_err());
+    tools
+        .validate_dependencies(
+            &query,
+            &context,
+            None,
+            &hero.dependencies,
+            ToolValidationPurpose::Cache,
+        )
+        .unwrap();
+    let tools = PgTools::new(
+        ThirdAdapter(third_metadata),
+        pool.clone(),
+        runtime.handle().clone(),
+    );
     let traced = super::super::answer_trace::TracedTools(tools);
     let kernel = brain_kernel::Kernel::new(NoRetrieval, ScriptedProvider)
         .with_tools(traced, NoPin, "fixture");
+    let kernel = brain_kernel::CachedKernel::new(kernel, 8, Duration::from_secs(30));
+    assert_eq!(
+        kernel.answer_for_publication(&query, &context).status,
+        AnswerStatus::BudgetExceeded
+    );
+    let mut adapter_context = context.clone();
+    adapter_context.budget.max_input_tokens = 128_000;
     let writer = runtime.block_on(async {
         super::super::answer_trace::PgTraceWriter::new(
             options.username("brain_service"),
@@ -500,9 +742,13 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
     for name in ["Baba", "Abrams"] {
         let mut question = query.clone();
         question.text = format!("{name} Steckbrief");
-        let answer = kernel.answer_for_publication(&question, &context);
+        let answer = kernel.answer_for_publication(&question, &adapter_context);
         assert_eq!(answer.status, AnswerStatus::Answered, "{answer:?}");
         assert!(!answer.citations.is_empty());
+        question.request_id = format!("warm-{name}");
+        let warm = kernel.answer_for_publication(&question, &adapter_context);
+        assert_eq!(warm.status, AnswerStatus::Answered, "{warm:?}");
+        assert_eq!(warm.citations, answer.citations);
     }
     runtime.block_on(async {
         let rows: Vec<(Value, Value)> =
@@ -510,14 +756,62 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
                 .fetch_all(&admin)
                 .await
                 .unwrap();
-        assert_eq!(rows.len(), 2);
-        for (calls, citations) in rows {
-            assert_eq!(calls, json!(["find_entity", "get_hero"]));
-            assert!(!citations.as_array().unwrap().is_empty());
+        assert_eq!(rows.len(), 4);
+        for (index, (calls, citations)) in rows.iter().enumerate() {
+            assert_eq!(
+                *calls,
+                if index % 2 == 0 {
+                    json!(["find_entity", "get_hero", "server_knowledge"])
+                } else {
+                    json!([])
+                }
+            );
+            let ids = citations.as_array().unwrap();
+            assert!(!ids.is_empty());
+            assert!(ids.iter().all(|id| id
+                .as_str()
+                .unwrap()
+                .parse::<i64>()
+                .is_ok_and(|id| id > 0)));
+            assert!(ids.contains(&json!(shared_metadata.raw_receipt_id.to_string())));
         }
-        publish(&admin, "Baba", "hero_baba", "r2", false).await;
+        let trace_ids = |value: &Value| {
+            value
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|id| id.as_str().unwrap().to_owned())
+                .collect::<BTreeSet<_>>()
+        };
+        assert_eq!(trace_ids(&rows[0].1), trace_ids(&rows[1].1));
+        assert_eq!(trace_ids(&rows[2].1), trace_ids(&rows[3].1));
+        assert_eq!(
+            ingest_fixture(&admin, "Baba", "hero_baba", "r2", vec![json!(781)], true).await,
+            baba
+        );
     });
     let tools = PgTools::new(Delegate, pool.clone(), runtime.handle().clone());
+    let fresh = tools
+        .execute(&query, &context, None, "fresh", &hero_request)
+        .unwrap();
+    assert_eq!(fresh.result.result["stats"]["facts"][0]["value"], 781.0);
+    assert_eq!(
+        fresh.result.result["stats"]["facts"][0]["source_revision"],
+        "r2"
+    );
+    assert_ne!(fresh.result.evidence_ids, hero.result.evidence_ids);
+    for purpose in [
+        ToolValidationPurpose::Provider,
+        ToolValidationPurpose::Publication,
+        ToolValidationPurpose::Cache,
+    ] {
+        assert!(tools
+            .validate_dependencies(&query, &context, None, &hero.dependencies, purpose)
+            .is_err());
+        tools
+            .validate_dependencies(&query, &context, None, &fresh.dependencies, purpose)
+            .unwrap();
+    }
     runtime.block_on(publish(&admin, "Baba", "hero_baba_twin", "r3", false));
     let ambiguous = tools
         .execute(
@@ -547,19 +841,49 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
             ToolValidationPurpose::Cache
         )
         .is_err());
-    runtime.block_on(async {
-        sqlx::query("UPDATE ops.ingest_run SET status='failed' WHERE source='fixture'")
-            .execute(&admin)
-            .await
-            .unwrap();
+    let unpublished = runtime.block_on(async {
+        let entity = ingest_fixture(
+            &admin,
+            "Unpublished",
+            "hero_unpublished",
+            "failed",
+            vec![json!(780)],
+            false,
+        )
+        .await;
+        let (facts, failed_runs, published_receipts, profiles): (i64, i64, i64, i64) =
+            sqlx::query_as("SELECT (SELECT count(*) FROM canon.fact WHERE entity_id=$1), (SELECT count(DISTINCT r.ingest_run_id) FROM canon.fact f JOIN canon.receipt r ON r.id=f.receipt_id JOIN ops.ingest_run run ON run.id=r.ingest_run_id WHERE f.entity_id=$1 AND run.status='failed'), (SELECT count(*) FROM canon.fact f JOIN serve.published_receipt r ON r.id=f.receipt_id WHERE f.entity_id=$1), (SELECT count(*) FROM serve.hero_profile WHERE entity_id=$1)")
+                .bind(entity)
+                .fetch_one(&admin)
+                .await
+                .unwrap();
+        assert_eq!((facts, failed_runs, published_receipts, profiles), (2, 1, 0, 0));
+        eprintln!("PostgreSQL fixture proof: facts={facts}, failed_runs={failed_runs}, published_receipts={published_receipts}, profiles={profiles}");
+        entity
     });
-    assert!(
-        tools
-            .execute(&query, &context, None, "unpublished", &hero_request)
-            .unwrap()
-            .result
-            .is_error
-    );
+    for unpublished_request in [
+        request(ToolName::GetHero, json!({"hero":unpublished})),
+        request(
+            ToolName::FindEntity,
+            json!({"text":"Unpublished","kind":"hero"}),
+        ),
+    ] {
+        let execution = tools
+            .execute(&query, &context, None, "unpublished", &unpublished_request)
+            .unwrap();
+        assert!(execution.result.is_error);
+        assert!(execution.result.evidence_ids.is_empty());
+        assert!(execution.dependencies.is_empty());
+    }
+    tools
+        .validate_dependencies(
+            &query,
+            &context,
+            None,
+            &fresh.dependencies,
+            ToolValidationPurpose::Cache,
+        )
+        .unwrap();
     runtime.block_on(async {
         pool.close().await;
         admin.close().await;

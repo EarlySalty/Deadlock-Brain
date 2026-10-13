@@ -1,9 +1,9 @@
 use super::pg_tools::blocking;
 use brain_contracts::{
-    tools::BuildPlanRequest, Accounted, AnswerResponse, AnswerStatus, AuthorizedContext,
-    PinnedGameContext, PortError, PortFailure, Query, ToolCall, ToolDefinition,
-    ToolEvidenceDependency, ToolExecution, ToolExecutionPort, ToolRequest, ToolValidationPurpose,
-    Usage, UsageAccounting,
+    canonical_receipt::CanonicalReceipt, tools::BuildPlanRequest, Accounted, AnswerResponse,
+    AnswerStatus, AuthorizedContext, Evidence, PinnedGameContext, PortError, PortFailure, Query,
+    ToolCall, ToolDefinition, ToolEvidenceDependency, ToolExecution, ToolExecutionPort,
+    ToolRequest, ToolValidationPurpose, Usage, UsageAccounting,
 };
 use brain_kernel::AnswerKernelPort;
 use serde_json::{json, Value};
@@ -56,13 +56,30 @@ fn record_call(request: &ToolRequest) {
 fn record_result(execution: &ToolExecution) {
     ACTIVE.with(|active| {
         if let Some(capture) = active.borrow_mut().as_mut() {
-            for id in &execution.result.evidence_ids {
-                if receipt_id(id) && !capture.citations.contains(id) {
-                    capture.citations.push(id.clone());
+            for evidence in execution
+                .dependencies
+                .iter()
+                .flat_map(|dependency| &dependency.evidence)
+            {
+                if execution
+                    .result
+                    .evidence_ids
+                    .contains(&evidence.evidence_id)
+                {
+                    record_evidence(capture, evidence);
                 }
             }
         }
     });
+}
+
+fn record_evidence(capture: &mut Capture, evidence: &Evidence) {
+    if let Ok(receipt) = CanonicalReceipt::from_evidence(evidence) {
+        let id = receipt.raw_receipt_id.to_string();
+        if !capture.citations.contains(&id) {
+            capture.citations.push(id);
+        }
+    }
 }
 
 fn receipt_id(id: &str) -> bool {
@@ -260,11 +277,7 @@ impl<K> TracedKernel<K> {
         let mut capture = scope.take();
         let (answer, accounting) = response(&result);
         for evidence in &answer.citations {
-            if receipt_id(&evidence.evidence_id)
-                && !capture.citations.contains(&evidence.evidence_id)
-            {
-                capture.citations.push(evidence.evidence_id.clone());
-            }
+            record_evidence(&mut capture, evidence);
         }
         let usage = accounting.map_or(&answer.usage, |value| &value.observed);
         let record = TraceRecord {

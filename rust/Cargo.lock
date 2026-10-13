@@ -389,6 +389,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "brain-storage",
+ "dbrain-sources",
  "deadlock-brain-core",
  "serde",
  "serde_json",
@@ -501,6 +502,7 @@ dependencies = [
  "brain-compare",
  "brain-contracts",
  "brain-ingestion",
+ "brain-job",
  "brain-kernel",
  "brain-policy",
  "brain-providers",

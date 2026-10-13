@@ -4,10 +4,10 @@ use sha2::{Digest, Sha256};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 #[path = "../../brain-storage/tests/support/scratch_pg.rs"]
 mod scratch_pg;
-fn input(bytes: Vec<u8>) -> anyhow::Result<InputObject> {
+fn input(bytes: Vec<u8>, language: &str) -> anyhow::Result<InputObject> {
     Ok(InputObject {
         revision: "assets-checkpoint".into(),
-        path: "items/en.json".into(),
+        path: format!("items/{language}.json"),
         bytes,
     })
 }
@@ -56,7 +56,7 @@ async fn actual_assets_poison_isolation_and_subsequent_valid_run() {
     let first = ingest(
         &store,
         "assets",
-        [input(oversized), input(collision)],
+        [input(oversized, "en"), input(collision, "en")],
         EXTRACTORS,
     )
     .await
@@ -75,11 +75,17 @@ async fn actual_assets_poison_isolation_and_subsequent_valid_run() {
         "SELECT count(*) FROM ops.ingest_run WHERE status='succeeded' AND finished IS NOT NULL";
     assert_eq!(count(&admin, finished).await, 1);
     assert_eq!(count(&admin, "SELECT count(*) FROM canon.receipt").await, 0);
-    let bytes = br#"{"id":4294967295,"class_name":"Valid_Ability","type":"ability","name":"Car\/bine","properties":{"Damage":{"value":"1.2300e+2"}}}"#.to_vec();
-    let second = ingest(&store, "assets", [input(bytes.clone())], EXTRACTORS)
-        .await
-        .expect("valid next run");
-    assert_eq!(second.counts.accepted, 1);
+    let bytes = br#"{"id":4294967295,"class_name":"Valid_Ability","type":"ability","name":"Car\/bine","properties":{"Damage":{"value":"1.2300e+2","postfix":"%","scale_function":{"class_name":"scale_function_tech_damage","stat_scale":0.25}}}}"#.to_vec();
+    let german = br#"{"id":4294967295,"class_name":"Valid_Ability","type":"ability","name":"Gewehr","properties":{"Damage":{"value":"999","postfix":"%","scale_function":{"class_name":"scale_function_tech_damage","stat_scale":0.25}}}}"#.to_vec();
+    let second = ingest(
+        &store,
+        "assets",
+        [input(bytes.clone(), "en"), input(german.clone(), "de")],
+        EXTRACTORS,
+    )
+    .await
+    .expect("valid next run");
+    assert_eq!(second.counts.accepted, 2);
     assert_eq!(second.counts.rejected, 0);
     assert_eq!(second.counts.ignored, 0);
     assert_eq!(count(&admin, finished).await, 2);
@@ -87,15 +93,16 @@ async fn actual_assets_poison_isolation_and_subsequent_valid_run() {
         count(&admin, "SELECT count(*) FROM ops.ingest_rejection").await,
         2
     );
-    let original: Vec<u8> =
-        sqlx::query_scalar("SELECT bytes FROM raw.object WHERE ingest_run_id=$1")
-            .bind(second.run_id)
-            .fetch_one(&admin)
-            .await
-            .expect("raw bytes");
+    let original: Vec<u8> = sqlx::query_scalar(
+        "SELECT bytes FROM raw.object WHERE ingest_run_id=$1 AND path='items/en.json'",
+    )
+    .bind(second.run_id)
+    .fetch_one(&admin)
+    .await
+    .expect("raw bytes");
     assert_eq!(original, bytes);
     let hash: Vec<u8> = sqlx::query_scalar(
-        "SELECT p.value_sha256 FROM serve.current_fact f JOIN serve.published_receipt p ON p.id=f.receipt_id WHERE f.stat_key='ability_damage'",
+        "SELECT p.value_sha256 FROM serve.p2_fact f JOIN serve.published_receipt p ON p.id=(f.fact->>'citation')::bigint WHERE f.stat_key='ability_damage'",
     )
     .fetch_one(&admin)
     .await
@@ -108,6 +115,38 @@ async fn actual_assets_poison_isolation_and_subsequent_valid_run() {
     .await
     .expect("served alias receipt");
     assert_eq!(alias_hash, Sha256::digest(br#""Car\/bine""#).to_vec());
+    let fact: serde_json::Value =
+        sqlx::query_scalar("SELECT fact FROM serve.p2_fact WHERE stat_key='ability_damage'")
+            .fetch_one(&admin)
+            .await
+            .expect("qualified fact");
+    assert_eq!(fact["value"].as_f64(), Some(123.0));
+    assert_eq!(fact["unit"], "%");
+    assert_eq!(fact["condition"]["scale_value"], "0.25");
+    assert!(fact["qualifiers"]
+        .as_array()
+        .is_some_and(|rows| rows.len() == 5));
+    let objects = count(&admin, "SELECT count(*) FROM raw.object").await;
+    let facts = count(&admin, "SELECT count(*) FROM canon.fact").await;
+    let third = ingest(
+        &store,
+        "assets",
+        [input(bytes, "en"), input(german, "de")],
+        EXTRACTORS,
+    )
+    .await
+    .expect("unchanged run");
+    assert_eq!(third.counts.accepted, 0);
+    assert_eq!(third.counts.rejected, 0);
+    assert_eq!(third.counts.ignored, 2);
+    assert_eq!(
+        count(&admin, "SELECT count(*) FROM raw.object").await,
+        objects
+    );
+    assert_eq!(
+        count(&admin, "SELECT count(*) FROM canon.fact").await,
+        facts
+    );
     writer.close().await;
     admin.close().await;
 }

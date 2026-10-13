@@ -38,6 +38,23 @@ impl TraceSink for Sink {
     }
 }
 
+fn evidence() -> Evidence {
+    brain_contracts::canonical_receipt::format_receipt(&CanonicalReceipt {
+        raw_receipt_id: 42,
+        raw_object_id: 7,
+        ingest_run_id: 3,
+        source: "fixture".into(),
+        source_revision: "r1".into(),
+        path: "hero.json".into(),
+        locator_kind: "raw_bytes".into(),
+        locator: String::new(),
+        value_sha256: "ab".repeat(32),
+        extractor: "fixture-v1".into(),
+        patch: None,
+    })
+    .unwrap()
+}
+
 struct ToolProbe;
 impl ToolExecutionPort for ToolProbe {
     fn execute(
@@ -53,10 +70,14 @@ impl ToolExecutionPort for ToolProbe {
                 call_id: id.into(),
                 name: request.name(),
                 result: json!({}),
-                evidence_ids: vec!["42".into(), "not-a-receipt".into()],
+                evidence_ids: vec![evidence().evidence_id, "not-a-receipt".into()],
                 is_error: false,
             },
-            dependencies: Vec::new(),
+            dependencies: vec![ToolEvidenceDependency {
+                request: request.clone(),
+                game_context: None,
+                evidence: vec![evidence()],
+            }],
             usage: Usage::default(),
         })
     }
@@ -263,6 +284,36 @@ fn captures_are_nested_and_thread_isolated_with_no_revalidation_calls() {
     assert!(records
         .iter()
         .all(|record| record.tool_calls == vec!["get_hero"] && record.citation_ids == vec!["42"]));
+}
+
+#[test]
+fn warm_cached_answers_resolve_original_numeric_receipts_without_tool_execution() {
+    struct Cached;
+    impl AnswerKernelPort for Cached {
+        fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
+            AnswerResponse {
+                contract_version: CONTRACT_VERSION.into(),
+                request_id: query.request_id.clone(),
+                knowledge_release: context.knowledge_release.clone(),
+                status: AnswerStatus::Answered,
+                text: "Fixture".into(),
+                citations: vec![evidence()],
+                usage: Usage::default(),
+            }
+        }
+    }
+    let sink = Arc::new(Sink::default());
+    let kernel = TracedKernel::new(Cached, Some(sink.clone()));
+    let answer = kernel.answer(&query(), &context());
+    assert_eq!(answer.citations[0].evidence_id, evidence().evidence_id);
+    let records = sink.0.lock().unwrap();
+    assert!(records[0].tool_calls.is_empty());
+    assert_eq!(records[0].citation_ids, vec!["42"]);
+    let mut capture = Capture::default();
+    let mut forged = evidence();
+    forged.content = forged.content.replace("42", "43");
+    record_evidence(&mut capture, &forged);
+    assert!(capture.citations.is_empty());
 }
 
 #[test]

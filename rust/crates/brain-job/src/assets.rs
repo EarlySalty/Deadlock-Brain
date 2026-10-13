@@ -7,17 +7,40 @@ use serde::{Deserialize, Deserializer};
 use serde_json::{json, value::RawValue, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+pub mod source;
 pub struct Assets;
 impl Extractor for Assets {
     fn name(&self) -> &'static str {
         "assets"
     }
+    fn version(&self) -> &'static str {
+        "2"
+    }
     fn accepts(&self, source: &str, path: &str) -> bool {
-        source == "assets" && matches!(path, "items/en.json" | "items/de.json")
+        source == "assets"
+            && (matches!(
+                path,
+                "items/en.json"
+                    | "items/de.json"
+                    | "items/en.invalid-response"
+                    | "items/de.invalid-response"
+            ) || ["items/en/", "items/de/"].iter().any(|prefix| {
+                path.strip_prefix(prefix).is_some_and(|tail| {
+                    tail.strip_suffix(".json")
+                        .or_else(|| tail.strip_suffix(".oversized"))
+                        .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+                })
+            }))
     }
     fn extract(&self, raw: &RawObject) -> Outcome {
         if !self.accepts(&raw.source, &raw.path) {
             return Outcome::Ignored;
+        }
+        if raw.path.ends_with(".invalid-response") {
+            return Outcome::Rejected(rejection("assets_array"));
+        }
+        if raw.path.ends_with(".oversized") {
+            return Outcome::Rejected(rejection("raw_too_large"));
         }
         match extract(raw) {
             Ok(set) if set.entities.is_empty() => Outcome::Ignored,
@@ -36,10 +59,8 @@ struct Leaf<'a> {
 }
 impl Leaf<'_> {
     fn value_sha256(&self) -> [u8; 32] {
-        let hex = brain_storage::entity_profile::derivation::sha256(self.lexeme.as_bytes());
-        let digit = |b: u8| if b <= b'9' { b - b'0' } else { b - b'a' + 10 };
-        let bytes = hex.as_bytes();
-        std::array::from_fn(|i| digit(bytes[2 * i]) * 16 + digit(bytes[2 * i + 1]))
+        use sha2::{Digest, Sha256};
+        Sha256::digest(self.lexeme.as_bytes()).into()
     }
     fn receipt(&self) -> Receipt {
         Receipt {
@@ -190,7 +211,8 @@ fn records(bytes: &[u8]) -> Result<Vec<Record<'_>>, &'static str> {
     Ok(result)
 }
 fn numeric(value: &str) -> bool {
-    serde_json::from_str::<serde_json::Number>(value).is_ok()
+    serde_json::from_str::<&RawValue>(value)
+        .is_ok_and(|raw| matches!(raw.get().as_bytes().first(), Some(b'-' | b'0'..=b'9')))
 }
 impl<'a> Record<'a> {
     fn fields(&self, language: &'static str) -> Result<Vec<Field<'_, 'a>>, &'static str> {
@@ -201,6 +223,7 @@ impl<'a> Record<'a> {
             .map(|leaf| (leaf.pointer.as_str(), leaf))
             .collect();
         let mut result = Vec::new();
+        let mut upgrade_names = BTreeMap::new();
         for leaf in &self.leaves {
             let path = leaf.pointer.strip_prefix(prefix).ok_or("assets_pointer")?;
             let parts: Vec<_> = path.split('/').skip(1).collect();
@@ -226,11 +249,24 @@ impl<'a> Record<'a> {
                     format!("{}.description_{}", self.kind, unescape(field)),
                     json!({"lang": language}),
                 ),
-                ["properties", field, "value"] if is_number => {
+                ["properties", field, "value"] if leaf.numeric || leaf.textual => {
                     let mut condition = json!({});
+                    for (source, target) in [
+                        ("postfix", "unit"),
+                        ("display_units", "display_units"),
+                        ("label", "label"),
+                        ("conditional", "conditional"),
+                    ] {
+                        if let Some(value) =
+                            index.get(format!("{prefix}/properties/{field}/{source}").as_str())
+                        {
+                            qualifier(&mut condition, target, value)?;
+                        }
+                    }
                     let scale = format!("{prefix}/properties/{field}/scale_function");
                     for (source, target) in [
                         ("class_name", "scale_class"),
+                        ("subclass_name", "scale_subclass"),
                         ("specific_stat_scale_type", "scale_type"),
                         ("stat_scale", "scale_value"),
                     ] {
@@ -243,6 +279,12 @@ impl<'a> Record<'a> {
                         &index,
                         &format!("{scale}/scaling_stats/"),
                         "scale_stat",
+                    )?;
+                    qualifiers(
+                        &mut condition,
+                        &index,
+                        &format!("{prefix}/properties/{field}/required_upgrade_bits/"),
+                        "required_upgrade_bit",
                     )?;
                     (format!("{}.{}", self.kind, unescape(field)), condition)
                 }
@@ -267,35 +309,31 @@ impl<'a> Record<'a> {
                         .ok_or("assets_upgrade_tier")?;
                     let pointer = &leaf.pointer;
                     let parent = pointer.strip_suffix("/bonus").ok_or("assets_pointer")?;
-                    if index.contains_key(format!("{parent}/upgrade_type").as_str())
-                        || index.contains_key(format!("{parent}/scale_stat_filter").as_str())
-                    {
-                        continue;
-                    }
                     let name = index
                         .get(format!("{parent}/name").as_str())
                         .filter(|leaf| leaf.textual)
                         .ok_or("assets_upgrade_name")?;
                     let mut condition = json!({"upgrade_tier": tier, "operation": "delta"});
-                    let scope = format!("{prefix}/upgrades/{}/property_upgrades/", parts[1]);
-                    let normalized = limits::normalize_key(&name.text);
-                    let mut same_names = Vec::new();
-                    for (pointer, value) in &index {
-                        if pointer.starts_with(&scope)
-                            && pointer.ends_with("/name")
-                            && value.textual
-                            && limits::normalize_key(&value.text) == normalized
-                        {
-                            if value.text != name.text {
-                                return Err("key_collision");
-                            }
-                            same_names.push(*pointer);
+                    for attr in ["upgrade_type", "scale_stat_filter"] {
+                        if let Some(value) = index.get(format!("{parent}/{attr}").as_str()) {
+                            qualifier(&mut condition, attr, value)?;
                         }
                     }
-                    if same_names.len() > 1 {
-                        condition["upgrade_entry"] =
-                            json!(entry.parse::<u64>().map_err(|_| "assets_upgrade_entry")?);
+                    if condition.get("upgrade_type").is_some() {
+                        condition
+                            .as_object_mut()
+                            .ok_or("assets_qualifier_type")?
+                            .remove("operation");
                     }
+                    let normalized = limits::normalize_key(&name.text);
+                    if upgrade_names
+                        .insert((tier, normalized), name.text.as_str())
+                        .is_some_and(|old| old != name.text)
+                    {
+                        return Err("key_collision");
+                    }
+                    condition["upgrade_entry"] =
+                        json!(entry.parse::<u64>().map_err(|_| "assets_upgrade_entry")?);
                     (format!("ability.{}", name.text), condition)
                 }
                 _ => continue,
@@ -368,8 +406,14 @@ impl<'a> Record<'a> {
     }
 }
 fn qualifier(condition: &mut Value, key: &str, leaf: &Leaf<'_>) -> Result<(), &'static str> {
+    if leaf.textual && leaf.text.is_empty() && key != "unit" {
+        return Ok(());
+    }
     if !leaf.textual && !leaf.numeric {
         return Err("assets_qualifier_type");
+    }
+    if leaf.numeric || (leaf.textual && numeric(&leaf.text)) {
+        limits::validate_numeric_lexeme(&leaf.text).map_err(|error| error.code)?;
     }
     condition[key] = Value::String(leaf.text.clone());
     condition[format!("{key}_locator")] = Value::String(leaf.pointer.clone());
@@ -381,6 +425,12 @@ fn qualifiers(
     scope: &str,
     label: &str,
 ) -> Result<(), &'static str> {
+    if index
+        .get(scope.trim_end_matches('/'))
+        .is_some_and(|leaf| !leaf.lexeme.starts_with('['))
+    {
+        return Err("assets_qualifier_type");
+    }
     for (pointer, value) in index {
         if let Some(position) = pointer.strip_prefix(scope) {
             if !position.contains('/') {
@@ -396,20 +446,119 @@ fn unescape(part: &str) -> String {
 fn rejection(code: &'static str) -> Rejection {
     Rejection::new(code, "Assets-Objekt verletzt den Datenvertrag")
 }
+fn fact_value(leaf: &Leaf<'_>) -> Result<FactValue, Rejection> {
+    if leaf.numeric
+        || (leaf.textual
+            && (leaf.pointer.ends_with("/value") || leaf.pointer.ends_with("/bonus"))
+            && numeric(&leaf.text))
+    {
+        limits::validate_numeric_lexeme(&leaf.text)?;
+        if leaf.textual {
+            return Ok(FactValue::Text(leaf.text.clone()));
+        }
+        return leaf
+            .text
+            .parse()
+            .map(FactValue::Number)
+            .map_err(|_| rejection("invalid_number"));
+    }
+    Ok(FactValue::Text(leaf.text.clone()))
+}
+fn emit(
+    set: &mut FactSet,
+    key: &str,
+    record: &Record<'_>,
+    field: &Field<'_, '_>,
+    language: &str,
+) -> Result<(), Rejection> {
+    let stat = limits::normalize_key(&field.stat.replacen('.', "_", 1));
+    let value = if field.stat == "identity.game_id" {
+        FactValue::Text(record.id.to_string())
+    } else {
+        fact_value(field.leaf)?
+    };
+    let mut push = |stat_key: String, value, receipt| {
+        set.facts.push(Fact {
+            entity_key: key.into(),
+            stat_key,
+            value,
+            receipt,
+        })
+    };
+    if matches!(field.stat.as_str(), "identity.key" | "identity.name") {
+        let stat = if field.stat == "identity.name" {
+            format!("name_{language}")
+        } else {
+            format!("{stat}_{language}")
+        };
+        push(stat, value, field.leaf.receipt());
+        return Ok(());
+    }
+    let pointer = field
+        .leaf
+        .pointer
+        .strip_prefix(&record.prefix)
+        .ok_or_else(|| rejection("assets_pointer"))?;
+    let tag = brain_storage::entity_profile::derivation::sha256(
+        format!("{language}:{pointer}").as_bytes(),
+    );
+    let tag = &tag[..16];
+    push(format!("p2_v_{tag}_{stat}"), value, field.leaf.receipt());
+    let mut attributes = field
+        .condition
+        .as_object()
+        .cloned()
+        .ok_or_else(|| rejection("assets_qualifier_type"))?;
+    attributes.insert("source_language".into(), json!(language));
+    if field.leaf.textual
+        && numeric(&field.leaf.text)
+        && (field.leaf.pointer.ends_with("/value") || field.leaf.pointer.ends_with("/bonus"))
+    {
+        attributes.insert("numeric".into(), json!(true));
+    }
+    if let Some(unit) = field.unit.filter(|_| !attributes.contains_key("unit")) {
+        attributes.insert("unit".into(), json!(unit));
+    }
+    let mut count = 0;
+    for (attr, value) in &attributes {
+        if attr.ends_with("_locator") {
+            continue;
+        }
+        let leaf = match attributes
+            .get(&format!("{attr}_locator"))
+            .and_then(Value::as_str)
+        {
+            Some(pointer) => record
+                .leaves
+                .iter()
+                .find(|leaf| leaf.pointer == pointer)
+                .ok_or_else(|| rejection("assets_pointer"))?,
+            None => field.leaf,
+        };
+        let value = match value {
+            Value::String(text) => FactValue::Text(text.clone()),
+            Value::Number(number) => FactValue::Text(number.to_string()),
+            Value::Bool(value) => FactValue::Bool(*value),
+            _ => return Err(rejection("assets_qualifier_type")),
+        };
+        push(format!("p2_q_{tag}_{attr}"), value, leaf.receipt());
+        count += 1;
+    }
+    push(
+        format!("p2_q_{tag}_count"),
+        FactValue::Text(count.to_string()),
+        field.leaf.receipt(),
+    );
+    Ok(())
+}
 fn extract(raw: &RawObject) -> Result<FactSet, Rejection> {
-    let language = match raw.path.as_str() {
-        "items/de.json" => "de",
-        _ => "en",
+    let language = if raw.path.starts_with("items/de") {
+        "de"
+    } else {
+        "en"
     };
     let mut set = FactSet::default();
-    let mut qualified = false;
     for record in records(&raw.bytes).map_err(rejection)? {
-        let upgrades = format!("{}/upgrades/", record.prefix);
-        qualified |= record.leaves.iter().any(|leaf| {
-            leaf.pointer.starts_with(&upgrades)
-                || leaf.pointer.ends_with("/scale_function")
-                || (leaf.pointer.ends_with("/usage_flags") && leaf.lexeme != "[]")
-        });
         let key = limits::normalize_key(&record.class_name);
         let fields = record.fields(language).map_err(rejection)?;
         let identity = fields
@@ -421,40 +570,35 @@ fn extract(raw: &RawObject) -> Result<FactSet, Rejection> {
             key: key.clone(),
             receipt: identity.leaf.receipt(),
         });
+        let mut seen = BTreeSet::new();
         for field in fields {
+            let signature = (
+                limits::normalize_key(&field.stat),
+                field.condition["lang"].to_string(),
+                field.condition["upgrade_tier"].to_string(),
+                field.condition["upgrade_entry"].to_string(),
+            );
+            if !seen.insert(signature) {
+                return Err(rejection("key_collision"));
+            }
             if let Some(lang) = field.alias_language {
+                let alias = limits::normalize_alias(&field.leaf.text);
+                if lang == "und" && alias != key {
+                    set.aliases.push(Alias {
+                        entity_key: key.clone(),
+                        alias: key.clone(),
+                        lang: lang.into(),
+                        receipt: field.leaf.receipt(),
+                    });
+                }
                 set.aliases.push(Alias {
                     entity_key: key.clone(),
-                    alias: limits::normalize_alias(&field.leaf.text),
+                    alias,
                     lang: lang.into(),
                     receipt: field.leaf.receipt(),
                 });
-                if field.stat == "identity.name" {
-                    continue;
-                }
             }
-            if field.unit.is_some() || field.condition != json!({}) {
-                qualified = true;
-                continue;
-            }
-            let value = if field.stat == "identity.game_id" {
-                FactValue::Text(record.id.to_string())
-            } else if field.leaf.numeric || field.leaf.pointer.ends_with("/value") {
-                let number = field
-                    .leaf
-                    .text
-                    .parse()
-                    .map_err(|_| rejection("invalid_number"))?;
-                FactValue::Number(number)
-            } else {
-                FactValue::Text(field.leaf.text.clone())
-            };
-            set.facts.push(Fact {
-                entity_key: key.clone(),
-                stat_key: limits::normalize_key(&field.stat.replacen('.', "_", 1)),
-                value,
-                receipt: field.leaf.receipt(),
-            });
+            emit(&mut set, &key, &record, &field, language)?;
         }
         for (position, leaf) in record
             .components()
@@ -464,16 +608,13 @@ fn extract(raw: &RawObject) -> Result<FactSet, Rejection> {
         {
             set.facts.push(Fact {
                 entity_key: key.clone(),
-                stat_key: format!("component_item_{position}"),
+                stat_key: format!("component_item_{language}_{position}"),
                 value: FactValue::Text(limits::normalize_key(&leaf.text)),
                 receipt: leaf.receipt(),
             });
         }
     }
     limits::validate(&set)?;
-    if qualified {
-        return Err(Rejection::new("assets_qualified_unsupported", "Bedingungen oder Einheiten können im aktuellen Faktenvertrag nicht verlustfrei gespeichert werden"));
-    }
     Ok(set)
 }
 #[cfg(test)]

@@ -1,21 +1,43 @@
-# P2 v2 continuation
+# P2 continuation, 2026-10-13
 
-State 2026-10-12 20:15 CEST, Opus takeover of the dead Codex thread.
+Branch: `feat/brain-p2-items-abilities-20261012-v2`. Published HEAD: `f7da8b74e32af50c73c438adb6b3db7115e26767`. Approved checkpoints `9f75588d` and `e8a1ef45` were merged without rebasing. The approved Core 3 merge of `19dec0c96d4765cff9a9a5dd37f5ad2a84bbe7d5` is in progress. Core 3a `982645cf325952b56c782fe690f6e23a5a76bf17` was subsequently approved and fetched; its exact shared test fixture is adopted, with its provenance merge still outstanding. No main integration, deployment or service activation.
 
-- Branch `feat/brain-p2-items-abilities-20261012-v2`, salvage head `5db851bb`.
-- `7eace8ff`: Assets extractor with poison test, cherry-picked from worker worktree `wf_58db6e48-ccb-1`.
-- `5db851bb`: typed get_item/get_ability/compare contracts and bounded card consumer from worker worktree `wf_374f9b3f-029-1`; not wired into the answer path.
-- Schema worker: worktree `/home/nathanael/.worktrees/Deadlock-Brain-p2-v3-schema`, branch `wip/p2-v3-schema-20261012`; migration v3 file, `serve.item_card`, `serve.ability_card`, scratch-PG card test, EXPLAIN evidence. Merge into the P2 branch after review.
+## Implementation, not yet gate-ready
 
-## Blocked on orchestrator
+- Took over the two assigned schema-worker files without modifying their originals. Registered additive migration version 3 alongside Core versions 1 and 7. Version 7 remains P1r-owned and unchanged. Hero and Assets extractors are both registered. The frozen Fact model is unchanged. Scalar qualifier sidecars carry their own exact lexical receipts, source language, units, scaling, usage flags, conditions and upgrade indices.
+- Numeric JSON strings remain canonical Text, centrally validated before Serve conversion. English and German use independent language anchors; old qualifiers and component references cannot survive their newer source anchor. Source precedence is resolved per entity, statistic and condition. No claim of complete Assets metadata or Street Brawl coverage.
+- Assets source reuses the existing bounded HttpClient and public endpoint. The measured English response is 6,157,215 bytes, above Core's 4,194,304-byte Raw limit. Full unchanged transport bytes are archived in bounded `.response` parts before array parsing; exact record slices follow. Archive paths include the complete response hash. Oversized or large malformed logical objects produce bounded rejection markers. The marker itself is incomplete; the preceding archive parts retain the complete response. Local fixture reads obey the existing transport bound.
+- The three P2 tools use the published PostgreSQL executor, readonly transactions, 500 ms session guard and canonical dependency revalidation. Core 3 receipts use the shared formatter and resolver, `gamefacts.receipt.v1:sha256:` content IDs, complete metadata and patch null. Qualifier citations participate in both receipt collection and content-ID replacement.
+- Result measurement reserves the worst escaped 512-byte call ID, fewer than 16,384 result bytes and at most 100 receipts. P2-specific trimming handles nested card sections and recomputes Compare cell status after the final content-ID expansion. GetItem currently preserves its SQL-selected facts and trims links only. Hero+slot reads published hero-profile links; absent or ambiguous slots fail closed. No positive published source slot proof exists yet.
 
-1. PG tool executor and find_entity/get_hero are not in core `4cc0cf5d`; waiting for the P1r SHA that publishes them.
-2. `migrations.rs::ordered()` requires contiguous versions; v3 registration waits for P3 v2 or a core change.
-3. Core 2 SHA (multi-object source, qualified facts, kv_path, RAW_BYTES, idempotence skip).
+## Completed checks before Core 3
 
-## Remaining after unblock
+- `b8qcaaq48`: 250 passed, 0 failed, 13 ignored, exit 0. Relevant libraries and ingest, poison, Core 2, tool-extension and evidence-loop checks. This is not proof of the current Core 3 integration.
+- `bs4rkpk5x`: matching non-deploy build of brain-job, brain-serve and brain-migrate passed. `bu2g7w148`: four-package all-target Clippy with `-D warnings` passed.
+- `bi4jajin0`: 4 passed, 0 failed, 1 ignored. Actual readonly 500-ms executor, qualifier evidence, strict bounds, complete Compare cells and revalidation. Item fixture plan: 61.788 ms planning, 7.371 ms execution. `bey8e4rou`: 1 passed, 0 failed, 0 ignored, condition-scoped source priority and index fixture. Both predate current receipt expansion.
+- Public probe `bkmqr3fnh`: actual English/German ingestion accepted 1,336, rejected 0, ignored 182. Replaying unchanged captured responses added 0 Raw objects and 0 facts. The actual item executor returned Unavailable before card assertions, exit 101. No SQLSTATE or query plan from that failure was available. Earlier probes established that alphabetic/default ordering omitted relevant effects; current SQL prioritizes cost, descriptions and source-labelled nonzero conditional/damage effects. This current Toxic Bullets card is not yet proven.
 
-1. Wire the three tools through the P1r executor; parameterized SQL on the P2 serve views only.
-2. Register the Assets source and add the hourly `brain-job@` timer instance.
-3. Adapt the extractor to core 2; rerun the poison test on the real store.
-4. Fresh full-diff reviewer, local gate after P1r is live, then integration in the order the orchestrator sets.
+## Current Core 3 verification
+
+- Work was secured in stash SHA `4a89cba054622ec7a3dadbe15c51109a1ccbf9ad`, tag `p2-core3-integration-20261013-4bbdfa7a`, then applied by exact SHA during the merge. Registry, migration registry and tool fixture conflicts are resolved. Duplicate Cargo dependency keys are removed. Retain the stash until verified restoration and publication; never bare pop.
+- Intermediate run `b680x10b6`: contracts 71 passed; job 8 passed and 1 failed against the older temporarily restored extractor. The quoted numeric receipt mismatch was already addressed in the secured P2 implementation, now restored. Storage checks did not run after that failure. No current green result follows from this intermediate run.
+- Current `cargo-slot fmt --manifest-path rust/Cargo.toml -p brain-job -p brain-storage -p brain-contracts -p brain-serve -- --check` passed. Working and staged diffs passed `git diff --check`.
+- Build-slot contention is live: slot 2 is retained by two orphaned scratch PostgreSQL clusters, with original test PID 3290682 no longer present. No match for that PID was found in this session's own task outputs, so ownership is unproven. They are left untouched. Slots 3 and 4 have active foreign build/test processes. Pending runs remain under the existing wrapper; no locks are deleted and no foreign process is stopped.
+- Combined current `b3gzy0ka7` passed, exit 0: 267 passed, 0 failed, 15 ignored. Counts: contracts 71, tool_extensions 11, job 12, poison 1, hero 5 (2 ignored), ingest 3 (1 ignored), serve 101 (9 ignored), tool_evidence_loop 6, storage 45 (2 ignored), Core 2 5 (1 ignored), P2 cards 1 and run lock 6. It recompiled storage after the latest edits. The current 3,000-by-24 index/condition fixture passed. Public Assets is one of the ignored tests here and ran explicitly in the shared suite below.
+- Actual public source/executor probe `b4crgh5a4`: 0 passed, 1 failed, 0 ignored, exit 101. Ingestion accepted 1,336, rejected 0, ignored 182; unchanged replay added 0 Raw objects and 0 facts. Unlike the previous probe, execution returned a structured error result rather than Unavailable, so SQL-failure diagnostics did not run. The assertion did not yet report the structured error code. SQL fact selection now conservatively reserves expanded citation IDs and their evidence-list entries: 187 minus the old citation length per main/qualifier receipt, plus existing fact JSON bytes. This retains original priority and the 10,240-byte fact allowance; no output limit is raised. The new assertion prints the error code on failure. The subsequent shared suite below verifies this repair against actual public data.
+- Core 3a shared suite `bzjfuqw8u`: `cargo-slot test --manifest-path rust/Cargo.toml -p brain-serve --lib service::pg_tools --jobs 3 -- --include-ignored`, exit 0; 6 passed, 0 failed, 0 ignored, 104 filtered. It recompiled brain-storage and brain-serve after the SQL/fixture edits. The actual public Assets ingestion/replay and Toxic Bullets executor passed with cost, bleed and incoming-healing effects retained. The actual P2 readonly executor and shared P1r fixture also passed. No success was prewarmed in the public probe.
+- All-target Clippy passed on ionos in `bcxnegsyw`, but its subsequent build command failed before compilation because brain-migrate is a binary of brain-storage, not a package. Corrected final `baiesx3pf` passed both stages, exit 0: four-package all-target Clippy with `-D warnings`, then matching non-deploy brain-job, brain-serve and brain-migrate binary build in 2m23s. Fresh review and local gate remain outstanding. Gate executable: `/home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review`.
+
+## Test contract adaptations
+
+The exact Core 3a shared fixture checks unique definitions and the required independent ServerKnowledge/FindEntity/GetHero adapters without assuming a fixed registry size. Its published fixture includes revision bytes, genuine changed values, all three revalidation purposes and a genuinely failed unpublished run with two persisted facts and no published receipts/profile. It retains the 32,000-token refusal and its separate 128,000-token adapter test context; production budgets remain unchanged. This supersedes the local duplicated budget/unfinished-hero adaptations. The P2 executor test resolves each Evidence through the shared canonical resolver and checks Compare cell totals/status against retained facts after final trimming. These adaptations still require the current test results.
+
+## Required decisions and handover boundary
+
+- Size budget remains exceeded: assets.rs 622 lines + focused tests 242 + poison test 152 = 1,016; including source adapter/tests 275 = 1,291. No exception has been granted. Do not disguise the excess by moving files or dropping contracts. A concrete orchestrator exception or a legitimate simplification below the agreed budget is required before gate-ready.
+- P1r owns main integration and deployment. Publish only a verified candidate on this feature branch. Gate-ready requires current passing checks, fresh review and actual local gate ALLOW. No GitHub check substitutes for the gate.
+- Integrator still owes the live normal answer/answer_trace, Haze/Wraith comparison, positive slot-source evidence where available, actual job cgroup peak below 300 MB and controlled timer activation. No production proof is claimed here.
+
+## Next actions
+
+Explicitly stage own paths, commit the verified Core 3 merge, merge the approved Core 3a checkpoint without rebasing and push the assigned branch. Production checks are current; the Core 3a fixture is already included in those checks. Resolve the size-budget exception, then independently review and gate the published candidate. Hand over to P1r; do not integrate or deploy from this session.

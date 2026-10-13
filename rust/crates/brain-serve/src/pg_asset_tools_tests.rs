@@ -20,6 +20,19 @@ fn comparison_request() -> ToolRequest {
 }
 
 #[test]
+fn qualifier_receipts_enter_the_ledger_and_missing_receipts_fail_closed() {
+    let mut row = fact(1, "ability_damage", 5);
+    row["qualifiers"] = json!([{"key":"scale_value","value":"0.25","citation":"7","patch":null,"source_revision":"assets-a"}]);
+    let bounded = result(card(vec![row.clone()])).expect("qualified card");
+    assert_eq!(bounded.evidence_ids, ["1", "5", "7"]);
+    row["qualifiers"][0]
+        .as_object_mut()
+        .expect("qualifier")
+        .remove("citation");
+    assert!(result(card(vec![row])).is_none());
+}
+
+#[test]
 fn definitions_validate_typed_requests_and_separate_historical_selection() {
     let definitions = definitions();
     brain_contracts::tools::validate_definitions(&definitions).unwrap();
@@ -234,33 +247,47 @@ fn actual_call_id_escaping_and_evidence_ids_are_in_the_result_budget() {
     row["value"] = json!("");
     row["citation"] = json!("9".repeat(512));
     let value = card(vec![row]);
-    let baseline = bounded_card_result(
-        "x",
-        &request(ToolName::GetAbility, json!({"ability":1})),
-        value.clone(),
-    )
-    .unwrap()
-    .unwrap();
-    let baseline_bytes = serde_json::to_vec(&baseline).unwrap().len();
-    let mut value = value;
-    value["facts"]["facts"][0]["value"] = json!("x".repeat(MAX_RESULT_BYTES - baseline_bytes));
-    let exact = bounded_card_result(
-        "x",
-        &request(ToolName::GetAbility, json!({"ability":1})),
-        value.clone(),
-    )
-    .unwrap()
-    .unwrap();
-    assert_eq!(serde_json::to_vec(&exact).unwrap().len(), MAX_RESULT_BYTES);
-    assert_eq!(exact.result["facts"]["facts"].as_array().unwrap().len(), 1);
-    for call_id in ["\"".repeat(512), "\\".repeat(512), "ä".repeat(256)] {
-        let bounded = bounded_card_result(
-            &call_id,
-            &request(ToolName::GetAbility, json!({"ability":1})),
-            value.clone(),
-        )
+    let selection = request(ToolName::GetAbility, json!({"ability":1}));
+    let baseline = bounded_card_result(&"\"".repeat(512), &selection, value.clone())
         .unwrap()
         .unwrap();
+    let baseline_bytes = serde_json::to_vec(&baseline).unwrap().len();
+    let mut value = value;
+    value["facts"]["facts"][0]["value"] = json!("x".repeat(MAX_RESULT_BYTES - baseline_bytes - 1));
+    let retained = bounded_card_result(&"\"".repeat(512), &selection, value.clone())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        serde_json::to_vec(&retained).unwrap().len(),
+        MAX_RESULT_BYTES - 1
+    );
+    assert_eq!(
+        retained.result["facts"]["facts"].as_array().unwrap().len(),
+        1
+    );
+    for call_id in [
+        "x".into(),
+        "\"".repeat(512),
+        "\\".repeat(512),
+        "ä".repeat(256),
+    ] {
+        let bounded = bounded_card_result(&call_id, &selection, value.clone())
+            .unwrap()
+            .unwrap();
+        assert_eq!(bounded.result, retained.result);
+        assert_eq!(bounded.evidence_ids, retained.evidence_ids);
+        assert!(serde_json::to_vec(&bounded).unwrap().len() < MAX_RESULT_BYTES);
+    }
+    value["facts"]["facts"][0]["value"] = json!("x".repeat(MAX_RESULT_BYTES - baseline_bytes));
+    for call_id in [
+        "x".into(),
+        "\"".repeat(512),
+        "\\".repeat(512),
+        "ä".repeat(256),
+    ] {
+        let bounded = bounded_card_result(&call_id, &selection, value.clone())
+            .unwrap()
+            .unwrap();
         assert_eq!(bounded.call_id, call_id);
         assert!(bounded.result["facts"]["facts"]
             .as_array()
@@ -269,7 +296,7 @@ fn actual_call_id_escaping_and_evidence_ids_are_in_the_result_budget() {
         assert_eq!(bounded.result["facts"]["omitted_count"], 1);
         assert_eq!(bounded.result["facts"]["truncated"], true);
         assert_eq!(bounded.evidence_ids, ["1"]);
-        assert!(serde_json::to_vec(&bounded).unwrap().len() <= MAX_RESULT_BYTES);
+        assert!(serde_json::to_vec(&bounded).unwrap().len() < MAX_RESULT_BYTES);
     }
 }
 

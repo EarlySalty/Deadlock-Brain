@@ -3,6 +3,10 @@ use brain_contracts::PortError;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[path = "pg_asset_queries.rs"]
+mod queries;
+pub(crate) use queries::read;
+
 pub const MAX_RESULT_BYTES: usize = 16_384;
 
 pub fn canonical(name: ToolName) -> bool {
@@ -106,6 +110,16 @@ fn fact_fields(value: &Value) -> Result<(), PortError> {
 
 fn receipted_fact(value: &Value, ids: &mut BTreeSet<String>) -> Result<(), PortError> {
     receipt(value, ids)?;
+    if let Some(qualifiers) = value.get("qualifiers") {
+        for qualifier in qualifiers.as_array().ok_or_else(invalid)? {
+            row_receipt(qualifier, ids)?;
+            if !qualifier["key"].as_str().is_some_and(|key| !key.is_empty())
+                || qualifier.get("value").is_none()
+            {
+                return Err(invalid());
+            }
+        }
+    }
     fact_fields(value)
 }
 
@@ -365,6 +379,18 @@ fn trim_card(value: &mut Value, request: &ToolRequest) -> Result<bool, PortError
     Ok(false)
 }
 
+pub(crate) fn trim_execution(value: &mut Value, request: &ToolRequest) -> Result<bool, PortError> {
+    match request.name() {
+        ToolName::Compare => {
+            let trimmed = trim_section(&mut value["stats"], "facts", |_| false)?;
+            update_cells(value)?;
+            Ok(trimmed)
+        }
+        ToolName::GetItem | ToolName::GetAbility => trim_card(value, request),
+        _ => Err(invalid()),
+    }
+}
+
 pub fn bounded_card_result(
     call_id: &str,
     request: &ToolRequest,
@@ -429,8 +455,10 @@ fn bounded_result(
             return Ok(None);
         };
         result.evidence_ids = receipts.into_iter().collect();
-        let bytes = serde_json::to_vec(&result).map_err(|_| invalid())?.len();
-        if bytes <= MAX_RESULT_BYTES {
+        let mut worst = result.clone();
+        worst.call_id = "\"".repeat(512);
+        let bytes = serde_json::to_vec(&worst).map_err(|_| invalid())?.len();
+        if bytes < MAX_RESULT_BYTES && result.evidence_ids.len() <= 100 {
             return Ok(Some(result));
         }
         if comparison {

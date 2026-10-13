@@ -1,3 +1,3 @@
 use crate::Extractor;
 
-pub const EXTRACTORS: &[&dyn Extractor] = &[&crate::assets::Assets];
+pub const EXTRACTORS: &[&dyn Extractor] = &[&crate::hero::Hero, &crate::assets::Assets];

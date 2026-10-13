@@ -1037,7 +1037,12 @@ impl ToolExecution {
         }
         let expected_game = if matches!(
             request.name(),
-            ToolName::ServerKnowledge | ToolName::FindEntity | ToolName::GetHero
+            ToolName::ServerKnowledge
+                | ToolName::FindEntity
+                | ToolName::GetHero
+                | ToolName::GetItem
+                | ToolName::GetAbility
+                | ToolName::Compare
         ) {
             None
         } else {
@@ -1064,7 +1069,14 @@ impl ToolExecution {
             Some(game)
         };
         let mut expected_request = request.clone();
-        if matches!(request.name(), ToolName::FindEntity | ToolName::GetHero) {
+        if matches!(
+            request.name(),
+            ToolName::FindEntity
+                | ToolName::GetHero
+                | ToolName::GetItem
+                | ToolName::GetAbility
+                | ToolName::Compare
+        ) {
             expected_request.canonical_result_sha256 = Some(canonical_result_sha256(&self.result)?);
         }
         let mut ids = BTreeSet::new();

@@ -4,7 +4,10 @@ use std::{fs::OpenOptions, path::Path, process::Command};
 
 pub type InputObjects = Box<dyn Iterator<Item = anyhow::Result<InputObject>> + Send>;
 pub type Source = fn(&Path, bool) -> InputObjects;
-pub const SOURCES: &[(&str, Source)] = &[("deadlock-data", deadlock_data)];
+pub const SOURCES: &[(&str, Source)] = &[
+    ("deadlock-data", deadlock_data),
+    ("assets", crate::assets::source::load),
+];
 pub const DEADLOCK_DATA_URL: &str = "https://github.com/deadlock-wiki/deadlock-data.git";
 
 fn git(repository: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {

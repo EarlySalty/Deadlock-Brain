@@ -1,17 +1,13 @@
 use brain_contracts::{
+    canonical_receipt::{format_receipt, CanonicalReceipt},
     tools::{BuildPlanRequest, CanonicalEntityKind, GetHeroRequest, HeroSection},
-    Accounted, AuthorizedContext, Evidence, EvidenceKind, PinnedGameContext, PortError,
-    PortFailure, Query, SourceVisibility, ToolCall, ToolDefinition, ToolEvidenceDependency,
-    ToolExecution, ToolExecutionPort, ToolName, ToolRequest, ToolResult, ToolSubrequest,
-    ToolValidationPurpose, Usage, UsageAccounting,
+    Accounted, AuthorizedContext, Evidence, PinnedGameContext, PortError, PortFailure, Query,
+    ToolCall, ToolDefinition, ToolEvidenceDependency, ToolExecution, ToolExecutionPort, ToolName,
+    ToolRequest, ToolResult, ToolSubrequest, ToolValidationPurpose, Usage, UsageAccounting,
 };
 use serde_json::{json, Value};
 use sqlx::{postgres::PgConnectOptions, PgConnection, PgPool, Row};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    future::Future,
-    time::Duration,
-};
+use std::{collections::BTreeMap, future::Future, time::Duration};
 
 const MAX_BYTES: usize = 16_384;
 const MAX_EVIDENCE: usize = 100;
@@ -163,6 +159,7 @@ impl<T> PgTools<T> {
             .patch
             .as_deref()
             .is_some_and(|patch| patch != "current")
+            || crate::pg_asset_tools::historical(request)
             || matches!(request.subrequest(), ToolSubrequest::GetHero(hero)
                 if hero.patch.as_deref().is_some_and(|patch| patch != "current"))
         {
@@ -224,6 +221,13 @@ impl<T> PgTools<T> {
                             "Kein veröffentlichter Heldensteckbrief für diese Entitäts-ID gefunden."));
                     };
                     profile
+                }
+                ToolSubrequest::GetItem(_) | ToolSubrequest::GetAbility(_) | ToolSubrequest::Compare(_) => {
+                    let Some(value) = crate::pg_asset_tools::read(&mut connection, call_id, request).await? else {
+                        return Ok(error_execution(call_id, request.name(), "asset_selection_unavailable",
+                            "Für diese Auswahl sind keine vollständigen veröffentlichten Spielbelege verfügbar."));
+                    };
+                    value
                 }
                 _ => return Err(invalid()),
             };
@@ -345,6 +349,7 @@ impl<T: ToolExecutionPort> ToolExecutionPort for PgTools<T> {
 
 pub(super) fn canonical(name: ToolName) -> bool {
     matches!(name, ToolName::FindEntity | ToolName::GetHero)
+        || crate::pg_asset_tools::canonical(name)
 }
 
 fn kind_name(kind: CanonicalEntityKind) -> &'static str {
@@ -372,7 +377,7 @@ fn definitions() -> Vec<ToolDefinition> {
                 "hero":{"type":"integer","minimum":1,"maximum":i64::MAX},
                 "patch":{"type":"string","minLength":1,"maxLength":128},
                 "sections":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"string","enum":["stats","abilities","weapon"]}}}})},
-    ]
+    ].into_iter().chain(crate::pg_asset_tools::definitions()).collect()
 }
 
 fn hero_sql(request: &GetHeroRequest) -> &'static str {
@@ -445,6 +450,7 @@ fn citations(value: &Value, ids: &mut BTreeMap<i64, String>) -> Result<(), PortE
                 "facts",
                 "links",
                 "entities",
+                "qualifiers",
             ] {
                 if let Some(field) = object.get(key) {
                     citations(field, ids)?;
@@ -489,6 +495,45 @@ fn trim_row(value: &mut Value) -> bool {
     false
 }
 
+fn replace_citations(
+    value: &mut Value,
+    receipts: &BTreeMap<i64, Evidence>,
+) -> Result<(), PortError> {
+    match value {
+        Value::Object(object) => {
+            if let Some(citation) = object.get_mut("citation") {
+                let receipt = citation
+                    .as_str()
+                    .and_then(|id| id.parse::<i64>().ok())
+                    .and_then(|id| receipts.get(&id))
+                    .ok_or_else(invalid)?;
+                *citation = json!(receipt.evidence_id);
+            }
+            for key in [
+                "identity",
+                "stats",
+                "weapon",
+                "abilities",
+                "facts",
+                "links",
+                "entities",
+                "qualifiers",
+            ] {
+                if let Some(field) = object.get_mut(key) {
+                    replace_citations(field, receipts)?;
+                }
+            }
+        }
+        Value::Array(values) => {
+            for field in values {
+                replace_citations(field, receipts)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn fits(result: &ToolResult, count: usize) -> Result<bool, PortError> {
     let mut worst = result.clone();
     worst.call_id = "\"".repeat(512);
@@ -502,54 +547,71 @@ pub(super) async fn bounded_execution(
     request: &ToolRequest,
     mut value: Value,
 ) -> Result<ToolExecution, PortError> {
+    let mut receipts = BTreeMap::new();
     loop {
         let mut ids = BTreeMap::new();
         citations(&value, &mut ids)?;
-        let result = ToolResult {
-            call_id: id.into(),
-            name: request.name(),
-            result: value.clone(),
-            evidence_ids: ids.keys().map(ToString::to_string).collect(),
-            is_error: false,
-        };
-        if fits(&result, ids.len())? {
-            if ids.is_empty() {
-                return Err(invalid());
-            }
-            let rows = sqlx::query(RECEIPTS)
-                .bind(ids.keys().copied().collect::<Vec<_>>())
-                .fetch_all(&mut *connection)
-                .await
-                .map_err(database_error)?;
-            if rows.len() != ids.len() {
-                return Err(invalid());
-            }
-            let evidence = rows
-                .into_iter()
-                .map(|row| {
-                    let id = row.try_get::<i64, _>("id").map_err(database_error)?;
-                    let revision = row
-                        .try_get::<String, _>("source_revision")
-                        .map_err(database_error)?;
-                    if ids.get(&id) != Some(&revision) {
+        if ids.is_empty() {
+            return Err(invalid());
+        }
+        if ids.len() <= MAX_EVIDENCE {
+            let missing: Vec<_> = ids
+                .keys()
+                .filter(|id| !receipts.contains_key(*id))
+                .copied()
+                .collect();
+            if !missing.is_empty() {
+                let rows = sqlx::query(RECEIPTS)
+                    .bind(&missing)
+                    .fetch_all(&mut *connection)
+                    .await
+                    .map_err(database_error)?;
+                if rows.len() != missing.len() {
+                    return Err(invalid());
+                }
+                for row in rows {
+                    let receipt = receipt_metadata(row)?;
+                    if ids.get(&receipt.raw_receipt_id) != Some(&receipt.source_revision) {
                         return Err(invalid());
                     }
-                    receipt_evidence(row)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let dependency = ToolEvidenceDependency {
-                request: request.clone(),
-                game_context: None,
-                evidence,
+                    receipts.insert(receipt.raw_receipt_id, format_receipt(&receipt)?);
+                }
             }
-            .with_canonical_result(&result)?;
-            return Ok(ToolExecution {
-                result,
-                dependencies: vec![dependency],
-                usage: Usage::default(),
-            });
+            let evidence = ids
+                .keys()
+                .map(|id| receipts.get(id).cloned().ok_or_else(invalid))
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut result = ToolResult {
+                call_id: id.into(),
+                name: request.name(),
+                result: value.clone(),
+                evidence_ids: evidence
+                    .iter()
+                    .map(|item| item.evidence_id.clone())
+                    .collect(),
+                is_error: false,
+            };
+            replace_citations(&mut result.result, &receipts)?;
+            if fits(&result, evidence.len())? {
+                let dependency = ToolEvidenceDependency {
+                    request: request.clone(),
+                    game_context: None,
+                    evidence,
+                }
+                .with_canonical_result(&result)?;
+                return Ok(ToolExecution {
+                    result,
+                    dependencies: vec![dependency],
+                    usage: Usage::default(),
+                });
+            }
         }
-        if !trim_row(&mut value) {
+        let trimmed = if crate::pg_asset_tools::canonical(request.name()) {
+            crate::pg_asset_tools::trim_execution(&mut value, request)?
+        } else {
+            trim_row(&mut value)
+        };
+        if !trimmed {
             return Ok(error_execution(
                 id,
                 request.name(),
@@ -560,40 +622,25 @@ pub(super) async fn bounded_execution(
     }
 }
 
-fn receipt_evidence(row: sqlx::postgres::PgRow) -> Result<Evidence, PortError> {
-    let id = row.try_get::<i64, _>("id").map_err(database_error)?;
-    let run = row
-        .try_get::<i64, _>("ingest_run_id")
-        .map_err(database_error)?;
-    let object = row
-        .try_get::<i64, _>("raw_object_id")
-        .map_err(database_error)?;
-    let source = row.try_get::<String, _>("source").map_err(database_error)?;
-    if id <= 0 || run <= 0 || object <= 0 || source.is_empty() {
-        return Err(invalid());
-    }
-    let content = json!({"citation":id.to_string(),"raw_object_id":object,"source":source,
-        "ingest_run_id":run,"source_revision":row.try_get::<String,_>("source_revision").map_err(database_error)?,
-        "path":row.try_get::<String,_>("path").map_err(database_error)?,
-        "locator_kind":row.try_get::<String,_>("locator_kind").map_err(database_error)?,
-        "locator":row.try_get::<String,_>("locator").map_err(database_error)?,
-        "value_sha256":row.try_get::<String,_>("value_sha256").map_err(database_error)?,
-        "extractor":row.try_get::<String,_>("extractor").map_err(database_error)?,"patch":null});
-    Ok(Evidence {
-        evidence_id: id.to_string(),
-        source_id: format!("canon.source/{source}"),
-        logical_id: format!("receipt/{id}"),
-        revision: run as u64,
-        kind: EvidenceKind::Fact,
-        content: content.to_string(),
-        citation: id.to_string(),
-        visibility: SourceVisibility::Public,
-        allowed_scopes: BTreeSet::new(),
-        score: 1.0,
-        provenance: None,
+fn receipt_metadata(row: sqlx::postgres::PgRow) -> Result<CanonicalReceipt, PortError> {
+    Ok(CanonicalReceipt {
+        raw_receipt_id: row.try_get("id").map_err(database_error)?,
+        raw_object_id: row.try_get("raw_object_id").map_err(database_error)?,
+        ingest_run_id: row.try_get("ingest_run_id").map_err(database_error)?,
+        source: row.try_get("source").map_err(database_error)?,
+        source_revision: row.try_get("source_revision").map_err(database_error)?,
+        path: row.try_get("path").map_err(database_error)?,
+        locator_kind: row.try_get("locator_kind").map_err(database_error)?,
+        locator: row.try_get("locator").map_err(database_error)?,
+        value_sha256: row.try_get("value_sha256").map_err(database_error)?,
+        extractor: row.try_get("extractor").map_err(database_error)?,
         patch: None,
     })
 }
+
+#[cfg(test)]
+#[path = "pg_asset_executor_tests.rs"]
+mod asset_tests;
 
 #[cfg(test)]
 #[path = "pg_tools_tests.rs"]
