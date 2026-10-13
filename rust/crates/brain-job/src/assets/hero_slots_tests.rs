@@ -1,6 +1,9 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
+#[path = "../../tests/fixtures/p2-slots/capture.rs"]
+mod captures;
+
 fn raw(bytes: Vec<u8>) -> RawObject {
     RawObject {
         id: 1,
@@ -14,12 +17,8 @@ fn raw(bytes: Vec<u8>) -> RawObject {
 
 #[test]
 fn explicit_captured_fields_produce_164_reference_only_relations() {
-    let bytes = include_bytes!("../../tests/fixtures/p2-slots/heroes-en.json");
-    assert_eq!(
-        brain_storage::entity_profile::derivation::sha256(bytes),
-        "5c163d19407aa683a6ebbae6e79d58885d71b3af3c0343e28cf0ec2e7fc75c31"
-    );
-    let heroes: Vec<&RawValue> = serde_json::from_slice(bytes).expect("real heroes");
+    let bytes = captures::read("heroes-en.json.gz");
+    let heroes: Vec<&RawValue> = serde_json::from_slice(&bytes).expect("real heroes");
     assert_eq!(heroes.len(), 41);
     let mut total = 0;
     for hero in heroes {

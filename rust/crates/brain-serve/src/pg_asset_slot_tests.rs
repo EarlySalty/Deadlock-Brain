@@ -1,15 +1,14 @@
 use super::*;
 use brain_contracts::canonical_receipt::CanonicalReceipt;
 
-const HEROES: &[u8] = include_bytes!("../../brain-job/tests/fixtures/p2-slots/heroes-en.json");
-const ITEMS: &[u8] = include_bytes!("../../brain-job/tests/fixtures/p2-slots/items-en.json");
-const CORE_HEROES: &[u8] = include_bytes!("../../brain-job/tests/fixtures/p2-slots/hero-data.json");
+#[path = "../../brain-job/tests/fixtures/p2-slots/capture.rs"]
+mod captures;
 
 fn cache(heroes: &[u8]) -> tempfile::TempDir {
     let cache = tempfile::tempdir().expect("own source cache");
     let items = std::env::var_os("BRAIN_P2_ITEMS_CAPTURE")
         .map(|path| std::fs::read(path).expect("explicit public Items capture"))
-        .unwrap_or_else(|| ITEMS.to_vec());
+        .unwrap_or_else(|| captures::read("items-en.json.gz"));
     std::fs::write(cache.path().join("en.json"), items).expect("captured abilities");
     std::fs::write(cache.path().join("de.json"), b"[]").expect("independent locale");
     std::fs::write(cache.path().join("heroes-en.json"), heroes).expect("captured heroes");
@@ -32,14 +31,15 @@ fn captured_hero_slots_reach_the_real_executor_and_revalidate_fail_closed() {
             [Ok(InputObject {
                 revision: "public-core-hero-capture".into(),
                 path: "data/json/hero-data.json".into(),
-                bytes: CORE_HEROES.to_vec(),
+                bytes: captures::read("hero-data.json.gz"),
             })],
             EXTRACTORS,
         ))
         .expect("genuine P1 hero extraction");
     assert_eq!(heroes.counts.accepted, 1);
     assert_eq!(heroes.counts.rejected, 0);
-    let cache = cache(HEROES);
+    let hero_bytes = captures::read("heroes-en.json.gz");
+    let cache = cache(&hero_bytes);
     let report = runtime
         .block_on(ingest(
             &store,
@@ -78,7 +78,7 @@ fn captured_hero_slots_reach_the_real_executor_and_revalidate_fail_closed() {
         .expect("counts");
     assert_eq!(before, after);
     let tools = PgTools::new(NoLegacy, pool.clone(), runtime.handle().clone());
-    let captured: Vec<Value> = serde_json::from_slice(HEROES).expect("captured heroes");
+    let captured: Vec<Value> = serde_json::from_slice(&hero_bytes).expect("captured heroes");
     let mut selected = None;
     for hero in &captured {
         let hero_id: i64 = runtime
