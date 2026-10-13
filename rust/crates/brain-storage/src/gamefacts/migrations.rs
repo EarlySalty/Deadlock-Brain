@@ -26,6 +26,12 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
             "../../../../../scripts/migrations/2026-10-13-brain-gamefacts-application-cap-v9.sql"
         ),
     ),
+    (
+        10,
+        include_str!(
+            "../../../../../scripts/migrations/2026-10-13-brain-gamefacts-published-inserts-v10.sql"
+        ),
+    ),
 ];
 
 fn invalid() -> PortError {
@@ -66,112 +72,7 @@ fn sql_and_checksum(template: &str) -> (String, Vec<u8>) {
     (sql, checksum)
 }
 
-async fn check(connection: &mut PgConnection, migrations: &[(i32, &str)]) -> Result<(), PortError> {
-    ordered(migrations)?;
-    let expected: Vec<_> = migrations
-        .iter()
-        .map(|(v, s)| (*v, sql_and_checksum(s).1))
-        .collect();
-    if recorded(connection).await? != expected {
-        return Err(invalid());
-    }
-    sqlx::query("SELECT o.bytes,o.content_sha256,r.status,r.finished,j.detail,e.key,i.receipt_id,a.alias_norm,f.value_bool,f.valid_to_run,l.to_entity FROM raw.object o,ops.ingest_run r,ops.ingest_rejection j,canon.entity e,canon.entity_identity i,canon.alias a,canon.fact f,canon.relation l LIMIT 0")
-        .fetch_all(&mut *connection).await.map_err(|_| invalid())?;
-    let shape: bool = sqlx::query_scalar(
-        "SELECT NOT EXISTS (
-        SELECT 1 FROM (VALUES
-            ('published_receipt','revision','text'),
-            ('current_entity','key','canon.key'),
-            ('current_alias','alias_norm','canon.short_text'),
-            ('current_fact','stat_key','canon.key'),
-            ('current_relation','kind','canon.key')
-        ) AS required(relation,column_name,type_name)
-        WHERE NOT EXISTS (
-            SELECT 1 FROM pg_catalog.pg_namespace n
-            JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid
-            JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid
-            WHERE n.nspname='serve' AND c.relname=required.relation AND c.relkind='v'
-                AND a.attname=required.column_name AND a.attnum>0 AND NOT a.attisdropped
-                AND a.atttypid=pg_catalog.to_regtype(required.type_name)
-        )
-    )",
-    )
-    .fetch_one(&mut *connection)
-    .await
-    .map_err(|_| invalid())?;
-    if !shape {
-        return Err(invalid());
-    }
-    let valid: bool = sqlx::query_scalar("SELECT
-        (SELECT count(*)=4 FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname IN('raw','canon','serve','ops') AND r.rolname='brain_migrate')
-        AND EXISTS(SELECT 1 FROM pg_roles WHERE rolname='brain_tool' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
-        AND EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles u ON u.oid=m.member WHERE r.rolname='brain_tool' AND u.rolname='brain_readonly' AND NOT m.inherit_option AND m.set_option AND NOT m.admin_option)
-        AND NOT pg_has_role('brain_readonly','brain_tool','USAGE')
-        AND has_column_privilege('brain_service','ops.answer_trace','question_sha256','INSERT')
-        AND NOT has_table_privilege('brain_service','ops.answer_trace','SELECT,UPDATE,DELETE,TRUNCATE')
-        AND NOT pg_has_role('brain_ingest','brain_migrate','MEMBER')
-        AND NOT has_schema_privilege('brain_ingest','canon','CREATE')
-        AND NOT has_table_privilege('brain_ingest','raw.object','UPDATE,DELETE,TRUNCATE')
-        AND NOT has_table_privilege('brain_ingest','canon.receipt','UPDATE,DELETE,TRUNCATE')
-        AND NOT has_any_column_privilege('brain_ingest','canon.fact','UPDATE')
-        AND NOT has_table_privilege('brain_tool','canon.fact','INSERT,UPDATE,DELETE,TRUNCATE')
-        AND NOT has_table_privilege('brain_service','canon.fact','INSERT,UPDATE,DELETE,TRUNCATE')
-        AND NOT has_schema_privilege('brain_tool','raw','USAGE')
-        AND NOT has_schema_privilege('brain_tool','ops','USAGE')")
-        .fetch_one(&mut *connection).await.map_err(|_| invalid())?;
-    if !valid {
-        return Err(invalid());
-    }
-    if migrations.iter().any(|(version, _)| *version == 7) {
-        let protected: bool = sqlx::query_scalar("SELECT EXISTS(
-            SELECT 1 FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
-            WHERE p.oid=to_regprocedure('canon.write_run_fact(bigint,text,double precision,text,boolean,bigint,bigint)')
-                AND r.rolname='brain_migrate' AND p.prosecdef
-                AND p.proconfig=ARRAY['search_path=pg_catalog']
-                AND has_function_privilege('brain_ingest',p.oid,'EXECUTE')
-                AND NOT has_function_privilege('brain_tool',p.oid,'EXECUTE')
-                AND NOT has_function_privilege('brain_service',p.oid,'EXECUTE')
-        ) AND EXISTS(
-            SELECT 1 FROM pg_trigger t WHERE t.tgrelid='ops.ingest_run'::regclass
-                AND t.tgname='keep_published_run' AND t.tgenabled='O'
-                AND t.tgfoid=to_regprocedure('ops.keep_published_run()')
-        )")
-            .fetch_one(&mut *connection).await.map_err(|_| invalid())?;
-        if !protected {
-            return Err(invalid());
-        }
-    }
-    if migrations.iter().any(|(version, _)| *version == 8) {
-        let protected: bool = sqlx::query_scalar(
-            "SELECT EXISTS(
-            SELECT 1 FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
-            WHERE p.oid=to_regprocedure('canon.guard_fact_integrity()')
-                AND r.rolname='brain_migrate' AND p.prosecdef
-                AND p.prorettype='pg_catalog.trigger'::regtype
-                AND p.proconfig=ARRAY['search_path=pg_catalog']
-                AND NOT has_function_privilege('brain_ingest',p.oid,'EXECUTE')
-                AND NOT has_function_privilege('brain_tool',p.oid,'EXECUTE')
-                AND NOT has_function_privilege('brain_service',p.oid,'EXECUTE')
-        ) AND EXISTS(
-            SELECT 1 FROM pg_trigger t WHERE t.tgrelid='canon.fact'::regclass
-                AND t.tgname='guard_fact_integrity' AND t.tgenabled='O'
-                AND t.tgfoid=to_regprocedure('canon.guard_fact_integrity()')
-                AND t.tgtype=23 AND t.tgattr=''::int2vector AND t.tgqual IS NULL
-                AND NOT t.tgisinternal AND t.tgconstraint=0
-        )",
-        )
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(|_| invalid())?;
-        if !protected {
-            return Err(invalid());
-        }
-    }
-    if let Some((_, template)) = migrations.iter().find(|(version, _)| *version == 9) {
-        let (sql, _) = sql_and_checksum(template);
-        let body = sql.split("$rows$").nth(1).ok_or_else(invalid)?;
-        let protected: bool = sqlx::query_scalar(
-            "SELECT EXISTS(
+const APPLICATION_CAP_AUDIT_SQL: &str = "SELECT EXISTS(
             SELECT 1 FROM pg_attribute a JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
             WHERE a.attrelid='canon.receipt'::regclass AND a.attname='application_xid'
                 AND a.atttypid='pg_catalog.xid8'::regtype AND a.attnotnull AND NOT a.attisdropped
@@ -203,15 +104,231 @@ async fn check(connection: &mut PgConnection, migrations: &[(i32, &str)]) -> Res
                 AND ARRAY(SELECT a.attname::text FROM unnest(i.indkey) WITH ORDINALITY k(num,pos)
                     JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.num ORDER BY k.pos)
                     =ARRAY['raw_object_id','ingest_run_id','extractor','application_xid']
-        )",
+        )";
+
+const PUBLISHED_INSERTS_AUDIT_SQL: &str = "SELECT NOT EXISTS (
+            SELECT 1 FROM (VALUES
+                ('canon.guard_receipt_insert()', $1::text),
+                ('canon.guard_reference_insert()', $2::text)
+            ) AS required(signature,body)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_proc p
+                JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
+                JOIN pg_catalog.pg_language l ON l.oid=p.prolang
+                WHERE p.oid=pg_catalog.to_regprocedure(required.signature)
+                    AND r.rolname='brain_migrate' AND l.lanname='plpgsql' AND p.prosecdef
+                    AND p.prokind='f' AND p.pronargs=0 AND p.pronargdefaults=0
+                    AND p.proallargtypes IS NULL AND p.provariadic=0 AND NOT p.proretset
+                    AND p.prorettype='pg_catalog.trigger'::regtype AND p.prosrc=required.body
+                    AND p.proconfig=ARRAY['search_path=pg_catalog']
+                    AND NOT EXISTS (
+                        SELECT 1 FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a
+                        WHERE a.grantee=0 AND a.privilege_type='EXECUTE'
+                    )
+                    AND NOT has_function_privilege('brain_ingest',p.oid,'EXECUTE')
+                    AND NOT has_function_privilege('brain_tool',p.oid,'EXECUTE')
+                    AND NOT has_function_privilege('brain_service',p.oid,'EXECUTE')
+                    AND NOT has_function_privilege('brain_readonly',p.oid,'EXECUTE')
+            )
+        ) AND NOT EXISTS (
+            SELECT 1 FROM (VALUES
+                ('canon.receipt','canon.guard_receipt_insert()'),
+                ('canon.entity','canon.guard_reference_insert()'),
+                ('canon.entity_identity','canon.guard_reference_insert()'),
+                ('canon.alias','canon.guard_reference_insert()'),
+                ('canon.relation','canon.guard_reference_insert()')
+            ) AS required(relation,signature)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_trigger t
+                WHERE t.tgrelid=pg_catalog.to_regclass(required.relation)
+                    AND t.tgname='guard_published_insert' AND t.tgenabled='O'
+                    AND t.tgfoid=pg_catalog.to_regprocedure(required.signature)
+                    AND t.tgtype=7 AND t.tgattr=''::int2vector AND t.tgqual IS NULL
+                    AND NOT t.tgisinternal AND t.tgconstraint=0
+            )
+        )";
+
+async fn check(connection: &mut PgConnection, migrations: &[(i32, &str)]) -> Result<(), PortError> {
+    check_registry(connection, migrations).await?;
+    check_core_schema(connection).await?;
+    check_version_guards(connection, migrations).await
+}
+
+async fn check_registry(
+    connection: &mut PgConnection,
+    migrations: &[(i32, &str)],
+) -> Result<(), PortError> {
+    ordered(migrations)?;
+    let expected: Vec<_> = migrations
+        .iter()
+        .map(|(v, s)| (*v, sql_and_checksum(s).1))
+        .collect();
+    if recorded(connection).await? != expected {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+async fn check_core_schema(connection: &mut PgConnection) -> Result<(), PortError> {
+    sqlx::query("SELECT o.bytes,o.content_sha256,r.status,r.finished,j.detail,e.key,i.receipt_id,a.alias_norm,f.value_bool,f.valid_to_run,l.to_entity FROM raw.object o,ops.ingest_run r,ops.ingest_rejection j,canon.entity e,canon.entity_identity i,canon.alias a,canon.fact f,canon.relation l LIMIT 0")
+        .fetch_all(&mut *connection).await.map_err(|_| invalid())?;
+    check_serving_shape(connection).await?;
+    check_role_permissions(connection).await
+}
+
+async fn check_serving_shape(connection: &mut PgConnection) -> Result<(), PortError> {
+    let shape: bool = sqlx::query_scalar(
+        "SELECT NOT EXISTS (
+        SELECT 1 FROM (VALUES
+            ('published_receipt','revision','text'),
+            ('current_entity','key','canon.key'),
+            ('current_alias','alias_norm','canon.short_text'),
+            ('current_fact','stat_key','canon.key'),
+            ('current_relation','kind','canon.key')
+        ) AS required(relation,column_name,type_name)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_namespace n
+            JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid
+            JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid
+            WHERE n.nspname='serve' AND c.relname=required.relation AND c.relkind='v'
+                AND a.attname=required.column_name AND a.attnum>0 AND NOT a.attisdropped
+                AND a.atttypid=pg_catalog.to_regtype(required.type_name)
         )
+    )",
+    )
+    .fetch_one(connection)
+    .await
+    .map_err(|_| invalid())?;
+    if !shape {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+async fn check_role_permissions(connection: &mut PgConnection) -> Result<(), PortError> {
+    let valid: bool = sqlx::query_scalar("SELECT
+        (SELECT count(*)=4 FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname IN('raw','canon','serve','ops') AND r.rolname='brain_migrate')
+        AND EXISTS(SELECT 1 FROM pg_roles WHERE rolname='brain_tool' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
+        AND EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles u ON u.oid=m.member WHERE r.rolname='brain_tool' AND u.rolname='brain_readonly' AND NOT m.inherit_option AND m.set_option AND NOT m.admin_option)
+        AND NOT pg_has_role('brain_readonly','brain_tool','USAGE')
+        AND has_column_privilege('brain_service','ops.answer_trace','question_sha256','INSERT')
+        AND NOT has_table_privilege('brain_service','ops.answer_trace','SELECT,UPDATE,DELETE,TRUNCATE')
+        AND NOT pg_has_role('brain_ingest','brain_migrate','MEMBER')
+        AND NOT has_schema_privilege('brain_ingest','canon','CREATE')
+        AND NOT has_table_privilege('brain_ingest','raw.object','UPDATE,DELETE,TRUNCATE')
+        AND NOT has_table_privilege('brain_ingest','canon.receipt','UPDATE,DELETE,TRUNCATE')
+        AND NOT has_any_column_privilege('brain_ingest','canon.fact','UPDATE')
+        AND NOT has_table_privilege('brain_tool','canon.fact','INSERT,UPDATE,DELETE,TRUNCATE')
+        AND NOT has_table_privilege('brain_service','canon.fact','INSERT,UPDATE,DELETE,TRUNCATE')
+        AND NOT has_schema_privilege('brain_tool','raw','USAGE')
+        AND NOT has_schema_privilege('brain_tool','ops','USAGE')")
+        .fetch_one(connection).await.map_err(|_| invalid())?;
+    if !valid {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+async fn check_version_guards(
+    connection: &mut PgConnection,
+    migrations: &[(i32, &str)],
+) -> Result<(), PortError> {
+    if migrations.iter().any(|(version, _)| *version == 7) {
+        check_run_fact_protection(connection).await?;
+    }
+    if migrations.iter().any(|(version, _)| *version == 8) {
+        check_fact_integrity(connection).await?;
+    }
+    if let Some((_, template)) = migrations.iter().find(|(version, _)| *version == 9) {
+        check_application_cap(connection, template).await?;
+    }
+    if let Some((_, template)) = migrations.iter().find(|(version, _)| *version == 10) {
+        check_published_insert_guards(connection, template).await?;
+    }
+    Ok(())
+}
+
+async fn check_run_fact_protection(connection: &mut PgConnection) -> Result<(), PortError> {
+    let protected: bool = sqlx::query_scalar("SELECT EXISTS(
+            SELECT 1 FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
+            WHERE p.oid=to_regprocedure('canon.write_run_fact(bigint,text,double precision,text,boolean,bigint,bigint)')
+                AND r.rolname='brain_migrate' AND p.prosecdef
+                AND p.proconfig=ARRAY['search_path=pg_catalog']
+                AND has_function_privilege('brain_ingest',p.oid,'EXECUTE')
+                AND NOT has_function_privilege('brain_tool',p.oid,'EXECUTE')
+                AND NOT has_function_privilege('brain_service',p.oid,'EXECUTE')
+        ) AND EXISTS(
+            SELECT 1 FROM pg_trigger t WHERE t.tgrelid='ops.ingest_run'::regclass
+                AND t.tgname='keep_published_run' AND t.tgenabled='O'
+                AND t.tgfoid=to_regprocedure('ops.keep_published_run()')
+        )")
+        .fetch_one(connection).await.map_err(|_| invalid())?;
+    if !protected {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+async fn check_fact_integrity(connection: &mut PgConnection) -> Result<(), PortError> {
+    let protected: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
+            WHERE p.oid=to_regprocedure('canon.guard_fact_integrity()')
+                AND r.rolname='brain_migrate' AND p.prosecdef
+                AND p.prorettype='pg_catalog.trigger'::regtype
+                AND p.proconfig=ARRAY['search_path=pg_catalog']
+                AND NOT has_function_privilege('brain_ingest',p.oid,'EXECUTE')
+                AND NOT has_function_privilege('brain_tool',p.oid,'EXECUTE')
+                AND NOT has_function_privilege('brain_service',p.oid,'EXECUTE')
+        ) AND EXISTS(
+            SELECT 1 FROM pg_trigger t WHERE t.tgrelid='canon.fact'::regclass
+                AND t.tgname='guard_fact_integrity' AND t.tgenabled='O'
+                AND t.tgfoid=to_regprocedure('canon.guard_fact_integrity()')
+                AND t.tgtype=23 AND t.tgattr=''::int2vector AND t.tgqual IS NULL
+                AND NOT t.tgisinternal AND t.tgconstraint=0
+        )",
+    )
+    .fetch_one(connection)
+    .await
+    .map_err(|_| invalid())?;
+    if !protected {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+async fn check_application_cap(
+    connection: &mut PgConnection,
+    template: &str,
+) -> Result<(), PortError> {
+    let (sql, _) = sql_and_checksum(template);
+    let body = sql.split("$rows$").nth(1).ok_or_else(invalid)?;
+    let protected: bool = sqlx::query_scalar(APPLICATION_CAP_AUDIT_SQL)
         .bind(body)
-        .fetch_one(&mut *connection)
+        .fetch_one(connection)
         .await
         .map_err(|_| invalid())?;
-        if !protected {
-            return Err(invalid());
-        }
+    if !protected {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+async fn check_published_insert_guards(
+    connection: &mut PgConnection,
+    template: &str,
+) -> Result<(), PortError> {
+    let (sql, _) = sql_and_checksum(template);
+    let receipt_body = sql.split("$receipt$").nth(1).ok_or_else(invalid)?;
+    let reference_body = sql.split("$reference$").nth(1).ok_or_else(invalid)?;
+    let protected: bool = sqlx::query_scalar(PUBLISHED_INSERTS_AUDIT_SQL)
+        .bind(receipt_body)
+        .bind(reference_body)
+        .fetch_one(connection)
+        .await
+        .map_err(|_| invalid())?;
+    if !protected {
+        return Err(invalid());
     }
     Ok(())
 }
