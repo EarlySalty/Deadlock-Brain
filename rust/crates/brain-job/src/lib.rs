@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod config;
 pub mod registry;
 pub mod sources;
 pub mod timers;
@@ -7,11 +8,19 @@ pub use brain_storage::gamefacts::{
     limits, Alias, Counts, Entity, Fact, FactSet, FactValue, GameFactsStore, RawObject, Receipt,
     Rejection, Relation,
 };
+pub use sources::{InputObjects, Source};
 
 pub trait Extractor: Sync {
     fn name(&self) -> &'static str;
+    fn version(&self) -> &'static str {
+        "1"
+    }
     fn accepts(&self, source: &str, path: &str) -> bool;
     fn extract(&self, raw: &RawObject) -> Outcome;
+}
+
+pub fn extractor_id(name: &str, version: &str) -> String {
+    format!("v1:{}:{name}:{}:{version}", name.len(), version.len())
 }
 
 #[derive(Debug)]
@@ -71,9 +80,21 @@ where
             counts.ignored += 1;
             continue;
         };
-        let outcome = match extractor.extract(&raw) {
-            Outcome::Accepted(set) => match store.apply(run_id, &raw, extractor.name(), &set).await
-            {
+        let discriminator = extractor_id(extractor.name(), extractor.version());
+        if store.was_applied(raw.id, &discriminator).await? {
+            counts.ignored += 1;
+            continue;
+        }
+        let extracted = if raw.bytes.len() > limits::RAW_BYTES {
+            Outcome::Rejected(Rejection::new(
+                "raw_too_large",
+                "Rohobjekt überschreitet die Extraktionsgrenze",
+            ))
+        } else {
+            extractor.extract(&raw)
+        };
+        let outcome = match extracted {
+            Outcome::Accepted(set) => match store.apply(run_id, &raw, &discriminator, &set).await {
                 Ok(()) => Outcome::Accepted(set),
                 Err(rejection) => Outcome::Rejected(rejection),
             },
@@ -83,7 +104,7 @@ where
             Outcome::Accepted(_) => counts.accepted += 1,
             Outcome::Rejected(rejection) => {
                 store
-                    .reject(run_id, raw.id, extractor.name(), &rejection)
+                    .reject(run_id, raw.id, &discriminator, &rejection)
                     .await?;
                 counts.rejected += 1;
             }
