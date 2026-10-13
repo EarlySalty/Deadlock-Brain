@@ -185,8 +185,9 @@ async fn fact_integrity_upgrade_blocks_real_ingest_withdrawal_of_legacy_publishe
     sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly NOLOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate")
         .execute(&admin).await.unwrap();
     let migrator = PgStore::new(admin.clone());
+    let legacy: Vec<_> = MIGRATIONS.iter().copied().filter(|(v, _)| *v < 8).collect();
     migrator
-        .migrate_gamefacts_registered(&MIGRATIONS[..2])
+        .migrate_gamefacts_registered(&legacy)
         .await
         .unwrap();
     let writer = PgPoolOptions::new()
@@ -312,7 +313,10 @@ async fn fact_integrity_upgrade_blocks_real_ingest_withdrawal_of_legacy_publishe
             .fetch_all(&writer)
             .await
             .unwrap();
-    assert_eq!(versions, [1, 7, 8]);
+    assert_eq!(
+        versions,
+        MIGRATIONS.iter().map(|(v, _)| *v).collect::<Vec<_>>()
+    );
     let mut replacement = writer.begin().await.unwrap();
     sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,value_num,valid_from_run,receipt_id) VALUES($1,'concurrent_pending',130,$2,$3)")
         .bind(entity).bind(failed).bind(failed_receipt)
@@ -404,26 +408,23 @@ async fn ingest_preflight_checks_serving_shape_without_serving_read_privileges()
         .migrate_gamefacts()
         .await
         .unwrap();
+    sqlx::raw_sql("ALTER ROLE brain_ingest LOGIN; ALTER ROLE brain_migrate LOGIN")
+        .execute(&pool)
+        .await
+        .unwrap();
     let mut stores = Vec::new();
     for role in ["brain_ingest", "brain_migrate"] {
         let role_pool = PgPoolOptions::new()
             .max_connections(1)
-            .after_connect(move |connection, _| {
-                Box::pin(async move {
-                    sqlx::query(&format!("SET ROLE {role}"))
-                        .execute(connection)
-                        .await?;
-                    Ok(())
-                })
-            })
-            .connect_with(options.clone())
+            .connect_with(options.clone().username(role))
             .await
             .unwrap();
-        let current_user: String = sqlx::query_scalar("SELECT current_user")
-            .fetch_one(&role_pool)
-            .await
-            .unwrap();
-        assert_eq!(current_user, role);
+        let users: (String, String) =
+            sqlx::query_as("SELECT session_user::text,current_user::text")
+                .fetch_one(&role_pool)
+                .await
+                .unwrap();
+        assert_eq!(users, (role.into(), role.into()));
         stores.push((role, PgStore::new(role_pool)));
     }
     assert_schema_checks(&stores, true).await;
@@ -437,12 +438,39 @@ async fn ingest_preflight_checks_serving_shape_without_serving_read_privileges()
         ("ALTER FUNCTION canon.guard_fact_integrity() SET search_path=public", "ALTER FUNCTION canon.guard_fact_integrity() SET search_path=pg_catalog"),
         ("GRANT EXECUTE ON FUNCTION canon.guard_fact_integrity() TO brain_ingest", "REVOKE EXECUTE ON FUNCTION canon.guard_fact_integrity() FROM brain_ingest"),
         ("DROP TRIGGER guard_fact_integrity ON canon.fact; CREATE TRIGGER guard_fact_integrity BEFORE UPDATE OF receipt_id ON canon.fact FOR EACH ROW EXECUTE FUNCTION canon.guard_fact_integrity()", "DROP TRIGGER guard_fact_integrity ON canon.fact; CREATE TRIGGER guard_fact_integrity BEFORE INSERT OR UPDATE ON canon.fact FOR EACH ROW EXECUTE FUNCTION canon.guard_fact_integrity()"),
+        ("ALTER TABLE canon.receipt ALTER COLUMN application_xid DROP DEFAULT", "ALTER TABLE canon.receipt ALTER COLUMN application_xid SET DEFAULT pg_current_xact_id()"),
+        ("ALTER TABLE canon.receipt ALTER COLUMN application_xid SET DEFAULT '1'::xid8", "ALTER TABLE canon.receipt ALTER COLUMN application_xid SET DEFAULT pg_current_xact_id()"),
+        ("ALTER TABLE canon.receipt ALTER COLUMN application_xid DROP NOT NULL", "ALTER TABLE canon.receipt ALTER COLUMN application_xid SET NOT NULL"),
+        ("ALTER TABLE canon.receipt RENAME COLUMN application_xid TO bad_application", "ALTER TABLE canon.receipt RENAME COLUMN bad_application TO application_xid"),
+        ("ALTER TABLE canon.receipt ALTER COLUMN application_xid DROP DEFAULT; ALTER TABLE canon.receipt ALTER COLUMN application_xid TYPE text USING application_xid::text; ALTER TABLE canon.receipt ALTER COLUMN application_xid SET DEFAULT pg_current_xact_id()::text", "ALTER TABLE canon.receipt ALTER COLUMN application_xid DROP DEFAULT; ALTER TABLE canon.receipt ALTER COLUMN application_xid TYPE xid8 USING application_xid::xid8; ALTER TABLE canon.receipt ALTER COLUMN application_xid SET DEFAULT pg_current_xact_id()"),
+        ("GRANT INSERT(application_xid) ON canon.receipt TO brain_ingest", "REVOKE INSERT(application_xid) ON canon.receipt FROM brain_ingest"),
+        ("GRANT UPDATE(application_xid) ON canon.receipt TO brain_ingest", "REVOKE UPDATE(application_xid) ON canon.receipt FROM brain_ingest"),
+        ("ALTER TABLE canon.receipt DISABLE TRIGGER object_rows", "ALTER TABLE canon.receipt ENABLE TRIGGER object_rows"),
+        ("ALTER FUNCTION canon.check_object_rows() SET search_path=public", "ALTER FUNCTION canon.check_object_rows() SET search_path=pg_catalog"),
+        ("ALTER FUNCTION canon.check_object_rows() OWNER TO brain_core_test", "ALTER FUNCTION canon.check_object_rows() OWNER TO brain_migrate"),
+        ("GRANT EXECUTE ON FUNCTION canon.check_object_rows() TO brain_ingest", "REVOKE EXECUTE ON FUNCTION canon.check_object_rows() FROM brain_ingest"),
+        ("ALTER INDEX canon.receipt_object_application RENAME TO missing_application_index", "ALTER INDEX canon.missing_application_index RENAME TO receipt_object_application"),
+        ("DROP INDEX canon.receipt_object_application; CREATE INDEX receipt_object_application ON canon.receipt(raw_object_id,ingest_run_id,extractor,application_xid) WHERE extractor='stub'", "DROP INDEX canon.receipt_object_application; CREATE INDEX receipt_object_application ON canon.receipt(raw_object_id,ingest_run_id,extractor,application_xid)"),
     ] {
         sqlx::raw_sql(break_schema).execute(&pool).await.unwrap();
         assert_schema_checks(&stores, false).await;
         sqlx::raw_sql(restore_schema).execute(&pool).await.unwrap();
         assert_schema_checks(&stores, true).await;
     }
+    let guard_sql = sql_and_checksum(MIGRATIONS.iter().find(|(v, _)| *v == 9).unwrap().1).0;
+    let guard_body = guard_sql.split("$rows$").nth(1).unwrap();
+    let restore_guard = format!("CREATE OR REPLACE FUNCTION canon.check_object_rows() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $rows${guard_body}$rows$");
+    sqlx::raw_sql("CREATE OR REPLACE FUNCTION canon.check_object_rows() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $rows$ BEGIN RETURN NEW; END; $rows$")
+        .execute(&pool).await.unwrap();
+    assert_schema_checks(&stores, false).await;
+    sqlx::raw_sql(&restore_guard).execute(&pool).await.unwrap();
+    assert_schema_checks(&stores, true).await;
+    sqlx::raw_sql("DROP TRIGGER object_rows ON canon.receipt; CREATE TRIGGER object_rows AFTER INSERT ON canon.receipt FOR EACH ROW EXECUTE FUNCTION canon.check_object_rows()")
+        .execute(&pool).await.unwrap();
+    assert_schema_checks(&stores, false).await;
+    sqlx::raw_sql("DROP TRIGGER object_rows ON canon.receipt; CREATE CONSTRAINT TRIGGER object_rows AFTER INSERT ON canon.receipt DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION canon.check_object_rows()")
+        .execute(&pool).await.unwrap();
+    assert_schema_checks(&stores, true).await;
     stores[1].1.migrate_gamefacts().await.unwrap();
     let serving_columns = [
         ("published_receipt", "revision"),
@@ -514,4 +542,112 @@ async fn ingest_preflight_checks_serving_shape_without_serving_read_privileges()
         store.pool.close().await;
     }
     pool.close().await;
+}
+
+async fn receipt_application(
+    pool: &sqlx::PgPool,
+    raw: i64,
+    run: i64,
+    rows: usize,
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("INSERT INTO canon.receipt(raw_object_id,ingest_run_id,extractor,locator_kind,locator,value_sha256) SELECT $1,$2,'cap','raw_bytes','',decode(repeat('00',32),'hex') FROM generate_series(1,$3)")
+        .bind(raw).bind(run).bind(rows as i32).execute(&mut *tx).await?;
+    tx.commit().await
+}
+
+#[tokio::test]
+async fn application_cap_upgrade_preserves_legacy_receipts_and_rejects_direct_4097() {
+    use crate::gamefacts::{limits, FactSet, GameFactsStore};
+    let pg = scratch_pg::ScratchPg::start();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("")
+        .ssl_mode(PgSslMode::Disable);
+    let admin = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.clone())
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly NOLOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate")
+        .execute(&admin).await.unwrap();
+    let migrator = PgStore::new(admin.clone());
+    let legacy: Vec<_> = MIGRATIONS.iter().copied().filter(|(v, _)| *v < 9).collect();
+    migrator
+        .migrate_gamefacts_registered(&legacy)
+        .await
+        .unwrap();
+    let writer = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.username("brain_ingest"))
+        .await
+        .unwrap();
+    let users: (String, String, bool) = sqlx::query_as("SELECT session_user::text,current_user::text,(SELECT rolsuper FROM pg_roles WHERE rolname=current_user)")
+        .fetch_one(&writer).await.unwrap();
+    assert_eq!(users, ("brain_ingest".into(), "brain_ingest".into(), false));
+    let store = GameFactsStore::new(writer.clone());
+    let run = store.begin_run("cap").await.unwrap();
+    let a = store
+        .capture(run, "cap", "r1", "hero.json", b"120".to_vec())
+        .await
+        .unwrap();
+    receipt_application(&writer, a.id, run, limits::ROWS)
+        .await
+        .unwrap();
+    let before: Vec<serde_json::Value> =
+        sqlx::query_scalar("SELECT to_jsonb(r) FROM canon.receipt r ORDER BY id")
+            .fetch_all(&admin)
+            .await
+            .unwrap();
+    let served: Vec<(String, String)> = sqlx::query_as("SELECT attname::text,format_type(atttypid,atttypmod) FROM pg_attribute WHERE attrelid='serve.published_receipt'::regclass AND attnum>0 AND NOT attisdropped ORDER BY attnum")
+        .fetch_all(&admin).await.unwrap();
+    migrator.migrate_gamefacts().await.unwrap();
+    PgStore::new(writer.clone())
+        .check_gamefacts_schema()
+        .await
+        .unwrap();
+    let after: Vec<serde_json::Value> =
+        sqlx::query_scalar("SELECT to_jsonb(r)-'application_xid' FROM canon.receipt r ORDER BY id")
+            .fetch_all(&admin)
+            .await
+            .unwrap();
+    assert_eq!(before, after);
+    let shape: Vec<(String, String)> = sqlx::query_as("SELECT attname::text,format_type(atttypid,atttypmod) FROM pg_attribute WHERE attrelid='serve.published_receipt'::regclass AND attnum>0 AND NOT attisdropped ORDER BY attnum")
+        .fetch_all(&admin).await.unwrap();
+    assert_eq!(shape, served);
+    let defaults: bool =
+        sqlx::query_scalar("SELECT bool_and(application_xid IS NOT NULL) FROM canon.receipt")
+            .fetch_one(&writer)
+            .await
+            .unwrap();
+    assert!(defaults);
+    assert_integrity_denied(receipt_application(&writer, a.id, run, limits::ROWS + 1).await);
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM canon.receipt")
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+    assert_eq!(rows, limits::ROWS as i64);
+    receipt_application(&writer, a.id, run, limits::ROWS)
+        .await
+        .unwrap();
+    let spoof = sqlx::query("INSERT INTO canon.receipt(raw_object_id,ingest_run_id,extractor,locator_kind,locator,value_sha256,application_xid) VALUES($1,$2,'cap','raw_bytes','',decode(repeat('00',32),'hex'),'1'::xid8)")
+        .bind(a.id).bind(run).execute(&writer).await.unwrap_err();
+    assert_eq!(
+        spoof.as_database_error().unwrap().code().as_deref(),
+        Some("42501")
+    );
+    store
+        .apply(run, &a, "cap", &FactSet::default())
+        .await
+        .unwrap();
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM canon.receipt")
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+    assert_eq!(rows, (2 * limits::ROWS + 1) as i64);
+    writer.close().await;
+    admin.close().await;
 }

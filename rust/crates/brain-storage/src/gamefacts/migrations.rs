@@ -20,6 +20,12 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
             "../../../../../scripts/migrations/2026-10-13-brain-gamefacts-fact-integrity-v8.sql"
         ),
     ),
+    (
+        9,
+        include_str!(
+            "../../../../../scripts/migrations/2026-10-13-brain-gamefacts-application-cap-v9.sql"
+        ),
+    ),
 ];
 
 fn invalid() -> PortError {
@@ -154,6 +160,52 @@ async fn check(connection: &mut PgConnection, migrations: &[(i32, &str)]) -> Res
                 AND NOT t.tgisinternal AND t.tgconstraint=0
         )",
         )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|_| invalid())?;
+        if !protected {
+            return Err(invalid());
+        }
+    }
+    if let Some((_, template)) = migrations.iter().find(|(version, _)| *version == 9) {
+        let (sql, _) = sql_and_checksum(template);
+        let body = sql.split("$rows$").nth(1).ok_or_else(invalid)?;
+        let protected: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+            SELECT 1 FROM pg_attribute a JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+            WHERE a.attrelid='canon.receipt'::regclass AND a.attname='application_xid'
+                AND a.atttypid='pg_catalog.xid8'::regtype AND a.attnotnull AND NOT a.attisdropped
+                AND a.attgenerated='' AND a.attidentity=''
+                AND pg_get_expr(d.adbin,d.adrelid)='pg_current_xact_id()'
+                AND NOT has_column_privilege('brain_ingest',a.attrelid,a.attname,'INSERT,UPDATE')
+        ) AND EXISTS(
+            SELECT 1 FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
+            WHERE p.oid=to_regprocedure('canon.check_object_rows()')
+                AND r.rolname='brain_migrate' AND NOT p.prosecdef
+                AND p.prorettype='pg_catalog.trigger'::regtype AND p.prosrc=$1
+                AND p.proconfig=ARRAY['search_path=pg_catalog']
+                AND NOT has_function_privilege('brain_ingest',p.oid,'EXECUTE')
+                AND NOT has_function_privilege('brain_tool',p.oid,'EXECUTE')
+                AND NOT has_function_privilege('brain_service',p.oid,'EXECUTE')
+        ) AND EXISTS(
+            SELECT 1 FROM pg_trigger t WHERE t.tgrelid='canon.receipt'::regclass
+                AND t.tgname='object_rows' AND t.tgenabled='O'
+                AND t.tgfoid=to_regprocedure('canon.check_object_rows()')
+                AND t.tgtype=5 AND t.tgattr=''::int2vector AND t.tgqual IS NULL
+                AND NOT t.tgisinternal AND t.tgdeferrable AND t.tginitdeferred
+        ) AND EXISTS(
+            SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+            JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_am am ON am.oid=c.relam
+            WHERE i.indrelid='canon.receipt'::regclass AND n.nspname='canon'
+                AND c.relname='receipt_object_application' AND am.amname='btree'
+                AND i.indisvalid AND i.indisready AND i.indislive AND i.indnkeyatts=4
+                AND i.indnatts=4 AND i.indpred IS NULL AND i.indexprs IS NULL
+                AND ARRAY(SELECT a.attname::text FROM unnest(i.indkey) WITH ORDINALITY k(num,pos)
+                    JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.num ORDER BY k.pos)
+                    =ARRAY['raw_object_id','ingest_run_id','extractor','application_xid']
+        )",
+        )
+        .bind(body)
         .fetch_one(&mut *connection)
         .await
         .map_err(|_| invalid())?;
