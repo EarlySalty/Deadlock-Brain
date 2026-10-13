@@ -50,7 +50,7 @@ impl Extractor for Fixture {
             }],
             ..FactSet::default()
         };
-        if raw.path == "corrupt" || raw.path.starts_with("boundary_") {
+        if matches!(raw.path.as_str(), "corrupt" | "bulk") || raw.path.starts_with("boundary_") {
             set.aliases.push(Alias {
                 entity_key: key.clone(),
                 alias: "Testheld".into(),
@@ -551,6 +551,127 @@ async fn real_store_quarantine_poison_continuation_idempotence_and_cap() {
     let (a, b) = tokio::join!(receipt_audit::run(&writer), receipt_audit::run(&writer));
     assert_eq!(a.unwrap().sampled, 200);
     assert_eq!(b.unwrap().sampled, 200);
+    let run = store.begin_run("audit_fixture").await.unwrap();
+    let raw = store
+        .capture(run, "audit_fixture", "r1", "bulk", br#"{"x":550}"#.to_vec())
+        .await
+        .unwrap();
+    let Outcome::Accepted(set) = Fixture.extract(&raw) else {
+        panic!("fixture rejected")
+    };
+    store.apply(run, &raw, Fixture.name(), &set).await.unwrap();
+    store
+        .finish_run(
+            run,
+            true,
+            brain_job::Counts {
+                accepted: 1,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        count(
+            &admin,
+            &format!(
+                "SELECT count(*) FROM serve.published_receipt WHERE raw_object_id={}",
+                raw.id
+            )
+        )
+        .await,
+        204
+    );
+    sqlx::query("UPDATE canon.receipt SET locator_kind='future_pointer' WHERE id=(SELECT receipt_id FROM canon.fact WHERE stat_key='stat_0' AND valid_from_run=$1)")
+        .bind(run).execute(&admin).await.unwrap();
+    sqlx::query("UPDATE raw.object SET content_sha256=$1 WHERE id=$2")
+        .bind(vec![0u8; 32])
+        .bind(raw.id)
+        .execute(&admin)
+        .await
+        .unwrap();
+    let rejected = receipt_audit::run(&writer).await.unwrap();
+    assert_eq!(
+        (
+            rejected.sampled,
+            rejected.verified_receipts,
+            rejected.rejected_receipts,
+            rejected.rejected_objects
+        ),
+        (200, 0, 200, 1)
+    );
+    assert_eq!(
+        count(
+            &admin,
+            &format!(
+                "SELECT count(*) FROM ops.receipt_audit WHERE run_id={}",
+                rejected.run_id
+            )
+        )
+        .await,
+        200
+    );
+    assert_eq!(count(&admin, &format!("SELECT count(*) FROM ops.receipt_audit WHERE run_id={} AND outcome='object_rejected'", rejected.run_id)).await, 199);
+    assert_eq!(count(&admin, &format!("SELECT count(*) FROM ops.receipt_audit WHERE run_id={} AND outcome='unsupported_locator_kind'", rejected.run_id)).await, 1);
+    assert_eq!(count(&admin, &format!("SELECT count(*) FROM ops.receipt_audit_run WHERE id={} AND sampled=200 AND verified_receipts=0 AND rejected_receipts=200 AND rejected_objects=1", rejected.run_id)).await, 1);
+    assert_eq!(count(&admin, &format!("SELECT count(*) FROM canon.receipt_quarantine q JOIN canon.receipt r ON r.id=q.receipt_id WHERE r.raw_object_id={} AND q.cause='audited'", raw.id)).await, 199);
+    assert_eq!(
+        count(
+            &admin,
+            "SELECT count(*) FROM serve.published_receipt WHERE path='bulk'"
+        )
+        .await,
+        0
+    );
+    boundary_visibility(&admin, "hero_bulk", 0).await;
+    assert_eq!(count(&admin, "SELECT count(*) FROM canon.fact WHERE entity_id=(SELECT id FROM canon.entity WHERE key='hero_bulk')").await, 402);
+    let future_run = store.begin_run("audit_fixture").await.unwrap();
+    store
+        .apply(future_run, &raw, Fixture.name(), &set)
+        .await
+        .unwrap();
+    store
+        .finish_run(
+            future_run,
+            true,
+            brain_job::Counts {
+                accepted: 1,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        count(
+            &admin,
+            "SELECT count(*) FROM serve.published_receipt WHERE path='bulk'"
+        )
+        .await,
+        0
+    );
+    boundary_visibility(&admin, "hero_bulk", 0).await;
+    assert_eq!(count(&admin, "SELECT count(*) FROM canon.receipt r JOIN raw.object o ON o.id=r.raw_object_id WHERE o.path='bulk'").await, 612);
+    assert_eq!(count(&admin, "SELECT count(*) FROM canon.fact WHERE entity_id=(SELECT id FROM canon.entity WHERE key='hero_bulk')").await, 603);
+    seed(&store, &["bulk"], br#"{"x":600}"#).await;
+    assert_eq!(count(&admin, "SELECT count(*) FROM serve.current_fact WHERE entity_id=(SELECT id FROM canon.entity WHERE key='hero_bulk') AND value_num=600").await, 201);
+    assert_eq!(
+        count(
+            &admin,
+            "SELECT count(*) FROM serve.published_receipt WHERE path='bulk'"
+        )
+        .await,
+        204
+    );
+    for view in ["current_entity", "current_alias", "current_relation"] {
+        let field = if view == "current_entity" {
+            "id"
+        } else if view == "current_relation" {
+            "from_entity"
+        } else {
+            "entity_id"
+        };
+        assert_eq!(count(&admin, &format!("SELECT count(*) FROM serve.{view} WHERE {field}=(SELECT id FROM canon.entity WHERE key='hero_bulk')")).await, 1);
+    }
     writer.close().await;
     admin.close().await;
 }
