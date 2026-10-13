@@ -16,7 +16,7 @@ struct Payload {
     bytes: Vec<u8>,
     ranges: Option<VecDeque<(usize, usize, usize)>>,
     collisions: BTreeSet<usize>,
-    snapshot_offset: usize,
+    snapshot_pending: bool,
     parent_offset: usize,
 }
 struct Objects {
@@ -145,17 +145,11 @@ impl Iterator for Objects {
                         bytes: payload.bytes[offset..end].to_vec(),
                     }));
                 }
-                if payload.kind == "heroes"
-                    && (payload.snapshot_offset < payload.bytes.len()
-                        || payload.snapshot_offset == 0)
-                {
-                    let offset = payload.snapshot_offset;
-                    let end = (offset + crate::limits::RAW_BYTES).min(payload.bytes.len());
-                    payload.snapshot_offset = end.max(1);
+                if payload.kind == "heroes" && std::mem::take(&mut payload.snapshot_pending) {
                     return Some(Ok(InputObject {
                         revision: payload.revision.clone(),
-                        path: format!("heroes/en/observed/{offset}.snapshot"),
-                        bytes: payload.bytes[offset..end].to_vec(),
+                        path: "heroes/en/observed/complete.snapshot".into(),
+                        bytes: payload.revision.as_bytes().to_vec(),
                     }));
                 }
                 if payload.ranges.is_none() {
@@ -194,21 +188,22 @@ impl Iterator for Objects {
                 {
                     let oversized = length > crate::limits::RAW_BYTES;
                     let end = offset + length.min(crate::limits::RAW_BYTES);
+                    let mut bytes = payload.bytes[offset..end].to_vec();
+                    if payload.kind == "heroes" && !oversized && bytes.last() == Some(&b'}') {
+                        bytes.pop();
+                        bytes.extend_from_slice(
+                            format!(",\"__brain_response_revision\":\"{}\"}}", payload.revision)
+                                .as_bytes(),
+                        );
+                    }
+                    let oversized = oversized || bytes.len() > crate::limits::RAW_BYTES;
+                    bytes.truncate(crate::limits::RAW_BYTES);
                     return Some(Ok(InputObject {
                         revision: payload.revision.clone(),
                         path: format!(
-                            "{}/{index}.{}",
-                            if payload.kind == "heroes" {
-                                format!(
-                                    "heroes/en/{}",
-                                    payload
-                                        .revision
-                                        .strip_prefix("sha256:")
-                                        .unwrap_or(&payload.revision)
-                                )
-                            } else {
-                                format!("{}/{}", payload.kind, payload.language)
-                            },
+                            "{}/{}/{index}.{}",
+                            payload.kind,
+                            payload.language,
                             if oversized {
                                 "oversized"
                             } else if payload.collisions.contains(&index) {
@@ -217,7 +212,7 @@ impl Iterator for Objects {
                                 "json"
                             }
                         ),
-                        bytes: payload.bytes[offset..end].to_vec(),
+                        bytes,
                     }));
                 }
                 self.payload = None;
@@ -242,7 +237,7 @@ impl Iterator for Objects {
                         bytes,
                         ranges: None,
                         collisions: BTreeSet::new(),
-                        snapshot_offset: 0,
+                        snapshot_pending: true,
                         parent_offset: 0,
                     });
                 }
@@ -276,7 +271,7 @@ mod tests {
                     bytes,
                     ranges: None,
                     collisions: BTreeSet::new(),
-                    snapshot_offset: 0,
+                    snapshot_pending: true,
                     parent_offset: 0,
                 }),
             }
@@ -310,7 +305,7 @@ mod tests {
                 bytes: bytes.clone(),
                 ranges: None,
                 collisions: BTreeSet::new(),
-                snapshot_offset: 0,
+                snapshot_pending: true,
                 parent_offset: 0,
             }),
         };

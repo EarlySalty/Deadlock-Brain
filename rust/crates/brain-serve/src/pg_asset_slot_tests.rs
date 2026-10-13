@@ -4,6 +4,9 @@ use brain_contracts::canonical_receipt::CanonicalReceipt;
 #[path = "../../brain-job/tests/fixtures/p2-slots/capture.rs"]
 mod captures;
 
+#[path = "pg_asset_slot_replay_tests.rs"]
+mod replay_tests;
+
 fn cache(heroes: &[u8]) -> tempfile::TempDir {
     let cache = tempfile::tempdir().expect("own source cache");
     let items = std::env::var_os("BRAIN_P2_ITEMS_CAPTURE")
@@ -234,14 +237,12 @@ fn captured_hero_slots_reach_the_real_executor_and_revalidate_fail_closed() {
             .is_err());
     }
     let (call, request) = call(ToolName::GetAbility, json!({"hero":hero_id,"slot":1}));
-    assert!(
-        !tools
-            .execute(&query, &context, None, &call.id, &request)
-            .expect("changed selection")
-            .result
-            .is_error
-    );
+    let published = tools
+        .execute(&query, &context, None, &call.id, &request)
+        .expect("changed published selection");
+    assert!(!published.result.is_error);
     let mut unpublished = changed.clone();
+    unpublished[0]["items"]["signature1"] = captured[0]["items"]["signature1"].clone();
     unpublished[0]["name"] = json!("unpublished capture");
     std::fs::write(
         cache.path().join("heroes-en.json"),
@@ -259,21 +260,19 @@ fn captured_hero_slots_reach_the_real_executor_and_revalidate_fail_closed() {
     ));
     assert!(failed.is_err());
     let (query, context) = query_context();
-    assert!(
-        tools
-            .execute(&query, &context, None, &call.id, &request)
-            .expect("unpublished fails closed")
-            .result
-            .is_error
-    );
+    let retained = tools
+        .execute(&query, &context, None, &call.id, &request)
+        .expect("failed input preserves published selection");
+    assert!(!retained.result.is_error);
+    assert_eq!(retained.result.result, published.result.result);
     for purpose in [
         ToolValidationPurpose::Provider,
         ToolValidationPurpose::Publication,
         ToolValidationPurpose::Cache,
     ] {
-        assert!(tools
-            .validate_dependencies(&query, &context, None, &old.dependencies, purpose)
-            .is_err());
+        tools
+            .validate_dependencies(&query, &context, None, &published.dependencies, purpose)
+            .expect("failed replacement cannot invalidate published dependencies");
     }
     changed[0]["items"]["signature1"] = json!("ability_missing_reference");
     changed[1]["items"]["signature4"] = Value::Null;
@@ -297,6 +296,10 @@ fn captured_hero_slots_reach_the_real_executor_and_revalidate_fail_closed() {
         .expect("isolated poison ingestion");
     assert_eq!(poisoned.counts.rejected, 6);
     assert_eq!(poisoned.counts.accepted, 37);
+    let visible: i64 = runtime
+        .block_on(sqlx::query_scalar("SELECT count(*) FROM serve.p2_hero_slot").fetch_one(&admin))
+        .expect("only valid published peers");
+    assert_eq!(visible, 144);
     let (query, context) = query_context();
     let reason: String = runtime.block_on(sqlx::query_scalar("SELECT reason FROM ops.p2_hero_slot_rejection WHERE code='sql_write' ORDER BY id DESC LIMIT 1").fetch_one(&admin)).expect("readable per-record reference reason");
     assert!(!reason.is_empty());
