@@ -345,6 +345,15 @@ async fn run_local_replacement_preserves_published_history_and_object_rollback()
             .await
             .unwrap();
         assert_eq!(snapshot(&admin, first).await, original);
+        if !empty {
+            let visible: f64 = sqlx::query_scalar(
+                "SELECT value_num FROM serve.current_fact WHERE stat_key='health'",
+            )
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+            assert_eq!(visible, 120.0);
+        }
         let unchanged_receipts: Vec<Value> = sqlx::query_scalar(
             "SELECT to_jsonb(r) FROM canon.receipt r WHERE ingest_run_id=$1 ORDER BY id",
         )
