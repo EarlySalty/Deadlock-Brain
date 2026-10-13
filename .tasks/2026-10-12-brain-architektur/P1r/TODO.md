@@ -79,6 +79,16 @@ Active native fixers have disjoint ownership and no production permission:
 
 Gate attempts:1 substantive BLOCK,0 ALLOW. Do not retry unchanged or use another model to overturn it. Maximum five failed rounds. The four-contract checkpoint remains published but is not fully accepted, main-ready or live.
 
+## Core3a publication and subsequent integration
+
+Published core3a checkpoint: `982645cf325952b56c782fe690f6e23a5a76bf17`, confirmed by `ls-remote` on the assigned feature branch. It integrates test-only source `d2b08bfd440f2349d96ed49858d07ebb1038682f`; parent proved exact rust/scripts/ops parity. Actual focused real-PG suite with the requested remote/release/locked/jobs3/include-ignored command:4 passed,0 failed,0 ignored,112 filtered. A fresh reviewer independently repeated matching checks and that suite. Failed fixture starts failed, additional adapters are accepted with required names and uniqueness, and both unsupported published-fact mutation twins are gone while full result-only binding remains tested.
+
+This checkpoint was published before another gate and before v8/release-wiring integration. Direct managed T3 delivery was attempted after `read` reported ready, but `t3-harness send` rejected an active turn; do not claim delivery. Handover file `/tmp/p1r-core3a-checkpoint-982645cf.md`; the visible turn ends with the full CHECKPOINT marker for the main orchestrator's watcher.
+
+After publication, the parent integrated the independently verified v8 commit21167066 and release-wiring commit35f0ac30 into the feature branch. Combined core3a/v8 actual real-PG suite completed as owned task `b7vzu7wqe`:4 passed,0failed,0ignored,112filtered, exit0. Exact command: `BRAIN_REAL_PG=1 CARGO_SLOT_REMOTE=1 /home/nathanael/.local/bin/cargo-slot test --manifest-path /home/nathanael/.worktrees/Deadlock-Brain-p1r-hero-slice/rust/Cargo.toml --release --locked --jobs 3 -p brain-serve service::pg_tools -- --include-ignored --nocapture`. Log `/tmp/brain-p1r-core3a-v8-combined-pg-tests-20261013.log`; failed fixture remains2facts/1failedrun/0published receipts/profiles. Migration9 and full combined acceptance remain pending. No main/deploy/production operation occurred.
+
+Release reviewer completed source inspection with0 findings and matching check/strict Clippy/formatting passed. Its unnecessary full helper suite completed28 tests before the remaining unchanged cargo-release fixture waited over20minutes on `/tmp/deadlock-cargo-release.lock`; only its own processes were cancelled, exit143. Full29-test acceptance is not claimed. The four directly affected helper tests passed in the author's scoped run; actual wrapper installation and completed job peak<300MB still require live verification after gate/main.
+
 ## Live release preflight, historical observations only
 
 Earlier read-only preflight observed live release `ef0418d5e8b217d052d573e40afc12c88caf260a`, system `brain-serve.service` PID3193806, NRestarts0, executable not deleted, readyz at `127.0.0.1:8788` HTTP200 JSON statusready, and empty error-priority journal since start. Live DB then lacked gamefacts/brain_tool. Recheck all details before deploy.
@@ -91,8 +101,8 @@ Use existing `deadlock-brain answer` with normal client JSON outside the source 
 
 ## Next actions
 
-1. Finish and independently inspect the urgent test-only core3a handover; publish its real-PG include-ignored proof before the next gate. Independently finish the disjoint v8 and release-wiring handovers. Preserve the original stash SHA and all clean worker commits.
-2. Start a fresh ordered application-cap fixer from the verified v8 candidate. Inspect remaining Serve fixture compatibility only after the core3a writer finishes, then complete fresh Rust/PostgreSQL acceptance and actual matching runtime suites. Never duplicate or resume a still-running writer.
+1. Finish and independently inspect the application-cap v9 handover and complete Rust source review. Core3a is already published, v8 and release wiring integrated, and their combined focused PG suite passed. Preserve the original stash SHA and all clean worker commits.
+2. Integrate v9, run actual matching combined suites and actual brain-job/brain-migrate binary/private-CLI proof. Existing Source/default-registry Hero, poison/unchanged and cancellation contracts must remain green; application limit4096/4097 must be real-PG proven. Do not duplicate or resume a still-running writer.
 3. Integrate/publish the corrected combined candidate, fetch latest origin/main, and run a fresh whole-diff local `gate_hook.py --review` round2 on exact literals. No main integration before ALLOW and independent goal acceptance.
 4. Merge/push verified main, deploy through brain-release, real role-correct ingest, two live answers/traces, unchanged-repeat zero growth, final job peak<300MB, readyz and clean journal. Only then own branch/worktree cleanup after checked ancestry. Never delete old salvage worktrees or foreign jobs/caches.
 
