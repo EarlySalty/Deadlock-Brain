@@ -1,6 +1,6 @@
 # P3 resume, 2026-10-13
 
-Current published checkpoint: 87f681633da7c4a2442d192a0345eda7dc79ce26, clean and pushed. It merges the explicitly forwarded P1r core 3a checkpoint 982645cf325952b56c782fe690f6e23a5a76bf17 without rebasing onto P3 checkpoint 5e1ebb31. The only shared test conflict was resolved by retaining P1r's registry-tolerant tool assertions. pg_tools_tests.rs differs from the owner checkpoint only by the two-line Timer test module registration. There are no production-core or migration changes in this merge. Hero and TimerExtractor remain registered; migrations remain 1, 2, 7. Version 7 belongs to P1r. Actual gate round 2 returned BLOCK; no ALLOW or live deployment is claimed.
+Verified implementation checkpoint: 87f681633da7c4a2442d192a0345eda7dc79ce26, published; subsequent branch changes are proof notes only. It merges the explicitly forwarded P1r core 3a checkpoint 982645cf325952b56c782fe690f6e23a5a76bf17 without rebasing onto P3 checkpoint 5e1ebb31. The only shared test conflict was resolved by retaining P1r's registry-tolerant tool assertions. pg_tools_tests.rs differs from the owner checkpoint only by the two-line Timer test module registration. There are no production-core or migration changes in this merge. Hero and TimerExtractor remain registered; migrations remain 1, 2, 7. Version 7 belongs to P1r. Actual gate round 2 returned BLOCK; no ALLOW or live deployment is claimed.
 
 ## Actual local gate, round 2
 
@@ -21,6 +21,10 @@ For the NIT, units::install does exist at ops/brain-release/src/units.rs:90-158.
 All corrections are shared-core/release-owner work for P1r, not P3. No Timer extractor/source/tool/view fix is necessary for these findings. The actual BLOCK and successful core-3a checks were sent to the responsible orchestrator; the confirmed ownership report is the next handover. Frozen shared core remains unchanged. No unchanged gate retry, alternate-reviewer vote, trigger bypass, test skip, main merge, deployment or cleanup was attempted.
 
 WIRKUNGSPRUEFUNG[WP-1]: 3 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 0/0 geprüft
+
+The confirmed report was handed over after publication of cb471776edc3ba2ae6eec55e28b072d6bcc9f164. The responsible orchestrator's recorded response at 2026-10-13T14:34:34Z assigned both corrections and template-only installation to P1r checkpoint core 3b. P3 must wait for the explicitly forwarded complete checkpoint, merge without rebasing, run affected checks and the next real gate. No unforwarded later owner SHA is authorized.
+
+At the next scheduled watch the orchestrator thread reported a real quota error at 2026-10-13T15:06:28Z, with reset 18:50 Europe/Berlin. This is the orchestrator's limit, not a P3 limit. Actual local time was verified as 2026-10-13T17:14:17+02:00. No resend before reset, model switch or alternate-thread bypass. Latest observed owner publication was 45906677172abef9efd25ee37aab82e115afe5c1 (v9 receipt-cap checkpoint and ordered insert-guard notes), not a forwarded complete core-3b checkpoint; it was not merged. P3 code and migrations remain unchanged and saved on origin.
 
 MERGEPROTOKOLL[MS-1]: 0 Git-Schritte einzeln | Anläufe: 2 | Gate: BLOCK
 
