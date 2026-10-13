@@ -19,7 +19,9 @@ The source path is the non-secret JSON configuration file at `source_cache.join(
 
 The worker recommends max_posts 5000, max_row_bytes 8388608 and timeout_seconds 15. The existing secret-manager configuration must supply `PATCHNOTES_FEED_READONLY_DSN`. No production configuration was created or installed.
 
-Rows whose title/url/raw_content byte sum exceeds the configured transport cap fail the source explicitly before capture. The vector-based frozen Core contract requires complete bytes in memory. Do not claim lossless capture of arbitrarily large rows. Malformed content within this cap, including NULL title/url, ID 0, BC/infinite timestamps and values above the Core 4-MiB raw limit, is captured before extractor/Core rejection; following valid posts remain processable.
+Rows whose title/url/raw_content byte sum exceeds the configured transport cap are skipped inside the P4 source before reaching the Core iterator. The orchestrator explicitly approved this interim policy on 2026-10-13 and deferred a Core-level nonfatal item report until after P1r is live. SQL returns ID and actual byte-size metadata without transferring oversized text. Each skipped post emits one JSON line with event `patchnotes_source_skip`, source, post_id, reason `transport_row_too_large`, byte_size and cumulative skipped_oversized_posts. Successful source completion emits a `patchnotes_source_summary` with scanned_posts, emitted_posts and skipped_oversized_posts. A demand request continues fetching past skipped rows until the next bounded post or EOF, so skips do not consume a rendezvous response or leave the iterator waiting for another request. The existing max_posts bound counts scanned rows, including skips.
+
+No raw object is fabricated for an oversized transport row. Do not claim lossless capture of arbitrarily large rows or a Core RunReport entry for these skips. Malformed content within the cap, including NULL title/url, ID 0, BC/infinite timestamps and values above the Core 4-MiB raw limit, is still captured before extractor/Core rejection. Infrastructure, role, timeout and configured scan-count errors remain fatal.
 
 ## Measured proof
 
@@ -29,7 +31,20 @@ A separate 132-post scratch run wrote 132 raw objects. Repeating it left 132, de
 
 Earlier real peaks of 359378944 and 309030912 bytes failed the requirement. Removal of envelope queueing and producer prefetch, plus release of row storage and excess vector capacity, fixed the cause. The threshold was not increased.
 
-## Verification
+## Latest scoped verification, 2026-10-13
+
+Assigned parent manifest: `/home/nathanael/.worktrees/Deadlock-Brain-p4-patches/rust/Cargo.toml`. All compiler commands use existing cargo-slot, pinned +1.97.1, --locked and --jobs3. No owner/Core code or migrations changed.
+
+- Source tests: `cargo-slot +1.97.1 test --manifest-path <manifest> --locked --jobs 3 -p brain-job --lib patch_extract::source::tests -- --include-ignored --nocapture --test-threads=1`, exit0 on ionos. Six passed, zero failed/ignored, one unrelated lib test outside the filter. Log: `/tmp/p4-oversize-source-tests-20261013.log`.
+- Existing ingestion/extractor contracts: same launcher/manifest with `--test ingest --test patch_extract_contract -- --include-ignored --skip cached_hero_source_yields_one_unchanged_original_blob --nocapture --test-threads=1`, exit0 on ionos. Three plus nine passed, zero failed/ignored; the unchanged optional Core2 hero-cache fixture remains explicitly filtered under the earlier scope instruction. Log: `/tmp/p4-oversize-ingest-extract-tests-20261013.log`.
+- Check and Clippy: `-p brain-job --all-targets`, Clippy additionally `-- -D warnings`; both exit0 on ionos. Logs: `/tmp/p4-oversize-check-20261013.log`, `/tmp/p4-oversize-clippy-20261013.log`.
+- Formatter check and diff whitespace check exit0. Extractor/contracts remain799 lines. Executable build: same launcher/manifest with `-p brain-job`, exit0 locally in verify profile; log `/tmp/p4-oversize-build-20261013.log`.
+
+Fresh affected test total:18 passed,0 failed,0 ignored,2 filtered. The new single regression captures actual source stderr from the real PostgreSQL/Core fixture and verifies exactly one structured record per skipped post, exact UTF-8 sizes8388615/8388609, IDs1/3, reason and cumulative counts1/2; the summary is scanned4/emitted2/skipped2. Later bounded posts2/4 are accepted, the run succeeds and raw storage contains exactly those paths.
+
+The updated worst-bounded workload measured client peak254627840 bytes, below300000000, and repeat raw4 to4, delta0. The existing132-post repeat remains covered. This is scratch verification, not a productive run or Core-level skipped-item report.
+
+## Earlier component verification
 
 Manifest: `/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ae1a42b9495225b9d/rust/Cargo.toml`.
 

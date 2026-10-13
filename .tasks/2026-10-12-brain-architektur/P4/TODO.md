@@ -48,10 +48,15 @@ The independent oversized-post source/report finding remains unresolved regardle
 
 MERGEPROTOKOLL[MS-1]: 0 Git-Schritte einzeln | Anläufe: 2 | Gate: kein Urteil, Exit 2, bwrap/unshare Cannot allocate memory
 
+## Latest orchestrator decision, 2026-10-13
+
+The orchestrator confirmed normal bwrap sandbox startup is restored after transient host memory pressure and requested another gate attempt on14188bcf or later. The source policy is explicitly revised: skip oversized posts inside P4 before the Core iterator, emit one structured log per post with ID/reason/byte size and count them; prove following valid posts are ingested. Core-level nonfatal item reporting is deferred until after P1r is live. This supersedes the earlier P1r report-interface prerequisite and the earlier prohibition on a log-based interim report. Frozen Core stays unchanged.
+
+The scoped source fix is verified: SQL returns only size metadata for oversized rows; one demand request scans past skipped rows until the next bounded object; per-post JSON diagnostics include the cumulative skipped count, and successful source completion emits scanned/emitted/skipped counts. No fabricated raw object or new persistence path is introduced. Affected tests18 passed/0 failed/0 ignored, with2 disclosed unrelated filters. Check, Clippy, formatter and executable build exit0. The actual log/count/Core continuation proof and commands are in `SOURCE_HANDOFF.md`; new client peak254627840 bytes and raw repeat delta0. Extractor/contracts remain799 lines.
+
 ## Open
 
-1. Receive the P1r nonfatal source-item/report checkpoint required by the orchestrator's conditional 8-MiB acceptance. Current `patch_source.rs:337-340` still aborts on an oversized row. Frozen Core `process` propagates `object?` at lib.rs:75, RunReport exposes only counts at lines 41-44, and Store.reject requires a captured raw object ID. P4 cannot honestly report an uncaptured failed item through this API. P1r must publish the minimal interface for source-item identity, failure reason and actual byte size visible in the run report, with continuation for this item class and fatal infrastructure errors preserved. No fake/truncated post bytes, loader DB writer, silent skip, log-only substitute or streaming contract.
-2. Once that actual interface is published and authorized, adapt the source's SQL metadata and demand-driven cursor loop, and add exactly the oversized-then-valid real-Core regression. Verify the failed item's reason/size, following valid post processing and absence of fabricated raw content. Preserve the existing extractor budget, original-byte semantics and measured memory ceiling.
-3. Receive the documented canonical receipt checkpoint from P1r and coordinate its owner-controlled service wrapper insertion. Optional get_hero.patch exists in approved owner code and must retain historical_patch_unavailable without evidenced assignments.
-4. Obtain fresh independent confirmation of the source fix, then gate according to P1r live/integration order. Only the responsible integrator merges/deploys; no source activation, gate ALLOW or live acceptance is claimed.
+1. Rerun the required local merge gate on the verified committed source checkpoint and inspect its independent findings. No ALLOW is claimed before an actual verdict.
+2. Receive the documented canonical receipt checkpoint from P1r and coordinate its owner-controlled service wrapper insertion. Optional get_hero.patch exists in approved owner code and must retain historical_patch_unavailable without evidenced assignments.
+3. Hand over the gate-ready branch according to the assigned P1r live/integration order. Only the responsible integrator merges/deploys; no source activation or live acceptance is claimed.
 

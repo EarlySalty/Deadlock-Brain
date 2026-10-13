@@ -296,11 +296,15 @@ async fn read(
                  SELECT id, title, url, posted_at, raw_content,
                         COALESCE(octet_length(title)::bigint, 0)
                         + COALESCE(octet_length(url)::bigint, 0)
-                        + COALESCE(octet_length(raw_content)::bigint, 0) <= max_row_bytes AS bounded
-                 FROM patchnotes.changelog_posts CROSS JOIN parameters
+                        + COALESCE(octet_length(raw_content)::bigint, 0) AS byte_size
+                 FROM patchnotes.changelog_posts
                  ORDER BY id LIMIT (SELECT max_posts + 1 FROM parameters)
+             ),
+             checked AS (
+                 SELECT *, byte_size <= (SELECT max_row_bytes FROM parameters) AS bounded
+                 FROM sized
              )
-             SELECT id, bounded,
+             SELECT id, byte_size, bounded,
                     CASE WHEN bounded THEN title END AS title,
                     CASE WHEN bounded THEN url END AS url,
                     CASE WHEN isfinite(posted_at)
@@ -309,7 +313,7 @@ async fn read(
                               'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')
                          ELSE posted_at::text END AS posted_at,
                     CASE WHEN bounded THEN raw_content END AS raw_content
-             FROM sized ORDER BY id",
+             FROM checked ORDER BY id",
         )
         .bind(i64::from(config.max_row_bytes))
         .bind(i64::from(config.max_posts))
@@ -317,35 +321,69 @@ async fn read(
     )
     .await?;
     let mut count = 0;
-    loop {
+    let mut skipped = 0;
+    'posts: loop {
         requested
             .changed()
             .await
             .map_err(|_| anyhow!("Patchnotes-Empfänger wurde beendet"))?;
-        let row = bounded(
-            timeout,
-            sqlx::query("FETCH FORWARD 1 FROM brain_patch_source")
-                .fetch_optional(&mut *transaction),
-        )
-        .await?;
-        let Some(row) = row else { break };
-        count += 1;
-        ensure!(
-            count <= config.max_posts,
-            "Patchnotes-Anzahl überschreitet die konfigurierte Grenze"
-        );
-        ensure!(
-            row.try_get::<bool, _>("bounded").unwrap_or(false),
-            "Patchnotes-Zeile überschreitet die begrenzte Speicherübertragung; der Rohobjektvertrag benötigt vollständige Bytes im Arbeitsspeicher"
-        );
-        let object =
-            envelope(&row).map_err(|_| anyhow!("Patchnotes-Zeile enthält ungültige Felder"))?;
-        drop(row);
-        if sender.send(Message::Object(Ok(object))).is_err() {
-            return Ok(());
+        loop {
+            let row = bounded(
+                timeout,
+                sqlx::query("FETCH FORWARD 1 FROM brain_patch_source")
+                    .fetch_optional(&mut *transaction),
+            )
+            .await?;
+            let Some(row) = row else { break 'posts };
+            count += 1;
+            ensure!(
+                count <= config.max_posts,
+                "Patchnotes-Anzahl überschreitet die konfigurierte Grenze"
+            );
+            let within_limit: bool = row
+                .try_get("bounded")
+                .map_err(|_| anyhow!("Patchnotes-Zeile enthält ungültige Felder"))?;
+            if !within_limit {
+                let post_id: i64 = row
+                    .try_get("id")
+                    .map_err(|_| anyhow!("Patchnotes-Zeile enthält ungültige Felder"))?;
+                let byte_size: i64 = row
+                    .try_get("byte_size")
+                    .map_err(|_| anyhow!("Patchnotes-Zeile enthält ungültige Felder"))?;
+                skipped += 1;
+                eprintln!(
+                    "{}",
+                    serde_json::json!({
+                        "event": "patchnotes_source_skip",
+                        "source": super::SOURCE,
+                        "post_id": post_id,
+                        "reason": "transport_row_too_large",
+                        "byte_size": byte_size,
+                        "skipped_oversized_posts": skipped
+                    })
+                );
+                continue;
+            }
+            let object =
+                envelope(&row).map_err(|_| anyhow!("Patchnotes-Zeile enthält ungültige Felder"))?;
+            drop(row);
+            if sender.send(Message::Object(Ok(object))).is_err() {
+                return Ok(());
+            }
+            break;
         }
     }
     bounded(timeout, transaction.commit()).await?;
+    eprintln!(
+        "{}",
+        serde_json::json!({
+            "event": "patchnotes_source_summary",
+            "source": super::SOURCE,
+            "scanned_posts": count,
+            "emitted_posts": count - skipped,
+            "skipped_oversized_posts": skipped
+        })
+    );
     Ok(())
 }
 

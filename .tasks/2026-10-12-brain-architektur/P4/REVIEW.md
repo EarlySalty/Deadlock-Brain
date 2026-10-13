@@ -1,6 +1,10 @@
 # P4 independent review follow-up
 
-## Current review: published parent1628ba07, 2026-10-13
+## Oversized-post disposition, 2026-10-13
+
+The latest orchestrator instruction supersedes the earlier requirement to wait for a Core source-item/report interface. P4 now skips oversized rows before the iterator, logs each ID/reason/actual byte size and counts them; Core-level reporting is deferred until after P1r is live. The new single regression uses real scratch PostgreSQL and Core ingestion, then captures actual JSON stderr from that same test process: two skipped posts have exact IDs/reason/UTF-8 byte sizes and cumulative counts, the source summary reports scanned4/emitted2/skipped2, later posts are accepted and raw storage contains only paths2/4. Source tests passed6 with no failures or ignored tests; measured client peak254627840 bytes and raw repeat delta0. The orchestrator-approved source policy is implemented and the matching executable build, check, Clippy and formatter exit0. Fresh affected tests total18 passed/0 failed/0 ignored, with2 disclosed unrelated filters. Commands and logs are in `SOURCE_HANDOFF.md`. The fresh independent gate verdict is pending. This is not yet independent acceptance of the new code.
+
+## Earlier independent review: published parent1628ba07, 2026-10-13
 
 Fresh read-only reviewer `a3f637df6130c3776` confirmed the actual integrated parent after approved owner merge and runtime fix67ae30ad. Shared receipt serialization and complete canonical result binding are fixed. Real PostgreSQL and the actual owner/kernel path prove receipt equality; omission-only quarantine changes reject stale seals for Provider, Publication and Cache. Final affected checks: 246 passed, 0 failed, 0 ignored, 0 filtered; formatter/compiler/Clippy exit 0. Evidence: `RUNTIME_VERIFICATION.txt`. Source/schema artifacts and owner service code were unchanged by the runtime fix.
 

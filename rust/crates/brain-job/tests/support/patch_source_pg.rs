@@ -1,5 +1,9 @@
 use super::*;
-use crate::{ingest, patch_extract::PatchExtractor, GameFactsStore};
+use crate::{
+    ingest,
+    patch_extract::{PatchExtractor, SOURCE},
+    GameFactsStore,
+};
 use brain_storage::PgStore;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
@@ -340,6 +344,83 @@ async fn content_poison_is_captured_unchanged_and_does_not_block_valid_posts() {
 }
 
 #[tokio::test]
+async fn oversized_posts_are_logged_counted_and_later_posts_are_ingested() {
+    if std::env::var_os("BRAIN_P4_OVERSIZE_LOG_CHILD").is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "patch_extract::source::tests::oversized_posts_are_logged_counted_and_later_posts_are_ingested",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("BRAIN_P4_OVERSIZE_LOG_CHILD", "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        let logs: Vec<serde_json::Value> = stderr
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect();
+        assert_eq!(logs.len(), 3);
+        for (entry, id, size, skipped) in [(&logs[0], 1, 8388615, 1), (&logs[1], 3, 8388609, 2)] {
+            assert_eq!(entry["event"], "patchnotes_source_skip");
+            assert_eq!(entry["source"], SOURCE);
+            assert_eq!(entry["post_id"], id);
+            assert_eq!(entry["reason"], "transport_row_too_large");
+            assert_eq!(entry["byte_size"], size);
+            assert_eq!(entry["skipped_oversized_posts"], skipped);
+        }
+        assert_eq!(logs[2]["event"], "patchnotes_source_summary");
+        assert_eq!(logs[2]["source"], SOURCE);
+        assert_eq!(logs[2]["scanned_posts"], 4);
+        assert_eq!(logs[2]["emitted_posts"], 2);
+        assert_eq!(logs[2]["skipped_oversized_posts"], 2);
+        println!("P4_OVERSIZE_CONTINUATION_PROOF: skipped=2; exact post IDs/reason/byte sizes and summary verified; later posts accepted=2; raw paths=2,4; run=succeeded");
+        return;
+    }
+    let (_pg, admin, reader) = setup().await;
+    sqlx::raw_sql(
+        "INSERT INTO patchnotes.changelog_posts
+         SELECT id, 'Patch', 'https://forums.playdeadlock.com/threads/patch.' || id || '/',
+                '2026-10-12T17:20:21Z'::timestamptz, 'General content', NULL
+         FROM generate_series(1,4) id;
+         UPDATE patchnotes.changelog_posts
+         SET title = repeat(chr(228), 3), url = NULL, raw_content = repeat('x', 8388609)
+         WHERE id = 1;
+         UPDATE patchnotes.changelog_posts
+         SET title = NULL, url = NULL, raw_content = repeat('x', 8388609)
+         WHERE id = 3;",
+    )
+    .execute(&admin)
+    .await
+    .unwrap();
+    let store = store(&admin).await;
+    let report = ingest(&store, SOURCE, stream(config(), reader), &[&PatchExtractor])
+        .await
+        .unwrap();
+    assert_eq!(
+        report.counts,
+        crate::Counts {
+            accepted: 2,
+            rejected: 0,
+            ignored: 0
+        }
+    );
+    let paths: Vec<String> = sqlx::query_scalar("SELECT path FROM raw.object ORDER BY path")
+        .fetch_all(&admin)
+        .await
+        .unwrap();
+    assert_eq!(paths, ["2", "4"]);
+    let status: String = sqlx::query_scalar("SELECT status FROM ops.ingest_run WHERE id = $1")
+        .bind(report.run_id)
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+    assert_eq!(status, "succeeded");
+}
+
+#[tokio::test]
 async fn worst_bounded_rows_backpressure_and_ingest_stay_below_300_mb() {
     let (_pg, admin, reader) = setup().await;
     sqlx::raw_sql(
@@ -448,7 +529,8 @@ async fn real_postgres_bounds_role_failure_and_drop_cancel_workers() {
     .execute(&admin)
     .await
     .unwrap();
-    assert!(stream(config(), reader.clone()).next().unwrap().is_err());
+    let following = stream(config(), reader.clone()).next().unwrap().unwrap();
+    assert_eq!(following.path, "2");
     sqlx::query(
         "UPDATE patchnotes.changelog_posts SET raw_content = repeat('x', 64006) WHERE id = 1",
     )
