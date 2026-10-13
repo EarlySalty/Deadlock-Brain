@@ -1,0 +1,31 @@
+[Unit]
+Description=Deadlock Brain Datenimport (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nathanael
+Group=nathanael
+Slice=system.slice
+WorkingDirectory=/opt/deadlock-brain/current
+LoadCredential=infisical-token:/home/nathanael/.config/infisical-tokens/infisical-token-bots
+ExecStart=/opt/deadlock-brain/current/bin/brain-job --config /etc/deadlock-brain/brain-job.json ingest %i
+ExecStartPost=/usr/bin/grep --quiet --line-regexp --extended-regexp [0-9]+:memory:/system[.]slice/%n /proc/self/cgroup
+ExecStartPost=/usr/bin/grep --quiet --line-regexp 536870912 /sys/fs/cgroup/memory/system.slice/%n/memory.limit_in_bytes
+ExecStartPost=/usr/bin/grep --quiet --line-regexp --extended-regexp [1-9][0-9]* /sys/fs/cgroup/memory/system.slice/%n/memory.max_usage_in_bytes
+ExecStartPost=/usr/bin/systemctl --system show %n --property=InvocationID
+ExecStartPost=/usr/bin/grep --with-filename --line-regexp --extended-regexp [1-9][0-9]*|[0-9]+:memory:/system[.]slice/%n /proc/self/cgroup /sys/fs/cgroup/memory/system.slice/%n/memory.limit_in_bytes /sys/fs/cgroup/memory/system.slice/%n/memory.max_usage_in_bytes
+StandardOutput=journal
+StandardError=journal
+StateDirectory=deadlock-brain-job
+StateDirectoryMode=0700
+TimeoutStartSec=120min
+TimeoutStopSec=30s
+Restart=no
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+MemoryAccounting=yes
+MemoryMax=512M
+MemorySwapMax=0

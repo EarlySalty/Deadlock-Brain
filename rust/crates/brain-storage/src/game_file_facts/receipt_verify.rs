@@ -49,6 +49,7 @@ pub fn supported(format: Format, request: &Request<'_>) -> bool {
         && match request.receipt.locator_kind.as_str() {
             "raw_bytes" => request.receipt.locator.is_empty(),
             "json_pointer" => matches!(format, Format::Json),
+            "kv_path" | "byte_ranges" => true,
             "kv_pointer" => matches!(format, Format::Kv | Format::Kv3),
             _ => false,
         }
@@ -107,44 +108,50 @@ fn raw_hashes<'a>(
     requests: &[Request<'a>],
     allocation: usize,
 ) -> Result<Hashes<'a>, Rejection> {
-    let parsed = requests
-        .iter()
-        .any(|r| supported(format, r) && r.receipt.locator_kind != "raw_bytes");
     let mut leaves = BTreeMap::new();
-    if parsed {
+    if requests
+        .iter()
+        .any(|r| supported(format, r) && r.receipt.locator_kind == "json_pointer")
+    {
         let text = std::str::from_utf8(bytes).map_err(|_| Rejection::InvalidUtf8)?;
+        json_text::parse_with_budget(text, Budget::with_limit(allocation))
+            .map_err(parser_rejection)?;
+    }
+    let kv_path = requests
+        .iter()
+        .any(|r| supported(format, r) && r.receipt.locator_kind == "kv_path");
+    let kv_pointer = requests
+        .iter()
+        .any(|r| supported(format, r) && r.receipt.locator_kind == "kv_pointer");
+    if kv_path || kv_pointer {
+        let text = std::str::from_utf8(bytes).map_err(|_| Rejection::InvalidUtf8)?;
+        let text = text.trim_start_matches('\u{feff}').trim_start();
         let budget = Budget::with_limit(allocation);
-        match format {
-            Format::Json => {
-                json_text::parse_with_budget(text, budget).map_err(parser_rejection)?;
-            }
-            Format::Kv | Format::Kv3 => {
-                let requested: BTreeSet<_> = requests
-                    .iter()
-                    .filter(|r| supported(format, r))
-                    .map(|r| r.receipt.locator.as_str())
-                    .collect();
-                let values: Vec<_> = match format {
-                    Format::Kv => kv::parse_with_budget(text, budget)
-                        .map_err(parser_rejection)?
-                        .into_iter()
-                        .map(|e| (e.pointer, e.value))
-                        .collect(),
-                    _ => kv3::parse_with_budget(text, budget)
-                        .map_err(parser_rejection)?
-                        .into_iter()
-                        .map(|l| (l.pointer, l.lexeme))
-                        .collect(),
-                };
-                for (pointer, lexeme) in values {
-                    if requested.contains(pointer.as_str())
-                        && leaves
-                            .insert(pointer, Sha256::digest(lexeme.as_bytes()).into())
-                            .is_some()
-                    {
-                        return Err(Rejection::LocatorCollision);
-                    }
-                }
+        let values: Vec<_> = if kv_path || matches!(format, Format::Kv3) {
+            kv3::parse_with_budget(text, budget)
+                .map_err(parser_rejection)?
+                .into_iter()
+                .map(|l| (l.pointer, l.lexeme))
+                .collect()
+        } else {
+            kv::parse_with_budget(text, budget)
+                .map_err(parser_rejection)?
+                .into_iter()
+                .map(|e| (e.pointer, e.value))
+                .collect()
+        };
+        let requested: BTreeSet<_> = requests
+            .iter()
+            .filter(|r| supported(format, r))
+            .map(|r| r.receipt.locator.as_str())
+            .collect();
+        for (pointer, lexeme) in values {
+            if requested.contains(pointer.as_str())
+                && leaves
+                    .insert(pointer, Sha256::digest(lexeme.as_bytes()).into())
+                    .is_some()
+            {
+                return Err(Rejection::LocatorCollision);
             }
         }
     }
@@ -155,7 +162,10 @@ fn raw_hashes<'a>(
         if hashes.contains_key(&key) {
             continue;
         }
-        let hash = if receipt.locator_kind == "raw_bytes" || matches!(format, Format::Json) {
+        let hash = if matches!(
+            receipt.locator_kind.as_str(),
+            "raw_bytes" | "json_pointer" | "byte_ranges"
+        ) {
             receipts::value_bytes(bytes, receipt)
                 .ok()
                 .map(|v| Sha256::digest(v).into())
@@ -358,6 +368,38 @@ mod tests {
         assert_eq!(
             check(&bad, Format::Json, &[r], policy()),
             [Verification::ObjectRejected(Rejection::ContentHashMismatch)]
+        );
+    }
+    #[test]
+    fn core_kv_path_and_byte_ranges_lexemes_match_exactly() {
+        for (bytes, kind, paths) in [
+            (
+                "\u{feff}  <!-- kv3 encoding:text --> { x = 1.2300e+2 x = -0 name = \"a\\nb\" }"
+                    .as_bytes(),
+                "kv_path",
+                vec!["/x/0", "/x/1", "/name/0"],
+            ),
+            (
+                &b"abc0123xyz45"[..],
+                "byte_ranges",
+                vec!["3-7", "3-7,10-12"],
+            ),
+        ] {
+            let raw = raw(bytes);
+            for locator in paths {
+                let mut r = receipt(kind, locator, b"");
+                r.value_sha256 = Sha256::digest(receipts::value_bytes(bytes, &r).unwrap()).into();
+                assert_eq!(
+                    check(&raw, Format::Json, from_ref(&r), policy()),
+                    [Verification::Receipt(ReceiptOutcome::Match(r.value_sha256))]
+                );
+            }
+        }
+        let raw = raw(&[0xff, 1, 2]);
+        let r = receipt("byte_ranges", "0-1,2-3", &[0xff, 2]);
+        assert_eq!(
+            check(&raw, Format::Json, from_ref(&r), policy()),
+            [Verification::Receipt(ReceiptOutcome::Match(r.value_sha256))]
         );
     }
 }

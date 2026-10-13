@@ -1,14 +1,90 @@
 use super::{FactSet, FactValue, Receipt, Rejection};
 use std::collections::BTreeSet;
 
+pub const RAW_BYTES: usize = 4 * 1024 * 1024;
 pub const KEY_BYTES: usize = 128;
 pub const TEXT_BYTES: usize = 16_384;
 pub const ALIAS_BYTES: usize = 256;
 pub const LOCATOR_BYTES: usize = 4_096;
+pub const BYTE_RANGES: usize = 64;
+pub const BYTE_RANGE_BYTES: usize = 65_536;
 pub const DETAIL_BYTES: usize = 512;
 pub const ROWS: usize = 4_096;
 pub const NUMBER_ABS: f64 = 1_000_000_000_000_000.0;
 pub const KEY_PATTERN: &str = "^[a-z][a-z0-9_]*$";
+
+fn invalid_number() -> Rejection {
+    Rejection::new(
+        "invalid_number",
+        "Zahl ist ungültig oder außerhalb des Wertebereichs",
+    )
+}
+
+pub fn validate_numeric_lexeme(value: &str) -> Result<(), Rejection> {
+    if value.len() > TEXT_BYTES {
+        return Err(invalid_number());
+    }
+    let bytes = value.as_bytes();
+    let start = usize::from(bytes.first() == Some(&b'-'));
+    let mut index = start;
+    if bytes.get(index) == Some(&b'0') {
+        index += 1;
+    } else {
+        if !bytes.get(index).is_some_and(|b| matches!(b, b'1'..=b'9')) {
+            return Err(invalid_number());
+        }
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+    }
+    let integer_digits = index - start;
+    if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        let fraction = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        if index == fraction {
+            return Err(invalid_number());
+        }
+    }
+    let mantissa_end = index;
+    let mut exponent = 0_i64;
+    if bytes.get(index).is_some_and(|b| matches!(b, b'e' | b'E')) {
+        index += 1;
+        let negative = bytes.get(index) == Some(&b'-');
+        if bytes.get(index).is_some_and(|b| matches!(b, b'+' | b'-')) {
+            index += 1;
+        }
+        let exponent_start = index;
+        while let Some(b) = bytes.get(index).filter(|b| b.is_ascii_digit()) {
+            exponent = (exponent * 10 + i64::from(*b - b'0')).min(TEXT_BYTES as i64 + 16);
+            index += 1;
+        }
+        if index == exponent_start {
+            return Err(invalid_number());
+        }
+        if negative {
+            exponent = -exponent;
+        }
+    }
+    if index != bytes.len() {
+        return Err(invalid_number());
+    }
+    let mut digits = bytes[start..mantissa_end]
+        .iter()
+        .copied()
+        .filter(u8::is_ascii_digit)
+        .enumerate();
+    let Some((leading, digit)) = digits.find(|(_, b)| *b != b'0') else {
+        return Ok(());
+    };
+    let order = integer_digits as i64 - leading as i64 - 1 + exponent;
+    if order > 15 || (order == 15 && (digit != b'1' || digits.any(|(_, b)| b != b'0'))) {
+        return Err(invalid_number());
+    }
+    Ok(())
+}
 
 pub fn normalize_key(value: &str) -> String {
     value

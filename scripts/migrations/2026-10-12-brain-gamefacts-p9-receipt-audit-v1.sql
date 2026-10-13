@@ -31,8 +31,11 @@ CREATE INDEX receipt_audit_receipt_idx ON ops.receipt_audit(receipt_id,run_id DE
 CREATE TABLE canon.receipt_quarantine (
     receipt_id bigint PRIMARY KEY REFERENCES canon.receipt(id),
     run_id bigint NOT NULL,
+    audited_receipt_id bigint NOT NULL,
+    cause text NOT NULL CHECK(cause IN('audited','shadowed')),
     quarantined_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-    FOREIGN KEY(run_id,receipt_id) REFERENCES ops.receipt_audit(run_id,receipt_id)
+    CHECK((cause='audited')=(audited_receipt_id=receipt_id)),
+    FOREIGN KEY(run_id,audited_receipt_id) REFERENCES ops.receipt_audit(run_id,receipt_id)
 );
 
 CREATE FUNCTION ops.serialize_receipt_audit_write() RETURNS trigger
@@ -55,8 +58,28 @@ BEGIN
         (SELECT count(*) FROM ops.receipt_audit r WHERE r.run_id=a.run_id)>200) THEN
         RAISE EXCEPTION 'Belegprüfung enthält zu viele Ergebnisse' USING ERRCODE='23514';
     END IF;
-    INSERT INTO canon.receipt_quarantine(receipt_id,run_id)
-        SELECT receipt_id,run_id FROM audit_results WHERE outcome IN('mismatch','locator_not_found')
+    INSERT INTO canon.receipt_quarantine AS q(receipt_id,run_id,audited_receipt_id,cause)
+        SELECT DISTINCT ON(receipt_id) receipt_id,run_id,receipt_id,'audited' FROM audit_results
+        WHERE outcome IN('mismatch','locator_not_found') ORDER BY receipt_id,run_id DESC
+        ON CONFLICT(receipt_id) DO UPDATE SET run_id=EXCLUDED.run_id,
+            audited_receipt_id=EXCLUDED.audited_receipt_id,cause='audited',quarantined_at=clock_timestamp()
+        WHERE q.cause='shadowed';
+    INSERT INTO canon.receipt_quarantine(receipt_id,run_id,audited_receipt_id,cause)
+        SELECT DISTINCT ON(older.id) older.id,a.run_id,a.receipt_id,'shadowed'
+        FROM audit_results a JOIN canon.receipt bad ON bad.id=a.receipt_id
+        CROSS JOIN LATERAL(
+            SELECT o.receipt_id FROM canon.fact c JOIN canon.fact o USING(entity_id,stat_key)
+                WHERE c.receipt_id=a.receipt_id
+            UNION ALL SELECT o.receipt_id FROM canon.alias c JOIN canon.alias o USING(entity_id,alias_norm,lang)
+                WHERE c.receipt_id=a.receipt_id
+            UNION ALL SELECT o.receipt_id FROM canon.relation c JOIN canon.relation o USING(from_entity,kind,to_entity)
+                WHERE c.receipt_id=a.receipt_id
+            UNION ALL SELECT o.receipt_id FROM canon.entity_identity c JOIN canon.entity_identity o USING(entity_id)
+                WHERE c.receipt_id=a.receipt_id
+        ) peer
+        JOIN canon.receipt older ON older.id=peer.receipt_id AND (older.ingest_run_id,older.id)<(bad.ingest_run_id,bad.id)
+        WHERE a.outcome IN('mismatch','locator_not_found')
+        ORDER BY older.id,a.run_id DESC,a.receipt_id
         ON CONFLICT(receipt_id) DO NOTHING;
     RETURN NULL;
 END
@@ -69,14 +92,29 @@ CREATE OR REPLACE VIEW serve.published_receipt AS
 SELECT r.*,o.source,o.revision,o.revision AS source_revision,o.path,o.content_sha256
 FROM canon.receipt r JOIN ops.ingest_run run ON run.id=r.ingest_run_id AND run.status='succeeded'
 JOIN raw.object o ON o.id=r.raw_object_id
-WHERE NOT EXISTS(SELECT 1 FROM canon.receipt_quarantine q WHERE q.receipt_id=r.id);
+WHERE NOT EXISTS(SELECT 1 FROM canon.receipt_quarantine q WHERE q.receipt_id=r.id)
+AND NOT EXISTS(
+    SELECT 1 FROM canon.receipt_quarantine q JOIN canon.receipt bad ON bad.id=q.receipt_id
+    WHERE q.cause='audited' AND (r.ingest_run_id,r.id)<(bad.ingest_run_id,bad.id)
+    AND (
+        EXISTS(SELECT 1 FROM canon.fact c JOIN canon.fact o USING(entity_id,stat_key)
+            WHERE c.receipt_id=bad.id AND o.receipt_id=r.id)
+        OR EXISTS(SELECT 1 FROM canon.alias c JOIN canon.alias o USING(entity_id,alias_norm,lang)
+            WHERE c.receipt_id=bad.id AND o.receipt_id=r.id)
+        OR EXISTS(SELECT 1 FROM canon.relation c JOIN canon.relation o USING(from_entity,kind,to_entity)
+            WHERE c.receipt_id=bad.id AND o.receipt_id=r.id)
+        OR EXISTS(SELECT 1 FROM canon.entity_identity c JOIN canon.entity_identity o USING(entity_id)
+            WHERE c.receipt_id=bad.id AND o.receipt_id=r.id)
+    )
+);
 
 REVOKE ALL ON ops.receipt_audit_run,ops.receipt_audit_rejection,ops.receipt_audit,canon.receipt_quarantine
     FROM PUBLIC,brain_tool,brain_ingest,brain_service;
 REVOKE ALL ON FUNCTION ops.serialize_receipt_audit_write(),ops.quarantine_audited_receipts()
     FROM PUBLIC,brain_tool,brain_ingest,brain_service;
 GRANT USAGE ON SEQUENCE ops.receipt_audit_run_id_seq TO brain_ingest;
-GRANT SELECT ON ops.receipt_audit_run,ops.receipt_audit_rejection,ops.receipt_audit,canon.receipt_quarantine,serve.published_receipt TO brain_ingest;
+GRANT SELECT ON ops.receipt_audit_run,ops.receipt_audit_rejection,ops.receipt_audit,canon.receipt_quarantine,serve.published_receipt,
+    serve.current_fact,serve.current_alias,serve.current_relation,serve.current_entity TO brain_ingest;
 GRANT USAGE ON SCHEMA serve TO brain_ingest;
 GRANT INSERT(sampled,verified_receipts,rejected_receipts,rejected_objects),
     UPDATE(finished,sampled,verified_receipts,rejected_receipts,rejected_objects) ON ops.receipt_audit_run TO brain_ingest;

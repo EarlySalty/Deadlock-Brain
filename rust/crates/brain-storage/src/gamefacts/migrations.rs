@@ -3,20 +3,30 @@ use brain_contracts::PortError;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, Row};
 
-pub const MIGRATIONS: &[(i32, &str)] = &[(
-    1,
-    include_str!("../../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"),
-)];
+pub const MIGRATIONS: &[(i32, &str)] = &[
+    (
+        1,
+        include_str!("../../../../../scripts/migrations/2026-10-12-brain-gamefacts-v1.sql"),
+    ),
+    (
+        6,
+        include_str!(
+            "../../../../../scripts/migrations/2026-10-12-brain-gamefacts-p9-receipt-audit-v1.sql"
+        ),
+    ),
+];
 
 fn invalid() -> PortError {
     PortError::InvalidResponse("Spielwertschema fehlt, ist verändert oder nicht kompatibel".into())
 }
 
-fn ordered() -> Result<(), PortError> {
-    for (index, (version, _)) in MIGRATIONS.iter().enumerate() {
-        if i32::try_from(index + 1).ok() != Some(*version) {
+fn ordered(migrations: &[(i32, &str)]) -> Result<(), PortError> {
+    let mut previous = 0;
+    for (version, _) in migrations {
+        if *version <= previous {
             return Err(invalid());
         }
+        previous = *version;
     }
     Ok(())
 }
@@ -44,9 +54,9 @@ fn sql_and_checksum(template: &str) -> (String, Vec<u8>) {
     (sql, checksum)
 }
 
-async fn check(connection: &mut PgConnection) -> Result<(), PortError> {
-    ordered()?;
-    let expected: Vec<_> = MIGRATIONS
+async fn check(connection: &mut PgConnection, migrations: &[(i32, &str)]) -> Result<(), PortError> {
+    ordered(migrations)?;
+    let expected: Vec<_> = migrations
         .iter()
         .map(|(v, s)| (*v, sql_and_checksum(s).1))
         .collect();
@@ -85,12 +95,19 @@ impl PgStore {
             .execute(&mut *tx)
             .await
             .map_err(|_| invalid())?;
-        check(&mut tx).await?;
+        check(&mut tx, MIGRATIONS).await?;
         tx.commit().await.map_err(|_| invalid())
     }
 
     pub async fn migrate_gamefacts(&self) -> Result<(), PortError> {
-        ordered()?;
+        self.migrate_gamefacts_registered(MIGRATIONS).await
+    }
+
+    async fn migrate_gamefacts_registered(
+        &self,
+        migrations: &[(i32, &str)],
+    ) -> Result<(), PortError> {
+        ordered(migrations)?;
         let mut tx = self.pool.begin().await.map_err(|_| invalid())?;
         sqlx::raw_sql("SET LOCAL lock_timeout='5000ms'; SET LOCAL statement_timeout='60000ms'; SELECT pg_advisory_xact_lock(742110026112::bigint)").execute(&mut *tx).await.map_err(|_| invalid())?;
         let dba: bool =
@@ -121,15 +138,18 @@ impl PgStore {
         } else {
             Vec::new()
         };
-        if existing.len() > MIGRATIONS.len() {
-            return Err(invalid());
+        for (version, saved_checksum) in &existing {
+            let (_, template) = migrations
+                .iter()
+                .find(|(v, _)| v == version)
+                .ok_or_else(invalid)?;
+            if *saved_checksum != sql_and_checksum(template).1 {
+                return Err(invalid());
+            }
         }
-        for (index, (version, template)) in MIGRATIONS.iter().enumerate() {
+        for (version, template) in migrations {
             let (sql, checksum) = sql_and_checksum(template);
-            if let Some(saved) = existing.get(index) {
-                if saved != &(*version, checksum) {
-                    return Err(invalid());
-                }
+            if existing.binary_search_by_key(version, |(v, _)| *v).is_ok() {
                 continue;
             }
             let body = sql
@@ -151,7 +171,11 @@ impl PgStore {
                 .await
                 .map_err(|_| invalid())?;
         }
-        check(&mut tx).await?;
+        check(&mut tx, migrations).await?;
         tx.commit().await.map_err(|_| invalid())
     }
 }
+
+#[cfg(test)]
+#[path = "migrations_tests.rs"]
+mod tests;

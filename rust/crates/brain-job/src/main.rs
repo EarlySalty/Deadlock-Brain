@@ -1,20 +1,15 @@
-use brain_job::{ingest, registry::EXTRACTORS, sources::SOURCES, GameFactsStore};
+use brain_job::{
+    config::Config,
+    ingest,
+    registry::EXTRACTORS,
+    sources::{self, SOURCES},
+    GameFactsStore,
+};
 use brain_storage::PgStore;
-use serde::Deserialize;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
-use std::{path::PathBuf, process::ExitCode, time::Duration};
+use std::{path::Path, process::ExitCode};
 
 const USAGE: &str =
-    "Aufruf: brain-job ingest <source> --config <local-postgres.json> --input <git-repository> | brain-job audit-receipts --config <local-postgres.json>";
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Config {
-    socket: PathBuf,
-    port: u16,
-    database: String,
-    user: String,
-}
+    "Aufruf: brain-job --config <brain-job.json> ingest <source> [--input <git-repository>] | brain-job --config <brain-job.json> audit-receipts";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -33,83 +28,86 @@ async fn run() -> anyhow::Result<()> {
         println!("{USAGE}");
         return Ok(());
     }
-    let audit = args.len() == 3 && args[0] == "audit-receipts" && args[1] == "--config";
-    anyhow::ensure!(
-        audit
-            || (args.len() == 6
-                && args[0] == "ingest"
-                && args[2] == "--config"
-                && args[4] == "--input"),
-        "Ungültiger Aufruf"
-    );
-    let ingestion = if audit {
-        None
-    } else {
-        let source = args[1]
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Ungültige Quelle"))?;
-        let loader = SOURCES
-            .iter()
-            .find(|(name, _)| *name == source)
-            .map(|(_, loader)| *loader)
-            .ok_or_else(|| anyhow::anyhow!("Unbekannte Quelle"))?;
-        Some((source, loader))
+    let audit_config = match args.as_slice() {
+        [flag, config, command] if flag == "--config" && command == "audit-receipts" => {
+            Some(config)
+        }
+        [command, flag, config] if command == "audit-receipts" && flag == "--config" => {
+            Some(config)
+        }
+        _ => None,
     };
-    anyhow::ensure!(
-        std::env::var_os("PGOPTIONS").is_none(),
-        "PGOPTIONS ist unzulässig"
-    );
-    let config: Config =
-        serde_json::from_reader(std::fs::File::open(&args[if audit { 2 } else { 3 }])?)?;
-    anyhow::ensure!(
-        config.socket.is_absolute()
-            && config.port != 0
-            && [&config.database, &config.user]
-                .iter()
-                .all(|s| !s.trim().is_empty()
-                    && s.len() <= 128
-                    && !s.chars().any(char::is_control)),
-        "Ungültige lokale Datenbankkonfiguration"
-    );
-    let options = PgConnectOptions::new_without_pgpass()
-        .host(&config.socket.to_string_lossy())
-        .port(config.port)
-        .database(&config.database)
-        .username(&config.user)
-        .password("")
-        .ssl_mode(PgSslMode::Disable)
-        .application_name("brain-job");
-    let pool = PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect_with(options)
-        .await?;
+    if let Some(config) = audit_config {
+        return audit(Path::new(config)).await;
+    }
+    let (config_path, source, input) = match args.as_slice() {
+        [flag, config, command, source] if flag == "--config" && command == "ingest" => {
+            (config, source, None)
+        }
+        [flag, config, command, source, input_flag, input]
+            if flag == "--config" && command == "ingest" && input_flag == "--input" =>
+        {
+            (config, source, Some(input))
+        }
+        [command, source, flag, config, input_flag, input]
+            if command == "ingest" && flag == "--config" && input_flag == "--input" =>
+        {
+            (config, source, Some(input))
+        }
+        _ => anyhow::bail!("Ungültiger Aufruf"),
+    };
+    let source = source
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Ungültige Quelle"))?;
+    let loader = SOURCES
+        .iter()
+        .find(|(name, _)| *name == source)
+        .map(|(_, loader)| *loader)
+        .ok_or_else(|| anyhow::anyhow!("Unbekannte Quelle"))?;
+    let config = Config::load(Path::new(config_path))?;
+    let pool = config.pool().await?;
     let result = async {
         PgStore::new(pool.clone()).check_gamefacts_schema().await?;
-        if audit {
-            let report = brain_job::receipt_audit::run(&pool).await?;
-            println!(
-                "run={} sampled={} verified_receipts={} rejected_receipts={} rejected_objects={}",
-                report.run_id,
-                report.sampled,
-                report.verified_receipts,
-                report.rejected_receipts,
-                report.rejected_objects
-            );
-            return anyhow::Ok(());
-        }
-        let (source, loader) = ingestion.ok_or_else(|| anyhow::anyhow!("Ungültiger Aufruf"))?;
-        let input = PathBuf::from(&args[5]);
+        let objects = match input {
+            Some(repository) => loader(Path::new(repository), false),
+            None => sources::fetch(
+                source,
+                config
+                    .source_cache
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("Quellen-Cache fehlt"))?,
+            ),
+        };
         let report = ingest(
             &GameFactsStore::new(pool.clone()),
             source,
-            std::iter::once_with(|| loader(&input)),
+            objects,
             EXTRACTORS,
         )
         .await?;
         println!(
             "run={} accepted={} rejected={} ignored={}",
             report.run_id, report.counts.accepted, report.counts.rejected, report.counts.ignored
+        );
+        anyhow::Ok(())
+    }
+    .await;
+    pool.close().await;
+    result
+}
+
+async fn audit(path: &Path) -> anyhow::Result<()> {
+    let pool = Config::load(path)?.pool().await?;
+    let result = async {
+        PgStore::new(pool.clone()).check_gamefacts_schema().await?;
+        let report = brain_job::receipt_audit::run(&pool).await?;
+        println!(
+            "run={} sampled={} verified_receipts={} rejected_receipts={} rejected_objects={}",
+            report.run_id,
+            report.sampled,
+            report.verified_receipts,
+            report.rejected_receipts,
+            report.rejected_objects
         );
         anyhow::Ok(())
     }
