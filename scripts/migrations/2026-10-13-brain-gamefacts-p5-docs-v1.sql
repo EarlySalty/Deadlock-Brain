@@ -41,7 +41,6 @@ CREATE FUNCTION serve.doc_tsv(value text) RETURNS tsvector
 LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path = pg_catalog, pg_temp
 AS $fts$
     SELECT to_tsvector('pg_catalog.simple'::regconfig, value)
-        || to_tsvector('pg_catalog.german'::regconfig, value)
 $fts$;
 
 CREATE INDEX doc_body_fts ON canon.fact USING gin(serve.doc_tsv(value_text::text))
@@ -99,7 +98,8 @@ SELECT page_id,raw_object_id,path,title,lang,scope,source_revision,receipt_id,va
     meta_key,(meta->>'ordinal')::integer AS ordinal,
     ARRAY(SELECT jsonb_array_elements_text(meta->'heading_path')) AS heading_path,
     (meta->>'line_start')::integer AS line_start,(meta->>'line_end')::integer AS line_end,
-    body,serve.doc_tsv(title||' '||array_to_string(ARRAY(SELECT jsonb_array_elements_text(meta->'heading_path')),' ')||' '||body) AS tsv
+    body,serve.doc_tsv(title||' '||array_to_string(ARRAY(SELECT jsonb_array_elements_text(meta->'heading_path')),' ')||' '||body) AS tsv,
+    to_tsvector('pg_catalog.german'::regconfig,title||' '||array_to_string(ARRAY(SELECT jsonb_array_elements_text(meta->'heading_path')),' ')||' '||body) AS tsv_german
 FROM bodies WHERE body IS NOT NULL;
 
 REVOKE ALL ON FUNCTION serve.doc_meta(text),serve.doc_tsv(text) FROM PUBLIC;
