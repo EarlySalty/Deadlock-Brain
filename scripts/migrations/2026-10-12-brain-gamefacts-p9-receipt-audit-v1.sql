@@ -18,6 +18,7 @@ CREATE TABLE ops.receipt_audit_rejection (
     detail text NOT NULL CHECK(octet_length(detail)<={{DETAIL_BYTES}}),
     PRIMARY KEY(run_id,raw_object_id)
 );
+CREATE INDEX receipt_audit_rejection_object_idx ON ops.receipt_audit_rejection(raw_object_id);
 CREATE TABLE ops.receipt_audit (
     run_id bigint NOT NULL REFERENCES ops.receipt_audit_run(id),
     receipt_id bigint NOT NULL REFERENCES canon.receipt(id),
@@ -93,9 +94,15 @@ SELECT r.*,o.source,o.revision,o.revision AS source_revision,o.path,o.content_sh
 FROM canon.receipt r JOIN ops.ingest_run run ON run.id=r.ingest_run_id AND run.status='succeeded'
 JOIN raw.object o ON o.id=r.raw_object_id
 WHERE NOT EXISTS(SELECT 1 FROM canon.receipt_quarantine q WHERE q.receipt_id=r.id)
+AND NOT EXISTS(SELECT 1 FROM ops.receipt_audit_rejection rejected WHERE rejected.raw_object_id=r.raw_object_id)
 AND NOT EXISTS(
-    SELECT 1 FROM canon.receipt_quarantine q JOIN canon.receipt bad ON bad.id=q.receipt_id
-    WHERE q.cause='audited' AND (r.ingest_run_id,r.id)<(bad.ingest_run_id,bad.id)
+    SELECT 1 FROM (
+        SELECT receipt_id FROM canon.receipt_quarantine WHERE cause='audited'
+        UNION ALL
+        SELECT affected.id FROM ops.receipt_audit_rejection rejected
+            JOIN canon.receipt affected ON affected.raw_object_id=rejected.raw_object_id
+    ) boundary JOIN canon.receipt bad ON bad.id=boundary.receipt_id
+    WHERE (r.ingest_run_id,r.id)<(bad.ingest_run_id,bad.id)
     AND (
         EXISTS(SELECT 1 FROM canon.fact c JOIN canon.fact o USING(entity_id,stat_key)
             WHERE c.receipt_id=bad.id AND o.receipt_id=r.id)
