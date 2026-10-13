@@ -203,17 +203,14 @@ mod ports {
             evidence: &[Evidence],
             for_provider: bool,
         ) -> Result<(), PortError> {
-            Self::authorize(query, context)?;
-            self.reader.validate_evidence(
-                query,
-                context,
-                evidence,
-                if for_provider {
-                    ToolValidationPurpose::Provider
-                } else {
-                    ToolValidationPurpose::Cache
-                },
-            )
+            let purpose = if for_provider {
+                ToolValidationPurpose::Provider
+            } else {
+                ToolValidationPurpose::Cache
+            };
+            crate::internal_docs::validate_internal_evidence(query, context, evidence, purpose)?;
+            self.reader
+                .validate_evidence(query, context, evidence, purpose)
         }
 
         fn validate_publication(
@@ -389,13 +386,12 @@ fn section(row: PgRow, context: &AuthorizedContext) -> Result<Section, PortError
     let path: String = row.try_get("path").map_err(database_error)?;
     let revision: String = row.try_get("source_revision").map_err(database_error)?;
     let scope: String = row.try_get("scope").map_err(database_error)?;
-    let meta_key: String = row.try_get("meta_key").map_err(database_error)?;
     let start: i32 = row.try_get("line_start").map_err(database_error)?;
     let end: i32 = row.try_get("line_end").map_err(database_error)?;
     if [receipt, page, raw, run].into_iter().any(|id| id <= 0) || start < 1 || end < start {
         return Err(invalid());
     }
-    let id = format!("docs/{receipt}");
+    let id = receipt.to_string();
     let (visibility, allowed_scope, url) = match scope.as_str() {
         "public" => (
             SourceVisibility::Public,
@@ -407,8 +403,8 @@ fn section(row: PgRow, context: &AuthorizedContext) -> Result<Section, PortError
     };
     let evidence = Evidence {
         evidence_id: id.clone(),
-        source_id: format!("docs.{scope}"),
-        logical_id: format!("docs/{page}/{raw}/{meta_key}"),
+        source_id: format!("docs.{scope}/{page}"),
+        logical_id: format!("receipt/{receipt}"),
         revision: run as u64,
         kind: EvidenceKind::Prose,
         content: String::new(),

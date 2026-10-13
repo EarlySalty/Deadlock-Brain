@@ -20,7 +20,7 @@ const MIGRATION: &str =
 
 async fn setup(pg: &scratch_pg::ScratchPg) -> PgPool {
     let pool = PgPool::connect_with(
-        PgConnectOptions::new()
+        PgConnectOptions::new_without_pgpass()
             .host(pg.directory.join("socket").to_str().unwrap())
             .port(55439)
             .username("brain_core_test")
@@ -203,10 +203,11 @@ async fn published_projection_rejects_mixed_revisions_and_incomplete_chunks() {
 async fn reader_is_scoped_bounded_and_revalidates_published_state() {
     let pg = scratch_pg::ScratchPg::start();
     let pool = setup(&pg).await;
-    let (_, receipt) = document(&pool, "public/baba.html", 1, None, true).await;
-    document(&pool, "internal/baba.html", 2, None, true).await;
+    let (public_page, receipt) = document(&pool, "public/baba.html", 1, None, true).await;
+    let (internal_page, internal_receipt) =
+        document(&pool, "internal/baba.html", 2, None, true).await;
     let reader_pool = PgPool::connect_with(
-        PgConnectOptions::new()
+        PgConnectOptions::new_without_pgpass()
             .host(pg.directory.join("socket").to_str().unwrap())
             .port(55439)
             .username("brain_readonly")
@@ -265,6 +266,27 @@ async fn reader_is_scoped_bounded_and_revalidates_published_state() {
     )
     .unwrap();
     assert_eq!(evidence.len(), 1);
+    let published_receipt: i64 =
+        sqlx::query_scalar("SELECT receipt_id FROM serve.doc_section WHERE page_id=$1")
+            .bind(public_page)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(published_receipt > 0);
+    assert_eq!(evidence[0].evidence_id, published_receipt.to_string());
+    assert_eq!(
+        execution.result.evidence_ids,
+        vec![published_receipt.to_string()]
+    );
+    assert_eq!(evidence[0].source_id, format!("docs.public/{public_page}"));
+    assert_eq!(
+        evidence[0].logical_id,
+        format!("receipt/{published_receipt}")
+    );
+    assert_eq!(
+        brain_contracts::PublicCitation::from_evidence(&evidence[0], 0).label,
+        evidence[0].citation
+    );
     assert!(evidence[0].citation.contains("/public/baba.html#L1-L3"));
     assert!(evidence[0].patch.is_none());
     assert!(serde_json::to_vec(&evidence).unwrap().len() <= 16_384);
@@ -274,7 +296,16 @@ async fn reader_is_scoped_bounded_and_revalidates_published_state() {
     let (internal_query, internal_ctx) = context(true);
     let internal = reader.retrieve(&internal_query, &internal_ctx).unwrap();
     assert_eq!(internal.len(), 1);
-    assert!(internal[0].citation.starts_with("receipt/"));
+    assert!(internal[0].evidence_id.parse::<i64>().unwrap() > 0);
+    assert_eq!(
+        internal[0].source_id,
+        format!("docs.internal/{internal_page}")
+    );
+    assert_eq!(
+        internal[0].logical_id,
+        format!("receipt/{}", internal[0].evidence_id)
+    );
+    assert_eq!(internal[0].citation, internal[0].logical_id);
     assert!(
         serde_json::from_str::<serde_json::Value>(&internal[0].content)
             .unwrap()
@@ -295,6 +326,42 @@ async fn reader_is_scoped_bounded_and_revalidates_published_state() {
         internal
     );
     assert!(brain_contracts::RetrievalPort::retrieve(&adapter, &query, &ctx).is_err());
+    brain_contracts::RetrievalPort::validate_evidence(
+        &adapter,
+        &internal_query,
+        &internal_ctx,
+        &internal,
+        false,
+    )
+    .unwrap();
+    assert!(brain_contracts::RetrievalPort::validate_evidence(
+        &adapter,
+        &internal_query,
+        &internal_ctx,
+        &internal,
+        true,
+    )
+    .is_err());
+    assert!(brain_contracts::RetrievalPort::validate_publication(
+        &adapter,
+        &internal_query,
+        &internal_ctx,
+        &internal,
+    )
+    .is_err());
+    sqlx::query("INSERT INTO canon.test_quarantine VALUES($1)")
+        .bind(internal_receipt)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(brain_contracts::RetrievalPort::validate_evidence(
+        &adapter,
+        &internal_query,
+        &internal_ctx,
+        &internal,
+        false,
+    )
+    .is_err());
     let definition = ToolDefinition {
         name: ToolName::ServerKnowledge,
         description: "test".into(),
@@ -341,15 +408,63 @@ async fn search_terms_can_span_title_headings_and_body_chunks() {
     document(&pool, "public/baba.html", 1, None, true).await;
     sqlx::raw_sql("UPDATE canon.fact SET value_text=CASE stat_key::text WHEN 'doc_intro_body_0' THEN 'Early ' WHEN 'doc_intro_body_1' THEN 'Game' WHEN 'doc_intro_meta' THEN '{\"ordinal\":0,\"locator\":\"intro\",\"heading_path\":[],\"line_start\":1,\"line_end\":3,\"chunks\":2}' ELSE value_text END")
         .execute(&pool).await.unwrap();
-    let rows = sqlx::query(include_str!("../src/pg_docs/search.sql"))
-        .bind("public")
-        .bind("Baba Early Game")
-        .bind(None::<i64>)
-        .bind(6_i64)
-        .fetch_all(&pool)
-        .await
-        .unwrap();
-    assert_eq!(rows.len(), 1);
+    for query in ["Baba Early Game", "Baba", "\"Early Game\"", "Early Game"] {
+        let rows = sqlx::query(include_str!("../src/pg_docs/search.sql"))
+            .bind("public")
+            .bind(query)
+            .bind(None::<i64>)
+            .bind(6_i64)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1, "{query}");
+    }
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_keeps_language_vectors_and_phrase_positions_independent() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    document(&pool, "public/phrases.html", 1, None, true).await;
+    sqlx::raw_sql("UPDATE canon.fact SET value_text=CASE stat_key::text WHEN 'doc_title' THEN 'Document' WHEN 'doc_intro_body_0' THEN 'alpha ' WHEN 'doc_intro_body_1' THEN 'omega und Häuser' WHEN 'doc_intro_meta' THEN '{\"ordinal\":0,\"locator\":\"intro\",\"heading_path\":[],\"line_start\":1,\"line_end\":3,\"chunks\":2}' ELSE value_text END")
+        .execute(&pool).await.unwrap();
+    let matches: (bool, bool, bool, bool, bool, bool) = sqlx::query_as(
+        "SELECT tsv @@ websearch_to_tsquery('pg_catalog.simple','\"omega alpha\"'),
+            tsv_german @@ websearch_to_tsquery('pg_catalog.german','\"omega alpha\"'),
+            tsv @@ websearch_to_tsquery('pg_catalog.simple','und'),
+            tsv_german @@ websearch_to_tsquery('pg_catalog.german','und'),
+            tsv @@ websearch_to_tsquery('pg_catalog.simple','Haus'),
+            tsv_german @@ websearch_to_tsquery('pg_catalog.german','Haus')
+        FROM serve.doc_section",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(matches, (false, false, true, false, false, true));
+    let reverse: bool = sqlx::query_scalar(
+        "SELECT serve.doc_tsv('alpha omega') @@ websearch_to_tsquery('pg_catalog.simple','\"omega alpha\"')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!reverse);
+    for (query, expected) in [
+        ("\"omega alpha\"", 0),
+        ("\"alpha omega\"", 1),
+        ("und", 1),
+        ("Haus", 1),
+    ] {
+        let rows = sqlx::query(include_str!("../src/pg_docs/search.sql"))
+            .bind("public")
+            .bind(query)
+            .bind(None::<i64>)
+            .bind(6_i64)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), expected, "{query}");
+    }
     pool.close().await;
 }
 
@@ -417,5 +532,133 @@ async fn entity_filter_excludes_doc_carriers_and_explain_uses_real_postgres() {
     let allowed:bool=sqlx::query_scalar("SELECT has_table_privilege('brain_tool','serve.doc_section','SELECT') AND NOT has_table_privilege('brain_tool','canon.fact','SELECT') AND NOT has_schema_privilege('brain_tool','raw','USAGE')")
         .fetch_one(&pool).await.unwrap();
     assert!(allowed);
+    pool.close().await;
+}
+
+fn plan_matches<F>(value: &serde_json::Value, predicate: F) -> bool
+where
+    F: Fn(&serde_json::Value) -> bool + Copy,
+{
+    predicate(value)
+        || match value {
+            serde_json::Value::Object(fields) => {
+                fields.values().any(|child| plan_matches(child, predicate))
+            }
+            serde_json::Value::Array(values) => {
+                values.iter().any(|child| plan_matches(child, predicate))
+            }
+            _ => false,
+        }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn current_fact_winner_selection_blocks_source_gin_predicate_pushdown() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    let (page, _) = document(&pool, "public/baba.html", 1, None, true).await;
+    let (_, current_body_receipt) = document(&pool, "public/baba.html", 2, Some(page), true).await;
+    sqlx::query("UPDATE canon.fact SET value_text='Baba bleibt ' WHERE entity_id=$1 AND stat_key='doc_intro_body_0' AND receipt_id=$2")
+        .bind(page).bind(current_body_receipt).execute(&pool).await.unwrap();
+    let canonical_sql = "SELECT entity_id,stat_key FROM canon.fact WHERE stat_key::text ~ '^doc_(intro|section_.+)_body_[0-9]+$' AND serve.doc_tsv(value_text::text) @@ websearch_to_tsquery('pg_catalog.simple','bewegt')";
+    let published_sql = "SELECT entity_id,stat_key FROM serve.current_fact WHERE stat_key::text ~ '^doc_(intro|section_.+)_body_[0-9]+$' AND serve.doc_tsv(value_text::text) @@ websearch_to_tsquery('pg_catalog.simple','bewegt')";
+    assert_eq!(
+        sqlx::query(canonical_sql)
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(sqlx::query(published_sql)
+        .fetch_all(&pool)
+        .await
+        .unwrap()
+        .is_empty());
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::raw_sql("SET LOCAL enable_seqscan=off; SET LOCAL jit=off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let canonical_plan: serde_json::Value = sqlx::query_scalar(&format!(
+        "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) {canonical_sql}"
+    ))
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let published_plan: serde_json::Value = sqlx::query_scalar(&format!(
+        "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) {published_sql}"
+    ))
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let section_sql = include_str!("../src/pg_docs/search.sql");
+    let section_plan: serde_json::Value = sqlx::query_scalar(&format!(
+        "EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) {section_sql}"
+    ))
+    .bind("public")
+    .bind("Baba")
+    .bind(None::<i64>)
+    .bind(6_i64)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let indexed_fts = |node: &serde_json::Value| {
+        node["Index Name"] == "doc_body_fts"
+            && node["Index Cond"]
+                .as_str()
+                .is_some_and(|condition| condition.contains("@@"))
+    };
+    assert!(plan_matches(&canonical_plan, indexed_fts));
+    assert!(!plan_matches(&published_plan, indexed_fts));
+    assert!(!plan_matches(&section_plan, indexed_fts));
+    assert!(plan_matches(&published_plan, |node| {
+        node["Node Type"] == "Subquery Scan"
+            && node["Filter"]
+                .as_str()
+                .is_some_and(|filter| filter.contains("@@"))
+            && plan_matches(&node["Plans"], |child| child["Node Type"] == "Unique")
+    }));
+    eprintln!(
+        "FTS_PROOF {}",
+        serde_json::json!({
+            "enable_seqscan":"off","jit":"off","canonical_sql":canonical_sql,
+            "published_sql":published_sql,"section_sql":section_sql,
+            "section_parameters":["public","Baba",null,6],
+            "canonical_plan":canonical_plan,"published_plan":published_plan,"section_plan":section_plan,
+        })
+    );
+    tx.commit().await.unwrap();
+    sqlx::query("INSERT INTO canon.test_quarantine VALUES($1)")
+        .bind(current_body_receipt)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query(published_sql)
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM serve.doc_section")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    let mut tx = pool.begin().await.unwrap();
+    let error =
+        sqlx::raw_sql("CREATE INDEX scratch_doc_section_fts ON serve.doc_section USING gin(tsv)")
+            .execute(&mut *tx)
+            .await
+            .unwrap_err();
+    assert_eq!(
+        error
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("42809")
+    );
+    tx.rollback().await.unwrap();
     pool.close().await;
 }
