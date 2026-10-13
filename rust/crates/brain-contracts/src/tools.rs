@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::entity_profile::EntityKind;
 #[path = "timer.rs"]
@@ -25,6 +26,8 @@ pub enum ToolName {
     ServerKnowledge,
     DeadlockData,
     GetTimer,
+    FindEntity,
+    GetHero,
 }
 
 impl ToolName {
@@ -40,6 +43,8 @@ impl ToolName {
             Self::ServerKnowledge => "server_knowledge",
             Self::DeadlockData => "deadlock_data",
             Self::GetTimer => "get_timer",
+            Self::FindEntity => "find_entity",
+            Self::GetHero => "get_hero",
         }
     }
 }
@@ -84,6 +89,7 @@ impl ToolCall {
             name: self.name,
             arguments: self.arguments.clone(),
             subrequest,
+            canonical_result_sha256: None,
         })
     }
 }
@@ -390,6 +396,41 @@ pub struct DeadlockDataRequest {
     pub limit: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanonicalEntityKind {
+    Hero,
+    Ability,
+    Item,
+    Weapon,
+    Timer,
+    Rule,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FindEntityRequest {
+    pub text: String,
+    pub kind: Option<CanonicalEntityKind>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeroSection {
+    Stats,
+    Abilities,
+    Weapon,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GetHeroRequest {
+    pub hero: u64,
+    pub patch: Option<String>,
+    pub sections: Option<Vec<HeroSection>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "name", content = "arguments", rename_all = "snake_case")]
 pub enum ToolSubrequest {
@@ -403,6 +444,8 @@ pub enum ToolSubrequest {
     ServerKnowledge(ServerKnowledgeRequest),
     DeadlockData(DeadlockDataRequest),
     GetTimer(GetTimerRequest),
+    FindEntity(FindEntityRequest),
+    GetHero(GetHeroRequest),
 }
 
 impl ToolSubrequest {
@@ -430,6 +473,8 @@ impl ToolSubrequest {
                 serde_json::from_value(arguments.clone()).map(Self::ServerKnowledge)
             }
             ToolName::GetTimer => serde_json::from_value(arguments.clone()).map(Self::GetTimer),
+            ToolName::FindEntity => serde_json::from_value(arguments.clone()).map(Self::FindEntity),
+            ToolName::GetHero => serde_json::from_value(arguments.clone()).map(Self::GetHero),
         };
         parsed.map_err(|_| invalid("Werkzeugargumente passen nicht zur typisierten Unteranfrage"))
     }
@@ -543,6 +588,26 @@ impl ToolSubrequest {
                 validate_text(&request.question)?;
                 if let Some(id) = request.public_channel_id {
                     validate_numeric_id(id)?;
+                }
+                Ok(())
+            }
+            Self::FindEntity(request) => {
+                validate_canonical_text(&request.text)?;
+                if request.limit.is_some_and(|limit| !(1..=5).contains(&limit)) {
+                    return Err(invalid("Entitätensuche erlaubt ein bis fünf Ergebnisse"));
+                }
+                Ok(())
+            }
+            Self::GetHero(request) => {
+                validate_numeric_id(request.hero)?;
+                if let Some(patch) = &request.patch {
+                    validate_canonical_text(patch)?;
+                }
+                if let Some(sections) = &request.sections {
+                    let unique: BTreeSet<_> = sections.iter().collect();
+                    if !(1..=3).contains(&sections.len()) || unique.len() != sections.len() {
+                        return Err(invalid("Ungültige oder doppelte Steckbriefabschnitte"));
+                    }
                 }
                 Ok(())
             }
@@ -682,6 +747,15 @@ fn validate_text(text: &str) -> Result<(), PortError> {
     Ok(())
 }
 
+fn validate_canonical_text(text: &str) -> Result<(), PortError> {
+    if text.trim().is_empty() || text.len() > 128 || text.chars().any(char::is_control) {
+        return Err(invalid(
+            "Werkzeugtext benötigt ein bis 128 Bytes ohne Steuerzeichen",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_fields(fields: &[String], required: bool) -> Result<(), PortError> {
     if required && fields.is_empty() {
         return Err(invalid("Werkzeugfelder fehlen"));
@@ -695,6 +769,8 @@ pub struct ToolRequest {
     arguments: Value,
     #[serde(skip)]
     subrequest: ToolSubrequest,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    canonical_result_sha256: Option<[u8; 32]>,
 }
 
 impl ToolRequest {
@@ -708,6 +784,13 @@ impl ToolRequest {
 
     pub fn subrequest(&self) -> &ToolSubrequest {
         &self.subrequest
+    }
+
+    pub fn without_canonical_result(&self) -> Self {
+        Self {
+            canonical_result_sha256: None,
+            ..self.clone()
+        }
     }
 }
 
@@ -887,6 +970,28 @@ pub struct ToolEvidenceDependency {
     pub evidence: Vec<Evidence>,
 }
 
+impl ToolEvidenceDependency {
+    pub fn with_canonical_result(mut self, result: &ToolResult) -> Result<Self, PortError> {
+        self.request.canonical_result_sha256 = Some(canonical_result_sha256(result)?);
+        Ok(self)
+    }
+}
+
+fn canonical_result_sha256(result: &ToolResult) -> Result<[u8; 32], PortError> {
+    let bounded = serde_json::to_vec(result)
+        .map_err(|_| invalid("Kanonisches Werkzeugergebnis ist ungültig"))?;
+    if bounded.len() >= 16_384 || result.evidence_ids.len() > 100 {
+        return Err(invalid(
+            "Kanonisches Werkzeugergebnis überschreitet die Ausgabegrenze",
+        ));
+    }
+    let mut bound = result.clone();
+    bound.call_id.clear();
+    let bytes = serde_json::to_vec(&bound)
+        .map_err(|_| invalid("Kanonisches Werkzeugergebnis ist ungültig"))?;
+    Ok(Sha256::digest(bytes).into())
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ToolExecution {
     pub result: ToolResult,
@@ -921,7 +1026,10 @@ impl ToolExecution {
         }
         let expected_game = if matches!(
             request.name(),
-            ToolName::ServerKnowledge | ToolName::GetTimer
+            ToolName::ServerKnowledge
+                | ToolName::GetTimer
+                | ToolName::FindEntity
+                | ToolName::GetHero
         ) {
             None
         } else {
@@ -947,9 +1055,15 @@ impl ToolExecution {
             game.validate()?;
             Some(game)
         };
+        let mut expected_request = request.clone();
+        if matches!(request.name(), ToolName::FindEntity | ToolName::GetHero) {
+            expected_request.canonical_result_sha256 = Some(canonical_result_sha256(&self.result)?);
+        }
         let mut ids = BTreeSet::new();
         for dependency in &self.dependencies {
-            if &dependency.request != request || dependency.game_context.as_ref() != expected_game {
+            if dependency.request != expected_request
+                || dependency.game_context.as_ref() != expected_game
+            {
                 return Err(invalid(
                     "Belegabhängigkeit gehört nicht zur gebundenen Unteranfrage",
                 ));
@@ -1419,6 +1533,380 @@ mod tests {
         }
     }
 
+    fn canonical_definitions() -> [ToolDefinition; 2] {
+        [
+            ToolDefinition {
+                name: ToolName::FindEntity,
+                description: "Kanonische Entität suchen".into(),
+                input_schema: json!({
+                    "type":"object",
+                    "properties":{
+                        "text":{"type":"string","minLength":1,"maxLength":128},
+                        "kind":{"type":"string","enum":["hero","ability","item","weapon","timer","rule"]},
+                        "limit":{"type":"integer","minimum":1,"maximum":5}
+                    },
+                    "required":["text"],
+                    "additionalProperties":false
+                }),
+            },
+            ToolDefinition {
+                name: ToolName::GetHero,
+                description: "Heldensteckbrief abrufen".into(),
+                input_schema: json!({
+                    "type":"object",
+                    "properties":{
+                        "hero":{"type":"integer","minimum":1,"maximum":i64::MAX},
+                        "patch":{"type":"string","minLength":1,"maxLength":128},
+                        "sections":{
+                            "type":"array",
+                            "items":{"type":"string","enum":["stats","abilities","weapon"]},
+                            "minItems":1,"maxItems":3
+                        }
+                    },
+                    "required":["hero"],
+                    "additionalProperties":false
+                }),
+            },
+        ]
+    }
+
+    #[test]
+    fn canonical_calls_parse_optional_fields_and_accepted_bounds() {
+        let definitions = canonical_definitions();
+        let minimal = ToolCall {
+            id: "canonical-find".into(),
+            name: ToolName::FindEntity,
+            arguments: json!({"text":"Baba"}),
+        };
+        assert_eq!(
+            minimal.validate(&definitions).unwrap().subrequest(),
+            &ToolSubrequest::FindEntity(FindEntityRequest {
+                text: "Baba".into(),
+                kind: None,
+                limit: None,
+            })
+        );
+        for (kind, expected) in [
+            ("hero", CanonicalEntityKind::Hero),
+            ("ability", CanonicalEntityKind::Ability),
+            ("item", CanonicalEntityKind::Item),
+            ("weapon", CanonicalEntityKind::Weapon),
+            ("timer", CanonicalEntityKind::Timer),
+            ("rule", CanonicalEntityKind::Rule),
+        ] {
+            for limit in [1, 5] {
+                let call = ToolCall {
+                    arguments: json!({"text":"ä".repeat(64),"kind":kind,"limit":limit}),
+                    ..minimal.clone()
+                };
+                let request = call.validate(&definitions).unwrap();
+                assert_eq!(request.name(), ToolName::FindEntity);
+                assert_eq!(request.arguments(), &call.arguments);
+                assert_eq!(
+                    request.subrequest(),
+                    &ToolSubrequest::FindEntity(FindEntityRequest {
+                        text: "ä".repeat(64),
+                        kind: Some(expected),
+                        limit: Some(limit),
+                    })
+                );
+                let serialized = serde_json::to_value(request.subrequest()).unwrap();
+                assert_eq!(serialized["name"], "find_entity");
+                assert_eq!(serialized["arguments"], call.arguments);
+            }
+        }
+        let minimal = ToolCall {
+            id: "canonical-hero".into(),
+            name: ToolName::GetHero,
+            arguments: json!({"hero":1}),
+        };
+        assert_eq!(
+            minimal.validate(&definitions).unwrap().subrequest(),
+            &ToolSubrequest::GetHero(GetHeroRequest {
+                hero: 1,
+                patch: None,
+                sections: None,
+            })
+        );
+        for sections in [json!(["stats"]), json!(["stats", "abilities", "weapon"])] {
+            let call = ToolCall {
+                arguments: json!({"hero":i64::MAX,"patch":"p".repeat(128),"sections":sections}),
+                ..minimal.clone()
+            };
+            let request = call.validate(&definitions).unwrap();
+            assert_eq!(request.name(), ToolName::GetHero);
+            assert_eq!(request.arguments(), &call.arguments);
+            let ToolSubrequest::GetHero(hero) = request.subrequest() else {
+                panic!("Falsche typisierte Heldenanfrage");
+            };
+            assert_eq!(hero.hero, i64::MAX as u64);
+            assert_eq!(hero.patch.as_deref(), Some("p".repeat(128).as_str()));
+            assert_eq!(
+                serde_json::to_value(&hero.sections).unwrap(),
+                call.arguments["sections"]
+            );
+            let serialized = serde_json::to_value(request.subrequest()).unwrap();
+            assert_eq!(serialized["name"], "get_hero");
+            assert_eq!(serialized["arguments"], call.arguments);
+        }
+    }
+
+    #[test]
+    fn canonical_find_rejects_invalid_bounds_types_and_unknown_fields() {
+        let definitions = canonical_definitions();
+        for arguments in [
+            json!({}),
+            json!({"text":""}),
+            json!({"text":"   "}),
+            json!({"text":"x".repeat(129)}),
+            json!({"text":"ä".repeat(65)}),
+            json!({"text":"Baba\n"}),
+            json!({"text":"Baba\t"}),
+            json!({"text":"Baba\u{0000}"}),
+            json!({"text":"Baba\u{007f}"}),
+            json!({"text":7}),
+            json!({"text":"Baba","query":"Baba"}),
+            json!({"text":"Baba","kind":"objective"}),
+            json!({"text":"Baba","kind":1}),
+            json!({"text":"Baba","limit":0}),
+            json!({"text":"Baba","limit":6}),
+            json!({"text":"Baba","limit":-1}),
+            json!({"text":"Baba","limit":1.5}),
+            json!({"text":"Baba","limit":"5"}),
+        ] {
+            let call = ToolCall {
+                id: "invalid-find".into(),
+                name: ToolName::FindEntity,
+                arguments,
+            };
+            assert!(call.validate(&definitions).is_err(), "{:?}", call.arguments);
+            assert!(ToolSubrequest::parse(call.name, &call.arguments)
+                .and_then(|request| request.validate())
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn canonical_hero_rejects_invalid_ids_patches_and_sections() {
+        let definitions = canonical_definitions();
+        for arguments in [
+            json!({}),
+            json!({"hero":0}),
+            json!({"hero":-1}),
+            json!({"hero":i64::MAX as u64 + 1}),
+            json!({"hero":1.5}),
+            json!({"hero":"Baba"}),
+            json!({"hero":1,"hero_id":1}),
+            json!({"hero":1,"patch":""}),
+            json!({"hero":1,"patch":"  "}),
+            json!({"hero":1,"patch":"p".repeat(129)}),
+            json!({"hero":1,"patch":"ä".repeat(65)}),
+            json!({"hero":1,"patch":"patch\r"}),
+            json!({"hero":1,"patch":"patch\u{0000}"}),
+            json!({"hero":1,"sections":[]}),
+            json!({"hero":1,"sections":["stats","stats"]}),
+            json!({"hero":1,"sections":["stats","abilities","weapon","stats"]}),
+            json!({"hero":1,"sections":["items"]}),
+            json!({"hero":1,"sections":"stats"}),
+        ] {
+            let call = ToolCall {
+                id: "invalid-hero".into(),
+                name: ToolName::GetHero,
+                arguments,
+            };
+            assert!(call.validate(&definitions).is_err(), "{:?}", call.arguments);
+            assert!(ToolSubrequest::parse(call.name, &call.arguments)
+                .and_then(|request| request.validate())
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn canonical_receipt_executions_require_evidence_but_no_game_pin() {
+        let definitions = canonical_definitions();
+        for (name, arguments) in [
+            (ToolName::FindEntity, json!({"text":"Baba"})),
+            (ToolName::GetHero, json!({"hero":7})),
+        ] {
+            let call = ToolCall {
+                id: "receipt-call".into(),
+                name,
+                arguments,
+            };
+            let request = call.validate(&definitions).unwrap();
+            let receipt = Evidence {
+                evidence_id: "42".into(),
+                source_id: "canon.receipt".into(),
+                logical_id: "receipt/42".into(),
+                citation: "42".into(),
+                content: json!({"entity_id":7,"name":"Baba","citation":"42"}).to_string(),
+                patch: Some("2026-10-01".into()),
+                ..evidence()
+            };
+            let execution = ToolExecution {
+                result: ToolResult {
+                    call_id: call.id.clone(),
+                    name,
+                    result: json!({"entity_id":7,"citation":"42"}),
+                    evidence_ids: vec![receipt.evidence_id.clone()],
+                    is_error: false,
+                },
+                dependencies: vec![ToolEvidenceDependency {
+                    request: request.clone(),
+                    game_context: None,
+                    evidence: vec![receipt],
+                }
+                .with_canonical_result(&ToolResult {
+                    call_id: call.id.clone(),
+                    name,
+                    result: json!({"entity_id":7,"citation":"42"}),
+                    evidence_ids: vec!["42".into()],
+                    is_error: false,
+                })
+                .unwrap()],
+                usage: Usage::default(),
+            };
+            let game = PinnedGameContext {
+                client_version: 6759,
+                language: ToolLanguage::German,
+                mechanic_revision: "legacy-v1".into(),
+            };
+            assert!(execution.validate_for(&call, &request, None).is_ok());
+            assert!(execution.validate_for(&call, &request, Some(&game)).is_ok());
+            assert_eq!(
+                execution.dependencies[0].request.without_canonical_result(),
+                request
+            );
+            let mut changed_result = execution.clone();
+            changed_result.result.result["omitted_count"] = serde_json::json!(1);
+            assert!(changed_result.validate_for(&call, &request, None).is_err());
+            let mut unbound = execution.clone();
+            unbound.dependencies[0].request = request.clone();
+            assert!(unbound.validate_for(&call, &request, None).is_err());
+            let mut invalid = execution.clone();
+            invalid.dependencies[0].game_context = Some(game);
+            assert!(invalid.validate_for(&call, &request, None).is_err());
+            let mut invalid = execution.clone();
+            invalid.dependencies[0].evidence.clear();
+            assert!(invalid.validate_for(&call, &request, None).is_err());
+            let mut invalid = execution.clone();
+            invalid.result.evidence_ids.push("43".into());
+            assert!(invalid.validate_for(&call, &request, None).is_err());
+            let mut invalid = execution.clone();
+            invalid.dependencies[0].evidence[0].revision = 0;
+            assert!(invalid.validate_for(&call, &request, None).is_err());
+            let mut invalid = execution.clone();
+            invalid.dependencies.push(invalid.dependencies[0].clone());
+            assert!(invalid.validate_for(&call, &request, None).is_err());
+            let mut invalid = execution.clone();
+            invalid.dependencies[0].request = ToolCall {
+                arguments: match name {
+                    ToolName::FindEntity => json!({"text":"Haze"}),
+                    ToolName::GetHero => json!({"hero":8}),
+                    _ => unreachable!(),
+                },
+                ..call.clone()
+            }
+            .validate(&definitions)
+            .unwrap();
+            assert!(invalid.validate_for(&call, &request, None).is_err());
+            let mut error = execution;
+            error.result.is_error = true;
+            error.result.evidence_ids.clear();
+            error.dependencies.clear();
+            assert!(error.validate_for(&call, &request, None).is_ok());
+        }
+    }
+
+    #[test]
+    fn canonical_tools_leave_all_legacy_pin_rules_unchanged() {
+        let scenario = json!({"progression":{"kind":"boons","value":35}});
+        for (name, arguments, lazy_pin) in [
+            (
+                ToolName::EntityFind,
+                json!({"query":"Baba","language":"german"}),
+                true,
+            ),
+            (
+                ToolName::EntityProfile,
+                json!({"entity":{"kind":"hero","id":1},"fields":["health"]}),
+                true,
+            ),
+            (
+                ToolName::HeroCompare,
+                json!({"hero_ids":[1,2],"metrics":["health"],"scenario":scenario}),
+                false,
+            ),
+            (
+                ToolName::DamageCalculate,
+                json!({"hero_id":1,"scenario":scenario}),
+                false,
+            ),
+            (
+                ToolName::PatchHistory,
+                json!({"entity":{"kind":"hero","id":1}}),
+                false,
+            ),
+            (
+                ToolName::BuildPlan,
+                json!({"hero_id":1,"playstyle":"weapon"}),
+                false,
+            ),
+            (ToolName::GameRules, json!({"topic":"urn"}), false),
+            (ToolName::DeadlockData, json!({"operation":"timers"}), true),
+            (
+                ToolName::ServerKnowledge,
+                json!({"question":"Lanes"}),
+                false,
+            ),
+        ] {
+            let definition = ToolDefinition {
+                name,
+                description: name.as_str().into(),
+                input_schema: closed_schema(&arguments),
+            };
+            let call = ToolCall {
+                id: "legacy-call".into(),
+                name,
+                arguments,
+            };
+            let request = call.validate(&[definition]).unwrap();
+            let mut execution = ToolExecution {
+                result: ToolResult {
+                    call_id: call.id.clone(),
+                    name,
+                    result: json!({"id":1}),
+                    evidence_ids: vec!["e1".into()],
+                    is_error: false,
+                },
+                dependencies: vec![ToolEvidenceDependency {
+                    request: request.clone(),
+                    game_context: None,
+                    evidence: vec![evidence()],
+                }],
+                usage: Usage::default(),
+            };
+            assert_eq!(
+                execution.validate_for(&call, &request, None).is_ok(),
+                name == ToolName::ServerKnowledge
+            );
+            let game = PinnedGameContext {
+                client_version: 6759,
+                language: ToolLanguage::German,
+                mechanic_revision: "legacy-v1".into(),
+            };
+            execution.dependencies[0].game_context = Some(game.clone());
+            assert_eq!(
+                execution.validate_for(&call, &request, None).is_ok(),
+                lazy_pin
+            );
+            assert_eq!(
+                execution.validate_for(&call, &request, Some(&game)).is_ok(),
+                name != ToolName::ServerKnowledge
+            );
+        }
+    }
+
     #[test]
     fn sieben_typisierte_unteranfragen_aus_validierten_aufrufen() {
         let scenario = json!({"progression":{"kind":"boons","value":35},"total_spirit":38.0});
@@ -1833,10 +2321,16 @@ mod tests {
             ToolName::DamageCalculate,
             ToolName::PatchHistory,
             ToolName::BuildPlan,
+            ToolName::GameRules,
             ToolName::ServerKnowledge,
+            ToolName::DeadlockData,
+            ToolName::FindEntity,
+            ToolName::GetHero,
         ];
         for name in names {
-            assert_eq!(serde_json::to_value(name).unwrap(), name.as_str());
+            let encoded = serde_json::to_value(name).unwrap();
+            assert_eq!(encoded, name.as_str());
+            assert_eq!(serde_json::from_value::<ToolName>(encoded).unwrap(), name);
         }
         assert!(serde_json::from_value::<ToolName>(json!("sql_execute")).is_err());
         assert!(
