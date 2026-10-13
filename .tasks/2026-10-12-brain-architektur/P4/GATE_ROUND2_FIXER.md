@@ -63,6 +63,6 @@ WIRKUNGSPRUEFUNG[WP-1]: 5 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pf
 TESTNACHWEIS[TW-1]: 3 passed, 0 ignored | Baseline: 0 rot
 MERGEPROTOKOLL[MS-1]: 1 Git-Schritte einzeln | Anläufe: 0 | Gate: vorliegend gpt-6.1-sol BLOCK
 
-## Required owner checkpoint
+## Original owner-checkpoint recommendation, now superseded
 
-P1r must publish an approved additive Core repair covering the three confirmed causes, with actual role-boundary/coherent-reader/application-cap proof and no changed applied migrations or receipt formatter. Parent can then normally merge it, rerun only affected checks and the same full gate; a new actual BLOCK requires a fresh fixer. Only content rounds1/2 have been used. P1r remains sole main integrator/deployer; no ALLOW/main/live/worktree cleanup is claimed.
+The original causal report recommended an approved additive P1r Core repair before further integration. The orchestrator's user decision2026-10-13 21:55 explicitly supersedes that route:Core3b will not be published, P1r-F receives no Core questions, and this package waits for the explicit P1r-F-main-merged message. Current execution instructions are in TODO.md. After that message this package normally merges released origin/main and fixes any remaining Core blockers in its own branch, using explicitly reserved migration23 if needed; applied migrations and original P4 migration4 remain unchanged. Versions11..20 are reserved for P1r-F. No version23 implementation or activation has started during the wait. Existing causal evidence and unchanged receipt/limit repair contracts remain usable only if the findings survive the released baseline. Only content rounds1/2 have been used; no ALLOW/main/live/worktree cleanup is claimed.

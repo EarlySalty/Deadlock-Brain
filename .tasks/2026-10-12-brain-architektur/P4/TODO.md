@@ -114,9 +114,17 @@ Regular pinned cargo-slot build of brain-serve completed locally in verify profi
 
 MERGEPROTOKOLL[MS-1]: 8 Git-Schritte einzeln | Anläufe: 2 inhaltliche Reviews | Gate: gpt-6.1-sol BLOCK, Exit1,3 owner/Core findings
 
+## Latest orchestrator decision: P1r-F release first
+
+User decision2026-10-13 21:55 supersedes the requirement to await a P1r Core3b checkpoint. P1r-F owns gate/main merge/release/live proof; old P1r is stopped, Core3b will not be published, and P1r-F receives no Core questions from this package. Wait for the orchestrator's explicit message that P1r-F is merged to main. Do not infer the trigger from refs, poll other sessions, or merge main before that message.
+
+After that message:fetch released origin/main, normally merge it into this published branch with no rebase/force push, then verify which recorded Core findings remain. This package now owns additive fixes for remaining gate blockers on its own branch; no delegation of Core questions back to P1r-F. Preserve applied migrations, canonical receipt IDs/formatter, budgets and original package migration4. The subsequent explicit correction reserves migration23 for any needed additive P4 Core repair; do not choose the next free version. Versions11..20 remain reserved for P1r-F. Migration23 is not created/applied yet and will be reported when used. First inspect the actual post-release sparse registry; do not repair obsolete findings or duplicate release-team fixes.
+
+Independent P4 source/extractor/memory/format/runtime/build proofs are already complete and published at code126f6f39, with later documentation17240ee6. No redundant broad suite, speculative Core change, new migration, service activation or final-gate reroll is started during this wait. Keep branch published and task notes current; retained causal fixtures/repair contracts will guide affected checks after the released merge.
+
 ## Open
 
-1. Await the approved P1r additive repair checkpoint for all three now-confirmed frozen-Core causes. Preserve published126f6f39 and all proof, normally merge the approved checkpoint, run affected checks and the same full gate. No gate reroll before a cause is fixed and no unapproved owner edits. Current verdict is BLOCK; content rounds1/2 used.
+1. Await the orchestrator's explicit P1r-F-main-merged message. Then fetch/merge origin/main normally, revalidate remaining findings, implement any needed additive Core fixes using reserved migration23, report that version, and run affected checks plus the same full gate. Current pre-release verdict remains BLOCK; content rounds1/2 used.
 2. Coordinate P1r's owner-controlled service wrapper insertion. Optional get_hero.patch must retain historical_patch_unavailable without evidenced assignments.
 3. Hand over the gate-ready branch according to the assigned P1r live/integration order. Only the responsible integrator merges/deploys; no source activation or live acceptance is claimed.
 
