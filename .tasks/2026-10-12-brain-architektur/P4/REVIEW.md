@@ -1,5 +1,17 @@
 # P4 independent review follow-up
 
+## Actual local gate on0a79e1e4, 2026-10-13
+
+Command: `python3 /home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/Deadlock-Brain-p4-patches --base origin/main --head feat/brain-p4-patches-20261012-v2`. Task bk2qhgspo exited1 with an actual gpt-6.1-sol BLOCK, not a tool startup failure. Source fix has no new finding in this verdict; full acceptance is blocked by three owner/Core findings:
+
+1. `brain-job/src/main.rs:58`: ingest schema preflight requires serve access, but v1 grants brain_ingest raw/canon/ops access, so the configured ingest role cannot reach object processing.
+2. `brain-job/src/lib.rs:84`: historical successful application satisfies was_applied even after newer content; A→B→A skips the last A and leaves B published.
+3. `brain-storage/src/gamefacts/hero_profile.sql:22,55,71` and `brain-serve/src/pg_tools.rs:22,30`: identity aliases, stats, weapon and exact/fuzzy aliases lack the object/run/extractor coherence guards, retaining data omitted from a newer successful object.
+
+Nits retain the owner service insertion at service.rs:623 and incomplete deadlock-data extractor handoff at registry.rs:3. Fresh isolated fixer a477e3abbfdfb2d36 is verifying causal findings and ownership. Frozen owner files remain protected; no workaround, relaxed grants or different review baseline will be used to conceal BLOCK.
+
+The preceding --base main attempt exited2 without a verdict: local main was stale cf02c9a0 while published origin/main remained edf503b2. Its4.8M-character input included unrelated already-released history. The actual BLOCK above uses the full published release baseline after fetch, without changing main or gate protection.
+
 ## Oversized-post disposition, 2026-10-13
 
 The latest orchestrator instruction supersedes the earlier requirement to wait for a Core source-item/report interface. P4 now skips oversized rows before the iterator, logs each ID/reason/actual byte size and counts them; Core-level reporting is deferred until after P1r is live. The new single regression uses real scratch PostgreSQL and Core ingestion, then captures actual JSON stderr from that same test process: two skipped posts have exact IDs/reason/UTF-8 byte sizes and cumulative counts, the source summary reports scanned4/emitted2/skipped2, later posts are accepted and raw storage contains only paths2/4. Source tests passed6 with no failures or ignored tests; measured client peak254627840 bytes and raw repeat delta0. The orchestrator-approved source policy is implemented and the matching executable build, check, Clippy and formatter exit0. Fresh affected tests total18 passed/0 failed/0 ignored, with2 disclosed unrelated filters. Commands and logs are in `SOURCE_HANDOFF.md`. The fresh independent gate verdict is pending. This is not yet independent acceptance of the new code.

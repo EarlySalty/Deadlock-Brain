@@ -1,6 +1,6 @@
 # P4 continuation point
 
-Sol resumed 2026-10-13. Current verified P4 code checkpoint: `1628ba07` on `feat/brain-p4-patches-20261012-v2`. It normally merges approved owner e8a1ef45 and verified runtime fix67ae30ad, retaining prior worker ancestry. Rust/scripts/ops match the tested fix exactly. Documentation HEAD may advance independently.
+Sol resumed 2026-10-13. Current verified P4 code checkpoint: `0a79e1e4` on `feat/brain-p4-patches-20261012-v2`. Approved owner e8a1ef45 and runtime fix67ae30ad are retained through parent1628ba07;0a79e1e4 adds the verified orchestrator-approved source skip/log/count fix. Runtime proof246 passed and fresh source/ingest/extractor proof18 passed are recorded separately. Documentation HEAD may advance independently.
 
 ## Resume progress 2026-10-13
 
@@ -54,9 +54,21 @@ The orchestrator confirmed normal bwrap sandbox startup is restored after transi
 
 The scoped source fix is verified: SQL returns only size metadata for oversized rows; one demand request scans past skipped rows until the next bounded object; per-post JSON diagnostics include the cumulative skipped count, and successful source completion emits scanned/emitted/skipped counts. No fabricated raw object or new persistence path is introduced. Affected tests18 passed/0 failed/0 ignored, with2 disclosed unrelated filters. Check, Clippy, formatter and executable build exit0. The actual log/count/Core continuation proof and commands are in `SOURCE_HANDOFF.md`; new client peak254627840 bytes and raw repeat delta0. Extractor/contracts remain799 lines.
 
+## Actual gate BLOCK after source completion
+
+Normal review sandbox startup is restored. The --base main attempt on0a79e1e4 failed without a verdict because local main cf02c9a0 was stale and included4.8M characters of unrelated already-released history. The subsequent required gate uses the full fetched published baseline origin/main edf503b2, without changing any main checkout or gate setting. Task bk2qhgspo exited1: `[gpt-6.1-sol] BLOCK: Ingest preflight fails, and current-state publication can remain stale.`
+
+Three blocking findings affect frozen P1r files: ingest-role preflight requires an ungranted serve schema; historical was_applied skips A→B→A restoration; hero/alias readers retain fields and aliases from superseded objects without object/run/extractor coherence. Exact locations and nits are in `REVIEW.md`. Fresh isolated fixer a477e3abbfdfb2d36 is verifying the actual causes and scope. No ALLOW, alternate-model reroll, weakened grant or source workaround is claimed.
+
+MERGEPROTOKOLL[MS-1]: 0 Git-Schritte einzeln | Anläufe: 1 inhaltliches Review | Gate: gpt-6.1-sol BLOCK, Exit1,3 owner/Core findings
+
+## Approved Core3 checkpoint
+
+The orchestrator approved normal merge of19dec0c96d4765cff9a9a5dd37f5ad2a84bbe7d5 from feat/brain-p1r-hero-slice-20261012. It supplies schema/serve readiness, canonical receipt documentation, A→B→A publication repair and the registered deadlock-data hero extractor with real CLI/idempotence proof. Additive core migration7 is reserved for P1r; P4 retains4. Core files remain frozen. Parent will preserve P4 source/contract/projection code, merge without rebase, check exact receipt compatibility and rerun affected checks and the same gate. Fresh fixer a477e3abbfdfb2d36 has the approved checkpoint for read-only verification of the actual BLOCK.
+
 ## Open
 
-1. Rerun the required local merge gate on the verified committed source checkpoint and inspect its independent findings. No ALLOW is claimed before an actual verdict.
-2. Receive the documented canonical receipt checkpoint from P1r and coordinate its owner-controlled service wrapper insertion. Optional get_hero.patch exists in approved owner code and must retain historical_patch_unavailable without evidenced assignments.
+1. Normally merge approved Core3, preserve both reserved migrations4/7 and the canonical P4 result contract, then receive the fresh fixer's compatibility/causal report. Verify source and actual combined owner/tool behavior before rerunning the same gate. Do not conceal remaining owner bugs by reviewing only the latest source delta.
+2. Coordinate P1r's owner-controlled service wrapper insertion. Optional get_hero.patch must retain historical_patch_unavailable without evidenced assignments.
 3. Hand over the gate-ready branch according to the assigned P1r live/integration order. Only the responsible integrator merges/deploys; no source activation or live acceptance is claimed.
 
