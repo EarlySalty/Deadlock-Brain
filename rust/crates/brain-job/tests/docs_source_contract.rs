@@ -1,7 +1,4 @@
-pub use brain_job::InputObject;
-
-#[path = "../src/docs_source.rs"]
-mod docs_source;
+use brain_job::docs::source as docs_source;
 
 use std::{
     path::{Path, PathBuf},
@@ -74,7 +71,16 @@ fn docs_source_streams_only_scoped_html_at_one_commit() {
         std::fs::write(destination, format!("original {path}")).unwrap();
     }
     repository.commit();
-    let mut source = docs_source::load(&repository.0, false);
+    let loader = brain_job::sources::SOURCES
+        .iter()
+        .find(|(name, _)| *name == "deadlock-docs")
+        .expect("registered Docs source")
+        .1;
+    assert!(brain_job::registry::EXTRACTORS
+        .iter()
+        .any(|extractor| extractor.name() == "deadlock-docs"
+            && extractor.accepts("deadlock-docs", "public/guides/baba.html")));
+    let mut source = loader(&repository.0, false);
     let first = source.next().unwrap().unwrap();
     std::fs::write(repository.0.join("public/guides/baba.html"), "changed").unwrap();
     repository.commit();
