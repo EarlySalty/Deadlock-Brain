@@ -643,6 +643,258 @@ async fn ingest_preflight_checks_serving_shape_without_serving_read_privileges()
     pool.close().await;
 }
 
+async fn preflight_fixture() -> (scratch_pg::ScratchPg, sqlx::PgPool, PgStore) {
+    let pg = scratch_pg::ScratchPg::start();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("")
+        .ssl_mode(PgSslMode::Disable);
+    let admin = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.clone())
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly NOLOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate")
+        .execute(&admin).await.unwrap();
+    PgStore::new(admin.clone())
+        .migrate_gamefacts()
+        .await
+        .unwrap();
+    let writer = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.username("brain_ingest"))
+        .await
+        .unwrap();
+    let identity: (String, String, bool, bool) = sqlx::query_as("SELECT session_user::text,current_user::text,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user")
+        .fetch_one(&writer).await.unwrap();
+    assert_eq!(
+        identity,
+        ("brain_ingest".into(), "brain_ingest".into(), false, false)
+    );
+    let error = sqlx::query("SELECT * FROM serve.current_fact LIMIT 0")
+        .fetch_all(&writer)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.as_database_error().unwrap().code().as_deref(),
+        Some("42501")
+    );
+    let writer = PgStore::new(writer);
+    writer.check_gamefacts_schema().await.unwrap();
+    (pg, admin, writer)
+}
+
+async fn assert_preflight_fault(
+    admin: &sqlx::PgPool,
+    writer: &PgStore,
+    fault: &str,
+    restoration: &str,
+) {
+    let before = published_upgrade_snapshot(admin).await;
+    sqlx::raw_sql(fault).execute(admin).await.unwrap();
+    assert!(
+        matches!(
+            writer.check_gamefacts_schema().await,
+            Err(PortError::InvalidResponse(_))
+        ),
+        "{fault}"
+    );
+    assert!(
+        matches!(
+            PgStore::new(admin.clone()).migrate_gamefacts().await,
+            Err(PortError::InvalidResponse(_))
+        ),
+        "{fault}"
+    );
+    assert_eq!(published_upgrade_snapshot(admin).await, before);
+    sqlx::raw_sql(restoration).execute(admin).await.unwrap();
+    writer.check_gamefacts_schema().await.unwrap();
+    assert_eq!(published_upgrade_snapshot(admin).await, before);
+    println!("preflight rejected before writes, restored: {fault}");
+}
+
+async fn assert_signed_guard_faults(
+    admin: &sqlx::PgPool,
+    writer: &PgStore,
+    version: i32,
+    guard: (&str, &str, &str),
+) {
+    let (function, delimiter, security) = guard;
+    let template = MIGRATIONS.iter().find(|(v, _)| *v == version).unwrap().1;
+    let sql = sql_and_checksum(template).0;
+    let body = sql.split(delimiter).nth(1).unwrap();
+    let restore = format!("CREATE OR REPLACE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql {security} SET search_path=pg_catalog AS {delimiter}{body}{delimiter}");
+    let faulty = format!("CREATE OR REPLACE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql {security} SET search_path=pg_catalog AS $drift$ BEGIN RETURN NEW; END; $drift$");
+    assert_preflight_fault(admin, writer, &faulty, &restore).await;
+    for (change, undo) in [
+        ("OWNER TO brain_core_test", "OWNER TO brain_migrate"),
+        (
+            if security == "SECURITY DEFINER" {
+                "SECURITY INVOKER"
+            } else {
+                "SECURITY DEFINER"
+            },
+            security,
+        ),
+        ("SET search_path=public", "SET search_path=pg_catalog"),
+    ] {
+        assert_preflight_fault(
+            admin,
+            writer,
+            &format!("ALTER FUNCTION {function}() {change}"),
+            &format!("ALTER FUNCTION {function}() {undo}"),
+        )
+        .await;
+    }
+    for role in [
+        "PUBLIC",
+        "brain_ingest",
+        "brain_tool",
+        "brain_service",
+        "brain_readonly",
+    ] {
+        assert_preflight_fault(
+            admin,
+            writer,
+            &format!("GRANT EXECUTE ON FUNCTION {function}() TO {role}"),
+            &format!("REVOKE EXECUTE ON FUNCTION {function}() FROM {role}"),
+        )
+        .await;
+    }
+}
+
+async fn assert_guard_trigger_faults(
+    admin: &sqlx::PgPool,
+    writer: &PgStore,
+    guard: (&str, &str, &str, &str),
+) {
+    let (relation, name, function, event) = guard;
+    let restore = format!("DROP TRIGGER IF EXISTS {name} ON {relation}; CREATE TRIGGER {name} BEFORE {event} ON {relation} FOR EACH ROW EXECUTE FUNCTION {function}()");
+    for replacement in [
+        String::new(),
+        format!("CREATE TRIGGER {name} AFTER {event} ON {relation} FOR EACH ROW EXECUTE FUNCTION {function}()"),
+        format!("CREATE TRIGGER {name} BEFORE {event} ON {relation} FOR EACH STATEMENT EXECUTE FUNCTION {function}()"),
+        format!("CREATE TRIGGER {name} BEFORE UPDATE OF id ON {relation} FOR EACH ROW EXECUTE FUNCTION {function}()"),
+        format!("CREATE TRIGGER {name} BEFORE {event} ON {relation} FOR EACH ROW WHEN (false) EXECUTE FUNCTION {function}()"),
+        format!("CREATE TRIGGER {name} BEFORE {event} ON {relation} FOR EACH ROW EXECUTE FUNCTION canon.guard_receipt_insert()"),
+        format!("CREATE TRIGGER {name} BEFORE {event} ON {relation} FOR EACH ROW EXECUTE FUNCTION {function}('unexpected')"),
+        format!("CREATE CONSTRAINT TRIGGER {name} AFTER UPDATE ON {relation} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION {function}()"),
+    ] {
+        assert_preflight_fault(admin, writer, &format!("DROP TRIGGER {name} ON {relation}; {replacement}"), &restore).await;
+    }
+    for state in ["DISABLE", "ENABLE REPLICA", "ENABLE ALWAYS"] {
+        assert_preflight_fault(
+            admin,
+            writer,
+            &format!("ALTER TABLE {relation} {state} TRIGGER {name}"),
+            &format!("ALTER TABLE {relation} ENABLE TRIGGER {name}"),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn fact_integrity_preflight_rejects_signed_body_and_trigger_drift() {
+    let (_pg, admin, writer) = preflight_fixture().await;
+    assert_signed_guard_faults(
+        &admin,
+        &writer,
+        8,
+        ("canon.guard_fact_integrity", "$fact$", "SECURITY DEFINER"),
+    )
+    .await;
+    assert_guard_trigger_faults(
+        &admin,
+        &writer,
+        (
+            "canon.fact",
+            "guard_fact_integrity",
+            "canon.guard_fact_integrity",
+            "INSERT OR UPDATE",
+        ),
+    )
+    .await;
+    writer.pool.close().await;
+    admin.close().await;
+}
+
+#[tokio::test]
+async fn publication_preflight_rejects_signed_body_and_conditional_trigger_drift() {
+    let (_pg, admin, writer) = preflight_fixture().await;
+    assert_signed_guard_faults(
+        &admin,
+        &writer,
+        7,
+        ("ops.keep_published_run", "$run$", "SECURITY INVOKER"),
+    )
+    .await;
+    assert_guard_trigger_faults(
+        &admin,
+        &writer,
+        (
+            "ops.ingest_run",
+            "keep_published_run",
+            "ops.keep_published_run",
+            "UPDATE OF status",
+        ),
+    )
+    .await;
+    let sql = sql_and_checksum(MIGRATIONS.iter().find(|(v, _)| *v == 7).unwrap().1).0;
+    let body = sql.split("$fact$").nth(1).unwrap();
+    let signature = "canon.write_run_fact(p_entity bigint,p_key text,p_num double precision,p_text text,p_bool boolean,p_run bigint,p_receipt bigint)";
+    let restore = format!("CREATE OR REPLACE FUNCTION {signature} RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $fact${body}$fact$");
+    let faulty = format!("CREATE OR REPLACE FUNCTION {signature} RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $drift$ BEGIN RETURN; END; $drift$");
+    assert_preflight_fault(&admin, &writer, &faulty, &restore).await;
+    writer.pool.close().await;
+    admin.close().await;
+}
+
+#[tokio::test]
+async fn mutation_preflight_rejects_table_and_column_grants_without_restricting_admin() {
+    let (_pg, admin, writer) = preflight_fixture().await;
+    for (relation, column) in [
+        ("raw.object", "revision"),
+        ("canon.receipt", "extractor"),
+        ("canon.entity", "receipt_id"),
+        ("canon.entity_identity", "receipt_id"),
+        ("canon.alias", "receipt_id"),
+        ("canon.fact", "receipt_id"),
+        ("canon.relation", "receipt_id"),
+    ] {
+        for privilege in [
+            format!("UPDATE({column})"),
+            "UPDATE".into(),
+            "DELETE".into(),
+            "TRUNCATE".into(),
+        ] {
+            assert_preflight_fault(
+                &admin,
+                &writer,
+                &format!("GRANT {privilege} ON {relation} TO brain_ingest"),
+                &format!("REVOKE {privilege} ON {relation} FROM brain_ingest"),
+            )
+            .await;
+        }
+    }
+    let admin_update: bool = sqlx::query_scalar(
+        "SELECT has_any_column_privilege(current_user,'canon.receipt','UPDATE')",
+    )
+    .fetch_one(&admin)
+    .await
+    .unwrap();
+    assert!(admin_update);
+    sqlx::query("UPDATE canon.receipt SET extractor=extractor")
+        .execute(&admin)
+        .await
+        .unwrap();
+    writer.check_gamefacts_schema().await.unwrap();
+    writer.pool.close().await;
+    admin.close().await;
+}
+
 async fn receipt_application(
     pool: &sqlx::PgPool,
     raw: i64,
