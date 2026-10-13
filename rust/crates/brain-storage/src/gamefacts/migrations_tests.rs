@@ -17,6 +17,10 @@ fn registry_is_positive_unique_and_ordered_with_gaps() {
         assert!(ordered(&registry).is_err());
     }
     assert_eq!(
+        MIGRATIONS.iter().map(|(v, _)| *v).collect::<Vec<_>>(),
+        [1, 7, 8, 9, 10]
+    );
+    assert_eq!(
         sql_and_checksum(MIGRATIONS[0].1)
             .1
             .iter()
@@ -457,6 +461,101 @@ async fn ingest_preflight_checks_serving_shape_without_serving_read_privileges()
         sqlx::raw_sql(restore_schema).execute(&pool).await.unwrap();
         assert_schema_checks(&stores, true).await;
     }
+    let published_sql = sql_and_checksum(MIGRATIONS.iter().find(|(v, _)| *v == 10).unwrap().1).0;
+    for (relation, function, column) in [
+        ("receipt", "guard_receipt_insert", "ingest_run_id"),
+        ("entity", "guard_reference_insert", "receipt_id"),
+        ("entity_identity", "guard_reference_insert", "receipt_id"),
+        ("alias", "guard_reference_insert", "receipt_id"),
+        ("relation", "guard_reference_insert", "receipt_id"),
+    ] {
+        let restore = format!("CREATE TRIGGER guard_published_insert BEFORE INSERT ON canon.{relation} FOR EACH ROW EXECUTE FUNCTION canon.{function}()");
+        for replacement in [
+            String::new(),
+            format!("CREATE TRIGGER guard_published_insert AFTER INSERT ON canon.{relation} FOR EACH ROW EXECUTE FUNCTION canon.{function}()"),
+            format!("CREATE TRIGGER guard_published_insert BEFORE INSERT ON canon.{relation} FOR EACH STATEMENT EXECUTE FUNCTION canon.{function}()"),
+            format!("CREATE TRIGGER guard_published_insert BEFORE UPDATE OF {column} ON canon.{relation} FOR EACH ROW EXECUTE FUNCTION canon.{function}()"),
+            format!("CREATE TRIGGER guard_published_insert BEFORE INSERT ON canon.{relation} FOR EACH ROW WHEN (false) EXECUTE FUNCTION canon.{function}()"),
+            format!("CREATE TRIGGER guard_published_insert BEFORE INSERT ON canon.{relation} FOR EACH ROW EXECUTE FUNCTION canon.guard_fact_integrity()"),
+            format!("CREATE CONSTRAINT TRIGGER guard_published_insert AFTER INSERT ON canon.{relation} FOR EACH ROW EXECUTE FUNCTION canon.{function}()"),
+        ] {
+            sqlx::raw_sql(&format!("DROP TRIGGER guard_published_insert ON canon.{relation}; {replacement}"))
+                .execute(&pool).await.unwrap();
+            assert_schema_checks(&stores, false).await;
+            sqlx::raw_sql(&format!("DROP TRIGGER IF EXISTS guard_published_insert ON canon.{relation}; {restore}"))
+                .execute(&pool).await.unwrap();
+            assert_schema_checks(&stores, true).await;
+        }
+        for state in ["DISABLE", "ENABLE REPLICA", "ENABLE ALWAYS"] {
+            sqlx::raw_sql(&format!(
+                "ALTER TABLE canon.{relation} {state} TRIGGER guard_published_insert"
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+            assert_schema_checks(&stores, false).await;
+            sqlx::raw_sql(&format!(
+                "ALTER TABLE canon.{relation} ENABLE TRIGGER guard_published_insert"
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+            assert_schema_checks(&stores, true).await;
+        }
+    }
+    for (function, delimiter) in [
+        ("guard_receipt_insert", "$receipt$"),
+        ("guard_reference_insert", "$reference$"),
+    ] {
+        for (change, restore) in [
+            ("OWNER TO brain_core_test", "OWNER TO brain_migrate"),
+            ("SECURITY INVOKER", "SECURITY DEFINER"),
+            ("SET search_path=public", "SET search_path=pg_catalog"),
+            ("RENAME TO missing_published_guard", "RENAME TO unused"),
+        ] {
+            sqlx::raw_sql(&format!("ALTER FUNCTION canon.{function}() {change}"))
+                .execute(&pool)
+                .await
+                .unwrap();
+            assert_schema_checks(&stores, false).await;
+            let restoration = if change.starts_with("RENAME") {
+                format!("ALTER FUNCTION canon.missing_published_guard() RENAME TO {function}")
+            } else {
+                format!("ALTER FUNCTION canon.{function}() {restore}")
+            };
+            sqlx::raw_sql(&restoration).execute(&pool).await.unwrap();
+            assert_schema_checks(&stores, true).await;
+        }
+        for role in [
+            "PUBLIC",
+            "brain_ingest",
+            "brain_tool",
+            "brain_service",
+            "brain_readonly",
+        ] {
+            sqlx::raw_sql(&format!(
+                "GRANT EXECUTE ON FUNCTION canon.{function}() TO {role}"
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+            assert_schema_checks(&stores, false).await;
+            sqlx::raw_sql(&format!(
+                "REVOKE EXECUTE ON FUNCTION canon.{function}() FROM {role}"
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+            assert_schema_checks(&stores, true).await;
+        }
+        let body = published_sql.split(delimiter).nth(1).unwrap();
+        sqlx::raw_sql(&format!("CREATE OR REPLACE FUNCTION canon.{function}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $drift$ BEGIN RETURN NEW; END; $drift$"))
+            .execute(&pool).await.unwrap();
+        assert_schema_checks(&stores, false).await;
+        sqlx::raw_sql(&format!("CREATE OR REPLACE FUNCTION canon.{function}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS {delimiter}{body}{delimiter}"))
+            .execute(&pool).await.unwrap();
+        assert_schema_checks(&stores, true).await;
+    }
     let guard_sql = sql_and_checksum(MIGRATIONS.iter().find(|(v, _)| *v == 9).unwrap().1).0;
     let guard_body = guard_sql.split("$rows$").nth(1).unwrap();
     let restore_guard = format!("CREATE OR REPLACE FUNCTION canon.check_object_rows() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $rows${guard_body}$rows$");
@@ -648,6 +747,106 @@ async fn application_cap_upgrade_preserves_legacy_receipts_and_rejects_direct_40
         .await
         .unwrap();
     assert_eq!(rows, (2 * limits::ROWS + 1) as i64);
+    writer.close().await;
+    admin.close().await;
+}
+
+async fn published_upgrade_snapshot(pool: &sqlx::PgPool) -> Vec<Vec<serde_json::Value>> {
+    let mut snapshot = Vec::new();
+    for table in [
+        "raw.object",
+        "ops.ingest_run",
+        "canon.receipt",
+        "canon.entity",
+        "canon.entity_identity",
+        "canon.alias",
+        "canon.fact",
+        "canon.relation",
+    ] {
+        snapshot.push(
+            sqlx::query_scalar(&format!(
+                "SELECT to_jsonb(r) FROM {table} r ORDER BY to_jsonb(r)::text"
+            ))
+            .fetch_all(pool)
+            .await
+            .unwrap(),
+        );
+    }
+    snapshot
+}
+
+#[tokio::test]
+async fn published_insert_upgrade_preserves_legacy_rows_and_serving_shape() {
+    let pg = scratch_pg::ScratchPg::start();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("")
+        .ssl_mode(PgSslMode::Disable);
+    let admin = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.clone())
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly NOLOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate")
+        .execute(&admin).await.unwrap();
+    let migrator = PgStore::new(admin.clone());
+    let legacy: Vec<_> = MIGRATIONS
+        .iter()
+        .copied()
+        .filter(|(v, _)| *v < 10)
+        .collect();
+    migrator
+        .migrate_gamefacts_registered(&legacy)
+        .await
+        .unwrap();
+    let writer = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.username("brain_ingest"))
+        .await
+        .unwrap();
+    let users: (String, String) = sqlx::query_as("SELECT session_user::text,current_user::text")
+        .fetch_one(&writer)
+        .await
+        .unwrap();
+    assert_eq!(users, ("brain_ingest".into(), "brain_ingest".into()));
+    let store = crate::gamefacts::GameFactsStore::new(writer.clone());
+    let run = store.begin_run("upgrade").await.unwrap();
+    let raw = store
+        .capture(run, "upgrade", "r1", "hero.json", b"120".to_vec())
+        .await
+        .unwrap();
+    let receipt = integrity_receipt(&writer, raw.id, run).await;
+    let entity: i64 = sqlx::query_scalar("INSERT INTO canon.entity(kind,key,receipt_id) VALUES('hero','hero_upgrade',$1) RETURNING id")
+        .bind(receipt).fetch_one(&writer).await.unwrap();
+    insert_integrity_fact(&writer, entity, "health", run, receipt)
+        .await
+        .unwrap();
+    store
+        .finish_run(run, true, crate::gamefacts::Counts::default())
+        .await
+        .unwrap();
+    let late = integrity_receipt(&writer, raw.id, run).await;
+    sqlx::raw_sql(&format!("INSERT INTO canon.entity(kind,key,receipt_id) VALUES('hero','hero_legacy_late',{late}); INSERT INTO canon.entity_identity(entity_id,receipt_id) VALUES({entity},{late}); INSERT INTO canon.alias(entity_id,alias_norm,lang,receipt_id) VALUES({entity},'legacy','de',{late}); INSERT INTO canon.relation(from_entity,kind,to_entity,receipt_id) VALUES({entity},'legacy',{entity},{late})"))
+        .execute(&writer).await.unwrap();
+    let before = published_upgrade_snapshot(&admin).await;
+    let columns: Vec<(String, String, String)> = sqlx::query_as("SELECT c.relname::text,a.attname::text,pg_catalog.format_type(a.atttypid,a.atttypmod) FROM pg_catalog.pg_namespace n JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='serve' AND c.relkind='v' AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum")
+        .fetch_all(&admin).await.unwrap();
+    migrator.migrate_gamefacts().await.unwrap();
+    migrator.migrate_gamefacts().await.unwrap();
+    PgStore::new(writer.clone())
+        .check_gamefacts_schema()
+        .await
+        .unwrap();
+    assert_eq!(published_upgrade_snapshot(&admin).await, before);
+    let after_columns: Vec<(String, String, String)> = sqlx::query_as("SELECT c.relname::text,a.attname::text,pg_catalog.format_type(a.atttypid,a.atttypmod) FROM pg_catalog.pg_namespace n JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='serve' AND c.relkind='v' AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum")
+        .fetch_all(&admin).await.unwrap();
+    assert_eq!(columns, after_columns);
+    assert_integrity_denied(sqlx::query("INSERT INTO canon.receipt(raw_object_id,ingest_run_id,extractor,locator_kind,locator,value_sha256) VALUES($1,$2,'late','raw_bytes','',decode(repeat('00',32),'hex'))")
+        .bind(raw.id).bind(run).execute(&writer).await.map(|_| ()));
+    assert_eq!(published_upgrade_snapshot(&admin).await, before);
     writer.close().await;
     admin.close().await;
 }

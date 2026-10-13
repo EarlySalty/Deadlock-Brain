@@ -26,6 +26,12 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
             "../../../../../scripts/migrations/2026-10-13-brain-gamefacts-application-cap-v9.sql"
         ),
     ),
+    (
+        10,
+        include_str!(
+            "../../../../../scripts/migrations/2026-10-13-brain-gamefacts-published-inserts-v10.sql"
+        ),
+    ),
 ];
 
 fn invalid() -> PortError {
@@ -206,6 +212,62 @@ async fn check(connection: &mut PgConnection, migrations: &[(i32, &str)]) -> Res
         )",
         )
         .bind(body)
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|_| invalid())?;
+        if !protected {
+            return Err(invalid());
+        }
+    }
+    if let Some((_, template)) = migrations.iter().find(|(version, _)| *version == 10) {
+        let (sql, _) = sql_and_checksum(template);
+        let receipt_body = sql.split("$receipt$").nth(1).ok_or_else(invalid)?;
+        let reference_body = sql.split("$reference$").nth(1).ok_or_else(invalid)?;
+        let protected: bool = sqlx::query_scalar(
+            "SELECT NOT EXISTS (
+            SELECT 1 FROM (VALUES
+                ('canon.guard_receipt_insert()', $1::text),
+                ('canon.guard_reference_insert()', $2::text)
+            ) AS required(signature,body)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_proc p
+                JOIN pg_catalog.pg_roles r ON r.oid=p.proowner
+                JOIN pg_catalog.pg_language l ON l.oid=p.prolang
+                WHERE p.oid=pg_catalog.to_regprocedure(required.signature)
+                    AND r.rolname='brain_migrate' AND l.lanname='plpgsql' AND p.prosecdef
+                    AND p.prokind='f' AND p.pronargs=0 AND p.pronargdefaults=0
+                    AND p.proallargtypes IS NULL AND p.provariadic=0 AND NOT p.proretset
+                    AND p.prorettype='pg_catalog.trigger'::regtype AND p.prosrc=required.body
+                    AND p.proconfig=ARRAY['search_path=pg_catalog']
+                    AND NOT EXISTS (
+                        SELECT 1 FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a
+                        WHERE a.grantee=0 AND a.privilege_type='EXECUTE'
+                    )
+                    AND NOT has_function_privilege('brain_ingest',p.oid,'EXECUTE')
+                    AND NOT has_function_privilege('brain_tool',p.oid,'EXECUTE')
+                    AND NOT has_function_privilege('brain_service',p.oid,'EXECUTE')
+                    AND NOT has_function_privilege('brain_readonly',p.oid,'EXECUTE')
+            )
+        ) AND NOT EXISTS (
+            SELECT 1 FROM (VALUES
+                ('canon.receipt','canon.guard_receipt_insert()'),
+                ('canon.entity','canon.guard_reference_insert()'),
+                ('canon.entity_identity','canon.guard_reference_insert()'),
+                ('canon.alias','canon.guard_reference_insert()'),
+                ('canon.relation','canon.guard_reference_insert()')
+            ) AS required(relation,signature)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_trigger t
+                WHERE t.tgrelid=pg_catalog.to_regclass(required.relation)
+                    AND t.tgname='guard_published_insert' AND t.tgenabled='O'
+                    AND t.tgfoid=pg_catalog.to_regprocedure(required.signature)
+                    AND t.tgtype=7 AND t.tgattr=''::int2vector AND t.tgqual IS NULL
+                    AND NOT t.tgisinternal AND t.tgconstraint=0
+            )
+        )",
+        )
+        .bind(receipt_body)
+        .bind(reference_body)
         .fetch_one(&mut *connection)
         .await
         .map_err(|_| invalid())?;
