@@ -1,10 +1,13 @@
 use super::*;
 
-fn snapshot_bytes(wins: u64) -> Vec<u8> {
-    format!(
-        "[{{\"hero_id\":1,\"bucket\":0,\"wins\":{wins},\"matches\":1000}},{{\"hero_id\":2,\"bucket\":0,\"wins\":7,\"matches\":20}}]"
-    )
-    .into_bytes()
+fn snapshot_bytes(wins: u64, with_second: bool) -> Vec<u8> {
+    let second = if with_second {
+        ",{\"hero_id\":2,\"bucket\":0,\"wins\":7,\"matches\":20}"
+    } else {
+        ""
+    };
+    format!("[{{\"hero_id\":1,\"bucket\":0,\"wins\":{wins},\"matches\":1000}}{second}]")
+        .into_bytes()
 }
 
 fn receipt(kind: &str, locator: String, value: &[u8]) -> Receipt {
@@ -15,10 +18,16 @@ fn receipt(kind: &str, locator: String, value: &[u8]) -> Receipt {
     }
 }
 
-async fn publish_snapshot(admin: &PgPool, revision: &str, wins: u64, hours_ago: i64) {
+async fn publish_snapshot(
+    admin: &PgPool,
+    revision: &str,
+    wins: u64,
+    hours_ago: i64,
+    with_second: bool,
+) {
     let store = GameFactsStore::new(admin.clone());
     let run = store.begin_run("deadlock-api-meta").await.unwrap();
-    let bytes = snapshot_bytes(wins);
+    let bytes = snapshot_bytes(wins, with_second);
     let raw = store
         .capture(
             run,
@@ -121,7 +130,7 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
         brain_storage::PgStore::new(admin.clone()).migrate_gamefacts().await.unwrap();
         for (index, hours_ago) in [24 * 40, 24 * 31, 24 * 8, 25, 1, 0].into_iter().enumerate() {
             let revision = format!("2026-10-{:02}T{:02}:00:00Z", index + 1, index);
-            publish_snapshot(&admin, &revision, 500 + index as u64, hours_ago).await;
+            publish_snapshot(&admin, &revision, 500 + index as u64, hours_ago, hours_ago > 0).await;
         }
         publish_identity(&admin).await;
         let entity: i64 = sqlx::query_scalar("SELECT id FROM canon.entity WHERE key='hero_meta_fixture'")
@@ -159,7 +168,16 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
             .unwrap()
             .starts_with("2026-10-"));
         assert_eq!(fact["condition"]["game_mode"], "normal");
+        assert!(fact["condition"]["matches_since"]
+            .as_str()
+            .unwrap()
+            .ends_with("T00:00:00Z"));
+        assert_eq!(fact["condition"]["matches_until"], fact["source_revision"]);
     }
+    assert_eq!(
+        facts[0]["condition"]["matches_since"],
+        "2026-09-06T00:00:00Z"
+    );
     assert_eq!(execution.dependencies[0].evidence.len(), 4);
     assert!(serde_json::to_vec(&execution.result).unwrap().len() < MAX_BYTES);
 
@@ -179,6 +197,13 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
     assert_eq!(by_entity.result.result["game_id"], 2);
     assert_eq!(by_entity.result.result["identity"]["value"], "2");
     assert_eq!(by_entity.dependencies[0].evidence.len(), 5);
+    let second_latest = &by_entity.result.result["facts"][0];
+    assert_eq!(second_latest["snapshot"], "latest");
+    assert_eq!(second_latest["value"]["hero_id"], 2);
+    assert!(
+        second_latest["snapshot_at"].as_str().unwrap() < facts[0]["snapshot_at"].as_str().unwrap()
+    );
+    assert_eq!(second_latest["source_revision"], "2026-10-05T04:00:00Z");
 
     for arguments in [
         json!({"kind":"hero","game_id":999}),

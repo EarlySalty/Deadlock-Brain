@@ -1,5 +1,5 @@
 use crate::{sources::InputObjects, InputObject};
-use anyhow::{bail, ensure, Context};
+use anyhow::{ensure, Context};
 use deadlock_brain_core::http::{HttpClient, SourceHttpOptions};
 use std::{
     fs::OpenOptions,
@@ -20,6 +20,10 @@ pub const STAT_SETS: [(&str, &str); 2] = [
     ),
 ];
 pub const MAX_BYTES: usize = 1024 * 1024;
+
+pub fn window_start(unix_seconds: u64) -> u64 {
+    (unix_seconds / 86_400 * 86_400).saturating_sub(30 * 86_400)
+}
 
 pub fn hour(unix_seconds: u64) -> String {
     let days = (unix_seconds / 86_400) as i64;
@@ -125,9 +129,10 @@ fn prune(cache: &Path, keep: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn capture(cache: &Path, revision: &str) -> anyhow::Result<Vec<InputObject>> {
+pub fn capture(cache: &Path, unix_seconds: u64) -> anyhow::Result<Vec<InputObject>> {
+    let revision = hour(unix_seconds);
     ensure!(
-        cache.is_absolute() && valid_hour(revision),
+        cache.is_absolute() && valid_hour(&revision),
         "Ungültiger Quellen-Cache"
     );
     std::fs::create_dir_all(cache)?;
@@ -139,43 +144,37 @@ pub fn capture(cache: &Path, revision: &str) -> anyhow::Result<Vec<InputObject>>
         .open(cache.join(".lock"))?;
     lock.lock()
         .context("Quellen-Cache konnte nicht gesperrt werden")?;
-    let directory = cache.join(revision);
+    let directory = cache.join(&revision);
     std::fs::create_dir_all(&directory)?;
+    let since = window_start(unix_seconds);
     for (path, url) in STAT_SETS {
         let target = directory.join(path);
         if !target.exists() {
+            let url = format!("{url}&min_unix_timestamp={since}");
             let bytes = std::thread::scope(|scope| {
                 scope
-                    .spawn(|| download(url, &cache.join(".http")))
+                    .spawn(|| download(&url, &cache.join(".http")))
                     .join()
                     .unwrap_or_else(|_| Err(anyhow::anyhow!("Abruf abgebrochen")))
             })?;
             store(&target, &bytes)?;
         }
     }
-    prune(cache, revision)?;
-    objects(&directory, revision)
+    prune(cache, &revision)?;
+    objects(&directory, &revision)
 }
 
-fn current_hour() -> anyhow::Result<String> {
-    Ok(hour(
-        SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
-    ))
-}
-
-fn replay(directory: &Path) -> anyhow::Result<Vec<InputObject>> {
-    let Some(revision) = directory.file_name().and_then(|name| name.to_str()) else {
-        bail!("Ungültiges Snapshot-Verzeichnis");
-    };
-    objects(directory, revision)
+fn now() -> anyhow::Result<u64> {
+    Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
 }
 
 pub fn deadlock_api_meta(directory: &Path, fetch: bool) -> InputObjects {
-    let directory = directory.to_path_buf();
     let loaded = if fetch {
-        current_hour().and_then(|revision| capture(&directory, &revision))
+        now().and_then(|unix_seconds| capture(directory, unix_seconds))
     } else {
-        replay(&directory)
+        Err(anyhow::anyhow!(
+            "Metastatistiken werden nur live erfasst; nachträgliches Einspielen ist gesperrt, damit die Snapshot-Zeit der Erfassungszeit entspricht."
+        ))
     };
     match loaded {
         Ok(objects) => Box::new(objects.into_iter().map(Ok)),

@@ -75,6 +75,25 @@ fn snapshot_hour_is_utc_and_truncated() {
 }
 
 #[test]
+fn window_starts_thirty_days_before_the_capture_day() {
+    assert_eq!(meta_source::window_start(1_791_919_000), 1_789_257_600);
+    assert_eq!(meta_source::window_start(1_791_849_600), 1_789_257_600);
+    assert_eq!(meta_source::window_start(1_791_849_599), 1_789_171_200);
+    assert_eq!(meta_source::window_start(0), 0);
+}
+
+#[test]
+fn replay_is_refused_so_snapshot_time_is_capture_time() {
+    let objects: Vec<_> = meta_source::deadlock_api_meta(
+        std::path::Path::new("/nonexistent/2026-10-13T19:00:00Z"),
+        false,
+    )
+    .collect();
+    assert_eq!(objects.len(), 1);
+    assert!(objects[0].is_err());
+}
+
+#[test]
 fn real_captures_become_one_cited_row_per_hero_and_item() {
     assert!(MetaStats.accepts(meta_source::SOURCE, HERO));
     assert!(MetaStats.accepts(meta_source::SOURCE, ITEM));
