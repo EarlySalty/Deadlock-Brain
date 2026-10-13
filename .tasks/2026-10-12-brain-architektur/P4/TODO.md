@@ -106,15 +106,17 @@ Verified normal Core3a merge committed126f6f397580491ee4fec8edc40e84a2a782c5c0 a
 
 Three gate findings: v7 publication protection permits direct receipt/run-mismatched fact INSERT and subsequent replacement of visible rows with unpublished receipts; owner hero_profile and exact/fuzzy aliases still lack raw/run/extractor coherence; v1 receipt cap accumulates across same-run A,B,A applications and can reject finalA/publishB. Gate locations/nits are in REVIEW.md. These are critic findings pending fresh causal round2 verification, not independently proven new findings by the parent. Known owner coherence remains previously verified. Applied migration SQL and owner/Core stay frozen.
 
-Fresh native round2 fixer a70de76e5a6a76d45 is reproducing causes/twins only in its own worktree/scratch PG, and checking the unit-install nit. Its only repo write set is P4/GATE_ROUND2_FIXER.md; no authorization to edit frozen production, migrations or service wiring. No existing green broad suite is duplicated. No ALLOW/main/deploy/service activation or cleanup.
+Fresh native round2 fixer completed causal verification in its own clean worktree at126f6f39. Parent read actual result logs and verified artifact hashes:all3 BLOCK causes confirmed, plus both service/unit-install nits. Actual role-boundary/cap probes3 passed/0 failed/0 ignored/0 filtered; these reproduce defects, not acceptance. Retained byte-identical hero/alias proof validated7/7 checks without another DB run. Complete report, minimal additive owner repair contracts and exact commands are in GATE_ROUND2_FIXER.md. No frozen production/migration change, duplicated broad suite, ALLOW/main/deploy/service activation or cleanup.
 
-A regular pinned cargo-slot build of brain-serve is running separately to complete the matching non-deploy artifact check, taskbnwl0sz52, log `/tmp/p4-core3a-serve-build-20261013.log`. No result is inferred; no release profile, install or runtime change.
+Publication mismatch inserts/withdrawals are3/3 across number/text/bool, late canonical writer twins remain possible; same-run4096-receipt[A,B,A] is2 accepted/1 rejected withB current, all5 receipt-writer paths reproduced. Parent cannot repair these frozen Core causes without an approved P1r checkpoint. Both owner nits are confirmed statically:productive PgPatchToolPort composition and job-unit installation are absent.
+
+Regular pinned cargo-slot build of brain-serve completed locally in verify profile, taskbnwl0sz52, exit0. Log `/tmp/p4-core3a-serve-build-20261013.log`, SHA2564f04182048c5d07759dffa591e4e3eac1e563b801cb5a025cfdccab2ed40c339. This completes the matching non-deploy artifact check; no release install or runtime/service change.
 
 MERGEPROTOKOLL[MS-1]: 8 Git-Schritte einzeln | Anläufe: 2 inhaltliche Reviews | Gate: gpt-6.1-sol BLOCK, Exit1,3 owner/Core findings
 
 ## Open
 
-1. Receive the fresh round2 causal report and request the smallest authorized P1r additive repair checkpoint for confirmed frozen-Core findings. Preserve published126f6f39 and all proof; no gate reroll before a cause is fixed, and no unapproved owner edits. Current verdict is BLOCK.
+1. Await the approved P1r additive repair checkpoint for all three now-confirmed frozen-Core causes. Preserve published126f6f39 and all proof, normally merge the approved checkpoint, run affected checks and the same full gate. No gate reroll before a cause is fixed and no unapproved owner edits. Current verdict is BLOCK; content rounds1/2 used.
 2. Coordinate P1r's owner-controlled service wrapper insertion. Optional get_hero.patch must retain historical_patch_unavailable without evidenced assignments.
 3. Hand over the gate-ready branch according to the assigned P1r live/integration order. Only the responsible integrator merges/deploys; no source activation or live acceptance is claimed.
 
