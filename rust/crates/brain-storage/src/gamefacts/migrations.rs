@@ -14,6 +14,12 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
             "../../../../../scripts/migrations/2026-10-13-brain-gamefacts-run-local-v7.sql"
         ),
     ),
+    (
+        8,
+        include_str!(
+            "../../../../../scripts/migrations/2026-10-13-brain-gamefacts-fact-integrity-v8.sql"
+        ),
+    ),
 ];
 
 fn invalid() -> PortError {
@@ -125,6 +131,32 @@ async fn check(connection: &mut PgConnection, migrations: &[(i32, &str)]) -> Res
                 AND t.tgfoid=to_regprocedure('ops.keep_published_run()')
         )")
             .fetch_one(&mut *connection).await.map_err(|_| invalid())?;
+        if !protected {
+            return Err(invalid());
+        }
+    }
+    if migrations.iter().any(|(version, _)| *version == 8) {
+        let protected: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+            SELECT 1 FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
+            WHERE p.oid=to_regprocedure('canon.guard_fact_integrity()')
+                AND r.rolname='brain_migrate' AND p.prosecdef
+                AND p.prorettype='pg_catalog.trigger'::regtype
+                AND p.proconfig=ARRAY['search_path=pg_catalog']
+                AND NOT has_function_privilege('brain_ingest',p.oid,'EXECUTE')
+                AND NOT has_function_privilege('brain_tool',p.oid,'EXECUTE')
+                AND NOT has_function_privilege('brain_service',p.oid,'EXECUTE')
+        ) AND EXISTS(
+            SELECT 1 FROM pg_trigger t WHERE t.tgrelid='canon.fact'::regclass
+                AND t.tgname='guard_fact_integrity' AND t.tgenabled='O'
+                AND t.tgfoid=to_regprocedure('canon.guard_fact_integrity()')
+                AND t.tgtype=23 AND t.tgattr=''::int2vector AND t.tgqual IS NULL
+                AND NOT t.tgisinternal AND t.tgconstraint=0
+        )",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(|_| invalid())?;
         if !protected {
             return Err(invalid());
         }
