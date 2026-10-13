@@ -11,7 +11,7 @@ The pending sparse-registry merge is finished at `4d213212`. The verified Docs f
 
 Parent verification `bu2dbo7pt`: formatter, storage/serve all-target check and strict Clippy pass; real native Docs suite 23 passed, 0 failed, 0 ignored, 0 filtered; shared service::pg_tools suite 4 passed, 0 failed, 0 ignored, 87 filtered. The 500 ms search deadline remains unchanged. Duplicate naked positive words are compacted at the shared selection path; phrases, OR, negation and punctuation retain their original input. Earlier unexplained short-query timeouts are recorded, not classified as flakes.
 
-Independent read-only Rust review is still pending: `a6396a541ee5c093b` resumed after an incorrect formatter invocation failed to locate workspace targets. No review approval or clean-findings report is assumed. Do not duplicate the reviewer while active.
+Independent Rust review completed with one confirmed HIGH finding at pg_docs.rs:377-392. Rust's alphanumeric guard accepts `or²`, but PG16 interprets it as OR followed by operand `²`. Input `alpha or² omega beta alpha` is compacted to `alpha or² omega beta`; against text `² omega beta`, the original fails membership while the compacted query matches, in both simple and German vectors (rank0 becomes0.1). The current verified-test checkpoint therefore remains semantically defective despite 27 passing tests. Fresh isolated fixer `a2a497c3491682e4b` owns only the guard and concrete real-PG regression in pg_docs.rs/tests, starting from55b67439. Limit rewriting to demonstrably plain PG tokens, preserve uncertain syntax, deadlines and all original request/query bounds. Do not duplicate this active fixer. Parent owns AUFTRAG/TODO; worker may create a new uniquely named round-evidence file only.
 
 ## Gate status
 
@@ -26,7 +26,7 @@ No ALLOW. Worker gate initially BLOCKed the old failed-run fixture. Approved Cor
 
 ## Resume safely
 
-Receive the active Rust review. Resolve only verified owned findings with a fresh fixer when required. Obtain genuine decisions or forwarded owner checkpoints for the open boundaries before implementing them. Run matching checks and the canonical gate on the final changed source when the reviewer sandbox is operational. Hand over the branch and exact SHA to P1r; do not independently merge main, deploy or cut over Discord.
+Receive the active fresh fixer's verified branch and inspect its concrete before/after PG proof. Resolve only verified owned findings with a fresh fixer when required. Obtain genuine decisions or forwarded owner checkpoints for the open boundaries before implementing them. Run matching checks and the canonical gate on the final changed source when the reviewer sandbox is operational. Hand over the branch and exact SHA to P1r; do not independently merge main, deploy or cut over Discord.
 
 Brain maintenance and dl-knowledge stay stopped. Do not touch ai-coach, foreign worktrees/builds/caches or production secrets/data. Bots WIP remains preserved at `3c28ce2583d1d06a78d91966a454d60b6e9d6fc0`; Discord remains unchanged until the replacement Brain is actually live.
 
