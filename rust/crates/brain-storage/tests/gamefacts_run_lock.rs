@@ -4,6 +4,7 @@ use brain_storage::{
     },
     PgStore,
 };
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
@@ -11,8 +12,9 @@ use sqlx::{
 };
 use tokio::task::JoinHandle;
 
-#[path = "support/scratch_pg.rs"]
-mod scratch_pg;
+#[path = "support/gamefacts_pg.rs"]
+pub mod gamefacts_pg;
+use gamefacts_pg::{growth, ScratchPg};
 
 async fn assert_waiting(pool: &PgPool, waiter: &mut JoinHandle<Result<PgConnection, sqlx::Error>>) {
     loop {
@@ -35,8 +37,8 @@ fn waiter(store: &GameFactsStore) -> JoinHandle<Result<PgConnection, sqlx::Error
     tokio::spawn(async move { store.lock_run().await })
 }
 
-async fn fixture() -> (scratch_pg::ScratchPg, PgPool, PgPool) {
-    let pg = scratch_pg::ScratchPg::start();
+async fn fixture() -> (ScratchPg, PgPool, PgPool) {
+    let pg = ScratchPg::start();
     let options = PgConnectOptions::new_without_pgpass()
         .host(&pg.directory.join("socket").to_string_lossy())
         .port(55439)
@@ -184,9 +186,268 @@ fn health_set(bytes: &[u8], value: f64) -> FactSet {
     }
 }
 
-async fn growth(pool: &PgPool) -> (i64, i64, i64) {
-    sqlx::query_as("SELECT (SELECT count(*) FROM raw.object),(SELECT count(*) FROM canon.fact),(SELECT count(*) FROM canon.receipt)")
-        .fetch_one(pool).await.unwrap()
+async fn snapshot(pool: &PgPool, run: i64) -> Vec<Value> {
+    sqlx::query_scalar("SELECT to_jsonb(f) FROM canon.fact f WHERE valid_from_run=$1 ORDER BY id")
+        .bind(run)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn run_local_replacement_preserves_published_history_and_object_rollback() {
+    let (_pg, admin, writer) = gamefacts_pg::fixture(1).await;
+    let store = GameFactsStore::new(writer.clone());
+    let mut guard = store.lock_run().await.unwrap();
+    let role: String = sqlx::query_scalar("SELECT current_user")
+        .fetch_one(&mut guard)
+        .await
+        .unwrap();
+    assert_eq!(role, "brain_ingest");
+    sqlx::raw_sql("ALTER TABLE canon.fact ADD CONSTRAINT test_poison CHECK(stat_key<>'poison')")
+        .execute(&admin)
+        .await
+        .unwrap();
+    for empty in [false, true] {
+        let path = if empty { "empty_twins" } else { "health_twins" };
+        let first = store.begin_run("twins").await.unwrap();
+        let a = store
+            .capture(first, "twins", "r1", path, b"120".to_vec())
+            .await
+            .unwrap();
+        let set = |raw: &RawObject, value| {
+            if empty {
+                FactSet::default()
+            } else {
+                health_set(&raw.bytes, value)
+            }
+        };
+        store
+            .apply(first, &a, "v1:4:hero:1:1", &set(&a, 120.0))
+            .await
+            .unwrap();
+        store
+            .finish_run_guarded(
+                &mut guard,
+                first,
+                true,
+                Counts {
+                    accepted: 1,
+                    ..Counts::default()
+                },
+            )
+            .await
+            .unwrap();
+        let original = snapshot(&admin, first).await;
+        let receipts: Vec<Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(r) FROM canon.receipt r WHERE ingest_run_id=$1 ORDER BY id",
+        )
+        .bind(first)
+        .fetch_all(&admin)
+        .await
+        .unwrap();
+        let active = store.begin_run("twins").await.unwrap();
+        let b = store
+            .capture(active, "twins", "r2", path, b"125".to_vec())
+            .await
+            .unwrap();
+        store
+            .apply(active, &b, "v1:4:hero:1:1", &set(&b, 125.0))
+            .await
+            .unwrap();
+        assert!(store.was_applied(a.id, "v1:4:hero:1:1").await.unwrap());
+        assert!(!store
+            .was_applied_in_run(active, a.id, "v1:4:hero:1:1")
+            .await
+            .unwrap());
+        assert!(store
+            .was_applied_in_run(active, b.id, "v1:4:hero:1:1")
+            .await
+            .unwrap());
+        assert!(!store
+            .was_applied_in_run(active, b.id, "v1:4:hero:1:2")
+            .await
+            .unwrap());
+        if !empty {
+            let mut poisoned = set(&a, 120.0);
+            let mut bad = poisoned.facts[0].clone();
+            bad.stat_key = "poison".into();
+            poisoned.facts.push(bad);
+            let before = growth(&admin).await;
+            let rejection = store
+                .apply(active, &a, "v1:4:hero:1:1", &poisoned)
+                .await
+                .unwrap_err();
+            assert_eq!(rejection.code, "sql_write");
+            assert!(rejection.detail.contains("23514"));
+            store
+                .reject(active, a.id, "v1:4:hero:1:1", &rejection)
+                .await
+                .unwrap();
+            assert_eq!(growth(&admin).await, before);
+            let pending: f64 =
+                sqlx::query_scalar("SELECT value_num FROM canon.fact WHERE valid_from_run=$1")
+                    .bind(active)
+                    .fetch_one(&admin)
+                    .await
+                    .unwrap();
+            let visible: f64 = sqlx::query_scalar(
+                "SELECT value_num FROM serve.current_fact WHERE stat_key='health'",
+            )
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+            assert_eq!((pending, visible), (125.0, 120.0));
+        }
+        store
+            .apply(active, &a, "v1:4:hero:1:1", &set(&a, 120.0))
+            .await
+            .unwrap();
+        assert!(store
+            .was_applied_in_run(active, a.id, "v1:4:hero:1:1")
+            .await
+            .unwrap());
+        assert!(!store
+            .was_applied_in_run(active, b.id, "v1:4:hero:1:1")
+            .await
+            .unwrap());
+        store
+            .finish_run(
+                active,
+                false,
+                Counts {
+                    accepted: 2,
+                    rejected: i64::from(!empty),
+                    ignored: 1,
+                },
+            )
+            .await
+            .unwrap();
+        let published_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM serve.published_receipt WHERE ingest_run_id=$1",
+        )
+        .bind(active)
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+        assert_eq!(published_count, 0);
+        store
+            .finish_run_guarded(
+                &mut guard,
+                active,
+                true,
+                Counts {
+                    accepted: 2,
+                    rejected: i64::from(!empty),
+                    ignored: 1,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(snapshot(&admin, first).await, original);
+        let unchanged_receipts: Vec<Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(r) FROM canon.receipt r WHERE ingest_run_id=$1 ORDER BY id",
+        )
+        .bind(first)
+        .fetch_all(&admin)
+        .await
+        .unwrap();
+        assert_eq!(unchanged_receipts, receipts);
+        let applications: i64 = sqlx::query_scalar(
+            "SELECT count(DISTINCT raw_object_id) FROM canon.receipt WHERE ingest_run_id=$1",
+        )
+        .bind(active)
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+        assert_eq!(applications, 2);
+        assert!(store.was_applied(a.id, "v1:4:hero:1:1").await.unwrap());
+        if !empty {
+            let rejection = store
+                .apply(first, &b, "v1:4:hero:1:1", &set(&b, 125.0))
+                .await
+                .unwrap_err();
+            assert!(rejection.detail.contains("23514"));
+            assert_eq!(snapshot(&admin, first).await, original);
+        }
+        assert!(store
+            .finish_run(first, false, Counts::default())
+            .await
+            .is_err());
+        let denied = sqlx::query("UPDATE canon.fact SET value_num=999 WHERE valid_from_run=$1")
+            .bind(first)
+            .execute(&writer)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            denied.as_database_error().unwrap().code().as_deref(),
+            Some("42501")
+        );
+        let failed = store.begin_run("twins").await.unwrap();
+        store
+            .apply(failed, &b, "v1:4:hero:1:2", &set(&b, 125.0))
+            .await
+            .unwrap();
+        store
+            .finish_run(
+                failed,
+                false,
+                Counts {
+                    accepted: 1,
+                    ..Counts::default()
+                },
+            )
+            .await
+            .unwrap();
+        let next = store.begin_run("twins").await.unwrap();
+        assert!(store
+            .was_applied_in_run(next, a.id, "v1:4:hero:1:1")
+            .await
+            .unwrap());
+        assert!(!store
+            .was_applied_in_run(next, b.id, "v1:4:hero:1:2")
+            .await
+            .unwrap());
+        for (raw, value, version) in [(&a, 120.0, "v1:4:hero:1:1"), (&b, 125.0, "v1:4:hero:1:2")] {
+            store
+                .apply(next, raw, version, &set(raw, value))
+                .await
+                .unwrap();
+        }
+        assert!(!store
+            .was_applied_in_run(next, a.id, "v1:4:hero:1:1")
+            .await
+            .unwrap());
+        assert!(store
+            .was_applied_in_run(next, b.id, "v1:4:hero:1:2")
+            .await
+            .unwrap());
+        store
+            .finish_run_guarded(
+                &mut guard,
+                next,
+                true,
+                Counts {
+                    accepted: 2,
+                    ..Counts::default()
+                },
+            )
+            .await
+            .unwrap();
+        if !empty {
+            let visible: f64 = sqlx::query_scalar(
+                "SELECT value_num FROM serve.current_fact WHERE stat_key='health'",
+            )
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+            assert_eq!(visible, 125.0);
+            assert_eq!(snapshot(&admin, first).await, original);
+        }
+    }
+    drop(guard);
+    writer.close().await;
+    admin.close().await;
 }
 
 #[tokio::test]

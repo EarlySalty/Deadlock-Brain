@@ -128,7 +128,16 @@ async fn write(
             FactValue::Text(t) => (None, Some(t.as_str()), None),
             FactValue::Bool(b) => (None, None, Some(*b)),
         };
-        sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,value_num,value_text,value_bool,valid_from_run,receipt_id) VALUES($1,$2,$3,$4,$5,$6,$7)").bind(id).bind(key).bind(num).bind(text).bind(boolean).bind(run).bind(receipt).execute(&mut *connection).await?;
+        sqlx::query("SELECT canon.write_run_fact($1,$2,$3,$4,$5,$6,$7)")
+            .bind(id)
+            .bind(key)
+            .bind(num)
+            .bind(text)
+            .bind(boolean)
+            .bind(run)
+            .bind(receipt)
+            .execute(&mut *connection)
+            .await?;
     }
     for row in &set.relations {
         let from = entity(connection, &row.from_key).await?;
@@ -271,9 +280,27 @@ impl GameFactsStore {
     }
 
     pub async fn was_applied(&self, raw: i64, extractor: &str) -> Result<bool, sqlx::Error> {
+        self.was_applied_active(None, raw, extractor).await
+    }
+
+    pub async fn was_applied_in_run(
+        &self,
+        run: i64,
+        raw: i64,
+        extractor: &str,
+    ) -> Result<bool, sqlx::Error> {
+        self.was_applied_active(Some(run), raw, extractor).await
+    }
+
+    async fn was_applied_active(
+        &self,
+        active: Option<i64>,
+        raw: i64,
+        extractor: &str,
+    ) -> Result<bool, sqlx::Error> {
         let family = extractor_family(extractor);
-        let rows = sqlx::query("SELECT * FROM (SELECT DISTINCT ON(receipt.extractor) receipt.raw_object_id,receipt.extractor,receipt.ingest_run_id,receipt.id FROM raw.object target JOIN raw.object object ON object.source_path_sha256=target.source_path_sha256 AND object.source=target.source AND object.path=target.path JOIN canon.receipt receipt ON receipt.raw_object_id=object.id JOIN ops.ingest_run run ON run.id=receipt.ingest_run_id WHERE target.id=$1 AND run.status='succeeded' AND (receipt.extractor=$2 OR ($3::text IS NOT NULL AND starts_with(receipt.extractor,$3))) ORDER BY receipt.extractor,receipt.ingest_run_id DESC,receipt.id DESC) latest ORDER BY ingest_run_id DESC,id DESC")
-            .bind(raw).bind(extractor).bind(family).fetch_all(&self.pool).await?;
+        let rows = sqlx::query("SELECT * FROM (SELECT DISTINCT ON(receipt.extractor) receipt.raw_object_id,receipt.extractor,receipt.ingest_run_id,receipt.id FROM raw.object target JOIN raw.object object ON object.source_path_sha256=target.source_path_sha256 AND object.source=target.source AND object.path=target.path JOIN canon.receipt receipt ON receipt.raw_object_id=object.id JOIN ops.ingest_run run ON run.id=receipt.ingest_run_id WHERE target.id=$1 AND (run.status='succeeded' OR run.id=$4) AND (receipt.extractor=$2 OR ($3::text IS NOT NULL AND starts_with(receipt.extractor,$3))) ORDER BY receipt.extractor,receipt.ingest_run_id DESC,receipt.id DESC) latest ORDER BY ingest_run_id DESC,id DESC")
+            .bind(raw).bind(extractor).bind(family).bind(active).fetch_all(&self.pool).await?;
         for row in rows {
             let applied: String = row.try_get("extractor")?;
             if applied == extractor || family.is_some() && extractor_family(&applied) == family {

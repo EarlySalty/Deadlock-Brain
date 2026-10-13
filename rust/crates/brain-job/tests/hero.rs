@@ -1,16 +1,15 @@
 use brain_job::{
-    hero::Hero, ingest, limits, Extractor, FactSet, GameFactsStore, InputObject, Outcome, RawObject,
+    hero::Hero, ingest, limits, registry::EXTRACTORS, sources::SOURCES, Extractor, FactSet,
+    GameFactsStore, InputObject, Outcome, RawObject,
 };
-use brain_storage::{gamefacts::receipts, PgStore};
+use brain_storage::gamefacts::receipts;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use sqlx::{
-    postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
-    PgPool, Row,
-};
+use sqlx::Row;
 
-#[path = "../../brain-storage/tests/support/scratch_pg.rs"]
-mod scratch_pg;
+#[path = "../../brain-storage/tests/support/gamefacts_pg.rs"]
+pub mod gamefacts_pg;
+use gamefacts_pg::{count, growth as counts, rejection_codes};
 
 const REVISION: &str = "2a26e26535a390c309e300e2c7b2763fa5ad7abd";
 const PATH: &str = "data/json/hero-data.json";
@@ -205,75 +204,50 @@ fn input(bytes: &[u8]) -> anyhow::Result<InputObject> {
     })
 }
 
-async fn counts(pool: &PgPool) -> (i64, i64, i64) {
-    sqlx::query_as("SELECT (SELECT count(*) FROM raw.object), (SELECT count(*) FROM canon.fact), (SELECT count(*) FROM canon.receipt)").fetch_one(pool).await.unwrap()
-}
-
 #[tokio::test]
 #[ignore = "requires the original upstream blob via BRAIN_HERO_FIXTURE and local PostgreSQL 16"]
 async fn original_blob_postgres_poison_retry_and_zero_growth_rerun() {
     let raw = actual();
-    let pg = scratch_pg::ScratchPg::start();
-    let options = PgConnectOptions::new_without_pgpass()
-        .host(&pg.directory.join("socket").to_string_lossy())
-        .port(55439)
-        .username("brain_core_test")
-        .database("postgres")
-        .password("")
-        .ssl_mode(PgSslMode::Disable);
-    let admin = PgPoolOptions::new()
-        .max_connections(2)
-        .connect_with(options.clone())
-        .await
-        .unwrap();
-    sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly NOLOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate").execute(&admin).await.unwrap();
-    PgStore::new(admin.clone())
-        .migrate_gamefacts()
-        .await
-        .unwrap();
-    let writer = PgPoolOptions::new()
-        .max_connections(2)
-        .after_connect(|c, _| {
-            Box::pin(async move {
-                sqlx::query("SET ROLE brain_ingest").execute(c).await?;
-                Ok(())
-            })
-        })
-        .connect_with(options)
-        .await
-        .unwrap();
+    let (_pg, admin, writer) = gamefacts_pg::fixture(1).await;
     let store = GameFactsStore::new(writer.clone());
     let large = serde_json::to_vec(
         &json!({"hero_bad":{"Name":"Bad","Type":"x".repeat(limits::TEXT_BYTES + 1)}}),
     )
     .unwrap();
     let collision = br#"{"hero_bad":{"Name":"Bad","MaxHealth":1,"maxhealth":2}}"#;
+    let repository = std::path::PathBuf::from(
+        std::env::var_os("BRAIN_CORE2_HERO_REPOSITORY").expect("cache path required"),
+    );
+    let loader = SOURCES
+        .iter()
+        .find(|(name, _)| *name == "deadlock-data")
+        .unwrap()
+        .1;
     let first = ingest(
         &store,
         "deadlock-data",
-        [input(&large), input(collision), input(&raw.bytes)],
-        &[&Hero],
+        [input(&large), input(collision)]
+            .into_iter()
+            .chain(loader(&repository, false)),
+        EXTRACTORS,
     )
     .await
     .unwrap();
     assert_eq!(first.counts.accepted, 1);
     assert_eq!(first.counts.rejected, 2);
     assert_eq!(first.counts.ignored, 0);
-    let reasons: Vec<String> =
-        sqlx::query_scalar("SELECT code FROM ops.ingest_rejection WHERE run_id=$1 ORDER BY id")
-            .bind(first.run_id)
-            .fetch_all(&admin)
-            .await
-            .unwrap();
+    let reasons = rejection_codes(&admin, first.run_id).await;
     assert_eq!(reasons, ["value_too_large", "key_collision"]);
     let before = counts(&admin).await;
     assert_eq!(before, (3, 845, 979));
-    let heroes: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM serve.current_entity WHERE kind='hero'")
-            .fetch_one(&admin)
-            .await
-            .unwrap();
-    assert_eq!(heroes, 67);
+    assert_eq!(
+        count(
+            &admin,
+            "SELECT count(*) FROM serve.current_entity WHERE kind='hero'"
+        )
+        .await,
+        67
+    );
     let profiles: Vec<Value> = sqlx::query_scalar("SELECT identity FROM serve.hero_profile WHERE identity->>'key' IN('hero_baba','hero_bebop') ORDER BY identity->>'key'").fetch_all(&admin).await.unwrap();
     assert_eq!(
         profiles
@@ -312,28 +286,53 @@ async fn original_blob_postgres_poison_retry_and_zero_growth_rerun() {
             );
         }
     }
-    let second = ingest(&store, "deadlock-data", [input(&raw.bytes)], &[&Hero])
-        .await
-        .unwrap();
-    assert_eq!(second.counts.rejected, 0);
+    let second = ingest(
+        &store,
+        "deadlock-data",
+        loader(&repository, false),
+        EXTRACTORS,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        second.counts,
+        brain_job::Counts {
+            accepted: 0,
+            rejected: 0,
+            ignored: 1
+        }
+    );
     assert_eq!(counts(&admin).await, before);
     let retry = ingest(
         &store,
         "deadlock-data",
         [input(&large), input(collision)],
-        &[&Hero],
+        EXTRACTORS,
     )
     .await
     .unwrap();
     assert_eq!((retry.counts.accepted, retry.counts.rejected), (0, 2));
     assert_eq!(counts(&admin).await, before);
-    let succeeded: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM ops.ingest_run WHERE status='succeeded' AND finished IS NOT NULL",
-    )
-    .fetch_one(&admin)
-    .await
-    .unwrap();
-    assert_eq!(succeeded, 3);
+    assert_eq!(
+        count(
+            &admin,
+            "SELECT count(*) FROM ops.ingest_run WHERE status='succeeded' AND finished IS NOT NULL"
+        )
+        .await,
+        3
+    );
+    assert!(
+        ingest(&store, "deadlock-data", loader(&repository, false), &[])
+            .await
+            .is_err()
+    );
+    assert_eq!(counts(&admin).await, before);
+    let missing: (String, i64) =
+        sqlx::query_as("SELECT status,ignored FROM ops.ingest_run ORDER BY id DESC LIMIT 1")
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+    assert_eq!(missing, ("failed".into(), 1));
     writer.close().await;
     admin.close().await;
 }

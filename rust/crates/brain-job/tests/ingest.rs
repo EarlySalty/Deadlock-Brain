@@ -4,14 +4,12 @@ use brain_job::{
 };
 use brain_storage::PgStore;
 use sha2::{Digest, Sha256};
-use sqlx::{
-    postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
-    PgPool, Row,
-};
+use sqlx::{PgPool, Row};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-#[path = "../../brain-storage/tests/support/scratch_pg.rs"]
-mod scratch_pg;
+#[path = "../../brain-storage/tests/support/gamefacts_pg.rs"]
+pub mod gamefacts_pg;
+use gamefacts_pg::{count, growth as stored_counts, rejection_codes};
 
 struct Stub(AtomicUsize);
 struct Corrected(&'static str, AtomicUsize);
@@ -73,6 +71,9 @@ impl Extractor for Stub {
         if raw.path.starts_with("stream") {
             STREAM_EXTRACTED.fetch_add(1, Ordering::SeqCst);
         }
+        if raw.path == "ignored" {
+            return Outcome::Ignored;
+        }
         if raw.path == "empty" {
             return Outcome::Accepted(FactSet::default());
         }
@@ -102,7 +103,7 @@ impl Extractor for Stub {
                     "health"
                 }
                 .into(),
-                value: FactValue::Number(100.0),
+                value: FactValue::Number(serde_json::from_slice(&raw.bytes).unwrap_or(100.0)),
                 receipt: receipt.clone(),
             }],
             relations: vec![Relation {
@@ -145,18 +146,9 @@ where
     ingest(store, "stub", objects, &[extractor]).await.unwrap()
 }
 
-async fn stored_counts(pool: &PgPool) -> (i64, i64, i64) {
-    sqlx::query_as("SELECT (SELECT count(*) FROM raw.object),(SELECT count(*) FROM canon.fact),(SELECT count(*) FROM canon.receipt)")
-        .fetch_one(pool).await.unwrap()
-}
-
 fn assert_counts(report: &brain_job::RunReport, expected: (i64, i64, i64)) {
     let counts = report.counts;
     assert_eq!((counts.accepted, counts.rejected, counts.ignored), expected);
-}
-
-async fn count(pool: &PgPool, sql: &str) -> i64 {
-    sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
 }
 
 async fn assert_count(pool: &PgPool, sql: &str, expected: i64) {
@@ -165,33 +157,12 @@ async fn assert_count(pool: &PgPool, sql: &str, expected: i64) {
 
 #[tokio::test]
 async fn poison_isolation_publication_retry_and_immutable_migration() {
-    let pg = scratch_pg::ScratchPg::start();
-    let options = PgConnectOptions::new_without_pgpass()
-        .host(&pg.directory.join("socket").to_string_lossy())
-        .port(55439)
-        .username("brain_core_test")
-        .database("postgres")
-        .password("")
-        .ssl_mode(PgSslMode::Disable);
-    let admin = PgPoolOptions::new()
-        .max_connections(2)
-        .connect_with(options.clone())
-        .await
-        .unwrap();
-    sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly NOLOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate").execute(&admin).await.unwrap();
+    let (pg, admin, writer) = gamefacts_pg::fixture(1).await;
     let schema = PgStore::new(admin.clone());
     schema.migrate_gamefacts().await.unwrap();
-    schema.migrate_gamefacts().await.unwrap();
     schema.check_gamefacts_schema().await.unwrap();
-    let writer = PgPoolOptions::new()
-        .max_connections(2)
-        .after_connect(|c, _| {
-            Box::pin(async move {
-                sqlx::query("SET ROLE brain_ingest").execute(c).await?;
-                Ok(())
-            })
-        })
-        .connect_with(options)
+    PgStore::new(writer.clone())
+        .check_gamefacts_schema()
         .await
         .unwrap();
     let store = GameFactsStore::new(writer.clone());
@@ -207,12 +178,7 @@ async fn poison_isolation_publication_retry_and_immutable_migration() {
     )
     .await;
     assert_counts(&first, (1, 2, 0));
-    let reasons: Vec<String> =
-        sqlx::query_scalar("SELECT code FROM ops.ingest_rejection WHERE run_id=$1 ORDER BY id")
-            .bind(first.run_id)
-            .fetch_all(&admin)
-            .await
-            .unwrap();
+    let reasons = rejection_codes(&admin, first.run_id).await;
     assert_eq!(reasons, ["value_too_large", "key_collision"]);
     assert_count(
         &admin,
@@ -410,6 +376,33 @@ async fn poison_isolation_publication_retry_and_immutable_migration() {
         .await
         .is_err());
     denied.rollback().await.unwrap();
+    for (path, published, values, expected) in [
+        ("twins_published", true, [125, 120], 120.0),
+        ("twins_fresh", false, [120, 125], 125.0),
+    ] {
+        let numeric = |value: i32| {
+            let mut object = input(path, "r1").unwrap();
+            object.bytes = value.to_string().into_bytes();
+            Ok(object)
+        };
+        if published {
+            assert_counts(&run(&store, [numeric(120)], &stub).await, (1, 0, 0));
+        }
+        let twins = run(&store, values.map(numeric), &stub).await;
+        assert_counts(&twins, (2, 0, 0));
+        let health: f64 = sqlx::query_scalar("SELECT value_num FROM serve.current_fact f JOIN serve.current_entity e ON e.id=f.entity_id WHERE e.key=$1 AND stat_key='health'").bind(format!("hero_{path}")).fetch_one(&admin).await.unwrap();
+        assert_eq!(health, expected);
+        let before = stored_counts(&admin).await;
+        assert_counts(
+            &run(&store, [numeric(expected as i32)], &stub).await,
+            (0, 0, 1),
+        );
+        assert_eq!(stored_counts(&admin).await, before);
+    }
+    assert_counts(
+        &run(&store, [input("ignored", "r1")], &stub).await,
+        (0, 0, 1),
+    );
     sqlx::query("UPDATE ops.gamefacts_schema_version SET checksum=$1 WHERE version=1")
         .bind(vec![0_u8; 32])
         .execute(&admin)

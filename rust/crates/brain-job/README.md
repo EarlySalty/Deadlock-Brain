@@ -28,6 +28,10 @@ The existing central Infisical provider supplies the ingest credential at runtim
 
 The database schema must already be installed through the existing release migration path. The ingestion command checks the schema and does not apply migrations.
 
+Core migration 7 adds `canon.write_run_fact(bigint,text,double precision,text,boolean,bigint,bigint)`. Only `brain_ingest` receives EXECUTE; no direct UPDATE permission on `canon.fact` is granted. The `brain_migrate`-owned SECURITY DEFINER function pins `search_path=pg_catalog`, locks the referenced run and requires its failed status and a receipt belonging to that run. It inserts a fact or replaces only its value columns and receipt within the same `(entity_id,stat_key,valid_from_run)` snapshot. Published facts and older receipts remain unchanged. An `ops.ingest_run` trigger prevents retracting a succeeded run. Migration 1 and its uniqueness constraint remain frozen; versions 2 through 6 remain reserved for their packages.
+
+Prechecks include committed applications from the active run, as well as published runs, but exclude other failed runs. A nonempty source with no matching consumer fails centrally. Supported `Outcome::Ignored` results and unchanged reruns remain successful without requiring new writes.
+
 ```sh
 brain-job --config /absolute/path/to/brain-job.json ingest deadlock-data --input /absolute/path/to/deadlock-data
 ```
@@ -38,7 +42,7 @@ brain-job --config /absolute/path/to/brain-job.json ingest deadlock-data --input
 
 The upstream revision used for the source contract is `2a26e26535a390c309e300e2c7b2763fa5ad7abd`. Its original 226,182-byte blob has SHA-256 `947c26790e067109f6cca4085649ed56e446bc5f4c9c571cd396290f802a3456`, with 68 root objects and 67 named heroes.
 
-The optional original-source tests require that exact blob via the non-secret `BRAIN_HERO_FIXTURE` path. They are ignored by default so ordinary package checks do not need a local source cache. Explicitly run them when validating ingestion. The PostgreSQL test uses the existing temporary PostgreSQL 16 helper and never connects to a configured production database.
+The optional original-source tests require that exact blob via the non-secret `BRAIN_HERO_FIXTURE` path. The PostgreSQL proof additionally uses the pinned Git cache at `BRAIN_CORE2_HERO_REPOSITORY`, dispatches through `SOURCES` and the default `EXTRACTORS`, and checks the schema under `brain_ingest`. They are ignored by default so ordinary package checks do not need a local source cache. Explicitly run them when validating ingestion. The PostgreSQL test uses the existing temporary PostgreSQL 16 helper and never connects to a configured production database.
 
 Place the verified public blob in an otherwise empty directory at the same absolute path locally and on ionos. Supply its path through Cargo CLI configuration so both remote tests and local fallback receive it.
 
@@ -46,5 +50,7 @@ Place the verified public blob in an otherwise empty directory at the same absol
 cargo-slot +1.97.1 test --manifest-path rust/Cargo.toml \
   --config 'env.BRAIN_HERO_FIXTURE.value="/tmp/public-hero-fixture/hero-data.json"' \
   --config 'env.BRAIN_HERO_FIXTURE.force=true' \
+  --config 'env.BRAIN_CORE2_HERO_REPOSITORY.value="/tmp/public-deadlock-data-cache"' \
+  --config 'env.BRAIN_CORE2_HERO_REPOSITORY.force=true' \
   -p brain-job --test hero --locked --jobs 3 -- --include-ignored
 ```

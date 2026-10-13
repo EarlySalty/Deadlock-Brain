@@ -154,6 +154,17 @@ async fn ingest_preflight_checks_serving_shape_without_serving_read_privileges()
         stores.push((role, PgStore::new(role_pool)));
     }
     assert_schema_checks(&stores, true).await;
+    for (break_schema, restore_schema) in [
+        ("GRANT UPDATE(value_text) ON canon.fact TO brain_ingest", "REVOKE UPDATE(value_text) ON canon.fact FROM brain_ingest"),
+        ("ALTER TABLE ops.ingest_run DISABLE TRIGGER keep_published_run", "ALTER TABLE ops.ingest_run ENABLE TRIGGER keep_published_run"),
+        ("GRANT EXECUTE ON FUNCTION canon.write_run_fact(bigint,text,double precision,text,boolean,bigint,bigint) TO brain_service", "REVOKE EXECUTE ON FUNCTION canon.write_run_fact(bigint,text,double precision,text,boolean,bigint,bigint) FROM brain_service"),
+        ("ALTER FUNCTION canon.write_run_fact(bigint,text,double precision,text,boolean,bigint,bigint) SET search_path=public", "ALTER FUNCTION canon.write_run_fact(bigint,text,double precision,text,boolean,bigint,bigint) SET search_path=pg_catalog"),
+    ] {
+        sqlx::raw_sql(break_schema).execute(&pool).await.unwrap();
+        assert_schema_checks(&stores, false).await;
+        sqlx::raw_sql(restore_schema).execute(&pool).await.unwrap();
+        assert_schema_checks(&stores, true).await;
+    }
     stores[1].1.migrate_gamefacts().await.unwrap();
     let serving_columns = [
         ("published_receipt", "revision"),

@@ -74,6 +74,7 @@ async fn process<I>(
 where
     I: IntoIterator<Item = anyhow::Result<InputObject>>,
 {
+    let mut supported = false;
     for object in objects {
         let object = object?;
         let raw = store
@@ -83,8 +84,12 @@ where
             counts.ignored += 1;
             continue;
         };
+        supported = true;
         let discriminator = extractor_id(extractor.name(), extractor.version());
-        if store.was_applied(raw.id, &discriminator).await? {
+        if store
+            .was_applied_in_run(run_id, raw.id, &discriminator)
+            .await?
+        {
             counts.ignored += 1;
             continue;
         }
@@ -115,5 +120,9 @@ where
         }
         store.finish_run(run_id, false, *counts).await?;
     }
+    anyhow::ensure!(
+        supported || counts.ignored == 0,
+        "Quelle enthält keine unterstützten Objekte: {source}"
+    );
     Ok(())
 }
