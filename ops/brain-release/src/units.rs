@@ -80,6 +80,15 @@ fn checked_status(mut command: Command) -> Result<()> {
     Ok(())
 }
 
+fn restart_units(mut run: impl FnMut(Command) -> Result<()>) -> Result<()> {
+    for (name, _, _) in UNITS {
+        let mut restart = systemctl();
+        restart.args(["restart", name]);
+        run(restart)?;
+    }
+    Ok(())
+}
+
 fn disabled_or_absent(state: &str, exit: Option<i32>) -> bool {
     matches!(exit, Some(1 | 4))
         && (matches!(state.trim(), "disabled" | "not-found")
@@ -152,9 +161,7 @@ pub fn install() -> Result<()> {
     let mut enable = systemctl();
     enable.arg("enable").args(&names);
     checked_status(enable)?;
-    let mut restart = systemctl();
-    restart.arg("restart").args(&names);
-    checked_status(restart)?;
+    restart_units(checked_status)?;
     for (name, _, cap) in UNITS {
         let mut active = systemctl();
         active.args(["is-active", "--quiet", name]);
@@ -226,6 +233,97 @@ mod tests {
             cgroup.display(), limit_file.display(), peak_file.display()
         );
         (run_post_script(&script), expected)
+    }
+
+    fn assert_restart_command(command: &Command, name: &str) {
+        assert_eq!(command.get_program(), "/usr/bin/sudo");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            [
+                "-n",
+                "--",
+                "/usr/bin/systemctl",
+                "--system",
+                "restart",
+                name
+            ]
+        );
+    }
+
+    #[test]
+    fn app_restarts_are_single_blocking_commands_in_order() {
+        let expected = [
+            "brain-serve.service",
+            "deadlock-brain-site.service",
+            "brain-browser-consent.service",
+        ];
+        let dir = tempfile::tempdir().unwrap();
+        let completed = dir.path().join("completed");
+        fs::write(&completed, b"").unwrap();
+        let mut attempted = Vec::new();
+        restart_units(|command| {
+            let name = expected[attempted.len()];
+            assert_restart_command(&command, name);
+            let previous: Vec<_> = fs::read_to_string(&completed)?
+                .lines()
+                .map(str::to_string)
+                .collect();
+            assert_eq!(previous, attempted);
+            attempted.push(name.to_string());
+            let mut probe = source::command("/bin/sh");
+            probe
+                .args([
+                    "-ec",
+                    "/usr/bin/printf '%s\\n' \"$2\" >> \"$1\"",
+                    "restart-probe",
+                ])
+                .arg(&completed)
+                .arg(name);
+            checked_status(probe)
+        })
+        .unwrap();
+        assert_eq!(attempted, expected);
+        assert_eq!(
+            fs::read_to_string(completed).unwrap(),
+            expected.join("\n") + "\n"
+        );
+    }
+
+    #[test]
+    fn app_restart_failure_stops_before_the_next_service() {
+        let expected = UNITS.map(|(name, _, _)| name);
+        for failed in 0..expected.len() {
+            let mut attempted = Vec::new();
+            let error = restart_units(|command| {
+                attempted.push(command.get_args().last().unwrap().to_owned());
+                let mut probe = source::command("/bin/sh");
+                probe.args([
+                    "-ec",
+                    if attempted.len() == failed + 1 {
+                        "exit 73"
+                    } else {
+                        "exit 0"
+                    },
+                ]);
+                checked_status(probe)
+            })
+            .unwrap_err();
+            assert!(error.to_string().contains("Exit Some(73)"));
+            assert_eq!(attempted, expected[..=failed]);
+        }
+    }
+
+    #[test]
+    fn app_restart_spawn_failure_stops_before_the_next_service() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing-systemctl");
+        let mut attempted = Vec::new();
+        assert!(restart_units(|command| {
+            attempted.push(command.get_args().last().unwrap().to_owned());
+            checked_status(Command::new(&missing))
+        })
+        .is_err());
+        assert_eq!(attempted, ["brain-serve.service"]);
     }
 
     #[test]
