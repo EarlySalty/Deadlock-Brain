@@ -1,4 +1,6 @@
 use super::*;
+#[path = "timer_pg_tests.rs"]
+mod timers;
 use brain_contracts::{
     AnswerProviderPort, AnswerStatus, Budget, Principal, ProviderAnswer, ProviderTurn,
     RetrievalPort, ToolConversation, ToolMessage,
@@ -216,7 +218,7 @@ impl AnswerProviderPort for ScriptedProvider {
         tools: &[ToolDefinition],
         conversation: &ToolConversation,
     ) -> Result<ProviderTurn, PortError> {
-        assert_eq!(tools.len(), 2);
+        assert_eq!(tools.len(), 3);
         let call = match conversation.messages.last() {
             None => ToolCall {
                 id: "find".into(),

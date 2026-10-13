@@ -19,7 +19,8 @@ fn numeric_timer_values_keep_exact_raw_lexemes_and_locators() {
     for fact in facts.iter().filter(|fact| fact.timer == "soul_box") {
         assert_eq!(fact.numeric, "180.0");
         assert_eq!(fact.locator_kind, "json_pointer");
-        assert_eq!(fact.value_sha256, Sha256::digest(b"180.0").to_vec());
+        let expected: [u8; 32] = Sha256::digest(b"180.0").into();
+        assert_eq!(fact.value_sha256, expected);
         assert_eq!(fact.source_entity, "citadel_breakable_prop_drop_gold");
         assert!(fact.flags.is_empty());
     }

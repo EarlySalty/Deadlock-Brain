@@ -8,6 +8,9 @@ use std::collections::BTreeSet;
 #[path = "timer_values.rs"]
 mod values;
 
+#[path = "timer_source.rs"]
+pub mod source;
+
 pub struct TimerExtractor;
 
 impl Extractor for TimerExtractor {
@@ -31,14 +34,18 @@ impl Extractor for TimerExtractor {
 }
 
 fn facts(raw: &RawObject) -> Result<FactSet, Rejection> {
-    let values = values::parse(&raw.source, &raw.path, &raw.bytes, raw.bytes.len(), |key| {
-        Ok(limits::normalize_key(key))
-    })
+    let values = values::parse(
+        &raw.source,
+        &raw.path,
+        &raw.bytes,
+        limits::RAW_BYTES,
+        |key| Ok(limits::normalize_key(key)),
+    )
     .map_err(|code| Rejection::new(code, "Timerobjekt entspricht nicht dem Quellvertrag"))?;
     let mut set = FactSet::default();
-    let mut numeric = FactSet::default();
     let mut entities = BTreeSet::new();
     for value in values {
+        limits::validate_numeric_lexeme(&value.numeric)?;
         let entity_key = format!(
             "timer_{}__{}_{}",
             value.timer,
@@ -48,10 +55,7 @@ fn facts(raw: &RawObject) -> Result<FactSet, Rejection> {
         let receipt = Receipt {
             locator_kind: value.locator_kind.into(),
             locator: value.locator,
-            value_sha256: value
-                .value_sha256
-                .try_into()
-                .map_err(|_| Rejection::new("invalid_receipt", "Ungültiger SHA-256-Beleg"))?,
+            value_sha256: value.value_sha256,
         };
         if entities.insert(entity_key.clone()) {
             set.entities.push(Entity {
@@ -66,26 +70,18 @@ fn facts(raw: &RawObject) -> Result<FactSet, Rejection> {
                 receipt: receipt.clone(),
             });
         }
-        let stat_key = limits::normalize_key(value.stat);
         let payload = json!({
             "value":value.numeric,
             "unit":"s",
             "condition":{"source_entity":value.source_entity,"flags":value.flags}
         });
         set.facts.push(Fact {
-            entity_key: entity_key.clone(),
-            stat_key: stat_key.clone(),
-            value: FactValue::Text(payload.to_string()),
-            receipt: receipt.clone(),
-        });
-        numeric.facts.push(Fact {
             entity_key,
-            stat_key,
-            value: FactValue::Number(value.numeric.parse().unwrap_or(f64::NAN)),
+            stat_key: limits::normalize_key(value.stat),
+            value: FactValue::Text(payload.to_string()),
             receipt,
         });
     }
     limits::validate(&set)?;
-    limits::validate(&numeric)?;
     Ok(set)
 }

@@ -24,7 +24,13 @@ JOIN serve.current_fact f ON f.entity_id=e.id
     AND f.raw_object_id=e.raw_object_id AND f.source=e.source
 WHERE e.kind='timer' AND a.lang='und'
     AND a.alias_norm IN ('urn','soul_box','mid_boss','rejuvenator')
-    AND f.value_text IS NOT NULL;
+    AND f.value_text IS NOT NULL
+    AND (a.alias_norm <> 'soul_box' OR EXISTS (
+        SELECT 1 FROM serve.current_entity snapshot
+        WHERE snapshot.key='timer_soul_box__'
+            ||replace(e.source,'-','_')||'_citadel_breakable_prop_drop_gold'
+            AND snapshot.source=e.source AND snapshot.raw_object_id=e.raw_object_id
+    ));
 
 REVOKE ALL ON serve.timer FROM PUBLIC;
 GRANT SELECT ON serve.timer TO brain_tool;

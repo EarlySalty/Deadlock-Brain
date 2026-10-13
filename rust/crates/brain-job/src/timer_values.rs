@@ -24,7 +24,7 @@ pub struct TimerValue {
     pub numeric: String,
     pub locator_kind: &'static str,
     pub locator: String,
-    pub value_sha256: Vec<u8>,
+    pub value_sha256: [u8; 32],
     pub flags: Vec<String>,
 }
 
@@ -56,91 +56,66 @@ fn mappings(
 ) -> Result<Vec<Mapping>, &'static str> {
     let json = path.ends_with(".json");
     let mut values = Vec::new();
-    let mut add = |root: &str, field: &str, timer, stat, required| -> Result<(), &'static str> {
-        values.push(Mapping {
-            root: normalize(root)?,
-            field: normalize(field)?,
-            timer,
-            stat,
-            required,
-        });
+    let mut add = |root: &str,
+                   prefix: &str,
+                   timer,
+                   fields: &[(&'static str, &'static str)]|
+     -> Result<(), &'static str> {
+        for (index, (field, stat)) in fields.iter().enumerate() {
+            let field = if json {
+                (*field).to_owned()
+            } else {
+                format!("{prefix}{field}")
+            };
+            values.push(Mapping {
+                root: normalize(root)?,
+                field: normalize(&field)?,
+                timer,
+                stat,
+                required: index == 0 && (timer != "soul_box" || root == BOXES[0]),
+            });
+        }
         Ok(())
     };
     if path.ends_with("generic-data.json") || path.ends_with("generic_data.vdata") {
-        let root = if json { "RejuvParams" } else { "m_RejuvParams" };
-        for (json_field, kv_field, stat) in [
-            (
-                "RejuvinatorBuffDuration",
-                "m_flRejuvinatorBuffDuration",
-                "timer_buff_duration_seconds",
-            ),
-            (
-                "RejuvinatorDropDuration",
-                "m_flRejuvinatorDropDuration",
-                "timer_drop_duration_seconds",
-            ),
-            (
-                "RejuvinatorExpirationWarningTiming",
-                "m_flRejuvinatorExpirationWarningTiming",
-                "timer_expiration_warning_seconds",
-            ),
-        ] {
-            add(
-                root,
-                if json { json_field } else { kv_field },
-                "rejuvenator",
-                stat,
-                stat == "timer_buff_duration_seconds",
-            )?;
-        }
+        add(
+            if json { "RejuvParams" } else { "m_RejuvParams" },
+            "m_fl",
+            "rejuvenator",
+            &[
+                ("RejuvinatorBuffDuration", "timer_buff_duration_seconds"),
+                ("RejuvinatorDropDuration", "timer_drop_duration_seconds"),
+                (
+                    "RejuvinatorExpirationWarningTiming",
+                    "timer_expiration_warning_seconds",
+                ),
+            ],
+        )?;
     } else {
         for root in BOXES {
-            for (json_field, kv_field, stat) in [
-                (
-                    "InitialSpawnTime",
-                    "m_flInitialSpawnTime",
-                    "timer_first_spawn_seconds",
-                ),
-                (
-                    "RespawnTime",
-                    "m_flRespawnTime",
-                    "timer_respawn_interval_seconds",
-                ),
-            ] {
-                add(
-                    root,
-                    if json { json_field } else { kv_field },
-                    "soul_box",
-                    stat,
-                    *root == BOXES[0] && stat == "timer_first_spawn_seconds",
-                )?;
-            }
-        }
-        for (json_field, kv_field, stat) in [
-            (
-                "SpawnIntervalInSeconds",
-                "m_iSpawnIntervalInSeconds",
-                "timer_respawn_interval_seconds",
-            ),
-            (
-                "SpawnIntervalChange",
-                "m_iSpawnIntervalChange",
-                "timer_respawn_interval_change_seconds",
-            ),
-            (
-                "SpawnIntervalMin",
-                "m_iSpawnIntervalMin",
-                "timer_respawn_interval_min_seconds",
-            ),
-        ] {
             add(
-                "neutral_camp_midboss",
-                if json { json_field } else { kv_field },
-                "mid_boss",
-                stat,
-                stat == "timer_respawn_interval_seconds",
+                root,
+                "m_fl",
+                "soul_box",
+                &[
+                    ("InitialSpawnTime", "timer_first_spawn_seconds"),
+                    ("RespawnTime", "timer_respawn_interval_seconds"),
+                ],
             )?;
         }
+        add(
+            "neutral_camp_midboss",
+            "m_i",
+            "mid_boss",
+            &[
+                ("SpawnIntervalInSeconds", "timer_respawn_interval_seconds"),
+                (
+                    "SpawnIntervalChange",
+                    "timer_respawn_interval_change_seconds",
+                ),
+                ("SpawnIntervalMin", "timer_respawn_interval_min_seconds"),
+            ],
+        )?;
     }
     Ok(values)
 }
@@ -175,11 +150,13 @@ pub fn parse(
     if bytes.len() > max_input_bytes {
         return Err("raw_object_limit");
     }
-    let input = std::str::from_utf8(bytes)
-        .map_err(|_| "invalid_utf8")?
-        .trim_start_matches('\u{feff}')
-        .trim_start();
+    let input = std::str::from_utf8(bytes).map_err(|_| "invalid_utf8")?;
     let json = path.ends_with(".json");
+    let input = if json {
+        input
+    } else {
+        input.trim_start_matches('\u{feff}').trim_start()
+    };
     let leaves = if json {
         json_text::parse(input)
     } else {
@@ -234,7 +211,7 @@ pub fn parse(
             timer: mapping.timer,
             stat: mapping.stat,
             source_entity: root.to_owned(),
-            value_sha256: Sha256::digest(leaf.lexeme.as_bytes()).to_vec(),
+            value_sha256: Sha256::digest(leaf.lexeme.as_bytes()).into(),
             numeric: leaf.lexeme,
             locator_kind: if json { "json_pointer" } else { "kv_path" },
             locator: leaf.pointer,

@@ -55,26 +55,26 @@ fn timer_contract_is_closed_and_uses_canonical_keys() {
 fn timer_rows_trim_without_losing_receipt_condition_or_value() {
     use super::super::{citations, fits, trim_row};
     use brain_contracts::ToolResult;
-    use std::collections::BTreeSet;
+    use std::collections::BTreeMap;
 
-    let row = json!({"timer":"urn","stat_key":"timer.first_spawn_seconds","value":300,
-        "unit":"seconds","condition":{"clock":"match"},"citation":"7",
+    let row = json!({"timer":"soul_box","stat_key":"timer_first_spawn_seconds","value":"300",
+        "unit":"s","condition":{"clock":"match"},"citation":"7",
         "patch":null,"source_revision":"commit-a"});
     let mut result = ToolResult {
         call_id: "fixture".into(),
         name: ToolName::GetTimer,
-        result: json!({"timer":"urn","facts":vec![row.clone();200],"truncated":false,"omitted_count":0}),
+        result: json!({"timer":"soul_box","facts":vec![row.clone();200],"truncated":false,"omitted_count":0}),
         evidence_ids: vec!["7".into()],
         is_error: false,
     };
     while !fits(&result, 1).unwrap() {
         assert!(trim_row(&mut result.result));
     }
-    assert!(serde_json::to_vec(&result).unwrap().len() <= 16_384);
+    assert!(serde_json::to_vec(&result).unwrap().len() < 16_384);
     let rows = result.result["facts"].as_array().unwrap();
     assert!(rows.iter().all(|value| value == &row));
     assert_eq!(result.result["omitted_count"], 200 - rows.len());
-    let mut ids = BTreeSet::new();
+    let mut ids = BTreeMap::new();
     citations(&result.result, &mut ids).unwrap();
-    assert_eq!(ids, BTreeSet::from([7]));
+    assert_eq!(ids, BTreeMap::from([(7, "commit-a".into())]));
 }

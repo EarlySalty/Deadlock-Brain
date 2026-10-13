@@ -22,7 +22,11 @@ pub(super) async fn read(
     connection: &mut PgConnection,
     request: &GetTimerRequest,
 ) -> Result<Option<Value>, PortError> {
-    if request.patch.as_deref().is_some_and(|patch| patch != "current") {
+    if request
+        .patch
+        .as_deref()
+        .is_some_and(|patch| patch != "current")
+    {
         return Err(PortError::Unavailable(
             "Für diesen Patch liegen keine belegten Timerwerte vor".into(),
         ));
