@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 
 const SAMPLE_LIMIT: usize = 200;
 const PARSER_BYTES: usize = 64 * 1024 * 1024;
-const SAMPLE_SQL: &str = "WITH serving AS(SELECT receipt_id FROM serve.current_fact UNION SELECT receipt_id FROM serve.current_alias UNION SELECT receipt_id FROM serve.current_relation UNION SELECT receipt_id FROM serve.current_entity) SELECT p.id,p.raw_object_id,p.locator_kind,p.locator,p.value_sha256 FROM serving s JOIN serve.published_receipt p ON p.id=s.receipt_id LEFT JOIN LATERAL(SELECT a.run_id FROM ops.receipt_audit a WHERE a.receipt_id=s.receipt_id ORDER BY a.run_id DESC LIMIT 1) last ON true ORDER BY last.run_id NULLS FIRST,p.id LIMIT $1";
+const SAMPLE_SQL: &str =
+    "SELECT id,raw_object_id,locator_kind,locator,value_sha256 FROM ops.sample_receipt_audit()";
 
 type Sample = BTreeMap<i64, Vec<(i64, Receipt)>>;
 
@@ -48,10 +49,7 @@ async fn start_run(connection: &mut PgConnection) -> anyhow::Result<i64> {
 }
 
 async fn sample(connection: &mut PgConnection) -> anyhow::Result<(i32, Sample)> {
-    let rows = sqlx::query(SAMPLE_SQL)
-        .bind(i64::try_from(SAMPLE_LIMIT)?)
-        .fetch_all(connection)
-        .await?;
+    let rows = sqlx::query(SAMPLE_SQL).fetch_all(connection).await?;
     let mut objects = Sample::new();
     for row in &rows {
         let (object, receipt) = sampled_receipt(row)?;
