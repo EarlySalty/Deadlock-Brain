@@ -286,28 +286,36 @@ fn unique_json_keeps_source_lexemes_and_distinct_object_keys() {
         ("/é", "2"),
         ("/e\u{0301}", "3"),
     ] {
-        let proof = receipt("json_pointer", pointer, token);
-        assert_eq!(
-            receipts::value_bytes(text.as_bytes(), &proof).unwrap(),
-            token.as_bytes()
-        );
-        receipts::verify(
-            text.as_bytes(),
-            &FactSet {
-                entities: vec![Entity {
-                    kind: "hero".into(),
-                    key: "hero_control".into(),
-                    receipt: proof,
-                }],
-                ..FactSet::default()
-            },
-        )
-        .unwrap();
+        assert_json_pointer(text, pointer, token);
     }
     assert_eq!(
         receipts::value_bytes(text.as_bytes(), &receipt("raw_bytes", "", text)).unwrap(),
         text.as_bytes()
     );
+    assert_non_json_fallback();
+}
+
+fn assert_json_pointer(text: &str, pointer: &str, token: &str) {
+    let proof = receipt("json_pointer", pointer, token);
+    assert_eq!(
+        receipts::value_bytes(text.as_bytes(), &proof).unwrap(),
+        token.as_bytes()
+    );
+    receipts::verify(
+        text.as_bytes(),
+        &FactSet {
+            entities: vec![Entity {
+                kind: "hero".into(),
+                key: "hero_control".into(),
+                receipt: proof,
+            }],
+            ..FactSet::default()
+        },
+    )
+    .unwrap();
+}
+
+fn assert_non_json_fallback() {
     for bytes in [
         b"not JSON".as_slice(),
         b"{ x = 1 x = 2 }",
@@ -387,26 +395,7 @@ fn json_validation_is_stack_safe_and_shared_by_distinct_receipts_near_raw_cap() 
 #[tokio::test]
 async fn duplicate_json_store_rejection_preserves_raw_and_all_canonical_boundaries() {
     let (_pg, admin, writer) = gamefacts_pg::fixture(2).await;
-    let role: (String, bool, bool) = sqlx::query_as(
-        "SELECT current_user,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user",
-    )
-    .fetch_one(&writer)
-    .await
-    .unwrap();
-    assert_eq!(role, ("brain_ingest".into(), false, false));
-    let denied = sqlx::query("SELECT 1 FROM serve.current_fact LIMIT 0")
-        .fetch_all(&writer)
-        .await
-        .unwrap_err();
-    assert_eq!(
-        denied.as_database_error().and_then(|e| e.code()).as_deref(),
-        Some("42501")
-    );
-    let version: String = sqlx::query_scalar("SHOW server_version")
-        .fetch_one(&admin)
-        .await
-        .unwrap();
-    assert!(version.starts_with("16."));
+    assert_writer_boundary(&admin, &writer).await;
     let store = GameFactsStore::new(writer.clone());
     let run = store.begin_run("collision").await.unwrap();
     let mut rejected = 0;
@@ -415,74 +404,8 @@ async fn duplicate_json_store_rejection_preserves_raw_and_all_canonical_boundari
             .capture(run, "collision", "r1", "bad.json", text.as_bytes().to_vec())
             .await
             .unwrap();
-        let stored: (Vec<u8>, Vec<u8>) =
-            sqlx::query_as("SELECT bytes,content_sha256 FROM raw.object WHERE id=$1")
-                .bind(raw.id)
-                .fetch_one(&admin)
-                .await
-                .unwrap();
-        assert_eq!(
-            stored,
-            (
-                text.as_bytes().to_vec(),
-                Sha256::digest(text.as_bytes()).to_vec()
-            )
-        );
-        let root = receipt("raw_bytes", "", &text);
-        for set in [
-            FactSet {
-                entities: vec![Entity {
-                    kind: "hero".into(),
-                    key: "hero_bad".into(),
-                    receipt: root.clone(),
-                }],
-                ..FactSet::default()
-            },
-            FactSet {
-                aliases: vec![Alias {
-                    entity_key: "hero_bad".into(),
-                    alias: "Bad".into(),
-                    lang: "en".into(),
-                    receipt: root.clone(),
-                }],
-                ..FactSet::default()
-            },
-            FactSet {
-                facts: vec![Fact {
-                    entity_key: "hero_bad".into(),
-                    stat_key: "health".into(),
-                    value: FactValue::Number(2.0),
-                    receipt: receipt("json_pointer", "/x", "2"),
-                }],
-                ..FactSet::default()
-            },
-            FactSet {
-                relations: vec![Relation {
-                    from_key: "hero_bad".into(),
-                    kind: "related_to".into(),
-                    to_key: "hero_bad".into(),
-                    receipt: root,
-                }],
-                ..FactSet::default()
-            },
-            FactSet::default(),
-            FactSet {
-                entities: vec![Entity {
-                    kind: "hero".into(),
-                    key: "hero_bad".into(),
-                    receipt: receipt("json_pointer", "", text.trim()),
-                }],
-                ..FactSet::default()
-            },
-            FactSet {
-                entities: vec![Entity {
-                    kind: "hero".into(),
-                    key: "hero_bad".into(),
-                    receipt: receipt("json_pointer", "/outside", ""),
-                }],
-                ..FactSet::default()
-            },
-        ] {
+        assert_raw_stored(&admin, raw.id, &text).await;
+        for set in bad_sets(&text).into_iter().chain(bad_pointer_sets(&text)) {
             let rejection = store.apply(run, &raw, "collision", &set).await.unwrap_err();
             assert_eq!(rejection.code, "locator_collision");
             store
@@ -492,20 +415,122 @@ async fn duplicate_json_store_rejection_preserves_raw_and_all_canonical_boundari
             rejected += 1;
         }
     }
-    let canonical: (i64, i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM canon.entity),(SELECT count(*) FROM canon.alias),(SELECT count(*) FROM canon.fact),(SELECT count(*) FROM canon.relation),(SELECT count(*) FROM canon.receipt)").fetch_one(&admin).await.unwrap();
-    assert_eq!(canonical, (0, 0, 0, 0, 0));
-    let good = r#"  {"x":2,"values":[1.2300e+2,-0,0.12345678901234567890123456789]}  "#;
-    let raw = store
-        .capture(
-            run,
-            "collision",
-            "r1",
-            "good.json",
-            good.as_bytes().to_vec(),
-        )
+    assert_canonical_empty(&admin).await;
+    publish_good_json(&store, &admin, run).await;
+    finish_collision_run(&store, &admin, run, rejected).await;
+    writer.close().await;
+    admin.close().await;
+}
+
+async fn assert_writer_boundary(admin: &sqlx::PgPool, writer: &sqlx::PgPool) {
+    let role: (String, bool, bool) = sqlx::query_as(
+        "SELECT current_user,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user",
+    )
+    .fetch_one(writer)
+    .await
+    .unwrap();
+    assert_eq!(role, ("brain_ingest".into(), false, false));
+    let denied = sqlx::query("SELECT 1 FROM serve.current_fact LIMIT 0")
+        .fetch_all(writer)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        denied.as_database_error().and_then(|e| e.code()).as_deref(),
+        Some("42501")
+    );
+    let version: String = sqlx::query_scalar("SHOW server_version")
+        .fetch_one(admin)
         .await
         .unwrap();
-    let set = FactSet {
+    assert!(version.starts_with("16."));
+}
+
+async fn assert_raw_stored(admin: &sqlx::PgPool, raw_id: i64, text: &str) {
+    let stored: (Vec<u8>, Vec<u8>) =
+        sqlx::query_as("SELECT bytes,content_sha256 FROM raw.object WHERE id=$1")
+            .bind(raw_id)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert_eq!(
+        stored,
+        (
+            text.as_bytes().to_vec(),
+            Sha256::digest(text.as_bytes()).to_vec()
+        )
+    );
+}
+
+fn bad_sets(text: &str) -> [FactSet; 3] {
+    let root = receipt("raw_bytes", "", text);
+    [
+        FactSet {
+            entities: vec![Entity {
+                kind: "hero".into(),
+                key: "hero_bad".into(),
+                receipt: root.clone(),
+            }],
+            ..FactSet::default()
+        },
+        FactSet {
+            aliases: vec![Alias {
+                entity_key: "hero_bad".into(),
+                alias: "Bad".into(),
+                lang: "en".into(),
+                receipt: root,
+            }],
+            ..FactSet::default()
+        },
+        FactSet {
+            facts: vec![Fact {
+                entity_key: "hero_bad".into(),
+                stat_key: "health".into(),
+                value: FactValue::Number(2.0),
+                receipt: receipt("json_pointer", "/x", "2"),
+            }],
+            ..FactSet::default()
+        },
+    ]
+}
+
+fn bad_pointer_sets(text: &str) -> [FactSet; 4] {
+    [
+        FactSet {
+            relations: vec![Relation {
+                from_key: "hero_bad".into(),
+                kind: "related_to".into(),
+                to_key: "hero_bad".into(),
+                receipt: receipt("raw_bytes", "", text),
+            }],
+            ..FactSet::default()
+        },
+        FactSet::default(),
+        FactSet {
+            entities: vec![Entity {
+                kind: "hero".into(),
+                key: "hero_bad".into(),
+                receipt: receipt("json_pointer", "", text.trim()),
+            }],
+            ..FactSet::default()
+        },
+        FactSet {
+            entities: vec![Entity {
+                kind: "hero".into(),
+                key: "hero_bad".into(),
+                receipt: receipt("json_pointer", "/outside", ""),
+            }],
+            ..FactSet::default()
+        },
+    ]
+}
+
+async fn assert_canonical_empty(admin: &sqlx::PgPool) {
+    let canonical: (i64, i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM canon.entity),(SELECT count(*) FROM canon.alias),(SELECT count(*) FROM canon.fact),(SELECT count(*) FROM canon.relation),(SELECT count(*) FROM canon.receipt)").fetch_one(admin).await.unwrap();
+    assert_eq!(canonical, (0, 0, 0, 0, 0));
+}
+
+fn good_json_set(good: &str) -> FactSet {
+    FactSet {
         entities: vec![Entity {
             kind: "hero".into(),
             key: "hero_good".into(),
@@ -536,14 +561,37 @@ async fn duplicate_json_store_rejection_preserves_raw_and_all_canonical_boundari
         })
         .collect(),
         ..FactSet::default()
-    };
+    }
+}
+
+async fn publish_good_json(store: &GameFactsStore, admin: &sqlx::PgPool, run: i64) {
+    let good = r#"  {"x":2,"values":[1.2300e+2,-0,0.12345678901234567890123456789]}  "#;
+    let raw = store
+        .capture(
+            run,
+            "collision",
+            "r1",
+            "good.json",
+            good.as_bytes().to_vec(),
+        )
+        .await
+        .unwrap();
+    let set = good_json_set(good);
     store.apply(run, &raw, "collision", &set).await.unwrap();
     for proof in
         std::iter::once(&set.entities[0].receipt).chain(set.facts.iter().map(|f| &f.receipt))
     {
-        let stored: Vec<u8> = sqlx::query_scalar("SELECT value_sha256 FROM canon.receipt WHERE raw_object_id=$1 AND locator_kind=$2 AND locator=$3").bind(raw.id).bind(&proof.locator_kind).bind(&proof.locator).fetch_one(&admin).await.unwrap();
+        let stored: Vec<u8> = sqlx::query_scalar("SELECT value_sha256 FROM canon.receipt WHERE raw_object_id=$1 AND locator_kind=$2 AND locator=$3").bind(raw.id).bind(&proof.locator_kind).bind(&proof.locator).fetch_one(admin).await.unwrap();
         assert_eq!(stored, proof.value_sha256);
     }
+}
+
+async fn finish_collision_run(
+    store: &GameFactsStore,
+    admin: &sqlx::PgPool,
+    run: i64,
+    rejected: i64,
+) {
     store
         .finish_run(
             run,
@@ -556,10 +604,117 @@ async fn duplicate_json_store_rejection_preserves_raw_and_all_canonical_boundari
         )
         .await
         .unwrap();
-    assert_eq!(gamefacts_pg::growth(&admin).await, (7, 4, 5));
+    assert_eq!(gamefacts_pg::growth(admin).await, (7, 4, 5));
+    assert_eq!(
+        gamefacts_pg::rejection_codes(admin, run).await,
+        vec!["locator_collision"; 42]
+    );
+    gamefacts_pg::assert_count(
+        admin,
+        "SELECT count(*) FROM serve.current_fact WHERE value_num=2",
+        1,
+    )
+    .await;
+}
+
+fn unindexable_json() -> [&'static str; 8] {
+    [
+        r#"{"x":1,"x":2,"\ud800":0}"#,
+        r#"{"\ud800":0,"x":1,"x":2}"#,
+        r#"{"x":1,"x":2,"outside":{"\ud800":0}}"#,
+        r#"[{"x":1,"x":2},{"\udfff":0}]"#,
+        r#"{"x":2,"\udfff":0}"#,
+        r#"{"outside":{"\ud800":0},"x":2}"#,
+        r#"{"x":2,"\ud800A":0}"#,
+        r#"{"x":2,"\udfff\ud800":0}"#,
+    ]
+}
+
+#[test]
+fn recognized_json_index_errors_reject_every_locator_and_empty_sets() {
+    for text in unindexable_json() {
+        assert!(serde_json::from_str::<&serde_json::value::RawValue>(text).is_ok());
+        assert!(serde_json::from_str::<serde_json::Value>(text).is_err());
+        for proof in [
+            receipt("json_pointer", "/x", "2"),
+            receipt("json_pointer", "", text),
+            receipt("json_pointer", "/outside", ""),
+            receipt("raw_bytes", "", text),
+            receipt("byte_ranges", "0-1", &text[..1]),
+        ] {
+            let rejection = receipts::value_bytes(text.as_bytes(), &proof).unwrap_err();
+            assert_eq!(rejection.code, "invalid_receipt");
+            assert_eq!(
+                rejection.detail,
+                "Beleg verweist nicht auf den gespeicherten Rohwert"
+            );
+            let set = FactSet {
+                entities: vec![Entity {
+                    kind: "hero".into(),
+                    key: "hero_bad".into(),
+                    receipt: proof,
+                }],
+                ..FactSet::default()
+            };
+            assert_eq!(
+                receipts::verify(text.as_bytes(), &set).unwrap_err().code,
+                "invalid_receipt"
+            );
+        }
+        assert_eq!(
+            receipts::verify(text.as_bytes(), &FactSet::default())
+                .unwrap_err()
+                .code,
+            "invalid_receipt"
+        );
+    }
+}
+
+#[test]
+fn valid_surrogate_pairs_keep_distinct_keys_and_detect_decoded_twins() {
+    let slash = char::from(92);
+    let valid = format!(r#"{{"x":2,"{slash}ud800{slash}udc00":0,"outside":{{"𐀀":1}}}}"#);
+    assert_json_pointer(&valid, "/x", "2");
+    assert_json_pointer(&valid, "/𐀀", "0");
+    assert_json_pointer(&valid, "/outside/𐀀", "1");
+    receipts::verify(valid.as_bytes(), &FactSet::default()).unwrap();
+    let collision = format!(r#"{{"x":2,"𐀀":0,"{slash}ud800{slash}udc00":1}}"#);
+    assert_eq!(
+        receipts::verify(collision.as_bytes(), &FactSet::default())
+            .unwrap_err()
+            .code,
+        "locator_collision"
+    );
+}
+
+#[tokio::test]
+async fn json_index_errors_preserve_raw_without_canonical_rows_or_success_markers() {
+    let (_pg, admin, writer) = gamefacts_pg::fixture(2).await;
+    assert_writer_boundary(&admin, &writer).await;
+    let store = GameFactsStore::new(writer.clone());
+    let run = store.begin_run("collision").await.unwrap();
+    let mut rejected = 0;
+    for text in unindexable_json() {
+        rejected += reject_unindexable_json(&store, &admin, run, text).await;
+    }
+    assert_canonical_empty(&admin).await;
+    publish_good_json(&store, &admin, run).await;
+    store
+        .finish_run(
+            run,
+            true,
+            Counts {
+                accepted: 1,
+                rejected,
+                ignored: 0,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(gamefacts_pg::growth(&admin).await, (9, 4, 5));
     assert_eq!(
         gamefacts_pg::rejection_codes(&admin, run).await,
-        vec!["locator_collision"; 42]
+        vec!["invalid_receipt"; 64]
     );
     gamefacts_pg::assert_count(
         &admin,
@@ -569,6 +724,50 @@ async fn duplicate_json_store_rejection_preserves_raw_and_all_canonical_boundari
     .await;
     writer.close().await;
     admin.close().await;
+}
+
+async fn reject_unindexable_json(
+    store: &GameFactsStore,
+    admin: &sqlx::PgPool,
+    run: i64,
+    text: &str,
+) -> i64 {
+    let raw = store
+        .capture(run, "collision", "r1", "bad.json", text.as_bytes().to_vec())
+        .await
+        .unwrap();
+    assert_raw_stored(admin, raw.id, text).await;
+    let range = FactSet {
+        entities: vec![Entity {
+            kind: "hero".into(),
+            key: "hero_bad".into(),
+            receipt: receipt("byte_ranges", "0-1", &text[..1]),
+        }],
+        ..FactSet::default()
+    };
+    let mut rejected = 0;
+    for set in bad_sets(text)
+        .into_iter()
+        .chain(bad_pointer_sets(text))
+        .chain([range])
+    {
+        let rejection = store.apply(run, &raw, "collision", &set).await.unwrap_err();
+        assert_eq!(rejection.code, "invalid_receipt");
+        assert_eq!(
+            rejection.detail,
+            "Beleg verweist nicht auf den gespeicherten Rohwert"
+        );
+        store
+            .reject(run, raw.id, "collision", &rejection)
+            .await
+            .unwrap();
+        rejected += 1;
+    }
+    assert!(!store
+        .was_applied_in_run(run, raw.id, "collision")
+        .await
+        .unwrap());
+    rejected
 }
 
 #[test]

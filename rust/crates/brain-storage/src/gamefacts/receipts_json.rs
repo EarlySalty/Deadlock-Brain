@@ -27,9 +27,7 @@ impl<'a> Index<'a> {
             arrays: BTreeMap::new(),
         };
         u32::try_from(index.text.len()).map_err(|_| invalid())?;
-        if index.scan().is_err() {
-            return Ok(None);
-        }
+        index.scan()?;
         index
             .keys
             .sort_unstable_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
@@ -100,52 +98,68 @@ impl<'a> Index<'a> {
                 end: 0,
                 next: 0,
             });
-            match self.text.as_bytes().get(offset) {
-                Some(open @ (b'{' | b'[')) => {
-                    let object = *open == b'{';
-                    offset += 1;
-                    self.space(&mut offset);
-                    if self.text.as_bytes().get(offset) == Some(if object { &b'}' } else { &b']' })
-                    {
-                        offset += 1;
-                    } else {
-                        stack.push(node);
-                        if object {
-                            self.key(node, &mut offset)?;
-                        }
-                        continue;
-                    }
-                }
-                Some(b'"') => self.string(&mut offset)?,
-                Some(_) => {
-                    while self.text.as_bytes().get(offset).is_some_and(|b| {
-                        !matches!(b, b' ' | b'\t' | b'\r' | b'\n' | b',' | b']' | b'}')
-                    }) {
-                        offset += 1;
-                    }
-                }
-                None => return Err(invalid()),
+            if self.scan_value(node, &mut offset, &mut stack)? {
+                continue;
             }
             self.finish(node, offset);
-            loop {
-                let Some(&parent) = stack.last() else {
-                    return Ok(());
-                };
-                self.space(&mut offset);
-                let object =
-                    self.text.as_bytes()[self.nodes[parent as usize].start as usize] == b'{';
-                if self.text.as_bytes().get(offset) == Some(if object { &b'}' } else { &b']' }) {
-                    offset += 1;
-                    stack.pop();
-                    self.finish(parent, offset);
-                    continue;
-                }
-                offset += 1;
-                if object {
-                    self.key(parent, &mut offset)?;
-                }
-                break;
+            if !self.advance(&mut offset, &mut stack)? {
+                return Ok(());
             }
+        }
+    }
+
+    fn scan_value(
+        &mut self,
+        node: u32,
+        offset: &mut usize,
+        stack: &mut Vec<u32>,
+    ) -> Result<bool, Rejection> {
+        match self.text.as_bytes().get(*offset) {
+            Some(open @ (b'{' | b'[')) => {
+                let object = *open == b'{';
+                *offset += 1;
+                self.space(offset);
+                if self.text.as_bytes().get(*offset) == Some(if object { &b'}' } else { &b']' }) {
+                    *offset += 1;
+                } else {
+                    stack.push(node);
+                    if object {
+                        self.key(node, offset)?;
+                    }
+                    return Ok(true);
+                }
+            }
+            Some(b'"') => self.string(offset)?,
+            Some(_) => {
+                while self.text.as_bytes().get(*offset).is_some_and(|b| {
+                    !matches!(b, b' ' | b'\t' | b'\r' | b'\n' | b',' | b']' | b'}')
+                }) {
+                    *offset += 1;
+                }
+            }
+            None => return Err(invalid()),
+        }
+        Ok(false)
+    }
+
+    fn advance(&mut self, offset: &mut usize, stack: &mut Vec<u32>) -> Result<bool, Rejection> {
+        loop {
+            let Some(&parent) = stack.last() else {
+                return Ok(false);
+            };
+            self.space(offset);
+            let object = self.text.as_bytes()[self.nodes[parent as usize].start as usize] == b'{';
+            if self.text.as_bytes().get(*offset) == Some(if object { &b'}' } else { &b']' }) {
+                *offset += 1;
+                stack.pop();
+                self.finish(parent, *offset);
+                continue;
+            }
+            *offset += 1;
+            if object {
+                self.key(parent, offset)?;
+            }
+            return Ok(true);
         }
     }
 
