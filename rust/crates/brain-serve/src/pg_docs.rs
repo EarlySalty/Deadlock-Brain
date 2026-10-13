@@ -372,10 +372,9 @@ impl DocsReader {
 }
 
 fn compact_plain_search(search: &str) -> Cow<'_, str> {
-    if search
-        .split_ascii_whitespace()
-        .any(|term| term.eq_ignore_ascii_case("or") || !term.chars().all(char::is_alphanumeric))
-    {
+    if search.split_ascii_whitespace().any(|term| {
+        term.eq_ignore_ascii_case("or") || !term.bytes().all(|byte| byte.is_ascii_alphabetic())
+    }) {
         return Cow::Borrowed(search);
     }
     let mut seen = BTreeSet::new();

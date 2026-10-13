@@ -795,6 +795,125 @@ async fn reader_compaction_preserves_websearch_membership_and_order() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn reader_preserves_hidden_websearch_operator_boundaries() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    let original = "alpha or² omega beta alpha";
+    let compact = "alpha or² omega beta";
+    for language in ["pg_catalog.simple", "pg_catalog.german"] {
+        let result: (bool, bool, f32, f32) = sqlx::query_as(
+            "SELECT to_tsvector($1::regconfig,$2) @@ websearch_to_tsquery($1::regconfig,$3),
+                to_tsvector($1::regconfig,$2) @@ websearch_to_tsquery($1::regconfig,$4),
+                ts_rank_cd(to_tsvector($1::regconfig,$2),websearch_to_tsquery($1::regconfig,$3)),
+                ts_rank_cd(to_tsvector($1::regconfig,$2),websearch_to_tsquery($1::regconfig,$4))",
+        )
+        .bind(language)
+        .bind("² omega beta")
+        .bind(original)
+        .bind(compact)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(result, (false, true, 0.0, 0.1), "{language}");
+        for token in [
+            "or2", "OR2", "or2x", "2or", "or123", "alpha2", "2alpha", "123", "1e2",
+        ] {
+            let text = format!("alpha {token} omega beta alpha");
+            let plain: bool = sqlx::query_scalar(
+                "SELECT websearch_to_tsquery($1::regconfig,$2)=plainto_tsquery($1::regconfig,$2)",
+            )
+            .bind(language)
+            .bind(&text)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert!(plain, "{language}: {text}");
+        }
+    }
+    for (version, path, body) in [
+        (1, "public/negative.html", "² omega beta"),
+        (2, "public/positive.html", "alpha ² omega beta"),
+        (3, "internal/negative.html", "² omega beta"),
+        (4, "internal/positive.html", "alpha ² omega beta"),
+    ] {
+        let (page, _) = document(&pool, path, version, None, true).await;
+        sqlx::query("UPDATE canon.fact SET value_text=CASE stat_key::text WHEN 'doc_title' THEN 'Document' WHEN 'doc_intro_body_0' THEN $2 WHEN 'doc_intro_body_1' THEN ' ' WHEN 'doc_intro_meta' THEN '{\"ordinal\":0,\"locator\":\"intro\",\"heading_path\":[],\"line_start\":1,\"line_end\":3,\"chunks\":2}' ELSE value_text END WHERE entity_id=$1")
+            .bind(page).bind(body).execute(&pool).await.unwrap();
+    }
+    let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
+    let definition = ToolDefinition {
+        name: ToolName::SearchDocs,
+        description: "Sucht veröffentlichte Dokumentabschnitte.".into(),
+        input_schema: brain_contracts::tools::SearchDocsRequest::input_schema(),
+    };
+    for internal in [false, true] {
+        let (mut query, ctx) = context(internal);
+        query.text = original.into();
+        let rows = sqlx::query(include_str!("../src/pg_docs/search.sql"))
+            .bind(if internal { "internal" } else { "public" })
+            .bind(original)
+            .bind(None::<i64>)
+            .bind(6_i64)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        let expected = vec![rows[0].get::<i64, _>("receipt_id").to_string()];
+        let evidence = reader.retrieve(&query, &ctx).unwrap();
+        assert_eq!(
+            evidence
+                .iter()
+                .map(|item| item.evidence_id.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        reader
+            .validate_evidence(&query, &ctx, &evidence, ToolValidationPurpose::Cache)
+            .unwrap();
+        let request = ToolCall {
+            id: "boundaries".into(),
+            name: ToolName::SearchDocs,
+            arguments: serde_json::json!({"query":original}),
+        }
+        .validate(std::slice::from_ref(&definition))
+        .unwrap();
+        let execution = reader.search(&query, &ctx, "boundaries", &request).unwrap();
+        assert_eq!(execution.result.evidence_ids, expected);
+        assert_eq!(execution.dependencies.len(), 1);
+        assert_eq!(execution.dependencies[0].request, request);
+        reader
+            .validate_dependency(
+                &query,
+                &ctx,
+                &execution.dependencies[0],
+                ToolValidationPurpose::Cache,
+            )
+            .unwrap();
+        let mut compact_query = query.clone();
+        compact_query.text = compact.into();
+        let broadened = reader.retrieve(&compact_query, &ctx).unwrap();
+        assert_eq!(broadened.len(), 2);
+        assert!(reader
+            .validate_evidence(&query, &ctx, &broadened, ToolValidationPurpose::Cache)
+            .is_err());
+        let broadened_dependency = ToolEvidenceDependency {
+            request,
+            game_context: None,
+            evidence: broadened,
+        };
+        assert!(reader
+            .validate_dependency(
+                &query,
+                &ctx,
+                &broadened_dependency,
+                ToolValidationPurpose::Cache
+            )
+            .is_err());
+    }
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn entity_filter_excludes_doc_carriers_and_explain_uses_real_postgres() {
     let pg = scratch_pg::ScratchPg::start();
     let pool = setup(&pg).await;
