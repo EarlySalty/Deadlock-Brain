@@ -184,6 +184,30 @@ fn sql_rejection(error: sqlx::Error) -> Rejection {
     )
 }
 
+fn extractor_family(extractor: &str) -> Option<&str> {
+    let (length, rest) = extractor.strip_prefix("v1:")?.split_once(':')?;
+    let rest = rest
+        .get(length.parse::<usize>().ok()?..)?
+        .strip_prefix(':')?;
+    let (length, version) = rest.split_once(':')?;
+    if length.parse::<usize>().ok()? != version.len() {
+        return None;
+    }
+    extractor.get(..extractor.len() - rest.len())
+}
+
+async fn finish_run<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    run: i64,
+    succeeded: bool,
+    counts: Counts,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE ops.ingest_run SET finished=clock_timestamp(),status=$2,accepted=$3,rejected=$4,ignored=$5 WHERE id=$1")
+        .bind(run).bind(if succeeded { "succeeded" } else { "failed" })
+        .bind(counts.accepted).bind(counts.rejected).bind(counts.ignored).execute(executor).await?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Counts {
     pub accepted: i64,
@@ -222,10 +246,17 @@ impl GameFactsStore {
         succeeded: bool,
         counts: Counts,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE ops.ingest_run SET finished=clock_timestamp(),status=$2,accepted=$3,rejected=$4,ignored=$5 WHERE id=$1")
-            .bind(run).bind(if succeeded { "succeeded" } else { "failed" })
-            .bind(counts.accepted).bind(counts.rejected).bind(counts.ignored).execute(&self.pool).await?;
-        Ok(())
+        finish_run(&self.pool, run, succeeded, counts).await
+    }
+
+    pub async fn finish_run_guarded(
+        &self,
+        guard: &mut PgConnection,
+        run: i64,
+        succeeded: bool,
+        counts: Counts,
+    ) -> Result<(), sqlx::Error> {
+        finish_run(guard, run, succeeded, counts).await
     }
 
     pub async fn capture(
@@ -240,8 +271,16 @@ impl GameFactsStore {
     }
 
     pub async fn was_applied(&self, raw: i64, extractor: &str) -> Result<bool, sqlx::Error> {
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM canon.receipt receipt JOIN ops.ingest_run run ON run.id=receipt.ingest_run_id WHERE receipt.raw_object_id=$1 AND receipt.extractor=$2 AND run.status='succeeded')")
-            .bind(raw).bind(extractor).fetch_one(&self.pool).await
+        let family = extractor_family(extractor);
+        let rows = sqlx::query("SELECT * FROM (SELECT DISTINCT ON(receipt.extractor) receipt.raw_object_id,receipt.extractor,receipt.ingest_run_id,receipt.id FROM raw.object target JOIN raw.object object ON object.source_path_sha256=target.source_path_sha256 AND object.source=target.source AND object.path=target.path JOIN canon.receipt receipt ON receipt.raw_object_id=object.id JOIN ops.ingest_run run ON run.id=receipt.ingest_run_id WHERE target.id=$1 AND run.status='succeeded' AND (receipt.extractor=$2 OR ($3::text IS NOT NULL AND starts_with(receipt.extractor,$3))) ORDER BY receipt.extractor,receipt.ingest_run_id DESC,receipt.id DESC) latest ORDER BY ingest_run_id DESC,id DESC")
+            .bind(raw).bind(extractor).bind(family).fetch_all(&self.pool).await?;
+        for row in rows {
+            let applied: String = row.try_get("extractor")?;
+            if applied == extractor || family.is_some() && extractor_family(&applied) == family {
+                return Ok(row.try_get::<i64, _>("raw_object_id")? == raw && applied == extractor);
+            }
+        }
+        Ok(false)
     }
 
     pub async fn apply(
