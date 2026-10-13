@@ -18,13 +18,7 @@ fn receipt(kind: &str, locator: String, value: &[u8]) -> Receipt {
     }
 }
 
-async fn publish_snapshot(
-    admin: &PgPool,
-    revision: &str,
-    wins: u64,
-    hours_ago: i64,
-    with_second: bool,
-) {
+async fn publish_snapshot(admin: &PgPool, revision: &str, wins: u64, with_second: bool) {
     let store = GameFactsStore::new(admin.clone());
     let run = store.begin_run("deadlock-api-meta").await.unwrap();
     let bytes = snapshot_bytes(wins, with_second);
@@ -72,15 +66,26 @@ async fn publish_snapshot(
         )
         .await
         .unwrap();
-    sqlx::query(
-        "UPDATE ops.ingest_run SET started=clock_timestamp()-make_interval(hours=>$2::int) WHERE id=$1",
-    )
-    .bind(run)
-    .bind(hours_ago as i32)
-    .execute(admin)
-    .await
-    .unwrap();
 }
+
+const OLDER_HISTORY: &str = r#"DO $history$
+DECLARE run bigint; object bigint; cited bigint; stats bigint;
+BEGIN
+    SELECT entity_id INTO stats FROM serve.meta_stat_set WHERE stat_set='meta_hero_stats';
+    FOR hour IN 1001..10000 LOOP
+        INSERT INTO ops.ingest_run(source,status) VALUES('deadlock-api-meta','succeeded') RETURNING id INTO run;
+        INSERT INTO raw.object(source,revision,path,source_path_sha256,content_sha256,bytes,ingest_run_id)
+        VALUES('deadlock-api-meta',
+            to_char((timestamptz '2026-10-06 05:00:00+00'-make_interval(hours=>hour)) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:00:00"Z"'),
+            'hero-stats.json',sha256('history'::bytea),sha256(hour::text::bytea),'\x00'::bytea,run)
+        RETURNING id INTO object;
+        INSERT INTO canon.receipt(raw_object_id,ingest_run_id,extractor,locator_kind,locator,value_sha256)
+        VALUES(object,run,'v1:10:meta_stats:1:1','json_pointer','/0',sha256('history'::bytea)) RETURNING id INTO cited;
+        INSERT INTO canon.fact(entity_id,stat_key,value_text,valid_from_run,receipt_id)
+        VALUES(stats,'hero_1','{"hero_id":1,"bucket":0,"wins":1,"matches":2}',run,cited);
+    END LOOP;
+END
+$history$"#;
 
 async fn publish_identity(admin: &PgPool) {
     let store = GameFactsStore::new(admin.clone());
@@ -128,9 +133,17 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
         let admin = sqlx::postgres::PgPoolOptions::new().max_connections(2).connect_with(options.clone()).await.unwrap();
         sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate").execute(&admin).await.unwrap();
         brain_storage::PgStore::new(admin.clone()).migrate_gamefacts().await.unwrap();
-        for (index, hours_ago) in [24 * 40, 24 * 31, 24 * 8, 25, 1, 0].into_iter().enumerate() {
-            let revision = format!("2026-10-{:02}T{:02}:00:00Z", index + 1, index);
-            publish_snapshot(&admin, &revision, 500 + index as u64, hours_ago, hours_ago > 0).await;
+        publish_snapshot(&admin, "2025-01-01T00:00:00Z", 1, true).await;
+        sqlx::raw_sql(OLDER_HISTORY).execute(&admin).await.unwrap();
+        for (wins, revision) in [
+            (502, "2026-09-28T05:00:00Z"),
+            (505, "2026-10-06T05:00:00Z"),
+            (500, "2026-08-27T05:00:00Z"),
+            (504, "2026-10-06T04:00:00Z"),
+            (501, "2026-09-05T05:00:00Z"),
+            (503, "2026-10-05T04:00:00Z"),
+        ] {
+            publish_snapshot(&admin, revision, wins, wins != 505).await;
         }
         publish_identity(&admin).await;
         let entity: i64 = sqlx::query_scalar("SELECT id FROM canon.entity WHERE key='hero_meta_fixture'")
@@ -162,11 +175,7 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
     assert_eq!(wins, [505, 503, 502, 501]);
     for fact in facts {
         assert!(fact["patch"].is_null());
-        assert!(fact["snapshot_at"].as_str().unwrap().ends_with('Z'));
-        assert!(fact["source_revision"]
-            .as_str()
-            .unwrap()
-            .starts_with("2026-10-"));
+        assert_eq!(fact["snapshot_at"], fact["source_revision"]);
         assert_eq!(fact["condition"]["game_mode"], "normal");
         assert!(fact["condition"]["matches_since"]
             .as_str()
@@ -174,6 +183,19 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
             .ends_with("T00:00:00Z"));
         assert_eq!(fact["condition"]["matches_until"], fact["source_revision"]);
     }
+    let times: Vec<_> = facts
+        .iter()
+        .map(|fact| fact["snapshot_at"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        times,
+        [
+            "2026-10-06T05:00:00Z",
+            "2026-10-05T04:00:00Z",
+            "2026-09-28T05:00:00Z",
+            "2026-09-05T05:00:00Z"
+        ]
+    );
     assert_eq!(
         facts[0]["condition"]["matches_since"],
         "2026-09-06T00:00:00Z"
@@ -203,7 +225,7 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
     assert!(
         second_latest["snapshot_at"].as_str().unwrap() < facts[0]["snapshot_at"].as_str().unwrap()
     );
-    assert_eq!(second_latest["source_revision"], "2026-10-05T04:00:00Z");
+    assert_eq!(second_latest["source_revision"], "2026-10-06T04:00:00Z");
 
     for arguments in [
         json!({"kind":"hero","game_id":999}),

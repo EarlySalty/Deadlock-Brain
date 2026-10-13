@@ -10,8 +10,16 @@ Branch `feat/brain-p10-meta-stats-20261013`, based on core 3a `982645cf`.
   Two requests per run, 1 MiB cap per body, JSON content type required, other hour directories pruned.
   Both URLs carry `min_unix_timestamp` = start of the capture UTC day minus 30 days
   (`meta_source::window_start`), so the window no longer depends on API defaults.
-  Live capture only: `--input <dir>` fails for this source. Replay would stamp archived bytes with
-  the ingest time, so `snapshot_at` (= `ops.ingest_run.started`) is the capture time by construction.
+  Live capture only: `--input <dir>` fails for this source.
+- `snapshot_at` is the UTC capture hour of the cited raw object (`source_revision`), not the ingest
+  run start. The tool picks `latest` and the 24 h / 7 d / 30 d points by `snapshot_at DESC`
+  (tie-break `run_id DESC`) within the key's newest 1000 rows from `fact_history` (at most one
+  row per hour, so at least 41 days of captures and enough for the 30 d point). The scan stays
+  bounded regardless of total history: with 9000 older rows the tool query ran in about 20 ms.
+  `meta_stats_pg_tests.rs` publishes runs out of capture order, so the last ingested run carries
+  an older capture hour and must not win as `latest`.
+  Known edge: bytes identical to an older capture (A, B, A) reuse the old raw object and its hour,
+  so the repeated A ranks by its first capture hour.
 - Extractor `meta_stats` (`rust/crates/brain-job/src/meta_stats.rs`): one entity per stat set
   (`meta_hero_stats`, `meta_item_stats`), one text fact per row (`hero_<id>` / `item_<id>`) holding the
   verbatim row JSON, receipt `json_pointer /<index>`.
