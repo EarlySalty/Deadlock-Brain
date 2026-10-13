@@ -48,7 +48,9 @@ Every fact was checked against the source snapshot fetched on 2026-10-13 (deadlo
 
 ### Term matching
 
-Case-insensitive substring match with token boundaries: an alphanumeric term edge must not touch another letter or digit, so `800` does not match `1800` and `12` does not match `12.5`. A decimal comma between digits counts as a dot. Integer terms with four or more digits also match with `.`, `,` or space thousands separators. Soft hyphens are ignored and typographic apostrophes fold to `'`.
+Case-insensitive substring match with token boundaries: an alphanumeric term edge must not touch another letter or digit, so `800` does not match `1800` and `12` does not match `12.5`. A term starting with a digit also rejects a digit and `.` right before it, so `800` does not match `1.800` or `1,800` and `12` does not match `0.12`. A decimal comma between digits counts as a dot. Integer terms with four or more digits also match with `.`, `,` or space thousands separators. Soft hyphens are ignored and typographic apostrophes fold to `'`.
+
+A number followed by a seconds, minutes or percent unit expands to all spellings of that unit, with and without a space: `28s` matches `28 s`, `28 Sekunden` and `28 seconds`; `7 min` matches `7 Minuten` and `7 minutes`; `25%` matches `25 %`, `25 Prozent` and `25 percent`. A bare `m` is ambiguous (patch notes use it for meters and minutes), so the matcher keeps it literal and the gold file lists the meter or minute spellings explicitly in `any_of`.
 
 ## Running
 
@@ -59,6 +61,12 @@ BRAIN_EVAL_TOKEN=... brain-eval --gold ... --endpoint http://127.0.0.1:8788 --sc
 ```
 
 The bearer token is read from the environment variable named by `--token-env` (default `BRAIN_EVAL_TOKEN`) and is never written to the report or the output. `--limit N` runs only the first N cases.
+
+```sh
+brain-eval --gold rust/crates/brain-eval/gold/e1-gold-v1.json --rescore old-report.json --out new-report.json
+```
+
+`--rescore <report.json>` makes no network calls. It reads a previous report, takes each case's stored status, answer text, citation count, knowledge release, latency and error by case id, scores them against the current gold file and matcher, and writes a new report with the same schema. `endpoint`, `scopes`, `started_unix` and `duration_ms` stay those of the original run; `gold_sha256` is the current gold file. Every case id in the report must exist in the gold file.
 
 ## Report `brain.e1-eval-report.v1`
 

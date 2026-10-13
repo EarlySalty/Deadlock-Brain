@@ -1,7 +1,7 @@
 cases 125 (answerable 101, non-answerable 24, errors 0)
 answered rate 10.9% (11/101)
-correctness rate 5.0% (5/101)
-answered precision 45.5% (5/11)
+correctness rate 5.9% (6/101)
+answered precision 54.5% (6/11)
 citation rate 100.0% (11/11)
 non-answerable compliance 83.3% (20/24, answered 2)
 statuses answered=13 insufficient_evidence=84 unauthorized_evidence=18 unavailable=10
@@ -10,5 +10,5 @@ statuses answered=13 insufficient_evidence=84 unauthorized_evidence=18 unavailab
   hero: cases 30 answered 3/30 correct 0 non-answerable ok 0/0
   item: cases 27 answered 0/27 correct 0 non-answerable ok 0/0
   patch: cases 16 answered 0/16 correct 0 non-answerable ok 0/0
-  timer: cases 12 answered 5/10 correct 2 non-answerable ok 0/2
+  timer: cases 12 answered 5/10 correct 3 non-answerable ok 0/2
   unanswerable: cases 22 answered 0/0 correct 0 non-answerable ok 20/22

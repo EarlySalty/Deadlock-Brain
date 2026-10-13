@@ -33,15 +33,48 @@ fn decimal_comma(chars: &[char], i: usize, c: char) -> char {
     }
 }
 
+const SECONDS: &[&str] = &[
+    "s", "sek", "sec", "sekunde", "sekunden", "second", "seconds",
+];
+const MINUTES: &[&str] = &["min", "mins", "minute", "minuten", "minutes"];
+const PERCENT: &[&str] = &["%", "prozent", "percent"];
+const UNITS: [&[&str]; 3] = [SECONDS, MINUTES, PERCENT];
+
 pub fn term_variants(term: &str) -> Vec<String> {
     let base = normalize(term);
     let mut variants = vec![base.clone()];
-    if base.len() >= 4 && base.chars().all(|c| c.is_ascii_digit()) {
-        let grouped = group_thousands(&base);
-        variants.push(grouped.replace(' ', "."));
-        variants.push(grouped);
-    }
+    variants.extend(thousands_variants(&base));
+    variants.extend(unit_variants(&base));
     variants
+}
+
+fn thousands_variants(base: &str) -> Vec<String> {
+    if base.len() < 4 || !base.chars().all(|c| c.is_ascii_digit()) {
+        return Vec::new();
+    }
+    let grouped = group_thousands(base);
+    vec![grouped.replace(' ', "."), grouped]
+}
+
+fn unit_variants(base: &str) -> Vec<String> {
+    let Some((number, unit)) = split_quantity(base) else {
+        return Vec::new();
+    };
+    let Some(spellings) = UNITS.iter().find(|spellings| spellings.contains(&unit)) else {
+        return Vec::new();
+    };
+    spellings
+        .iter()
+        .flat_map(|s| [format!("{number}{s}"), format!("{number} {s}")])
+        .collect()
+}
+
+fn split_quantity(base: &str) -> Option<(&str, &str)> {
+    let end = base.find(|c: char| !(c.is_ascii_digit() || c == '.'))?;
+    let number = &base[..end];
+    let digit_edges = number.starts_with(|c: char| c.is_ascii_digit())
+        && number.ends_with(|c: char| c.is_ascii_digit());
+    digit_edges.then(|| (number, base[end..].trim_start()))
 }
 
 fn group_thousands(digits: &str) -> String {
@@ -71,6 +104,7 @@ fn contains_bounded(text: &str, needle: &str) -> bool {
         boundary_ok(text[..start].chars().next_back(), needle.chars().next())
             && boundary_ok(text[end..].chars().next(), needle.chars().next_back())
             && !decimal_continues(&text[end..], needle)
+            && !decimal_precedes(&text[..start], needle)
     })
 }
 
@@ -91,6 +125,13 @@ fn decimal_continues(rest: &str, needle: &str) -> bool {
         && chars.next().is_some_and(|c| c.is_ascii_digit())
 }
 
+fn decimal_precedes(before: &str, needle: &str) -> bool {
+    let mut chars = before.chars().rev();
+    needle.starts_with(|c: char| c.is_ascii_digit())
+        && chars.next() == Some('.')
+        && chars.next().is_some_and(|c| c.is_ascii_digit())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,6 +148,30 @@ mod tests {
         assert!(!hit("Der Wert ist 12.5", "12"));
         assert!(hit("Haze läuft mit 8,2 m/s.", "8.2"));
         assert!(hit("Bewegung 8.2.", "8.2"));
+    }
+
+    #[test]
+    fn numbers_reject_leading_decimal_or_thousands_part() {
+        assert!(!hit("Das kostet 1.800 Souls.", "800"));
+        assert!(!hit("It costs 1,800 souls.", "800"));
+        assert!(!hit("Der Faktor ist 0.12", "12"));
+        assert!(!hit("Der Faktor ist 0,12", "12"));
+        assert!(hit("Wert 12. Danach", "12"));
+    }
+
+    #[test]
+    fn unit_terms_match_spaced_and_word_forms() {
+        assert!(hit("Der Midboss respawnt nach 7 Minuten.", "7 min"));
+        assert!(hit("The midboss respawns after 7 minutes.", "7 min"));
+        assert!(hit("Abklingzeit jetzt 28 Sekunden", "28s"));
+        assert!(hit("cooldown 28 s", "28s"));
+        assert!(hit("cooldown 28 seconds", "28s"));
+        assert!(hit("Lifesteal steigt auf 25 %", "25%"));
+        assert!(hit("lifesteal 25 percent", "25%"));
+        assert!(hit("Es ist ein Tier-3-Item.", "tier-3"));
+        assert!(!hit("Abklingzeit 128 Sekunden", "28s"));
+        assert!(!hit("Abklingzeit 28 Stunden", "28s"));
+        assert!(!hit("range 26 m", "26s"));
     }
 
     #[test]

@@ -2,6 +2,7 @@
 mod gold;
 mod matching;
 mod report;
+mod rescore;
 mod score;
 
 use anyhow::{bail, Context, Result};
@@ -9,7 +10,7 @@ use brain_client::{BrainClient, Query};
 use clap::Parser;
 use serde::Serialize;
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const REPORT_SCHEMA: &str = "brain.e1-eval-report.v1";
@@ -36,6 +37,8 @@ struct Args {
     limit: Option<usize>,
     #[arg(long)]
     validate_only: bool,
+    #[arg(long)]
+    rescore: Option<PathBuf>,
 }
 
 #[derive(Serialize)]
@@ -52,6 +55,14 @@ struct Report<'a> {
     cases: Vec<score::CaseResult>,
 }
 
+struct Run {
+    endpoint: String,
+    scopes: Vec<String>,
+    started_unix: u64,
+    duration_ms: u128,
+    cases: Vec<score::CaseResult>,
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let loaded = gold::load(&args.gold)?;
@@ -63,10 +74,18 @@ fn main() -> Result<()> {
         );
         return Ok(());
     }
-    let Some(out) = args.out.as_ref() else {
+    let Some(out) = args.out.as_deref() else {
         bail!("--out is required unless --validate-only is set");
     };
-    let client = client(&args)?;
+    let run = match args.rescore.as_deref() {
+        Some(previous) => rescore_run(&loaded, previous)?,
+        None => live_run(&args, &loaded)?,
+    };
+    publish(&loaded, run, out)
+}
+
+fn live_run(args: &Args, loaded: &gold::LoadedGold) -> Result<Run> {
+    let client = client(args)?;
     let started_unix = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -74,19 +93,40 @@ fn main() -> Result<()> {
     let started = Instant::now();
     let cases = take_cases(&loaded.gold.cases, args.limit);
     let results = run_cases(&client, cases, &args.scopes, started_unix);
-    let summary = report::summarize(&results);
+    Ok(Run {
+        endpoint: args.endpoint.clone(),
+        scopes: args.scopes.clone(),
+        started_unix,
+        duration_ms: started.elapsed().as_millis(),
+        cases: results,
+    })
+}
+
+fn rescore_run(loaded: &gold::LoadedGold, previous: &Path) -> Result<Run> {
+    let stored = rescore::load(previous)?;
+    Ok(Run {
+        cases: rescore::rescore(&loaded.gold.cases, stored.cases)?,
+        endpoint: stored.endpoint,
+        scopes: stored.scopes,
+        started_unix: stored.started_unix,
+        duration_ms: stored.duration_ms,
+    })
+}
+
+fn publish(loaded: &gold::LoadedGold, run: Run, out: &Path) -> Result<()> {
+    let summary = report::summarize(&run.cases);
     let text = report::render_text(&summary);
     let report = Report {
         schema: REPORT_SCHEMA,
         gold_schema: &loaded.gold.schema,
         gold_version: loaded.gold.version,
         gold_sha256: &loaded.sha256,
-        endpoint: &args.endpoint,
-        scopes: &args.scopes,
-        started_unix,
-        duration_ms: started.elapsed().as_millis(),
+        endpoint: &run.endpoint,
+        scopes: &run.scopes,
+        started_unix: run.started_unix,
+        duration_ms: run.duration_ms,
         summary,
-        cases: results,
+        cases: run.cases,
     };
     write_report(out, &report)?;
     println!("{text}");
@@ -175,7 +215,7 @@ fn outcome_label(result: &score::CaseResult) -> String {
     }
 }
 
-fn write_report(path: &PathBuf, report: &Report<'_>) -> Result<()> {
+fn write_report(path: &Path, report: &Report<'_>) -> Result<()> {
     let mut json = serde_json::to_string_pretty(report).context("serialize report")?;
     json.push('\n');
     std::fs::write(path, json).with_context(|| format!("write {}", path.display()))

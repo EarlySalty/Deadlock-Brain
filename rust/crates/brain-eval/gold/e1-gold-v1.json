@@ -220,7 +220,16 @@
       "facts": [
         {
           "any_of": [
-            "4"
+            "4 stamina",
+            "4 charges",
+            "4 ladungen",
+            "4 ausdauer",
+            "four stamina",
+            "four charges",
+            "vier ausdauer",
+            "vier ladungen",
+            "4 ausdauerladungen",
+            "vier ausdauerladungen"
           ],
           "source": {
             "kind": "deadlock_api",
@@ -1120,8 +1129,10 @@
         {
           "any_of": [
             "tier 3",
+            "tier-3",
             "t3",
-            "stufe 3"
+            "stufe 3",
+            "stufe-3"
           ],
           "source": {
             "kind": "deadlock_api",
@@ -1786,7 +1797,8 @@
             "value": "300"
           }
         }
-      ]
+      ],
+      "note": "first spawn and interval are both 300 s in the source, so both facts accept the same terms and one mention satisfies both"
     },
     {
       "id": "timer-008",
@@ -2099,7 +2111,8 @@
       "facts": [
         {
           "any_of": [
-            "3m"
+            "3m",
+            "3 min"
           ],
           "source": {
             "kind": "patch_post",
@@ -2110,7 +2123,8 @@
         },
         {
           "any_of": [
-            "5m"
+            "5m",
+            "5 min"
           ],
           "source": {
             "kind": "patch_post",
@@ -2131,7 +2145,12 @@
       "facts": [
         {
           "any_of": [
-            "26m"
+            "26m",
+            "26 m",
+            "26 meter",
+            "26 meters",
+            "26 metern",
+            "26 metres"
           ],
           "source": {
             "kind": "patch_post",
@@ -2142,7 +2161,12 @@
         },
         {
           "any_of": [
-            "20m"
+            "20m",
+            "20 m",
+            "20 meter",
+            "20 meters",
+            "20 metern",
+            "20 metres"
           ],
           "source": {
             "kind": "patch_post",
@@ -2291,7 +2315,12 @@
       "facts": [
         {
           "any_of": [
-            "8m"
+            "8m",
+            "8 m",
+            "8 meter",
+            "8 meters",
+            "8 metern",
+            "8 metres"
           ],
           "source": {
             "kind": "patch_post",
@@ -2302,7 +2331,12 @@
         },
         {
           "any_of": [
-            "12m"
+            "12m",
+            "12 m",
+            "12 meter",
+            "12 meters",
+            "12 metern",
+            "12 metres"
           ],
           "source": {
             "kind": "patch_post",
@@ -2355,7 +2389,12 @@
       "facts": [
         {
           "any_of": [
-            "70m"
+            "70m",
+            "70 m",
+            "70 meter",
+            "70 meters",
+            "70 metern",
+            "70 metres"
           ],
           "source": {
             "kind": "patch_post",
@@ -2366,7 +2405,12 @@
         },
         {
           "any_of": [
-            "65m"
+            "65m",
+            "65 m",
+            "65 meter",
+            "65 meters",
+            "65 metern",
+            "65 metres"
           ],
           "source": {
             "kind": "patch_post",

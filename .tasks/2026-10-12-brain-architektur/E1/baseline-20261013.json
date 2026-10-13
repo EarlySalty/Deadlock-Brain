@@ -2,7 +2,7 @@
   "schema": "brain.e1-eval-report.v1",
   "gold_schema": "brain.e1-gold.v1",
   "gold_version": 1,
-  "gold_sha256": "bdfcf6c229e579a705458b6a33dc7bdfd6859aa0b3c2fcac0f4ca4497560e7bd",
+  "gold_sha256": "a6e7e66adb1a9080172afc51275f8b43800d82c0a5b08b01318ce38ad96e71e7",
   "endpoint": "http://127.0.0.1:8788",
   "scopes": [
     "bot.public"
@@ -14,7 +14,7 @@
       "cases": 125,
       "answerable": 101,
       "answered": 11,
-      "correct": 5,
+      "correct": 6,
       "answered_with_citation": 11,
       "unanswerable": 24,
       "unanswerable_insufficient": 20,
@@ -23,8 +23,8 @@
     },
     "rates": {
       "answered_rate": 0.1089,
-      "correctness_rate": 0.0495,
-      "answered_precision": 0.4545,
+      "correctness_rate": 0.0594,
+      "answered_precision": 0.5455,
       "citation_rate": 1.0,
       "unanswerable_compliance": 0.8333
     },
@@ -88,7 +88,7 @@
         "cases": 12,
         "answerable": 10,
         "answered": 5,
-        "correct": 2,
+        "correct": 3,
         "answered_with_citation": 5,
         "unanswerable": 2,
         "unanswerable_insufficient": 0,
@@ -112,7 +112,7 @@
         "cases": 68,
         "answerable": 55,
         "answered": 6,
-        "correct": 4,
+        "correct": 5,
         "answered_with_citation": 6,
         "unanswerable": 13,
         "unanswerable_insufficient": 10,
@@ -382,7 +382,16 @@
       "facts": [
         {
           "any_of": [
-            "4"
+            "4 stamina",
+            "4 charges",
+            "4 ladungen",
+            "4 ausdauer",
+            "four stamina",
+            "four charges",
+            "vier ausdauer",
+            "vier ladungen",
+            "4 ausdauerladungen",
+            "vier ausdauerladungen"
           ],
           "matched": false
         }
@@ -1271,7 +1280,7 @@
       "error": null,
       "outcome_ok": false,
       "correct": false,
-      "facts_matched": 1,
+      "facts_matched": 2,
       "facts_total": 2,
       "facts": [
         {
@@ -1283,10 +1292,12 @@
         {
           "any_of": [
             "tier 3",
+            "tier-3",
             "t3",
-            "stufe 3"
+            "stufe 3",
+            "stufe-3"
           ],
-          "matched": false
+          "matched": true
         }
       ],
       "citation_count": 0,
@@ -1912,8 +1923,8 @@
       "status": "answered",
       "error": null,
       "outcome_ok": true,
-      "correct": false,
-      "facts_matched": 0,
+      "correct": true,
+      "facts_matched": 1,
       "facts_total": 1,
       "facts": [
         {
@@ -1923,7 +1934,7 @@
             "7:00",
             "sieben minuten"
           ],
-          "matched": false
+          "matched": true
         }
       ],
       "citation_count": 1,
@@ -2015,7 +2026,7 @@
       "error": null,
       "outcome_ok": false,
       "correct": false,
-      "facts_matched": 0,
+      "facts_matched": 1,
       "facts_total": 1,
       "facts": [
         {
@@ -2025,7 +2036,7 @@
             "3:00",
             "three minutes"
           ],
-          "matched": false
+          "matched": true
         }
       ],
       "citation_count": 0,
@@ -2347,13 +2358,15 @@
       "facts": [
         {
           "any_of": [
-            "3m"
+            "3m",
+            "3 min"
           ],
           "matched": false
         },
         {
           "any_of": [
-            "5m"
+            "5m",
+            "5 min"
           ],
           "matched": false
         }
@@ -2378,13 +2391,23 @@
       "facts": [
         {
           "any_of": [
-            "26m"
+            "26m",
+            "26 m",
+            "26 meter",
+            "26 meters",
+            "26 metern",
+            "26 metres"
           ],
           "matched": false
         },
         {
           "any_of": [
-            "20m"
+            "20m",
+            "20 m",
+            "20 meter",
+            "20 meters",
+            "20 metern",
+            "20 metres"
           ],
           "matched": false
         }
@@ -2533,13 +2556,23 @@
       "facts": [
         {
           "any_of": [
-            "8m"
+            "8m",
+            "8 m",
+            "8 meter",
+            "8 meters",
+            "8 metern",
+            "8 metres"
           ],
           "matched": false
         },
         {
           "any_of": [
-            "12m"
+            "12m",
+            "12 m",
+            "12 meter",
+            "12 meters",
+            "12 metern",
+            "12 metres"
           ],
           "matched": false
         }
@@ -2595,13 +2628,23 @@
       "facts": [
         {
           "any_of": [
-            "70m"
+            "70m",
+            "70 m",
+            "70 meter",
+            "70 meters",
+            "70 metern",
+            "70 metres"
           ],
           "matched": false
         },
         {
           "any_of": [
-            "65m"
+            "65m",
+            "65 m",
+            "65 meter",
+            "65 meters",
+            "65 metern",
+            "65 metres"
           ],
           "matched": false
         }

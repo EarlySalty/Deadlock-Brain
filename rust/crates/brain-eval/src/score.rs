@@ -29,30 +29,51 @@ pub struct CaseResult {
     pub text: Option<String>,
 }
 
+pub struct Answer {
+    pub status: AnswerStatus,
+    pub text: String,
+    pub citation_count: usize,
+    pub knowledge_release: Option<String>,
+    pub latency_ms: u128,
+}
+
 pub fn score_response(
     case: &GoldCase,
     response: &PublicAnswerResponse,
     latency_ms: u128,
 ) -> CaseResult {
-    let facts = match_facts(case, &response.text);
+    score_answer(
+        case,
+        Answer {
+            status: response.status,
+            text: response.text.clone(),
+            citation_count: response.citations.len(),
+            knowledge_release: Some(response.knowledge_release.clone()),
+            latency_ms,
+        },
+    )
+}
+
+pub fn score_answer(case: &GoldCase, answer: Answer) -> CaseResult {
+    let facts = match_facts(case, &answer.text);
     let facts_matched = facts.iter().filter(|f| f.matched).count();
-    let outcome_ok = outcome_matches(case.expect, response.status);
+    let outcome_ok = outcome_matches(case.expect, answer.status);
     let correct = match case.expect {
         Expect::Answered => outcome_ok && facts_matched == facts.len(),
         Expect::InsufficientEvidence => outcome_ok,
     };
     CaseResult {
-        status: Some(response.status),
+        status: Some(answer.status),
         error: None,
         outcome_ok,
         correct,
         facts_matched,
         facts_total: facts.len(),
         facts,
-        citation_count: response.citations.len(),
-        knowledge_release: Some(response.knowledge_release.clone()),
-        latency_ms,
-        text: Some(response.text.clone()),
+        citation_count: answer.citation_count,
+        knowledge_release: answer.knowledge_release,
+        latency_ms: answer.latency_ms,
+        text: Some(answer.text),
         ..base(case)
     }
 }
