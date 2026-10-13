@@ -1,0 +1,75 @@
+P4 runtime-contract verification, 2026-10-13
+
+Worktree: /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-aa59d1688bbf86f50
+Branch: feat/brain-p4-runtime-contract-20261013
+Base: 0c62bc997d37efe3d2bdc461a4f69f0beebd26cc
+Approved owner: e8a1ef45788faeb988464bf44bf8f0932f12c09c
+Merge: 2e854ea7077a667db4db97475c03ea7365c361c9
+Merge parents: base and approved owner, no rebase.
+Toolchain: 1.97.1, explicit +1.97.1 on every final Cargo invocation.
+Compiler routing: existing cargo-slot, remote-first, shared sccache and central artifacts, verify profile, no deploy build.
+
+Final formatter
+/home/nathanael/.cargo/bin/cargo +1.97.1 fmt --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-aa59d1688bbf86f50/rust/Cargo.toml --check -p brain-contracts -p brain-serve
+Exit: 0
+Log: /tmp/p4-runtime-fix-fmt-verified-aa59.log
+SHA-256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+
+Final compiler
+/home/nathanael/.local/bin/cargo-slot +1.97.1 check --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-aa59d1688bbf86f50/rust/Cargo.toml --locked --jobs 3 -p brain-contracts -p brain-serve --tests
+Exit: 0
+Log: /tmp/p4-runtime-fix-check-verified-aa59.log
+SHA-256: a58b188d7fefa4c32ca2a1c3613327cd437c946317872ad58af3e3e446bae6fa
+
+Final Clippy
+/home/nathanael/.local/bin/cargo-slot +1.97.1 clippy --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-aa59d1688bbf86f50/rust/Cargo.toml --locked --jobs 3 -p brain-contracts -p brain-serve --tests -- -D warnings
+Exit: 0
+Log: /tmp/p4-runtime-fix-clippy-verified-aa59.log
+SHA-256: 1d027fc178a1c8cfa6e6d29ca2c5a0b175feda36d5ca0b25a33faff5ec5cf55a
+
+Contract and kernel tests
+/home/nathanael/.local/bin/cargo-slot +1.97.1 test --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-aa59d1688bbf86f50/rust/Cargo.toml --locked --jobs 3 -p brain-contracts -p brain-kernel -- --include-ignored --nocapture
+Exit: 0, remote ionos
+brain-contracts: 65 + 9 + 23 + 6 + 11 = 114 passed
+brain-kernel: 78 + 8 + 6 + 6 + 5 + 6 = 109 passed
+Total: 223 passed, 0 failed, 0 ignored, 0 filtered; two doc-test targets contain zero tests.
+Log: /tmp/p4-runtime-fix-contract-kernel-aa59.log
+SHA-256: fe90b65807ee351a5fd8c2889e8d353afff7a38273cdecc1c5ab3cd0631cbcd2
+
+Runtime and receipt tests
+/home/nathanael/.local/bin/cargo-slot +1.97.1 test --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-aa59d1688bbf86f50/rust/Cargo.toml --locked --jobs 3 -p brain-serve --test pg_patch_tools --test pg_patch_port -- --include-ignored --nocapture --test-threads=1
+Exit: 0, remote ionos, cargo-remote EXIT=0
+pg_patch_port: 9 passed, 0 failed, 0 ignored, 0 filtered
+pg_patch_tools: 14 passed, 0 failed, 0 ignored, 0 filtered
+Total: 23 passed, 0 failed, 0 ignored, 0 filtered
+Log: /tmp/p4-runtime-fix-pg-remote-aa59.log
+SHA-256: bd77b2b0253dece8e7608f4ed2b639ef35eb2d61ae3457d2739e31a0a9bfc95f
+
+The ten actual P4 unit tests are compiled directly from ../src/pg_patch_tools.rs as p4_unit_contracts in the integration target. The four DB tests still call the production brain_serve::pg_patch_tools functions. This runs the existing unit contracts without linking the entire brain-serve test library. Owner pg_tools.rs and answer_trace.rs, including their six tests, are compiled directly from their actual source paths, not copied and not exported through a new runtime API.
+
+Observed markers
+P4_OWNER_RECEIPT_PROOF: actual owner FindEntity/GetHero and PgPatchToolPort, real scratch PostgreSQL, alias/entity/stat Evidence byte equality, real three-tool kernel publication loop, all validation purposes, exact_input_budget=45907.
+P4_OMISSION_SEAL_PROOF: three distinct posts/runs, only the omitted middle receipt quarantined through serve.published_receipt; selected row and evidence unchanged; omitted_count 2->1; stale seal rejected for Provider, Publication and Cache; fresh dependency accepted.
+P4_DB_PROOF and P4_HEAD_PROOF: existing scope, read-only, 500ms, complete citations, quarantine propagation, supersession, failed-run isolation, Unicode binding and whole-execution output below 16384 bytes remain checked.
+
+Final unique test count: 246 passed, 0 failed, 0 ignored.
+
+Merge-stage contract baseline
+/home/nathanael/.local/bin/cargo-slot +1.97.1 test --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-aa59d1688bbf86f50/rust/Cargo.toml --locked --jobs 3 -p brain-contracts -- --include-ignored --nocapture
+113 passed, 0 failed, 0 ignored, 0 filtered; not included in the final unique count.
+Log: /tmp/p4-runtime-merge-tests-197-aa59.log
+
+Earlier attempts, not counted as final proof
+The first runtime command used the same target/flags as the final runtime command. Its pg_patch_port target reported 8 passed, 1 failed, 0 ignored. The new combined kernel fixture exhausted its default 12000 input budget after the first provider turn. Receipt byte comparisons and the existing owner tests passed. This was a real fixture failure, not an environmental flake. The fixture now derives its exact total input requirement from the existing central grounded_turn_input_ceiling for both wire formats and asserts that kernel accounting charges exactly that amount. No production budget, model, provider or cost setting changed.
+Log: /tmp/p4-runtime-fix-pg-aa59.log
+SHA-256: 7d7c1b55a2d9d90d1c0aab54bc38f3dfdb3959f7e4f2a1760ead12a16e5096d4
+The automatic local fallback and subsequent local waits were stopped; no completed tests from those waits are counted. The attempted --lib pg_patch command reached its 600-second background limit before reporting any test results. All ten unit contracts subsequently passed in the final targeted integration run. The additional 32000-budget attempt was stopped before any results and was replaced by measured input accounting, not a guessed higher limit.
+Only the empty test-fallback marker for this exact workspace was removed after fixing the fixture cause: /run/user/1000/cargo-remote/local-578f8cb9e7062ee9.test. Workspace-root SHA-256 starts with 578f8cb9e7062ee9. Foreign builds, release processes, caches and services were not stopped or changed. The final normal cargo-slot run then succeeded on ionos.
+Preliminary unpinned formatter/compiler and a filtered contract run were not used as final pinned-toolchain proof.
+
+Unchanged artifact check
+P4 migration SHA-256: bc849a1a5e130487e8da4052168ca07a0b81bf4fb06f6f26a6a180b641d7ebee, identical to the reviewed component.
+No changes to brain-job, brain-storage or migrations relative to the approved parent.
+No post-merge changes to owner service.rs, pg_tools.rs or answer_trace.rs.
+No Core2 cache tests, source-load memory repeats, real feed reads or external AI calls were run.
+No main merge, push, merge gate, deployment or live verification was performed.

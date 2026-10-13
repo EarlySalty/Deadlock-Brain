@@ -1097,7 +1097,12 @@ impl ToolExecution {
             Some(game)
         };
         let mut expected_request = request.clone();
-        if matches!(request.name(), ToolName::FindEntity | ToolName::GetHero) {
+        if matches!(request.name(), ToolName::FindEntity | ToolName::GetHero)
+            || matches!(
+                request.subrequest(),
+                ToolSubrequest::CanonicalPatchHistory(_)
+            )
+        {
             expected_request.canonical_result_sha256 = Some(canonical_result_sha256(&self.result)?);
         }
         let mut ids = BTreeSet::new();

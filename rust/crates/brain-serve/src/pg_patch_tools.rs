@@ -102,9 +102,15 @@ pub async fn validate_patch_dependency(
     if dependency.game_context.is_some() || dependency.evidence.is_empty() {
         return Err(invalid());
     }
-    let current =
-        execute_patch_history(pool, query, context, "revalidation", &dependency.request).await?;
-    if current.dependencies.len() != 1 || current.dependencies[0].evidence != dependency.evidence {
+    let current = execute_patch_history(
+        pool,
+        query,
+        context,
+        "revalidation",
+        &dependency.request.without_canonical_result(),
+    )
+    .await?;
+    if current.dependencies.as_slice() != std::slice::from_ref(dependency) {
         return Err(PortError::Unavailable(
             "Patchbelege haben sich geändert.".into(),
         ));
@@ -372,9 +378,13 @@ fn receipt_evidence(row: Value) -> Result<Evidence, PortError> {
             return Err(invalid());
         }
     }
+    let content = json!({"citation":citation,"raw_object_id":content["raw_object_id"],"source":source,
+        "ingest_run_id":revision,"source_revision":content["source_revision"],
+        "path":content["path"],"locator_kind":content["locator_kind"],"locator":content["locator"],
+        "value_sha256":content["value_sha256"],"extractor":content["extractor"],"patch":null});
     let evidence = Evidence {
         evidence_id: citation.clone(),
-        source_id: source.into(),
+        source_id: format!("canon.source/{source}"),
         logical_id: format!("receipt/{id}"),
         revision,
         kind: EvidenceKind::Fact,
@@ -409,7 +419,7 @@ fn bound_execution(
         if selected.len() != ids.len() {
             return Err(invalid());
         }
-        let execution = ToolExecution {
+        let mut execution = ToolExecution {
             result: ToolResult {
                 call_id: id.into(),
                 name: request.name(),
@@ -427,7 +437,13 @@ fn bound_execution(
         let mut worst = execution.clone();
         worst.result.call_id = "\"".repeat(512);
         if serde_json::to_vec(&worst).map_err(|_| invalid())?.len() < MAX_BYTES {
-            return Ok(execution);
+            execution.dependencies[0] = execution.dependencies[0]
+                .clone()
+                .with_canonical_result(&execution.result)?;
+            worst.dependencies.clone_from(&execution.dependencies);
+            if serde_json::to_vec(&worst).map_err(|_| invalid())?.len() < MAX_BYTES {
+                return Ok(execution);
+            }
         }
         value["changes"].as_array_mut().ok_or_else(invalid)?.pop();
         let omitted = value["omitted_count"].as_u64().unwrap_or(0);

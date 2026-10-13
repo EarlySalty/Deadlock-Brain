@@ -24,7 +24,17 @@ use std::{
 };
 
 #[path = "../../brain-storage/tests/support/scratch_pg.rs"]
-mod scratch_pg;
+pub(crate) mod scratch_pg;
+
+#[path = "../src/pg_tools.rs"]
+mod pg_tools;
+
+#[path = "../src/answer_trace.rs"]
+mod answer_trace;
+
+mod deadlock_data {
+    pub(crate) use crate::scratch_pg;
+}
 
 type Validation = (
     Option<PinnedGameContext>,
@@ -415,7 +425,16 @@ async fn adapter_executes_real_pg_and_revalidates_without_legacy_pin_or_retrieva
                 receipts::value_bytes(&raw.bytes, &locator).unwrap()
             ))
         );
-        assert_eq!(content["content_sha256"], hex::encode(raw.content_sha256));
+        assert!(content.get("content_sha256").is_none());
+        let content_hash: String = sqlx::query_scalar(
+            "SELECT receipt->>'content_sha256' FROM serve.p4_patch_receipt WHERE receipt_id=$1",
+        )
+        .bind(evidence.evidence_id.parse::<i64>().unwrap())
+        .fetch_one(&reader)
+        .await
+        .unwrap();
+        assert_eq!(content_hash, hex::encode(raw.content_sha256));
+        assert_eq!(evidence.source_id, format!("canon.source/{}", raw.source));
         assert!(evidence.patch.is_none());
     }
     for purpose in [
@@ -508,6 +527,335 @@ async fn adapter_executes_real_pg_and_revalidates_without_legacy_pin_or_retrieva
             ToolValidationPurpose::Publication
         )
         .is_err());
+    reader.close().await;
+    writer.close().await;
+    admin.close().await;
+}
+
+struct EmptyDelegate;
+
+impl ToolExecutionPort for EmptyDelegate {
+    fn definitions(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        _: Option<&PinnedGameContext>,
+    ) -> Result<Vec<ToolDefinition>, PortError> {
+        Ok(Vec::new())
+    }
+
+    fn execute(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        _: Option<&PinnedGameContext>,
+        _: &str,
+        _: &ToolRequest,
+    ) -> Result<ToolExecution, PortError> {
+        panic!("all three canonical tools must execute PostgreSQL")
+    }
+
+    fn validate_dependencies(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        _: Option<&PinnedGameContext>,
+        dependencies: &[ToolEvidenceDependency],
+        _: ToolValidationPurpose,
+    ) -> Result<(), PortError> {
+        assert!(dependencies.is_empty());
+        Ok(())
+    }
+}
+
+struct NoRetrieval;
+
+impl brain_contracts::RetrievalPort for NoRetrieval {
+    fn retrieve(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+    ) -> Result<Vec<brain_contracts::Evidence>, PortError> {
+        panic!("canonical tool loop must not retrieve legacy evidence")
+    }
+}
+
+struct NoPin;
+
+impl brain_contracts::tools::GameContextResolver for NoPin {
+    fn resolve(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+    ) -> Result<Option<PinnedGameContext>, PortError> {
+        Ok(None)
+    }
+
+    fn validate(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        pin: Option<&PinnedGameContext>,
+    ) -> Result<(), PortError> {
+        assert!(pin.is_none());
+        Ok(())
+    }
+}
+
+struct CombinedProvider {
+    expected: std::collections::BTreeMap<String, brain_contracts::Evidence>,
+}
+
+impl brain_contracts::AnswerProviderPort for CombinedProvider {
+    fn answer(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        _: &[brain_contracts::Evidence],
+    ) -> Result<brain_contracts::ProviderAnswer, PortError> {
+        panic!("combined proof requires the real kernel tool loop")
+    }
+
+    fn answer_turn(
+        &self,
+        _: &Query,
+        _: &AuthorizedContext,
+        evidence: &[brain_contracts::Evidence],
+        definitions: &[ToolDefinition],
+        conversation: &brain_contracts::ToolConversation,
+    ) -> Result<brain_contracts::ProviderTurn, PortError> {
+        use brain_contracts::{
+            ModelBlock, ProviderAnswer, ProviderFinishReason, ProviderTurn, ToolMessage,
+        };
+        assert_eq!(definitions.len(), 3);
+        let call = match conversation.messages.last() {
+            None => ToolCall {
+                id: "find".into(),
+                name: ToolName::FindEntity,
+                arguments: json!({"text":"Baba","kind":"hero"}),
+            },
+            Some(ToolMessage::ToolResults { results })
+                if results[0].name == ToolName::FindEntity =>
+            {
+                assert!(!results[0].is_error);
+                assert_eq!(results[0].result["resolved"], true);
+                ToolCall {
+                    id: "hero".into(),
+                    name: ToolName::GetHero,
+                    arguments: json!({"hero":results[0].result["entities"][0]["entity_id"]}),
+                }
+            }
+            Some(ToolMessage::ToolResults { results }) if results[0].name == ToolName::GetHero => {
+                assert!(!results[0].is_error);
+                ToolCall {
+                    id: "patch".into(),
+                    name: ToolName::PatchHistory,
+                    arguments: json!({"entity":results[0].result["identity"]["entity_id"]}),
+                }
+            }
+            Some(ToolMessage::ToolResults { results })
+                if results[0].name == ToolName::PatchHistory =>
+            {
+                assert!(!results[0].is_error);
+                assert_eq!(results[0].result["changes"][0]["old"], "600");
+                assert_eq!(results[0].result["changes"][0]["new"], "650");
+                let seen = evidence
+                    .iter()
+                    .map(|item| (item.evidence_id.clone(), item.clone()))
+                    .collect::<std::collections::BTreeMap<_, _>>();
+                assert_eq!(seen.len(), evidence.len());
+                assert_eq!(seen, self.expected);
+                return Ok(ProviderTurn::from(ProviderAnswer {
+                    text: "Babas Gesundheit beträgt 650. Die offizielle Patchzeile nennt eine Erhöhung von 600 auf 650.".into(),
+                    cited_evidence_ids: self.expected.keys().cloned().collect(),
+                    usage: Usage { network_rounds: 1, ..Usage::default() },
+                }));
+            }
+            _ => panic!("unexpected combined tool conversation"),
+        };
+        Ok(ProviderTurn::ToolCalls {
+            blocks: vec![ModelBlock::ToolUse { call }],
+            finish_reason: ProviderFinishReason::ToolUse,
+            usage: Usage {
+                network_rounds: 1,
+                ..Usage::default()
+            },
+        })
+    }
+}
+
+fn combined_input_budget(
+    query: &Query,
+    definitions: &[ToolDefinition],
+    executions: &[&ToolExecution],
+) -> u32 {
+    use brain_contracts::{
+        provider_input::{grounded_turn_input_ceiling, ToolWireFormat},
+        ModelBlock, ToolConversation, ToolMessage,
+    };
+    let mut conversation = ToolConversation::default();
+    let mut evidence = std::collections::BTreeMap::new();
+    let ceiling = |conversation: &ToolConversation, evidence: Vec<brain_contracts::Evidence>| {
+        [ToolWireFormat::Native, ToolWireFormat::OpenAiCompatible]
+            .into_iter()
+            .map(|format| {
+                grounded_turn_input_ceiling(query, &evidence, definitions, conversation, format)
+                    .unwrap()
+            })
+            .max()
+            .unwrap()
+    };
+    let mut total = ceiling(&conversation, Vec::new());
+    for execution in executions {
+        conversation.messages.push(ToolMessage::Assistant {
+            blocks: vec![ModelBlock::ToolUse {
+                call: ToolCall {
+                    id: execution.result.call_id.clone(),
+                    name: execution.result.name,
+                    arguments: execution.dependencies[0].request.arguments().clone(),
+                },
+            }],
+        });
+        conversation.messages.push(ToolMessage::ToolResults {
+            results: vec![execution.result.clone()],
+        });
+        for item in &execution.dependencies[0].evidence {
+            evidence.insert(item.evidence_id.clone(), item.clone());
+        }
+        total += ceiling(&conversation, evidence.values().cloned().collect());
+    }
+    u32::try_from(total).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop() {
+    use brain_kernel::AnswerKernelPort;
+    let pg = scratch_pg::ScratchPg::start();
+    let (admin, reader, writer) = database(&pg).await;
+    let store = GameFactsStore::new(writer.clone());
+    publish(
+        &store,
+        "gamefiles",
+        json!({"alias":"baba","health":650}),
+        true,
+    )
+    .await;
+    publish(&store, "deadlock_patchnotes_db", json!({"title":"Patch 287","posted_at":"2026-10-10T12:00:00Z","url":"https://store.steampowered.com/news/app/1422450/view/287","raw_content":"Baba health increased from 600 to 650"}), false).await;
+    sqlx::query("ALTER ROLE brain_readonly LOGIN")
+        .execute(&admin)
+        .await
+        .unwrap();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_readonly")
+        .database("postgres")
+        .password("")
+        .ssl_mode(PgSslMode::Disable);
+    let pool = pg_tools::tool_pool(options, std::time::Duration::from_secs(2));
+    let tools = pg_tools::PgTools::new(
+        PgPatchToolPort::new(
+            EmptyDelegate,
+            pool.clone(),
+            tokio::runtime::Handle::current(),
+        )
+        .unwrap(),
+        pool.clone(),
+        tokio::runtime::Handle::current(),
+    );
+    let (mut query, mut context) = query_context();
+    query.text = "Baba Steckbrief und Patchänderungen".into();
+    query.profile = brain_contracts::AnswerProfile::Explain;
+    context.deadline_ms = 30_000;
+    context.budget.max_network_rounds = 8;
+    let definitions = tools.definitions(&query, &context, None).unwrap();
+    let execute = |name, arguments, id: &str| {
+        let call = ToolCall {
+            id: id.into(),
+            name,
+            arguments,
+        };
+        let request = call.validate(&definitions).unwrap();
+        let execution = tools.execute(&query, &context, None, id, &request).unwrap();
+        execution.validate_for(&call, &request, None).unwrap();
+        assert!(!execution.result.is_error, "{:?}", execution.result);
+        execution
+    };
+    let find = execute(
+        ToolName::FindEntity,
+        json!({"text":"Baba","kind":"hero"}),
+        "find",
+    );
+    let entity = find.result.result["entities"][0]["entity_id"]
+        .as_i64()
+        .unwrap();
+    let hero = execute(ToolName::GetHero, json!({"hero":entity}), "hero");
+    let patch = execute(ToolName::PatchHistory, json!({"entity":entity}), "patch");
+    for (field, owner) in [
+        ("binding_citation", &find),
+        ("entity_citation", &find),
+        ("entity_citation", &hero),
+        ("stat_citation", &hero),
+    ] {
+        let id = patch.result.result["changes"][0][field].as_str().unwrap();
+        let actual = patch.dependencies[0]
+            .evidence
+            .iter()
+            .find(|item| item.evidence_id == id)
+            .unwrap();
+        let expected = owner.dependencies[0]
+            .evidence
+            .iter()
+            .find(|item| item.evidence_id == id)
+            .unwrap();
+        assert_eq!(actual, expected, "{field}");
+        assert_eq!(actual.content.as_bytes(), expected.content.as_bytes());
+        assert_eq!(
+            serde_json::to_vec(actual).unwrap(),
+            serde_json::to_vec(expected).unwrap()
+        );
+    }
+    let mut expected = std::collections::BTreeMap::new();
+    let mut dependencies = Vec::new();
+    for execution in [&find, &hero, &patch] {
+        dependencies.extend(execution.dependencies.clone());
+        for item in &execution.dependencies[0].evidence {
+            if let Some(previous) = expected.insert(item.evidence_id.clone(), item.clone()) {
+                assert_eq!(previous, *item);
+            }
+        }
+    }
+    for purpose in [
+        ToolValidationPurpose::Provider,
+        ToolValidationPurpose::Publication,
+        ToolValidationPurpose::Cache,
+    ] {
+        tools
+            .validate_dependencies(&query, &context, None, &dependencies, purpose)
+            .unwrap();
+    }
+    let count = expected.len();
+    let input_budget = combined_input_budget(&query, &definitions, &[&find, &hero, &patch]);
+    context.budget.max_input_tokens = input_budget;
+    let kernel = brain_kernel::Kernel::new(NoRetrieval, CombinedProvider { expected }).with_tools(
+        answer_trace::TracedTools(tools),
+        NoPin,
+        "fixture",
+    );
+    let accounted = kernel.answer_for_publication_accounted(&query, &context);
+    let answer = accounted.value;
+    assert_eq!(
+        accounted.accounting.charged().input_tokens,
+        u64::from(input_budget)
+    );
+    assert_eq!(
+        answer.status,
+        brain_contracts::AnswerStatus::Answered,
+        "{answer:?}"
+    );
+    assert_eq!(answer.citations.len(), count);
+    println!("P4_OWNER_RECEIPT_PROOF actual pg_tools.rs FindEntity/GetHero + PgPatchToolPort, real scratch PostgreSQL, alias/entity/stat Evidence byte equality, real three-tool kernel publication loop, all validation purposes, exact_input_budget={input_budget}");
+    pool.close().await;
     reader.close().await;
     writer.close().await;
     admin.close().await;
