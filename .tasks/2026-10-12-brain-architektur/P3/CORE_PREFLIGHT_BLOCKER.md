@@ -1,4 +1,14 @@
-# P1r-owned CLI preflight blocker, 2026-10-13
+# P1r-owned verification history, 2026-10-13
+
+## Current state after approved core 3
+
+Approved owner checkpoint 19dec0c96d4765cff9a9a5dd37f5ad2a84bbe7d5 is merged and pushed in e51a2bd8. The preflight and A -> B -> A defects documented below are resolved, not current production-code blockers. The real private brain_ingest CLI accepted both pinned Timer objects, unchanged repeat ignored both with stable raw/fact/receipt counts 2/14/26, and successful process RSS was 8816 KB. Actual reversion restored 120.00, accepted=1/rejected=0/ignored=0, with raw_count=4. Logs: /tmp/brain-p3-core3-cli-index-memory-20261013.log and /tmp/brain-p3-core3-job-corrected-tests-20261013.log. No live/cgroup proof is claimed.
+
+A different inherited Core test remains red: pg_tools_tests.rs:802-805 tries to demote succeeded fixture runs to failed; owner migration 7 correctly rejects it with SQLSTATE 23514 from ops.keep_published_run. Shared PG suite: 6 passed, 1 failed, 0 ignored, remote EXIT=101. Exact command and log are in P3/TODO.md. A fresh reviewer verified the same mutation exists unchanged in 19dec0c9. No trigger bypass or test skip was attempted.
+
+The orchestrator assigned that test and a registry-tolerant tool count to P1r checkpoint core 3a, forbade further pg_tools_tests.rs changes, and explicitly authorized finishing the core-3 intermediate merge. Wait for the forwarded core 3a SHA, merge without rebasing, rerun the shared PG suite and final gate. Core implementations stay frozen; only P1r integrates/deploys.
+
+## Earlier reproduced blockers
 
 P3 branch: feat/brain-p3-timers-20261012-v2. Published core merge: e8e3e577, includes e8a1ef45788faeb988464bf44bf8f0932f12c09c.
 

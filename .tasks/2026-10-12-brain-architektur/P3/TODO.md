@@ -1,5 +1,27 @@
 # P3 resume, 2026-10-13
 
+Current integration checkpoint: e51a2bd8, committed and pushed. It merges approved P1r core 3 (19dec0c96d4765cff9a9a5dd37f5ad2a84bbe7d5) without rebasing. Hero and TimerExtractor are both registered; migration versions are 1, 2, 7. Version 7 belongs to P1r, not P3. The three original functional gate blockers are resolved in this checkpoint. The orchestrator explicitly authorized finishing this intermediate merge while P1r corrects the inherited publication-mutation test in core 3a. No ALLOW or live deployment is claimed.
+
+## Core 3 verification and next owner checkpoint
+
+- Real private PostgreSQL CLI as brain_ingest succeeded on both pinned GameTracking objects: first accepted=2/rejected=0/ignored=0, unchanged rerun accepted=0/rejected=0/ignored=2. Raw/fact/receipt counts remained 2/14/26. Process RSS peaks were 8816 KB first run and 6360 KB repeat. These are successful process measurements, not production-unit or cgroup peaks.
+- The same isolated CLI/index probe used actual registered migration SQL 1, 2, 7 and the exact timer_query.sql as brain_readonly -> brain_tool, read-only with 500 ms timeout. The labelled 1500-alias public catalog benchmark still has a natural timer_key_idx Index Scan, four matching aliases, two hit blocks, Execution Time 3.525 ms, Planning Time 3.457 ms. Timer facts stayed at 14. Log: /tmp/brain-p3-core3-cli-index-memory-20261013.log; full plan: /tmp/brain-p3-index-probe-20261013-2q30lr4w/plan.json. See timer-index-proof.json for the qualified current offline evidence.
+- Actual temporary A -> B -> A verification restored 120.00 after 125, accepted=1/rejected=0/ignored=0, two restored facts and raw_count=4. The first observational assertion incorrectly expected ignored=1; it was corrected against the new latest-application contract, then the real run passed. Log: /tmp/brain-p3-core3-job-corrected-tests-20261013.log. Temporary instrumentation was removed exactly; the published extractor/test budget remains 787 lines. Final published timer tests also passed separately.
+- Completed affected checks: brain-job 19 passed (5 lib, 7 Hero, 4 core ingest, 3 timer), brain-contracts 112 passed (69/9/23/11), storage parser/run-lock 14 passed (8/6), storage migration tests 3 passed. Every completed check had zero failed/ignored tests. Logs: /tmp/brain-p3-core3-job-corrected-tests-20261013.log, /tmp/brain-p3-core3-contract-tests-20261013.log, /tmp/brain-p3-core3-parser-and-lock-tests-20261013.log, /tmp/brain-p3-core3-migration-tests-20261013.log. No baseline claim is made.
+- The real Timer PG integration passed with exact canonical Evidence equality through CanonicalReceipt::from_evidence and format_receipt, matching returned row citations and Evidence IDs. Bounded ToolResult is 14721 bytes; internal ToolExecution is 19526 bytes. Read-only session, timeout, receipts, missing/history/auth errors, truncation and dependency revalidation remain exercised. The shared PG suite is NOT green: 6 passed, 1 failed, 0 ignored. See the remaining owner blocker below.
+
+Final independent formatter and strict four-package all-target Clippy passed after removing the temporary observation, logs /tmp/brain-p3-core3-final-fmt-20261013.log and /tmp/brain-p3-core3-final-clippy-20261013.log. Targeted published timers_ingest rerun passed 3/0/0, log /tmp/brain-p3-core3-final-timer-tests-20261013.log. The fresh native read-only fixer/reviewer independently confirmed the original three blockers are resolved, canonical Timer wiring and bounds are correct, and no new P3-owned correctness/security fix is necessary.
+
+### Remaining inherited test blocker, assigned to P1r core 3a
+
+The exact shared PG command `CARGO_SLOT_REMOTE=1 cargo-slot test --manifest-path rust/Cargo.toml --release --locked --jobs 3 -p brain-serve service::pg_tools -- --include-ignored --nocapture` reached pg_tools_tests.rs:802-805 and failed, remote EXIT=101, 6 passed/1 failed/0 ignored. The unchanged inherited test demotes succeeded fixture runs to failed; migration 7 correctly rejects this with SQLSTATE 23514 from ops.keep_published_run. Log: /tmp/brain-p3-core3-pg-tool-count-corrected-tests-20261013.log. The new trigger was not bypassed and no existing test was skipped or weakened.
+
+The earlier additive tool-count assertion was adjusted from 3 to 4 because GetTimer joins the core tools and ThirdAdapter. The orchestrator subsequently assigned the parent test and registry-tolerant count to P1r core 3a and forbade further pg_tools_tests.rs edits. Its publication-mutation test body remains unchanged. A fresh reviewer verified that the failing mutation is also present in 19dec0c9 and is a Core test-contract mismatch, not a P3 production defect.
+
+The orchestrator explicitly ordered: finish and publish the 19dec0c9 merge; keep core files frozen; merge the forwarded core 3a checkpoint without rebasing; rerun the shared PG suite and the gate with a fresh fixer per BLOCK round. Do not repeatedly rerun the known-red suite unchanged. Formal final gate waits for core 3a. P1r alone integrates/deploys, proves live answer/trace and system-unit/cgroup behavior, and cleans up after the agreed handover.
+
+## Earlier verification history
+
 Assigned worktree: /home/nathanael/.worktrees/Deadlock-Brain-p3-timers
 Branch: feat/brain-p3-timers-20261012-v2
 Starting remote HEAD: 8254393a8434b3446b9e575ca42e40639ec6d2b7, clean. Earlier verified work is in AUFTRAG.md.
