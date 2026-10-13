@@ -1192,6 +1192,61 @@ fn precondition_category(bytes: &[u8]) -> &'static str {
 }
 
 #[cfg(test)]
+mod citation_tests {
+    use super::*;
+    use brain_contracts::canonical_receipt::{format_receipt, CanonicalReceipt};
+    use serde_json::json;
+
+    fn canonical_evidence() -> Evidence {
+        format_receipt(&CanonicalReceipt {
+            raw_receipt_id: 42,
+            raw_object_id: 7,
+            ingest_run_id: 3,
+            source: "fixture".into(),
+            source_revision: "r1".into(),
+            path: "hero.json".into(),
+            locator_kind: "json_pointer".into(),
+            locator: "/name".into(),
+            value_sha256: "ab".repeat(32),
+            extractor: "fixture-v1".into(),
+            patch: None,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn canonical_selected_citations_require_exact_complete_ids() {
+        let evidence = canonical_evidence();
+        let id = evidence.evidence_id.clone();
+        let mut deleted = id.clone();
+        deleted.remove(84);
+        let mut substituted = id.clone();
+        let replacement = if &id[51..52] == "2" { "4" } else { "2" };
+        substituted.replace_range(51..52, replacement);
+        let supplied = std::slice::from_ref(&evidence);
+        let mut check =
+            super::super::audit::check("grounded_envelope", "message.content", "valid envelope");
+        let valid =
+            json!({"text":"Belegter Steckbrief", "cited_evidence_ids":[id.clone()]}).to_string();
+        let answer = grounded_answer(valid, Usage::default(), supplied, true, &mut check).unwrap();
+        assert_eq!(answer.cited_evidence_ids, vec![id.clone()]);
+        for selected in [
+            vec![deleted],
+            vec![substituted],
+            vec![id.clone(), id],
+            vec![],
+        ] {
+            let raw =
+                json!({"text":"Belegter Steckbrief", "cited_evidence_ids":selected}).to_string();
+            let error =
+                grounded_answer(raw, Usage::default(), supplied, true, &mut check).unwrap_err();
+            assert!(matches!(error, ProviderError::InvalidResponse(_)));
+            assert_eq!(check.check, "citation_invalid");
+        }
+    }
+}
+
+#[cfg(test)]
 mod precondition_tests {
     #[test]
     fn specific_rejections_take_precedence_over_model_mentions() {
