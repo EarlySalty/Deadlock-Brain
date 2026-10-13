@@ -28,6 +28,7 @@ members = [
   "crates/dbrain-sources",
   "crates/dbrain-wiki",
   "crates/dbrain-session-store",
+  "crates/brain-eval",
 ]
 exclude = ["crates/dbrain-replay"]
 

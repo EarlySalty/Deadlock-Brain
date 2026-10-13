@@ -1,0 +1,17 @@
+[package]
+name = "brain-eval"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "brain-eval"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+brain-client = { path = "../brain-client" }
+clap.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

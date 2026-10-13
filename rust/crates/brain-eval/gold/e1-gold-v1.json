@@ -1,0 +1,3093 @@
+{
+  "schema": "brain.e1-gold.v1",
+  "version": 1,
+  "created": "2026-10-13",
+  "sources": {
+    "deadlock_api": [
+      "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+      "https://api.deadlock-api.com/v1/assets/heroes?language=german",
+      "https://api.deadlock-api.com/v1/assets/items?language=english",
+      "https://api.deadlock-api.com/v1/assets/items?language=german",
+      "https://api.deadlock-api.com/v1/assets/generic-data",
+      "https://api.deadlock-api.com/v1/assets/misc-entities"
+    ],
+    "patch_posts": [
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1845383656394833",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1841579228672283",
+      "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183775204"
+    ],
+    "docs_base": "https://deutsche-deadlock-community.de/docs/",
+    "fetched": "2026-10-13"
+  },
+  "cases": [
+    {
+      "id": "hero-001",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie viel Lebenspunkte hat Abrams zu Spielbeginn?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "800"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+            "field": "Abrams.starting_stats.max_health.value",
+            "value": "800"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-002",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Infernus's base health?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "830"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+            "field": "Infernus.starting_stats.max_health.value",
+            "value": "830"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-003",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie viele Lebenspunkte hat Seven ohne Items?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "730"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+            "field": "Seven.starting_stats.max_health.value",
+            "value": "730"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-004",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Haze's base move speed?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "8.2"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+            "field": "Haze.starting_stats.max_move_speed.value",
+            "value": "8.2"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-005",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie schnell läuft Vindicta als Grundwert?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "7.9"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+            "field": "Vindicta.starting_stats.max_move_speed.value",
+            "value": "7.9"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-006",
+      "category": "hero",
+      "lang": "en",
+      "question": "How much base health does Mo & Krill have?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "930"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+            "field": "Mo & Krill.starting_stats.max_health.value",
+            "value": "930"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-007",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie viel Schaden macht Bebops leichter Nahkampfangriff?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "63"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+            "field": "Bebop.starting_stats.light_melee_damage.value",
+            "value": "63"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-008",
+      "category": "hero",
+      "lang": "en",
+      "question": "How much damage does Yamato's heavy melee deal at base?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "128"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+            "field": "Yamato.starting_stats.heavy_melee_damage.value",
+            "value": "128"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-009",
+      "category": "hero",
+      "lang": "de",
+      "question": "Welche Lebensregeneration hat Drifter als Grundwert?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "3.5"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+            "field": "Drifter.starting_stats.base_health_regen.value",
+            "value": "3.5"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-010",
+      "category": "hero",
+      "lang": "en",
+      "question": "How many stamina charges does Grey Talon have?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "4"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+            "field": "Grey Talon.starting_stats.stamina.value",
+            "value": "4"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-011",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie viele Lebenspunkte hat Mina am Anfang?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "660"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+            "field": "Mina.starting_stats.max_health.value",
+            "value": "660"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-012",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Lady Geist's starting health?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "880"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/heroes?language=english",
+            "field": "Lady Geist.starting_stats.max_health.value",
+            "value": "880"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-013",
+      "category": "hero",
+      "lang": "de",
+      "question": "Welche vier Fähigkeiten hat Abrams?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Siphon Life",
+            "Lebensextraktion"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Abrams.items.signature1 -> citadel_ability_bull_heal.name",
+            "value": "Siphon Life"
+          }
+        },
+        {
+          "any_of": [
+            "Shoulder Charge",
+            "Schulterstoß"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Abrams.items.signature2 -> citadel_ability_bull_charge.name",
+            "value": "Shoulder Charge"
+          }
+        },
+        {
+          "any_of": [
+            "Infernal Resilience",
+            "Infernale Widerstandskraft"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Abrams.items.signature3 -> citadel_ability_passive_beefy.name",
+            "value": "Infernal Resilience"
+          }
+        },
+        {
+          "any_of": [
+            "Seismic Impact",
+            "Seismischer Einschlag"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Abrams.items.signature4 -> citadel_ability_bull_leap.name",
+            "value": "Seismic Impact"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-014",
+      "category": "hero",
+      "lang": "en",
+      "question": "What are Infernus's abilities?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Napalm"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Infernus.items.signature1 -> ability_incendiary_projectile.name",
+            "value": "Napalm"
+          }
+        },
+        {
+          "any_of": [
+            "Flame Dash",
+            "Flammensprint"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Infernus.items.signature2 -> ability_flame_dash.name",
+            "value": "Flame Dash"
+          }
+        },
+        {
+          "any_of": [
+            "Afterburn",
+            "Nachbrennen"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Infernus.items.signature3 -> ability_afterburn.name",
+            "value": "Afterburn"
+          }
+        },
+        {
+          "any_of": [
+            "Concussive Combustion",
+            "Flammenexplosion"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Infernus.items.signature4 -> ability_fire_bomb.name",
+            "value": "Concussive Combustion"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-015",
+      "category": "hero",
+      "lang": "de",
+      "question": "Was ist die Ultimate von Seven?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Storm Cloud",
+            "Gewittersturm"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Seven.items.signature4 -> citadel_ability_storm_cloud.name",
+            "value": "Storm Cloud"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-016",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Vindicta's ultimate ability called?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Assassinate",
+            "Gnadenschuss"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Vindicta.items.signature4 -> citadel_ability_hornet_snipe.name",
+            "value": "Assassinate"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-017",
+      "category": "hero",
+      "lang": "de",
+      "question": "Welche Fähigkeit liegt bei Lady Geist auf Slot 2?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Life Drain",
+            "Lebensentzug"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Lady Geist.items.signature2 -> ability_life_drain.name",
+            "value": "Life Drain"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-018",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Wraith's first ability?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Card Trick",
+            "Kartentrick"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Wraith.items.signature1 -> citadel_ability_card_toss.name",
+            "value": "Card Trick"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-019",
+      "category": "hero",
+      "lang": "de",
+      "question": "Welche Fähigkeiten hat McGinnis?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Mini Turret",
+            "Mini-Geschütz"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "McGinnis.items.signature1 -> citadel_ability_shieldedsentry.name",
+            "value": "Mini Turret"
+          }
+        },
+        {
+          "any_of": [
+            "Medicinal Specter",
+            "Heilendes Gefäß"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "McGinnis.items.signature2 -> citadel_ability_mobile_resupply.name",
+            "value": "Medicinal Specter"
+          }
+        },
+        {
+          "any_of": [
+            "Spectral Wall",
+            "Spektralmauer"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "McGinnis.items.signature3 -> citadel_ability_fissure_wall.name",
+            "value": "Spectral Wall"
+          }
+        },
+        {
+          "any_of": [
+            "Heavy Barrage",
+            "Sperrfeuer"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "McGinnis.items.signature4 -> citadel_ability_rocket_barrage.name",
+            "value": "Heavy Barrage"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-020",
+      "category": "hero",
+      "lang": "en",
+      "question": "List Paradox's four abilities.",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Pulse Grenade",
+            "Impulsgranate"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Paradox.items.signature1 -> citadel_ability_chrono_pulse_grenade.name",
+            "value": "Pulse Grenade"
+          }
+        },
+        {
+          "any_of": [
+            "Time Wall",
+            "Zeitfeld"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Paradox.items.signature2 -> citadel_ability_chrono_time_wall.name",
+            "value": "Time Wall"
+          }
+        },
+        {
+          "any_of": [
+            "Kinetic Carbine",
+            "Kinetischer Karabiner"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Paradox.items.signature3 -> citadel_ability_chrono_kinetic_carbine.name",
+            "value": "Kinetic Carbine"
+          }
+        },
+        {
+          "any_of": [
+            "Paradoxical Swap",
+            "Paradoxer Tausch"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Paradox.items.signature4 -> citadel_ability_chrono_swap.name",
+            "value": "Paradoxical Swap"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-021",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie heißt die Ultimate von Dynamo?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Singularity",
+            "Singularität"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Dynamo.items.signature4 -> citadel_ability_self_vacuum.name",
+            "value": "Singularity"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-022",
+      "category": "hero",
+      "lang": "en",
+      "question": "Which ability does Kelvin have in his third slot?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Arctic Beam",
+            "Arktischer Strahl"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Kelvin.items.signature3 -> ability_icebeam.name",
+            "value": "Arctic Beam"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-023",
+      "category": "hero",
+      "lang": "de",
+      "question": "Was ist Hollidays dritte Fähigkeit?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Crackshot",
+            "Trickschuss"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Holliday.items.signature3 -> ability_crackshot.name",
+            "value": "Crackshot"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-024",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Calico's ultimate?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Return to Shadows",
+            "Schattenflucht"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Calico.items.signature4 -> ability_nano_shadow_pulse.name",
+            "value": "Return to Shadows"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-025",
+      "category": "hero",
+      "lang": "de",
+      "question": "Welche Fähigkeiten hat Rat King?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Scrap Grenade",
+            "Schrottgranate"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Rat King.items.signature1 -> ability_ratking_scrap_grenade.name",
+            "value": "Scrap Grenade"
+          }
+        },
+        {
+          "any_of": [
+            "Rat Swarm",
+            "Rattenschwarm"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Rat King.items.signature2 -> ability_ratking_ratnibble.name",
+            "value": "Rat Swarm"
+          }
+        },
+        {
+          "any_of": [
+            "Royal Pestments",
+            "Königliches Plagewand"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Rat King.items.signature3 -> ability_ratking_ratarmor.name",
+            "value": "Royal Pestments"
+          }
+        },
+        {
+          "any_of": [
+            "Rule, Ratannia!",
+            "Es lebe Ratannia!"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Rat King.items.signature4 -> ability_ratking_standard_bearer.name",
+            "value": "Rule, Ratannia!"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-026",
+      "category": "hero",
+      "lang": "en",
+      "question": "What abilities does Solomon have?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Setup Bishop",
+            "Läuferaufstellung"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Solomon.items.signature1 -> ability_chessmaster_throwbishop.name",
+            "value": "Setup Bishop"
+          }
+        },
+        {
+          "any_of": [
+            "Kingside Knight",
+            "Königsspringer"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Solomon.items.signature2 -> ability_chessmaster_knightbuff.name",
+            "value": "Kingside Knight"
+          }
+        },
+        {
+          "any_of": [
+            "Rook Battery",
+            "Turmansturm"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Solomon.items.signature3 -> ability_chessmaster_forkpiece.name",
+            "value": "Rook Battery"
+          }
+        },
+        {
+          "any_of": [
+            "Develop Queen"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Solomon.items.signature4 -> ability_chessmaster_queen.name",
+            "value": "Develop Queen"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-027",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie heißen die Fähigkeiten von Baba?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Threadsap",
+            "Garn der Entkräftung"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Baba.items.signature1 -> ability_baba_bubbling_brew.name",
+            "value": "Threadsap"
+          }
+        },
+        {
+          "any_of": [
+            "Granny Long Legs",
+            "Oma Langbein"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Baba.items.signature2 -> ability_baba_bench_run.name",
+            "value": "Granny Long Legs"
+          }
+        },
+        {
+          "any_of": [
+            "Baba's Brew",
+            "Babas Gebräu"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Baba.items.signature3 -> ability_baba_hexing_brew.name",
+            "value": "Baba's Brew"
+          }
+        },
+        {
+          "any_of": [
+            "Feed The Birds",
+            "Vogelfütterung"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Baba.items.signature4 -> ability_baba_ultimate_2.name",
+            "value": "Feed The Birds"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-028",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is the cooldown of Abrams' Shoulder Charge?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "33"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "citadel_ability_bull_charge.properties.AbilityCooldown.value",
+            "value": "33"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-029",
+      "category": "hero",
+      "lang": "de",
+      "question": "Was ist Ivys Ultimate?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Air Drop",
+            "Abwurf"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Ivy.items.signature4 -> citadel_ability_tengu_airlift.name",
+            "value": "Air Drop"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hero-030",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Venator's ultimate called?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Ira Domini"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Venator.items.signature4 -> ability_priest_weaponswap.name",
+            "value": "Ira Domini"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-001",
+      "category": "item",
+      "lang": "de",
+      "question": "Was kostet Monster Rounds?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "800"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_non_player_bonus.cost",
+            "value": "800"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-002",
+      "category": "item",
+      "lang": "en",
+      "question": "How many souls does Extra Health cost and how much health does it give?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "800"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_health.cost",
+            "value": "800"
+          }
+        },
+        {
+          "any_of": [
+            "210"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_health.properties.BonusHealth.value",
+            "value": "210"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-003",
+      "category": "item",
+      "lang": "de",
+      "question": "Wie viel Spirit Power gibt Extra Spirit?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "10"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_improved_spirit.properties.TechPower.value",
+            "value": "10"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-004",
+      "category": "item",
+      "lang": "en",
+      "question": "How much does Boundless Spirit cost?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "6400"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_boundless_spirit.cost",
+            "value": "6400"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-005",
+      "category": "item",
+      "lang": "de",
+      "question": "Aus welchem Item baut Improved Spirit auf?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Extra Spirit",
+            "Zusätzliche Magiekraft"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_soaring_spirit.component_items",
+            "value": "upgrade_improved_spirit"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-006",
+      "category": "item",
+      "lang": "en",
+      "question": "Which item does Fortitude upgrade from?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Extra Health",
+            "Zusätzliche Lebenspunkte"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_chonky.component_items",
+            "value": "upgrade_health"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-007",
+      "category": "item",
+      "lang": "de",
+      "question": "Wie viel Cooldown-Reduktion gibt Compress Cooldown?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "18"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_magic_tempo.properties.CooldownReduction.value",
+            "value": "18"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-008",
+      "category": "item",
+      "lang": "en",
+      "question": "How much cooldown reduction does Transcendent Cooldown give?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "25"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_transcendent_cooldown.properties.CooldownReduction.value",
+            "value": "25"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-009",
+      "category": "item",
+      "lang": "de",
+      "question": "Was kostet Superior Cooldown und auf welcher Stufe ist es?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "3200"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_cooldown_reduction.cost",
+            "value": "3200"
+          }
+        },
+        {
+          "any_of": [
+            "tier 3",
+            "t3",
+            "stufe 3"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_cooldown_reduction.item_tier",
+            "value": "3"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-010",
+      "category": "item",
+      "lang": "en",
+      "question": "How much bonus fire rate does Rapid Rounds give?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "9"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_rapid_rounds.properties.BonusFireRate.value",
+            "value": "9"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-011",
+      "category": "item",
+      "lang": "de",
+      "question": "Aus welchem Item wird Swift Striker gebaut?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Rapid Rounds",
+            "Schnellfeuer-Magazin"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_blitz_bullets.component_items",
+            "value": "upgrade_rapid_rounds"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-012",
+      "category": "item",
+      "lang": "en",
+      "question": "What does Titanic Magazine build from?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Extended Magazine",
+            "Erweitertes Magazin"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_titan_round.component_items",
+            "value": "upgrade_clip_size"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-013",
+      "category": "item",
+      "lang": "de",
+      "question": "Wie viel Kopfschuss-Bonusschaden gibt Headshot Booster?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "45"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_headshot_booster.properties.HeadShotBonusDamage.value",
+            "value": "45"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-014",
+      "category": "item",
+      "lang": "en",
+      "question": "Which two items combine into Leech?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Bullet Lifesteal",
+            "Kugellebensraub"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_damage_recycler.component_items",
+            "value": "upgrade_vampire"
+          }
+        },
+        {
+          "any_of": [
+            "Spirit Lifesteal",
+            "Magielebensraub"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_damage_recycler.component_items",
+            "value": "upgrade_health_stealing_magic"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-015",
+      "category": "item",
+      "lang": "de",
+      "question": "Welchen Cooldown hat Unstoppable und wie lange hält es?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "60"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_unstoppable.properties.AbilityCooldown.value",
+            "value": "60"
+          }
+        },
+        {
+          "any_of": [
+            "5.5"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_unstoppable.properties.AbilityDuration.value",
+            "value": "5.5"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-016",
+      "category": "item",
+      "lang": "en",
+      "question": "What is the cooldown of Cheat Death?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "90"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_cheat_death.properties.AbilityCooldown.value",
+            "value": "90"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-017",
+      "category": "item",
+      "lang": "de",
+      "question": "Welchen Cooldown hat Refresher?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "300"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_ability_refresher.properties.AbilityCooldown.value",
+            "value": "300"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-018",
+      "category": "item",
+      "lang": "en",
+      "question": "How many souls per minute does Golden Goose Egg give?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "80"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_goose_egg.properties.BonusGoldPerMinute.value",
+            "value": "80"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-019",
+      "category": "item",
+      "lang": "de",
+      "question": "Wie lang ist der Cooldown von Grit?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "60"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_grit.properties.AbilityCooldown.value",
+            "value": "60"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-020",
+      "category": "item",
+      "lang": "en",
+      "question": "What is the cooldown of Healing Rite?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "70"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_health_stimpak.properties.AbilityCooldown.value",
+            "value": "70"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-021",
+      "category": "item",
+      "lang": "de",
+      "question": "Was kostet Glass Cannon?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "6400"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_glass_cannon.cost",
+            "value": "6400"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-022",
+      "category": "item",
+      "lang": "en",
+      "question": "Which is more expensive, Hollow Point or Glass Cannon?",
+      "profile": "explain",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "3200"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_hollow_point_rounds.cost",
+            "value": "3200"
+          }
+        },
+        {
+          "any_of": [
+            "6400"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_glass_cannon.cost",
+            "value": "6400"
+          }
+        },
+        {
+          "any_of": [
+            "Glass Cannon",
+            "Glaskanone"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_glass_cannon.name",
+            "value": "Glass Cannon"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-023",
+      "category": "item",
+      "lang": "de",
+      "question": "Was gibt mehr Lebenspunkte, Extra Health oder Fortitude?",
+      "profile": "explain",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "210"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_health.properties.BonusHealth.value",
+            "value": "210"
+          }
+        },
+        {
+          "any_of": [
+            "375"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_chonky.properties.BonusHealth.value",
+            "value": "375"
+          }
+        },
+        {
+          "any_of": [
+            "Fortitude",
+            "Seelenkraft"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_chonky.name",
+            "value": "Fortitude"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-024",
+      "category": "item",
+      "lang": "en",
+      "question": "How much bullet resist does Battle Vest give?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "18"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_regenerating_bullet_shield.properties.BulletResist.value",
+            "value": "18"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-025",
+      "category": "item",
+      "lang": "de",
+      "question": "Aus welchem Item baut Cultist Sacrifice auf?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Monster Rounds",
+            "Monster-Kugeln"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_non_player_bonus_sacrifice.component_items",
+            "value": "upgrade_non_player_bonus"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-026",
+      "category": "item",
+      "lang": "en",
+      "question": "What is the cooldown of Knockdown?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "35"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_target_stun.properties.AbilityCooldown.value",
+            "value": "35"
+          }
+        }
+      ]
+    },
+    {
+      "id": "item-027",
+      "category": "item",
+      "lang": "de",
+      "question": "Welchen Cooldown hat Shadow Weave und woraus wird es gebaut?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "37"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_cloaking_device_active.properties.AbilityCooldown.value",
+            "value": "37"
+          }
+        },
+        {
+          "any_of": [
+            "Sprint Boots",
+            "Stiefel des Sprinters"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "upgrade_cloaking_device_active.component_items",
+            "value": "upgrade_sprint_booster"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timer-001",
+      "category": "timer",
+      "lang": "de",
+      "question": "Wann spawnen die ersten kleinen Neutral-Camps?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "120",
+            "2 min",
+            "2:00",
+            "zwei minuten"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/misc-entities",
+            "field": "neutral_camp_weak.initial_spawn_delay_in_seconds",
+            "value": "120"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timer-002",
+      "category": "timer",
+      "lang": "en",
+      "question": "How often do small neutral camps respawn?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "85"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/misc-entities",
+            "field": "neutral_camp_weak.spawn_interval_in_seconds",
+            "value": "85"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timer-003",
+      "category": "timer",
+      "lang": "de",
+      "question": "Wann spawnen die mittleren Neutral-Camps zum ersten Mal?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "300",
+            "5 min",
+            "5:00",
+            "fünf minuten"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/misc-entities",
+            "field": "neutral_camp_medium.initial_spawn_delay_in_seconds",
+            "value": "300"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timer-004",
+      "category": "timer",
+      "lang": "en",
+      "question": "When do the hard neutral camps first spawn?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "480",
+            "8 min",
+            "8:00",
+            "eight minutes"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/misc-entities",
+            "field": "neutral_camp_strong.initial_spawn_delay_in_seconds",
+            "value": "480"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timer-005",
+      "category": "timer",
+      "lang": "de",
+      "question": "Wie lange dauert der Respawn des Midboss?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "420",
+            "7 min",
+            "7:00",
+            "sieben minuten"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/misc-entities",
+            "field": "neutral_camp_midboss.spawn_interval_in_seconds",
+            "value": "420"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timer-006",
+      "category": "timer",
+      "lang": "en",
+      "question": "When do the Sinner's Sacrifice vaults first spawn and how often do they respawn?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "480",
+            "8 min",
+            "8:00",
+            "eight minutes"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/misc-entities",
+            "field": "neutral_camp_vaults.initial_spawn_delay_in_seconds",
+            "value": "480"
+          }
+        },
+        {
+          "any_of": [
+            "300",
+            "5 min",
+            "5:00",
+            "five minutes"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/misc-entities",
+            "field": "neutral_camp_vaults.spawn_interval_in_seconds",
+            "value": "300"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timer-007",
+      "category": "timer",
+      "lang": "de",
+      "question": "Wann erscheinen die Powerup-Spawner zum ersten Mal und wie oft danach?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "300",
+            "5 min",
+            "5:00",
+            "fünf minuten"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/misc-entities",
+            "field": "citadel_item_powerup_spawner.initial_spawn_time",
+            "value": "300"
+          }
+        },
+        {
+          "any_of": [
+            "300",
+            "5 min",
+            "5:00",
+            "fünf minuten"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/misc-entities",
+            "field": "citadel_item_powerup_spawner.spawn_interval",
+            "value": "300"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timer-008",
+      "category": "timer",
+      "lang": "en",
+      "question": "How long does the Rejuvenator buff last?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "180",
+            "3 min",
+            "3:00",
+            "three minutes"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/generic-data",
+            "field": "rejuv_params.rejuvinator_buff_duration",
+            "value": "180"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timer-009",
+      "category": "timer",
+      "lang": "de",
+      "question": "Wie viel Gold gibt ein Tier-1-Guardian beim Kill?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "1375",
+            "1.375"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/generic-data",
+            "field": "objective_params.tier1_gold_kill",
+            "value": "1375"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timer-010",
+      "category": "timer",
+      "lang": "en",
+      "question": "How many souls does destroying a Walker give?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "3675",
+            "3.675"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/generic-data",
+            "field": "objective_params.tier2_gold_kill",
+            "value": "3675"
+          }
+        }
+      ]
+    },
+    {
+      "id": "timer-011",
+      "category": "timer",
+      "lang": "de",
+      "question": "Wann spawnt die Soul Urn zum ersten Mal?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "deadlock-api assets carry no Soul Urn first-spawn value (citadel_item_pickup_idol has no timer fields); the expected outcome is insufficient_evidence"
+    },
+    {
+      "id": "timer-012",
+      "category": "timer",
+      "lang": "en",
+      "question": "When does the Soul Urn first spawn?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "deadlock-api assets carry no Soul Urn first-spawn value (citadel_item_pickup_idol has no timer fields); the expected outcome is insufficient_evidence"
+    },
+    {
+      "id": "patch-001",
+      "category": "patch",
+      "lang": "de",
+      "question": "Was wurde im Update vom 05.10.2026 an Rat Kings Rat Swarm geändert?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "28s"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1845383656394833",
+            "field": "Minor Update - 10-05-2026",
+            "value": "Rat Swarm - Base Cooldown reduced from 28s to 24s"
+          }
+        },
+        {
+          "any_of": [
+            "24s"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1845383656394833",
+            "field": "Minor Update - 10-05-2026",
+            "value": "Rat Swarm - Base Cooldown reduced from 28s to 24s"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-002",
+      "category": "patch",
+      "lang": "en",
+      "question": "How did the 10-05-2026 minor update change Sinclair's gun bullet damage?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "17.76"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1845383656394833",
+            "field": "Minor Update - 10-05-2026",
+            "value": "Sinclair: Gun - Reduced bullet base damage from 17.76 to 16.5"
+          }
+        },
+        {
+          "any_of": [
+            "16.5"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1845383656394833",
+            "field": "Minor Update - 10-05-2026",
+            "value": "Sinclair: Gun - Reduced bullet base damage from 17.76 to 16.5"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-003",
+      "category": "patch",
+      "lang": "de",
+      "question": "Wie hat sich die Abklingzeit von Rule, Ratannia! im Patch vom 05.10.2026 verändert?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "130"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1845383656394833",
+            "field": "Minor Update - 10-05-2026",
+            "value": "Rule, Ratannia! - Cooldown increased from 130 to 160"
+          }
+        },
+        {
+          "any_of": [
+            "160"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1845383656394833",
+            "field": "Minor Update - 10-05-2026",
+            "value": "Rule, Ratannia! - Cooldown increased from 130 to 160"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-004",
+      "category": "patch",
+      "lang": "en",
+      "question": "What happened to Shadow Weave in the 09-16-2026 update?",
+      "profile": "explain",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Sprint Boots"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Shadow Weave: Now builds from Sprint Boots"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-005",
+      "category": "patch",
+      "lang": "de",
+      "question": "Was wurde am 16.09.2026 an Golden Goose Egg geändert?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "90"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Golden Goose Egg: Souls per minute reduced from 90 to 80"
+          }
+        },
+        {
+          "any_of": [
+            "80"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Golden Goose Egg: Souls per minute reduced from 90 to 80"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-006",
+      "category": "patch",
+      "lang": "en",
+      "question": "How was Leech changed in the 09-16-2026 patch?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "25%"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Leech: Bullet and Spirit Lifesteal increased from 25% to 28%"
+          }
+        },
+        {
+          "any_of": [
+            "28%"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Leech: Bullet and Spirit Lifesteal increased from 25% to 28%"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-007",
+      "category": "patch",
+      "lang": "de",
+      "question": "Was hat sich im Update vom 16.09.2026 an der Respawnzeit geändert?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "35s"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Respawn Time at 20 minutes increased from 35s to 38s"
+          }
+        },
+        {
+          "any_of": [
+            "38s"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Respawn Time at 20 minutes increased from 35s to 38s"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-008",
+      "category": "patch",
+      "lang": "en",
+      "question": "What changed about underground tunnel breakables in the 09-16-2026 update?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "3m"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Breakables in the underground tunnels initial spawn time increased from 3m to 5m"
+          }
+        },
+        {
+          "any_of": [
+            "5m"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Breakables in the underground tunnels initial spawn time increased from 3m to 5m"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-009",
+      "category": "patch",
+      "lang": "de",
+      "question": "Was wurde am 16.09.2026 an Viscous geändert?",
+      "profile": "explain",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "26m"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Viscous: The Cube cast range reduced from 26m to 20m"
+          }
+        },
+        {
+          "any_of": [
+            "20m"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Viscous: The Cube cast range reduced from 26m to 20m"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-010",
+      "category": "patch",
+      "lang": "en",
+      "question": "What did the 09-16-2026 update change for Vyper's Petrifying Bola?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "105s"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Vyper: Petrifying Bola cooldown increased from 105s to 115s"
+          }
+        },
+        {
+          "any_of": [
+            "115s"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1844115010490072",
+            "field": "Minor Update - 09-16-2026",
+            "value": "Vyper: Petrifying Bola cooldown increased from 105s to 115s"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-011",
+      "category": "patch",
+      "lang": "de",
+      "question": "Was wurde am 22.08.2026 an Celestes Shining Wonder geändert?",
+      "profile": "explain",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "165"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1841579228672283",
+            "field": "Minor Update - 08-22-2026",
+            "value": "Celeste: Shining Wonder damage reduced from 165 to 140"
+          }
+        },
+        {
+          "any_of": [
+            "140"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1841579228672283",
+            "field": "Minor Update - 08-22-2026",
+            "value": "Celeste: Shining Wonder damage reduced from 165 to 140"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-012",
+      "category": "patch",
+      "lang": "en",
+      "question": "What changed for Restorative Locket in the 08-22-2026 update?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "10%"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1841579228672283",
+            "field": "Minor Update - 08-22-2026",
+            "value": "Restorative Locket: Spirit Resistance reduced from 10% to 8%"
+          }
+        },
+        {
+          "any_of": [
+            "8%"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1841579228672283",
+            "field": "Minor Update - 08-22-2026",
+            "value": "Restorative Locket: Spirit Resistance reduced from 10% to 8%"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-013",
+      "category": "patch",
+      "lang": "de",
+      "question": "Wie hat sich die Lebenspunktzahl von McGinnis' Mini Turrets im Update vom 12.08.2026 verändert?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "90"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183775204",
+            "field": "Minor Update - 08-12-2026",
+            "value": "McGinnis: Mini Turrets health increased from 90 + 7.8/boon to 100 + 9/boon"
+          }
+        },
+        {
+          "any_of": [
+            "100"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183775204",
+            "field": "Minor Update - 08-12-2026",
+            "value": "McGinnis: Mini Turrets health increased from 90 + 7.8/boon to 100 + 9/boon"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-014",
+      "category": "patch",
+      "lang": "en",
+      "question": "How did the 08-12-2026 update change Vyper's Petrifying Bola radius?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "8m"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183775204",
+            "field": "Minor Update - 08-12-2026",
+            "value": "Vyper: Petrifying Bola radius increased from 8m to 12m"
+          }
+        },
+        {
+          "any_of": [
+            "12m"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183775204",
+            "field": "Minor Update - 08-12-2026",
+            "value": "Vyper: Petrifying Bola radius increased from 8m to 12m"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-015",
+      "category": "patch",
+      "lang": "de",
+      "question": "Was wurde am 12.08.2026 an Drifters Stalker's Mark geändert?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "24s"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183775204",
+            "field": "Minor Update - 08-12-2026",
+            "value": "Drifter: Stalker's Mark cooldown increased from 24s to 26s"
+          }
+        },
+        {
+          "any_of": [
+            "26s"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183775204",
+            "field": "Minor Update - 08-12-2026",
+            "value": "Drifter: Stalker's Mark cooldown increased from 24s to 26s"
+          }
+        }
+      ]
+    },
+    {
+      "id": "patch-016",
+      "category": "patch",
+      "lang": "en",
+      "question": "What changed for Doorman's Doorway in the 08-12-2026 update?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "70m"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183775204",
+            "field": "Minor Update - 08-12-2026",
+            "value": "Doorman: Doorway range reduced from 70m to 65m"
+          }
+        },
+        {
+          "any_of": [
+            "65m"
+          ],
+          "source": {
+            "kind": "patch_post",
+            "url": "https://steamstore-a.akamaihd.net/news/externalpost/steam_community_announcements/1840944183775204",
+            "field": "Minor Update - 08-12-2026",
+            "value": "Doorman: Doorway range reduced from 70m to 65m"
+          }
+        }
+      ]
+    },
+    {
+      "id": "docs-001",
+      "category": "docs",
+      "lang": "de",
+      "question": "Wie viele Spieler sind in einem Deadlock-Match?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "12"
+          ],
+          "source": {
+            "kind": "docs",
+            "url": "https://deutsche-deadlock-community.de/docs/discord-server/deadlock-grundlagen.html",
+            "field": "page",
+            "value": "12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "docs-002",
+      "category": "docs",
+      "lang": "de",
+      "question": "Von wem wird Deadlock entwickelt?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Valve"
+          ],
+          "source": {
+            "kind": "docs",
+            "url": "https://deutsche-deadlock-community.de/docs/discord-server/deadlock-grundlagen.html",
+            "field": "page",
+            "value": "Valve"
+          }
+        }
+      ]
+    },
+    {
+      "id": "docs-003",
+      "category": "docs",
+      "lang": "de",
+      "question": "Wie verknüpfe ich meinen Steam-Account mit dem Discord-Server?",
+      "profile": "explain",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "/account_verknüpfen"
+          ],
+          "source": {
+            "kind": "docs",
+            "url": "https://deutsche-deadlock-community.de/docs/discord-server/steam-integration.html#verknuepfen",
+            "field": "verknuepfen",
+            "value": "/account_verknüpfen"
+          }
+        }
+      ]
+    },
+    {
+      "id": "docs-004",
+      "category": "docs",
+      "lang": "de",
+      "question": "Wie lange wartet der Steam-Bot auf meine Freundschaftsanfrage?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "24 Stunden"
+          ],
+          "source": {
+            "kind": "docs",
+            "url": "https://deutsche-deadlock-community.de/docs/discord-server/steam-integration.html",
+            "field": "page",
+            "value": "24 Stunden"
+          }
+        }
+      ]
+    },
+    {
+      "id": "docs-005",
+      "category": "docs",
+      "lang": "de",
+      "question": "Wie wechsle ich meinen primären Steam-Account?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "/steam setprimary"
+          ],
+          "source": {
+            "kind": "docs",
+            "url": "https://deutsche-deadlock-community.de/docs/discord-server/steam-integration.html#konten-verwalten",
+            "field": "konten-verwalten",
+            "value": "/steam setprimary"
+          }
+        }
+      ]
+    },
+    {
+      "id": "docs-006",
+      "category": "docs",
+      "lang": "de",
+      "question": "Wann ist die Steam-Wartung und wie lange dauert sie?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Dienstag"
+          ],
+          "source": {
+            "kind": "docs",
+            "url": "https://deutsche-deadlock-community.de/docs/discord-server/steam-integration.html#steam-wartung",
+            "field": "steam-wartung",
+            "value": "Dienstag"
+          }
+        },
+        {
+          "any_of": [
+            "10 bis 20"
+          ],
+          "source": {
+            "kind": "docs",
+            "url": "https://deutsche-deadlock-community.de/docs/discord-server/steam-integration.html#steam-wartung",
+            "field": "steam-wartung",
+            "value": "10 bis 20"
+          }
+        }
+      ]
+    },
+    {
+      "id": "docs-007",
+      "category": "docs",
+      "lang": "de",
+      "question": "Wie öffne ich auf dem Discord einen privaten Fragen-Chat?",
+      "profile": "fact",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "/faq"
+          ],
+          "source": {
+            "kind": "docs",
+            "url": "https://deutsche-deadlock-community.de/docs/discord-server/bots-und-dienste.html",
+            "field": "page",
+            "value": "/faq"
+          }
+        }
+      ]
+    },
+    {
+      "id": "docs-008",
+      "category": "docs",
+      "lang": "de",
+      "question": "Was ist der Unterschied zwischen /steam_rank und /checkrank?",
+      "profile": "explain",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "/steam_rank"
+          ],
+          "source": {
+            "kind": "docs",
+            "url": "https://deutsche-deadlock-community.de/docs/steam-bot/steam-bot.html",
+            "field": "page",
+            "value": "/steam_rank"
+          }
+        },
+        {
+          "any_of": [
+            "/checkrank"
+          ],
+          "source": {
+            "kind": "docs",
+            "url": "https://deutsche-deadlock-community.de/docs/steam-bot/steam-bot.html",
+            "field": "page",
+            "value": "/checkrank"
+          }
+        }
+      ]
+    },
+    {
+      "id": "docs-009",
+      "category": "docs",
+      "lang": "en",
+      "question": "How do I link my Steam account on the German Deadlock community Discord?",
+      "profile": "explain",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "/account_verknüpfen"
+          ],
+          "source": {
+            "kind": "docs",
+            "url": "https://deutsche-deadlock-community.de/docs/discord-server/steam-integration.html#verknuepfen",
+            "field": "verknuepfen",
+            "value": "/account_verknüpfen"
+          }
+        }
+      ]
+    },
+    {
+      "id": "docs-010",
+      "category": "docs",
+      "lang": "de",
+      "question": "Was kann der Besitzer einer Voice-Lane alles einstellen?",
+      "profile": "explain",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "umbenennen"
+          ],
+          "source": {
+            "kind": "docs",
+            "url": "https://deutsche-deadlock-community.de/docs/discord-server/workflows/voice-lane-erstellen-verwalten.html",
+            "field": "page",
+            "value": "umbenennen"
+          }
+        }
+      ]
+    },
+    {
+      "id": "guide-001",
+      "category": "guide",
+      "lang": "de",
+      "question": "Wie spiele ich Abrams?",
+      "profile": "coaching",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Shoulder Charge",
+            "Schulterstoß"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Abrams.items.signature2 -> citadel_ability_bull_charge.name",
+            "value": "Shoulder Charge"
+          }
+        },
+        {
+          "any_of": [
+            "Seismic Impact",
+            "Seismischer Einschlag"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Abrams.items.signature4 -> citadel_ability_bull_leap.name",
+            "value": "Seismic Impact"
+          }
+        }
+      ]
+    },
+    {
+      "id": "guide-002",
+      "category": "guide",
+      "lang": "en",
+      "question": "How do I play Haze?",
+      "profile": "coaching",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Sleep Dagger",
+            "Schlafdolch"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Haze.items.signature1 -> ability_sleep_dagger.name",
+            "value": "Sleep Dagger"
+          }
+        },
+        {
+          "any_of": [
+            "Bullet Dance",
+            "Kugelhagel"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Haze.items.signature4 -> ability_bullet_flurry.name",
+            "value": "Bullet Dance"
+          }
+        }
+      ]
+    },
+    {
+      "id": "guide-003",
+      "category": "guide",
+      "lang": "de",
+      "question": "Wie spiele ich Seven als Anfänger?",
+      "profile": "coaching",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Lightning Ball",
+            "Kugelblitz"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Seven.items.signature1 -> citadel_ability_lightning_ball.name",
+            "value": "Lightning Ball"
+          }
+        },
+        {
+          "any_of": [
+            "Storm Cloud",
+            "Gewittersturm"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Seven.items.signature4 -> citadel_ability_storm_cloud.name",
+            "value": "Storm Cloud"
+          }
+        }
+      ]
+    },
+    {
+      "id": "guide-004",
+      "category": "guide",
+      "lang": "en",
+      "question": "How should I play Lady Geist?",
+      "profile": "coaching",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Life Drain",
+            "Lebensentzug"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Lady Geist.items.signature2 -> ability_life_drain.name",
+            "value": "Life Drain"
+          }
+        },
+        {
+          "any_of": [
+            "Soul Exchange",
+            "Seelentausch"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Lady Geist.items.signature4 -> ability_health_swap.name",
+            "value": "Soul Exchange"
+          }
+        }
+      ]
+    },
+    {
+      "id": "guide-005",
+      "category": "guide",
+      "lang": "de",
+      "question": "Wie spiele ich Kelvin als Support?",
+      "profile": "coaching",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Ice Path",
+            "Eispfad"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Kelvin.items.signature2 -> ability_icepath.name",
+            "value": "Ice Path"
+          }
+        },
+        {
+          "any_of": [
+            "Frozen Shelter",
+            "Eiskuppel"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Kelvin.items.signature4 -> ability_ice_dome.name",
+            "value": "Frozen Shelter"
+          }
+        }
+      ]
+    },
+    {
+      "id": "guide-006",
+      "category": "guide",
+      "lang": "en",
+      "question": "How do I play McGinnis?",
+      "profile": "coaching",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Mini Turret",
+            "Mini-Geschütz"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "McGinnis.items.signature1 -> citadel_ability_shieldedsentry.name",
+            "value": "Mini Turret"
+          }
+        },
+        {
+          "any_of": [
+            "Spectral Wall",
+            "Spektralmauer"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "McGinnis.items.signature3 -> citadel_ability_fissure_wall.name",
+            "value": "Spectral Wall"
+          }
+        }
+      ]
+    },
+    {
+      "id": "guide-007",
+      "category": "guide",
+      "lang": "de",
+      "question": "Wie spiele ich Vindicta richtig?",
+      "profile": "coaching",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Stake",
+            "Pfählung"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Vindicta.items.signature1 -> citadel_ability_hornet_chain.name",
+            "value": "Stake"
+          }
+        },
+        {
+          "any_of": [
+            "Assassinate",
+            "Gnadenschuss"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Vindicta.items.signature4 -> citadel_ability_hornet_snipe.name",
+            "value": "Assassinate"
+          }
+        }
+      ]
+    },
+    {
+      "id": "guide-008",
+      "category": "guide",
+      "lang": "en",
+      "question": "How do I play Dynamo in team fights?",
+      "profile": "coaching",
+      "expect": "answered",
+      "facts": [
+        {
+          "any_of": [
+            "Singularity",
+            "Singularität"
+          ],
+          "source": {
+            "kind": "deadlock_api",
+            "url": "https://api.deadlock-api.com/v1/assets/items?language=english",
+            "field": "Dynamo.items.signature4 -> citadel_ability_self_vacuum.name",
+            "value": "Singularity"
+          }
+        }
+      ]
+    },
+    {
+      "id": "unanswerable-001",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Welche Fähigkeiten hat der Held Gravelord?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "unknown hero"
+    },
+    {
+      "id": "unanswerable-002",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "What is Thornwick's ultimate ability?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "unknown hero"
+    },
+    {
+      "id": "unanswerable-003",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Wie viel Leben hat Marabella?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "unknown hero"
+    },
+    {
+      "id": "unanswerable-004",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "How much base health does the hero Quillbrand have?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "unknown hero"
+    },
+    {
+      "id": "unanswerable-005",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Wie spiele ich Kestrelion?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "unknown hero"
+    },
+    {
+      "id": "unanswerable-006",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "What does the item Phantom Anchor cost?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "unknown item"
+    },
+    {
+      "id": "unanswerable-007",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Was macht das Item Sternenkompass?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "unknown item"
+    },
+    {
+      "id": "unanswerable-008",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Was ändert der Patch vom 01.12.2026?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "future patch"
+    },
+    {
+      "id": "unanswerable-009",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "What changed for Abrams in the 03-15-2027 update?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "future patch"
+    },
+    {
+      "id": "unanswerable-010",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Welche Helden kommen im Patch vom 20.11.2026 neu dazu?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "future patch"
+    },
+    {
+      "id": "unanswerable-011",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "What are the patch notes for the 12-24-2026 update?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "future patch"
+    },
+    {
+      "id": "unanswerable-012",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Wer ist der beste Held in Deadlock?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "opinion"
+    },
+    {
+      "id": "unanswerable-013",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "Which hero is the most fun to play?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "opinion"
+    },
+    {
+      "id": "unanswerable-014",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Ist Haze schöner designt als Lady Geist?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "opinion"
+    },
+    {
+      "id": "unanswerable-015",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "Is Deadlock a better game than Dota 2?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "opinion"
+    },
+    {
+      "id": "unanswerable-016",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Wie wird morgen das Wetter in Berlin?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "off-topic"
+    },
+    {
+      "id": "unanswerable-017",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "How do I bake sourdough bread?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "off-topic"
+    },
+    {
+      "id": "unanswerable-018",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Wer hat die Fußball-WM 2014 gewonnen?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "off-topic"
+    },
+    {
+      "id": "unanswerable-019",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "What is the capital of Australia?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "off-topic"
+    },
+    {
+      "id": "unanswerable-020",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Schreib mir ein Gedicht über Katzen.",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "off-topic"
+    },
+    {
+      "id": "unanswerable-021",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "What will the next Deadlock hero be called?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "unannounced future fact"
+    },
+    {
+      "id": "unanswerable-022",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Wann endet die Ranked-Season im Jahr 2028?",
+      "profile": "fact",
+      "expect": "insufficient_evidence",
+      "facts": [],
+      "note": "future fact"
+    }
+  ]
+}

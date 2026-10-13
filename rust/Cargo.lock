@@ -335,6 +335,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "brain-eval"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "brain-client",
+ "clap",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "brain-feeds"
 version = "0.1.0"
 dependencies = [
