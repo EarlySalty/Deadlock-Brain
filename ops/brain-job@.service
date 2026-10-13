@@ -16,6 +16,7 @@ ExecStartPost=/usr/bin/grep --quiet --line-regexp 536870912 /sys/fs/cgroup/memor
 ExecStartPost=/usr/bin/grep --quiet --line-regexp --extended-regexp [1-9][0-9]* /sys/fs/cgroup/memory/system.slice/%n/memory.max_usage_in_bytes
 ExecStartPost=/usr/bin/systemctl --system show %n --property=InvocationID
 ExecStartPost=/usr/bin/grep --with-filename --line-regexp --extended-regexp [1-9][0-9]*|[0-9]+:memory:/system[.]slice/%n /proc/self/cgroup /sys/fs/cgroup/memory/system.slice/%n/memory.limit_in_bytes /sys/fs/cgroup/memory/system.slice/%n/memory.max_usage_in_bytes
+ExecStopPost=/usr/bin/grep --with-filename --line-regexp --extended-regexp [0-9]+ /sys/fs/cgroup/memory/system.slice/%n/memory.max_usage_in_bytes
 StandardOutput=journal
 StandardError=journal
 StateDirectory=deadlock-brain-job

@@ -24,6 +24,25 @@ const UNITS: [(&str, &str, u64); 3] = [
     ),
 ];
 
+const JOB_TEMPLATES: [(&str, &str); 2] = [
+    (
+        "brain-job@.service",
+        include_str!("../../brain-job@.service"),
+    ),
+    ("brain-job@.timer", include_str!("../../brain-job@.timer")),
+];
+
+fn install_templates(mut write: impl FnMut(&Path, &str) -> Result<()>) -> Result<()> {
+    for (name, template) in UNITS
+        .iter()
+        .map(|(name, template, _)| (*name, *template))
+        .chain(JOB_TEMPLATES)
+    {
+        write(&Path::new("/etc/systemd/system").join(name), template)?;
+    }
+    Ok(())
+}
+
 fn systemctl() -> Command {
     let mut command = source::command("/usr/bin/sudo");
     command.args(["-n", "--", "/usr/bin/systemctl", "--system"]);
@@ -125,9 +144,7 @@ pub fn install() -> Result<()> {
         Path::new("/etc/deadlock-brain/infisical-serve.json"),
         include_str!("../infisical-serve.json"),
     )?;
-    for (name, template, _) in UNITS {
-        replace(&Path::new("/etc/systemd/system").join(name), template)?;
-    }
+    install_templates(replace)?;
     let mut reload = systemctl();
     reload.arg("daemon-reload");
     checked_status(reload)?;
@@ -173,6 +190,95 @@ mod tests {
         assert!(!disabled_or_absent("disabled", None));
         assert!(!disabled_or_absent("not-found", None));
         assert!(!disabled_or_absent("disabled", Some(127)));
+    }
+
+    #[test]
+    fn installation_writes_both_job_templates_without_adding_active_units() {
+        let mut installed = Vec::new();
+        install_templates(|path, template| {
+            installed.push((path.to_path_buf(), template.to_string()));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            installed
+                .iter()
+                .map(|(path, _)| path.to_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "/etc/systemd/system/brain-serve.service",
+                "/etc/systemd/system/deadlock-brain-site.service",
+                "/etc/systemd/system/brain-browser-consent.service",
+                "/etc/systemd/system/brain-job@.service",
+                "/etc/systemd/system/brain-job@.timer",
+            ]
+        );
+        assert_eq!(
+            UNITS.map(|(name, _, _)| name),
+            [
+                "brain-serve.service",
+                "deadlock-brain-site.service",
+                "brain-browser-consent.service",
+            ]
+        );
+        assert_eq!(installed[3].1, include_str!("../../brain-job@.service"));
+        assert_eq!(installed[4].1, include_str!("../../brain-job@.timer"));
+        assert!(installed[3].1.contains("MemoryMax=512M\n"));
+        assert!(installed[4].1.contains("Unit=brain-job@%i.service\n"));
+        let mut attempted = Vec::new();
+        assert!(install_templates(|path, _| {
+            attempted.push(path.to_path_buf());
+            if path.file_name().unwrap() == "brain-job@.service" {
+                anyhow::bail!("Schreibfehler")
+            }
+            Ok(())
+        })
+        .is_err());
+        assert_eq!(attempted.len(), 4);
+    }
+
+    #[test]
+    fn job_stop_hook_reports_only_numeric_v1_peak_for_the_unit_cgroup() {
+        let hooks: Vec<_> = JOB_TEMPLATES[0]
+            .1
+            .lines()
+            .filter_map(|line| line.strip_prefix("ExecStopPost="))
+            .collect();
+        assert_eq!(hooks.len(), 1);
+        let command: Vec<_> = hooks[0].split_whitespace().collect();
+        assert_eq!(
+            command,
+            [
+                "/usr/bin/grep",
+                "--with-filename",
+                "--line-regexp",
+                "--extended-regexp",
+                "[0-9]+",
+                "/sys/fs/cgroup/memory/system.slice/%n/memory.max_usage_in_bytes",
+            ]
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let metric = dir.path().join("memory.max_usage_in_bytes");
+        fs::write(&metric, b"123456\nprivate=sentinel\n1234 trailing\n0\n").unwrap();
+        let output = source::command(command[0])
+            .args(&command[1..5])
+            .arg(&metric)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            format!("{0}:123456\n{0}:0\n", metric.display())
+        );
+        fs::write(&metric, b"private=sentinel\n").unwrap();
+        let output = source::command(command[0])
+            .args(&command[1..5])
+            .arg(&metric)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
     }
 
     #[test]
