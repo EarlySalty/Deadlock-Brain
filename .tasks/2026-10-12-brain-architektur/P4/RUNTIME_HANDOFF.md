@@ -2,7 +2,7 @@
 
 Observed owner checkpoint: `e8a1ef45788faeb988464bf44bf8f0932f12c09c` on `feat/brain-p1r-hero-slice-20261012`, 2026-10-13.
 
-Read-only inspection only. No new checkpoint merge authorization or service write authorization is inferred from publication. P1r remains the integrator. `origin/main` was still `edf503b280777524093307a97fabbb1bdba83d7c` at inspection.
+The orchestrator explicitly approved merging `e8a1ef45` on 2026-10-13, merge not rebase, and decided that the P1r core receipt format is canonical. P4 must adapt to it exactly; P1r will document and publish its receipt checkpoint. A fresh isolated P4 worker is composing the approved owner code and adapting P4 receipts/result binding. P1r remains the main integrator and service owner. `origin/main` was still `edf503b280777524093307a97fabbb1bdba83d7c` at the original inspection.
 
 ## Registration at the owner boundary
 
@@ -31,7 +31,7 @@ Owner `pg_tools.rs:563-595` and P4 `pg_patch_tools.rs:331-388` create different 
 
 P4 includes hero entity, alias and optional matching-stat receipts in patch results. These overlap the receipts already returned by find_entity/get_hero. `brain-kernel/src/execution.rs:171-177` rejects different Evidence values for the same ID with `InvalidResponse("Beleg-ID ist mehrdeutig")`. The reviewer report was independently checked against the published owner blob and P4 source.
 
-Required fix: agree one complete receipt-evidence serialization and source identity across the owner tools and P4. Preserve the raw content hash, existing citations and immutable receipt identity. Do not relax the kernel equality guard, rename receipt IDs or remove required receipt metadata to hide the conflict. After owner publication and explicit checkpoint approval, prove the actual combined find_entity/get_hero/patch_history path with real PostgreSQL and the kernel tool loop.
+Required fix under the explicit decision: P4 emits the owner's canonical receipt-evidence serialization and source identity exactly, without additional content fields or different JSON construction. Raw object integrity, stored hashes and immutable receipt identity remain unchanged. Do not relax the kernel equality guard or rename receipt IDs to hide the conflict. After owner contract publication, prove the actual combined find_entity/get_hero/patch_history path with real PostgreSQL and the kernel tool loop.
 
 ## Merge and dependency invariants
 

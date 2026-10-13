@@ -18,7 +18,7 @@ At `rust/crates/brain-serve/src/pg_patch_tools.rs:96-112`, revalidation compares
 
 Twin: observed owner `pg_tools.rs:329-335,545` binds complete FindEntity/GetHero results and compares the full dependency, using the central request digest protocol in `tools.rs`. P4's adapter correctly routes to the P4 checker, so the adapter does not fix this defect.
 
-Required owner-coordinated fix: extend that single central result-binding protocol specifically to CanonicalPatchHistory; bind the complete result when constructing the P4 dependency, remove the seal for fresh execution and compare the complete new dependency. Preserve the existing legacy PatchHistory pin contract. Do not create a private result cache, a second digest API, fabricated evidence or remove useful omission metadata to conceal the race. The observed owner checkpoint is not yet approved for merging, so no frozen contract edit is made here.
+Required owner-coordinated fix: extend that single central result-binding protocol specifically to CanonicalPatchHistory; bind the complete result when constructing the P4 dependency, remove the seal for fresh execution and compare the complete new dependency. Preserve the existing legacy PatchHistory pin contract. Do not create a private result cache, a second digest API, fabricated evidence or remove useful omission metadata to conceal the race. At review time the owner checkpoint was not approved for merging, so no frozen contract edit was made. Subsequently the orchestrator explicitly approved merging e8a1ef45 and designated P1r's receipt format canonical. A fresh isolated P4 worker is composing that checkpoint and extending its existing result-binding protocol only for P4's canonical subtype. This decision is not a completed fix or acceptance of the transport policy.
 
 ## 3. Adapter fixture incompatibility is fixed in the coherent candidate
 
@@ -32,4 +32,6 @@ The independent review retained the previously confirmed shared Receipt-Evidence
 
 ## Acceptance status
 
-Pure extraction budget, within-cap object isolation, measured bounded memory, repeat raw delta 0, additive sparse v4, quarantine-safe reference indexing and bounded composed P4 execution are verified component behaviors. No final gate ALLOW, main integration, deployment or live acceptance is claimed. Final integrated artifact comparison is still required. P1r/orchestrator must resolve the owner boundaries before completion.
+Pure extraction budget, within-cap object isolation, measured bounded memory, repeat raw delta 0, additive sparse v4, quarantine-safe reference indexing and bounded composed P4 execution are verified component behaviors. Fresh read-only confirmation of actual parent `647b1524aff80da68d4a28181ba05827f8825472` matched source, schema and combined worker blobs; no unreviewed production or unintended frozen-core change was found. Fixture issue 3 is closed. Issues 1 and 2 remain unresolved; the later authorized receipt/digest fix is still pending. No final gate ALLOW, main integration, deployment or live acceptance is claimed.
+
+WIRKUNGSPRUEFUNG[WP-1]: 2 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 3/3 geprüft
