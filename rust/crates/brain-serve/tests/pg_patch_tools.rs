@@ -21,9 +21,6 @@ use std::collections::BTreeSet;
 #[path = "../../brain-storage/tests/support/scratch_pg.rs"]
 mod scratch_pg;
 
-const PROJECTION: &str =
-    include_str!("../../../../scripts/migrations/2026-10-12-brain-gamefacts-p4-patches-v2.sql");
-
 struct Database {
     admin: PgPool,
     reader: PgPool,
@@ -51,27 +48,14 @@ impl Database {
         let schema = PgStore::new(admin.clone());
         schema.migrate_gamefacts().await.unwrap();
         schema.check_gamefacts_schema().await.unwrap();
-        let mut migration = admin.begin().await.unwrap();
-        sqlx::query("SET LOCAL ROLE brain_migrate")
-            .execute(&mut *migration)
-            .await
-            .unwrap();
-        let body = PROJECTION
-            .trim()
-            .strip_prefix("BEGIN;")
-            .unwrap()
-            .trim()
-            .strip_suffix("COMMIT;")
-            .unwrap();
-        sqlx::raw_sql(body).execute(&mut *migration).await.unwrap();
-        migration.commit().await.unwrap();
+        schema.migrate_gamefacts().await.unwrap();
         schema.check_gamefacts_schema().await.unwrap();
         let versions: Vec<i32> =
             sqlx::query_scalar("SELECT version FROM ops.gamefacts_schema_version ORDER BY version")
                 .fetch_all(&admin)
                 .await
                 .unwrap();
-        assert_eq!(versions, [1]);
+        assert_eq!(versions, [1, 4]);
         let reader = PgPoolOptions::new()
             .max_connections(2)
             .after_connect(|connection, _| {
@@ -229,6 +213,25 @@ impl Database {
     }
 }
 
+fn collect_plan_indexes(value: &Value, indexes: &mut BTreeSet<String>) {
+    match value {
+        Value::Object(fields) => {
+            if let Some(Value::String(index)) = fields.get("Index Name") {
+                indexes.insert(index.clone());
+            }
+            for child in fields.values() {
+                collect_plan_indexes(child, indexes);
+            }
+        }
+        Value::Array(children) => {
+            for child in children {
+                collect_plan_indexes(child, indexes);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn query_context() -> (Query, AuthorizedContext) {
     (
         Query {
@@ -346,7 +349,10 @@ fn patch_facts(raw: &RawObject, value: &Value, changes: &Value) -> FactSet {
         set.facts.push(fact(
             &key,
             &format!(
-                "patch_change_{}",
+                "patch_change_r{}_{}",
+                hex::encode(Sha256::digest(
+                    change["reference"].as_str().unwrap().as_bytes()
+                )),
                 change["statement_index"].as_u64().unwrap()
             ),
             FactValue::Text(change.to_string()),
@@ -516,11 +522,32 @@ async fn real_current_projection_and_composed_patch_history() {
                         "health",
                         "Shared: health increased from 123 to 150",
                     ),
+                    change(5, "baba", "health", "Baba: health changed from 150 to 160"),
                 ],
             ),
             false,
         )
         .await;
+    let modified =
+        sqlx::query("UPDATE canon.fact SET stat_key=$1 WHERE receipt_id IN (SELECT id FROM canon.receipt WHERE raw_object_id=$2) AND stat_key=$3")
+            .bind(format!(
+                "patch_change_r{}_5",
+                hex::encode(Sha256::digest(b"infernus"))
+            ))
+            .bind(first.id)
+            .bind(format!(
+                "patch_change_r{}_5",
+                hex::encode(Sha256::digest(b"baba"))
+            ))
+            .execute(&db.admin)
+            .await
+            .unwrap();
+    assert_eq!(modified.rows_affected(), 1);
+    let infernus_id = db.hero_id("hero_infernus").await;
+    error(
+        &db.execute(json!({"entity":infernus_id})).await,
+        "no_patch_changes",
+    );
     let execution = db.execute(json!({"entity":id})).await;
     assert_eq!(rows(&execution).len(), 2);
     assert_eq!(rows(&execution)[0]["stat_key"], "health");
@@ -528,6 +555,30 @@ async fn real_current_projection_and_composed_patch_history() {
     assert_eq!(rows(&execution)[1]["stat_key"], Value::Null);
     assert_eq!(rows(&execution)[1]["line_text"], line);
     verify_receipts(&execution, &[baba.clone(), infernus.clone(), first.clone()]);
+    let changes_sql = include_str!("../src/pg_patch_tools.rs")
+        .split_once("const CHANGES: &str = \"")
+        .unwrap()
+        .1
+        .split_once("\";")
+        .unwrap()
+        .0;
+    let plan: Value = sqlx::query_scalar(&format!(
+        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {changes_sql}"
+    ))
+    .bind(id)
+    .bind(None::<i64>)
+    .bind(Some("2026-10-01T12:00:00Z"))
+    .bind(Some("2026-10-01T12:00:00Z"))
+    .fetch_one(&db.reader)
+    .await
+    .unwrap();
+    assert_eq!(plan[0]["Plan"]["Actual Rows"], 2);
+    let mut indexes = BTreeSet::new();
+    collect_plan_indexes(&plan, &mut indexes);
+    println!(
+        "P4_INDEX_DIAGNOSTIC real CHANGES query, 2 fixture rows, execution_ms={}, planning_ms={}, indexes={indexes:?}; dynamic binding.entity_id has no stored (entity_id,patch_id) index",
+        plan[0]["Execution Time"], plan[0]["Planning Time"]
+    );
     let published_definition: String =
         sqlx::query_scalar("SELECT pg_get_viewdef('serve.published_receipt'::regclass, true)")
             .fetch_one(&db.admin)
@@ -1066,5 +1117,47 @@ async fn incoherent_heads_and_removed_statements_are_hidden() {
         .unwrap();
     assert_eq!(changes, 0);
     println!("P4_HEAD_PROOF mismatched raw/run/extractor hidden, complete statement removal hidden through real GameFactsStore and brain_tool queries");
+    db.close().await;
+}
+
+#[tokio::test]
+async fn escaped_unicode_reference_keeps_exact_alias_and_receipt_binding() {
+    let pg = scratch_pg::ScratchPg::start();
+    let db = Database::start(&pg).await;
+    let reference = "held \"ä\" \\";
+    let hero = db
+        .publish(
+            "heroes",
+            "escaped",
+            "hero-escaped",
+            json!({"key":"hero_escaped","aliases":["Held \"Ä\" \\"],"health":500}),
+            true,
+        )
+        .await;
+    let id = db.hero_id("hero_escaped").await;
+    let patch = db
+        .publish(
+            "deadlock_patchnotes_db",
+            "10",
+            "patch-escaped",
+            patch(
+                10,
+                "escaped",
+                "2026-10-01T12:00:00Z",
+                vec![change(
+                    1,
+                    reference,
+                    "health",
+                    "Held: health changed from 400 to 500",
+                )],
+            ),
+            false,
+        )
+        .await;
+    let execution = db.execute(json!({"entity":id})).await;
+    assert_eq!(rows(&execution).len(), 1);
+    assert_eq!(rows(&execution)[0]["stat_key"], "health");
+    assert_eq!(rows(&execution)[0]["subject"], reference);
+    verify_receipts(&execution, &[hero, patch]);
     db.close().await;
 }

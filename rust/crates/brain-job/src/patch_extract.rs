@@ -1,3 +1,6 @@
+#[path = "patch_source.rs"]
+pub mod source;
+
 use crate::{
     limits, Entity, Extractor, Fact, FactSet, FactValue, Outcome, RawObject, Receipt, Rejection,
 };
@@ -131,9 +134,11 @@ impl PatchExtractor {
                 continue;
             }
             if let Some(change) = self.change(row, current) {
+                let reference = change["reference"].as_str().ok_or("reference_invalid")?;
+                let fingerprint = Sha256::digest(reference.as_bytes());
                 set.facts.push(Fact {
                     entity_key: key.clone(),
-                    stat_key: format!("patch_change_{}", row.position),
+                    stat_key: format!("patch_change_r{fingerprint:x}_{}", row.position),
                     value: FactValue::Text(change.to_string()),
                     receipt: receipt("raw_content")?,
                 });
@@ -248,6 +253,9 @@ impl Extractor for PatchExtractor {
     fn name(&self) -> &'static str {
         "patchnotes"
     }
+    fn version(&self) -> &'static str {
+        "2"
+    }
     fn accepts(&self, source: &str, path: &str) -> bool {
         source == SOURCE
             && path
@@ -274,7 +282,6 @@ impl Extractor for PatchExtractor {
         }
     }
 }
-
 fn official_url(value: &str) -> bool {
     let value = value.strip_suffix('/').unwrap_or(value);
     for prefix in [
