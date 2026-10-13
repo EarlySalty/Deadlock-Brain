@@ -163,9 +163,15 @@ CARGO_SLOT_REMOTE=0 /home/nathanael/.local/bin/cargo-slot +1.97.1 test --manifes
 
 Pinned KV3 original2567685bytes at e0b9830a7f69726c933da90446e669ad276e73f8 verified from the correct /kv3 cache with no checkout modification. Parent integrated preflight07392 source remains clean apart from owned task docs. JSON unintegrated, Core3b unpublished, own gate1BLOCK0ALLOW, no main/deploy/live.
 
+## 21:14 watch and completed JSON handover
+
+The watch requested state inspection before replacement. Actual own workflow journal has a completed fixer result `a6d56642e890d98ac3b54199284356cf20f15d23` and a freshly started independent reviewer `ac5293d2021215c49`. Its safe tool-event timestamps show ongoing storage/job verification through21:13:31CEST, so it has not died and no duplicate fixer/reviewer is started. Writer worktree is clean at the exact handed-over commit, branch `fix-json-index-closed-wf27`. Only receipts_json.rs and gamefacts_core2.rs changed from f4.
+
+Writer matching check/strict all-target Clippy/absolute formatter passed. Storage24 and focused Hero/ingest11 tests passed0failed0ignored, logs `/tmp/wf27-json-{storage,job,check,clippy,fmt}.log`. Recognized indexing errors propagate invalid_receipt rather than None; genuine initial non-JSON fallback and ordinary locator_collision stay intact. All changed functions<=43lines, original assertions/SQL/bindings/fixtures/order preserved. Actual nonsuper/no-BYPASSRLS PG16 Store/common runner proof `/tmp/wf27-json-after-final.log` passed2external tests: first1/3/0, repeat0/3/1, no bad canonical rows/receipts or empty marker, raw retained, rejects retried, healthy later publication, repeat zero growth. Own PG stopped/status3 before removal. Stress1.255s/90608KiB. Frozen SQL/job1499 unchanged. Parent inspected source and actual proof independently; final reviewer verdict and combined preflight/JSON suite still pending. Core3b remains unpublished.
+
 ## Next actions
 
-1. Receive the active fresh fail-closed JSON fixer and its independent final reviewer. Verify all recognized-JSON/raw/empty/range twins and focused-helper coverage; never override incomplete checks or reuse completed writers.
+1. Receive the active independent final review of a6d56642. On approval integrate the disjoint final JSON source with preflight07392 and run matching actual combined PG --include-ignored/check/strict Clippy/absolute fmt. Never duplicate a live reviewer or waive its source verdict.
 2. Integrate only the verified final JSON handover with preflight07392, run matching actual PG --include-ignored/check/strict Clippy/absolute formatter and one matching job/migrator binary/private-CLI proof. Prove per-item rejection/healthy continuation, signed defaults, Hero67/845/979/zero growth,4096/4097, synchronization and poison/cancellation.
 3. Publish CHECKPOINT core3b, fetch latest origin/main and run a fresh whole-diff local `gate_hook.py --review` round2 on exact literals. No main integration before ALLOW and independent goal acceptance.
 4. Merge/push verified main, deploy through brain-release, real role-correct ingest, two live answers/traces, unchanged-repeat zero growth, final job peak<300MB, readyz and clean journal. Only then own branch/worktree cleanup after checked ancestry. Never delete old salvage worktrees or foreign jobs/caches.
