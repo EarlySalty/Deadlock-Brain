@@ -1,0 +1,130 @@
+{
+  "round": "P5 Docs fixture compatibility after legitimate Core 8/9/10 main integration",
+  "worktree": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-abd7ca4cf8f0935cd",
+  "branch": "p5-docs-core-guards-fixtures-20261014",
+  "starting_sha": "8379466dfb14627395d1a3d799d884e4c390ff18",
+  "gate_base": "ebb56b28f325968d99e955e47a4cf1f9fc7964ad",
+  "ownership": [
+    "rust/crates/brain-serve/tests/pg_docs.rs",
+    "rust/crates/brain-storage/src/gamefacts/migrations_tests.rs: single expected registry list, added by the coordinator's narrow fixture-metadata correction",
+    ".tasks/2026-10-12-brain-architektur/P5/VERIFY_FIXTURES_ABD7CA4C_20261014.json"
+  ],
+  "baseline": {
+    "command": "CARGO_REMOTE_JOBS=3 /home/nathanael/.local/bin/cargo-slot test --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-abd7ca4cf8f0935cd/rust/Cargo.toml --locked --jobs 3 -p brain-serve --test pg_docs -- --include-ignored --test-threads=1",
+    "passed": 13,
+    "failed": 11,
+    "ignored": 0,
+    "filtered": 0,
+    "exit": 101,
+    "local_duration_seconds": 14.73,
+    "local_log": "/tmp/claude-1000/-home-nathanael--worktrees-Deadlock-Brain-p5-docs/e8879c08-cdaa-4157-bbdf-079a3ef275ba/tasks/b0l3idv53.output",
+    "remote_result": {"passed": 13, "failed": 11, "ignored": 0, "filtered": 0, "duration_seconds": 7.94},
+    "initial_attempt": "Remote baseline completed; launcher local fallback was stopped by the initial 600000 ms background tool limit. The unchanged baseline was restarted with a 7200000 ms tool limit and completed locally before source edits.",
+    "failure": "All eleven native PG tests failed in setup at the quarantine view replacement, SQLSTATE 42P16: r.* expanded application_xid into the existing source-column position. The thirteen imported Docs tool tests passed.",
+    "failed_tests": [
+      "current_fact_winner_selection_blocks_source_gin_predicate_pushdown",
+      "entity_filter_excludes_doc_carriers_and_explain_uses_real_postgres",
+      "internal_reader_uses_query_bounds_and_authorizes_empty_searches",
+      "published_projection_rejects_mixed_revisions_and_incomplete_chunks",
+      "reader_compaction_preserves_websearch_membership_and_order",
+      "reader_is_scoped_bounded_and_revalidates_published_state",
+      "reader_preserves_hidden_websearch_operator_boundaries",
+      "registered_docs_migration_is_recorded_and_idempotent",
+      "search_keeps_language_vectors_and_phrase_positions_independent",
+      "search_terms_can_span_title_headings_and_body_chunks",
+      "serving_preserves_extractor_language_values_and_receipts"
+    ]
+  },
+  "adaptations": [
+    "Keep the original native published_receipt view column order with an explicit projection in the existing test-only quarantine replacement. No production view is changed.",
+    "Stage all intended document state in one PostgreSQL transaction on an unpublished failed run. Match fact valid_from_run to its receipt run; publish succeeded only after receipts, identity and all intended facts are inserted.",
+    "Assert no receipt is published before publication, one application_xid per staged fixture, and exactly one failed run transitions to succeeded.",
+    "Supply language, title, heading path and both body chunks at fixture construction, never update published facts.",
+    "Use a fresh controlled ScratchPg for each accepted or rejected language value. Compare exact reader/tool Evidence with the independently captured default-language fixture whose synthetic IDs and content are deterministic; preserve the original equality, language-projection and revalidation assertions.",
+    "Stage hero identity and alias with a fresh unpublished document application before publication, rather than append canonical rows to a published receipt.",
+    "Validate the actual sparse registry through PgStore.migrate_gamefacts/check_gamefacts_schema. Locate P5 checksum by version 5 rather than positional assumptions. Preserve rendered P5 checksum, complete recorded-registry equality after repeated migration and all five object OID checks.",
+    "Preserve real DocsReader and native PostgreSQL search, phrase/vector independence, cross-chunk search, scope separation, revision coherence, incomplete/stale-winner quarantine, canonical entity exclusion, Unicode OR regression, public 512/internal 32768 query bounds, complete serialized-output bounds and shared revalidation. Existing semantic assertions are not removed or weakened."
+  ],
+  "registry_metadata": {
+    "change": "Only the existing expected version list in registry_is_positive_unique_and_ordered_with_gaps is corrected to [1,5,7,8,9,10]. Positive, nonpositive, duplicate and descending registry checks and the v1 checksum assertion remain byte-for-byte unchanged.",
+    "baseline_owner": "parent, at the same starting source 8379466",
+    "baseline_log": "/tmp/claude-1000/-home-nathanael--worktrees-Deadlock-Brain-p5-docs/e8879c08-cdaa-4157-bbdf-079a3ef275ba/tasks/bstip2zb3.output",
+    "baseline_migration_filter": {"passed": 9, "failed": 1, "ignored": 0, "filtered": 44, "exit": 101},
+    "baseline_failure": "Actual [1,5,7,8,9,10], expected [1,7,8,9,10]. The sole failing test is registry_is_positive_unique_and_ordered_with_gaps.",
+    "redundant_own_baseline": "The queued targeted registry baseline bi21l3zne was canceled before obtaining a slot after the parent supplied the completed exact full-filter baseline. No result is claimed for that canceled command.",
+    "final": {"passed": 1, "failed": 0, "ignored": 0, "filtered": 53, "exit": 0, "duration_seconds": 0.01}
+  },
+  "parent_core_status_before_gate": {
+    "observed_log": "/tmp/claude-1000/-home-nathanael--worktrees-Deadlock-Brain-p5-docs/e8879c08-cdaa-4157-bbdf-079a3ef275ba/tasks/bstip2zb3.output",
+    "scope": "parent baseline, not own final-source verification",
+    "formatter_check_strict_clippy": "passed for the parent's five affected packages",
+    "application_cap": {"passed": 1, "failed": 0, "ignored": 0, "filtered": 0},
+    "published_writes": {"passed": 4, "failed": 0, "ignored": 0, "filtered": 0},
+    "run_lock": {"passed": 6, "failed": 0, "ignored": 0, "filtered": 0},
+    "migration_filter": {"passed": 9, "failed": 1, "ignored": 0, "filtered": 44},
+    "conclusion": "Only the registry fixture-metadata expectation failed. No migration 24 or further production Core repair is justified by these checks."
+  },
+  "verification": {
+    "docs": {
+      "command": "CARGO_REMOTE_JOBS=3 /home/nathanael/.local/bin/cargo-slot test --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-abd7ca4cf8f0935cd/rust/Cargo.toml --locked --jobs 3 -p brain-serve --test pg_docs -- --include-ignored --test-threads=1",
+      "passed": 24,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "exit": 0,
+      "duration_seconds": 47.74,
+      "log": "/tmp/claude-1000/-home-nathanael--worktrees-Deadlock-Brain-p5-docs/e8879c08-cdaa-4157-bbdf-079a3ef275ba/tasks/b8nl6e301.output",
+      "runtime": "Native owned PostgreSQL 16 ScratchPg instances; existing launcher workspace test marker routed the remote-first command locally. No foreign marker, lock, cache or process was changed."
+    },
+    "matching_formatter_check_clippy_registry": {
+      "formatter": {
+        "command": "/home/nathanael/.cargo/bin/cargo fmt --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-abd7ca4cf8f0935cd/rust/Cargo.toml -p brain-serve -p brain-storage -- --check",
+        "exit": 0
+      },
+      "check": {
+        "command": "CARGO_REMOTE_JOBS=3 /home/nathanael/.local/bin/cargo-slot check --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-abd7ca4cf8f0935cd/rust/Cargo.toml --locked --jobs 3 -p brain-serve -p brain-storage --all-targets",
+        "exit": 0,
+        "routing": "remote verify profile, jobs=3, 44 seconds including source synchronization"
+      },
+      "strict_clippy": {
+        "command": "CARGO_REMOTE_JOBS=3 /home/nathanael/.local/bin/cargo-slot clippy --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-abd7ca4cf8f0935cd/rust/Cargo.toml --locked --jobs 3 -p brain-serve -p brain-storage --all-targets -- -D warnings",
+        "exit": 0,
+        "routing": "remote verify profile, jobs=3, 32 seconds including source synchronization"
+      },
+      "registry": {
+        "command": "CARGO_REMOTE_JOBS=3 /home/nathanael/.local/bin/cargo-slot test --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-abd7ca4cf8f0935cd/rust/Cargo.toml --locked --jobs 3 -p brain-storage --lib registry_is_positive_unique_and_ordered_with_gaps -- --include-ignored --test-threads=1",
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 53,
+        "exit": 0,
+        "duration_seconds": 0.01,
+        "routing": "local verify profile after launcher routing and bounded slot wait; no source or assertion beyond the expected list is changed"
+      },
+      "log": "/tmp/claude-1000/-home-nathanael--worktrees-Deadlock-Brain-p5-docs/e8879c08-cdaa-4157-bbdf-079a3ef275ba/tasks/bs10dmnxj.output",
+      "final_compiler_scope": "The sole storage change is the coordinator-owned cfg(test) registry expectation, not included in the storage library used by the pg_docs integration target. No storage runtime or Docs fixture/reader change followed the successful full pg_docs run. The final all-target check and strict Clippy include both affected crates after the registry correction."
+    }
+  },
+  "gate": {
+    "checkpoint": "Completed owned verification before commit and changed-source gate. The gate verdict for the resulting exact final commit is reported separately in the final handover, not predicted here.",
+    "command_template": "/home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-abd7ca4cf8f0935cd --base ebb56b28f325968d99e955e47a4cf1f9fc7964ad --head <final committed SHA>",
+    "retry_policy": "No retry after substantive BLOCK. Exactly one retry after a technical failure, then report the blocker.",
+    "parent_shared_status": "Actual completed parent Core tests and known registry-only baseline failure were checked before this gate; the owned corrected registry test now passes. Other parent follow-up checks and final integration are not replaced by this fixture proof."
+  },
+  "protocol": [
+    "TESTNACHWEIS[TW-1]: 24 passed, 0 ignored | Baseline: 11 rot",
+    "Registry: 1 passed, 0 failed, 0 ignored, 53 filtered; parent full migration-filter baseline: 9 passed, 1 failed, 0 ignored, 44 filtered.",
+    "WIRKUNGSPRUEFUNG[WP-1]: 3 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 0/0 geprüft",
+    "The three findings are the unchanged acceptance gaps listed below: Evidence boundary, FTS table writer exception, productive composition. No new fixture defect remains after the actual owned matching checks; this is not whole-feature or live approval.",
+    "Targeted review found no remaining UPDATE canon.fact in pg_docs fixtures, no guard disablement, no grant/ownership change, no source-reader replacement and no timeout/output-limit increase. Existing native EXPLAIN assertions continue to prove the serving GIN limitation.",
+    "TEXTNACHWEIS[DR-1]: Gedankenstriche 0 | ae/oe/ue/ss-Ersatz 0 | Absolutwörter 0 belegt | Senke: Commitnachricht"
+  ],
+  "limitations": [
+    "This round changes fixtures only. No production module, migration, SQL file, Cargo manifest or lockfile is changed; no migration 24 is created.",
+    "Canonical/public versus scoped internal Evidence applicability remains unanswered and unimplemented.",
+    "Docs-owned FTS table writer exception and productive runtime composition remain unanswered and unimplemented. The existing canon.doc_body_fts GIN is not an indexed serving-search success; the native EXPLAIN counterexample remains asserted.",
+    "Older private corpus, actual FindEntity and cgroup evidence at ca357031 is historical, not post-main/current-source verification. No private HTML contents, production DB, service, job, Discord activation or live proof is used in this round.",
+    "Per the coordinator's narrowed execution instruction, no cargo build, release build, temporary CLI target or binary/private CLI proof is run. Final release/deploy/live checks belong to the integrator.",
+    "No main merge, fetch of further main, deployment, rebase or force push is performed."
+  ]
+}

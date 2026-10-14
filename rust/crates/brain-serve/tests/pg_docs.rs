@@ -12,7 +12,7 @@ use brain_contracts::{
     ToolEvidenceDependency, ToolName, ToolValidationPurpose,
 };
 use pg_docs::DocsReader;
-use sqlx::{postgres::PgConnectOptions, PgPool, Row};
+use sqlx::{postgres::PgConnectOptions, PgConnection, PgPool, Row};
 use std::collections::BTreeSet;
 
 async fn setup(pg: &scratch_pg::ScratchPg) -> PgPool {
@@ -31,7 +31,7 @@ async fn setup(pg: &scratch_pg::ScratchPg) -> PgPool {
         .migrate_gamefacts()
         .await
         .unwrap();
-    sqlx::raw_sql("CREATE TABLE canon.test_quarantine(receipt_id bigint PRIMARY KEY); ALTER TABLE canon.test_quarantine OWNER TO brain_migrate; CREATE OR REPLACE VIEW serve.published_receipt AS SELECT r.*,o.source,o.revision,o.revision AS source_revision,o.path,o.content_sha256 FROM canon.receipt r JOIN ops.ingest_run run ON run.id=r.ingest_run_id AND run.status='succeeded' JOIN raw.object o ON o.id=r.raw_object_id WHERE NOT EXISTS(SELECT 1 FROM canon.test_quarantine q WHERE q.receipt_id=r.id)")
+    sqlx::raw_sql("CREATE TABLE canon.test_quarantine(receipt_id bigint PRIMARY KEY); ALTER TABLE canon.test_quarantine OWNER TO brain_migrate; CREATE OR REPLACE VIEW serve.published_receipt AS SELECT r.id,r.raw_object_id,r.ingest_run_id,r.extractor,r.locator_kind,r.locator,r.value_sha256,o.source,o.revision,o.revision AS source_revision,o.path,o.content_sha256 FROM canon.receipt r JOIN ops.ingest_run run ON run.id=r.ingest_run_id AND run.status='succeeded' JOIN raw.object o ON o.id=r.raw_object_id WHERE NOT EXISTS(SELECT 1 FROM canon.test_quarantine q WHERE q.receipt_id=r.id)")
         .execute(&pool).await.unwrap();
     pool
 }
@@ -44,15 +44,13 @@ async fn registered_docs_migration_is_recorded_and_idempotent() {
     let pool = setup(&pg).await;
     let store = brain_storage::PgStore::new(pool.clone());
     let versions = "SELECT version,checksum FROM ops.gamefacts_schema_version ORDER BY version";
+    store.check_gamefacts_schema().await.unwrap();
     let before: Vec<(i32, Vec<u8>)> = sqlx::query_as(versions).fetch_all(&pool).await.unwrap();
-    assert_eq!(
-        before.iter().map(|(v, _)| *v).collect::<Vec<_>>(),
-        [1, 5, 7]
-    );
+    let docs_checksum = &before.iter().find(|(version, _)| *version == 5).unwrap().1;
     let rendered = brain_storage::gamefacts::limits::render_sql(include_str!(
         "../../../../scripts/migrations/2026-10-13-brain-gamefacts-p5-docs-v1.sql"
     ));
-    assert_eq!(before[1].1, Sha256::digest(rendered.as_bytes()).to_vec());
+    assert_eq!(*docs_checksum, Sha256::digest(rendered.as_bytes()).to_vec());
     let objects = "SELECT to_regclass('serve.doc_page')::oid::bigint,to_regclass('serve.doc_section')::oid::bigint,to_regprocedure('serve.doc_meta(text)')::oid::bigint,to_regprocedure('serve.doc_tsv(text)')::oid::bigint,to_regclass('canon.doc_body_fts')::oid::bigint";
     let installed: (i64, i64, i64, i64, i64) =
         sqlx::query_as(objects).fetch_one(&pool).await.unwrap();
@@ -67,16 +65,16 @@ async fn registered_docs_migration_is_recorded_and_idempotent() {
     pool.close().await;
 }
 
-async fn receipt(pool: &PgPool, raw: i64, run: i64, section: bool) -> i64 {
+async fn receipt(connection: &mut PgConnection, raw: i64, run: i64, section: bool) -> i64 {
     sqlx::query_scalar("INSERT INTO canon.receipt(raw_object_id,ingest_run_id,extractor,locator_kind,locator,value_sha256) VALUES($1,$2,'docs',$3,$4,$5) RETURNING id")
         .bind(raw).bind(run)
         .bind(if section { "byte_ranges" } else { "bytes" })
         .bind(if section { "[[0,4]]" } else { "0:4" })
-        .bind(vec![1_u8;32]).fetch_one(pool).await.unwrap()
+        .bind(vec![1_u8;32]).fetch_one(connection).await.unwrap()
 }
 
 async fn fact(
-    pool: &PgPool,
+    connection: &mut PgConnection,
     entity: i64,
     raw: i64,
     run: i64,
@@ -84,10 +82,148 @@ async fn fact(
     value: &str,
     section: bool,
 ) -> i64 {
-    let receipt = receipt(pool, raw, run, section).await;
+    let receipt = receipt(connection, raw, run, section).await;
     sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,value_text,valid_from_run,receipt_id) VALUES($1,$2,$3,$4,$5)")
-        .bind(entity).bind(key).bind(value).bind(run).bind(receipt).execute(pool).await.unwrap();
+        .bind(entity).bind(key).bind(value).bind(run).bind(receipt).execute(connection).await.unwrap();
     receipt
+}
+
+struct DocumentContent<'a> {
+    title: &'a str,
+    lang: &'a str,
+    heading_path: &'a [&'a str],
+    body: [&'a str; 2],
+}
+
+impl Default for DocumentContent<'_> {
+    fn default() -> Self {
+        Self {
+            title: "Baba erklärt",
+            lang: "de",
+            heading_path: &["Baba"],
+            body: ["Baba bewegt ", "sich schnell."],
+        }
+    }
+}
+
+struct StagedDocument {
+    page: i64,
+    body_receipt: i64,
+    identity_receipt: i64,
+    run: i64,
+}
+
+async fn stage_document(
+    connection: &mut PgConnection,
+    path: &str,
+    version: u8,
+    prior: Option<i64>,
+    complete: bool,
+    content: DocumentContent<'_>,
+) -> StagedDocument {
+    let run: i64 = sqlx::query_scalar(
+        "INSERT INTO ops.ingest_run(source,status) VALUES('deadlock-docs','failed') RETURNING id",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .unwrap();
+    let raw: i64 = sqlx::query_scalar("INSERT INTO raw.object(source,revision,path,source_path_sha256,content_sha256,bytes,ingest_run_id) VALUES('deadlock-docs',$1,$2,$3,$4,$5,$6) RETURNING id")
+        .bind(format!("{version:040x}")).bind(path).bind(vec![version;32]).bind(vec![version;32]).bind(b"test".to_vec()).bind(run)
+        .fetch_one(&mut *connection).await.unwrap();
+    let identity = receipt(connection, raw, run, false).await;
+    let entity = if let Some(entity) = prior {
+        entity
+    } else {
+        sqlx::query_scalar(
+            "INSERT INTO canon.entity(kind,key,receipt_id) VALUES('doc_page',$1,$2) RETURNING id",
+        )
+        .bind(format!("doc_{version}"))
+        .bind(identity)
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap()
+    };
+    sqlx::query("INSERT INTO canon.entity_identity(entity_id,receipt_id) VALUES($1,$2)")
+        .bind(entity)
+        .bind(identity)
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    for (key, value) in [
+        ("doc_path", path),
+        ("doc_title", content.title),
+        ("doc_lang", content.lang),
+    ] {
+        fact(connection, entity, raw, run, key, value, false).await;
+    }
+    let count = receipt(connection, raw, run, false).await;
+    sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,value_num,valid_from_run,receipt_id) VALUES($1,'doc_section_count',1,$2,$3)")
+        .bind(entity).bind(run).bind(count).execute(&mut *connection).await.unwrap();
+    fact(connection,entity,raw,run,"doc_intro_meta",&serde_json::json!({"ordinal":0,"locator":"intro","heading_path":content.heading_path,"line_start":1,"line_end":3,"chunks":2}).to_string(),true).await;
+    let body_receipt = fact(
+        connection,
+        entity,
+        raw,
+        run,
+        "doc_intro_body_0",
+        content.body[0],
+        true,
+    )
+    .await;
+    if complete {
+        fact(
+            connection,
+            entity,
+            raw,
+            run,
+            "doc_intro_body_1",
+            content.body[1],
+            true,
+        )
+        .await;
+    }
+    StagedDocument {
+        page: entity,
+        body_receipt,
+        identity_receipt: identity,
+        run,
+    }
+}
+
+async fn publish(connection: &mut PgConnection, run: i64) {
+    let unpublished: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM serve.published_receipt WHERE ingest_run_id=$1")
+            .bind(run)
+            .fetch_one(&mut *connection)
+            .await
+            .unwrap();
+    assert_eq!(unpublished, 0);
+    let applications: i64 = sqlx::query_scalar(
+        "SELECT count(DISTINCT application_xid) FROM canon.receipt WHERE ingest_run_id=$1",
+    )
+    .bind(run)
+    .fetch_one(&mut *connection)
+    .await
+    .unwrap();
+    assert_eq!(applications, 1);
+    let result = sqlx::query("UPDATE ops.ingest_run SET status='succeeded',finished=clock_timestamp() WHERE id=$1 AND status='failed'")
+        .bind(run).execute(connection).await.unwrap();
+    assert_eq!(result.rows_affected(), 1);
+}
+
+async fn document_with_content(
+    pool: &PgPool,
+    path: &str,
+    version: u8,
+    prior: Option<i64>,
+    complete: bool,
+    content: DocumentContent<'_>,
+) -> (i64, i64) {
+    let mut tx = pool.begin().await.unwrap();
+    let staged = stage_document(&mut tx, path, version, prior, complete, content).await;
+    publish(&mut tx, staged.run).await;
+    tx.commit().await.unwrap();
+    (staged.page, staged.body_receipt)
 }
 
 async fn document(
@@ -97,64 +233,15 @@ async fn document(
     prior: Option<i64>,
     complete: bool,
 ) -> (i64, i64) {
-    let run: i64 = sqlx::query_scalar("INSERT INTO ops.ingest_run(source,status) VALUES('deadlock-docs','succeeded') RETURNING id")
-        .fetch_one(pool).await.unwrap();
-    let raw: i64 = sqlx::query_scalar("INSERT INTO raw.object(source,revision,path,source_path_sha256,content_sha256,bytes,ingest_run_id) VALUES('deadlock-docs',$1,$2,$3,$4,$5,$6) RETURNING id")
-        .bind(format!("{version:040x}")).bind(path).bind(vec![version;32]).bind(vec![version;32]).bind(b"test".to_vec()).bind(run)
-        .fetch_one(pool).await.unwrap();
-    let identity = receipt(pool, raw, run, false).await;
-    let entity = if let Some(entity) = prior {
-        entity
-    } else {
-        sqlx::query_scalar(
-            "INSERT INTO canon.entity(kind,key,receipt_id) VALUES('doc_page',$1,$2) RETURNING id",
-        )
-        .bind(format!("doc_{version}"))
-        .bind(identity)
-        .fetch_one(pool)
-        .await
-        .unwrap()
-    };
-    sqlx::query("INSERT INTO canon.entity_identity(entity_id,receipt_id) VALUES($1,$2)")
-        .bind(entity)
-        .bind(identity)
-        .execute(pool)
-        .await
-        .unwrap();
-    for (key, value) in [
-        ("doc_path", path),
-        ("doc_title", "Baba erklärt"),
-        ("doc_lang", "de"),
-    ] {
-        fact(pool, entity, raw, run, key, value, false).await;
-    }
-    let count = receipt(pool, raw, run, false).await;
-    sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,value_num,valid_from_run,receipt_id) VALUES($1,'doc_section_count',1,$2,$3)")
-        .bind(entity).bind(run).bind(count).execute(pool).await.unwrap();
-    fact(pool,entity,raw,run,"doc_intro_meta",&serde_json::json!({"ordinal":0,"locator":"intro","heading_path":["Baba"],"line_start":1,"line_end":3,"chunks":2}).to_string(),true).await;
-    let body_receipt = fact(
+    document_with_content(
         pool,
-        entity,
-        raw,
-        run,
-        "doc_intro_body_0",
-        "Baba bewegt ",
-        true,
+        path,
+        version,
+        prior,
+        complete,
+        DocumentContent::default(),
     )
-    .await;
-    if complete {
-        fact(
-            pool,
-            entity,
-            raw,
-            run,
-            "doc_intro_body_1",
-            "sich schnell.",
-            true,
-        )
-        .await;
-    }
-    (entity, body_receipt)
+    .await
 }
 
 fn context(internal: bool) -> (Query, AuthorizedContext) {
@@ -544,7 +631,7 @@ async fn internal_reader_uses_query_bounds_and_authorizes_empty_searches() {
 async fn serving_preserves_extractor_language_values_and_receipts() {
     let pg = scratch_pg::ScratchPg::start();
     let pool = setup(&pg).await;
-    let (page, _) = document(&pool, "public/baba.html", 1, None, true).await;
+    document(&pool, "public/baba.html", 1, None, true).await;
     document(&pool, "internal/baba.html", 2, None, true).await;
     let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
     let (query, ctx) = context(false);
@@ -553,6 +640,10 @@ async fn serving_preserves_extractor_language_values_and_receipts() {
     let adapter = pg_docs::InternalDocsReader::new(reader.clone());
     let internal =
         brain_contracts::RetrievalPort::retrieve(&adapter, &internal_query, &internal_ctx).unwrap();
+    assert_eq!(original.len(), 1);
+    assert_eq!(internal.len(), 1);
+    pool.close().await;
+    drop(pg);
     let definition = ToolDefinition {
         name: ToolName::SearchDocs,
         description: "Sucht veröffentlichte Dokumentabschnitte.".into(),
@@ -565,7 +656,6 @@ async fn serving_preserves_extractor_language_values_and_receipts() {
     }
     .validate(std::slice::from_ref(&definition))
     .unwrap();
-    let tools = pg_docs::DocsTools::new(None, reader.clone(), definition).unwrap();
     for lang in [
         "de-DE-1996".into(),
         "zh-Hant-TW".into(),
@@ -578,11 +668,35 @@ async fn serving_preserves_extractor_language_values_and_receipts() {
         assert!(!lang.trim().is_empty());
         assert!(!lang.chars().any(char::is_control));
         assert!(lang.len() <= brain_storage::gamefacts::limits::TEXT_BYTES);
-        sqlx::query("UPDATE canon.fact SET value_text=$1 WHERE stat_key='doc_lang'")
-            .bind(&lang)
-            .execute(&pool)
-            .await
-            .unwrap();
+        let pg = scratch_pg::ScratchPg::start();
+        let pool = setup(&pg).await;
+        let (page, _) = document_with_content(
+            &pool,
+            "public/baba.html",
+            1,
+            None,
+            true,
+            DocumentContent {
+                lang: &lang,
+                ..DocumentContent::default()
+            },
+        )
+        .await;
+        document_with_content(
+            &pool,
+            "internal/baba.html",
+            2,
+            None,
+            true,
+            DocumentContent {
+                lang: &lang,
+                ..DocumentContent::default()
+            },
+        )
+        .await;
+        let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
+        let adapter = pg_docs::InternalDocsReader::new(reader.clone());
+        let tools = pg_docs::DocsTools::new(None, reader.clone(), definition.clone()).unwrap();
         let projected: String =
             sqlx::query_scalar("SELECT lang FROM serve.doc_page WHERE page_id=$1")
                 .bind(page)
@@ -611,6 +725,7 @@ async fn serving_preserves_extractor_language_values_and_receipts() {
         )
         .unwrap();
         assert_eq!(execution.dependencies[0].evidence, original);
+        pool.close().await;
     }
     for lang in [
         String::new(),
@@ -619,23 +734,43 @@ async fn serving_preserves_extractor_language_values_and_receipts() {
         "de\u{0085}".into(),
         "de\u{009f}".into(),
     ] {
-        sqlx::query("UPDATE canon.fact SET value_text=$1 WHERE stat_key='doc_lang'")
-            .bind(lang)
-            .execute(&pool)
-            .await
-            .unwrap();
+        let pg = scratch_pg::ScratchPg::start();
+        let pool = setup(&pg).await;
+        document_with_content(
+            &pool,
+            "public/baba.html",
+            1,
+            None,
+            true,
+            DocumentContent {
+                lang: &lang,
+                ..DocumentContent::default()
+            },
+        )
+        .await;
+        let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
         assert!(reader.retrieve(&query, &ctx).unwrap().is_empty());
+        pool.close().await;
     }
-    pool.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn search_terms_can_span_title_headings_and_body_chunks() {
     let pg = scratch_pg::ScratchPg::start();
     let pool = setup(&pg).await;
-    document(&pool, "public/baba.html", 1, None, true).await;
-    sqlx::raw_sql("UPDATE canon.fact SET value_text=CASE stat_key::text WHEN 'doc_intro_body_0' THEN 'Early ' WHEN 'doc_intro_body_1' THEN 'Game' WHEN 'doc_intro_meta' THEN '{\"ordinal\":0,\"locator\":\"intro\",\"heading_path\":[],\"line_start\":1,\"line_end\":3,\"chunks\":2}' ELSE value_text END")
-        .execute(&pool).await.unwrap();
+    document_with_content(
+        &pool,
+        "public/baba.html",
+        1,
+        None,
+        true,
+        DocumentContent {
+            heading_path: &[],
+            body: ["Early ", "Game"],
+            ..DocumentContent::default()
+        },
+    )
+    .await;
     for query in ["Baba Early Game", "Baba", "\"Early Game\"", "Early Game"] {
         let rows = sqlx::query(include_str!("../src/pg_docs/search.sql"))
             .bind("public")
@@ -654,9 +789,20 @@ async fn search_terms_can_span_title_headings_and_body_chunks() {
 async fn search_keeps_language_vectors_and_phrase_positions_independent() {
     let pg = scratch_pg::ScratchPg::start();
     let pool = setup(&pg).await;
-    document(&pool, "public/phrases.html", 1, None, true).await;
-    sqlx::raw_sql("UPDATE canon.fact SET value_text=CASE stat_key::text WHEN 'doc_title' THEN 'Document' WHEN 'doc_intro_body_0' THEN 'alpha ' WHEN 'doc_intro_body_1' THEN 'omega und Häuser' WHEN 'doc_intro_meta' THEN '{\"ordinal\":0,\"locator\":\"intro\",\"heading_path\":[],\"line_start\":1,\"line_end\":3,\"chunks\":2}' ELSE value_text END")
-        .execute(&pool).await.unwrap();
+    document_with_content(
+        &pool,
+        "public/phrases.html",
+        1,
+        None,
+        true,
+        DocumentContent {
+            title: "Document",
+            heading_path: &[],
+            body: ["alpha ", "omega und Häuser"],
+            ..DocumentContent::default()
+        },
+    )
+    .await;
     let matches: (bool, bool, bool, bool, bool, bool) = sqlx::query_as(
         "SELECT tsv @@ websearch_to_tsquery('pg_catalog.simple','\"omega alpha\"'),
             tsv_german @@ websearch_to_tsquery('pg_catalog.german','\"omega alpha\"'),
@@ -706,10 +852,27 @@ async fn reader_compaction_preserves_websearch_membership_and_order() {
         (3, "internal/first.html"),
         (4, "internal/second.html"),
     ] {
-        let (page, _) = document(&pool, path, version, None, true).await;
-        sqlx::query("UPDATE canon.fact SET value_text=CASE stat_key::text WHEN 'doc_title' THEN 'Document' WHEN 'doc_intro_body_0' THEN 'alpha ' WHEN 'doc_intro_body_1' THEN $2 WHEN 'doc_intro_meta' THEN '{\"ordinal\":0,\"locator\":\"intro\",\"heading_path\":[],\"line_start\":1,\"line_end\":3,\"chunks\":2}' ELSE value_text END WHERE entity_id=$1")
-            .bind(page).bind(if version % 2 == 0 { "omega alpha und Häuser" } else { "omega und Häuser" })
-            .execute(&pool).await.unwrap();
+        document_with_content(
+            &pool,
+            path,
+            version,
+            None,
+            true,
+            DocumentContent {
+                title: "Document",
+                heading_path: &[],
+                body: [
+                    "alpha ",
+                    if version % 2 == 0 {
+                        "omega alpha und Häuser"
+                    } else {
+                        "omega und Häuser"
+                    },
+                ],
+                ..DocumentContent::default()
+            },
+        )
+        .await;
     }
     let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
     let definition = ToolDefinition {
@@ -836,9 +999,20 @@ async fn reader_preserves_hidden_websearch_operator_boundaries() {
         (3, "internal/negative.html", "² omega beta"),
         (4, "internal/positive.html", "alpha ² omega beta"),
     ] {
-        let (page, _) = document(&pool, path, version, None, true).await;
-        sqlx::query("UPDATE canon.fact SET value_text=CASE stat_key::text WHEN 'doc_title' THEN 'Document' WHEN 'doc_intro_body_0' THEN $2 WHEN 'doc_intro_body_1' THEN ' ' WHEN 'doc_intro_meta' THEN '{\"ordinal\":0,\"locator\":\"intro\",\"heading_path\":[],\"line_start\":1,\"line_end\":3,\"chunks\":2}' ELSE value_text END WHERE entity_id=$1")
-            .bind(page).bind(body).execute(&pool).await.unwrap();
+        document_with_content(
+            &pool,
+            path,
+            version,
+            None,
+            true,
+            DocumentContent {
+                title: "Document",
+                heading_path: &[],
+                body: [body, " "],
+                ..DocumentContent::default()
+            },
+        )
+        .await;
     }
     let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
     let definition = ToolDefinition {
@@ -928,22 +1102,28 @@ async fn entity_filter_excludes_doc_carriers_and_explain_uses_real_postgres() {
         .await
         .unwrap();
     assert!(rows.is_empty());
-    let receipt: i64 = sqlx::query_scalar("SELECT receipt_id FROM canon.entity WHERE id=$1")
-        .bind(page)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    let staged = stage_document(
+        &mut tx,
+        "public/baba.html",
+        2,
+        Some(page),
+        true,
+        DocumentContent::default(),
+    )
+    .await;
+    let receipt = staged.identity_receipt;
     let game: i64 = sqlx::query_scalar(
         "INSERT INTO canon.entity(kind,key,receipt_id) VALUES('hero','baba',$1) RETURNING id",
     )
     .bind(receipt)
-    .fetch_one(&pool)
+    .fetch_one(&mut *tx)
     .await
     .unwrap();
     sqlx::query("INSERT INTO canon.entity_identity(entity_id,receipt_id) VALUES($1,$2)")
         .bind(game)
         .bind(receipt)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await
         .unwrap();
     sqlx::query(
@@ -951,9 +1131,11 @@ async fn entity_filter_excludes_doc_carriers_and_explain_uses_real_postgres() {
     )
     .bind(game)
     .bind(receipt)
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
     .unwrap();
+    publish(&mut tx, staged.run).await;
+    tx.commit().await.unwrap();
     let rows = sqlx::query(sql)
         .bind("public")
         .bind("Baba")
@@ -1001,9 +1183,18 @@ async fn current_fact_winner_selection_blocks_source_gin_predicate_pushdown() {
     let pg = scratch_pg::ScratchPg::start();
     let pool = setup(&pg).await;
     let (page, _) = document(&pool, "public/baba.html", 1, None, true).await;
-    let (_, current_body_receipt) = document(&pool, "public/baba.html", 2, Some(page), true).await;
-    sqlx::query("UPDATE canon.fact SET value_text='Baba bleibt ' WHERE entity_id=$1 AND stat_key='doc_intro_body_0' AND receipt_id=$2")
-        .bind(page).bind(current_body_receipt).execute(&pool).await.unwrap();
+    let (_, current_body_receipt) = document_with_content(
+        &pool,
+        "public/baba.html",
+        2,
+        Some(page),
+        true,
+        DocumentContent {
+            body: ["Baba bleibt ", "sich schnell."],
+            ..DocumentContent::default()
+        },
+    )
+    .await;
     let canonical_sql = "SELECT entity_id,stat_key FROM canon.fact WHERE stat_key::text ~ '^doc_(intro|section_.+)_body_[0-9]+$' AND serve.doc_tsv(value_text::text) @@ websearch_to_tsquery('pg_catalog.simple','bewegt')";
     let published_sql = "SELECT entity_id,stat_key FROM serve.current_fact WHERE stat_key::text ~ '^doc_(intro|section_.+)_body_[0-9]+$' AND serve.doc_tsv(value_text::text) @@ websearch_to_tsquery('pg_catalog.simple','bewegt')";
     assert_eq!(
