@@ -33,7 +33,7 @@ SCCACHE_DIR=/home/nathanael/.cache/sccache
 CARGO_SLOT_DEPLOY=1 cargo-slot build --locked --release --jobs 12 --workspace --bins --target-dir /home/nathanael/.cache/brain-release-target --config 'build.build-dir="/home/nathanael/.cache/brain-release-target"'
 ```
 
-The helper joins both CPU and memory `cargo-budget` cgroups before spawning cargo-slot. If either budget is unavailable, it warns and continues. Deployment builds use 12 jobs; manifests with the historical 8-job and 4-job arguments remain valid. cargo-slot alone owns the per-repository deployment lock, so the helper does not acquire it twice.
+The helper joins both CPU and memory `cargo-budget` cgroups before spawning cargo-slot. If either budget is unavailable, it warns and continues. Deployment builds use 12 jobs and explicitly disable remote compilation to preserve local `release/deps` hardlink provenance; manifests with the historical 8-job and 4-job arguments remain valid. cargo-slot alone owns the per-repository deployment lock, so the helper does not acquire it twice.
 
 The deployment compiler flags and target path are independent of the invocation. The existing shared sccache remains the compiler cache; a global `CARGO_TARGET_DIR` is not allowed. Children receive a sanitized environment without inherited provider credentials. Worker checks follow the active profile and iteration policy of `cargo-slot` and claude-config `machines/v50671/RUST-BUILDS.md`, rather than assuming they use the deployment profile. Test executables and Clippy metadata are separate Cargo targets, not evidence of a production binary.
 
