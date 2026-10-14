@@ -44,7 +44,9 @@ SELECT jsonb_build_object(
             date_trunc('day',m.snapshot_at AT TIME ZONE 'UTC')-interval '30 days',
             'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
         'matches_until',to_char(m.snapshot_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-        'game_mode','normal','match_mode','source_default','bucket','no_bucket'),
+        'game_mode','normal','match_mode','source_default','bucket','no_bucket')
+        ||CASE WHEN $1='meta_item_stats' THEN jsonb_build_object('min_matches',20)
+            ELSE '{}'::jsonb END,
     'citation',m.receipt_id::text,'source_revision',m.source_revision,'source',m.source,'patch',NULL
 )
 FROM picks p

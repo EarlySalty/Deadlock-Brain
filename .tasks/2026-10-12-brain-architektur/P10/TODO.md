@@ -40,6 +40,9 @@ Branch `feat/brain-p10-meta-stats-20261013`, based on core 3a `982645cf`, merged
   verbatim row JSON, receipt `json_pointer /<index>`.
 - Snapshot semantics: revision = UTC hour. Same-hour rerun replays the cached bytes and is ignored.
   A later hour with unchanged upstream bytes dedups on content hash and writes 0 raw objects.
+  Such unchanged hours are not recorded, so `snapshot_at` stays on the hour of the last change; the
+  tool description states this (snapshot valid until the next newer one). Item conditions carry
+  `min_matches: 20`.
   Changed bytes write one new fact row per entity per run; history kept forever (no pruning).
 - Migration v26 `scripts/migrations/2026-10-13-brain-gamefacts-p10-meta-stats-v26.sql`:
   index `raw.meta_stat_capture_order`, views `serve.meta_stat_set`, `serve.meta_stat_capture`,

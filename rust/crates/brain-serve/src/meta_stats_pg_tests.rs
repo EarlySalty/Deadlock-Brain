@@ -142,6 +142,7 @@ fn repeated_capture_ranks_by_its_own_capture_hour(
         ]
     );
     assert_eq!(facts[0]["condition"]["matches_until"], repeated_hour);
+    assert_eq!(facts[0]["condition"]["min_matches"], 20);
 }
 
 const OLDER_HISTORY: &str = r#"DO $history$
@@ -253,6 +254,7 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
         assert!(fact["patch"].is_null());
         assert_eq!(fact["snapshot_at"], fact["source_revision"]);
         assert_eq!(fact["condition"]["game_mode"], "normal");
+        assert!(fact["condition"].get("min_matches").is_none());
         assert!(fact["condition"]["matches_since"]
             .as_str()
             .unwrap()
