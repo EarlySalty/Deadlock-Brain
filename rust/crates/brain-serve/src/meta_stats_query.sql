@@ -1,14 +1,23 @@
 WITH stat_set AS MATERIALIZED (
     SELECT s.entity_id,s.path FROM serve.meta_stat_set s WHERE s.stat_set=$1
 ), captures AS MATERIALIZED (
-    SELECT c.raw_object_id,c.run_id,c.snapshot_at FROM serve.meta_stat_capture c
+    SELECT c.raw_object_id,c.run_id FROM serve.meta_stat_capture c
     WHERE c.path=(SELECT s.path FROM stat_set s)
     ORDER BY c.capture_key DESC,c.raw_object_id DESC LIMIT 1000
+), applications AS MATERIALIZED (
+    SELECT s.entity_id,a.run_id,a.snapshot_at FROM stat_set s
+    CROSS JOIN LATERAL (
+        SELECT m.run_id,m.snapshot_at FROM serve.meta_stat m
+        WHERE m.entity_id=s.entity_id AND m.stat_key=$2
+        ORDER BY m.run_id DESC LIMIT 1000
+    ) a
 ), history AS MATERIALIZED (
-    SELECT s.entity_id,c.run_id,c.snapshot_at FROM captures c
+    SELECT a.entity_id,a.run_id,a.snapshot_at FROM applications a
+    UNION
+    SELECT s.entity_id,present.run_id,present.snapshot_at FROM captures c
     CROSS JOIN stat_set s
     CROSS JOIN LATERAL (
-        SELECT 1 FROM serve.meta_stat m
+        SELECT m.run_id,m.snapshot_at FROM serve.meta_stat m
         WHERE m.entity_id=s.entity_id AND m.stat_key=$2 AND m.run_id=c.run_id
             AND m.raw_object_id=c.raw_object_id
         LIMIT 1
@@ -34,7 +43,7 @@ SELECT jsonb_build_object(
     'condition',jsonb_build_object('matches_since',to_char(
             date_trunc('day',m.snapshot_at AT TIME ZONE 'UTC')-interval '30 days',
             'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-        'matches_until',m.source_revision,
+        'matches_until',to_char(m.snapshot_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
         'game_mode','normal','match_mode','source_default','bucket','no_bucket'),
     'citation',m.receipt_id::text,'source_revision',m.source_revision,'source',m.source,'patch',NULL
 )

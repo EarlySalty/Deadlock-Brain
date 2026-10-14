@@ -9,21 +9,28 @@ Branch `feat/brain-p10-meta-stats-20261013`, based on core 3a `982645cf`.
   items `min_matches=20`) once per UTC hour into `<source_cache>/deadlock-api-meta/<hour>/`.
   Two requests per run, 1 MiB cap per body, JSON content type required, other hour directories pruned.
   Both URLs carry `min_unix_timestamp` = start of the capture UTC day minus 30 days
-  (`meta_source::window_start`), so the window no longer depends on API defaults.
-  Live capture only: `--input <dir>` fails for this source.
-- `snapshot_at` is the UTC capture hour of the cited raw object (`source_revision`), not the ingest
-  run start. Selection is driven by capture order, never by ingest order: view
-  `serve.meta_stat_capture` walks the stat set's raw objects through the partial index
-  `raw.object meta_stat_capture_order (path, revision COLLATE "C" DESC, id DESC)`, takes the newest
-  1000 captures (about 41 days) with their newest succeeded applying run, then looks up the key's
-  fact per capture via `fact_history`. `latest` and the 24 h / 7 d / 30 d points are picked by
-  `snapshot_at DESC, run_id DESC` inside that window. A key absent from all of the newest 1000
-  captures returns `meta_stats_not_found`.
+  (`meta_source::window_start`) and `max_unix_timestamp` = start of the capture hour
+  (`meta_source::window_end`, parameter confirmed in the upstream OpenAPI), so the window is pinned
+  on both ends and does not depend on API defaults. Both bounds filter on match start time.
+  Live capture only: `--input <dir>` fails for this source. The capture runs lazily inside the
+  ingest run (after `begin_run`); the job fails if the hour changed between job start and capture,
+  so the capture hour always equals the UTC hour of `ops.ingest_run.started` (same host clock).
+- `snapshot_at` is the UTC capture hour of the applying run, not the raw object alone. A run that
+  first stored the raw object uses its revision; a run that re-applies an older raw object with
+  identical bytes (A, B, A) uses the UTC hour of its own `ops.ingest_run.started`, so the fresh A
+  ranks by its own capture hour while still citing the reused object (`source_revision` stays the
+  old hour, `condition.matches_until` follows `snapshot_at`). View `serve.meta_stat` carries this
+  per-run `snapshot_at`.
+- Selection is bounded and index driven: the newest 1000 distinct captures by capture hour
+  (view `serve.meta_stat_capture`, partial index `raw.object meta_stat_capture_order
+  (path, revision COLLATE "C" DESC, id DESC)`, only objects applied by their first run), plus the
+  key's newest 1000 applying runs via `fact_history`. `latest` and the 24 h / 7 d / 30 d points are
+  picked by `snapshot_at DESC, run_id DESC` over that union. A key that was never captured returns
+  `meta_stats_not_found`.
 - `meta_stats_pg_tests.rs` publishes runs out of capture order and then 9000 later runs carrying
-  older capture hours; `latest` and the comparison points must still follow capture time. With
-  that data the tool query ran in about 55 ms on a loaded host (statement timeout 500 ms).
-  Known edge: bytes identical to an older capture (A, B, A) reuse the old raw object and its hour,
-  so the repeated A ranks by its first capture hour.
+  older capture hours; `latest` and the comparison points must still follow capture time. It also
+  covers A, B, A on the item set: `latest` is the fresh A with the third run's hour, 24 h is B, 7 d is
+  the first A.
 - Extractor `meta_stats` (`rust/crates/brain-job/src/meta_stats.rs`): one entity per stat set
   (`meta_hero_stats`, `meta_item_stats`), one text fact per row (`hero_<id>` / `item_<id>`) holding the
   verbatim row JSON, receipt `json_pointer /<index>`.
@@ -56,10 +63,13 @@ instance `brain-job@deadlock-api-meta.timer`. Not enabled, not started.
   (TOAST compressed; plain body hero 27 KB, items 42 KB). Both sets changing every hour
   (197 rows) is about 208 KB per hour, so about 1.82 GB per year. Synthetic year load (hero changed
   hourly, items every 6 h, 2874 hours) measured 222 MB, about 77 KB per hour, so about 0.68 GB per year.
-- Tool query as `brain_tool` with that synthetic history (2874 hero captures): 24 to 33 ms for a
-  hero, 8 ms for an item, 4 rows, 4.3 KB result. Plan: index only scan on
-  `meta_stat_capture_order`, `fact_history` per capture, `receipt_object_run`, no seq scan on
-  large tables.
+- Tool query as `brain_tool` with that synthetic history (2874 hero captures), measured before the
+  per-run selection: 24 to 33 ms for a hero, 8 ms for an item, 4 rows, 4.3 KB result.
+- Per-run selection (HEAD after round 4), `meta_stats_pg_tests.rs` data (6 + 9000 hero captures),
+  `EXPLAIN (ANALYZE, BUFFERS)` 94 to 139 ms execution on a heavily loaded host (all build slots busy),
+  4 rows, 2.5 KB result. Plan: index scan on `meta_stat_capture_order` (1000 rows), `fact_history`
+  ordered scan (1000 rows) and per capture, PK and `receipt_object_run` lookups, no seq scan.
+  Cost is linear in the two bounded 1000-row sets.
 - Core finding (frozen, not changed here): ingest duration of accepted runs grows with source
   history, average 0.41 s over the first 650 runs and 2.05 s after about 2600 runs
   (`was_applied_active` in `brain-storage/src/gamefacts.rs` scans the path history). Not blocking at

@@ -19,32 +19,40 @@ fn receipt(kind: &str, locator: String, value: &[u8]) -> Receipt {
 }
 
 async fn publish_snapshot(admin: &PgPool, revision: &str, wins: u64, with_second: bool) {
+    publish_capture(
+        admin,
+        ("hero-stats.json", "meta_hero_stats", "hero"),
+        revision,
+        snapshot_bytes(wins, with_second),
+    )
+    .await;
+}
+
+async fn publish_capture(
+    admin: &PgPool,
+    (path, entity, prefix): (&str, &str, &str),
+    revision: &str,
+    bytes: Vec<u8>,
+) -> i64 {
     let store = GameFactsStore::new(admin.clone());
     let run = store.begin_run("deadlock-api-meta").await.unwrap();
-    let bytes = snapshot_bytes(wins, with_second);
     let raw = store
-        .capture(
-            run,
-            "deadlock-api-meta",
-            revision,
-            "hero-stats.json",
-            bytes.clone(),
-        )
+        .capture(run, "deadlock-api-meta", revision, path, bytes.clone())
         .await
         .unwrap();
     let rows: Vec<&serde_json::value::RawValue> = serde_json::from_slice(&bytes).unwrap();
     let set = FactSet {
         entities: vec![Entity {
             kind: "meta_stats".into(),
-            key: "meta_hero_stats".into(),
+            key: entity.into(),
             receipt: receipt("raw_bytes", String::new(), &bytes),
         }],
         facts: rows
             .iter()
             .enumerate()
             .map(|(index, row)| Fact {
-                entity_key: "meta_hero_stats".into(),
-                stat_key: format!("hero_{}", index + 1),
+                entity_key: entity.into(),
+                stat_key: format!("{prefix}_{}", index + 1),
                 value: FactValue::Text(row.get().into()),
                 receipt: receipt("json_pointer", format!("/{index}"), row.get().as_bytes()),
             })
@@ -66,6 +74,74 @@ async fn publish_snapshot(admin: &PgPool, revision: &str, wins: u64, with_second
         )
         .await
         .unwrap();
+    run
+}
+
+async fn hour_before(admin: &PgPool, back: &str) -> String {
+    sqlx::query_scalar(
+        "SELECT to_char(date_trunc('hour',now(),'UTC') AT TIME ZONE 'UTC'-$1::interval,'YYYY-MM-DD\"T\"HH24:00:00\"Z\"')",
+    )
+    .bind(back)
+    .fetch_one(admin)
+    .await
+    .unwrap()
+}
+
+fn repeated_capture_ranks_by_its_own_capture_hour(
+    runtime: &tokio::runtime::Runtime,
+    admin: &PgPool,
+    tools: &PgTools<Delegate>,
+) {
+    let item = ("item-stats.json", "meta_item_stats", "item");
+    let first = br#"[{"item_id":1,"wins":40,"matches":100}]"#.to_vec();
+    let second = br#"[{"item_id":1,"wins":60,"matches":100}]"#.to_vec();
+    let (old, middle, repeated_hour) = runtime.block_on(async {
+        let old = hour_before(admin, "10 days").await;
+        let middle = hour_before(admin, "3 days").await;
+        let fresh = hour_before(admin, "0 hours").await;
+        publish_capture(admin, item, &old, first.clone()).await;
+        publish_capture(admin, item, &middle, second).await;
+        let repeated = publish_capture(admin, item, &fresh, first).await;
+        let repeated_hour: String = sqlx::query_scalar(
+            "SELECT to_char(date_trunc('hour',started,'UTC') AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:00:00\"Z\"') FROM ops.ingest_run WHERE id=$1",
+        )
+        .bind(repeated)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+        (old, middle, repeated_hour)
+    });
+    let execution = tools
+        .execute(
+            &query(),
+            &context(),
+            None,
+            "meta",
+            &request(ToolName::GetMetaStats, json!({"kind":"item","game_id":1})),
+        )
+        .unwrap();
+    assert!(!execution.result.is_error, "{}", execution.result.result);
+    let facts = execution.result.result["facts"].as_array().unwrap();
+    let points: Vec<_> = facts
+        .iter()
+        .map(|fact| {
+            (
+                fact["snapshot"].as_str().unwrap(),
+                fact["value"]["wins"].as_u64().unwrap(),
+                fact["snapshot_at"].as_str().unwrap(),
+                fact["source_revision"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        points,
+        [
+            ("latest", 40, repeated_hour.as_str(), old.as_str()),
+            ("24h", 60, middle.as_str(), middle.as_str()),
+            ("7d", 40, old.as_str(), old.as_str()),
+        ]
+    );
+    assert_eq!(facts[0]["condition"]["matches_until"], repeated_hour);
 }
 
 const OLDER_HISTORY: &str = r#"DO $history$
@@ -243,6 +319,8 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
         assert!(missing.result.is_error);
         assert_eq!(missing.result.result["error"], "meta_stats_not_found");
     }
+
+    repeated_capture_ranks_by_its_own_capture_hour(&runtime, &admin, &tools);
 
     let plan: Vec<String> = runtime.block_on(async {
         let mut connection = admin.acquire().await.unwrap();
