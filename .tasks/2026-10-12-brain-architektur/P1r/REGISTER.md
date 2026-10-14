@@ -4,6 +4,17 @@ Responsible integrator: `93e03a43-41c2-4076-a1ef-dee0f39790ec`.
 Assigned main orchestrator: `958d03f8-4b01-466d-87e7-6b0f2ebf14d4`, not created or managed by this session.
 No additional T3 threads were created. Native workflows inherit the selected `gpt-6.1-sol` model.
 
+## Dedicated finish continuation, 2026-10-14
+
+Current finish integrator: `502084f3-21be-4f02-9192-47dd41e1ac34`. The original hero merge `0b105f92abaa2697b9c93e20483c60e8d7c8a3b1`, credential lifecycle mitigation `eea3c4ecd890f0620a701697ce116d14a25076d4`, and exact citation-copy reminder `f948a44b28f85e97e9109231b329721e718c2f6f` are on main. Two installs of the attested f948 release failed at overlapping credential service restarts; three separate restarts subsequently succeeded. f948 live probes are answered but identity-only, without get_hero. Neither fact establishes P1r acceptance.
+
+| Package | Full agent ID | Creator | Start evidence | Harness/model | Status | Worktree | Branch | HEAD | Last handover |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Serial credential activation | `acb1033762741a59e` | `502084f3-21be-4f02-9192-47dd41e1ac34` | Native Agent call and completed task notification | Native coder / Opus | Source complete, pushed, integrated into final candidate; do not reuse | `/home/nathanael/.worktrees/Deadlock-Brain-p1r-serial-activation-20261014` | `fix/p1r-serial-activation-20261014` | `a1a5dd249e1381fbb2e5ef02115e0e138692785a` | 10 tests passed, 0 failed/ignored; fmt/check/strict Clippy exit0; parent independently repeated10 tests; gate/helper install/live remain parent-owned |
+| Hero profile followthrough | `ac3e82eabdaaedf8c` | `502084f3-21be-4f02-9192-47dd41e1ac34` | Native Agent call and completed task notification | Native coder / Opus | Source complete, pushed, cherry-picked as `0e9ea2f7`; do not reuse | `/home/nathanael/.worktrees/Deadlock-Brain-p1r-profile-followthrough-20261014` | `fix/p1r-profile-followthrough-20261014` | `30392556719d2fc38656008e60869a3222eed2e9` | 188 matching tests passed, 0 failed/ignored; fmt/check/strict Clippy exit0; initial broad remote attempt258 passed/7 failed, no baseline claim; gate and real model effect parent-owned |
+
+Final candidate branch: `fix/p1r-live-completion-20261014` in `/home/nathanael/.worktrees/Deadlock-Brain-p1r-finish`. Parent-owned public citation calibration matches the Rust CanonicalReceipt golden and resolves all saved f948 public citations against trace-scoped serve.published_receipt. This calibrates only the proof harness, not the inadequate identity-only responses. Evidence root: `/home/nathanael/.local/state/brain-p1r-proof-20261013/`. No new whole-diff reviewer, other package checkpoint, PR, foreign checkout change or external coordination.
+
 ## Session-Register
 
 | Package | Full session/agent ID | Creator | Start evidence | Harness/model | Status | Worktree | Branch | HEAD | Last handover |
