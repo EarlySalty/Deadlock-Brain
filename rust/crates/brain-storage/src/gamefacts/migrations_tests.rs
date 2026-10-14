@@ -16,9 +16,10 @@ fn registry_is_positive_unique_and_ordered_with_gaps() {
     ] {
         assert!(ordered(&registry).is_err());
     }
+    assert!(ordered(MIGRATIONS).is_ok());
     assert_eq!(
         MIGRATIONS.iter().map(|(v, _)| *v).collect::<Vec<_>>(),
-        [1, 2, 7, 8, 9, 10]
+        [1, 2, 3, 7, 8, 9, 10, 11, 13]
     );
     assert_eq!(
         sql_and_checksum(MIGRATIONS[0].1)
@@ -1283,8 +1284,9 @@ async fn published_insert_upgrade_preserves_legacy_rows_and_serving_shape() {
         .await
         .unwrap();
     assert_eq!(published_upgrade_snapshot(&admin).await, before);
-    let after_columns: Vec<(String, String, String)> = sqlx::query_as("SELECT c.relname::text,a.attname::text,pg_catalog.format_type(a.atttypid,a.atttypmod) FROM pg_catalog.pg_namespace n JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='serve' AND c.relkind='v' AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum")
-        .fetch_all(&admin).await.unwrap();
+    let relations: Vec<_> = columns.iter().map(|(name, _, _)| name.clone()).collect();
+    let after_columns: Vec<(String, String, String)> = sqlx::query_as("SELECT c.relname::text,a.attname::text,pg_catalog.format_type(a.atttypid,a.atttypmod) FROM pg_catalog.pg_namespace n JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='serve' AND c.relkind='v' AND c.relname::text=ANY($1) AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum")
+        .bind(relations).fetch_all(&admin).await.unwrap();
     assert_eq!(columns, after_columns);
     assert_integrity_denied(sqlx::query("INSERT INTO canon.receipt(raw_object_id,ingest_run_id,extractor,locator_kind,locator,value_sha256) VALUES($1,$2,'late','raw_bytes','',decode(repeat('00',32),'hex'))")
         .bind(raw.id).bind(run).execute(&writer).await.map(|_| ()));

@@ -30,6 +30,7 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "signal", "sync"] }
 
 [dev-dependencies]
+brain-job = { path = "../brain-job" }
 tokio = { workspace = true, features = ["test-util"] }
 brain-client = { path = "../brain-client" }
 brain-ingestion = { path = "../brain-ingestion" }

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod assets;
 pub mod config;
 pub mod hero;
 pub mod registry;

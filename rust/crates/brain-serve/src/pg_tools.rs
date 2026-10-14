@@ -162,6 +162,7 @@ impl<T> PgTools<T> {
             .patch
             .as_deref()
             .is_some_and(|patch| patch != "current")
+            || crate::pg_asset_tools::historical(request)
             || matches!(request.subrequest(), ToolSubrequest::GetHero(hero)
                 if hero.patch.as_deref().is_some_and(|patch| patch != "current"))
             || matches!(request.subrequest(), ToolSubrequest::GetTimer(timer)
@@ -230,6 +231,13 @@ impl<T> PgTools<T> {
                     let Some(value) = timer_tools::read(&mut connection, timer).await? else {
                         return Ok(error_execution(call_id, request.name(), "timer_not_found",
                             "Für diesen Timer sind keine belegten Werte veröffentlicht."));
+                    };
+                    value
+                }
+                ToolSubrequest::GetItem(_) | ToolSubrequest::GetAbility(_) | ToolSubrequest::Compare(_) => {
+                    let Some(value) = crate::pg_asset_tools::read(&mut connection, call_id, request).await? else {
+                        return Ok(error_execution(call_id, request.name(), "asset_selection_unavailable",
+                            "Für diese Auswahl sind keine vollständigen veröffentlichten Spielbelege verfügbar."));
                     };
                     value
                 }
@@ -355,7 +363,7 @@ pub(super) fn canonical(name: ToolName) -> bool {
     matches!(
         name,
         ToolName::FindEntity | ToolName::GetHero | ToolName::GetTimer
-    )
+    ) || crate::pg_asset_tools::canonical(name)
 }
 
 fn kind_name(kind: CanonicalEntityKind) -> &'static str {
@@ -384,7 +392,7 @@ fn definitions() -> Vec<ToolDefinition> {
                 "patch":{"type":"string","minLength":1,"maxLength":128},
                 "sections":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"string","enum":["stats","abilities","weapon"]}}}})},
         timer_tools::definition(),
-    ]
+    ].into_iter().chain(crate::pg_asset_tools::definitions()).collect()
 }
 
 fn hero_sql(request: &GetHeroRequest) -> &'static str {
@@ -457,6 +465,7 @@ fn citations(value: &Value, ids: &mut BTreeMap<i64, String>) -> Result<(), PortE
                 "facts",
                 "links",
                 "entities",
+                "qualifiers",
             ] {
                 if let Some(field) = object.get(key) {
                     citations(field, ids)?;
@@ -523,6 +532,7 @@ fn replace_citations(
                 "facts",
                 "links",
                 "entities",
+                "qualifiers",
             ] {
                 if let Some(field) = object.get_mut(key) {
                     replace_citations(field, receipts)?;
@@ -611,7 +621,12 @@ pub(super) async fn bounded_execution(
                 });
             }
         }
-        if !trim_row(&mut value) {
+        let trimmed = if crate::pg_asset_tools::canonical(request.name()) {
+            crate::pg_asset_tools::trim_execution(&mut value, request)?
+        } else {
+            trim_row(&mut value)
+        };
+        if !trimmed {
             return Ok(error_execution(
                 id,
                 request.name(),
@@ -637,6 +652,10 @@ fn receipt_metadata(row: sqlx::postgres::PgRow) -> Result<CanonicalReceipt, Port
         patch: None,
     })
 }
+
+#[cfg(test)]
+#[path = "pg_asset_executor_tests.rs"]
+mod asset_tests;
 
 #[cfg(test)]
 #[path = "pg_tools_tests.rs"]

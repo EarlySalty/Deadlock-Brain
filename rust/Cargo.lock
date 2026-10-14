@@ -515,6 +515,7 @@ dependencies = [
  "brain-compare",
  "brain-contracts",
  "brain-ingestion",
+ "brain-job",
  "brain-kernel",
  "brain-policy",
  "brain-providers",

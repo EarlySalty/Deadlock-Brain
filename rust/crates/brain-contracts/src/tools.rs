@@ -13,6 +13,10 @@ use crate::{
 };
 pub use timer::{GetTimerRequest, TimerKind};
 
+#[path = "asset_tools.rs"]
+mod asset_tools;
+pub use asset_tools::{CompareRequest, GetAbilityRequest, GetItemRequest};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolName {
@@ -26,6 +30,9 @@ pub enum ToolName {
     ServerKnowledge,
     DeadlockData,
     GetTimer,
+    GetItem,
+    GetAbility,
+    Compare,
     FindEntity,
     GetHero,
 }
@@ -43,6 +50,9 @@ impl ToolName {
             Self::ServerKnowledge => "server_knowledge",
             Self::DeadlockData => "deadlock_data",
             Self::GetTimer => "get_timer",
+            Self::GetItem => "get_item",
+            Self::GetAbility => "get_ability",
+            Self::Compare => "compare",
             Self::FindEntity => "find_entity",
             Self::GetHero => "get_hero",
         }
@@ -444,6 +454,9 @@ pub enum ToolSubrequest {
     ServerKnowledge(ServerKnowledgeRequest),
     DeadlockData(DeadlockDataRequest),
     GetTimer(GetTimerRequest),
+    GetItem(GetItemRequest),
+    GetAbility(GetAbilityRequest),
+    Compare(CompareRequest),
     FindEntity(FindEntityRequest),
     GetHero(GetHeroRequest),
 }
@@ -473,6 +486,9 @@ impl ToolSubrequest {
                 serde_json::from_value(arguments.clone()).map(Self::ServerKnowledge)
             }
             ToolName::GetTimer => serde_json::from_value(arguments.clone()).map(Self::GetTimer),
+            ToolName::GetItem => serde_json::from_value(arguments.clone()).map(Self::GetItem),
+            ToolName::GetAbility => serde_json::from_value(arguments.clone()).map(Self::GetAbility),
+            ToolName::Compare => serde_json::from_value(arguments.clone()).map(Self::Compare),
             ToolName::FindEntity => serde_json::from_value(arguments.clone()).map(Self::FindEntity),
             ToolName::GetHero => serde_json::from_value(arguments.clone()).map(Self::GetHero),
         };
@@ -591,6 +607,9 @@ impl ToolSubrequest {
                 }
                 Ok(())
             }
+            Self::GetItem(request) => request.validate(),
+            Self::GetAbility(request) => request.validate(),
+            Self::Compare(request) => request.validate(),
             Self::FindEntity(request) => {
                 validate_canonical_text(&request.text)?;
                 if request.limit.is_some_and(|limit| !(1..=5).contains(&limit)) {
@@ -1030,6 +1049,9 @@ impl ToolExecution {
                 | ToolName::GetTimer
                 | ToolName::FindEntity
                 | ToolName::GetHero
+                | ToolName::GetItem
+                | ToolName::GetAbility
+                | ToolName::Compare
         ) {
             None
         } else {
@@ -1058,7 +1080,12 @@ impl ToolExecution {
         let mut expected_request = request.clone();
         if matches!(
             request.name(),
-            ToolName::FindEntity | ToolName::GetHero | ToolName::GetTimer
+            ToolName::FindEntity
+                | ToolName::GetHero
+                | ToolName::GetTimer
+                | ToolName::GetItem
+                | ToolName::GetAbility
+                | ToolName::Compare
         ) {
             expected_request.canonical_result_sha256 = Some(canonical_result_sha256(&self.result)?);
         }
