@@ -230,3 +230,57 @@ async fn hourly_snapshots_are_idempotent_and_keep_history() {
     writer.close().await;
     admin.close().await;
 }
+
+#[tokio::test]
+async fn reverted_snapshot_is_reapplied_and_dated_by_its_own_run() {
+    let (_pg, admin, writer) = gamefacts_pg::fixture(1).await;
+    let store = GameFactsStore::new(writer.clone());
+    let source = meta_source::SOURCE;
+    let first = ingest(&store, source, snapshot(HOUR_A, fixture(HERO)), EXTRACTORS)
+        .await
+        .unwrap();
+    let changed = ingest(&store, source, snapshot(HOUR_B, changed_hero()), EXTRACTORS)
+        .await
+        .unwrap();
+    assert_eq!((changed.counts.accepted, changed.counts.ignored), (1, 1));
+    let raw_before = growth(&admin).await.0;
+    let reverted = ingest(
+        &store,
+        source,
+        snapshot("2026-10-13T21:00:00Z", fixture(HERO)),
+        EXTRACTORS,
+    )
+    .await
+    .unwrap();
+    assert_eq!((reverted.counts.accepted, reverted.counts.ignored), (1, 1));
+    assert_eq!(growth(&admin).await.0, raw_before);
+    let (run, value, revision, dated_by_run): (i64, Value, String, bool) = sqlx::query_as(
+        "SELECT m.run_id,m.value,m.source_revision,m.snapshot_at=date_trunc('hour',r.started,'UTC') FROM serve.meta_stat m JOIN ops.ingest_run r ON r.id=m.run_id WHERE m.stat_key='hero_1' ORDER BY m.snapshot_at DESC,m.run_id DESC LIMIT 1",
+    )
+    .fetch_one(&admin)
+    .await
+    .unwrap();
+    let original: Vec<Value> = serde_json::from_slice(&fixture(HERO)).unwrap();
+    let hero_1 = original
+        .iter()
+        .find(|row| row["hero_id"] == 1)
+        .unwrap()
+        .clone();
+    assert_eq!(run, reverted.run_id);
+    assert_eq!(value, hero_1);
+    assert_eq!(revision, HOUR_A);
+    assert!(dated_by_run);
+    assert_eq!(
+        count(
+            &admin,
+            &format!(
+                "SELECT count(*) FROM serve.meta_stat WHERE stat_key='hero_1' AND run_id IN ({},{},{})",
+                first.run_id, changed.run_id, reverted.run_id
+            )
+        )
+        .await,
+        3
+    );
+    writer.close().await;
+    admin.close().await;
+}

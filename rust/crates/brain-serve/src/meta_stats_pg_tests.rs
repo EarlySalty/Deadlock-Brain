@@ -149,7 +149,7 @@ DECLARE run bigint; object bigint; cited bigint; stats bigint;
 BEGIN
     SELECT entity_id INTO stats FROM serve.meta_stat_set WHERE stat_set='meta_hero_stats';
     FOR hour IN 1001..10000 LOOP
-        INSERT INTO ops.ingest_run(source,status) VALUES('deadlock-api-meta','succeeded') RETURNING id INTO run;
+        INSERT INTO ops.ingest_run(source) VALUES('deadlock-api-meta') RETURNING id INTO run;
         INSERT INTO raw.object(source,revision,path,source_path_sha256,content_sha256,bytes,ingest_run_id)
         VALUES('deadlock-api-meta',
             to_char((timestamptz '2026-10-06 05:00:00+00'-make_interval(hours=>hour)) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:00:00"Z"'),
@@ -159,6 +159,7 @@ BEGIN
         VALUES(object,run,'v1:10:meta_stats:1:1','json_pointer','/0',sha256('history'::bytea)) RETURNING id INTO cited;
         INSERT INTO canon.fact(entity_id,stat_key,value_text,valid_from_run,receipt_id)
         VALUES(stats,'hero_1','{"hero_id":1,"bucket":0,"wins":1,"matches":2}',run,cited);
+        UPDATE ops.ingest_run SET status='succeeded' WHERE id=run;
     END LOOP;
 END
 $history$"#;
