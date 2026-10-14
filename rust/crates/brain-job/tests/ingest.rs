@@ -4,12 +4,12 @@ use brain_job::{
 };
 use brain_storage::PgStore;
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::Row;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[path = "../../brain-storage/tests/support/gamefacts_pg.rs"]
 pub mod gamefacts_pg;
-use gamefacts_pg::{count, growth as stored_counts, rejection_codes};
+use gamefacts_pg::{assert_count, count, growth as stored_counts, rejection_codes};
 
 struct Stub(AtomicUsize);
 struct Corrected(&'static str, AtomicUsize);
@@ -123,6 +123,9 @@ impl Extractor for Stub {
             }
             _ => {}
         }
+        if raw.path.starts_with("twins_") {
+            set = gamefacts_pg::fill_to_row_limit(set);
+        }
         Outcome::Accepted(set)
     }
 }
@@ -149,10 +152,6 @@ where
 fn assert_counts(report: &brain_job::RunReport, expected: (i64, i64, i64)) {
     let counts = report.counts;
     assert_eq!((counts.accepted, counts.rejected, counts.ignored), expected);
-}
-
-async fn assert_count(pool: &PgPool, sql: &str, expected: i64) {
-    assert_eq!(count(pool, sql).await, expected);
 }
 
 #[tokio::test]
@@ -377,8 +376,8 @@ async fn poison_isolation_publication_retry_and_immutable_migration() {
         .is_err());
     denied.rollback().await.unwrap();
     for (path, published, values, expected) in [
-        ("twins_published", true, [125, 120], 120.0),
-        ("twins_fresh", false, [120, 125], 125.0),
+        ("twins_published", true, [125, 120, 125], 125.0),
+        ("twins_fresh", false, [120, 125, 120], 120.0),
     ] {
         let numeric = |value: i32| {
             let mut object = input(path, "r1").unwrap();
@@ -389,7 +388,8 @@ async fn poison_isolation_publication_retry_and_immutable_migration() {
             assert_counts(&run(&store, [numeric(120)], &stub).await, (1, 0, 0));
         }
         let twins = run(&store, values.map(numeric), &stub).await;
-        assert_counts(&twins, (2, 0, 0));
+        assert_counts(&twins, (3, 0, 0));
+        gamefacts_pg::assert_boundary_applications(&admin, twins.run_id).await;
         let health: f64 = sqlx::query_scalar("SELECT value_num FROM serve.current_fact f JOIN serve.current_entity e ON e.id=f.entity_id WHERE e.key=$1 AND stat_key='health'").bind(format!("hero_{path}")).fetch_one(&admin).await.unwrap();
         assert_eq!(health, expected);
         let before = stored_counts(&admin).await;
