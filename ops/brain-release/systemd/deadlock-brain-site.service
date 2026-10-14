@@ -3,7 +3,7 @@ Description=Deadlock Build-Korpus Site (/brain, loopback 8087)
 After=network.target
 
 [Service]
-Type=simple
+Type=exec
 User=nathanael
 Group=nathanael
 LoadCredential=infisical-token:/home/nathanael/.config/infisical-tokens/infisical-token-bots
