@@ -171,3 +171,18 @@ WIRKUNGSPRUEFUNG[WP-1]: 0 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pf
 MERGEPROTOKOLL[MS-1]: 8 Git-Schritte einzeln | Anläufe: 2 | Gate: technical exit2 twice, no verdict
 
 The12 baseline failures are the exact pre-fix Docs11 and registry1, now repaired. Eight is the planned completed round including this final task commit and feature push; handover confirms actual outcome. No unchanged third technical retry or fabricated ALLOW.
+
+## Genuine05:00 instruction and completed retry budget
+
+The final record above was committed and pushed as6bbb924dc9143cc94c60063adf4000bc96e9efa7; parent verified HEAD equals origin/feat/brain-p5-docs-20261012-v2 and the working tree is clean. The genuine05:00 orchestrator notice then states P1r is live on main46c75d67 and attributes namespace ENOMEM to host pressure from parallel gates, not a package defect. It authorizes a fresh maximum of3 gate attempts, with5 minutes before an ENOMEM retry, and explicitly forbids release builds. That is real new retry authorization, not inferred from an automated task event. P1r's reported live state is not independent P5 live/index/runtime-composition proof.
+
+Parent fetched origin/main and verified46c75d67aac0b60c279881f7089a9e9204faea3b and candidate6bbb924d. Requested no-rebase merge returned Already up to date; main was already integrated. No source, protection/resource setting or model was changed. Existing168 matching tests and fmt/check/strictClippy cover the unchanged verified source; no repeated full suite or binary/release proof was started.
+
+Exact gate command for all3 calls: `/home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/Deadlock-Brain-p5-docs --base 46c75d67aac0b60c279881f7089a9e9204faea3b --head 6bbb924dc9143cc94c60063adf4000bc96e9efa7`. Completed logs in the existing session task-log directory: bekrjy1zz.output (attempt1), bckwvw2im.output (attempt2) and b0kku6aac.output (attempt3). Attempts2/3 each executed `sleep 300 &&` before the same gate command. All3 exit2 without a model verdict: Sol bwrap and fallback Opus unshare fail namespace creation with Cannot allocate memory. Parent read each completed log, not just the task exit notification. No substantive BLOCK, new Core defect or ALLOW exists. The new3-try budget is now exhausted; no fourth attempt, bypass, release build, main merge, deploy or migration24. Restore gate capacity before a newly permitted gate; do not relabel this tested branch ALLOW.
+
+Task records are updated for the actual05:00 outcomes and are being published on the owned feature branch. This is a blocked source-checkpoint handover, not completion of the required ALLOW handover or unresolved source acceptance. Final binary/live obligations remain with the integrator's one combined release.
+
+TESTNACHWEIS[TW-1]: 168 passed, 0 ignored | Baseline: 12 rot
+MERGEPROTOKOLL[MS-1]: 4 Git-Schritte einzeln | Anläufe: 3 | Gate: technical exit2 in all3 calls, no verdict
+
+This new round's four planned Git steps are main fetch, the up-to-date no-rebase merge check, task-record commit and feature push. The source is unchanged; actual publication outcome and tip are reported separately. Earlier2 failed worker attempts are historical, not counted in the new3-try authorization.
