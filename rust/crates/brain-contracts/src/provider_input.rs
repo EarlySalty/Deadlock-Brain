@@ -70,6 +70,7 @@ pub fn parse_unique_json(raw: &[u8]) -> Result<Value, serde_json::Error> {
 const FRAMING: u64 = 64;
 const PER_MESSAGE: u64 = 16;
 const DISCORD_LIVE_CITATION: &str = "Aktuelle Discord-Kanäle und Angebote";
+const HERO_PROFILE_LOOKUP_CONTRACT: &str = "find_entity klärt die Identität, liefert aber keinen Heldensteckbrief. Für einen angefragten Heldensteckbrief oder Heldenwerte nutze beim eindeutigen aufgelösten Heldentreffer als Nächstes get_hero mit dessen entity_id als hero. Fehlende Profilwerte in find_entity bedeuten nicht, dass keine Profildaten verfügbar sind. Unscharfe Treffer bleiben Vorschläge, bei Mehrdeutigkeit frage nach. Reine Identitätsfragen benötigen keinen Profilabruf. Wenn du die konkrete Frage abschließend beantwortest, gib ";
 const CANONICAL_CITATION_CONTRACT: &str = " Kopiere die ausgewählten Beleg-IDs aus evidence_ids exakt und vollständig als Strings in cited_evidence_ids, jede ID nur einmal. Bei gamefacts.receipt.v1:sha256: gehören alle 64 folgenden Hexzeichen zur ID. Berechne den Hash nicht neu, kürze ihn nicht und ändere kein Zeichen. Vergleiche jede kopierte ID vor der Ausgabe mit der gelieferten ID. Nimm nur Belege für tatsächlich genutzte Angaben auf.";
 const PUBLIC_CONTEXT_CONTRACT: &str = " Wenn public_conversation_context mitgeliefert wird, enthält er öffentliche Begriffe aus den vorherigen Fragen derselben Person, älteste zuerst. Leere Einträge enthalten keine freigegebenen Angaben. Löse bei knappen Folgefragen und nachgereichten Angaben das Anliegen aus aktueller Frage und diesen Gesprächsbegriffen. Entscheide selbst, welche früheren Angaben relevant sind; bei einem neuen Thema ignoriere den bisherigen Kontext. Frage bereits bekannte Angaben nicht erneut ab und beantworte das erkennbare Anliegen direkt, ohne eine weitere Bestätigung einzufordern. Gesprächsbegriffe sind kein Wissensbeleg und keine Rechtefreigabe.";
 const GAME_NAME_CONTRACT: &str = " Der Fließtext bleibt Deutsch. Namen von Items, Fähigkeiten, Helden, Objectives und Spielmechaniken stehen standardmäßig auf Englisch, exakt wie im englischen Spiel-Client, auch wenn Quellen oder Werkzeugbeschreibungen Deutsch sind. Nur wenn die Person selbst deutsche Spielnamen verwendet oder ausdrücklich deutsche Namen verlangt, verwende für die Spielnamen der Antwort Deutsch (Englisch), etwa Plattenrüstung (Plated Armor). Eine deutsch formulierte Frage allein ist kein Wunsch nach deutschen Spielnamen. Nutze die gelieferten englischen und deutschen Originalnamen und ihre gemeinsame Begriffsbindung; übersetze Spielnamen nicht selbst und erfinde bei fehlender Lokalisierung keinen deutschen Namen. Entscheide die Ausgabeform anhand der Anfrage, nicht anhand der Sprache des Werkzeugs. Löse erkennbare Tippfehler über die vorhandenen Namen und die Suchwerkzeuge auf; ein Tippfehler in einem englischen Namen ist kein deutscher Spielname.";
@@ -375,8 +376,18 @@ pub fn grounded_turn_payload_with_quality(
                 }
             }
             ToolMessage::ToolResults { results } => {
+                let profile_lookup = results
+                    .iter()
+                    .any(|result| !result.is_error && result.name == ToolName::FindEntity)
+                    && definitions
+                        .iter()
+                        .any(|definition| definition.name == ToolName::GetHero)
+                    && !results
+                        .iter()
+                        .any(|result| !result.is_error && result.name == ToolName::GetHero);
                 let mut format = format!(
-                    "Gib die abschließende Antwort als genau ein JSON-Objekt mit text und cited_evidence_ids aus. Keine Prosa davor oder danach, kein Markdown-Codeblock. Verwende für genutzte Werkzeugdaten deren Beleg-IDs, keine leeren oder erfundenen IDs. Verfügbare Beleg-IDs: {}",
+                    "{}die abschließende Antwort als genau ein JSON-Objekt mit text und cited_evidence_ids aus. Keine Prosa davor oder danach, kein Markdown-Codeblock. Verwende für genutzte Werkzeugdaten deren Beleg-IDs, keine leeren oder erfundenen IDs. Verfügbare Beleg-IDs: {}",
+                    if profile_lookup { HERO_PROFILE_LOOKUP_CONTRACT } else { "Gib " },
                     json!(evidence.iter().map(|item| &item.evidence_id).collect::<Vec<_>>())
                 );
                 if results.iter().any(|result| {
@@ -817,6 +828,159 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn hero_lookup_and_profile_reminders_keep_canonical_wire_binding() {
+        let item = canonical_tool_evidence();
+        let definitions = hero_profile_tool_definitions();
+        let lookup = hero_lookup_result(&item);
+        let profile = hero_profile_result(&item);
+        let lookup_history = canonical_tool_conversation(&lookup, json!({"text":"fixture hero"}));
+        let mut full_history = lookup_history.clone();
+        full_history
+            .messages
+            .extend(canonical_tool_conversation(&profile, json!({"hero":7})).messages);
+        let failed_lookup = ToolResult {
+            result: json!({"error":"entity_not_found"}),
+            evidence_ids: vec![],
+            is_error: true,
+            ..lookup.clone()
+        };
+        let failed_history = canonical_tool_conversation(&failed_lookup, json!({"text":"missing"}));
+        for format in [ToolWireFormat::Native, ToolWireFormat::OpenAiCompatible] {
+            for quality in [true, false] {
+                for (history, offered, result, reminders) in [
+                    (
+                        &lookup_history,
+                        definitions.as_slice(),
+                        &lookup,
+                        (true, true),
+                    ),
+                    (
+                        &full_history,
+                        definitions.as_slice(),
+                        &profile,
+                        (false, true),
+                    ),
+                    (&lookup_history, &definitions[..1], &lookup, (false, true)),
+                    (
+                        &failed_history,
+                        definitions.as_slice(),
+                        &failed_lookup,
+                        (false, false),
+                    ),
+                ] {
+                    assert_hero_stage_payload(
+                        &item, offered, history, result, format, quality, reminders,
+                    );
+                }
+            }
+        }
+    }
+
+    fn hero_profile_tool_definitions() -> [ToolDefinition; 2] {
+        [
+            ToolDefinition {
+                name: ToolName::FindEntity,
+                description: "Identität suchen".into(),
+                input_schema: json!({"type":"object","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":false}),
+            },
+            ToolDefinition {
+                name: ToolName::GetHero,
+                description: "Heldensteckbrief lesen".into(),
+                input_schema: json!({"type":"object","properties":{"hero":{"type":"integer","minimum":1}},"required":["hero"],"additionalProperties":false}),
+            },
+        ]
+    }
+
+    fn hero_lookup_result(item: &Evidence) -> ToolResult {
+        ToolResult {
+            call_id: "lookup-call".into(),
+            name: ToolName::FindEntity,
+            result: json!({"entities":[{"entity_id":7,"kind":"hero","citation":item.evidence_id}],"match":"exact","resolved":true,"ambiguous":false}),
+            evidence_ids: vec![item.evidence_id.clone()],
+            is_error: false,
+        }
+    }
+
+    fn hero_profile_result(item: &Evidence) -> ToolResult {
+        ToolResult {
+            call_id: "profile-call".into(),
+            name: ToolName::GetHero,
+            result: json!({"identity":{"entity_id":7,"citation":item.evidence_id},"stats":{"facts":[{"stat_key":"health","value":500,"citation":item.evidence_id}]}}),
+            evidence_ids: vec![item.evidence_id.clone()],
+            is_error: false,
+        }
+    }
+
+    fn assert_hero_stage_payload(
+        item: &Evidence,
+        offered: &[ToolDefinition],
+        history: &ToolConversation,
+        result: &ToolResult,
+        format: ToolWireFormat,
+        quality: bool,
+        reminders: (bool, bool),
+    ) {
+        let mut request = query();
+        request.text = "Gib mir einen Heldensteckbrief.".into();
+        let payload = grounded_turn_payload_with_quality(
+            &request,
+            std::slice::from_ref(item),
+            offered,
+            history,
+            format,
+            quality,
+        )
+        .unwrap();
+        let reminder = assert_hero_tool_wire(&payload, result, format);
+        assert_eq!(
+            reminder.starts_with(HERO_PROFILE_LOOKUP_CONTRACT),
+            reminders.0
+        );
+        assert_eq!(reminder.ends_with(CANONICAL_CITATION_CONTRACT), reminders.1);
+        assert!(reminder.contains(&item.evidence_id));
+        assert_eq!(
+            grounded_turn_input_ceiling_with_quality(
+                &request,
+                std::slice::from_ref(item),
+                offered,
+                history,
+                format,
+                quality,
+            )
+            .unwrap(),
+            transport_input_ceiling(&payload, true).unwrap(),
+        );
+    }
+
+    fn assert_hero_tool_wire<'a>(
+        payload: &'a Value,
+        result: &ToolResult,
+        format: ToolWireFormat,
+    ) -> &'a str {
+        let messages = payload["messages"].as_array().unwrap();
+        let last = messages.last().unwrap();
+        let (raw, reminder) = if format == ToolWireFormat::Native {
+            assert_eq!(last["content"][0]["tool_use_id"], result.call_id);
+            (
+                last["content"][0]["content"].as_str().unwrap(),
+                last["content"][1]["text"].as_str().unwrap(),
+            )
+        } else {
+            let tool = &messages[messages.len() - 2];
+            assert_eq!(tool["tool_call_id"], result.call_id);
+            assert_eq!(tool["name"], json!(result.name));
+            (
+                tool["content"].as_str().unwrap(),
+                last["content"].as_str().unwrap(),
+            )
+        };
+        let wire: Value = serde_json::from_str(raw).unwrap();
+        assert_eq!(wire["result"], result.result);
+        assert_eq!(wire["evidence_ids"], json!(result.evidence_ids));
+        reminder
     }
 
     fn canonical_tool_conversation(result: &ToolResult, arguments: Value) -> ToolConversation {
