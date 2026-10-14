@@ -1,4 +1,6 @@
 use super::*;
+#[path = "timer_pg_tests.rs"]
+mod timers;
 use brain_contracts::{
     AnswerProviderPort, AnswerStatus, Budget, Principal, ProviderAnswer, ProviderTurn,
     RetrievalPort, ToolConversation, ToolMessage,

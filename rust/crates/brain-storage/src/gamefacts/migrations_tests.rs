@@ -18,7 +18,7 @@ fn registry_is_positive_unique_and_ordered_with_gaps() {
     }
     assert_eq!(
         MIGRATIONS.iter().map(|(v, _)| *v).collect::<Vec<_>>(),
-        [1, 7, 8, 9, 10]
+        [1, 2, 7, 8, 9, 10]
     );
     assert_eq!(
         sql_and_checksum(MIGRATIONS[0].1)

@@ -5,10 +5,13 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::entity_profile::EntityKind;
+#[path = "timer.rs"]
+mod timer;
 use crate::{
     Accounted, AuthorizedContext, Evidence, PortError, PortFailure, ProviderAnswer, Query, Usage,
     UsageAccounting,
 };
+pub use timer::{GetTimerRequest, TimerKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -22,6 +25,7 @@ pub enum ToolName {
     GameRules,
     ServerKnowledge,
     DeadlockData,
+    GetTimer,
     FindEntity,
     GetHero,
 }
@@ -38,6 +42,7 @@ impl ToolName {
             Self::GameRules => "game_rules",
             Self::ServerKnowledge => "server_knowledge",
             Self::DeadlockData => "deadlock_data",
+            Self::GetTimer => "get_timer",
             Self::FindEntity => "find_entity",
             Self::GetHero => "get_hero",
         }
@@ -438,6 +443,7 @@ pub enum ToolSubrequest {
     GameRules(GameRulesRequest),
     ServerKnowledge(ServerKnowledgeRequest),
     DeadlockData(DeadlockDataRequest),
+    GetTimer(GetTimerRequest),
     FindEntity(FindEntityRequest),
     GetHero(GetHeroRequest),
 }
@@ -466,6 +472,7 @@ impl ToolSubrequest {
             ToolName::ServerKnowledge => {
                 serde_json::from_value(arguments.clone()).map(Self::ServerKnowledge)
             }
+            ToolName::GetTimer => serde_json::from_value(arguments.clone()).map(Self::GetTimer),
             ToolName::FindEntity => serde_json::from_value(arguments.clone()).map(Self::FindEntity),
             ToolName::GetHero => serde_json::from_value(arguments.clone()).map(Self::GetHero),
         };
@@ -475,6 +482,7 @@ impl ToolSubrequest {
     fn validate(&self) -> Result<(), PortError> {
         match self {
             Self::EntityFind(request) => validate_text(&request.query),
+            Self::GetTimer(request) => request.validate(),
             Self::EntityProfile(request) => {
                 validate_entity(&request.entity)?;
                 validate_fields(&request.fields, true)?;
@@ -1018,7 +1026,10 @@ impl ToolExecution {
         }
         let expected_game = if matches!(
             request.name(),
-            ToolName::ServerKnowledge | ToolName::FindEntity | ToolName::GetHero
+            ToolName::ServerKnowledge
+                | ToolName::GetTimer
+                | ToolName::FindEntity
+                | ToolName::GetHero
         ) {
             None
         } else {
@@ -1045,7 +1056,10 @@ impl ToolExecution {
             Some(game)
         };
         let mut expected_request = request.clone();
-        if matches!(request.name(), ToolName::FindEntity | ToolName::GetHero) {
+        if matches!(
+            request.name(),
+            ToolName::FindEntity | ToolName::GetHero | ToolName::GetTimer
+        ) {
             expected_request.canonical_result_sha256 = Some(canonical_result_sha256(&self.result)?);
         }
         let mut ids = BTreeSet::new();
@@ -2313,6 +2327,7 @@ mod tests {
             ToolName::GameRules,
             ToolName::ServerKnowledge,
             ToolName::DeadlockData,
+            ToolName::GetTimer,
             ToolName::FindEntity,
             ToolName::GetHero,
         ];
