@@ -1,23 +1,26 @@
 # Wave-2 integration handover
 
-Scope: merge the four exact approved commits in order on `integrate/brain-wave2-20261014`, verify and push each green merge. This worker does not run the final gate, update main, build a release or deploy.
+Scope: integrate the seven exact approved commits on `integrate/brain-wave2-20261014`, verify and push each green merge. Latest orchestrator order is P3, E1, P2, P9, P4, P5, P10. All package ALLOWs have been forwarded and closure is authorized after integration. No main update, final gate, release build or deployment has occurred. Execution is blocked by occupied foreign build slots and remote disk exhaustion, not by a source finding.
 
 ## Approved checklist
 
 - [x] P3 `10502e6d7a8d6b3c8fd6e31bf0169ba29b3e6985`: automatic merge without conflicts; check, strict all-target Clippy and fmt exit 0; matching tests 182 passed, 0 failed, 0 ignored, 131 filtered. Preserved actual merge `8f1d41c2` and owned notes-only `d20245f4` without rewriting; pushed `d20245f4` and confirmed the exact remote branch SHA before E1.
 - [x] E1 `0e1aa497bf9d35db083253ba66acfb817a733b91`: automatic merge without conflicts; check, strict all-target Clippy and fmt exit 0; evaluator tests 6 passed, 0 failed, 0 ignored, 0 filtered. No registered migration added; no live evaluator run performed.
-- [ ] P2 `9dc39a74324c5ac7f6c88f66d4c28f6510565112`.
-- [ ] P4 `35a54ce3465c02ca57bfa2b542481cee6ea2d7ab`.
+- [ ] P2 `9dc39a74324c5ac7f6c88f66d4c28f6510565112`: merge prepared and six conflicts resolved, but compiler verification remained queued for 1868 seconds. The owned launcher was cancelled with exit -15 before compiler or test startup. Merge aborted after preserving the complete pending diff and resolved source snapshots; P2 is not an ancestor of the handed-over HEAD.
+- [ ] P9 `27ad636b9816013c5cb60855fc2af02d947fcd18`: ALLOW on `03968113`, documentation only afterward, explicitly forwarded. Merge after P2.
+- [ ] P4 `35a54ce3465c02ca57bfa2b542481cee6ea2d7ab`: not attempted. Latest forwarded order puts P9 before P4.
+- [ ] P5 `b663d2a48bc79ae2019a7517ee06fc5f7dafadd3`: ALLOW on `29ef0bd2`, documentation only afterward, explicitly forwarded. Merge after P4.
+- [ ] P10 `5e10cbf5efce409b1e641aa81fdd6c7ad7e0cc12`: explicitly forwarded ALLOW, migration 26. Merge after P5; verify P2 identity_game_id wiring and activate its hourly meta timer after live checks.
 
-Actual starting main registry: `[1,7,8,9,10]`. Approved additions: P3 `[2]`, P2 `[3,11,13]`, P4 `[4,23]`. E1's approved tree has no GameFacts migration or version 27 registration; no migration is invented from its reservation. Expected final registry: `[1,2,3,4,7,8,9,10,11,13,23]`. No registered collision was found and no SQL was renumbered.
+Actual starting main registry: `[1,7,8,9,10]`. Approved additions checked so far: P3 `[2]`, P2 `[3,11,13]`, P4 `[4,23]`. E1's approved tree has no GameFacts migration or version 27 registration; no migration is invented from its reservation. The four-package expected registry was `[1,2,3,4,7,8,9,10,11,13,23]`. Add P9/P5/P10 only from their approved registrations and check collisions before merging; the original allocation is P9 6/25, P5 5/24, P10 26. No collision was found among the inspected first four inputs and no SQL was renumbered.
 
 ## Conflict resolutions
 
-P3: none. E1: none; Cargo workspace and lockfile merged automatically while retaining main and P3. Subsequent resolutions are recorded here as the merges complete.
+P3: none. E1: none; Cargo workspace and lockfile merged automatically while retaining main and P3. P2: six content conflicts resolved in `brain-contracts/src/tools.rs`, `brain-job/src/registry.rs`, `brain-job/src/sources.rs`, `brain-serve/src/pg_tools.rs`, `brain-storage/src/gamefacts/migrations.rs` and `migrations_tests.rs`. Retained Timer and Assets variants, parsing, canonical result binding, dispatch and definitions together; combined both extractors and source registrations. Registry keeps P3 version 2, adds approved P2 versions 3, 11 and 13 and retains main versions 1, 7, 8, 9 and 10. The positive/unique/ordered test asserts the complete combined registry; main schema checks and SQL remain unchanged. Subsequent resolutions are recorded here as the merges complete.
 
 ## Subsequent integrator obligations
 
-- After the final forwarded ALLOW or explicit close, run the combined matching tests and local gate, then perform the authorized main merge and single release/deployment through the existing wrapper. Verify exact live release SHA, executable/process changes, journal errors and endpoint content before cleanup.
+- After the final forwarded ALLOW or explicit close, run the combined matching tests and local gate, then perform the authorized main merge and single release/deployment through the existing wrapper. Verify exact live release SHA, executable/process changes, journal errors and endpoint content before cleanup. The later explicit user decision removes the combined gate round limit: each BLOCK gets a fresh fixer until ALLOW; never stop or escalate because of round count.
 - P3: real Timer ingest/repeat, grounded answer with canonical receipts and `ops.answer_trace`, actual job unit/cgroup peak and timer-key access. Offline index/RSS evidence is not live-unit proof; unsupported Soul Urn first spawn must remain evidence-free.
 - P2: normal `/v1/answer` for Toxic Bullets cost/effects, Haze/Wraith weapon comparison and positive hero+slot 4 ultimate selection with canonical receipts; inspect tool trace without the unwanted `deadlock_data` path. Check actual Assets cgroup peak below 300 MB and controlled timer activation. Retain the two unexplained historical `Unavailable` outcomes as an operational risk for combined/live checks.
 - P4: productive patch_history with FindEntity/GetHero, cold/warm numeric traces and matching receipts; verify feed ingest/repeat raw delta 0, oversized-row skip/log/count and later-post continuation, publication/quarantine revalidation and historical_patch_unavailable, serialized bounds and readonly/timeout restrictions. Verify actual unit ownership/schedule; do not start brain-maintenance or dl-knowledge.
@@ -25,3 +28,9 @@ P3: none. E1: none; Cargo workspace and lockfile merged automatically while reta
 - Nonblocking P4 follow-up: `rust/crates/brain-job/src/patch_extract.rs:368` may merge consecutive bullets at a lowercase continuation. Do not treat it as an integration blocker.
 
 Evidence: `/home/nathanael/.local/state/brain-wave2-proof-20261014/`, including approved task snapshots, identity/registry checks and per-stage exact commands, exits and test counts. PostgreSQL tests use the existing private `ScratchPg` helper with a unique temporary directory/socket and automatic stop; no production DSN or test container is used by this worker. No inherited test-failure claim is made.
+
+## Concrete verification blocker and continuation
+
+P2 command: `CARGO_REMOTE_JOBS=3 /home/nathanael/.local/bin/cargo-slot +1.97.1 check --manifest-path /home/nathanael/.worktrees/Deadlock-Brain-integration-w2/rust/Cargo.toml --locked --jobs 3 -p brain-contracts -p brain-job -p brain-storage -p brain-serve -p brain-eval --all-targets`. Remote Git mirror write failed with ENOSPC and fell back locally; all local slots stayed occupied for 1868 seconds. Owned launcher was then stopped, exit -15, before compiler/test startup. This is not a failed Rust check or a green test run. `P2-verification-blocker.json` identifies foreign PostgreSQL processes holding build-slot-2 and build-slot-4 and foreign cargo holding build-slot-3. None was signalled or changed.
+
+After the resource owners release a build slot or remote disk capacity is restored, re-merge exact P2 at the current handover HEAD, reuse the six owned resolutions in `P2-pending-resolutions` and `P2-pending-verified-format.patch`, rerun P2 matching verification including supplementary pg_asset_tools, then commit/push. Continue P9, P4, P5, P10 in the newly forwarded order, checking/pushing each green stage. Only afterward perform the single combined tests, independent acceptance review, local gate, main merge/push, one release and shared live proof. No automatic release is pending in the background. Final live procedures and later approvals are preserved in the external proof directory. The pre-existing PostgreSQL backup failure remains an out-of-scope follow-up.
