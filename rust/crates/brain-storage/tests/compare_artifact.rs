@@ -9,12 +9,7 @@ use brain_storage::compare_artifact::{
 use brain_storage::PgStore;
 use serde_json::json;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    os::unix::fs::DirBuilderExt,
-    path::PathBuf,
-    process::{Command, Stdio},
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 fn principal() -> Principal {
     Principal {
@@ -163,63 +158,9 @@ fn private_scope_never_turns_a_private_source_into_a_public_artifact() {
     }
 }
 
-struct ScratchPg {
-    directory: PathBuf,
-}
-impl ScratchPg {
-    fn start() -> Self {
-        Self::start_at("brain-compare-pg", 55439)
-    }
-
-    fn start_at(name: &str, port: u16) -> Self {
-        let directory = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
-        std::fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&directory)
-            .unwrap();
-        let instance = Self { directory };
-        std::fs::create_dir(instance.directory.join("socket")).unwrap();
-        assert!(Command::new("/usr/lib/postgresql/16/bin/initdb")
-            .arg("-D")
-            .arg(instance.directory.join("data"))
-            .args(["-A", "trust", "-U", "brain_core_test", "--no-locale"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .unwrap()
-            .success());
-        let options = format!(
-            "-k {} -p {port} -c listen_addresses='' -c shared_buffers=16MB",
-            instance.directory.join("socket").display()
-        );
-        assert!(Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-            .arg("-D")
-            .arg(instance.directory.join("data"))
-            .arg("-l")
-            .arg(instance.directory.join("postgres.log"))
-            .args(["-o", &options, "-w", "start"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .unwrap()
-            .success());
-        instance
-    }
-}
-impl Drop for ScratchPg {
-    fn drop(&mut self) {
-        let stopped = Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-            .arg("-D")
-            .arg(self.directory.join("data"))
-            .args(["-m", "immediate", "-w", "stop"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .unwrap();
-        assert!(stopped.success());
-        std::fs::remove_dir_all(&self.directory).unwrap();
-    }
-}
+#[path = "support/scratch_pg.rs"]
+mod scratch_pg;
+use scratch_pg::ScratchPg;
 
 #[tokio::test]
 async fn isolated_postgres_pending_receipt_read_and_revocation() {
