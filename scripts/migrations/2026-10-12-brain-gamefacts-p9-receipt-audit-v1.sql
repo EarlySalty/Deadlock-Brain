@@ -68,6 +68,7 @@ BEGIN
     INSERT INTO canon.receipt_quarantine(receipt_id,run_id,audited_receipt_id,cause)
         SELECT DISTINCT ON(older.id) older.id,a.run_id,a.receipt_id,'shadowed'
         FROM audit_results a JOIN canon.receipt bad ON bad.id=a.receipt_id
+        JOIN ops.ingest_run published ON published.id=bad.ingest_run_id AND published.status='succeeded'
         CROSS JOIN LATERAL(
             SELECT o.receipt_id FROM canon.fact c JOIN canon.fact o USING(entity_id,stat_key)
                 WHERE c.receipt_id=a.receipt_id
@@ -97,6 +98,7 @@ WITH boundary AS MATERIALIZED(
         SELECT affected.id FROM ops.receipt_audit_rejection rejected
             JOIN canon.receipt affected ON affected.raw_object_id=rejected.raw_object_id
     ) b JOIN canon.receipt bad ON bad.id=b.receipt_id
+    JOIN ops.ingest_run published ON published.id=bad.ingest_run_id AND published.status='succeeded'
 ), shadowed AS MATERIALIZED(
     SELECT older.id FROM boundary bad
     JOIN canon.fact c ON c.receipt_id=bad.id

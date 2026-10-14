@@ -462,6 +462,175 @@ async fn rank_and_late_arrival_boundaries(admin: &PgPool, writer: &PgPool, store
         boundary_visibility(admin, &key, 1).await;
     }
 }
+async fn reuse_visibility(admin: &PgPool, run: i64, value: Option<f64>) {
+    boundary_visibility(admin, "hero_boundary_reuse", i64::from(value.is_some())).await;
+    let current: Option<f64> = sqlx::query_scalar("SELECT value_num FROM serve.current_fact WHERE entity_id=(SELECT id FROM canon.entity WHERE key='hero_boundary_reuse')")
+        .fetch_optional(admin).await.unwrap();
+    assert_eq!(current, value);
+    let published: Vec<i64> = sqlx::query_scalar("SELECT DISTINCT ingest_run_id FROM serve.published_receipt WHERE path='boundary_reuse_new' ORDER BY ingest_run_id")
+        .fetch_all(admin).await.unwrap();
+    assert_eq!(published, if value.is_some() { vec![run] } else { vec![] });
+    assert_eq!(
+        count(
+            admin,
+            "SELECT count(*) FROM serve.published_receipt WHERE path='boundary_reuse_new'"
+        )
+        .await,
+        if value.is_some() { 4 } else { 0 }
+    );
+}
+#[tokio::test]
+async fn rejected_object_reuse_shadows_only_after_successful_publication() {
+    let pg = scratch_pg::ScratchPg::start();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("")
+        .ssl_mode(PgSslMode::Disable);
+    let admin = PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with(options.clone())
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly NOLOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate").execute(&admin).await.unwrap();
+    PgStore::new(admin.clone())
+        .migrate_gamefacts()
+        .await
+        .unwrap();
+    let writer = PgPoolOptions::new()
+        .max_connections(2)
+        .after_connect(|c, _| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE brain_ingest").execute(c).await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap();
+    let store = GameFactsStore::new(writer.clone());
+    let path = "boundary_reuse_new";
+    let bytes = br#"{"x":500}"#;
+    seed(&store, &[path], bytes).await;
+    let raw_id: i64 = sqlx::query_scalar("SELECT id FROM raw.object WHERE path=$1")
+        .bind(path)
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE raw.object SET content_sha256=$1 WHERE id=$2")
+        .bind(vec![0u8; 32])
+        .bind(raw_id)
+        .execute(&admin)
+        .await
+        .unwrap();
+    let rejected = receipt_audit::run(&writer).await.unwrap();
+    assert_eq!(
+        (
+            rejected.sampled,
+            rejected.rejected_receipts,
+            rejected.rejected_objects
+        ),
+        (4, 4, 1)
+    );
+    reuse_visibility(&admin, 0, None).await;
+    sqlx::query("UPDATE raw.object SET content_sha256=$1 WHERE id=$2")
+        .bind(Sha256::digest(bytes).as_slice())
+        .bind(raw_id)
+        .execute(&admin)
+        .await
+        .unwrap();
+    seed(&store, &[path], br#"{"x":550}"#).await;
+    let healthy_run: i64 = sqlx::query_scalar(
+        "SELECT ingest_run_id FROM serve.published_receipt WHERE path=$1 LIMIT 1",
+    )
+    .bind(path)
+    .fetch_one(&admin)
+    .await
+    .unwrap();
+    reuse_visibility(&admin, healthy_run, Some(550.0)).await;
+    for succeeded in [false, true] {
+        let run = store.begin_run("audit_fixture").await.unwrap();
+        let raw = store
+            .capture(run, "audit_fixture", "r1", path, bytes.to_vec())
+            .await
+            .unwrap();
+        assert_eq!(raw.id, raw_id);
+        let Outcome::Accepted(set) = Fixture.extract(&raw) else {
+            panic!("fixture rejected")
+        };
+        store.apply(run, &raw, Fixture.name(), &set).await.unwrap();
+        assert_eq!(
+            count(
+                &admin,
+                &format!("SELECT count(*) FROM canon.receipt WHERE ingest_run_id={run}")
+            )
+            .await,
+            4
+        );
+        reuse_visibility(&admin, healthy_run, Some(550.0)).await;
+        store
+            .finish_run(
+                run,
+                succeeded,
+                brain_job::Counts {
+                    accepted: 1,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        reuse_visibility(
+            &admin,
+            healthy_run,
+            if succeeded { None } else { Some(550.0) },
+        )
+        .await;
+    }
+    assert_eq!(count(&admin, "SELECT count(*) FROM canon.receipt WHERE raw_object_id IN(SELECT id FROM raw.object WHERE path='boundary_reuse_new')").await, 16);
+    assert_eq!(
+        count(
+            &admin,
+            "SELECT count(*) FROM canon.receipt_quarantine WHERE cause='audited'"
+        )
+        .await,
+        4
+    );
+    assert_eq!(
+        count(
+            &admin,
+            "SELECT count(*) FROM canon.receipt_quarantine WHERE cause='shadowed'"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count(&admin, "SELECT count(*) FROM ops.receipt_audit").await,
+        4
+    );
+    seed(&store, &[path], br#"{"x":600}"#).await;
+    let newest_run: i64 = sqlx::query_scalar(
+        "SELECT ingest_run_id FROM serve.published_receipt WHERE path=$1 LIMIT 1",
+    )
+    .bind(path)
+    .fetch_one(&admin)
+    .await
+    .unwrap();
+    reuse_visibility(&admin, newest_run, Some(600.0)).await;
+    let healthy = receipt_audit::run(&writer).await.unwrap();
+    assert_eq!(
+        (
+            healthy.sampled,
+            healthy.verified_receipts,
+            healthy.rejected_receipts
+        ),
+        (4, 4, 0)
+    );
+    reuse_visibility(&admin, newest_run, Some(600.0)).await;
+    writer.close().await;
+    admin.close().await;
+}
 #[tokio::test]
 async fn real_store_quarantine_poison_continuation_idempotence_and_cap() {
     let pg = scratch_pg::ScratchPg::start();
