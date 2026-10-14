@@ -4,8 +4,8 @@ Scope: merge the four exact approved commits in order on `integrate/brain-wave2-
 
 ## Approved checklist
 
-- [x] P3 `10502e6d7a8d6b3c8fd6e31bf0169ba29b3e6985`: automatic merge without conflicts; check, strict all-target Clippy and fmt exit 0; matching tests 182 passed, 0 failed, 0 ignored, 131 filtered.
-- [ ] E1 `0e1aa497bf9d35db083253ba66acfb817a733b91`.
+- [x] P3 `10502e6d7a8d6b3c8fd6e31bf0169ba29b3e6985`: automatic merge without conflicts; check, strict all-target Clippy and fmt exit 0; matching tests 182 passed, 0 failed, 0 ignored, 131 filtered. Preserved actual merge `8f1d41c2` and owned notes-only `d20245f4` without rewriting; pushed `d20245f4` and confirmed the exact remote branch SHA before E1.
+- [x] E1 `0e1aa497bf9d35db083253ba66acfb817a733b91`: automatic merge without conflicts; check, strict all-target Clippy and fmt exit 0; evaluator tests 6 passed, 0 failed, 0 ignored, 0 filtered. No registered migration added; no live evaluator run performed.
 - [ ] P2 `9dc39a74324c5ac7f6c88f66d4c28f6510565112`.
 - [ ] P4 `35a54ce3465c02ca57bfa2b542481cee6ea2d7ab`.
 
@@ -13,7 +13,7 @@ Actual starting main registry: `[1,7,8,9,10]`. Approved additions: P3 `[2]`, P2 
 
 ## Conflict resolutions
 
-P3: none. Subsequent resolutions are recorded here as the merges complete.
+P3: none. E1: none; Cargo workspace and lockfile merged automatically while retaining main and P3. Subsequent resolutions are recorded here as the merges complete.
 
 ## Subsequent integrator obligations
 

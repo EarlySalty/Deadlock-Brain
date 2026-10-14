@@ -1,0 +1,3573 @@
+{
+  "schema": "brain.e1-eval-report.v1",
+  "gold_schema": "brain.e1-gold.v1",
+  "gold_version": 1,
+  "gold_sha256": "a6e7e66adb1a9080172afc51275f8b43800d82c0a5b08b01318ce38ad96e71e7",
+  "endpoint": "http://127.0.0.1:8788",
+  "scopes": [
+    "bot.public"
+  ],
+  "started_unix": 1791924638,
+  "duration_ms": 731430,
+  "summary": {
+    "totals": {
+      "cases": 125,
+      "answerable": 101,
+      "answered": 11,
+      "correct": 6,
+      "answered_with_citation": 11,
+      "unanswerable": 24,
+      "unanswerable_insufficient": 20,
+      "unanswerable_answered": 2,
+      "errors": 0
+    },
+    "rates": {
+      "answered_rate": 0.1089,
+      "correctness_rate": 0.0594,
+      "answered_precision": 0.5455,
+      "citation_rate": 1.0,
+      "unanswerable_compliance": 0.8333
+    },
+    "by_category": {
+      "docs": {
+        "cases": 10,
+        "answerable": 10,
+        "answered": 3,
+        "correct": 3,
+        "answered_with_citation": 3,
+        "unanswerable": 0,
+        "unanswerable_insufficient": 0,
+        "unanswerable_answered": 0,
+        "errors": 0
+      },
+      "guide": {
+        "cases": 8,
+        "answerable": 8,
+        "answered": 0,
+        "correct": 0,
+        "answered_with_citation": 0,
+        "unanswerable": 0,
+        "unanswerable_insufficient": 0,
+        "unanswerable_answered": 0,
+        "errors": 0
+      },
+      "hero": {
+        "cases": 30,
+        "answerable": 30,
+        "answered": 3,
+        "correct": 0,
+        "answered_with_citation": 3,
+        "unanswerable": 0,
+        "unanswerable_insufficient": 0,
+        "unanswerable_answered": 0,
+        "errors": 0
+      },
+      "item": {
+        "cases": 27,
+        "answerable": 27,
+        "answered": 0,
+        "correct": 0,
+        "answered_with_citation": 0,
+        "unanswerable": 0,
+        "unanswerable_insufficient": 0,
+        "unanswerable_answered": 0,
+        "errors": 0
+      },
+      "patch": {
+        "cases": 16,
+        "answerable": 16,
+        "answered": 0,
+        "correct": 0,
+        "answered_with_citation": 0,
+        "unanswerable": 0,
+        "unanswerable_insufficient": 0,
+        "unanswerable_answered": 0,
+        "errors": 0
+      },
+      "timer": {
+        "cases": 12,
+        "answerable": 10,
+        "answered": 5,
+        "correct": 3,
+        "answered_with_citation": 5,
+        "unanswerable": 2,
+        "unanswerable_insufficient": 0,
+        "unanswerable_answered": 1,
+        "errors": 0
+      },
+      "unanswerable": {
+        "cases": 22,
+        "answerable": 0,
+        "answered": 0,
+        "correct": 0,
+        "answered_with_citation": 0,
+        "unanswerable": 22,
+        "unanswerable_insufficient": 20,
+        "unanswerable_answered": 1,
+        "errors": 0
+      }
+    },
+    "by_lang": {
+      "de": {
+        "cases": 68,
+        "answerable": 55,
+        "answered": 6,
+        "correct": 5,
+        "answered_with_citation": 6,
+        "unanswerable": 13,
+        "unanswerable_insufficient": 10,
+        "unanswerable_answered": 1,
+        "errors": 0
+      },
+      "en": {
+        "cases": 57,
+        "answerable": 46,
+        "answered": 5,
+        "correct": 1,
+        "answered_with_citation": 5,
+        "unanswerable": 11,
+        "unanswerable_insufficient": 10,
+        "unanswerable_answered": 1,
+        "errors": 0
+      }
+    },
+    "statuses": {
+      "answered": 13,
+      "insufficient_evidence": 84,
+      "unauthorized_evidence": 18,
+      "unavailable": 10
+    },
+    "knowledge_releases": [
+      "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f"
+    ]
+  },
+  "cases": [
+    {
+      "id": "hero-001",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie viel Lebenspunkte hat Abrams zu Spielbeginn?",
+      "expect": "answered",
+      "status": "unavailable",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "800"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 25384,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-002",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Infernus's base health?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "830"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2048,
+      "text": "Ungeprüft: Das kann ich dir nicht verlässlich sagen, ohne einen aktuellen Spielwert zu prüfen."
+    },
+    {
+      "id": "hero-003",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie viele Lebenspunkte hat Seven ohne Items?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "730"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1971,
+      "text": "Ungeprüft: Seven hat ohne Items 600 Lebenspunkte."
+    },
+    {
+      "id": "hero-004",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Haze's base move speed?",
+      "expect": "answered",
+      "status": "unavailable",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "8.2"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 22226,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-005",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie schnell läuft Vindicta als Grundwert?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "7.9"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1986,
+      "text": "Ungeprüft: Den aktuellen Grundwert von Vindictas Bewegungsgeschwindigkeit kann ich nicht verlässlich bestätigen."
+    },
+    {
+      "id": "hero-006",
+      "category": "hero",
+      "lang": "en",
+      "question": "How much base health does Mo & Krill have?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "930"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3720,
+      "text": "Ungeprüft: Mo & Krill haben 650 Basis-Leben ohne Boons oder Items."
+    },
+    {
+      "id": "hero-007",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie viel Schaden macht Bebops leichter Nahkampfangriff?",
+      "expect": "answered",
+      "status": "unavailable",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "63"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 5781,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-008",
+      "category": "hero",
+      "lang": "en",
+      "question": "How much damage does Yamato's heavy melee deal at base?",
+      "expect": "answered",
+      "status": "unavailable",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "128"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2029,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-009",
+      "category": "hero",
+      "lang": "de",
+      "question": "Welche Lebensregeneration hat Drifter als Grundwert?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "3.5"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3669,
+      "text": "Ungeprüft: Ich kann den gesicherten Grundwert von Drifter gerade nicht bestätigen."
+    },
+    {
+      "id": "hero-010",
+      "category": "hero",
+      "lang": "en",
+      "question": "How many stamina charges does Grey Talon have?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "4 stamina",
+            "4 charges",
+            "4 ladungen",
+            "4 ausdauer",
+            "four stamina",
+            "four charges",
+            "vier ausdauer",
+            "vier ladungen",
+            "4 ausdauerladungen",
+            "vier ausdauerladungen"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4186,
+      "text": "Ungeprüft: Grey Talon hat 2 Stamina Charges."
+    },
+    {
+      "id": "hero-011",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie viele Lebenspunkte hat Mina am Anfang?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "660"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1699,
+      "text": "Ungeprüft: Mina hat zu Spielbeginn 550 Lebenspunkte."
+    },
+    {
+      "id": "hero-012",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Lady Geist's starting health?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "880"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2010,
+      "text": "Ungeprüft: Lady Geist startet mit 550 HP."
+    },
+    {
+      "id": "hero-013",
+      "category": "hero",
+      "lang": "de",
+      "question": "Welche vier Fähigkeiten hat Abrams?",
+      "expect": "answered",
+      "status": "unavailable",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 4,
+      "facts": [
+        {
+          "any_of": [
+            "Siphon Life",
+            "Lebensextraktion"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Shoulder Charge",
+            "Schulterstoß"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Infernal Resilience",
+            "Infernale Widerstandskraft"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Seismic Impact",
+            "Seismischer Einschlag"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 44110,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-014",
+      "category": "hero",
+      "lang": "en",
+      "question": "What are Infernus's abilities?",
+      "expect": "answered",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": true,
+      "correct": false,
+      "facts_matched": 3,
+      "facts_total": 4,
+      "facts": [
+        {
+          "any_of": [
+            "Napalm"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Flame Dash",
+            "Flammensprint"
+          ],
+          "matched": true
+        },
+        {
+          "any_of": [
+            "Afterburn",
+            "Nachbrennen"
+          ],
+          "matched": true
+        },
+        {
+          "any_of": [
+            "Concussive Combustion",
+            "Flammenexplosion"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 1,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 5096,
+      "text": "Meinst du Infernus aus Deadlock? Seine Fähigkeiten sind **Catalyst**, **Flame Dash**, **Afterburn** und **Concussive Combustion**. Die aktuell offenen Lanes sind: **Explaining Basics** (casual, 3 Personen), **Möchtegern Eternus - Ranked** (casual, 4), **Chill Lane 1** (casual, 4) und **Chill Lane** (ranked, 2)."
+    },
+    {
+      "id": "hero-015",
+      "category": "hero",
+      "lang": "de",
+      "question": "Was ist die Ultimate von Seven?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Storm Cloud",
+            "Gewittersturm"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 6204,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-016",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Vindicta's ultimate ability called?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Assassinate",
+            "Gnadenschuss"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4225,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-017",
+      "category": "hero",
+      "lang": "de",
+      "question": "Welche Fähigkeit liegt bei Lady Geist auf Slot 2?",
+      "expect": "answered",
+      "status": "unavailable",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Life Drain",
+            "Lebensentzug"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 46145,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-018",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Wraith's first ability?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 1,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Card Trick",
+            "Kartentrick"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2012,
+      "text": "Ungeprüft: Wraiths erste Fähigkeit ist **Card Trick**. Sie feuert Karten ab, die Schaden verursachen."
+    },
+    {
+      "id": "hero-019",
+      "category": "hero",
+      "lang": "de",
+      "question": "Welche Fähigkeiten hat McGinnis?",
+      "expect": "answered",
+      "status": "unavailable",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 4,
+      "facts": [
+        {
+          "any_of": [
+            "Mini Turret",
+            "Mini-Geschütz"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Medicinal Specter",
+            "Heilendes Gefäß"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Spectral Wall",
+            "Spektralmauer"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Heavy Barrage",
+            "Sperrfeuer"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4655,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-020",
+      "category": "hero",
+      "lang": "en",
+      "question": "List Paradox's four abilities.",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 4,
+      "facts": [
+        {
+          "any_of": [
+            "Pulse Grenade",
+            "Impulsgranate"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Time Wall",
+            "Zeitfeld"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Kinetic Carbine",
+            "Kinetischer Karabiner"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Paradoxical Swap",
+            "Paradoxer Tausch"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 5999,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-021",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie heißt die Ultimate von Dynamo?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 1,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Singularity",
+            "Singularität"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4264,
+      "text": "Ungeprüft: Dyanmos Ultimate heißt Singularity."
+    },
+    {
+      "id": "hero-022",
+      "category": "hero",
+      "lang": "en",
+      "question": "Which ability does Kelvin have in his third slot?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 1,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Arctic Beam",
+            "Arktischer Strahl"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 9891,
+      "text": "Ungeprüft: Kelvins dritte Fähigkeit ist **Arctic Beam**."
+    },
+    {
+      "id": "hero-023",
+      "category": "hero",
+      "lang": "de",
+      "question": "Was ist Hollidays dritte Fähigkeit?",
+      "expect": "answered",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": true,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Crackshot",
+            "Trickschuss"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 1,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 22986,
+      "text": "Laut den verfügbaren Spieldaten ist Holliday released, aber ihre dritte Fähigkeit ist dort nicht angegeben. Ich kann dir den Namen daher nicht sicher nennen."
+    },
+    {
+      "id": "hero-024",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Calico's ultimate?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Return to Shadows",
+            "Schattenflucht"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 26224,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-025",
+      "category": "hero",
+      "lang": "de",
+      "question": "Welche Fähigkeiten hat Rat King?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 4,
+      "facts": [
+        {
+          "any_of": [
+            "Scrap Grenade",
+            "Schrottgranate"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Rat Swarm",
+            "Rattenschwarm"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Royal Pestments",
+            "Königliches Plagewand"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Rule, Ratannia!",
+            "Es lebe Ratannia!"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 13322,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-026",
+      "category": "hero",
+      "lang": "en",
+      "question": "What abilities does Solomon have?",
+      "expect": "answered",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": true,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 4,
+      "facts": [
+        {
+          "any_of": [
+            "Setup Bishop",
+            "Läuferaufstellung"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Kingside Knight",
+            "Königsspringer"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Rook Battery",
+            "Turmansturm"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Develop Queen"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 1,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 22023,
+      "text": "Solomon ist laut Spieldaten noch in Entwicklung. Seine Fähigkeiten sind dort derzeit nicht aufgeführt, daher kann ich sie dir noch nicht verlässlich nennen."
+    },
+    {
+      "id": "hero-027",
+      "category": "hero",
+      "lang": "de",
+      "question": "Wie heißen die Fähigkeiten von Baba?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 4,
+      "facts": [
+        {
+          "any_of": [
+            "Threadsap",
+            "Garn der Entkräftung"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Granny Long Legs",
+            "Oma Langbein"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Baba's Brew",
+            "Babas Gebräu"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Feed The Birds",
+            "Vogelfütterung"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 19217,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-028",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is the cooldown of Abrams' Shoulder Charge?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "33"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2058,
+      "text": "Ungeprüft: Die Abklingzeit von Abrams’ Shoulder Charge kenne ich nicht sicher. Mein Spielwissen dazu ist nicht aktuell genug, um dir einen verlässlichen Wert zu nennen."
+    },
+    {
+      "id": "hero-029",
+      "category": "hero",
+      "lang": "de",
+      "question": "Was ist Ivys Ultimate?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Air Drop",
+            "Abwurf"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 5973,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "hero-030",
+      "category": "hero",
+      "lang": "en",
+      "question": "What is Venator's ultimate called?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Ira Domini"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3344,
+      "text": "Ungeprüft: Venator hat **Stake** als Ultimate."
+    },
+    {
+      "id": "item-001",
+      "category": "item",
+      "lang": "de",
+      "question": "Was kostet Monster Rounds?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "800"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1850,
+      "text": "Ungeprüft: Monster Rounds kostet 500 Souls."
+    },
+    {
+      "id": "item-002",
+      "category": "item",
+      "lang": "en",
+      "question": "How many souls does Extra Health cost and how much health does it give?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "800"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "210"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3728,
+      "text": "Ungeprüft: Extra Health kostet 500 Souls und gibt +160 Bonus Health. Der aktuelle Patchstand ist dafür nicht bestätigt."
+    },
+    {
+      "id": "item-003",
+      "category": "item",
+      "lang": "de",
+      "question": "Wie viel Spirit Power gibt Extra Spirit?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "10"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2132,
+      "text": "Ungeprüft: Ich bin mir nicht sicher, welches Item oder welche Fähigkeit du mit „Extra Spirit“ meinst. Kannst du mir den genauen Namen nennen?"
+    },
+    {
+      "id": "item-004",
+      "category": "item",
+      "lang": "en",
+      "question": "How much does Boundless Spirit cost?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "6400"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2613,
+      "text": "Ungeprüft: Das weiß ich nicht sicher. Wenn du mir den aktuellen Preis im Spiel zeigst, helfe ich dir gern weiter."
+    },
+    {
+      "id": "item-005",
+      "category": "item",
+      "lang": "de",
+      "question": "Aus welchem Item baut Improved Spirit auf?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Extra Spirit",
+            "Zusätzliche Magiekraft"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3857,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "item-006",
+      "category": "item",
+      "lang": "en",
+      "question": "Which item does Fortitude upgrade from?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Extra Health",
+            "Zusätzliche Lebenspunkte"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2109,
+      "text": "Ungeprüft: Fortitude doesn’t upgrade from another item. You buy it directly."
+    },
+    {
+      "id": "item-007",
+      "category": "item",
+      "lang": "de",
+      "question": "Wie viel Cooldown-Reduktion gibt Compress Cooldown?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "18"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2081,
+      "text": "Ungeprüft: Die aktuelle Belegung sagt leider nichts zum Cooldown von Compress. Wie viel Cooldown-Reduktion gemeint ist, kann ich daraus nicht sicher bestimmen."
+    },
+    {
+      "id": "item-008",
+      "category": "item",
+      "lang": "en",
+      "question": "How much cooldown reduction does Transcendent Cooldown give?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "25"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2014,
+      "text": "Ungeprüft: Ich bin mir beim aktuellen Wert nicht sicher. Transcendent Cooldown gibt dir Cooldown Reduction, aber wie viel genau, kann ich dir gerade nicht verlässlich sagen."
+    },
+    {
+      "id": "item-009",
+      "category": "item",
+      "lang": "de",
+      "question": "Was kostet Superior Cooldown und auf welcher Stufe ist es?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 2,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "3200"
+          ],
+          "matched": true
+        },
+        {
+          "any_of": [
+            "tier 3",
+            "tier-3",
+            "t3",
+            "stufe 3",
+            "stufe-3"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1871,
+      "text": "Ungeprüft: Superior Cooldown kostet 3.200 Souls. Es ist ein Tier-3-Item."
+    },
+    {
+      "id": "item-010",
+      "category": "item",
+      "lang": "en",
+      "question": "How much bonus fire rate does Rapid Rounds give?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "9"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3000,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "item-011",
+      "category": "item",
+      "lang": "de",
+      "question": "Aus welchem Item wird Swift Striker gebaut?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Rapid Rounds",
+            "Schnellfeuer-Magazin"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2716,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "item-012",
+      "category": "item",
+      "lang": "en",
+      "question": "What does Titanic Magazine build from?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Extended Magazine",
+            "Erweitertes Magazin"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1667,
+      "text": "Ungeprüft: Titanic Magazine baut auf **Lifestrike** auf."
+    },
+    {
+      "id": "item-013",
+      "category": "item",
+      "lang": "de",
+      "question": "Wie viel Kopfschuss-Bonusschaden gibt Headshot Booster?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "45"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1822,
+      "text": "Ungeprüft: Headshot Booster verursacht 40 Bonusschaden bei einem Kopfschuss."
+    },
+    {
+      "id": "item-014",
+      "category": "item",
+      "lang": "en",
+      "question": "Which two items combine into Leech?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 1,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "Bullet Lifesteal",
+            "Kugellebensraub"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Spirit Lifesteal",
+            "Magielebensraub"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1867,
+      "text": "Ungeprüft: Leech baut sich aus **Healbane** und **Spirit Lifesteal** zusammen."
+    },
+    {
+      "id": "item-015",
+      "category": "item",
+      "lang": "de",
+      "question": "Welchen Cooldown hat Unstoppable und wie lange hält es?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 1,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "60"
+          ],
+          "matched": true
+        },
+        {
+          "any_of": [
+            "5.5"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3521,
+      "text": "Ungeprüft: Unstoppable hat im Normalmodus 60 Sekunden Cooldown und hält 6 Sekunden an. Das kann sich je nach Patch ändern."
+    },
+    {
+      "id": "item-016",
+      "category": "item",
+      "lang": "en",
+      "question": "What is the cooldown of Cheat Death?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "90"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2794,
+      "text": "Ungeprüft: Ich finde für Cheat Death keinen verlässlichen Cooldown-Wert. Wenn du mir sagst, ob du den Item-Cooldown oder den Effekt meinst, kann ich gezielter nachsehen."
+    },
+    {
+      "id": "item-017",
+      "category": "item",
+      "lang": "de",
+      "question": "Welchen Cooldown hat Refresher?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "300"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2804,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "item-018",
+      "category": "item",
+      "lang": "en",
+      "question": "How many souls per minute does Golden Goose Egg give?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "80"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3115,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "item-019",
+      "category": "item",
+      "lang": "de",
+      "question": "Wie lang ist der Cooldown von Grit?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "60"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2673,
+      "text": "Ungeprüft: Ich habe keinen verlässlichen aktuellen Wert für Grits Cooldown. Meinst du eine bestimmte Fähigkeit oder einen Gegenstand?"
+    },
+    {
+      "id": "item-020",
+      "category": "item",
+      "lang": "en",
+      "question": "What is the cooldown of Healing Rite?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "70"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2060,
+      "text": "Ungeprüft: Healing Rite hat eine Abklingzeit von 64 Sekunden."
+    },
+    {
+      "id": "item-021",
+      "category": "item",
+      "lang": "de",
+      "question": "Was kostet Glass Cannon?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "6400"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2663,
+      "text": "Ungeprüft: Glass Cannon kostet 6.200 Souls."
+    },
+    {
+      "id": "item-022",
+      "category": "item",
+      "lang": "en",
+      "question": "Which is more expensive, Hollow Point or Glass Cannon?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 3,
+      "facts": [
+        {
+          "any_of": [
+            "3200"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "6400"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Glass Cannon",
+            "Glaskanone"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 20421,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "item-023",
+      "category": "item",
+      "lang": "de",
+      "question": "Was gibt mehr Lebenspunkte, Extra Health oder Fortitude?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 3,
+      "facts": [
+        {
+          "any_of": [
+            "210"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "375"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Fortitude",
+            "Seelenkraft"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2274,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "item-024",
+      "category": "item",
+      "lang": "en",
+      "question": "How much bullet resist does Battle Vest give?",
+      "expect": "answered",
+      "status": "unavailable",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "18"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 5783,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "item-025",
+      "category": "item",
+      "lang": "de",
+      "question": "Aus welchem Item baut Cultist Sacrifice auf?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Monster Rounds",
+            "Monster-Kugeln"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2408,
+      "text": "Ungeprüft: Aus keinem Item. Cultist Sacrifice ist selbst ein Item."
+    },
+    {
+      "id": "item-026",
+      "category": "item",
+      "lang": "en",
+      "question": "What is the cooldown of Knockdown?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "35"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1817,
+      "text": "Ungeprüft: Die Abklingzeit von Knockdown kann ich dir gerade nicht sicher nennen."
+    },
+    {
+      "id": "item-027",
+      "category": "item",
+      "lang": "de",
+      "question": "Welchen Cooldown hat Shadow Weave und woraus wird es gebaut?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "37"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Sprint Boots",
+            "Stiefel des Sprinters"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2222,
+      "text": "Ungeprüft: Shadow Weave hat laut meinem Spielwissen 25 Sekunden Cooldown und wird aus **Basic Magazine** und **Extra Spirit** gebaut. Die aktuellen Werte kann ich hier nicht verifizieren."
+    },
+    {
+      "id": "timer-001",
+      "category": "timer",
+      "lang": "de",
+      "question": "Wann spawnen die ersten kleinen Neutral-Camps?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "120",
+            "2 min",
+            "2:00",
+            "zwei minuten"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 6894,
+      "text": "Ungeprüft: Das kann ich dir gerade nicht verlässlich sagen: Die ersten Spawnzeiten der kleinen Neutral-Camps hängen vom aktuellen Patch ab, und mir liegt dafür kein bestätigter Wert vor."
+    },
+    {
+      "id": "timer-002",
+      "category": "timer",
+      "lang": "en",
+      "question": "How often do small neutral camps respawn?",
+      "expect": "answered",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": true,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "85"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 1,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3457,
+      "text": "Laut Spieldaten-Revision 330a775230e8 respawnen Powerup-Camps alle 5 Minuten. Die aktuelle Patchgültigkeit ist nicht bestätigt."
+    },
+    {
+      "id": "timer-003",
+      "category": "timer",
+      "lang": "de",
+      "question": "Wann spawnen die mittleren Neutral-Camps zum ersten Mal?",
+      "expect": "answered",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 1,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "300",
+            "5 min",
+            "5:00",
+            "fünf minuten"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 1,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3863,
+      "text": "Die mittleren Neutral-Camps spawnen laut Assets-Spiegel erstmals bei 5:00. Das ist Revision 330a775230e8 mit Client 6766; ob der Wert im aktuellen Patch noch gilt, ist nicht bestätigt."
+    },
+    {
+      "id": "timer-004",
+      "category": "timer",
+      "lang": "en",
+      "question": "When do the hard neutral camps first spawn?",
+      "expect": "answered",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": true,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "480",
+            "8 min",
+            "8:00",
+            "eight minutes"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 1,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4084,
+      "text": "Die erste Spawnzeit für Hard Neutral Camps kann ich nicht sicher belegen. Laut Spielrevision 330a775 (Client 6766, aktuelle Patchgültigkeit nicht bestätigt) erscheinen Powerup Camps erstmals bei 5:00; ob das den Hard Camps entspricht, ist unklar."
+    },
+    {
+      "id": "timer-005",
+      "category": "timer",
+      "lang": "de",
+      "question": "Wie lange dauert der Respawn des Midboss?",
+      "expect": "answered",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 1,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "420",
+            "7 min",
+            "7:00",
+            "sieben minuten"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 1,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3753,
+      "text": "Laut Assets-Spiegel Client 6766 beträgt das Spawnintervall des Mid-Boss 7 Minuten. Die aktuelle Patchgültigkeit ist nicht bestätigt."
+    },
+    {
+      "id": "timer-006",
+      "category": "timer",
+      "lang": "en",
+      "question": "When do the Sinner's Sacrifice vaults first spawn and how often do they respawn?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "480",
+            "8 min",
+            "8:00",
+            "eight minutes"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "300",
+            "5 min",
+            "5:00",
+            "five minutes"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4081,
+      "text": "Ungeprüft: Dazu habe ich keinen gesicherten Spawn-Timer. Die verfügbaren Spieldaten nennen Sinner’s Sacrifice Vaults nicht; außerdem ist für die Spieldaten-Revision 330a775230e8 kein aktueller Patchstand bestätigt."
+    },
+    {
+      "id": "timer-007",
+      "category": "timer",
+      "lang": "de",
+      "question": "Wann erscheinen die Powerup-Spawner zum ersten Mal und wie oft danach?",
+      "expect": "answered",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 2,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "300",
+            "5 min",
+            "5:00",
+            "fünf minuten"
+          ],
+          "matched": true
+        },
+        {
+          "any_of": [
+            "300",
+            "5 min",
+            "5:00",
+            "fünf minuten"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 1,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4253,
+      "text": "Powerup-Spawner erscheinen erstmals bei 5:00 und dann alle 5 Minuten. Das gilt laut Assets-Spiegel Client 6766; die aktuelle Patchgültigkeit ist nicht bestätigt."
+    },
+    {
+      "id": "timer-008",
+      "category": "timer",
+      "lang": "en",
+      "question": "How long does the Rejuvenator buff last?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 1,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "180",
+            "3 min",
+            "3:00",
+            "three minutes"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2562,
+      "text": "Ungeprüft: Der Rejuvenator-Buff dauert meines Wissens 3 Minuten. Dieser Wert kann sich mit Updates ändern."
+    },
+    {
+      "id": "timer-009",
+      "category": "timer",
+      "lang": "de",
+      "question": "Wie viel Gold gibt ein Tier-1-Guardian beim Kill?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "1375",
+            "1.375"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4965,
+      "text": "Ungeprüft: Den aktuellen Goldwert für einen Tier-1-Guardian kann ich nicht sicher bestätigen."
+    },
+    {
+      "id": "timer-010",
+      "category": "timer",
+      "lang": "en",
+      "question": "How many souls does destroying a Walker give?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "3675",
+            "3.675"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2123,
+      "text": "Ungeprüft: Das weiß ich nicht sicher, und ich möchte dir keinen veralteten Soul-Wert nennen. Der Wert kann sich mit Patches ändern."
+    },
+    {
+      "id": "timer-011",
+      "category": "timer",
+      "lang": "de",
+      "question": "Wann spawnt die Soul Urn zum ersten Mal?",
+      "expect": "insufficient_evidence",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 15933,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "timer-012",
+      "category": "timer",
+      "lang": "en",
+      "question": "When does the Soul Urn first spawn?",
+      "expect": "insufficient_evidence",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 1,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4988,
+      "text": "Die Soul Urn spawnt erstmals bei 10:00. Das stammt aus Spieldaten-Revision 330a775; ob der Wert für den aktuellen Patch gilt, ist nicht bestätigt."
+    },
+    {
+      "id": "patch-001",
+      "category": "patch",
+      "lang": "de",
+      "question": "Was wurde im Update vom 05.10.2026 an Rat Kings Rat Swarm geändert?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "28s"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "24s"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1835,
+      "text": "Ungeprüft: Dazu habe ich keine verlässlichen Infos. Meinst du ein bestimmtes Deadlock-Update?"
+    },
+    {
+      "id": "patch-002",
+      "category": "patch",
+      "lang": "en",
+      "question": "How did the 10-05-2026 minor update change Sinclair's gun bullet damage?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "17.76"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "16.5"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2458,
+      "text": "Ungeprüft: Dazu habe ich keine verlässlichen Infos. Ich kann nicht bestätigen, wie das Minor Update vom 10.05.2026 Sinclairs Bullet-Schaden verändert hat."
+    },
+    {
+      "id": "patch-003",
+      "category": "patch",
+      "lang": "de",
+      "question": "Wie hat sich die Abklingzeit von Rule, Ratannia! im Patch vom 05.10.2026 verändert?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "130"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "160"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1920,
+      "text": "Ungeprüft: Dazu habe ich keine verlässliche Information. Ich kann nicht bestätigen, ob sich die Abklingzeit von Rule, Ratannia! in einem Patch vom 05.10.2026 verändert hat."
+    },
+    {
+      "id": "patch-004",
+      "category": "patch",
+      "lang": "en",
+      "question": "What happened to Shadow Weave in the 09-16-2026 update?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Sprint Boots"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4299,
+      "text": "Ungeprüft: Zu einem Update vom 16.09.2026 habe ich keine verlässlichen Infos dazu, was sich bei Shadow Weave geändert hat."
+    },
+    {
+      "id": "patch-005",
+      "category": "patch",
+      "lang": "de",
+      "question": "Was wurde am 16.09.2026 an Golden Goose Egg geändert?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "90"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "80"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2254,
+      "text": "Ungeprüft: Dazu habe ich keine verlässlichen Patchnotes. Wenn du mir den Text oder Screenshot der Änderung schickst, fasse ich sie dir gern zusammen."
+    },
+    {
+      "id": "patch-006",
+      "category": "patch",
+      "lang": "en",
+      "question": "How was Leech changed in the 09-16-2026 patch?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "25%"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "28%"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4370,
+      "text": "Ungeprüft: Ich finde keine verlässlichen Angaben dazu, wie Leech im Patch vom 16.09.2026 geändert wurde. Die vorliegenden Infos beantworten das leider nicht."
+    },
+    {
+      "id": "patch-007",
+      "category": "patch",
+      "lang": "de",
+      "question": "Was hat sich im Update vom 16.09.2026 an der Respawnzeit geändert?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "35s"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "38s"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1988,
+      "text": "Ungeprüft: Dazu habe ich keine verlässlichen Angaben. Die aktuellen Serverinfos nennen keine Änderungen an Respawnzeiten im Update vom 16.09.2026."
+    },
+    {
+      "id": "patch-008",
+      "category": "patch",
+      "lang": "en",
+      "question": "What changed about underground tunnel breakables in the 09-16-2026 update?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "3m",
+            "3 min"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "5m",
+            "5 min"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1904,
+      "text": "Ungeprüft: Dazu habe ich keine verlässlichen Infos. Meinst du ein bestimmtes Spiel-Update oder Patchnote?"
+    },
+    {
+      "id": "patch-009",
+      "category": "patch",
+      "lang": "de",
+      "question": "Was wurde am 16.09.2026 an Viscous geändert?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "26m",
+            "26 m",
+            "26 meter",
+            "26 meters",
+            "26 metern",
+            "26 metres"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "20m",
+            "20 m",
+            "20 meter",
+            "20 meters",
+            "20 metern",
+            "20 metres"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4500,
+      "text": "Ungeprüft: Ich finde keine verlässlichen Patchnotes dazu, was am 16.09.2026 an Viscous geändert wurde. Die verfügbaren Infos hier enthalten keine passenden Patchdetails."
+    },
+    {
+      "id": "patch-010",
+      "category": "patch",
+      "lang": "en",
+      "question": "What did the 09-16-2026 update change for Vyper's Petrifying Bola?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "105s"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "115s"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2812,
+      "text": "Ungeprüft: Dazu habe ich keine gesicherten Update-Infos. Wenn du den Patchtext oder die Änderung teilst, kann ich dir sagen, was sich bei Vyper’s Petrifying Bola geändert hat."
+    },
+    {
+      "id": "patch-011",
+      "category": "patch",
+      "lang": "de",
+      "question": "Was wurde am 22.08.2026 an Celestes Shining Wonder geändert?",
+      "expect": "answered",
+      "status": "unavailable",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "165"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "140"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3602,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "patch-012",
+      "category": "patch",
+      "lang": "en",
+      "question": "What changed for Restorative Locket in the 08-22-2026 update?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "10%"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "8%"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2606,
+      "text": "Ungeprüft: Ich habe keine Infos dazu, was sich für Restorative Locket im Update vom 22.08.2026 geändert hat. Wenn du den Patchtext hier einfügst, fasse ich dir die Änderung gern zusammen."
+    },
+    {
+      "id": "patch-013",
+      "category": "patch",
+      "lang": "de",
+      "question": "Wie hat sich die Lebenspunktzahl von McGinnis' Mini Turrets im Update vom 12.08.2026 verändert?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "90"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "100"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2973,
+      "text": "Ungeprüft: Dazu habe ich keine verlässlichen Update-Daten. Ich kann dir daher nicht sicher sagen, wie sich die Lebenspunkte von McGinnis’ Mini Turrets am 12.08.2026 verändert haben."
+    },
+    {
+      "id": "patch-014",
+      "category": "patch",
+      "lang": "en",
+      "question": "How did the 08-12-2026 update change Vyper's Petrifying Bola radius?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "8m",
+            "8 m",
+            "8 meter",
+            "8 meters",
+            "8 metern",
+            "8 metres"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "12m",
+            "12 m",
+            "12 meter",
+            "12 meters",
+            "12 metern",
+            "12 metres"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2664,
+      "text": "Ungeprüft: Dazu habe ich keine verlässlichen Update-Infos. Ich kann dir daher nicht sagen, wie sich der Radius von Vyper’s Petrifying Bola am 08.12.2026 geändert hat."
+    },
+    {
+      "id": "patch-015",
+      "category": "patch",
+      "lang": "de",
+      "question": "Was wurde am 12.08.2026 an Drifters Stalker's Mark geändert?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "24s"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "26s"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2147,
+      "text": "Ungeprüft: Dazu habe ich keine verlässliche Angabe. Die bereitgestellten Infos enthalten keine Patchänderungen zu Drifter oder Stalker's Mark vom 12.08.2026."
+    },
+    {
+      "id": "patch-016",
+      "category": "patch",
+      "lang": "en",
+      "question": "What changed for Doorman's Doorway in the 08-12-2026 update?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "70m",
+            "70 m",
+            "70 meter",
+            "70 meters",
+            "70 metern",
+            "70 metres"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "65m",
+            "65 m",
+            "65 meter",
+            "65 meters",
+            "65 metern",
+            "65 metres"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2377,
+      "text": "Ungeprüft: Ich habe keine verlässlichen Angaben dazu, was sich bei Doorman’s Doorway im Update vom 08.12.2026 geändert hat. Wenn du mir die Patchnotes gibst, fasse ich sie dir gern zusammen."
+    },
+    {
+      "id": "docs-001",
+      "category": "docs",
+      "lang": "de",
+      "question": "Wie viele Spieler sind in einem Deadlock-Match?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 1,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "12"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2739,
+      "text": "Ungeprüft: In einem normalen Deadlock-Match spielen 12 Leute, also 6 gegen 6. Für den aktuellen Spielstand kann ich den Patch nicht bestätigen."
+    },
+    {
+      "id": "docs-002",
+      "category": "docs",
+      "lang": "de",
+      "question": "Von wem wird Deadlock entwickelt?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 1,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Valve"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3444,
+      "text": "Ungeprüft: Deadlock wird von Valve entwickelt."
+    },
+    {
+      "id": "docs-003",
+      "category": "docs",
+      "lang": "de",
+      "question": "Wie verknüpfe ich meinen Steam-Account mit dem Discord-Server?",
+      "expect": "answered",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 1,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "/account_verknüpfen"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 2,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4507,
+      "text": "Geh in 🔗deadlock-rang und klick auf „Steam verknüpfen“ oder nutze /account_verknüpfen. Folge dem angezeigten Weg: Melde dich über Steam an oder gib deinen Freundescode ein, falls danach gefragt wird. Nimm eine Freundschaftsanfrage des Bots an, wenn du eine erhältst. Dein Steam-Passwort bekommt der Bot dabei nicht."
+    },
+    {
+      "id": "docs-004",
+      "category": "docs",
+      "lang": "de",
+      "question": "Wie lange wartet der Steam-Bot auf meine Freundschaftsanfrage?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "24 Stunden"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1885,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "docs-005",
+      "category": "docs",
+      "lang": "de",
+      "question": "Wie wechsle ich meinen primären Steam-Account?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "/steam setprimary"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4481,
+      "text": "Ungeprüft: Dazu habe ich keine verlässlichen Infos. Meinst du, wie du in Steam zu einem anderen Account wechselst?"
+    },
+    {
+      "id": "docs-006",
+      "category": "docs",
+      "lang": "de",
+      "question": "Wann ist die Steam-Wartung und wie lange dauert sie?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "Dienstag"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "10 bis 20"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2837,
+      "text": "Ungeprüft: Ich kann dir den Zeitpunkt der Steam-Wartung und ihre Dauer nicht verlässlich nennen. Steam-Wartungen finden oft dienstags statt, aber genaue Zeiten und Dauer variieren."
+    },
+    {
+      "id": "docs-007",
+      "category": "docs",
+      "lang": "de",
+      "question": "Wie öffne ich auf dem Discord einen privaten Fragen-Chat?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "/faq"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1949,
+      "text": "Ungeprüft: Einen privaten Fragen-Chat finde ich in den aktuellen Infos nicht. Für Fragen kannst du öffentlich in **#frag-die-community** schreiben oder für Unterstützung beim Spielen **#coaching-chat** nutzen."
+    },
+    {
+      "id": "docs-008",
+      "category": "docs",
+      "lang": "de",
+      "question": "Was ist der Unterschied zwischen /steam_rank und /checkrank?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 2,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "/steam_rank"
+          ],
+          "matched": true
+        },
+        {
+          "any_of": [
+            "/checkrank"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1719,
+      "text": "Ungeprüft: Ich kenne den Unterschied zwischen `/steam_rank` und `/checkrank` nicht sicher. Wenn du mir sagst, wo du die beiden Befehle gesehen hast, kann ich dir gezielter helfen."
+    },
+    {
+      "id": "docs-009",
+      "category": "docs",
+      "lang": "en",
+      "question": "How do I link my Steam account on the German Deadlock community Discord?",
+      "expect": "answered",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 1,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "/account_verknüpfen"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 2,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 6194,
+      "text": "Verknüpf dein Steam-Konto im Kanal 🔗deadlock-rang über „Steam verknüpfen“ und folge der offiziellen Steam-Anmeldung. Alternativ kannst du /account_verknüpfen nutzen. Einen Freundescode gibst du nur ein, wenn dieser Weg angeboten wird. Falls du eine Freundschaftsanfrage des Community-Steam-Kontos bekommst, nimm sie an, wenn der Ablauf es verlangt."
+    },
+    {
+      "id": "docs-010",
+      "category": "docs",
+      "lang": "de",
+      "question": "Was kann der Besitzer einer Voice-Lane alles einstellen?",
+      "expect": "answered",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 1,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "umbenennen"
+          ],
+          "matched": true
+        }
+      ],
+      "citation_count": 2,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4424,
+      "text": "Als Owner kannst du deine Voice-Lane umbenennen, ein Teilnehmerlimit festlegen und Mitglieder kicken, bannen oder entbannen. Bei Ranked-Lanes kannst du außerdem optional ein Rang-Gate für neue Beitritte setzen. Das Lane-Panel funktioniert dafür nur, wenn du selbst in der Lane und ihr Owner bist."
+    },
+    {
+      "id": "guide-001",
+      "category": "guide",
+      "lang": "de",
+      "question": "Wie spiele ich Abrams?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "Shoulder Charge",
+            "Schulterstoß"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Seismic Impact",
+            "Seismischer Einschlag"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 5233,
+      "text": "Ungeprüft: Die verfügbaren Tipps beziehen sich leider auf Victor, nicht auf Abrams. Für Abrams kann ich daraus keine verlässliche Spielweise ableiten. Frag gern konkret nach Lane-Phase, Fähigkeiten oder Build."
+    },
+    {
+      "id": "guide-002",
+      "category": "guide",
+      "lang": "en",
+      "question": "How do I play Haze?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 1,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "Sleep Dagger",
+            "Schlafdolch"
+          ],
+          "matched": true
+        },
+        {
+          "any_of": [
+            "Bullet Dance",
+            "Kugelhagel"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4682,
+      "text": "Ungeprüft: Haze spielt sich meist als skalierender Gun-Damage-Carry: Farm früh sicher, nutze Smoke Bomb für unauffällige Rotationen und sichere Picks mit Sleep Dagger. Im Teamfight such dir einen günstigen Einstieg, statt ihr Ultimate blind in geballte Gegner zu werfen. Bau je nach Partie vor allem Weapon Damage und Fire Rate; achte auf Defensive, damit du nicht sofort ausgeschaltet wirst. Items und Builds ändern sich mit Patches. Wenn du magst, kann ich dir auch einen konkreten Build oder Lane-Plan geben."
+    },
+    {
+      "id": "guide-003",
+      "category": "guide",
+      "lang": "de",
+      "question": "Wie spiele ich Seven als Anfänger?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "Lightning Ball",
+            "Kugelblitz"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Storm Cloud",
+            "Gewittersturm"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 27728,
+      "text": "Ungeprüft: Als Anfänger spiel Seven eher sicher aus der mittleren Distanz: Nutze seine Fähigkeiten, um Gegner unter Druck zu setzen, und geh nicht allein tief in Kämpfe. Bleib bei deinem Team, farme zuverlässig und setze deine ultimative Fähigkeit ein, wenn Gegner feststecken oder dein Team sie schützen kann. Die aktuellen Fähigkeitenwerte kann ich hier nicht verlässlich bestätigen."
+    },
+    {
+      "id": "guide-004",
+      "category": "guide",
+      "lang": "en",
+      "question": "How should I play Lady Geist?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "Life Drain",
+            "Lebensentzug"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Soul Exchange",
+            "Seelentausch"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3308,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "guide-005",
+      "category": "guide",
+      "lang": "de",
+      "question": "Wie spiele ich Kelvin als Support?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "Ice Path",
+            "Eispfad"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Frozen Shelter",
+            "Eiskuppel"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 6851,
+      "text": "Ungeprüft: Als Support solltest du Kelvin vor allem nutzen, um dein Team zu schützen und Kämpfe zu ermöglichen. Ich habe hier keine verlässlichen Kelvin-spezifischen Build- oder Fähigkeitstipps vorliegen und möchte dir nichts Falsches zusammenraten. Allgemein: Bleib bei deinem Team, setz deine Schutz- und Kontrollfähigkeiten ein, um Verbündete zu retten oder Verfolger aufzuhalten, und geh nicht allein auf Kills. Für konkrete Skill-Reihenfolge und Items lohnt sich ein aktueller Kelvin-Build; Builds sind patchabhängig."
+    },
+    {
+      "id": "guide-006",
+      "category": "guide",
+      "lang": "en",
+      "question": "How do I play McGinnis?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "Mini Turret",
+            "Mini-Geschütz"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Spectral Wall",
+            "Spektralmauer"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2991,
+      "text": "Ungeprüft: McGinnis spielt sich als kontrollorientierter Push-Held: Mit ihren Turrets hält sie Bereiche und Wege besetzt, während sie mit der Spirit Wall Kämpfe aufteilt oder Gegner blockiert. Stell die Turrets so, dass sie sich gegenseitig decken, und setz die Wall gezielt ein, statt dich allein auf Schaden zu verlassen. Nutze Heavy Barrage, wenn Gegner festgehalten oder beschäftigt sind. Ohne aktuellen Build kann ich dir keine patchgenaue Skillreihenfolge nennen."
+    },
+    {
+      "id": "guide-007",
+      "category": "guide",
+      "lang": "de",
+      "question": "Wie spiele ich Vindicta richtig?",
+      "expect": "answered",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 2,
+      "facts": [
+        {
+          "any_of": [
+            "Stake",
+            "Pfählung"
+          ],
+          "matched": false
+        },
+        {
+          "any_of": [
+            "Assassinate",
+            "Gnadenschuss"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 4714,
+      "text": "Ungeprüft: Die Tipps in den vorliegenden Infos beziehen sich auf Victor, nicht Vindicta. Für Vindicta kann ich dir hier keine verlässlichen, heldenspezifischen Tipps geben. Wenn du gezielt besser werden willst, schau in den Coaching-Bereich: Discord oder https://deutsche-deadlock-community.de/coaching."
+    },
+    {
+      "id": "guide-008",
+      "category": "guide",
+      "lang": "en",
+      "question": "How do I play Dynamo in team fights?",
+      "expect": "answered",
+      "status": "unauthorized_evidence",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 1,
+      "facts": [
+        {
+          "any_of": [
+            "Singularity",
+            "Singularität"
+          ],
+          "matched": false
+        }
+      ],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 52152,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "unanswerable-001",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Welche Fähigkeiten hat der Held Gravelord?",
+      "expect": "insufficient_evidence",
+      "status": "answered",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 2,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 13407,
+      "text": "Ich finde keinen Helden namens Gravelord in den verfügbaren Spieldaten und kann seine Fähigkeiten daher nicht zuverlässig nennen."
+    },
+    {
+      "id": "unanswerable-002",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "What is Thornwick's ultimate ability?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1777,
+      "text": "Ungeprüft: Welche Thornwick meinst du? Ich kenne keinen Deadlock-Helden mit diesem Namen. \"text\":\"Welchen Deadlock-Helden meinst du mit Thornwick? Ich kenne keinen Helden mit diesem Namen."
+    },
+    {
+      "id": "unanswerable-003",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Wie viel Leben hat Marabella?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 12139,
+      "text": "Ungeprüft: Ich finde für Marabella keine verlässlichen Lebenspunkte. Sie wird in den verfügbaren Heldendaten nicht gefunden, daher kann ich dir keinen bestätigten Wert nennen."
+    },
+    {
+      "id": "unanswerable-004",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "How much base health does the hero Quillbrand have?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2559,
+      "text": "Ungeprüft: Ich finde keinen Deadlock-Helden namens Quillbrand. Meinst du vielleicht einen anderen Helden?"
+    },
+    {
+      "id": "unanswerable-005",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Wie spiele ich Kestrelion?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2081,
+      "text": "Ungeprüft: Ich kenne keinen Deadlock-Helden namens Kestrelion. Meinst du vielleicht einen anderen Helden? Wenn du allgemein besser spielen möchtest, helfe ich dir gern im Coaching-Bereich: Discord oder https://deutsche-deadlock-community.de/coaching"
+    },
+    {
+      "id": "unanswerable-006",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "What does the item Phantom Anchor cost?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1636,
+      "text": "Ungeprüft: Ich habe keinen verlässlichen aktuellen Preis für Phantom Anchor."
+    },
+    {
+      "id": "unanswerable-007",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Was macht das Item Sternenkompass?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2195,
+      "text": "Ungeprüft: Ich finde keinen gesicherten Eintrag zu einem Item namens „Sternenkompass“. Meinst du vielleicht ein anderes Item?"
+    },
+    {
+      "id": "unanswerable-008",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Was ändert der Patch vom 01.12.2026?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2196,
+      "text": "Ungeprüft: Ich kann dir die Änderungen nicht verlässlich nennen: Hier ist kein Patch vom 01.12.2026 aufgeführt. Schick mir die Patchnotes oder den Link, dann fasse ich sie dir zusammen."
+    },
+    {
+      "id": "unanswerable-009",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "What changed for Abrams in the 03-15-2027 update?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2327,
+      "text": "Ungeprüft: Dazu habe ich keine passenden Update-Infos. Wenn du den Patchtext hier teilst, fasse ich dir Abrams’ Änderungen gern zusammen."
+    },
+    {
+      "id": "unanswerable-010",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Welche Helden kommen im Patch vom 20.11.2026 neu dazu?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1754,
+      "text": "Ungeprüft: Dazu habe ich keine verlässlichen Infos. Der Patch vom 20.11.2026 liegt außerdem noch in der Zukunft."
+    },
+    {
+      "id": "unanswerable-011",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "What are the patch notes for the 12-24-2026 update?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1939,
+      "text": "Ungeprüft: Dazu habe ich keine Patchnotes. Im Server gibt es den Kanal 📝patchnotes, aber die aktuellen Inhalte dazu liegen mir nicht vor."
+    },
+    {
+      "id": "unanswerable-012",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Wer ist der beste Held in Deadlock?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2083,
+      "text": "Ungeprüft: Das hängt stark von deinem Spielstil und der aktuellen Balance ab. Einen eindeutig besten Helden kann ich dir nicht nennen. JSON"
+    },
+    {
+      "id": "unanswerable-013",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "Which hero is the most fun to play?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2006,
+      "text": "Ungeprüft: Das ist Geschmackssache! Wenn du mir sagst, was dir Spaß macht, etwa viel Bewegung, starke Fähigkeiten oder Duelle, empfehle ich dir einen passenden Helden."
+    },
+    {
+      "id": "unanswerable-014",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Ist Haze schöner designt als Lady Geist?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2765,
+      "text": "Ungeprüft: Das ist Geschmackssache 😄 Haze wirkt eher düster und stealthy, Lady Geist eleganter und mysteriöser. Ich finde, beide haben einen starken eigenen Stil."
+    },
+    {
+      "id": "unanswerable-015",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "Is Deadlock a better game than Dota 2?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2289,
+      "text": "Ungeprüft: Das ist Geschmackssache: Deadlock verbindet Shooter-Action mit MOBA-Mechaniken, Dota 2 setzt stärker auf klassisches MOBA-Gameplay. Welches besser ist, hängt davon ab, worauf du Lust hast."
+    },
+    {
+      "id": "unanswerable-016",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Wie wird morgen das Wetter in Berlin?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3546,
+      "text": "Ungeprüft: Ich kann dir hier keine verlässliche Wettervorhersage für morgen in Berlin geben."
+    },
+    {
+      "id": "unanswerable-017",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "How do I bake sourdough bread?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2510,
+      "text": "Ungeprüft: Für Sauerteigbrot brauchst du Mehl, Wasser, aktiven Sauerteig und Salz. Verrühre alles, lass den Teig gehen und forme ihn, sobald er sichtbar aufgegangen ist. Backe ihn in einem gut vorgeheizten Topf, bis die Kruste kräftig gebräunt ist. Zeiten hängen von Rezept, Raumtemperatur und Sauerteig ab."
+    },
+    {
+      "id": "unanswerable-018",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Wer hat die Fußball-WM 2014 gewonnen?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2137,
+      "text": "Ungeprüft: Die deutsche Nationalmannschaft hat die Fußball-WM 2014 gewonnen."
+    },
+    {
+      "id": "unanswerable-019",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "What is the capital of Australia?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 1695,
+      "text": "Ungeprüft: Die Hauptstadt Australiens ist Canberra."
+    },
+    {
+      "id": "unanswerable-020",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Schreib mir ein Gedicht über Katzen.",
+      "expect": "insufficient_evidence",
+      "status": "unavailable",
+      "error": null,
+      "outcome_ok": false,
+      "correct": false,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2637,
+      "text": "Werkzeugantwort konnte nicht sicher abgeschlossen werden."
+    },
+    {
+      "id": "unanswerable-021",
+      "category": "unanswerable",
+      "lang": "en",
+      "question": "What will the next Deadlock hero be called?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 3305,
+      "text": "Ungeprüft: Das ist aktuell nicht bekannt. In den Discord-Infos steht kein kommender Heldname."
+    },
+    {
+      "id": "unanswerable-022",
+      "category": "unanswerable",
+      "lang": "de",
+      "question": "Wann endet die Ranked-Season im Jahr 2028?",
+      "expect": "insufficient_evidence",
+      "status": "insufficient_evidence",
+      "error": null,
+      "outcome_ok": true,
+      "correct": true,
+      "facts_matched": 0,
+      "facts_total": 0,
+      "facts": [],
+      "citation_count": 0,
+      "knowledge_release": "maintenance-bf5a6d0dc2a9e82797518135d9d2a77550ce47dd9c38295b19d671538b0d4b8f",
+      "latency_ms": 2523,
+      "text": "Ungeprüft: Dazu habe ich keine verlässliche Information. Ein Enddatum für die Ranked-Season 2028 ist mir nicht bekannt."
+    }
+  ]
+}
