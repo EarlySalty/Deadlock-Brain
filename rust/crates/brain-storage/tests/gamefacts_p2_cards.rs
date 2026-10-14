@@ -10,7 +10,7 @@ use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
 mod scratch_pg;
 
 const RAW: &str = r#"[{"id":1,"class_name":"upgrade_toxic_bullets","type":"upgrade","cost":1250,"item_tier":2,"item_slot_type":"weapon","description":{"passive":"Bleeds"},"component_items":["upgrade_headshot_booster","upgrade_missing_item"]},{"id":2,"class_name":"upgrade_headshot_booster","type":"upgrade","cost":500,"item_tier":1},{"id":3,"class_name":"citadel_ability_haze_dagger","type":"ability","properties":{"Damage":{"value":40}},"upgrades":[{"property_upgrades":[{"name":"Damage","bonus":10}]}]}]"#;
-const BULK: &str = "WITH run AS (INSERT INTO ops.ingest_run(source,status) VALUES('bulk','succeeded') RETURNING id)
+const BULK: &str = "WITH run AS (INSERT INTO ops.ingest_run(source) VALUES('bulk') RETURNING id)
 INSERT INTO raw.object(source,revision,path,source_path_sha256,content_sha256,bytes,ingest_run_id)
 SELECT 'bulk','bulk-rev','bulk/'||g,sha256(convert_to('bulk/'||g,'UTF8')),sha256(convert_to(g::text,'UTF8')),convert_to(g::text,'UTF8'),run.id FROM generate_series(1,3000) g,run;
 INSERT INTO canon.receipt(raw_object_id,ingest_run_id,extractor,locator_kind,locator,value_sha256)
@@ -21,6 +21,7 @@ INSERT INTO canon.fact(entity_id,stat_key,value_num,valid_from_run,receipt_id)
 SELECT e.id,'bulk_stat_'||substr(r.locator,2),substr(r.locator,2)::int,r.ingest_run_id,r.id
 FROM canon.receipt r JOIN canon.receipt er ON er.raw_object_id=r.raw_object_id AND er.locator='/0'
 JOIN canon.entity e ON e.receipt_id=er.id WHERE r.extractor='bulk' AND r.locator<>'/0';
+UPDATE ops.ingest_run SET status='succeeded' WHERE source='bulk' AND status='failed';
 ANALYZE";
 const COMPARE: &str = include_str!("../../brain-serve/src/pg_asset_compare.sql");
 
