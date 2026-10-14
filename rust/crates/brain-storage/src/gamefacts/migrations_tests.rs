@@ -16,10 +16,11 @@ fn registry_is_positive_unique_and_ordered_with_gaps() {
     ] {
         assert!(ordered(&registry).is_err());
     }
-    assert_eq!(
-        MIGRATIONS.iter().map(|(v, _)| *v).collect::<Vec<_>>(),
-        [1, 7, 8, 9, 10]
-    );
+    assert!(ordered(MIGRATIONS).is_ok());
+    let versions: Vec<_> = MIGRATIONS.iter().map(|(v, _)| *v).collect();
+    for version in [1, 6, 7, 8, 9, 10] {
+        assert!(versions.contains(&version));
+    }
     assert_eq!(
         sql_and_checksum(MIGRATIONS[0].1)
             .1
@@ -92,6 +93,65 @@ async fn sparse_versions_apply_a_missing_lower_version_without_replaying_higher_
         .await
         .unwrap();
     assert!(store.migrate_gamefacts_registered(&expanded).await.is_err());
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn receipt_audit_upgrade_preserves_applied_core_and_serving_columns() {
+    let pg = scratch_pg::ScratchPg::start();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("")
+        .ssl_mode(PgSslMode::Disable);
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with(options)
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly NOLOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate")
+        .execute(&pool).await.unwrap();
+    let store = PgStore::new(pool.clone());
+    let initial: Vec<_> = MIGRATIONS
+        .iter()
+        .copied()
+        .filter(|(v, _)| *v != 6)
+        .collect();
+    store.migrate_gamefacts_registered(&initial).await.unwrap();
+    let columns_sql = "SELECT attname::text,atttypid::bigint FROM pg_attribute WHERE attrelid='serve.published_receipt'::regclass AND attnum>0 AND NOT attisdropped ORDER BY attnum";
+    let columns: Vec<(String, i64)> = sqlx::query_as(columns_sql).fetch_all(&pool).await.unwrap();
+    let mut connection = pool.acquire().await.unwrap();
+    let before = recorded(&mut connection).await.unwrap();
+    drop(connection);
+    store.migrate_gamefacts().await.unwrap();
+    store.migrate_gamefacts().await.unwrap();
+    store.check_gamefacts_schema().await.unwrap();
+    let mut connection = pool.acquire().await.unwrap();
+    let after = recorded(&mut connection).await.unwrap();
+    drop(connection);
+    assert_eq!(
+        after
+            .iter()
+            .filter(|(v, _)| *v != 6)
+            .cloned()
+            .collect::<Vec<_>>(),
+        before
+    );
+    assert!(after.iter().any(|(v, _)| *v == 6));
+    assert_eq!(
+        sqlx::query_as::<_, (String, i64)>(columns_sql)
+            .fetch_all(&pool)
+            .await
+            .unwrap(),
+        columns
+    );
+    let sampled: i64 = sqlx::query_scalar("SELECT count(*) FROM ops.sample_receipt_audit()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(sampled, 0);
     pool.close().await;
 }
 

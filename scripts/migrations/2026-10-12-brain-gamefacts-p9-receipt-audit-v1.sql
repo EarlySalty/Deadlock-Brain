@@ -118,7 +118,8 @@ WITH boundary AS MATERIALIZED(
     JOIN canon.entity_identity o USING(entity_id)
     JOIN canon.receipt older ON older.id=o.receipt_id AND (older.ingest_run_id,older.id)<(bad.ingest_run_id,bad.id)
 )
-SELECT r.*,o.source,o.revision,o.revision AS source_revision,o.path,o.content_sha256
+SELECT r.id,r.raw_object_id,r.ingest_run_id,r.extractor,r.locator_kind,r.locator,r.value_sha256,
+    o.source,o.revision,o.revision AS source_revision,o.path,o.content_sha256
 FROM canon.receipt r JOIN ops.ingest_run run ON run.id=r.ingest_run_id AND run.status='succeeded'
 JOIN raw.object o ON o.id=r.raw_object_id
 WHERE NOT EXISTS(SELECT 1 FROM canon.receipt_quarantine q WHERE q.receipt_id=r.id)
