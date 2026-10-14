@@ -16,6 +16,11 @@ const EXACT: &str = "SELECT * FROM (
         a.receipt_id::text AS citation, a.source_revision, i.identity,
         1.0::real AS similarity
     FROM serve.current_alias a JOIN serve.entity_identity i ON i.entity_id=a.entity_id
+    JOIN serve.published_receipt identity_receipt ON identity_receipt.id=i.receipt_id
+    JOIN serve.published_receipt alias_receipt ON alias_receipt.id=a.receipt_id
+        AND alias_receipt.raw_object_id=identity_receipt.raw_object_id
+        AND alias_receipt.ingest_run_id=identity_receipt.ingest_run_id
+        AND alias_receipt.extractor=identity_receipt.extractor
     WHERE a.alias_norm=$1 AND ($2::text IS NULL OR i.kind=$2)
     ORDER BY a.entity_id, a.receipt_id, a.lang
 ) candidates ORDER BY entity_id LIMIT $3";
@@ -24,6 +29,11 @@ const FUZZY: &str = "SELECT * FROM (
         a.receipt_id::text AS citation, a.source_revision, i.identity,
         public.similarity(a.alias_norm,$1) AS similarity
     FROM serve.current_alias a JOIN serve.entity_identity i ON i.entity_id=a.entity_id
+    JOIN serve.published_receipt identity_receipt ON identity_receipt.id=i.receipt_id
+    JOIN serve.published_receipt alias_receipt ON alias_receipt.id=a.receipt_id
+        AND alias_receipt.raw_object_id=identity_receipt.raw_object_id
+        AND alias_receipt.ingest_run_id=identity_receipt.ingest_run_id
+        AND alias_receipt.extractor=identity_receipt.extractor
     WHERE a.alias_norm OPERATOR(public.%) $1
         AND public.similarity(a.alias_norm,$1)>=0.3
         AND ($2::text IS NULL OR i.kind=$2)

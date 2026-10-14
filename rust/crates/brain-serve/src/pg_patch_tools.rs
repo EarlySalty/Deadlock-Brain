@@ -26,7 +26,10 @@ const RESOLVE: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
         AND pg_input_is_valid($1,'timestamp with time zone')
         THEN released_at=$1::timestamptz ELSE false END
     ORDER BY released_at DESC,patch_id DESC LIMIT 2";
-const CHANGES: &str = "SELECT jsonb_build_object('id',c.change_id,'entity_id',c.entity_id,
+const CHANGES: &str = "WITH selected AS MATERIALIZED (
+        SELECT * FROM serve.p4_patch_change
+        WHERE entity_id=$1 AND ($2::bigint IS NULL OR patch_id=$2)
+    ) SELECT jsonb_build_object('id',c.change_id,'entity_id',c.entity_id,
     'stat_key',c.stat_key,'old',c.old_value,'new',c.new_value,'change_kind',c.change_kind,
     'line_text',c.line_text,'subject',c.subject,'statement_index',c.statement_index,
     'context_index',c.context_index,'stat_label',c.stat_label,'patch',p.label,'released_at',p.released_at,
@@ -35,9 +38,26 @@ const CHANGES: &str = "SELECT jsonb_build_object('id',c.change_id,'entity_id',c.
     'url_citation',p.url_receipt_id::text,
     'binding_citation',c.binding_receipt_id::text,'entity_citation',c.entity_receipt_id::text,
     'stat_citation',c.stat_receipt_id::text,'source_revision',c.source_revision)
-    FROM serve.p4_patch_change c JOIN serve.p4_patch_catalog p ON p.patch_id=c.patch_id
-    WHERE c.entity_id=$1 AND ($2::bigint IS NULL OR c.patch_id=$2)
-        AND ($3::text IS NULL OR p.released_at >= $3::timestamptz)
+    FROM selected c JOIN LATERAL (
+        SELECT e.id AS patch_id,e.receipt_id AS official_receipt_id,m.label,
+            CASE WHEN pg_input_is_valid(m.released_at,'timestamp with time zone')
+                THEN m.released_at::timestamptz END AS released_at,
+            m.label_receipt_id,m.released_at_receipt_id,m.url_receipt_id
+        FROM serve.current_entity e CROSS JOIN LATERAL (
+            SELECT max(f.value_text::text) FILTER(WHERE f.stat_key='label') AS label,
+                max(f.value_text::text) FILTER(WHERE f.stat_key='released_at') AS released_at,
+                max(f.receipt_id) FILTER(WHERE f.stat_key='label') AS label_receipt_id,
+                max(f.receipt_id) FILTER(WHERE f.stat_key='released_at') AS released_at_receipt_id,
+                max(f.receipt_id) FILTER(WHERE f.stat_key='official_url') AS url_receipt_id
+            FROM serve.current_fact f
+            WHERE f.entity_id=c.patch_id
+                AND f.stat_key COLLATE \"C\" IN('label','released_at','official_url')
+            OFFSET 0
+        ) m
+        WHERE e.id=c.patch_id
+        OFFSET 0
+    ) p ON true
+    WHERE ($3::text IS NULL OR p.released_at >= $3::timestamptz)
         AND ($4::text IS NULL OR p.released_at <= $4::timestamptz)
     ORDER BY p.released_at DESC,p.patch_id DESC,c.change_id DESC LIMIT 20";
 const RECEIPTS: &str = "SELECT jsonb_build_object('receipt_id',receipt_id,'source_id',source_id,

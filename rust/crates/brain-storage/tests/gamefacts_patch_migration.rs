@@ -95,7 +95,11 @@ async fn patch_migration_preserves_existing_facts_and_checks_patch_identity() {
             .fetch_all(&pool)
             .await
             .unwrap();
-    assert_eq!(versions, [1, 4, 7]);
+    assert_eq!(versions, [1, 4, 7, 8, 9, 10, 23]);
+    sqlx::raw_sql("INSERT INTO ops.ingest_run(source) VALUES('pending_boundary_fixture');
+        INSERT INTO canon.receipt(raw_object_id,ingest_run_id,extractor,locator_kind,locator,value_sha256) VALUES(1,2,'fixture','raw_bytes','',decode(repeat('00',32),'hex'));
+        INSERT INTO canon.fact(entity_id,stat_key,value_num,valid_from_run,receipt_id) VALUES(1,'health',500,2,2)")
+        .execute(&pool).await.unwrap();
     let reference_index: String =
         sqlx::query_scalar("SELECT pg_get_indexdef('canon.fact_patch_reference'::regclass)")
             .fetch_one(&pool)
@@ -104,7 +108,7 @@ async fn patch_migration_preserves_existing_facts_and_checks_patch_identity() {
     assert!(reference_index.contains("stat_key COLLATE \"C\", entity_id"));
     for column in ["valid_from_patch", "valid_to_patch"] {
         for (id, code) in [(1, "23514"), (4, "23514"), (9999, "23503")] {
-            let error = sqlx::query(&format!("UPDATE canon.fact SET {column}=$1 WHERE id=1"))
+            let error = sqlx::query(&format!("UPDATE canon.fact SET {column}=$1 WHERE id=2"))
                 .bind(id)
                 .execute(&pool)
                 .await
@@ -115,7 +119,7 @@ async fn patch_migration_preserves_existing_facts_and_checks_patch_identity() {
             );
         }
     }
-    sqlx::query("UPDATE canon.fact SET valid_from_patch=2,valid_to_patch=3 WHERE id=1")
+    sqlx::query("UPDATE canon.fact SET valid_from_patch=2,valid_to_patch=3 WHERE id=2")
         .execute(&pool)
         .await
         .unwrap();
@@ -137,13 +141,13 @@ async fn patch_migration_preserves_existing_facts_and_checks_patch_identity() {
     .await
     .unwrap();
     assert!(grants_unchanged);
-    sqlx::query("UPDATE canon.fact SET valid_from_patch=NULL,valid_to_patch=NULL WHERE id=1")
+    sqlx::query("UPDATE canon.fact SET valid_from_patch=NULL,valid_to_patch=NULL WHERE id=2")
         .execute(&pool)
         .await
         .unwrap();
     let columns: Vec<String> = sqlx::query_scalar("SELECT column_name::text FROM information_schema.columns WHERE table_schema='canon' AND table_name='fact' AND column_name IN ('valid_from_patch','valid_to_patch') AND is_nullable='YES' ORDER BY column_name")
         .fetch_all(&pool).await.unwrap();
     assert_eq!(columns, ["valid_from_patch", "valid_to_patch"]);
-    println!("P4_MIGRATION_PROOF sparse [1,4,7], upgrade and rerun, unchanged fact/relfilenode, null unproven history, both patch identity guards and foreign keys, unchanged grants");
+    println!("P4_MIGRATION_PROOF sparse [1,4,7,8,9,10,23], upgrade and rerun, unchanged published fact/relfilenode, null unproven history, pending fact patch identity guards and foreign keys, unchanged grants");
     pool.close().await;
 }

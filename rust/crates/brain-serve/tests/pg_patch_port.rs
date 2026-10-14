@@ -321,7 +321,7 @@ async fn database(pg: &scratch_pg::ScratchPg) -> (PgPool, PgPool, PgPool) {
             .fetch_all(&admin)
             .await
             .unwrap();
-    assert_eq!(versions, [1, 4, 7]);
+    assert_eq!(versions, [1, 4, 7, 8, 9, 10, 23]);
     let reader = PgPoolOptions::new()
         .max_connections(2)
         .after_connect(|connection, _| {
@@ -391,6 +391,7 @@ async fn adapter_executes_real_pg_and_revalidates_without_legacy_pin_or_retrieva
         arguments: json!({"entity":entity}),
     };
     let request = call.validate(&definitions).unwrap();
+    let started = std::time::Instant::now();
     let execution = {
         let port = port.clone();
         let query = query.clone();
@@ -401,8 +402,11 @@ async fn adapter_executes_real_pg_and_revalidates_without_legacy_pin_or_retrieva
         })
         .await
         .unwrap()
-        .unwrap()
     };
+    let elapsed = started.elapsed();
+    let execution = execution.unwrap();
+    assert!(elapsed < std::time::Duration::from_millis(500));
+    println!("P4_COLD_ADAPTER_PROOF unANALYZED complete real PgPatchToolPort wall_ms={:.3}, unchanged 500ms limit", elapsed.as_secs_f64() * 1000.0);
     execution.validate_for(&call, &request, None).unwrap();
     assert!(!execution.result.is_error, "{:?}", execution.result);
     assert_eq!(execution.result.result["changes"][0]["old"], "600");
@@ -776,16 +780,16 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
         .password("")
         .ssl_mode(PgSslMode::Disable);
     let pool = pg_tools::tool_pool(options.clone(), std::time::Duration::from_secs(2));
-    let tools = pg_tools::PgTools::new(
-        PgPatchToolPort::new(
+    let tools = PgPatchToolPort::new(
+        pg_tools::PgTools::new(
             EmptyDelegate,
             pool.clone(),
             tokio::runtime::Handle::current(),
-        )
-        .unwrap(),
+        ),
         pool.clone(),
         tokio::runtime::Handle::current(),
-    );
+    )
+    .unwrap();
     let (mut query, mut context) = query_context();
     query.text = "Baba Steckbrief und Patchänderungen".into();
     query.profile = brain_contracts::AnswerProfile::Explain;
@@ -799,7 +803,12 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
             arguments,
         };
         let request = call.validate(&definitions).unwrap();
-        let execution = tools.execute(&query, &context, None, id, &request).unwrap();
+        let started = std::time::Instant::now();
+        let execution = tools.execute(&query, &context, None, id, &request);
+        let elapsed = started.elapsed();
+        let execution = execution.unwrap();
+        assert!(elapsed < std::time::Duration::from_millis(500));
+        println!("P4_COLD_PRODUCTION_ORDER_PROOF unANALYZED tool={name:?} complete_wall_ms={:.3}, no tool prewarming, production pool", elapsed.as_secs_f64() * 1000.0);
         execution.validate_for(&call, &request, None).unwrap();
         assert!(!execution.result.is_error, "{:?}", execution.result);
         execution
@@ -853,9 +862,16 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
         ToolValidationPurpose::Publication,
         ToolValidationPurpose::Cache,
     ] {
+        let started = std::time::Instant::now();
         tools
             .validate_dependencies(&query, &context, None, &dependencies, purpose)
             .unwrap();
+        let elapsed = started.elapsed();
+        assert!(elapsed < std::time::Duration::from_millis(500));
+        println!(
+            "P4_PRODUCTION_REVALIDATION_PROOF purpose={purpose:?} complete_wall_ms={:.3}",
+            elapsed.as_secs_f64() * 1000.0
+        );
     }
     let count = expected.len();
     let expected_numeric_ids = expected

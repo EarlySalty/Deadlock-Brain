@@ -25,6 +25,21 @@ mod scratch_pg;
 #[path = "../src/pg_patch_tools.rs"]
 mod p4_unit_contracts;
 
+const PRE_FACTOR_CHANGES: &str = "SELECT jsonb_build_object('id',c.change_id,'entity_id',c.entity_id,
+    'stat_key',c.stat_key,'old',c.old_value,'new',c.new_value,'change_kind',c.change_kind,
+    'line_text',c.line_text,'subject',c.subject,'statement_index',c.statement_index,
+    'context_index',c.context_index,'stat_label',c.stat_label,'patch',p.label,'released_at',p.released_at,
+    'citation',c.receipt_id::text,'head_citation',p.official_receipt_id::text,
+    'label_citation',p.label_receipt_id::text,'released_at_citation',p.released_at_receipt_id::text,
+    'url_citation',p.url_receipt_id::text,
+    'binding_citation',c.binding_receipt_id::text,'entity_citation',c.entity_receipt_id::text,
+    'stat_citation',c.stat_receipt_id::text,'source_revision',c.source_revision)
+    FROM serve.p4_patch_change c JOIN serve.p4_patch_catalog p ON p.patch_id=c.patch_id
+    WHERE c.entity_id=$1 AND ($2::bigint IS NULL OR c.patch_id=$2)
+        AND ($3::text IS NULL OR p.released_at >= $3::timestamptz)
+        AND ($4::text IS NULL OR p.released_at <= $4::timestamptz)
+    ORDER BY p.released_at DESC,p.patch_id DESC,c.change_id DESC LIMIT 20";
+
 struct Database {
     admin: PgPool,
     reader: PgPool,
@@ -61,15 +76,12 @@ impl Database {
                 .fetch_all(&admin)
                 .await
                 .unwrap();
-        assert_eq!(versions, [1, 4, 7]);
+        assert_eq!(versions, [1, 4, 7, 8, 9, 10, 23]);
         let reader = PgPoolOptions::new()
             .max_connections(2)
             .after_connect(|connection, _| {
                 Box::pin(async move {
                     sqlx::query("SET log_statement='all'")
-                        .execute(&mut *connection)
-                        .await?;
-                    sqlx::query("SET log_min_duration_statement=0")
                         .execute(&mut *connection)
                         .await?;
                     sqlx::query("SET ROLE brain_tool")
@@ -110,8 +122,19 @@ impl Database {
         source: &str,
         path: &str,
         revision: &str,
+        value: Value,
+        hero: bool,
+    ) -> RawObject {
+        self.publish_with_factset((source, path, revision), value, hero, |_| {})
+            .await
+    }
+
+    async fn publish_with_factset(
+        &self,
+        (source, path, revision): (&str, &str, &str),
         mut value: Value,
         hero: bool,
+        prepare: impl FnOnce(&mut FactSet),
     ) -> RawObject {
         let changes = value.as_object_mut().unwrap().remove("changes");
         let run = self.store.begin_run(source).await.unwrap();
@@ -132,11 +155,12 @@ impl Database {
             .await
             .unwrap();
         assert_eq!(stored, serde_json::to_vec(&value).unwrap());
-        let set = if hero {
+        let mut set = if hero {
             hero_facts(&raw, &value)
         } else {
             patch_facts(&raw, &value, changes.as_ref().unwrap())
         };
+        prepare(&mut set);
         self.store
             .apply(run, &raw, if hero { "hero" } else { "patchnotes" }, &set)
             .await
@@ -170,11 +194,53 @@ impl Database {
             .unwrap()
     }
 
+    async fn assert_change_projection_equivalence(&self, entity: i64) {
+        let mut tx = self.admin.begin().await.unwrap();
+        sqlx::raw_sql(
+            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL ROLE brain_tool",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        let (since, until, patch): (Option<String>, Option<String>, Option<i64>) = sqlx::query_as("SELECT min(released_at)::text,max(released_at)::text,(array_agg(patch_id ORDER BY released_at DESC,patch_id DESC))[1] FROM serve.p4_patch_catalog")
+            .fetch_one(&mut *tx).await.unwrap();
+        let current = changes_sql();
+        let scenarios = [
+            (false, None, None, None),
+            (true, patch, None, None),
+            (true, None, since, until),
+        ];
+        let mut counts = Vec::new();
+        for (bounded, patch, since, until) in scenarios {
+            let mut results = Vec::new();
+            for sql in [PRE_FACTOR_CHANGES, current.as_str()] {
+                let sql = if bounded {
+                    sql
+                } else {
+                    sql.strip_suffix(" LIMIT 20").unwrap()
+                };
+                let rows: Vec<Value> = sqlx::query_scalar(sql)
+                    .bind(entity)
+                    .bind(patch)
+                    .bind(&since)
+                    .bind(&until)
+                    .fetch_all(&mut *tx)
+                    .await
+                    .unwrap();
+                results.push(rows);
+            }
+            assert_eq!(results[0], results[1]);
+            assert_eq!(
+                serde_json::to_vec(&results[0]).unwrap(),
+                serde_json::to_vec(&results[1]).unwrap()
+            );
+            counts.push(results[0].len());
+        }
+        tx.rollback().await.unwrap();
+        println!("P4_SQL_EQUIVALENCE entity={entity} full_before_limit/current/range_rows={counts:?}; complete original/factored rows and numeric citation IDs byte-identical within one brain_tool read-only repeatable-read snapshot");
+    }
+
     async fn execute(&self, arguments: Value) -> ToolExecution {
-        sqlx::query("ANALYZE raw.object, canon.entity, canon.entity_identity, canon.receipt, canon.alias, canon.fact, ops.ingest_run")
-            .execute(&self.admin)
-            .await
-            .unwrap();
         let id = "\"".repeat(512);
         let request = ToolCall {
             id: id.clone(),
@@ -185,92 +251,18 @@ impl Database {
         .unwrap();
         let (query, context) = query_context();
         let started = std::time::Instant::now();
-        match execute_patch_history(&self.reader, &query, &context, &id, &request).await {
-            Ok(execution) => {
-                self.tool_calls
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                self.tool_peak_us.fetch_max(
-                    started.elapsed().as_micros().try_into().unwrap(),
-                    std::sync::atomic::Ordering::Relaxed,
-                );
-                execution
-            }
-            Err(error) => {
-                let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
-                let log = std::fs::read_to_string(&self.log).unwrap();
-                let nonce = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos();
-                let saved_log = std::env::temp_dir().join(format!(
-                    "p4-patch-tools-timeout-{}-{nonce}.log",
-                    std::process::id()
-                ));
-                std::fs::write(&saved_log, &log).unwrap();
-                let activity: Value = sqlx::query_scalar("SELECT coalesce(jsonb_agg(jsonb_build_object('pid',pid,'state',state,'wait_type',wait_event_type,'wait',wait_event,'age_ms',extract(epoch FROM clock_timestamp()-query_start)*1000)),'[]'::jsonb) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND backend_type='client backend' AND state='active'")
-                    .fetch_one(&self.admin)
-                    .await
-                    .unwrap();
-                let mut plan_timing = Value::Null;
-                if request.arguments().get("since").is_none()
-                    && request.arguments().get("until").is_none()
-                {
-                    let patch: Option<i64> = sqlx::query_scalar("SELECT patch_id FROM serve.p4_patch_catalog ORDER BY released_at DESC,patch_id DESC LIMIT 1")
-                        .fetch_optional(&self.admin)
-                        .await
-                        .unwrap();
-                    let plan: Value = sqlx::query_scalar(&format!(
-                        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {}",
-                        changes_sql()
-                    ))
-                    .bind(request.arguments()["entity"].as_i64().unwrap())
-                    .bind(patch)
-                    .bind(None::<String>)
-                    .bind(None::<String>)
-                    .fetch_one(&self.admin)
-                    .await
-                    .unwrap();
-                    plan_timing = json!({"planning_ms":plan[0]["Planning Time"],"execution_ms":plan[0]["Execution Time"],"total_cost":plan[0]["Plan"]["Total Cost"],"jit_total_ms":plan[0]["JIT"]["Timing"]["Total"]});
-                }
-                let errors = log
-                    .lines()
-                    .filter(|line| line.contains("ERROR:"))
-                    .collect::<Vec<_>>();
-                let last_sql = log
-                    .rsplit("LOG: ")
-                    .map(str::trim_start)
-                    .find(|statement| {
-                        statement.starts_with("execute ")
-                            || statement.starts_with("statement:")
-                            || statement.contains(" ms  parse ")
-                    })
-                    .unwrap_or_default();
-                let phase = [
-                    "serve.p4_patch_receipt",
-                    "serve.p4_patch_change",
-                    "serve.p4_patch_catalog",
-                    "current_user",
-                    "COMMIT",
-                    "ROLLBACK",
-                ]
-                .into_iter()
-                .find(|phase| last_sql.contains(phase))
-                .unwrap_or("connection_or_transaction");
-                let durations = log
-                    .lines()
-                    .rev()
-                    .filter_map(|line| line.split_once("duration: "))
-                    .filter_map(|(_, tail)| tail.split_once(" ms"))
-                    .map(|(duration, _)| duration)
-                    .take(6)
-                    .collect::<Vec<_>>();
-                panic!(
-                    "Request {:?}: {error:?}, tool_elapsed_ms={elapsed_ms:.3}, last_sql_phase={phase}, recent_statement_ms={durations:?}, activity={activity}, post_failure_explain={plan_timing}, scratch SQL errors: {errors:?}, scratch_log={}",
-                    request.arguments(),
-                    saved_log.display()
-                );
-            }
-        }
+        let execution = execute_patch_history(&self.reader, &query, &context, &id, &request)
+            .await
+            .unwrap();
+        self.tool_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.tool_peak_us.fetch_max(
+            started.elapsed().as_micros().try_into().unwrap(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        self.assert_change_projection_equivalence(request.arguments()["entity"].as_i64().unwrap())
+            .await;
+        execution
     }
 
     async fn quarantine(&self, definition: &str, hidden: &[i64]) {
@@ -306,7 +298,7 @@ impl Database {
     }
 }
 
-fn changes_sql() -> &'static str {
+fn changes_sql() -> String {
     include_str!("../src/pg_patch_tools.rs")
         .split_once("const CHANGES: &str = \"")
         .unwrap()
@@ -314,6 +306,7 @@ fn changes_sql() -> &'static str {
         .split_once("\";")
         .unwrap()
         .0
+        .replace("\\\"", "\"")
 }
 
 fn collect_plan_indexes(value: &Value, indexes: &mut BTreeSet<String>) {
@@ -669,10 +662,8 @@ async fn real_current_projection_and_composed_patch_history() {
     let id = db.hero_id("hero_baba").await;
     let line = "Baba: Health increased from 123 to 150.\n  when nearby, äöüß stay intact";
     let first = db
-        .publish(
-            "deadlock_patchnotes_db",
-            "10",
-            "opaque-r1-not-a-patch",
+        .publish_with_factset(
+            ("deadlock_patchnotes_db", "10", "opaque-r1-not-a-patch"),
             patch(
                 10,
                 "p1",
@@ -701,23 +692,22 @@ async fn real_current_projection_and_composed_patch_history() {
                 ],
             ),
             false,
+            |set| {
+                let corrupted: Vec<_> = set
+                    .facts
+                    .iter_mut()
+                    .filter(|fact| fact.stat_key.ends_with("_5"))
+                    .collect();
+                assert_eq!(corrupted.len(), 1);
+                for fact in corrupted {
+                    fact.stat_key = format!(
+                        "patch_change_r{}_5",
+                        hex::encode(Sha256::digest(b"infernus"))
+                    );
+                }
+            },
         )
         .await;
-    let modified =
-        sqlx::query("UPDATE canon.fact SET stat_key=$1 WHERE receipt_id IN (SELECT id FROM canon.receipt WHERE raw_object_id=$2) AND stat_key=$3")
-            .bind(format!(
-                "patch_change_r{}_5",
-                hex::encode(Sha256::digest(b"infernus"))
-            ))
-            .bind(first.id)
-            .bind(format!(
-                "patch_change_r{}_5",
-                hex::encode(Sha256::digest(b"baba"))
-            ))
-            .execute(&db.admin)
-            .await
-            .unwrap();
-    assert_eq!(modified.rows_affected(), 1);
     let infernus_id = db.hero_id("hero_infernus").await;
     error(
         &db.execute(json!({"entity":infernus_id})).await,
@@ -1293,7 +1283,34 @@ async fn incoherent_heads_and_removed_statements_are_hidden() {
         .await
         .unwrap();
     assert_eq!(changes, 0);
-    println!("P4_HEAD_PROOF mismatched raw/run/extractor hidden, complete statement removal hidden through real GameFactsStore and brain_tool queries");
+    for (index, date) in ["not-a-date", "2026-99-99T12:00:00Z"]
+        .into_iter()
+        .enumerate()
+    {
+        db.publish(
+            "deadlock_patchnotes_db",
+            "10",
+            &format!("invalid-date-{index}"),
+            patch(
+                10,
+                "invalid-date",
+                date,
+                vec![change(
+                    1,
+                    "baba",
+                    "health",
+                    "Baba: health increased from 123 to 150",
+                )],
+            ),
+            false,
+        )
+        .await;
+        error(
+            &db.execute(json!({"entity":id})).await,
+            "official_patch_unavailable",
+        );
+    }
+    println!("P4_HEAD_PROOF mismatched raw/run/extractor hidden, complete statement removal and invalid dates hidden through real GameFactsStore and brain_tool queries");
     db.close().await;
 }
 
@@ -1349,7 +1366,7 @@ async fn quarantined_omitted_middle_post_invalidates_every_validation_purpose() 
             .await,
         );
     }
-    let projection = sqlx::query_scalar::<_, Value>(changes_sql())
+    let projection = sqlx::query_scalar::<_, Value>(&changes_sql())
         .bind(entity)
         .bind(None::<i64>)
         .bind(Some("2026-10-01T12:00:00Z"))
