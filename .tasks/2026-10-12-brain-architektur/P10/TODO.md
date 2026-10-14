@@ -1,6 +1,6 @@
 # P10 meta stats: state
 
-Branch `feat/brain-p10-meta-stats-20261013`, based on core 3a `982645cf`.
+Branch `feat/brain-p10-meta-stats-20261013`, based on core 3a `982645cf`, merged with origin/main `46c75d67` (P1r).
 
 ## Built
 
@@ -30,7 +30,11 @@ Branch `feat/brain-p10-meta-stats-20261013`, based on core 3a `982645cf`.
 - `meta_stats_pg_tests.rs` publishes runs out of capture order and then 9000 later runs carrying
   older capture hours; `latest` and the comparison points must still follow capture time. It also
   covers A, B, A on the item set: `latest` is the fresh A with the third run's hour, 24 h is B, 7 d is
-  the first A.
+  the first A. Its synthetic history now runs through unpublished runs that are published afterwards,
+  as the published-write guards from main (migration v10) require.
+- `brain-job/tests/meta_stats.rs` `reverted_snapshot_is_reapplied_and_dated_by_its_own_run`: hero set
+  A, B, A through `ingest`; the third run is accepted, writes no raw object, cites the old revision and
+  is `latest` for `hero_1` with `snapshot_at` equal to its own run hour.
 - Extractor `meta_stats` (`rust/crates/brain-job/src/meta_stats.rs`): one entity per stat set
   (`meta_hero_stats`, `meta_item_stats`), one text fact per row (`hero_<id>` / `item_<id>`) holding the
   verbatim row JSON, receipt `json_pointer /<index>`.
@@ -78,4 +82,12 @@ instance `brain-job@deadlock-api-meta.timer`. Not enabled, not started.
 ## Open
 
 - `entity` lookup needs `identity_game_id` facts from P2; until then use `game_id`.
-- Merge origin/main once P1r-F lands and fix blocking core findings additively.
+
+## Final live checks (integrator, needs a binary build; not done here by user decision)
+
+- Real capture of both endpoints (`hero-stats`, `item-stats`) with the merged binaries against scratch
+  or live Postgres: one ingest run, check 2 raw objects and about 198 facts, JSON content type, 1 MiB cap.
+- Two consecutive ingests: same-hour rerun writes 0 raw objects (ignored 2); a run in the next hour either
+  dedups (0 raw objects) or writes new rows; `get_meta_stats` as `brain_tool` returns `latest` with the
+  newest capture hour and cites a published receipt.
+- Enable `brain-job@deadlock-api-meta.timer` only after these checks.
