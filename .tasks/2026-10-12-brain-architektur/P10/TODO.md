@@ -46,6 +46,25 @@ Branch `feat/brain-p10-meta-stats-20261013`, based on core 3a `982645cf`.
 Existing `ops/brain-job@.timer` (hourly, `MemoryMax=512M` in `brain-job@.service`) covers it as
 instance `brain-job@deadlock-api-meta.timer`. Not enabled, not started.
 
+## Measurements (scratch PG 16, HEAD afb29633 binaries)
+
+- Live proof `/tmp/p10final`: live run 1 (hour 2026-10-13T23:00Z) wrote 2 raw objects,
+  69,822 bytes, 198 facts; same-hour rerun 2 wrote 0 (ignored 2); run 3 (hour 2026-10-14T00:00Z)
+  wrote 2 raw objects, 69,780 bytes, 198 facts; rerun 4 wrote 0. Peak RSS 11.5 MB, 0.5 s per run.
+  `get_meta_stats` hero 1 as `brain_tool`: 7.8 ms, 1 row, 1.1 KB, `snapshot_at` 2026-10-14T00:00:00Z.
+- Size: per stat-set snapshot facts about 775 B/row, receipts 157 B/row, raw object 12.2 KB
+  (TOAST compressed; plain body hero 27 KB, items 42 KB). Both sets changing every hour
+  (197 rows) is about 208 KB per hour, so about 1.82 GB per year. Synthetic year load (hero changed
+  hourly, items every 6 h, 2874 hours) measured 222 MB, about 77 KB per hour, so about 0.68 GB per year.
+- Tool query as `brain_tool` with that synthetic history (2874 hero captures): 24 to 33 ms for a
+  hero, 8 ms for an item, 4 rows, 4.3 KB result. Plan: index only scan on
+  `meta_stat_capture_order`, `fact_history` per capture, `receipt_object_run`, no seq scan on
+  large tables.
+- Core finding (frozen, not changed here): ingest duration of accepted runs grows with source
+  history, average 0.41 s over the first 650 runs and 2.05 s after about 2600 runs
+  (`was_applied_active` in `brain-storage/src/gamefacts.rs` scans the path history). Not blocking at
+  one run per hour; worth a core fix with an index or a latest-applied pointer.
+
 ## Open
 
 - `entity` lookup needs `identity_game_id` facts from P2; until then use `game_id`.
