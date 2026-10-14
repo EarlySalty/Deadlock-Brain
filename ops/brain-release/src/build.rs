@@ -32,12 +32,34 @@ fn build_dir_override(target: &Path) -> Result<String> {
 pub const RUSTFLAGS: &str = "--remap-path-prefix=/home/nathanael=/brain-operator";
 pub const TARGET: &str = "/home/nathanael/.cache/brain-release-target";
 
+fn join_cargo_budget() {
+    let pid = std::process::id().to_string();
+    let failures: Vec<_> = [
+        "/sys/fs/cgroup/cpu,cpuacct/cargo-budget/cgroup.procs",
+        "/sys/fs/cgroup/memory/cargo-budget/cgroup.procs",
+    ]
+    .into_iter()
+    .filter_map(|path| {
+        fs::write(path, &pid)
+            .err()
+            .map(|error| format!("{path}: {error}"))
+    })
+    .collect();
+    if !failures.is_empty() {
+        eprintln!(
+            "Warnung: Cargo-Budget nicht vollständig verfügbar; der Build läuft weiter: {}",
+            failures.join("; ")
+        );
+    }
+}
+
 fn run_cargo(source: &Path, target: &Path) -> Result<()> {
     ensure!(
         fs_safe::uid() == OPERATOR,
         "Cargo darf niemals als root laufen"
     );
     fs_safe::new_dir(target)?;
+    join_cargo_budget();
     let status = source::command("/home/nathanael/.local/bin/cargo-slot")
         .current_dir(source.join("rust"))
         .env("CARGO_SLOT_DEPLOY", "1")
