@@ -16,7 +16,7 @@ struct Payload {
     bytes: Vec<u8>,
     ranges: Option<VecDeque<(usize, usize, usize)>>,
     collisions: BTreeSet<usize>,
-    snapshot_offset: usize,
+    snapshot_pending: bool,
     parent_offset: usize,
 }
 struct Objects {
@@ -101,22 +101,37 @@ fn ranges(bytes: &[u8]) -> anyhow::Result<VecDeque<(usize, usize, usize)>> {
         })
         .collect())
 }
-fn collisions(bytes: &[u8], rows: &VecDeque<(usize, usize, usize)>) -> BTreeSet<usize> {
+fn collisions(kind: &str, bytes: &[u8], rows: &VecDeque<(usize, usize, usize)>) -> BTreeSet<usize> {
     #[derive(serde::Deserialize)]
     struct Identity {
         class_name: String,
     }
     let mut identities = BTreeMap::<String, Vec<usize>>::new();
+    let mut ids = BTreeMap::<u64, Vec<usize>>::new();
     for &(index, offset, length) in rows {
-        if let Ok(value) = serde_json::from_slice::<Identity>(&bytes[offset..offset + length]) {
-            identities
-                .entry(crate::limits::normalize_key(&value.class_name))
-                .or_default()
-                .push(index);
-        }
+        let bytes = &bytes[offset..offset + length];
+        let class_name = if kind == "items" {
+            let Ok(raw) = serde_json::from_slice::<&RawValue>(bytes) else {
+                continue;
+            };
+            let Ok(Some((id, class_name, _))) = super::identity(raw) else {
+                continue;
+            };
+            ids.entry(id).or_default().push(index);
+            class_name
+        } else if let Ok(value) = serde_json::from_slice::<Identity>(bytes) {
+            value.class_name
+        } else {
+            continue;
+        };
+        identities
+            .entry(crate::limits::normalize_key(&class_name))
+            .or_default()
+            .push(index);
     }
     identities
         .into_values()
+        .chain(ids.into_values())
         .filter(|positions| positions.len() > 1)
         .flatten()
         .collect()
@@ -145,25 +160,10 @@ impl Iterator for Objects {
                         bytes: payload.bytes[offset..end].to_vec(),
                     }));
                 }
-                if payload.kind == "heroes"
-                    && (payload.snapshot_offset < payload.bytes.len()
-                        || payload.snapshot_offset == 0)
-                {
-                    let offset = payload.snapshot_offset;
-                    let end = (offset + crate::limits::RAW_BYTES).min(payload.bytes.len());
-                    payload.snapshot_offset = end.max(1);
-                    return Some(Ok(InputObject {
-                        revision: payload.revision.clone(),
-                        path: format!("heroes/en/observed/{offset}.snapshot"),
-                        bytes: payload.bytes[offset..end].to_vec(),
-                    }));
-                }
                 if payload.ranges.is_none() {
                     match ranges(&payload.bytes) {
                         Ok(rows) => {
-                            if payload.kind == "heroes" {
-                                payload.collisions = collisions(&payload.bytes, &rows);
-                            }
+                            payload.collisions = collisions(payload.kind, &payload.bytes, &rows);
                             payload.ranges = Some(rows);
                         }
                         Err(_) => {
@@ -189,26 +189,34 @@ impl Iterator for Objects {
                         }
                     }
                 }
+                if payload.kind == "heroes" && std::mem::take(&mut payload.snapshot_pending) {
+                    return Some(Ok(InputObject {
+                        revision: payload.revision.clone(),
+                        path: "heroes/en/observed/complete.snapshot".into(),
+                        bytes: payload.revision.as_bytes().to_vec(),
+                    }));
+                }
                 if let Some((index, offset, length)) =
                     payload.ranges.as_mut().and_then(VecDeque::pop_front)
                 {
                     let oversized = length > crate::limits::RAW_BYTES;
                     let end = offset + length.min(crate::limits::RAW_BYTES);
+                    let mut bytes = payload.bytes[offset..end].to_vec();
+                    if payload.kind == "heroes" && !oversized && bytes.last() == Some(&b'}') {
+                        bytes.pop();
+                        bytes.extend_from_slice(
+                            format!(",\"__brain_response_revision\":\"{}\"}}", payload.revision)
+                                .as_bytes(),
+                        );
+                    }
+                    let oversized = oversized || bytes.len() > crate::limits::RAW_BYTES;
+                    bytes.truncate(crate::limits::RAW_BYTES);
                     return Some(Ok(InputObject {
                         revision: payload.revision.clone(),
                         path: format!(
-                            "{}/{index}.{}",
-                            if payload.kind == "heroes" {
-                                format!(
-                                    "heroes/en/{}",
-                                    payload
-                                        .revision
-                                        .strip_prefix("sha256:")
-                                        .unwrap_or(&payload.revision)
-                                )
-                            } else {
-                                format!("{}/{}", payload.kind, payload.language)
-                            },
+                            "{}/{}/{index}.{}",
+                            payload.kind,
+                            payload.language,
                             if oversized {
                                 "oversized"
                             } else if payload.collisions.contains(&index) {
@@ -217,7 +225,7 @@ impl Iterator for Objects {
                                 "json"
                             }
                         ),
-                        bytes: payload.bytes[offset..end].to_vec(),
+                        bytes,
                     }));
                 }
                 self.payload = None;
@@ -242,7 +250,7 @@ impl Iterator for Objects {
                         bytes,
                         ranges: None,
                         collisions: BTreeSet::new(),
-                        snapshot_offset: 0,
+                        snapshot_pending: true,
                         parent_offset: 0,
                     });
                 }
@@ -276,7 +284,7 @@ mod tests {
                     bytes,
                     ranges: None,
                     collisions: BTreeSet::new(),
-                    snapshot_offset: 0,
+                    snapshot_pending: true,
                     parent_offset: 0,
                 }),
             }
@@ -310,7 +318,7 @@ mod tests {
                 bytes: bytes.clone(),
                 ranges: None,
                 collisions: BTreeSet::new(),
-                snapshot_offset: 0,
+                snapshot_pending: true,
                 parent_offset: 0,
             }),
         };
@@ -346,6 +354,40 @@ mod tests {
             .expect("valid peer")
             .expect("exact object bytes"));
         assert!(matches!(Assets.extract(&valid), Outcome::Accepted(_)));
+    }
+    #[test]
+    fn only_valid_hero_arrays_emit_complete_snapshot_markers() {
+        for (bytes, valid) in [
+            (b"[not-json".as_slice(), false),
+            (b"{}".as_slice(), false),
+            (b"[]".as_slice(), true),
+        ] {
+            let mut objects = Objects {
+                cache: PathBuf::new(),
+                fetch: false,
+                heroes_pending: false,
+                languages: ["en", "de"].into_iter(),
+                payload: Some(Payload {
+                    kind: "heroes",
+                    language: "en",
+                    revision: "fixture".into(),
+                    bytes: bytes.to_vec(),
+                    ranges: None,
+                    collisions: BTreeSet::new(),
+                    snapshot_pending: true,
+                    parent_offset: 0,
+                }),
+            };
+            let archive = objects.next().expect("archive").expect("object");
+            assert!(archive.bytes == bytes);
+            assert!(archive.path.ends_with(".response"));
+            let next = objects.next().expect("validation outcome").expect("object");
+            assert_eq!(next.path.ends_with("complete.snapshot"), valid);
+            if !valid {
+                assert!(objects.payload.is_none());
+                assert!(next.bytes == bytes);
+            }
+        }
     }
     #[test]
     fn array_ranges_preserve_exact_object_bytes_and_reject_malformed_containers() {

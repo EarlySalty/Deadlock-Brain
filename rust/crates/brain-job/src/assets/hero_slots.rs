@@ -16,7 +16,8 @@ impl Extractor for HeroSlots {
                 || path.strip_prefix("heroes/en/").is_some_and(|tail| {
                     let tail = match tail.split_once('/') {
                         Some(("observed", part)) => {
-                            return part.strip_suffix(".snapshot").is_some_and(index);
+                            return part == "complete.snapshot"
+                                || part.strip_suffix(".snapshot").is_some_and(index);
                         }
                         Some((hash, part))
                             if hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) =>

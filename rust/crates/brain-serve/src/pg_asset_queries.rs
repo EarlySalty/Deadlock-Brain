@@ -5,6 +5,38 @@ use sqlx::PgConnection;
 
 pub(super) const COMPARE: &str = include_str!("pg_asset_compare.sql");
 
+const ABILITY_CARD: &str = r#"
+WITH current_links AS (
+    SELECT r.from_entity,r.to_entity,r.receipt_id
+    FROM serve.current_relation r
+    JOIN serve.entity_identity peer ON peer.entity_id=CASE
+        WHEN r.from_entity=$1 THEN r.to_entity ELSE r.from_entity END
+    WHERE (r.from_entity=$1 OR r.to_entity=$1)
+        AND (r.kind<>'has_ability' OR r.source<>'assets' OR EXISTS (
+            SELECT 1 FROM serve.p2_hero_slot slot
+            WHERE slot.from_entity_id=r.from_entity AND slot.to_entity_id=r.to_entity
+                AND slot.link->>'citation'=r.receipt_id::text
+        ))
+)
+SELECT c.card||jsonb_build_object('links',jsonb_build_object(
+    'links',COALESCE(shown.links,'[]'::jsonb),
+    'truncated',total.n>shown.n,'omitted_count',total.n-shown.n
+))
+FROM serve.ability_card c
+CROSS JOIN LATERAL (
+    SELECT jsonb_agg(entry.link ORDER BY entry.position) AS links,count(*) AS n
+    FROM jsonb_array_elements(c.card#>'{links,links}') WITH ORDINALITY entry(link,position)
+    WHERE EXISTS (
+        SELECT 1 FROM current_links valid
+        WHERE valid.from_entity::text=entry.link->>'from_entity_id'
+            AND valid.to_entity::text=entry.link->>'to_entity_id'
+            AND valid.receipt_id::text=entry.link->>'citation'
+    )
+) shown
+CROSS JOIN (SELECT count(*) AS n FROM current_links) total
+WHERE c.entity_id=$1 LIMIT 1
+"#;
+
 fn database_error(_: sqlx::Error) -> PortError {
     PortError::Unavailable("Spielwerte können derzeit nicht sicher gelesen werden.".into())
 }
@@ -57,13 +89,11 @@ pub(crate) async fn read(
             let Some(id) = id else {
                 return Ok(None);
             };
-            let card = sqlx::query_scalar::<_, Value>(
-                "SELECT card FROM serve.ability_card WHERE entity_id=$1 LIMIT 1",
-            )
-            .bind(id)
-            .fetch_optional(&mut *connection)
-            .await
-            .map_err(database_error)?;
+            let card = sqlx::query_scalar::<_, Value>(ABILITY_CARD)
+                .bind(id)
+                .fetch_optional(&mut *connection)
+                .await
+                .map_err(database_error)?;
             let Some(mut card) = card else {
                 return Ok(None);
             };

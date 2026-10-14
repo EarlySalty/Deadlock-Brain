@@ -18,6 +18,149 @@ async fn count(pool: &sqlx::PgPool, sql: &str) -> i64 {
         .expect("scratch metadata")
 }
 #[tokio::test]
+async fn source_adapter_rejects_all_response_identity_collisions_in_both_languages() {
+    let pg = scratch_pg::ScratchPg::start();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("")
+        .ssl_mode(PgSslMode::Disable);
+    let admin = PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with(options.clone())
+        .await
+        .expect("scratch DB");
+    sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly NOLOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate").execute(&admin).await.expect("scratch roles");
+    PgStore::new(admin.clone())
+        .migrate_gamefacts()
+        .await
+        .expect("dev registry");
+    let writer = PgPoolOptions::new()
+        .max_connections(2)
+        .after_connect(|c, _| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE brain_ingest").execute(c).await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .expect("ingest role");
+    let store = GameFactsStore::new(writer.clone());
+    let cache = pg.directory.join("collision-input");
+    std::fs::create_dir(&cache).expect("own cache");
+    let rows = [
+        br#"{"id":1,"class_name":"id_first","type":"ability","properties":{"Damage":{"value":999}}}"#.as_slice(),
+        br#"{"id":1,"class_name":"id_second","type":"upgrade","cost":999}"#,
+        br#"{"id":3,"class_name":"Class-A","type":"ability","properties":{"Damage":{"value":999}}}"#,
+        br#"{"id":4,"class_name":"class a","type":"upgrade","cost":999}"#,
+        br#"{"id":5,"class_name":"healthy_ability","type":"ability","name":"Car\/bine","properties":{"Damage":{"value":1.2300e+2}}}"#,
+        br#"{"id":6,"class_name":"healthy_item","type":"upgrade","cost":123}"#,
+        br#"{"id":5,"class_name":"healthy_ability","type":"unsupported","properties":{"Damage":{"value":999}}}"#,
+    ];
+    let bytes = [b" [ ".as_slice(), &rows.join(&b',')[..], b" ] "].concat();
+    for language in ["en", "de"] {
+        std::fs::write(cache.join(format!("{language}.json")), &bytes)
+            .expect("public-shaped cache");
+    }
+    let result = ingest(
+        &store,
+        "assets",
+        brain_job::assets::source::load(&cache, false),
+        EXTRACTORS,
+    )
+    .await
+    .expect("production adapter and runner");
+    assert_eq!(result.counts.accepted, 4);
+    assert_eq!(result.counts.rejected, 8);
+    assert_eq!(result.counts.ignored, 4);
+    let rejections: Vec<(String, String)> = sqlx::query_as(
+        "SELECT o.path,r.code FROM ops.ingest_rejection r JOIN raw.object o ON o.id=r.raw_object_id WHERE r.run_id=$1 ORDER BY o.path",
+    )
+    .bind(result.run_id)
+    .fetch_all(&admin)
+    .await
+    .expect("rejection diagnostics");
+    for language in ["de", "en"] {
+        for index in 0..4 {
+            assert!(rejections.contains(&(
+                format!("items/{language}/{index}.collision"),
+                "key_collision".into()
+            )));
+        }
+    }
+    assert_eq!(
+        count(
+            &admin,
+            "SELECT count(*) FROM canon.entity WHERE key NOT IN('healthy_ability','healthy_item')"
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count(
+            &admin,
+            "SELECT count(*) FROM canon.fact WHERE value_num=999 OR value_text='999'"
+        )
+        .await,
+        0
+    );
+    let originals: Vec<(String, Vec<u8>)> =
+        sqlx::query_as("SELECT path,bytes FROM raw.object ORDER BY path")
+            .fetch_all(&admin)
+            .await
+            .expect("raw archive and records");
+    assert_eq!(originals.len(), 16);
+    for language in ["en", "de"] {
+        for (index, row) in rows.iter().enumerate() {
+            let extension = if index < 4 { "collision" } else { "json" };
+            assert!(originals.iter().any(|(path, raw)| {
+                path == &format!("items/{language}/{index}.{extension}") && raw == row
+            }));
+        }
+        let archives: Vec<_> = originals
+            .iter()
+            .filter(|(path, _)| {
+                path.starts_with(&format!("items/{language}/")) && path.ends_with(".response")
+            })
+            .collect();
+        assert_eq!(archives.len(), 1);
+        assert!(archives[0].1 == bytes);
+    }
+    let hashes: Vec<Vec<u8>> = sqlx::query_scalar(
+        "SELECT p.value_sha256 FROM serve.p2_fact f JOIN serve.published_receipt p ON p.id=(f.fact->>'citation')::bigint WHERE f.stat_key='ability_damage'",
+    )
+    .fetch_all(&admin)
+    .await
+    .expect("healthy numeric receipts");
+    assert!(!hashes.is_empty());
+    assert!(hashes
+        .iter()
+        .all(|hash| hash == &Sha256::digest(b"1.2300e+2").to_vec()));
+    let facts = count(&admin, "SELECT count(*) FROM canon.fact").await;
+    let replay = ingest(
+        &store,
+        "assets",
+        brain_job::assets::source::load(&cache, false),
+        EXTRACTORS,
+    )
+    .await
+    .expect("unchanged source replay");
+    assert_eq!(replay.counts.accepted, 0);
+    assert_eq!(replay.counts.rejected, 8);
+    assert_eq!(replay.counts.ignored, 8);
+    assert_eq!(count(&admin, "SELECT count(*) FROM raw.object").await, 16);
+    assert_eq!(
+        count(&admin, "SELECT count(*) FROM canon.fact").await,
+        facts
+    );
+    writer.close().await;
+    admin.close().await;
+}
+
+#[tokio::test]
 async fn actual_assets_poison_isolation_and_subsequent_valid_run() {
     let pg = scratch_pg::ScratchPg::start();
     let options = PgConnectOptions::new_without_pgpass()
