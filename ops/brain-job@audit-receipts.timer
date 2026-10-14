@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Deadlock Brain receipt audit
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+RandomizedDelaySec=10min
+Persistent=yes
+Unit=brain-job@audit-receipts.service
+
+[Install]
+WantedBy=timers.target

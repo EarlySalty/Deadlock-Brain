@@ -9,7 +9,7 @@ use brain_storage::PgStore;
 use std::{path::Path, process::ExitCode};
 
 const USAGE: &str =
-    "Aufruf: brain-job --config <brain-job.json> ingest <source> [--input <git-repository>]";
+    "Aufruf: brain-job --config <brain-job.json> ingest <source> [--input <git-repository>] | brain-job --config <brain-job.json> audit-receipts";
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -27,6 +27,18 @@ async fn run() -> anyhow::Result<()> {
     if args.len() == 1 && args[0] == "--help" {
         println!("{USAGE}");
         return Ok(());
+    }
+    let audit_config = match args.as_slice() {
+        [flag, config, command] if flag == "--config" && command == "audit-receipts" => {
+            Some(config)
+        }
+        [command, flag, config] if command == "audit-receipts" && flag == "--config" => {
+            Some(config)
+        }
+        _ => None,
+    };
+    if let Some(config) = audit_config {
+        return audit(Path::new(config)).await;
     }
     let (config_path, source, input) = match args.as_slice() {
         [flag, config, command, source] if flag == "--config" && command == "ingest" => {
@@ -76,6 +88,26 @@ async fn run() -> anyhow::Result<()> {
         println!(
             "run={} accepted={} rejected={} ignored={}",
             report.run_id, report.counts.accepted, report.counts.rejected, report.counts.ignored
+        );
+        anyhow::Ok(())
+    }
+    .await;
+    pool.close().await;
+    result
+}
+
+async fn audit(path: &Path) -> anyhow::Result<()> {
+    let pool = Config::load(path)?.pool().await?;
+    let result = async {
+        PgStore::new(pool.clone()).check_gamefacts_schema().await?;
+        let report = brain_job::receipt_audit::run(&pool).await?;
+        println!(
+            "run={} sampled={} verified_receipts={} rejected_receipts={} rejected_objects={}",
+            report.run_id,
+            report.sampled,
+            report.verified_receipts,
+            report.rejected_receipts,
+            report.rejected_objects
         );
         anyhow::Ok(())
     }

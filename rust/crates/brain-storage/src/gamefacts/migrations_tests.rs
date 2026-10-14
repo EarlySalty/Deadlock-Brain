@@ -19,7 +19,7 @@ fn registry_is_positive_unique_and_ordered_with_gaps() {
     assert!(ordered(MIGRATIONS).is_ok());
     assert_eq!(
         MIGRATIONS.iter().map(|(v, _)| *v).collect::<Vec<_>>(),
-        [1, 2, 3, 7, 8, 9, 10, 11, 13]
+        [1, 2, 3, 6, 7, 8, 9, 10, 11, 13, 28]
     );
     assert_eq!(
         sql_and_checksum(MIGRATIONS[0].1)
@@ -93,6 +93,66 @@ async fn sparse_versions_apply_a_missing_lower_version_without_replaying_higher_
         .await
         .unwrap();
     assert!(store.migrate_gamefacts_registered(&expanded).await.is_err());
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn receipt_audit_upgrade_preserves_applied_core_and_serving_columns() {
+    let pg = scratch_pg::ScratchPg::start();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("")
+        .ssl_mode(PgSslMode::Disable);
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with(options)
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly NOLOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate")
+        .execute(&pool).await.unwrap();
+    let store = PgStore::new(pool.clone());
+    let initial: Vec<_> = MIGRATIONS
+        .iter()
+        .copied()
+        .filter(|(v, _)| !matches!(*v, 6 | 28))
+        .collect();
+    store.migrate_gamefacts_registered(&initial).await.unwrap();
+    let columns_sql = "SELECT attname::text,atttypid::bigint FROM pg_attribute WHERE attrelid='serve.published_receipt'::regclass AND attnum>0 AND NOT attisdropped ORDER BY attnum";
+    let columns: Vec<(String, i64)> = sqlx::query_as(columns_sql).fetch_all(&pool).await.unwrap();
+    let mut connection = pool.acquire().await.unwrap();
+    let before = recorded(&mut connection).await.unwrap();
+    drop(connection);
+    store.migrate_gamefacts().await.unwrap();
+    store.migrate_gamefacts().await.unwrap();
+    store.check_gamefacts_schema().await.unwrap();
+    let mut connection = pool.acquire().await.unwrap();
+    let after = recorded(&mut connection).await.unwrap();
+    drop(connection);
+    assert_eq!(
+        after
+            .iter()
+            .filter(|(v, _)| !matches!(*v, 6 | 28))
+            .cloned()
+            .collect::<Vec<_>>(),
+        before
+    );
+    assert!(after.iter().any(|(v, _)| *v == 6));
+    assert!(after.iter().any(|(v, _)| *v == 28));
+    assert_eq!(
+        sqlx::query_as::<_, (String, i64)>(columns_sql)
+            .fetch_all(&pool)
+            .await
+            .unwrap(),
+        columns
+    );
+    let sampled: i64 = sqlx::query_scalar("SELECT count(*) FROM ops.sample_receipt_audit()")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(sampled, 0);
     pool.close().await;
 }
 
@@ -1082,6 +1142,79 @@ async fn mutation_preflight_rejects_table_and_column_grants_without_restricting_
         .await
         .unwrap();
     writer.check_gamefacts_schema().await.unwrap();
+    writer.pool.close().await;
+    admin.close().await;
+}
+
+#[tokio::test]
+async fn publication_predicate_exposes_only_live_published_receipts() {
+    let (_pg, admin, writer) = preflight_fixture().await;
+    let store = crate::gamefacts::GameFactsStore::new(writer.pool.clone());
+    let run = write_nullable_execution_facts(&store).await;
+    let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM canon.receipt ORDER BY id")
+        .fetch_all(&admin)
+        .await
+        .unwrap();
+    assert_eq!(ids.len(), 4);
+    let protected: bool = sqlx::query_scalar(
+        "SELECT p.prosecdef AND p.proisstrict AND p.provolatile='s'
+            AND p.proconfig=ARRAY['search_path=pg_catalog, pg_temp']
+            AND r.rolname='brain_migrate'
+            AND NOT has_function_privilege('brain_ingest',p.oid,'EXECUTE')
+            AND NOT has_function_privilege('brain_readonly',p.oid,'EXECUTE')
+            AND NOT EXISTS(SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee=0)
+        FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
+        WHERE p.oid='serve.receipt_is_published(bigint)'::regprocedure",
+    )
+    .fetch_one(&admin)
+    .await
+    .unwrap();
+    assert!(protected);
+    for published in [false, true] {
+        if published {
+            store
+                .finish_run(run, true, crate::gamefacts::Counts::default())
+                .await
+                .unwrap();
+        }
+        for role in ["brain_tool", "brain_service"] {
+            let restricted: bool = sqlx::query_scalar(
+                "SELECT NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                    WHERE n.nspname IN('canon','raw') AND c.relkind IN('r','p','v','m','f')
+                    AND (has_table_privilege($1,c.oid,'SELECT') OR has_any_column_privilege($1,c.oid,'SELECT')))",
+            )
+            .bind(role)
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+            assert!(restricted, "{role} canonical/raw access");
+            let mut tx = admin.begin().await.unwrap();
+            sqlx::query(&format!("SET LOCAL ROLE {role}"))
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            let matching: bool = sqlx::query_scalar(
+                "SELECT bool_and(serve.receipt_is_published(id)=$2
+                    AND serve.receipt_is_published(id)=EXISTS(SELECT 1 FROM serve.published_receipt p WHERE p.id=candidate.id))
+                FROM unnest($1::bigint[]) candidate(id)",
+            )
+            .bind(&ids)
+            .bind(published)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            assert!(matching, "{role} published={published}");
+            let hidden: bool = sqlx::query_scalar(
+                "SELECT NOT serve.receipt_is_published(9223372036854775807)
+                    AND serve.receipt_is_published(NULL) IS NULL",
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            assert!(hidden);
+            tx.rollback().await.unwrap();
+        }
+    }
     writer.pool.close().await;
     admin.close().await;
 }

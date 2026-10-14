@@ -4,11 +4,13 @@ use std::path::Path;
 #[path = "game_file_facts/budget.rs"]
 pub mod budget;
 #[path = "game_file_facts/json_text.rs"]
-mod json_text;
+pub mod json_text;
 #[path = "game_file_facts/kv.rs"]
 mod kv;
 #[path = "game_file_facts/kv3.rs"]
-mod kv3;
+pub mod kv3;
+#[path = "game_file_facts/receipt_verify.rs"]
+pub mod receipt_verify;
 
 pub(crate) fn kv3_lexemes(
     input: &str,

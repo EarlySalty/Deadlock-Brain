@@ -1,13 +1,7 @@
+use brain_storage::entity_profile::derivation::game_file_facts::{json_text, kv3};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-
-#[path = "../../brain-storage/src/game_file_facts/budget.rs"]
-mod budget;
-#[path = "../../brain-storage/src/game_file_facts/json_text.rs"]
-mod json_text;
-#[path = "../../brain-storage/src/game_file_facts/kv3.rs"]
-mod kv3;
 
 const BOXES: &[&str] = &[
     "citadel_breakable_prop_drop_gold",

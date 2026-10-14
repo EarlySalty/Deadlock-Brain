@@ -1,15 +1,22 @@
 WITH selected AS (
     SELECT entity_id,identity FROM serve.entity_identity
     WHERE entity_id=ANY($1::bigint[]) AND kind IN('hero','item') ORDER BY entity_id LIMIT 4
+), facts AS MATERIALIZED (
+    SELECT entity_id,stat_key,fact,total FROM (
+        SELECT e.entity_id,f.stat_key,f.fact,
+            count(*) OVER(PARTITION BY e.entity_id,f.stat_key) AS total,
+            row_number() OVER(PARTITION BY e.entity_id,f.stat_key ORDER BY f.fact::text) AS ord
+        FROM selected e CROSS JOIN LATERAL (
+            SELECT stat_key,fact FROM serve.p2_fact
+            WHERE entity_id=e.entity_id AND stat_key=ANY($2::text[])
+        ) f
+    ) bounded WHERE ord<=96
 ), cells AS (
     SELECT e.entity_id,s.stat_key,f.total,f.rows FROM selected e
     CROSS JOIN unnest($2::text[]) s(stat_key)
     CROSS JOIN LATERAL (
         SELECT COALESCE(max(total),0) AS total,jsonb_agg(fact ORDER BY fact::text) AS rows
-        FROM (
-            SELECT fact,count(*) OVER() AS total FROM serve.p2_fact
-            WHERE entity_id=e.entity_id AND stat_key=s.stat_key ORDER BY fact::text LIMIT 96
-        ) f
+        FROM facts WHERE entity_id=e.entity_id AND stat_key=s.stat_key
     ) f
 ), ranked AS (
     SELECT fact,row_number() OVER(ORDER BY entity_id,stat_key,fact::text) AS ord,
