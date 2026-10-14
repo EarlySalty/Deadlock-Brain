@@ -186,3 +186,20 @@ TESTNACHWEIS[TW-1]: 168 passed, 0 ignored | Baseline: 12 rot
 MERGEPROTOKOLL[MS-1]: 4 Git-Schritte einzeln | Anläufe: 3 | Gate: technical exit2 in all3 calls, no verdict
 
 This new round's four planned Git steps are main fetch, the up-to-date no-rebase merge check, task-record commit and feature push. The source is unchanged; actual publication outcome and tip are reported separately. Earlier2 failed worker attempts are historical, not counted in the new3-try authorization.
+
+## Genuine06:00 repair notice and ALLOW handover
+
+The exhausted05:00 record was committed and pushed at29ef0bd2e1c4af1c563f0dd5c5ab427661a706b0. The genuine06:00 orchestrator message identifies the repaired cause as OpenVZ numiptent2000 exhausted by leaked test-DB containers, preventing new network namespaces. This supersedes the earlier host-memory-pressure attribution; the parent did not independently diagnose the kernel limit. The message explicitly authorizes another gate, forbids release builds and requires cleanup of containers started by own runs. No sandbox, model or resource setting was changed here.
+
+Actual command: `/home/nathanael/Documents/.claude/gpt-workers/gate_hook.py --review --repo /home/nathanael/.worktrees/Deadlock-Brain-p5-docs --base 46c75d67aac0b60c279881f7089a9e9204faea3b --head 29ef0bd2e1c4af1c563f0dd5c5ab427661a706b0`. Task bg44suhdw completed exit0. Parent read the actual completed log `/tmp/claude-1000/-home-nathanael--worktrees-Deadlock-Brain-p5-docs/e8879c08-cdaa-4157-bbdf-079a3ef275ba/tasks/bg44suhdw.output`: `[gpt-6.1-sol] ALLOW: No blocking defect established by the supplied diff.` One newly authorized call, no retry.
+
+The reviewer explicitly retains three NITs: production DocsTools/InternalDocsReader composition is unproven (pg_docs.rs:23); decimal Prose receipts have no demonstrated shared receipt/trace compatibility (pg_docs.rs:435); the added fact GIN does not accelerate serving search (P5 SQL:46). These match the outstanding acceptance boundaries inTODO. ALLOW is a local diff-review result, not indexed/runtime/live Docs success or approval of an unapproved writer/evidence boundary. Matching168 tests and fmt/check/strictClippy remain the existing verified source proof; no binary/release build, main merge, deploy or migration24 occurred.
+
+Cleanup verification read the actual native ScratchPg helper and its Docs, storage, job and shared PG-tool imports, including deadlock_data.rs:1480. It starts PG16 directly with initdb/pg_ctl, private Unix sockets and no TCP listener, and stops/removes its own instance in Drop. The actual cargo-slot and cargo-remote launchers were checked; the inspected launcher path does not create Docker containers. Safe Docker inventory used only IDs/names/images/status and selected owner/repository/source labels, never Env, Cmd or full inspect. No container attributable to the current P5 Docs runs was established. Identified foreign and unattributed containers were left untouched; no Docker stop/remove/prune was performed. This is not a claim that every unattributed container has a known owner.
+
+Handover is the published branch feat/brain-p5-docs-20261012-v2 with exact gate-covered checkpoint29ef0bd2 and verified Rust tree80bc5e7212cbf9603f1131f4eeedca4a8d81246d. The following task-record publication changes only AUFTRAG.md/TODO.md to record this completed verdict and cleanup inspection. Its later tip is not falsely described as the exact reviewed SHA; the handover reports both SHAs and unchanged application/test source. Integrator ownership and the explicit `final live checks` remain unchanged.
+
+TESTNACHWEIS[TW-1]: 168 passed, 0 ignored | Baseline: 12 rot
+MERGEPROTOKOLL[MS-1]: 2 Git-Schritte einzeln | Anläufe: 1 | Gate: gpt-6.1-sol ALLOW, exit0, head29ef0bd2
+
+The two publication steps are the task-record commit and feature push, confirmed separately in the handover. Earlier technical failures remain historical; this round has one actual reviewer verdict.
