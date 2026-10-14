@@ -91,6 +91,14 @@ It parses typed content and reproduces the complete Evidence, rejecting noncanon
 
 For a warm-cache answer with no executed tools, the trace wrapper resolves returned answer citations through the same method. IDs are deduplicated. No new schema, migration, token store or ID mapping table is needed.
 
+## Fact publication boundary, migration 8
+
+The registered core migrations are 1, 7 and 8, in ascending order. Package versions 2 through 6 remain reserved and must be inserted before 7. Migration 8 is additive; the published migration 7 and the rendered migration 1, including `hero_profile`, are unchanged.
+
+`canon.guard_fact_integrity` runs before every fact INSERT or UPDATE. A new fact must reference a receipt whose `ingest_run_id` equals its `valid_from_run`. The guard locks that run and requires its status to be `failed` at the fact write, so a concurrent publication waits for the fact transaction. Updates also require the old fact's receipt/run linkage to be coherent and its locked run to be unpublished. This prevents replacement of visible history through `canon.write_run_fact`, including legacy rows whose receipt belongs to a different, published run. A mismatched legacy row is rejected even if its receipt's run has not yet published, because that other run could publish independently.
+
+Migration 8 does not rewrite legacy rows or their public values. Existing mismatched or published facts remain immutable through this write boundary and require explicit administrative correction if needed. The migration retains the original INSERT grants and adds no ingest UPDATE grant. The trigger function is owned by `brain_migrate`, uses a fixed `pg_catalog` search path and grants no direct execution to application roles. Schema preflight validates its owner, permissions and full INSERT/UPDATE trigger scope through catalog reads, without granting ingest access to `serve`.
+
 ## Verification boundary
 
 Pure golden tests cover deterministic bytes, full Evidence equality, every authoritative field and rejected noncanonical metadata. The scratch PostgreSQL integration executes `find_entity`, `get_hero` and an independent adapter that calls the public formatter on the same published receipt through the actual shared kernel loop. Its four-turn adapter fixture explicitly proves rejection at the original 32,000 input-token budget, then runs the expanded conversation with a separate 128,000-token test context. Production provider budgets and configuration are unchanged. It also checks numeric cold/warm-cache traces, output bounds, dependency revalidation and the existing read-only role isolation. This is local verification with a scripted provider, not a production deployment or live AI claim.
