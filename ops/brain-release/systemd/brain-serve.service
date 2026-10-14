@@ -6,15 +6,13 @@ StartLimitIntervalSec=60
 StartLimitBurst=3
 
 [Service]
-Type=simple
+Type=exec
 User=nathanael
 Group=nathanael
 WorkingDirectory=/opt/deadlock-brain/current
 LoadCredential=infisical-token:/home/nathanael/.config/infisical-tokens/infisical-token-bots
 ExecStart=/opt/deadlock-brain/current/bin/brain-serve --config /home/nathanael/.config/deadlock-brain/brain-serve.json --infisical-config /etc/deadlock-brain/infisical-serve.json
-ExecStartPost=/usr/bin/test /run/credentials/brain-serve.service/infisical-token = ${CREDENTIALS_DIRECTORY}/infisical-token
-ExecStartPost=/usr/bin/test -f ${CREDENTIALS_DIRECTORY}/infisical-token
-ExecStartPost=/usr/bin/printf "P0 credential_path=%%s exists=true\\n" ${CREDENTIALS_DIRECTORY}/infisical-token
+ExecStartPost=/bin/sh -ec "/usr/bin/test /run/credentials/brain-serve.service/infisical-token = '${CREDENTIALS_DIRECTORY}/infisical-token'; /usr/bin/test -f '${CREDENTIALS_DIRECTORY}/infisical-token'; /usr/bin/printf 'P0 credential_path=%%s exists=true\\n' '${CREDENTIALS_DIRECTORY}/infisical-token'"
 MemoryAccounting=yes
 MemoryMax=512M
 KillSignal=SIGTERM
