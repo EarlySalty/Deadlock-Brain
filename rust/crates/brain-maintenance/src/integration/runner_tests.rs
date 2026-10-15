@@ -303,7 +303,6 @@ async fn setup() -> (
         store,
         pool,
         artifacts,
-        jev: Zeroizing::new("fixture-unused".into()),
         patch_feed: None,
         owner: release_id,
     };

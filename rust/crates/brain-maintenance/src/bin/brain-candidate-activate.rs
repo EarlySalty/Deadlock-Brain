@@ -811,6 +811,7 @@ fn start(cli: &Cli) -> Result<(BTreeSet<String>, tokio::runtime::Runtime)> {
 }
 
 async fn run(cli: &Cli, allowed: BTreeSet<String>) -> Result<Report> {
+    brain_maintenance::require_maintenance_enabled()?;
     let runtime_bytes = protected_file(&cli.config, 65536)?;
     let runtime = RuntimeConfig::load(&cli.config)?;
     ensure!(
@@ -1118,6 +1119,10 @@ fn print_blocked(error: &anyhow::Error) {
 }
 
 fn main() {
+    if brain_maintenance::require_maintenance_enabled().is_err() {
+        eprintln!("Die bisherige Kandidatenaktivierung ist deaktiviert.");
+        std::process::exit(1);
+    }
     let cli = Cli::parse();
     let report =
         match start(&cli).and_then(|(allowed, runtime)| runtime.block_on(run(&cli, allowed))) {

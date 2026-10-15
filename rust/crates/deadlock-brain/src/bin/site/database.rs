@@ -45,7 +45,7 @@ impl ConnectionArgs {
                     .context("Die lokale Datenbankkonfiguration ist ungültig.")?;
                 validate(&config, role)?;
                 let options = PgConnectOptions::new_without_pgpass()
-                    .host(config.socket_dir.to_str().unwrap())
+                    .host(config.socket_dir.to_str().context("postgres_socket")?)
                     .port(config.port)
                     .database(&config.database)
                     .username(&config.username)
@@ -63,6 +63,38 @@ impl ConnectionArgs {
             _ => anyhow::bail!("Ein eindeutiger Datenbankzugang fehlt."),
         }
     }
+}
+
+pub(super) async fn preflight(pool: &PgPool) -> Result<()> {
+    ensure!(
+        pool.options().get_max_connections() <= 4,
+        "Die Site benötigt höchstens vier Datenbankverbindungen."
+    );
+    let mut tx = pool.begin().await?;
+    sqlx::query("SET TRANSACTION READ ONLY")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SET LOCAL statement_timeout='500ms'")
+        .execute(&mut *tx)
+        .await?;
+    let valid: bool = sqlx::query_scalar("SELECT current_user='brain_site'
+        AND NOT (SELECT rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls OR rolinherit FROM pg_roles WHERE rolname=current_user)
+        AND NOT EXISTS(SELECT 1 FROM pg_auth_members WHERE member=(SELECT oid FROM pg_roles WHERE rolname=current_user))
+        AND NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname IN('brain','canon','raw','ops') AND has_schema_privilege(current_user,oid,'USAGE,CREATE'))
+        AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_%' AND c.relkind IN('r','p','v','m','f') AND (has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE') OR (n.nspname NOT IN('serve','docs') AND has_table_privilege(current_user,c.oid,'SELECT'))))")
+        .fetch_one(&mut *tx).await?;
+    ensure!(
+        valid,
+        "Die Site benötigt ausschließlich Leserechte auf veröffentlichte Spielwerte und Dokumente."
+    );
+    sqlx::query("SELECT entity_id FROM serve.hero_profile LIMIT 0")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SELECT entity_id FROM serve.item_card LIMIT 0")
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 #[cfg(test)]

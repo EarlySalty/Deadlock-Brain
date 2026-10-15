@@ -1,116 +1,83 @@
+use anyhow::{Context, Result};
 use axum::{
-    extract::{Path, State},
-    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
-    response::{IntoResponse, Response},
+    extract::{Path, Query, State},
+    http::{Method, StatusCode},
+    response::Response,
 };
-use brain_contracts::Principal;
-use brain_maintenance::compare_artifact::render_stored_compare;
-use brain_storage::{compare_artifact::CompareStage, PgStore};
-use std::collections::BTreeSet;
+use brain_contracts::{ToolCall, ToolName};
+use serde::Deserialize;
+use serde_json::{json, Value};
 
-use super::Site;
+use super::{profiles, Site};
 
-const FORWARDING_HEADERS: [&str; 5] = [
-    "forwarded",
-    "x-forwarded-for",
-    "x-forwarded-host",
-    "x-forwarded-proto",
-    "via",
-];
+const COMPARE: &str = include_str!("../../../../brain-serve/src/pg_asset_compare.sql");
+
+#[derive(Default, Deserialize)]
+pub(super) struct Selection {
+    entities: Option<String>,
+    stats: Option<String>,
+}
 
 pub(super) async fn page(
     State(site): State<Site>,
     Path(id): Path<String>,
+    Query(query): Query<Selection>,
     method: Method,
-    headers: HeaderMap,
 ) -> Response {
-    no_store(deliver(site, id, method, local_request(&headers), false).await)
-}
-
-pub(super) async fn chart(
-    State(site): State<Site>,
-    Path(id): Path<String>,
-    method: Method,
-    headers: HeaderMap,
-) -> Response {
-    no_store(deliver(site, id, method, local_request(&headers), true).await)
-}
-
-fn local_request(headers: &HeaderMap) -> bool {
-    FORWARDING_HEADERS
-        .iter()
-        .all(|name| !headers.contains_key(*name))
-}
-
-fn no_store(mut response: Response) -> Response {
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response
-}
-
-fn missing() -> Response {
-    (
-        StatusCode::NOT_FOUND,
-        "Dieser Vergleich ist nicht verfügbar.",
-    )
-        .into_response()
-}
-
-async fn deliver(site: Site, id: String, method: Method, local: bool, svg: bool) -> Response {
-    let principal = Principal {
-        actor_id: "public-site".into(),
-        channel: "public-site".into(),
-        scopes: BTreeSet::new(),
-        provider_egress: BTreeSet::new(),
+    let raw = query.entities.as_deref().unwrap_or(&id);
+    let Ok(entities) = raw
+        .split(',')
+        .map(str::parse::<i64>)
+        .collect::<std::result::Result<Vec<_>, _>>()
+    else {
+        return profiles::missing(method);
     };
-    let store = PgStore::new(site.pool);
-    let artifact = if local {
-        store.read_site_compare(&id, &principal).await
-    } else {
-        store
-            .read_public_compare(&id, &principal)
-            .await
-            .map(|artifact| artifact.map(|artifact| (artifact, CompareStage::Published)))
+    let stats: Vec<_> = query
+        .stats
+        .as_deref()
+        .unwrap_or("health,move_speed")
+        .split(',')
+        .collect();
+    let call = ToolCall {
+        id: "site-compare".into(),
+        name: ToolName::Compare,
+        arguments: json!({"entities":entities,"stats":stats}),
     };
-    let (artifact, stage) = match artifact {
-        Ok(Some(found)) => found,
-        Ok(None) => return missing(),
-        Err(_) => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Dieser Vergleich ist gerade nicht verfügbar.",
-            )
-                .into_response()
+    let Ok(request) = call.validate(&brain_serve::pg_asset_tools::definitions()) else {
+        return profiles::missing(method);
+    };
+    let result: Result<Option<String>> = async {
+        let mut tx = profiles::transaction(&site).await?;
+        let value: Value = sqlx::query_scalar(COMPARE).bind(&entities).bind(&stats).fetch_one(&mut *tx).await?;
+        let Some(result) = brain_serve::pg_asset_tools::bounded_comparison_result("site-compare", &request, value)? else { return Ok(None); };
+        let value = result.result;
+        let mut body = String::from("<h1>Vergleich</h1><p>Aktuell beobachteter Quellenstand. Der offizielle Patchstand ist unbekannt. Bedingungen und Einheiten gehören zum jeweiligen Wert.</p>");
+        for identity in value["entities"].as_array().context("entities")? {
+            let id = &identity["entity_id"];
+            body.push_str(&format!("<h2>{}</h2>", profiles::escape(profiles::name(identity))));
+            let facts: Vec<_> = value["stats"]["facts"].as_array().context("facts")?.iter().filter(|fact| fact["entity_id"] == *id).cloned().collect();
+            body.push_str(&profiles::fact_rows(&json!({"facts":facts,"truncated":value["stats"]["truncated"]})));
+            for cell in value["cells"].as_array().context("cells")?.iter().filter(|cell| cell["entity_id"] == *id) {
+                let message = match cell["status"].as_str() {
+                    Some("missing") => Some("kein belegter Wert verfügbar"),
+                    Some("omitted" | "partial") => Some("nicht alle belegten Werte werden angezeigt"),
+                    _ => None,
+                };
+                if let Some(message) = message {
+                    body.push_str(&format!("<p>{}: {message}.</p>", profiles::escape(cell["stat_key"].as_str().context("stat_key")?)));
+                }
+            }
         }
-    };
-    let Ok(rendered) = render_stored_compare(&artifact) else {
-        return missing();
-    };
-    let (content_type, bytes) = if svg {
-        ("image/svg+xml; charset=utf-8", rendered.svg.into_bytes())
-    } else {
-        ("text/html; charset=utf-8", rendered.html.into_bytes())
-    };
-    let length = bytes.len().to_string();
-    let mut response = (
-        StatusCode::OK,
-        [
-            (header::CONTENT_TYPE, content_type.to_owned()),
-            (header::CONTENT_LENGTH, length),
-        ],
-        if method == Method::HEAD {
-            Vec::new()
-        } else {
-            bytes
-        },
-    )
-        .into_response();
-    if stage == CompareStage::Preview {
-        response.headers_mut().insert(
-            header::HeaderName::from_static("x-robots-tag"),
-            HeaderValue::from_static("noindex, nofollow"),
-        );
+        body.push_str(&profiles::receipts(&mut tx, &value).await?);
+        tx.commit().await?;
+        Ok(Some(profiles::document("Vergleich", &body)))
+    }.await;
+    match result {
+        Ok(Some(html)) => profiles::response(StatusCode::OK, html, method),
+        Ok(None) => profiles::missing(method),
+        Err(_) => {
+            eprintln!("site_comparison_unavailable");
+            profiles::unavailable(method)
+        }
     }
-    response
 }

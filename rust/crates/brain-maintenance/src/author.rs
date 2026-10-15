@@ -248,8 +248,8 @@ async fn invoke_inner<T: DeserializeOwned>(
             "provider_receipt_hash"
         );
         ensure!(receipt.exit_code == Some(0), "provider_process_failed");
-        let value =
-            brain_jev::parse_strict(&raw).map_err(|_| anyhow::anyhow!("provider_result_json"))?;
+        let value = brain_contracts::provider_input::parse_unique_json(raw.as_bytes())
+            .map_err(|_| anyhow::anyhow!("provider_result_json"))?;
         Ok((
             serde_json::from_value(value).map_err(|_| anyhow::anyhow!("provider_result_schema"))?,
             receipt.proof.context("provider_run_proof_missing")?,
@@ -374,7 +374,7 @@ pub fn validate_events(
         .lines()
         .filter(|line| !line.trim().is_empty())
     {
-        let event = brain_jev::parse_strict(line)?;
+        let event = brain_contracts::provider_input::parse_unique_json(line.as_bytes())?;
         let kind = event["type"].as_str().context("Codex-Ereignistyp fehlt")?;
         ensure!(
             !matches!(kind, "turn.failed" | "error"),

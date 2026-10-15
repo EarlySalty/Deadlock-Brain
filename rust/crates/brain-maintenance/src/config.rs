@@ -20,7 +20,7 @@ pub struct MaintenanceConfig {
     pub codex: CodexConfig,
     pub prompt_version: String,
     pub internal_doc_scopes: std::collections::BTreeSet<String>,
-    pub jev: brain_jev::transport::JevTransportConfig,
+    pub jev: RetiredJevConfig,
     pub new_document_format: String,
     pub registered_assets: Vec<AssetProvenance>,
     #[serde(skip)]
@@ -183,7 +183,6 @@ pub fn safe_doc_target(path: &str) -> Result<()> {
 
 impl MaintenanceConfig {
     pub fn validate(&self) -> Result<()> {
-        self.jev.validate()?;
         ensure!(
             self.registered_assets.len() <= 64,
             "Zu viele registrierte Bildquellen"
@@ -531,4 +530,14 @@ mod tests {
             assert!(validate_ref(reference).is_err());
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetiredJevConfig {
+    pub endpoint: String,
+    pub model: String,
+    pub timeout_ms: u64,
+    pub max_request_bytes: usize,
+    pub max_response_bytes: usize,
 }
