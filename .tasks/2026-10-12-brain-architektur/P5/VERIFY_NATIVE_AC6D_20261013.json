@@ -1,0 +1,196 @@
+{
+  "status": "BLOCKED_BEFORE_NATIVE_RUNTIME",
+  "date": "2026-10-13",
+  "owner": "ac6d053a000dfc88c",
+  "branch": "verify/brain-p5-native-20261013-ac6d",
+  "worktree": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c",
+  "exact_parent_and_production_source_sha": "ca357031d2f048b48def2ba4ff6a8676900b8af0",
+  "production_diff": [],
+  "production_cargo_lock_changed": false,
+  "main_fetched_or_merged": false,
+  "core_migrations_or_parser_policy_changed": false,
+  "agents_threads_or_session_messages_started": false,
+  "deployment_services_timers_or_discord_activated": false,
+  "gate_rerun": false,
+  "corpus": {
+    "read_only_repository_from_retained_original_proof_invocation": "/home/nathanael/repos/Deadlock-Docs",
+    "observed_head": "400231af7e8196e145111e4150c2e24c2ab79fb5",
+    "fetch_performed": false,
+    "new_ingestion_counts": null,
+    "inherited_baseline_not_rerun": {
+      "source_sha": "78acf0e45d5a41f54a1ee07a82082052b44174ff",
+      "documents": 180,
+      "bytes": 928009,
+      "fresh_counts_accepted_rejected_ignored": [
+        164,
+        16,
+        0
+      ],
+      "rerun_counts_accepted_rejected_ignored": [
+        0,
+        16,
+        164
+      ],
+      "raw_and_canonical_growth_on_rerun": 0,
+      "rust_process_only_vm_hwm_kib": 5880
+    }
+  },
+  "original_store_proof": {
+    "reused_commit": "b17d4a6ae20794f4b5bcb6d30a7efb0591fe57c5",
+    "reused_path_in_commit": "rust/crates/brain-job/tests/docs_store_contract.rs",
+    "committed_into_production_package": false,
+    "scratch_changes": [
+      "Use absolute includes of the current unchanged source and existing ScratchPg helper",
+      "Use actual registered migrator, without applying migration5 twice",
+      "Enable LOGIN for the disposable brain_readonly fixture role only",
+      "Keep original poison, receipt replay, scope and zero-growth assertions",
+      "Assert exact corpus inventory and inherited count triples",
+      "Run as a temporary binary with separate store/entity modes",
+      "Remove redundant i64 casts in scratch code only"
+    ],
+    "uncompiled_unexecuted_extension": "The entity mode imports the original production pg_tools.rs directly, uses its tool_pool and PgTools, ingests the real Docs corpus and public Hero blob via actual ingest/registry/store, and executes FindEntity without kind filtering. Diagnostic SQL counts carriers and returned doc ids; it does not implement FindEntity."
+  },
+  "public_hero_fixture": {
+    "path": "/tmp/p1r-hero-a314-fixture-GInzyzvn/hero-data.json",
+    "observed_sha256": "947c26790e067109f6cca4085649ed56e446bc5f4c9c571cd396290f802a3456",
+    "matching_read_only_repository": "/tmp/brain-core2-cache-wf-7f1dca25-SbrUuw",
+    "matching_git_revision": "2a26e26535a390c309e300e2c7b2763fa5ad7abd",
+    "matching_git_blob_path": "data/json/hero-data.json",
+    "fixture_and_git_blob_hash_match_verified": true,
+    "new_ingestion_counts": null
+  },
+  "find_entity": {
+    "planned_input": {
+      "text": "Baba"
+    },
+    "actual_input": null,
+    "actual_output": null,
+    "actual_ingested_doc_carriers": null,
+    "actual_returned_doc_page_count": null,
+    "exclusion_proven": false,
+    "blocker": "The native proof binary was never compiled or executed."
+  },
+  "memory": {
+    "host_kernel": "6.8.0",
+    "postgres_version": "16.14",
+    "host_memory_controller": "cgroup v1",
+    "scratch_privilege_diagnostic": {
+      "unit": "p5-native-ac6d-diagnostic.service",
+      "user": "nathanael",
+      "accepted_memory_max_bytes": 536870912,
+      "exec_main_status": 0,
+      "remain_after_exit_active_exited_observed": true,
+      "cgroup_after_process_exit": "absent",
+      "cleanup": "Stopped own diagnostic unit; LoadState=not-found, ActiveState=inactive, SubState=dead verified."
+    },
+    "measured_combined_peak_bytes": null,
+    "max_observed_sum_rss_bytes": null,
+    "sample_count": 0,
+    "metric_not_yet_measured": "memory.max_usage_in_bytes, read inside each scratch unit before the final proof process exits",
+    "planned_scope_not_observed": [
+      "proof binary",
+      "initdb",
+      "pg_ctl",
+      "private PostgreSQL server and backends",
+      "Git children of the production Docs loader"
+    ],
+    "planned_external_scope_audit": "measure.py samples cgroup.procs and process comm/cgroup metadata at nominal2ms. The kernel high-water counter is not a sampled sum. Short process lifetimes may be missed by membership sampling. Shared warmed cache pages may be charged outside this new cgroup; do not equate the counter with a physical combined RSS sum.",
+    "compiler_inclusion": "No compiler ran inside a measurement unit. No ingestion measurement unit was started.",
+    "target_under_300_mb_proven": false,
+    "live_deployment_cgroup_proof": false
+  },
+  "checks_actually_run": [
+    {
+      "name": "scratch rustfmt with pinned1.97.1, skip_children=true",
+      "status": "passed"
+    },
+    {
+      "name": "remote-first initial check",
+      "exit_code": 101,
+      "status": "failed",
+      "detail": "Initial scratch lockfile/toolchain were not the production pins and SQLx offline metadata was not configured. This attempt is not source verification."
+    },
+    {
+      "name": "remote-first pinned check",
+      "exit_code": 101,
+      "status": "failed",
+      "detail": "Incorrect TOML quoting in the command-line env configuration; corrected in the next attempt."
+    },
+    {
+      "name": "remote-first pinned check with original dependency resolutions",
+      "exit_code": 101,
+      "status": "failed",
+      "detail": "SQLx proc macros reported Invalid cargo metadata output / EOF on the remote standalone fixture. No native fallback was executed by the launcher."
+    },
+    {
+      "name": "native cargo-slot verify-profile build",
+      "status": "cancelled_while_waiting",
+      "observed_wait_message_age_seconds": 1009.2,
+      "detail": "cargo-slot reported every eligible local build slot busy. No Slot assignment, native compiler output or executable was produced. Only the owned queued task bnxo9rk0v was stopped; no foreign resource or build lock was changed."
+    },
+    {
+      "name": "strict Clippy",
+      "status": "not_run"
+    }
+  ],
+  "new_runtime_proof_cases": {
+    "passed": 0,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 0,
+    "executed": 0
+  },
+  "provided_parent_baseline_not_remeasured": {
+    "docs": {
+      "passed": 24,
+      "failed": 0,
+      "ignored": 0
+    },
+    "shared_pg_tools": {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "reproduce_or_resume_commands": {
+    "cwd": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c",
+    "confirm_source": "git diff --exit-code ca357031d2f048b48def2ba4ff6a8676900b8af0 -- rust scripts ops config",
+    "format": "/home/nathanael/.cargo/bin/rustfmt +1.97.1 --edition 2021 --check --config skip_children=true /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/proof.rs",
+    "native_build_when_scheduler_releases_a_slot": "CARGO_REMOTE_JOBS=3 cargo-slot +1.97.1 build --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/Cargo.toml --locked -j 3 --config 'env.SQLX_OFFLINE.value=\"true\"' --config env.SQLX_OFFLINE.force=true --config 'env.SQLX_OFFLINE_DIR.value=\"/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/.sqlx\"' --config env.SQLX_OFFLINE_DIR.force=true",
+    "intended_artifact_path_not_existing_or_verified": "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/target/verify/p5-native-ac6d",
+    "store_measurement_after_successful_build_not_run": "python3 -I /tmp/p5-native-ac6d-20261013/measure.py store /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/target/verify/p5-native-ac6d",
+    "entity_measurement_after_successful_build_not_run": "python3 -I /tmp/p5-native-ac6d-20261013/measure.py entity /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/target/verify/p5-native-ac6d",
+    "native_check_when_scheduler_releases_a_slot": "CARGO_REMOTE_JOBS=3 CARGO_SLOT_REMOTE=0 cargo-slot +1.97.1 check --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/Cargo.toml --locked -j 3 --config 'env.SQLX_OFFLINE.value=\"true\"' --config env.SQLX_OFFLINE.force=true --config 'env.SQLX_OFFLINE_DIR.value=\"/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/.sqlx\"' --config env.SQLX_OFFLINE_DIR.force=true",
+    "native_clippy_when_scheduler_releases_a_slot": "CARGO_REMOTE_JOBS=3 CARGO_SLOT_REMOTE=0 cargo-slot +1.97.1 clippy --manifest-path /home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/Cargo.toml --locked -j 3 --config 'env.SQLX_OFFLINE.value=\"true\"' --config env.SQLX_OFFLINE.force=true --config 'env.SQLX_OFFLINE_DIR.value=\"/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/.sqlx\"' --config env.SQLX_OFFLINE_DIR.force=true -- -D warnings",
+    "temporary_fixture_reconstruction": "Original Store proof was extracted with git show b17d4a6ae20794f4b5bcb6d30a7efb0591fe57c5:rust/crates/brain-job/tests/docs_store_contract.rs into /tmp/p5-native-ac6d-20261013/original_store.rs; /tmp/p5-native-ac6d-20261013/prepare.py generated the existing standalone fixture using /tmp/p5-native-ac6d-20261013/find_entity_extension.rs. These temporary files are uncommitted, not a verified finished implementation."
+  },
+  "scratch_file_hashes": {
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/proof.rs": "ab40db6cbb9ebaf0596a99f21fbd55e024dddaea7ec1c92c4b6e45e651d00e6b",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/Cargo.toml": "4c921ffc9c5b4b5dd6ed452f454b3686623f52c8dfc593b808ae9aab75edef42",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/.verification-ac6d/Cargo.lock": "02a3350b2b60f3c547d9e684a675e43a6226e5fb2a14a457654be11c8bcccd01",
+    "/tmp/p5-native-ac6d-20261013/prepare.py": "5e226934f2856cdc8d3316db0ce6bd1013d1f6418de17352e7a784cf23324f8f",
+    "/tmp/p5-native-ac6d-20261013/find_entity_extension.rs": "5ae274299d3154d5f7c5c37eff2c4aa5a547c86a7e4f09d4dbed738821901d23",
+    "/tmp/p5-native-ac6d-20261013/measure.py": "2fcf39dbd332d2cca48ccc076d590b633f53c5d2b5b6a7f057be4e928828c3a3",
+    "/tmp/p5-native-ac6d-20261013/original_store.rs": "59c6548a6d8d9f05cf21b451cee407e9332fb6a9733edc9347cf2f079acf3c5d",
+    "/tmp/p5-native-ac6d-20261013/check.log": "5efc988529985191066b396224f6c7600b5708fb6ffa56ee2c79303bba184791",
+    "/tmp/p5-native-ac6d-20261013/check-pinned.log": "cc32bea1975ea49febd850aa4ffb0604bfe9bbb892b31bcc1e0de6dc0e873cde",
+    "/tmp/p5-native-ac6d-20261013/check-pinned2.log": "f57f809d1b6d0475d9ad7793cb2839882d91ceb6acd7b518a22a34b5aea7f4c9",
+    "/tmp/p5-native-ac6d-20261013/build-native.log": "db4d7f54611a00c738ee5470e3a15698eb1bf72fd77ae1e58b0e9395c4937372",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/src/lib.rs": "a2e21ae3f748ee2e9a00a166aef7fdfd1257dca952f7a0ddc20cd9dd5d0df6a3",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/src/docs_extract.rs": "42ea674d0f2ec48d9f70ce1cf706112199297c8b8b6b64689043adf4fef10160",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/src/docs_source.rs": "f9d1f430aa04debaacdd849625348344a40edd99e0a526ac6cfae3b9d1d9ed81",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-job/src/hero.rs": "052e546d1ed5c558ec22d00bb4f80d3ff5093458dbfdc6c6b05dc700d2ea813f",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-storage/src/gamefacts.rs": "5e891d32b87b4a826efaed641eb141845939b6447c0099698053cce8f806263b",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/crates/brain-serve/src/pg_tools.rs": "ff1f3cbd64da418b329f387f3f23a763d181fce0acbe5beb9cd7e051b2ffe273",
+    "/home/nathanael/repos/Deadlock-Brain/.claude/worktrees/agent-ac6d053a000dfc88c/rust/Cargo.lock": "2f7fd89e5a51897b257f357426393d0ab9430612ee95f15043da46f9fad855ce"
+  },
+  "findings": [
+    "Native runtime verification is blocked before compilation by the eligible build-slot queue. Measurement privileges were available; FindEntity composition remains uncompiled and unexecuted.",
+    "Inherited corpus rejections and current gate/Core findings are not fixed or newly reproven. Neither private-PG acceptance nor deployment/live acceptance is claimed."
+  ],
+  "protocols": [
+    "TESTNACHWEIS[TW-1]: 0 passed, 0 ignored | Baseline: 0 rot",
+    "WIRKUNGSPRUEFUNG[WP-1]: 2 Befunde | Zwillingssuche: grep-belegt | Fremddienst-Pfade: 0/2 geprüft"
+  ],
+  "protocol_limits": "The zero-red baseline is the supplied parent baseline, not a new measurement. Zero of two intended runtime I/O paths, production Git source loading and canonical PgTools PostgreSQL execution, ran in this worker. Static twin search covers PgTools EXACT/FUZZY and its execute/accounted/revalidation callers; it is not runtime exclusion proof."
+}

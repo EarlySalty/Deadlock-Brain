@@ -33,6 +33,7 @@ pub enum ToolName {
     GetItem,
     GetAbility,
     Compare,
+    SearchDocs,
     FindEntity,
     GetHero,
 }
@@ -53,6 +54,7 @@ impl ToolName {
             Self::GetItem => "get_item",
             Self::GetAbility => "get_ability",
             Self::Compare => "compare",
+            Self::SearchDocs => "search_docs",
             Self::FindEntity => "find_entity",
             Self::GetHero => "get_hero",
         }
@@ -406,6 +408,53 @@ pub struct DeadlockDataRequest {
     pub limit: Option<usize>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SearchDocsRequest {
+    pub query: String,
+    pub entity: Option<u64>,
+    pub limit: Option<usize>,
+}
+
+impl SearchDocsRequest {
+    pub const MAX_QUERY_BYTES: usize = 512;
+    pub const MAX_RESULTS: usize = 5;
+
+    pub fn input_schema() -> Value {
+        serde_json::json!({"type":"object","additionalProperties":false,"required":["query"],"properties":{
+            "query":{"type":"string","minLength":1,"maxLength":Self::MAX_QUERY_BYTES},
+            "entity":{"type":"integer","minimum":1,"maximum":i64::MAX},
+            "limit":{"type":"integer","minimum":1,"maximum":Self::MAX_RESULTS}}})
+    }
+
+    pub fn parse(arguments: &Value) -> Result<Self, PortError> {
+        validate_arguments(arguments, &Self::input_schema())?;
+        let request: Self = serde_json::from_value(arguments.clone())
+            .map_err(|_| invalid("Ungültige Argumente für die Dokumentensuche"))?;
+        request.validate()?;
+        Ok(request)
+    }
+
+    pub fn validate(&self) -> Result<(), PortError> {
+        if self.query.trim().is_empty()
+            || self.query.len() > Self::MAX_QUERY_BYTES
+            || self.query.chars().any(char::is_control)
+        {
+            return Err(invalid("Ungültiger Suchtext für Dokumente"));
+        }
+        if let Some(entity) = self.entity {
+            validate_numeric_id(entity)?;
+        }
+        if self
+            .limit
+            .is_some_and(|limit| !(1..=Self::MAX_RESULTS).contains(&limit))
+        {
+            return Err(invalid("Dokumentensuche erlaubt ein bis fünf Ergebnisse"));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CanonicalEntityKind {
@@ -457,6 +506,7 @@ pub enum ToolSubrequest {
     GetItem(GetItemRequest),
     GetAbility(GetAbilityRequest),
     Compare(CompareRequest),
+    SearchDocs(SearchDocsRequest),
     FindEntity(FindEntityRequest),
     GetHero(GetHeroRequest),
 }
@@ -482,6 +532,7 @@ impl ToolSubrequest {
             ToolName::DeadlockData => {
                 serde_json::from_value(arguments.clone()).map(Self::DeadlockData)
             }
+            ToolName::SearchDocs => serde_json::from_value(arguments.clone()).map(Self::SearchDocs),
             ToolName::ServerKnowledge => {
                 serde_json::from_value(arguments.clone()).map(Self::ServerKnowledge)
             }
@@ -600,6 +651,7 @@ impl ToolSubrequest {
                 }
                 Ok(())
             }
+            Self::SearchDocs(request) => request.validate(),
             Self::ServerKnowledge(request) => {
                 validate_text(&request.question)?;
                 if let Some(id) = request.public_channel_id {
@@ -1052,6 +1104,7 @@ impl ToolExecution {
                 | ToolName::GetItem
                 | ToolName::GetAbility
                 | ToolName::Compare
+                | ToolName::SearchDocs
         ) {
             None
         } else {
@@ -1501,6 +1554,18 @@ fn validate_arguments(value: &Value, schema: &Value) -> Result<(), PortError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod docs_tools {
+    use crate as brain_contracts;
+    include!("../../brain-serve/src/docs_tools.rs");
+}
+
+#[cfg(test)]
+mod internal_docs {
+    use crate as brain_contracts;
+    include!("../../brain-serve/src/internal_docs.rs");
 }
 
 #[cfg(test)]

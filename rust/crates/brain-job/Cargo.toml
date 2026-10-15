@@ -13,3 +13,8 @@ serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+html5ever = "0.27"
+scraper.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true

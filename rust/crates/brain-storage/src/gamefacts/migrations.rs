@@ -19,6 +19,10 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         include_str!("../../../../../scripts/migrations/2026-10-12-brain-gamefacts-p2-v3.sql"),
     ),
     (
+        5,
+        include_str!("../../../../../scripts/migrations/2026-10-13-brain-gamefacts-p5-docs-v1.sql"),
+    ),
+    (
         6,
         include_str!(
             "../../../../../scripts/migrations/2026-10-12-brain-gamefacts-p9-receipt-audit-v1.sql"
