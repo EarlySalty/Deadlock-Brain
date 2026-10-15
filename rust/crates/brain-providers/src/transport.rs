@@ -1052,6 +1052,7 @@ fn unverified_answer(raw: &str, usage: Usage, evidence: &[Evidence]) -> Result<P
         ));
     }
     Ok(ProviderAnswer {
+        claims: Vec::new(),
         text,
         cited_evidence_ids: Vec::new(),
         usage,
@@ -1068,6 +1069,8 @@ fn grounded_answer(
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Grounded {
+        #[serde(default)]
+        claims: Vec<brain_contracts::NumericClaim>,
         text: String,
         cited_evidence_ids: Vec<String>,
     }
@@ -1077,13 +1080,13 @@ fn grounded_answer(
             "empty provider answer".into(),
         ));
     }
-    let (text, cited_evidence_ids) = if evidence.is_empty() && !require_grounded {
+    let (text, cited_evidence_ids, claims) = if evidence.is_empty() && !require_grounded {
         if parse_unique_json(text.as_bytes()).is_err_and(|error| error.is_data()) {
             return Err(ProviderError::InvalidResponse(
                 "grounded answer envelope missing".into(),
             ));
         }
-        (text, Vec::new())
+        (text, Vec::new(), Vec::new())
     } else {
         let envelope_error =
             || ProviderError::InvalidResponse("grounded answer envelope missing".into());
@@ -1109,9 +1112,10 @@ fn grounded_answer(
                 "unknown, duplicate or missing citation".into(),
             ));
         }
-        (grounded.text, grounded.cited_evidence_ids)
+        (grounded.text, grounded.cited_evidence_ids, grounded.claims)
     };
     Ok(ProviderAnswer {
+        claims,
         text,
         cited_evidence_ids,
         usage,
@@ -1212,6 +1216,22 @@ mod citation_tests {
             patch: None,
         })
         .unwrap()
+    }
+
+    #[test]
+    fn structured_numeric_claims_survive_the_grounded_envelope() {
+        let evidence = canonical_evidence();
+        let id = evidence.evidence_id.clone();
+        let raw = json!({"text":"780 Leben", "cited_evidence_ids":[id],
+            "claims":[{"citation_id":id,"value":780.0,"unit":"Leben"}]})
+        .to_string();
+        let mut check =
+            super::super::audit::check("grounded_envelope", "message.content", "valid envelope");
+        let answer = grounded_answer(raw, Usage::default(), &[evidence], true, &mut check).unwrap();
+        assert_eq!(answer.claims.len(), 1);
+        assert_eq!(answer.claims[0].citation_id, id);
+        assert_eq!(answer.claims[0].value.as_f64(), Some(780.0));
+        assert_eq!(answer.claims[0].unit.as_deref(), Some("Leben"));
     }
 
     #[test]

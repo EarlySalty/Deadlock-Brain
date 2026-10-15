@@ -18,7 +18,7 @@ struct HeroPair {
 }
 
 fn hero_pair(evidence: &Evidence) -> Option<HeroPair> {
-    if evidence.source_id != crate::deadlock_data::GAME_SOURCE
+    if evidence.source_id != "deadlock-game-data-v1"
         || evidence.visibility != SourceVisibility::Public
         || !evidence
             .logical_id
@@ -123,7 +123,7 @@ mod tests {
     fn evidence(content: Value) -> Evidence {
         Evidence {
             evidence_id: "deadlock-api:fixture".into(),
-            source_id: crate::deadlock_data::GAME_SOURCE.into(),
+            source_id: "deadlock-game-data-v1".into(),
             logical_id: "assets-mirror/hero-compare/13-1/fixture".into(),
             revision: 6766,
             kind: brain_contracts::EvidenceKind::Prose,

@@ -12,6 +12,7 @@ mod execution;
 mod fact_relevance;
 mod flight;
 mod outcome;
+mod value_gate;
 use brain_contracts::store::AnswerPurpose;
 pub use cache::CachedKernel;
 use outcome::KernelAnswer;
@@ -63,6 +64,9 @@ pub use brain_contracts::tools::GameContextResolver;
 
 #[derive(Clone)]
 struct ToolBinding {
+    tools_only: bool,
+    max_calls: usize,
+    max_result_bytes: usize,
     port: std::sync::Arc<dyn ToolExecutionPort>,
     resolver: std::sync::Arc<dyn GameContextResolver>,
     provider_identity: String,
@@ -116,10 +120,23 @@ impl<R, P> Kernel<R, P> {
         provider_identity: impl Into<String>,
     ) -> Self {
         self.tools = Some(ToolBinding {
+            tools_only: false,
+            max_calls: 8,
+            max_result_bytes: 16_384,
             port: std::sync::Arc::new(port),
             resolver: std::sync::Arc::new(resolver),
             provider_identity: provider_identity.into(),
         });
+        self
+    }
+
+    pub fn with_tools_only_limits(mut self, max_calls: usize, max_result_bytes: usize) -> Self {
+        if let Some(binding) = &mut self.tools {
+            binding.tools_only = true;
+            binding.max_calls = max_calls.min(8);
+            binding.max_result_bytes = max_result_bytes.min(16_384);
+        }
+        self.quality_filters = true;
         self
     }
 
@@ -128,7 +145,12 @@ impl<R, P> Kernel<R, P> {
         query: &Query,
         context: &AuthorizedContext,
     ) -> Result<Option<ToolSession>, PortError> {
-        if query.domain.is_some() {
+        if query.domain.is_some()
+            && !self
+                .tools
+                .as_ref()
+                .is_some_and(|binding| binding.tools_only)
+        {
             return Ok(None);
         }
         let Some(binding) = &self.tools else {
@@ -346,6 +368,21 @@ impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
     ) -> KernelAnswer {
         if let Some(session) = session.filter(|session| !session.definitions.is_empty()) {
             return execution::answer_tools(self, query, context, session, purpose);
+        }
+        if self
+            .tools
+            .as_ref()
+            .is_some_and(|binding| binding.tools_only)
+        {
+            return response(
+                query,
+                context,
+                AnswerStatus::InsufficientEvidence,
+                "Keine ausreichenden Belege für diese Antwort.",
+                Vec::new(),
+                Usage::default(),
+            )
+            .into();
         }
         execution::answer(self, query, context, purpose, self.clock.as_ref())
     }
@@ -580,6 +617,7 @@ mod tests {
         ) -> Result<ProviderAnswer, PortError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(ProviderAnswer {
+                claims: Vec::new(),
                 text: "erklärt".into(),
                 cited_evidence_ids: _evidence
                     .iter()
@@ -1166,6 +1204,7 @@ mod tests {
         tool_reservation: Usage,
         required_calls: Vec<brain_contracts::ToolCall>,
         retrieved_ids: Vec<String>,
+        tool_result: Option<serde_json::Value>,
     }
 
     #[derive(Clone)]
@@ -1291,7 +1330,10 @@ mod tests {
                         call_id.into()
                     },
                     name: request.name(),
-                    result: serde_json::json!({"status":"fixture"}),
+                    result: state
+                        .tool_result
+                        .clone()
+                        .unwrap_or_else(|| serde_json::json!({"status":"fixture"})),
                     evidence_ids: vec![format!("{call_id}-cited")],
                     is_error: state.build_is_error
                         && request.name() == brain_contracts::ToolName::BuildPlan,
@@ -1459,7 +1501,7 @@ mod tests {
         }
         fn answer_turn(
             &self,
-            query: &Query,
+            _query: &Query,
             context: &AuthorizedContext,
             initial: &[Evidence],
             _definitions: &[ToolDefinition],
@@ -1480,9 +1522,6 @@ mod tests {
                     ]
                 })
                 .collect();
-            if query.profile.requires_game_evidence() {
-                expected_ids.extend(self.state.lock().unwrap().retrieved_ids.clone());
-            }
             expected_ids.sort();
             let mut actual_ids = initial
                 .iter()
@@ -1577,6 +1616,7 @@ mod tests {
     }
     fn final_turn(ids: &[&str]) -> brain_contracts::ProviderTurn {
         ProviderAnswer {
+            claims: Vec::new(),
             text: "belegte Fixtureantwort".into(),
             cited_evidence_ids: ids.iter().map(|id| (*id).into()).collect(),
             usage: Usage {
@@ -1642,30 +1682,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_game_fact_profiles_refuse_before_the_first_optional_model_turn() {
-        let call = find_call("find");
-        for profile in [AnswerProfile::Fact, AnswerProfile::Build] {
-            for quality_filters in [true, false] {
-                let (kernel, state) =
-                    tool_kernel(std::slice::from_ref(&call), vec![final_turn(&[])]);
-                let answer = kernel
-                    .with_quality_filters(quality_filters)
-                    .answer(&query(profile.clone()), &context(&[], &["public"]));
-                assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
-                assert_eq!(
-                    answer.text,
-                    brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
-                );
-                let state = state.lock().unwrap();
-                assert_eq!(state.calls, 0);
-                assert!(state.executions.is_empty());
-                assert_eq!(answer.usage.network_rounds, 0);
-            }
-        }
-    }
-
-    #[test]
-    fn tool_retrieval_is_skipped_for_non_fact_profiles_and_charged_for_fact_refusals() {
+    fn tools_start_with_no_preloaded_evidence_for_every_profile() {
         let call = find_call("find");
         for profile in [
             AnswerProfile::Fact,
@@ -1673,67 +1690,103 @@ mod tests {
             AnswerProfile::Explain,
             AnswerProfile::Coaching,
         ] {
-            let turn = final_turn(&[]);
-            let model_usage = turn.usage().clone();
-            let (kernel, state) = tool_kernel(std::slice::from_ref(&call), vec![turn]);
-            let retrieval_calls = Arc::new(AtomicUsize::new(0));
+            let mut refusal = final_turn(&[]);
+            if let brain_contracts::ProviderTurn::Final { answer, .. } = &mut refusal {
+                answer.text.clear();
+            }
+            let (kernel, state) = tool_kernel(std::slice::from_ref(&call), vec![refusal]);
+            let calls = Arc::new(AtomicUsize::new(0));
             let kernel = Kernel {
                 retrieval: RetrievalProbe {
-                    evidence: FixedRetrieval(Vec::new()),
-                    calls: retrieval_calls.clone(),
-                    usage: Usage {
-                        network_rounds: 1,
-                        input_tokens: 7,
-                        cost_micros: 5,
-                        ..Usage::default()
-                    },
+                    evidence: FixedRetrieval(vec![canonical_fact()]),
+                    calls: calls.clone(),
+                    usage: Usage::default(),
                 },
                 provider: kernel.provider,
                 tools: kernel.tools,
-                quality_filters: false,
+                quality_filters: true,
                 clock: kernel.clock,
             };
-            let requires_evidence = profile.requires_game_evidence();
-            let result = kernel.answer_accounted(&query(profile), &context(&[], &["public"]));
-            assert_eq!(
-                retrieval_calls.load(Ordering::SeqCst),
-                usize::from(requires_evidence)
+            let result = kernel.answer(&query(profile), &context(&[], &["public"]));
+            assert_eq!(result.status, AnswerStatus::InsufficientEvidence);
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+            assert_eq!(state.lock().unwrap().calls, 1);
+        }
+    }
+
+    #[test]
+    fn tools_only_numeric_mismatches_refuse_at_the_answer_boundary() {
+        for (claim, status) in [
+            (Some((780, "find-cited")), AnswerStatus::Answered),
+            (
+                Some((781, "find-cited")),
+                AnswerStatus::InsufficientEvidence,
+            ),
+            (Some((780, "missing")), AnswerStatus::InsufficientEvidence),
+            (None, AnswerStatus::InsufficientEvidence),
+        ] {
+            let call = find_call("find");
+            let mut answer = final_turn(&["find-cited"]);
+            if let brain_contracts::ProviderTurn::Final { answer, .. } = &mut answer {
+                answer.text = "Baba hat 780 Leben.".into();
+                answer.claims = claim
+                    .into_iter()
+                    .map(|(value, id)| brain_contracts::NumericClaim {
+                        citation_id: id.into(),
+                        value: value.into(),
+                        unit: Some("Leben".into()),
+                    })
+                    .collect();
+            }
+            let (kernel, state) = tool_kernel(
+                std::slice::from_ref(&call),
+                vec![tool_turn(vec![call.clone()]), answer],
             );
-            assert_eq!(state.lock().unwrap().calls, usize::from(!requires_evidence));
-            if requires_evidence {
-                assert_eq!(result.value.status, AnswerStatus::InsufficientEvidence);
-                assert_eq!(result.accounting.observed.network_rounds, 1);
-                assert_eq!(result.accounting.observed.input_tokens, 7);
-                assert_eq!(result.accounting.observed.cost_micros, 5);
-                assert!(!result.accounting.unaccounted);
-            } else {
-                assert_eq!(result.value.status, AnswerStatus::Unverified);
-                assert_eq!(result.accounting.observed, model_usage);
+            state.lock().unwrap().tool_result =
+                Some(serde_json::json!({"citation":"find-cited", "value":780}));
+            let response = kernel
+                .with_tools_only_limits(8, 16_384)
+                .answer(&query(AnswerProfile::Fact), &context(&[], &["public"]));
+            assert_eq!(response.status, status);
+            if status != AnswerStatus::Answered {
+                assert!(response.citations.is_empty());
+                assert!(!response.text.contains("780"));
             }
         }
     }
 
     #[test]
-    fn authorized_retrieval_backs_a_tool_model_turn() {
-        let call = find_call("find");
-        for quality_filters in [true, false] {
-            let (mut kernel, state) =
-                tool_kernel(std::slice::from_ref(&call), vec![final_turn(&["original"])]);
-            let original = canonical_fact();
-            let original = Evidence {
-                evidence_id: "original".into(),
-                ..original
-            };
-            state.lock().unwrap().retrieved_ids = vec![original.evidence_id.clone()];
-            kernel.retrieval = FixedRetrieval(vec![original.clone()]);
-            let result = kernel
-                .with_quality_filters(quality_filters)
-                .answer_accounted(&query(AnswerProfile::Fact), &context(&[], &["public"]));
-            assert_eq!(result.value.status, AnswerStatus::Answered);
-            assert_eq!(result.value.citations, vec![original]);
-            assert_eq!(state.lock().unwrap().calls, 1);
-            assert!(!result.accounting.unaccounted);
-        }
+    fn tool_loop_enforces_configured_call_and_result_caps() {
+        let calls: Vec<_> = (0..9).map(|id| find_call(&format!("find{id}"))).collect();
+        let (kernel, state) = tool_kernel(&calls, vec![tool_turn(calls.clone())]);
+        let result = kernel
+            .with_tools_only_limits(8, 16_384)
+            .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+        assert_eq!(result.status, AnswerStatus::BudgetExceeded);
+        assert!(state.lock().unwrap().executions.is_empty());
+        let (kernel, _) = tool_kernel(&calls[..1], vec![tool_turn(calls[..1].to_vec())]);
+        let result = kernel
+            .with_tools_only_limits(8, 1)
+            .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+        assert_eq!(result.status, AnswerStatus::BudgetExceeded);
+    }
+
+    #[test]
+    fn tool_loop_stops_before_a_fifth_provider_round() {
+        let calls: Vec<_> = (0..4).map(|id| find_call(&format!("find{id}"))).collect();
+        let turns = calls
+            .iter()
+            .map(|call| tool_turn(vec![call.clone()]))
+            .collect();
+        let (kernel, state) = tool_kernel(&calls, turns);
+        let mut context = context(&[], &["public"]);
+        context.budget.max_network_rounds = 20;
+        context.budget.max_input_tokens = 1_000_000;
+        let result = kernel
+            .with_tools_only_limits(8, 16_384)
+            .answer(&query(AnswerProfile::Explain), &context);
+        assert_eq!(result.status, AnswerStatus::BudgetExceeded);
+        assert_eq!(state.lock().unwrap().calls, 4);
     }
 
     #[test]
@@ -1759,22 +1812,21 @@ mod tests {
     }
 
     #[test]
-    fn tool_retrieval_does_not_bypass_provider_egress() {
+    fn private_preloaded_evidence_never_enters_the_tool_loop() {
         let call = find_call("find");
-        let (mut kernel, state) =
-            tool_kernel(std::slice::from_ref(&call), vec![final_turn(&["private"])]);
+        let (mut kernel, state) = tool_kernel(std::slice::from_ref(&call), vec![final_turn(&[])]);
         kernel.retrieval = FixedRetrieval(vec![evidence(
             "private",
             EvidenceKind::Prose,
             SourceVisibility::Private,
             &["private"],
         )]);
-        let answer = kernel.with_quality_filters(false).answer(
+        let answer = kernel.answer(
             &query(AnswerProfile::Fact),
             &context(&["private"], &["public"]),
         );
-        assert_eq!(answer.status, AnswerStatus::UnauthorizedEvidence);
-        assert_eq!(state.lock().unwrap().calls, 0);
+        assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
+        assert_eq!(state.lock().unwrap().calls, 1);
         assert!(answer.citations.is_empty());
     }
 
@@ -2479,33 +2531,33 @@ mod tests {
     }
 
     #[test]
-    fn twenty_model_rounds_share_ten_minute_deadline_and_accumulated_budget() {
-        let calls: Vec<_> = (0..19)
+    fn four_model_rounds_share_ten_minute_deadline_and_accumulated_budget() {
+        let calls: Vec<_> = (0..3)
             .map(|round| find_call(&format!("round-{round}")))
             .collect();
         let mut turns: Vec<_> = calls
             .iter()
             .map(|call| tool_turn(vec![call.clone()]))
             .collect();
-        turns.push(final_turn(&["round-18-cited"]));
+        turns.push(final_turn(&["round-2-cited"]));
         let (kernel, state) = tool_kernel(&calls, turns);
         let mut context = context(&[], &["public"]);
         context.deadline_ms = 600_000;
-        context.budget.max_network_rounds = 20;
+        context.budget.max_network_rounds = 4;
         context.budget.max_input_tokens = 20_000_000;
         context.budget.max_output_tokens = 8192;
         let answer = kernel.answer_accounted(&query(AnswerProfile::Explain), &context);
         assert_eq!(answer.value.status, AnswerStatus::Answered);
-        assert_eq!(answer.accounting.observed.network_rounds, 20);
+        assert_eq!(answer.accounting.observed.network_rounds, 4);
         let state = state.lock().unwrap();
-        assert_eq!(state.calls, 20);
-        assert_eq!(state.executions.len(), 19);
+        assert_eq!(state.calls, 4);
+        assert_eq!(state.executions.len(), 3);
         assert!(state.contexts[0].deadline_ms > 60_000);
         assert_eq!(
-            state.contexts[19].request_deadline,
+            state.contexts[3].request_deadline,
             state.contexts[0].request_deadline
         );
-        assert_eq!(state.contexts[19].budget.max_network_rounds, 1);
+        assert_eq!(state.contexts[3].budget.max_network_rounds, 1);
     }
 
     #[test]
@@ -2838,6 +2890,7 @@ mod tests {
             final_turn(&["missing"]),
             brain_contracts::ProviderTurn::Final {
                 answer: ProviderAnswer {
+                    claims: Vec::new(),
                     text: "abgeschnitten".into(),
                     cited_evidence_ids: vec![],
                     usage: Usage {

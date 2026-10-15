@@ -5,24 +5,29 @@ use axum::{
     routing::post,
     Json, Router,
 };
+#[cfg(test)]
 use brain_contracts::{
     domain::DomainRequest, AnswerProfile, AuthorizedContext, Evidence, EvidenceKind, PortError,
     Query, RetrievalPort, SnapshotReadPort, SourceVisibility, Usage,
 };
 use brain_policy::CredentialRegistry;
+#[cfg(test)]
 use dbrain_reasoner::{PopulationItem, PopulationPrior};
+#[cfg(test)]
 use dbrain_retrieval::ReleaseRetriever;
-use dbrain_sources::{
-    AnalyticsKind, AnalyticsLookupRequest, AnalyticsObservation, DeadlockAnalyticsClient,
-    PatchMembership,
-};
+#[cfg(test)]
+use dbrain_sources::{AnalyticsKind, AnalyticsObservation, PatchMembership};
+use dbrain_sources::{AnalyticsLookupRequest, DeadlockAnalyticsClient};
 use serde_json::{json, Value};
+#[cfg(test)]
 use sha2::{Digest, Sha256};
+#[cfg(test)]
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    sync::Mutex,
+    time::Instant,
 };
+use std::{sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
 
 pub(crate) struct AnalyticsRuntime {
@@ -87,16 +92,21 @@ impl AnalyticsRuntime {
     }
 }
 
+#[cfg(test)]
 const META_PREDICATE: &str = "analytics.hero_matches";
+#[cfg(test)]
 const POPULATION_PREDICATE: &str = "analytics.item_matches.";
+#[cfg(test)]
 const EVIDENCE_LIFETIME: Duration = Duration::from_secs(60);
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 enum AnalyticsTarget {
     Meta { hero_id: u32 },
     Population { hero_id: u32, item_id: u32 },
 }
 
+#[cfg(test)]
 fn analytics_target(query: &Query) -> Option<Option<AnalyticsTarget>> {
     let DomainRequest::Fact {
         hero,
@@ -130,6 +140,7 @@ fn analytics_target(query: &Query) -> Option<Option<AnalyticsTarget>> {
     }
 }
 
+#[cfg(test)]
 fn analytics_key(query: &Query, context: &AuthorizedContext) -> Result<String, PortError> {
     let bytes = serde_json::to_vec(&(
         &query.conversation_id,
@@ -146,6 +157,7 @@ fn analytics_key(query: &Query, context: &AuthorizedContext) -> Result<String, P
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
+#[cfg(test)]
 fn hero_matches(observation: &AnalyticsObservation) -> Option<(u64, u64, u64)> {
     if !matches!(
         (observation.kind, observation.item_id),
@@ -167,6 +179,7 @@ fn hero_matches(observation: &AnalyticsObservation) -> Option<(u64, u64, u64)> {
     (wins.checked_add(losses)? == matches).then_some((wins, losses, matches))
 }
 
+#[cfg(test)]
 fn analytics_content(
     target: &AnalyticsTarget,
     meta: &AnalyticsObservation,
@@ -213,12 +226,14 @@ fn analytics_content(
     }
 }
 
+#[cfg(test)]
 pub(crate) struct AnalyticsRetriever<S> {
     release: ReleaseRetriever<S>,
     analytics: Option<Arc<AnalyticsRuntime>>,
     evidence: Mutex<BTreeMap<String, (Instant, String, Evidence)>>,
 }
 
+#[cfg(test)]
 impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
     pub(crate) fn new(
         release: ReleaseRetriever<S>,
@@ -433,6 +448,7 @@ impl<S: SnapshotReadPort> AnalyticsRetriever<S> {
     }
 }
 
+#[cfg(test)]
 impl<S: SnapshotReadPort> RetrievalPort for AnalyticsRetriever<S> {
     fn retrieve(
         &self,

@@ -111,6 +111,7 @@ impl AnswerProviderPort for Provider {
     ) -> Result<ProviderAnswer, PortError> {
         self.0.fetch_add(1, Ordering::SeqCst);
         Ok(ProviderAnswer {
+            claims: Vec::new(),
             text: "successful fixture".into(),
             cited_evidence_ids: vec![evidence[0].evidence_id.clone()],
             usage: Usage::default(),

@@ -158,6 +158,7 @@ impl AnswerProviderPort for CountingProvider {
         assert_eq!(evidence.len(), 1);
         assert!(evidence[0].content.contains("650"));
         Ok(ProviderAnswer {
+            claims: Vec::new(),
             text: "Fixture health: 650".into(),
             cited_evidence_ids: vec![evidence[0].evidence_id.clone()],
             usage: brain_contracts::Usage {

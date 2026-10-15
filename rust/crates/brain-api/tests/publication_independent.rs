@@ -140,6 +140,7 @@ impl AnswerProviderPort for Provider {
             store.apply_record(record("b", 2, false)).unwrap();
         }
         Ok(ProviderAnswer {
+            claims: Vec::new(),
             text: "derived from uncited B: 700".into(),
             cited_evidence_ids: vec![a.evidence_id.clone()],
             usage: Usage {

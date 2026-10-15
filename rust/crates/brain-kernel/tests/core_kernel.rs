@@ -345,6 +345,7 @@ impl AnswerProviderPort for Provider {
             store.apply_record(changed).unwrap();
         }
         Ok(ProviderAnswer {
+            claims: Vec::new(),
             text: "fixture grounded answer".into(),
             cited_evidence_ids: if self.forged {
                 vec!["invented".into()]
@@ -452,6 +453,7 @@ impl AnswerProviderPort for Unanswered {
     ) -> Result<ProviderAnswer, PortError> {
         assert!(!evidence.is_empty());
         Ok(ProviderAnswer {
+            claims: Vec::new(),
             text: String::new(),
             cited_evidence_ids: Vec::new(),
             usage: Usage {

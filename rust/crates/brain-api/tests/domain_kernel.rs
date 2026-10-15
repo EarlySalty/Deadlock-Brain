@@ -476,6 +476,7 @@ impl AnswerProviderPort for Counting {
     ) -> Result<ProviderAnswer, PortError> {
         self.0.fetch_add(1, Ordering::SeqCst);
         Ok(ProviderAnswer {
+            claims: Vec::new(),
             text: "Kartenzusammenfassung".into(),
             cited_evidence_ids: evidence.iter().map(|e| e.evidence_id.clone()).collect(),
             usage: Usage::default(),

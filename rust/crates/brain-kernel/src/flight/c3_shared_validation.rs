@@ -49,6 +49,7 @@ impl AnswerProviderPort for Provider {
             .recv_timeout(Duration::from_secs(3))
             .unwrap();
         Ok(ProviderAnswer {
+            claims: Vec::new(),
             text: "grounded leader answer".into(),
             cited_evidence_ids: vec![evidence[0].evidence_id.clone()],
             usage: Usage::default(),

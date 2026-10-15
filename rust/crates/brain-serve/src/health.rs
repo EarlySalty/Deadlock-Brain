@@ -6,10 +6,12 @@ use axum::{
     routing::get,
     Router,
 };
+#[cfg(test)]
 use brain_contracts::{CorpusRelease, Principal, ReleaseReadManifest, SourceVisibility};
 use brain_storage::LocalPgReader;
+#[cfg(test)]
+use std::collections::BTreeSet;
 use std::{
-    collections::BTreeSet,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -20,14 +22,13 @@ use tokio::sync::Semaphore;
 
 pub(crate) struct Health {
     pub draining: AtomicBool,
-    releases: Vec<CorpusRelease>,
     timeout: Duration,
     slots: Arc<Semaphore>,
     reader: LocalPgReader,
-    bound_scopes: Vec<(String, String)>,
     operator_socket: Option<std::path::PathBuf>,
 }
 
+#[cfg(test)]
 pub(crate) fn validate_bound_manifest(
     snapshot: &ReleaseReadManifest,
     scope: &str,
@@ -170,62 +171,19 @@ pub(crate) fn validate_bound_manifest(
     Ok(())
 }
 
-pub(crate) fn validate_manifest(snapshot: &ReleaseReadManifest) -> Result<(), Error> {
-    snapshot
-        .authorized(
-            &Principal {
-                actor_id: "brain-serve-readiness".into(),
-                channel: "health".into(),
-                scopes: BTreeSet::new(),
-                provider_egress: BTreeSet::new(),
-            },
-            false,
-            false,
-        )
-        .map_err(|_| Error::ReleaseUnavailable)?;
-    Ok(())
-}
-
 impl Health {
-    pub(crate) fn new(
-        releases: Vec<CorpusRelease>,
+    pub(crate) fn tools_only(
         timeout: Duration,
         reader: LocalPgReader,
-        bound_scopes: Vec<(String, String)>,
         operator_socket: Option<std::path::PathBuf>,
     ) -> Self {
         Self {
             draining: AtomicBool::new(false),
-            releases,
             timeout,
             slots: Arc::new(Semaphore::new(1)),
             reader,
-            bound_scopes,
             operator_socket,
         }
-    }
-
-    fn bindings_sha256(&self) -> String {
-        let Some(standard) = self.releases.first() else {
-            return String::new();
-        };
-        let releases = self
-            .releases
-            .iter()
-            .map(|release| {
-                (
-                    release.release_id.clone(),
-                    release.knowledge_version.clone(),
-                )
-            })
-            .collect();
-        let bound_scopes = self.bound_scopes.iter().cloned().collect();
-        crate::config::loaded_release_bindings_sha256(
-            (&standard.release_id, &standard.knowledge_version),
-            &releases,
-            &bound_scopes,
-            self.operator_socket.is_some(),
-        )
     }
 
     async fn ready(&self) -> bool {
@@ -236,8 +194,6 @@ impl Health {
             return false;
         };
         let reader = self.reader.clone();
-        let expected = self.releases.clone();
-        let bound_scopes = self.bound_scopes.clone();
         let operator_socket = self.operator_socket.clone();
         let result = tokio::time::timeout(
             self.timeout,
@@ -259,24 +215,9 @@ impl Health {
                 reader
                     .check_core_schema()
                     .map_err(|_| Error::SchemaIncompatible)?;
-                if expected.is_empty() {
-                    return Err(Error::ReleaseUnavailable);
-                }
-                for release in expected {
-                    let actual = reader
-                        .read_manifest(&release.release_id)
-                        .map_err(|_| Error::ReaderUnavailable)?;
-                    if actual.release != release {
-                        return Err(Error::ReleaseUnavailable);
-                    }
-                    validate_manifest(&actual)?;
-                    for (_, scope) in bound_scopes
-                        .iter()
-                        .filter(|(id, _)| *id == release.release_id)
-                    {
-                        validate_bound_manifest(&actual, scope)?;
-                    }
-                }
+                reader
+                    .check_tool_serving()
+                    .map_err(|_| Error::SchemaIncompatible)?;
                 reader
                     .check_permissions()
                     .map_err(|_| Error::DatabasePermissions)
@@ -317,9 +258,7 @@ pub(crate) fn router(health: Arc<Health>) -> Router {
                         StatusCode::OK,
                         [(header::CACHE_CONTROL, "no-store")],
                         axum::Json(serde_json::json!({
-                            "status":"ready", "release_id":health.releases[0].release_id,
-                            "knowledge_version":health.releases[0].knowledge_version,
-                            "release_bindings_sha256":health.bindings_sha256()
+                            "status":"ready", "serving_contract":"brain.tools-only.v2"
                         })),
                     )
                         .into_response()

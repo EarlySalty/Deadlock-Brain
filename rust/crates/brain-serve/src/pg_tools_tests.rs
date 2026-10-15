@@ -12,7 +12,7 @@ use brain_storage::gamefacts::{
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, sync::Arc};
 
-use crate::deadlock_data::scratch_pg;
+use crate::scratch_pg;
 
 struct Delegate;
 
@@ -340,6 +340,7 @@ impl AnswerProviderPort for ScriptedProvider {
                     })
                     .collect();
                 return Ok(ProviderTurn::from(ProviderAnswer {
+                    claims: Vec::new(),
                     text: "Steckbrief aus veröffentlichten Spielwerten".into(),
                     cited_evidence_ids: cited_evidence_ids.into_iter().collect(),
                     usage: Usage {

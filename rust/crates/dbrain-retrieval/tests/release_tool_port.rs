@@ -265,6 +265,7 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
                 assert!(!serialized.contains("source_document_id"));
                 if self.unverified {
                     return Ok(ProviderAnswer {
+                        claims: Vec::new(),
                         text: "Eine mögliche Antwort ohne bestätigte Daten.".into(),
                         cited_evidence_ids: Vec::new(),
                         usage,
@@ -286,6 +287,7 @@ fn real_release_port_completes_the_kernel_tool_loop_from_an_empty_first_turn() {
                 .iter()
                 .all(|item| item.source_id == "fixture-server"));
             Ok(ProviderAnswer {
+                claims: Vec::new(),
                 text: "Die Sprechstunde ist am Freitag.".into(),
                 cited_evidence_ids: evidence
                     .iter()

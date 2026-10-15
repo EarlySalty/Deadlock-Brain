@@ -162,6 +162,7 @@ impl AnswerProviderPort for Provider {
             .unwrap();
         assert!(*released, "test must release the provider gate");
         Ok(ProviderAnswer {
+            claims: Vec::new(),
             text: "text derived from uncited B".into(),
             cited_evidence_ids: vec![e
                 .iter()

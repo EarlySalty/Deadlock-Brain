@@ -79,6 +79,7 @@ impl AnswerProviderPort for Provider {
             .recv_timeout(Duration::from_secs(5))
             .unwrap();
         Ok(ProviderAnswer {
+            claims: Vec::new(),
             text: "leader text derived from uncited B".into(),
             cited_evidence_ids: vec![evidence
                 .iter()

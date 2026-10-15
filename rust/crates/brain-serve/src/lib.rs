@@ -4,14 +4,17 @@
 mod analytics;
 mod answer_artifacts;
 pub mod config;
-mod deadlock_data;
 mod discord_live;
 pub mod game_tools;
 mod health;
 mod operator_socket;
 pub mod pg_asset_tools;
+#[cfg(test)]
+#[path = "../../brain-storage/tests/support/scratch_pg.rs"]
+mod scratch_pg;
 mod secrets;
 mod service;
+mod tool_base;
 
 pub use config::Config;
 pub use secrets::Secrets;
