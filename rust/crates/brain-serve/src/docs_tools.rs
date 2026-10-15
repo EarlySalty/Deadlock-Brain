@@ -1,7 +1,8 @@
 use brain_contracts::{
-    public_api::valid_public_docs_section_url, tools::SearchDocsRequest, AuthorizedContext,
-    Evidence, EvidenceKind, PortError, Query, SourceVisibility, ToolEvidenceDependency,
-    ToolExecution, ToolRequest, ToolResult, ToolValidationPurpose, Usage,
+    canonical_receipt::CanonicalReceipt, public_api::valid_public_docs_section_url,
+    tools::SearchDocsRequest, AuthorizedContext, Evidence, EvidenceKind, PortError, Query,
+    SourceVisibility, ToolEvidenceDependency, ToolExecution, ToolRequest, ToolResult,
+    ToolValidationPurpose, Usage,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -60,6 +61,10 @@ pub(super) fn validate_evidence_access(
     }
     validate_evidence(evidence)?;
     for item in evidence {
+        if item.visibility == SourceVisibility::Public && allowed == SourceVisibility::Public {
+            CanonicalReceipt::from_evidence(item)?;
+            continue;
+        }
         if item.visibility != allowed
             || item.allowed_scopes.is_empty()
             || !item.allowed_scopes.is_subset(&context.principal.scopes)
@@ -121,7 +126,11 @@ impl Section {
                 let Some(url) = &value.url else {
                     return Err(invalid());
                 };
-                if url != &evidence.citation
+                let receipt = CanonicalReceipt::from_evidence(&evidence)?;
+                if receipt.source != "deadlock-docs"
+                    || receipt.path != value.page
+                    || receipt.source_revision != value.source_revision
+                    || !valid_public_docs_section_url(url)
                     || !url.starts_with(&format!(
                         "https://github.com/EarlySalty/Deadlock-Docs/blob/{}/{}#L",
                         value.source_revision, value.page
@@ -139,7 +148,9 @@ impl Section {
         }
         value.excerpt_truncated |= value.excerpt.chars().count() > MAX_EXCERPT_CHARS;
         value.excerpt = value.excerpt.chars().take(MAX_EXCERPT_CHARS).collect();
-        evidence.content = serde_json::to_string(&value).map_err(|_| invalid())?;
+        if evidence.visibility == SourceVisibility::Internal {
+            evidence.content = serde_json::to_string(&value).map_err(|_| invalid())?;
+        }
         Ok(Self { value, evidence })
     }
 }
@@ -152,18 +163,21 @@ fn validate_evidence(evidence: &[Evidence]) -> Result<(), PortError> {
     let mut ids = BTreeSet::new();
     for item in evidence {
         item.validate().map_err(|_| invalid())?;
-        if item.kind != EvidenceKind::Prose
-            || [&item.evidence_id, &item.source_id, &item.logical_id]
-                .into_iter()
-                .any(|id| !bounded_text(id, 512))
-            || !match item.visibility {
-                SourceVisibility::Public => valid_public_docs_section_url(&item.citation),
-                SourceVisibility::Internal => {
-                    item.citation == format!("receipt/{}", item.evidence_id)
-                }
-                _ => false,
+        if match item.visibility {
+            SourceVisibility::Public => CanonicalReceipt::from_evidence(item)
+                .map(|receipt| {
+                    receipt.source != "deadlock-docs" || !receipt.path.starts_with("public/")
+                })
+                .unwrap_or(true),
+            SourceVisibility::Internal => {
+                item.kind != EvidenceKind::Prose
+                    || [&item.evidence_id, &item.source_id, &item.logical_id]
+                        .into_iter()
+                        .any(|id| !bounded_text(id, 512))
+                    || item.citation != format!("receipt/{}", item.evidence_id)
             }
-            || !ids.insert(&item.evidence_id)
+            _ => true,
+        } || !ids.insert(&item.evidence_id)
         {
             return Err(invalid());
         }
@@ -222,16 +236,28 @@ pub(super) fn bounded_execution(
                 "no_matching_sections"
             });
         }
+        if serde_json::to_vec(&result).map_err(|_| invalid())?.len() >= MAX_BYTES {
+            if sections.pop().is_none() {
+                return Err(invalid());
+            }
+            truncated = true;
+            continue;
+        }
         let dependencies = if empty {
             Vec::new()
         } else {
-            vec![ToolEvidenceDependency {
+            let dependency = ToolEvidenceDependency {
                 request: request.clone(),
                 game_context: None,
                 evidence: sections
                     .iter()
                     .map(|section| section.evidence.clone())
                     .collect(),
+            };
+            vec![if request.name() == brain_contracts::ToolName::SearchDocs {
+                dependency.with_canonical_result(&result)?
+            } else {
+                dependency
             }]
         };
         let execution = ToolExecution {

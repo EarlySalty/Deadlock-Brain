@@ -1133,7 +1133,8 @@ impl ToolExecution {
         let mut expected_request = request.clone();
         if matches!(
             request.name(),
-            ToolName::FindEntity
+            ToolName::SearchDocs
+                | ToolName::FindEntity
                 | ToolName::GetHero
                 | ToolName::GetTimer
                 | ToolName::GetItem

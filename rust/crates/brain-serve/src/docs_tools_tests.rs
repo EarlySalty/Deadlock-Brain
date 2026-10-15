@@ -40,13 +40,13 @@ fn internal_context() -> AuthorizedContext {
 fn request() -> ToolRequest {
     ToolCall {
         id: "docs".into(),
-        name: ToolName::ServerKnowledge,
-        arguments: json!({"question":"Baba"}),
+        name: ToolName::SearchDocs,
+        arguments: json!({"query":"Baba"}),
     }
     .validate(&[ToolDefinition {
-        name: ToolName::ServerKnowledge,
-        description: "Vorhandener Vertrag ohne Spielversionsbindung".into(),
-        input_schema: json!({"type":"object","additionalProperties":false,"required":["question"],"properties":{"question":{"type":"string","minLength":1}}}),
+        name: ToolName::SearchDocs,
+        description: "Dokumentensuche".into(),
+        input_schema: SearchDocsRequest::input_schema(),
     }])
     .unwrap()
 }
@@ -66,20 +66,22 @@ fn section_parts(id: i64, text: &str) -> (SectionView, Evidence) {
         patch: None,
         source_revision: REVISION.into(),
     };
-    let evidence = Evidence {
-        evidence_id: id.to_string(),
-        source_id: "docs.public/1".into(),
-        logical_id: format!("receipt/{id}"),
-        revision: 1,
-        kind: EvidenceKind::Prose,
-        content: String::new(),
-        citation: url,
-        visibility: SourceVisibility::Public,
-        allowed_scopes: BTreeSet::from(["docs.public".into()]),
-        score: 1.0,
-        provenance: None,
+    let evidence = brain_contracts::canonical_receipt::format_receipt(&CanonicalReceipt {
+        raw_receipt_id: id,
+        raw_object_id: 1,
+        ingest_run_id: 1,
+        source: "deadlock-docs".into(),
+        source_revision: REVISION.into(),
+        path: "public/billy.html".into(),
+        locator_kind: "byte_ranges".into(),
+        locator: "[[0,4]]".into(),
+        value_sha256: "ab".repeat(32),
+        extractor: "docs-v1".into(),
         patch: None,
-    };
+    })
+    .unwrap();
+    let mut value = value;
+    value.citation = evidence.evidence_id.clone();
     (value, evidence)
 }
 
@@ -88,15 +90,30 @@ fn section_fixture(id: i64, text: &str) -> Section {
     Section::new(value, evidence).unwrap()
 }
 
-fn internal_section() -> Section {
-    let (mut value, mut evidence) = section_parts(1, "private");
+fn internal_fixture(id: i64, text: &str) -> Section {
+    let (mut value, _) = section_parts(id, text);
     value.page = "internal/fixture.html".into();
     value.url = None;
-    evidence.visibility = SourceVisibility::Internal;
-    evidence.source_id = "docs.internal/1".into();
-    evidence.citation = "receipt/1".into();
-    evidence.allowed_scopes = BTreeSet::from(["second_brain.internal".into()]);
+    value.citation = id.to_string();
+    let evidence = Evidence {
+        evidence_id: id.to_string(),
+        source_id: "docs.internal/1".into(),
+        logical_id: format!("receipt/{id}"),
+        revision: 1,
+        kind: EvidenceKind::Prose,
+        content: String::new(),
+        citation: format!("receipt/{id}"),
+        visibility: SourceVisibility::Internal,
+        allowed_scopes: BTreeSet::from(["second_brain.internal".into()]),
+        score: 1.0,
+        provenance: None,
+        patch: None,
+    };
     Section::new(value, evidence).unwrap()
+}
+
+fn internal_section() -> Section {
+    internal_fixture(1, "private")
 }
 
 #[test]
@@ -348,16 +365,19 @@ fn public_dependencies_preserve_real_scopes_and_receipt_url() {
         arguments: request.arguments().clone(),
     };
     execution.validate_for(&call, &request, None).unwrap();
-    assert_eq!(execution.result.evidence_ids, ["7"]);
-    let dependency = &execution.dependencies[0];
-    assert_eq!(dependency.evidence[0].evidence_id, "7");
     assert_eq!(
-        execution.result.result["sections"][0]["url"],
+        execution.result.evidence_ids,
+        [section_fixture(7, "Baba").evidence.evidence_id]
+    );
+    let dependency = &execution.dependencies[0];
+    CanonicalReceipt::from_evidence(&dependency.evidence[0]).unwrap();
+    assert_eq!(
+        execution.result.result["sections"][0]["citation"],
         dependency.evidence[0].citation
     );
     assert_eq!(
         PublicCitation::from_evidence(&dependency.evidence[0], 0).label,
-        dependency.evidence[0].citation
+        "Beleg 1"
     );
     for purpose in [
         ToolValidationPurpose::Provider,
@@ -377,7 +397,7 @@ fn public_dependencies_preserve_real_scopes_and_receipt_url() {
             &dependency.evidence,
             purpose
         )
-        .is_err());
+        .is_ok());
     }
 }
 
@@ -396,14 +416,6 @@ fn public_evidence_requires_all_scopes_not_any_scope() {
     }
     let mut public = context("docs.public");
     public.principal.scopes.insert("bot.public".into());
-    validate_evidence_access(
-        &query(),
-        &public,
-        &[evidence.clone()],
-        ToolValidationPurpose::Cache,
-    )
-    .unwrap();
-    evidence.allowed_scopes.clear();
     assert!(validate_evidence_access(
         &query(),
         &public,
@@ -411,6 +423,14 @@ fn public_evidence_requires_all_scopes_not_any_scope() {
         ToolValidationPurpose::Cache
     )
     .is_err());
+    evidence.allowed_scopes.clear();
+    assert!(validate_evidence_access(
+        &query(),
+        &public,
+        &[evidence.clone()],
+        ToolValidationPurpose::Cache
+    )
+    .is_ok());
     evidence.allowed_scopes.insert("unrelated".into());
     public.principal.scopes.insert("unrelated".into());
     assert!(
@@ -430,7 +450,7 @@ fn public_evidence_requires_all_scopes_not_any_scope() {
 fn internal_evidence_bound_accounts_for_the_complete_serialized_list() {
     let make = || {
         (1..=MAX_SECTIONS as i64)
-            .map(|id| section_fixture(id, &"\"\\🧠".repeat(375)))
+            .map(|id| internal_fixture(id, &"\"\\🧠".repeat(375)))
             .collect::<Vec<_>>()
     };
     let complete = make()
@@ -445,12 +465,12 @@ fn internal_evidence_bound_accounts_for_the_complete_serialized_list() {
     assert_eq!(bounded, complete[..bounded.len()]);
     assert_eq!(bounded_evidence(make()).unwrap(), bounded);
     assert!(bounded_evidence(Vec::new()).unwrap().is_empty());
-    let mut oversized = section_fixture(1, "Baba");
+    let mut oversized = internal_fixture(1, "Baba");
     oversized.evidence.content = "x".repeat(MAX_BYTES);
     assert!(bounded_evidence(vec![oversized]).unwrap().is_empty());
-    assert!(bounded_evidence(vec![section_fixture(1, "a"), section_fixture(1, "b")]).is_err());
+    assert!(bounded_evidence(vec![internal_fixture(1, "a"), internal_fixture(1, "b")]).is_err());
     let bounded =
-        bounded_evidence((1..=6).map(|id| section_fixture(id, "short")).collect()).unwrap();
+        bounded_evidence((1..=6).map(|id| internal_fixture(id, "short")).collect()).unwrap();
     assert_eq!(bounded.len(), MAX_SECTIONS);
 }
 
@@ -524,7 +544,7 @@ fn complete_execution_budget_includes_the_dependency_request() {
 #[test]
 fn empty_and_oversized_results_cannot_fabricate_evidence() {
     let request = request();
-    let mut oversized = section_fixture(1, "Baba");
+    let mut oversized = internal_section();
     oversized.evidence.content = "x".repeat(MAX_BYTES);
     for sections in [Vec::new(), vec![oversized]] {
         let execution = bounded_execution("docs", &request, sections, false).unwrap();
@@ -556,8 +576,10 @@ fn section_views_preserve_unicode_and_reject_mismatched_immutable_citations() {
     assert_eq!(section.value.excerpt.chars().count(), 1500);
     assert!(section.value.excerpt_truncated);
     assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&section.evidence.content).unwrap(),
-        serde_json::to_value(&section.value).unwrap()
+        CanonicalReceipt::from_evidence(&section.evidence)
+            .unwrap()
+            .path,
+        section.value.page
     );
     let (view, evidence) = section_parts(1, "Baba");
     for url in [

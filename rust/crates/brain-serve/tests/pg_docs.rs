@@ -12,6 +12,7 @@ use brain_contracts::{
     ToolEvidenceDependency, ToolName, ToolValidationPurpose,
 };
 use pg_docs::DocsReader;
+use sha2::Digest;
 use sqlx::{postgres::PgConnectOptions, PgConnection, PgPool, Row};
 use std::collections::BTreeSet;
 
@@ -31,7 +32,7 @@ async fn setup(pg: &scratch_pg::ScratchPg) -> PgPool {
         .migrate_gamefacts()
         .await
         .unwrap();
-    sqlx::raw_sql("CREATE TABLE canon.test_quarantine(receipt_id bigint PRIMARY KEY); ALTER TABLE canon.test_quarantine OWNER TO brain_migrate; CREATE OR REPLACE VIEW serve.published_receipt AS SELECT r.id,r.raw_object_id,r.ingest_run_id,r.extractor,r.locator_kind,r.locator,r.value_sha256,o.source,o.revision,o.revision AS source_revision,o.path,o.content_sha256 FROM canon.receipt r JOIN ops.ingest_run run ON run.id=r.ingest_run_id AND run.status='succeeded' JOIN raw.object o ON o.id=r.raw_object_id WHERE NOT EXISTS(SELECT 1 FROM canon.test_quarantine q WHERE q.receipt_id=r.id)")
+    sqlx::raw_sql("CREATE TABLE canon.test_quarantine(receipt_id bigint PRIMARY KEY); ALTER TABLE canon.test_quarantine OWNER TO brain_migrate; CREATE OR REPLACE VIEW serve.published_receipt AS SELECT r.id,r.raw_object_id,r.ingest_run_id,r.extractor,r.locator_kind,r.locator,r.value_sha256,o.source,o.revision,o.revision AS source_revision,o.path,o.content_sha256 FROM canon.receipt r JOIN ops.ingest_run run ON run.id=r.ingest_run_id AND run.status='succeeded' JOIN raw.object o ON o.id=r.raw_object_id WHERE NOT EXISTS(SELECT 1 FROM canon.receipt_quarantine q WHERE q.receipt_id=r.id) AND NOT EXISTS(SELECT 1 FROM ops.receipt_audit_rejection rejected WHERE rejected.raw_object_id=r.raw_object_id) AND ((NOT EXISTS(SELECT 1 FROM canon.receipt_quarantine WHERE cause='audited') AND NOT EXISTS(SELECT 1 FROM ops.receipt_audit_rejection)) OR serve.receipt_is_published(r.id)) AND NOT EXISTS(SELECT 1 FROM canon.test_quarantine q WHERE q.receipt_id=r.id)")
         .execute(&pool).await.unwrap();
     pool
 }
@@ -116,7 +117,7 @@ struct StagedDocument {
 async fn stage_document(
     connection: &mut PgConnection,
     path: &str,
-    version: u8,
+    version: u16,
     prior: Option<i64>,
     complete: bool,
     content: DocumentContent<'_>,
@@ -128,7 +129,7 @@ async fn stage_document(
     .await
     .unwrap();
     let raw: i64 = sqlx::query_scalar("INSERT INTO raw.object(source,revision,path,source_path_sha256,content_sha256,bytes,ingest_run_id) VALUES('deadlock-docs',$1,$2,$3,$4,$5,$6) RETURNING id")
-        .bind(format!("{version:040x}")).bind(path).bind(vec![version;32]).bind(vec![version;32]).bind(b"test".to_vec()).bind(run)
+        .bind(format!("{version:040x}")).bind(path).bind(sha2::Sha256::digest(format!("{path}:{version}").as_bytes()).to_vec()).bind(sha2::Sha256::digest(version.to_string().as_bytes()).to_vec()).bind(b"test".to_vec()).bind(run)
         .fetch_one(&mut *connection).await.unwrap();
     let identity = receipt(connection, raw, run, false).await;
     let entity = if let Some(entity) = prior {
@@ -214,7 +215,7 @@ async fn publish(connection: &mut PgConnection, run: i64) {
 async fn document_with_content(
     pool: &PgPool,
     path: &str,
-    version: u8,
+    version: u16,
     prior: Option<i64>,
     complete: bool,
     content: DocumentContent<'_>,
@@ -229,7 +230,7 @@ async fn document_with_content(
 async fn document(
     pool: &PgPool,
     path: &str,
-    version: u8,
+    version: u16,
     prior: Option<i64>,
     complete: bool,
 ) -> (i64, i64) {
@@ -386,21 +387,26 @@ async fn reader_is_scoped_bounded_and_revalidates_published_state() {
             .await
             .unwrap();
     assert!(published_receipt > 0);
-    assert_eq!(evidence[0].evidence_id, published_receipt.to_string());
+    let canonical =
+        brain_contracts::canonical_receipt::CanonicalReceipt::from_evidence(&evidence[0]).unwrap();
+    assert_eq!(canonical.raw_receipt_id, published_receipt);
+    assert_eq!(canonical.source, "deadlock-docs");
     assert_eq!(
         execution.result.evidence_ids,
-        vec![published_receipt.to_string()]
+        vec![evidence[0].evidence_id.clone()]
     );
-    assert_eq!(evidence[0].source_id, format!("docs.public/{public_page}"));
+    assert_eq!(
+        execution.result.result["sections"][0]["citation"],
+        evidence[0].evidence_id
+    );
+    assert!(execution.result.result["sections"][0]["url"]
+        .as_str()
+        .unwrap()
+        .contains("/public/baba.html#L1-L3"));
     assert_eq!(
         evidence[0].logical_id,
         format!("receipt/{published_receipt}")
     );
-    assert_eq!(
-        brain_contracts::PublicCitation::from_evidence(&evidence[0], 0).label,
-        evidence[0].citation
-    );
-    assert!(evidence[0].citation.contains("/public/baba.html#L1-L3"));
     assert!(evidence[0].patch.is_none());
     assert!(serde_json::to_vec(&evidence).unwrap().len() <= 16_384);
     reader
@@ -915,7 +921,18 @@ async fn reader_compaction_preserves_websearch_membership_and_order() {
             assert_eq!(
                 evidence
                     .iter()
-                    .map(|item| item.evidence_id.clone())
+                    .map(|item| {
+                        if internal {
+                            item.evidence_id.clone()
+                        } else {
+                            brain_contracts::canonical_receipt::CanonicalReceipt::from_evidence(
+                                item,
+                            )
+                            .unwrap()
+                            .raw_receipt_id
+                            .to_string()
+                        }
+                    })
                     .collect::<Vec<_>>(),
                 expected,
                 "{text}"
@@ -931,9 +948,16 @@ async fn reader_compaction_preserves_websearch_membership_and_order() {
             .validate(std::slice::from_ref(&definition))
             .unwrap();
             let execution = reader.search(&query, &ctx, "compaction", &request).unwrap();
-            assert_eq!(execution.result.evidence_ids, expected, "{text}");
+            assert_eq!(
+                execution.result.evidence_ids,
+                evidence
+                    .iter()
+                    .map(|item| item.evidence_id.clone())
+                    .collect::<Vec<_>>(),
+                "{text}"
+            );
             for dependency in &execution.dependencies {
-                assert_eq!(dependency.request, request);
+                assert_eq!(dependency.request.without_canonical_result(), request);
                 reader
                     .validate_dependency(&query, &ctx, dependency, ToolValidationPurpose::Cache)
                     .unwrap();
@@ -1037,7 +1061,16 @@ async fn reader_preserves_hidden_websearch_operator_boundaries() {
         assert_eq!(
             evidence
                 .iter()
-                .map(|item| item.evidence_id.clone())
+                .map(|item| {
+                    if internal {
+                        item.evidence_id.clone()
+                    } else {
+                        brain_contracts::canonical_receipt::CanonicalReceipt::from_evidence(item)
+                            .unwrap()
+                            .raw_receipt_id
+                            .to_string()
+                    }
+                })
                 .collect::<Vec<_>>(),
             expected
         );
@@ -1052,9 +1085,18 @@ async fn reader_preserves_hidden_websearch_operator_boundaries() {
         .validate(std::slice::from_ref(&definition))
         .unwrap();
         let execution = reader.search(&query, &ctx, "boundaries", &request).unwrap();
-        assert_eq!(execution.result.evidence_ids, expected);
+        assert_eq!(
+            execution.result.evidence_ids,
+            evidence
+                .iter()
+                .map(|item| item.evidence_id.clone())
+                .collect::<Vec<_>>()
+        );
         assert_eq!(execution.dependencies.len(), 1);
-        assert_eq!(execution.dependencies[0].request, request);
+        assert_eq!(
+            execution.dependencies[0].request.without_canonical_result(),
+            request
+        );
         reader
             .validate_dependency(
                 &query,
@@ -1296,5 +1338,383 @@ async fn current_fact_winner_selection_blocks_source_gin_predicate_pushdown() {
         Some("42809")
     );
     tx.rollback().await.unwrap();
+    pool.close().await;
+}
+
+struct PublicAlias;
+impl brain_contracts::RetrievalPort for PublicAlias {
+    fn retrieve(
+        &self,
+        _: &Query,
+        context: &AuthorizedContext,
+    ) -> Result<Vec<brain_contracts::Evidence>, brain_contracts::PortError> {
+        assert!(context.principal.scopes.contains("docs.public"));
+        Ok(Vec::new())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn operator_socket_reaches_only_internal_docs_without_egress_and_keeps_alias_mode() {
+    use brain_contracts::{RequestDeadline, RetrievalPort};
+    use brain_policy::{AuthGrant, CredentialRegistry, PolicyEngine};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::time::Duration;
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    document(&pool, "public/baba.html", 1, None, true).await;
+    document(&pool, "internal/baba.html", 2, None, true).await;
+    let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
+    let retrieval = pg_docs::OperatorDocsRetrieval::new(PublicAlias, Some(reader.clone()));
+    let (mut query, ctx) = context(true);
+    query
+        .requested_scopes
+        .insert("second_brain.internal".into());
+    let evidence = retrieval.retrieve(&query, &ctx).unwrap();
+    assert_eq!(evidence.len(), 1);
+    assert_eq!(
+        evidence[0].visibility,
+        brain_contracts::SourceVisibility::Internal
+    );
+    assert!(retrieval
+        .validate_evidence(&query, &ctx, &evidence, true)
+        .is_err());
+    assert!(retrieval
+        .validate_publication(&query, &ctx, &evidence)
+        .is_err());
+    let tools = pg_docs::DocsTools::new(
+        None,
+        reader,
+        ToolDefinition {
+            name: ToolName::SearchDocs,
+            description: "Dokumentensuche".into(),
+            input_schema: brain_contracts::tools::SearchDocsRequest::input_schema(),
+        },
+    )
+    .unwrap();
+    assert!(
+        brain_contracts::ToolExecutionPort::definitions(&tools, &query, &ctx, None)
+            .unwrap()
+            .is_empty()
+    );
+    let policy = || {
+        PolicyEngine::new(CredentialRegistry::new(vec![
+            AuthGrant::from_secret(
+                "internal-test-token",
+                "second-brain",
+                "internal",
+                BTreeSet::from(["second_brain.internal".into()]),
+                BTreeSet::new(),
+            ),
+            AuthGrant::from_secret(
+                "public-docs-token",
+                "docs-client",
+                "docs",
+                BTreeSet::from(["docs.public".into()]),
+                BTreeSet::from(["public".into()]),
+            ),
+            AuthGrant::from_secret(
+                "egress-test-token",
+                "second-brain",
+                "internal",
+                BTreeSet::from(["second_brain.internal".into()]),
+                BTreeSet::from(["public".into()]),
+            ),
+        ]))
+    };
+    let alias = brain_api::internal::InternalApiService::new(
+        policy(),
+        pg_docs::OperatorDocsRetrieval::new(PublicAlias, None),
+        "test".into(),
+        5000,
+        Budget::default(),
+    )
+    .with_public_docs_release("test".into());
+    assert_eq!(
+        alias
+            .handle_query(
+                Some("Bearer internal-test-token"),
+                &serde_json::to_vec(&query).unwrap(),
+                RequestDeadline::after(Duration::from_secs(5))
+            )
+            .status,
+        200
+    );
+    let service = brain_api::internal::InternalApiService::new(
+        policy(),
+        retrieval,
+        "test".into(),
+        5000,
+        Budget::default(),
+    );
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let path = directory.path().join("operator.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let owner = std::fs::metadata(&path).unwrap().uid();
+    let server =
+        tokio::spawn(
+            async move { axum::serve(listener, brain_api::internal::router(service)).await },
+        );
+    let client = brain_client::AsyncInternalBrainClient::new(
+        &path,
+        owner,
+        "internal-test-token",
+        Duration::from_secs(5),
+    )
+    .unwrap();
+    let answer = client.query(&query).await.unwrap();
+    assert_eq!(answer.status, brain_client::InternalStatus::Answered);
+    assert_eq!(answer.excerpts.len(), 1);
+    for token in ["public-docs-token", "egress-test-token"] {
+        let client = brain_client::AsyncInternalBrainClient::new(
+            &path,
+            owner,
+            token,
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert!(
+            matches!(client.query(&query).await,Err(brain_client::ClientError::HttpStatus{status,..}) if status==reqwest::StatusCode::FORBIDDEN)
+        );
+    }
+    server.abort();
+    let _ = server.await;
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn owned_writer_updates_only_docs_and_never_grants_projection_access() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    let mut tx = pool.begin().await.unwrap();
+    let staged = stage_document(
+        &mut tx,
+        "public/writer.html",
+        1,
+        None,
+        true,
+        DocumentContent::default(),
+    )
+    .await;
+    let raw: i64 = sqlx::query_scalar("SELECT raw_object_id FROM canon.receipt WHERE id=$1")
+        .bind(staged.body_receipt)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    let hero: i64 = sqlx::query_scalar("INSERT INTO canon.entity(kind,key,receipt_id) VALUES('hero','writer_hero',$1) RETURNING id").bind(staged.identity_receipt).fetch_one(&mut *tx).await.unwrap();
+    for (key, value) in [
+        ("doc_title", "Hero"),
+        (
+            "doc_intro_meta",
+            r#"{"ordinal":0,"locator":"intro","heading_path":[],"line_start":1,"line_end":3,"chunks":1}"#,
+        ),
+        ("doc_intro_body_0", "not a document"),
+    ] {
+        fact(&mut tx, hero, raw, staged.run, key, value, true).await;
+    }
+    let hero_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM canon.doc_search WHERE entity_id=$1")
+            .bind(hero)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(hero_rows, 0);
+    sqlx::query(
+        "SELECT canon.write_run_fact($1,'doc_intro_body_0',NULL,'Baba ersetzt ',NULL,$2,$3)",
+    )
+    .bind(staged.page)
+    .bind(staged.run)
+    .bind(staged.body_receipt)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let body: String = sqlx::query_scalar("SELECT body FROM canon.doc_search WHERE entity_id=$1")
+        .bind(staged.page)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(body, "Baba ersetzt sich schnell.");
+    for role in ["brain_tool", "brain_service", "brain_ingest"] {
+        let permitted: bool = sqlx::query_scalar(
+            "SELECT has_table_privilege($1,'canon.doc_search','SELECT,INSERT,UPDATE,DELETE')",
+        )
+        .bind(role)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert!(!permitted, "{role}");
+    }
+    publish(&mut tx, staged.run).await;
+    tx.commit().await.unwrap();
+    let body: String = sqlx::query_scalar("SELECT body FROM serve.doc_section WHERE page_id=$1")
+        .bind(staged.page)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(body, "Baba ersetzt sich schnell.");
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn real_search_uses_owned_gin_naturally_within_statement_budget() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    let filler = "Lane Gegner Position Heilung Bewegung Rotation Farm Team ".repeat(80);
+    for version in 1..=400 {
+        let body = if version == 400 {
+            format!("{filler} Zielsprungnadel")
+        } else {
+            filler.clone()
+        };
+        document_with_content(
+            &pool,
+            &format!("public/guide{version}.html"),
+            version,
+            None,
+            true,
+            DocumentContent {
+                body: [&body, " Endabschnitt"],
+                ..DocumentContent::default()
+            },
+        )
+        .await;
+    }
+    sqlx::raw_sql("ANALYZE canon.doc_search; ANALYZE canon.fact; ANALYZE canon.receipt; ANALYZE canon.entity; ANALYZE raw.object; ANALYZE ops.ingest_run").execute(&pool).await.unwrap();
+    let search = include_str!("../src/pg_docs/search.sql");
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::raw_sql(
+        "SET TRANSACTION READ ONLY; SET LOCAL ROLE brain_tool; SET LOCAL statement_timeout='500ms'",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let plan: serde_json::Value =
+        sqlx::query_scalar(&format!("EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) {search}"))
+            .bind("public")
+            .bind("Zielsprungnadel")
+            .bind(None::<i64>)
+            .bind(5_i64)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert!(plan_matches(&plan, |node| matches!(
+        node["Index Name"].as_str(),
+        Some("doc_search_simple_gin" | "doc_search_german_gin")
+    ) && node["Index Cond"]
+        .as_str()
+        .is_some_and(|condition| condition.contains("@@"))));
+    assert_eq!(plan[0]["Plan"]["Actual Rows"], 1);
+    assert!(plan[0]["Execution Time"].as_f64().unwrap() < 500.0);
+    eprintln!(
+        "DOCS_INDEX_PROOF documents=400 execution_ms={} planning_ms={}",
+        plan[0]["Execution Time"], plan[0]["Planning Time"]
+    );
+    tx.commit().await.unwrap();
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn docs_ingestion_keeps_poison_isolated_and_unchanged_replay_has_zero_growth() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    sqlx::raw_sql("ALTER ROLE brain_ingest LOGIN")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let writer = PgPool::connect_with(
+        PgConnectOptions::new_without_pgpass()
+            .host(pg.directory.join("socket").to_str().unwrap())
+            .port(55439)
+            .username("brain_ingest")
+            .database("postgres"),
+    )
+    .await
+    .unwrap();
+    let store = brain_job::GameFactsStore::new(writer.clone());
+    let objects = || {
+        [
+        ("public/poison.html","<html><title>Baba</title><body>Kein Hauptbereich</body></html>"),
+        ("public/baba.html","<!doctype html>\n<html lang=\"de\"><head><title>Baba</title></head><body><main><h1>Baba</h1><p>Baba bewegt sich früh auf der Lane.</p></main></body></html>"),
+        ("internal/baba.html","<!doctype html>\n<html lang=\"de\"><head><title>Baba intern</title></head><body><main><h1>Baba</h1><p>Baba bleibt ein interner Hinweis.</p></main></body></html>"),
+    ].into_iter().map(|(path,html)| Ok(brain_job::InputObject{revision:"a".repeat(40),path:path.into(),bytes:html.as_bytes().to_vec()}))
+    };
+    let extractors: &[&dyn brain_job::Extractor] = &[&brain_job::docs::DocsExtractor];
+    let first = brain_job::ingest(&store, "deadlock-docs", objects(), extractors)
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            first.counts.accepted,
+            first.counts.rejected,
+            first.counts.ignored
+        ),
+        (2, 1, 0)
+    );
+    let growth = "SELECT (SELECT count(*) FROM raw.object),(SELECT count(*) FROM canon.entity),(SELECT count(*) FROM canon.fact),(SELECT count(*) FROM canon.receipt),(SELECT count(*) FROM canon.doc_search)";
+    let before: (i64, i64, i64, i64, i64) = sqlx::query_as(growth).fetch_one(&pool).await.unwrap();
+    assert_eq!(before.0, 3);
+    assert_eq!(before.1, 2);
+    assert_eq!(before.4, 2);
+    let replay = brain_job::ingest(&store, "deadlock-docs", objects(), extractors)
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            replay.counts.accepted,
+            replay.counts.rejected,
+            replay.counts.ignored
+        ),
+        (0, 1, 2)
+    );
+    let after: (i64, i64, i64, i64, i64) = sqlx::query_as(growth).fetch_one(&pool).await.unwrap();
+    assert_eq!(before, after);
+    let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
+    let (query, ctx) = context(false);
+    let evidence = reader.retrieve(&query, &ctx).unwrap();
+    assert_eq!(evidence.len(), 1);
+    let receipt =
+        brain_contracts::canonical_receipt::CanonicalReceipt::from_evidence(&evidence[0]).unwrap();
+    let published: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM serve.published_receipt WHERE id=$1 AND path='public/baba.html')").bind(receipt.raw_receipt_id).fetch_one(&pool).await.unwrap();
+    assert!(published);
+    writer.close().await;
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn p9_audit_quarantine_hides_indexed_docs_and_never_revives_older_chunks() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    let (page, _) = document(&pool, "public/audited.html", 1, None, true).await;
+    let (_, bad_body) = document(&pool, "public/audited.html", 2, Some(page), true).await;
+    let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
+    let (query, ctx) = context(false);
+    let original = reader.retrieve(&query, &ctx).unwrap();
+    assert_eq!(original.len(), 1);
+    let audit: i64 = sqlx::query_scalar(
+        "INSERT INTO ops.receipt_audit_run(sampled,rejected_receipts) VALUES(1,1) RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO ops.receipt_audit(run_id,receipt_id,outcome) VALUES($1,$2,'locator_not_found')").bind(audit).bind(bad_body).execute(&pool).await.unwrap();
+    let owned_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM canon.doc_search WHERE entity_id=$1")
+            .bind(page)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(owned_rows, 2);
+    assert!(reader.retrieve(&query, &ctx).unwrap().is_empty());
+    assert!(reader
+        .validate_evidence(&query, &ctx, &original, ToolValidationPurpose::Cache)
+        .is_err());
+    let sections: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM serve.doc_section WHERE page_id=$1")
+            .bind(page)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(sections, 0);
     pool.close().await;
 }

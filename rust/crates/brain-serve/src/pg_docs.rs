@@ -3,8 +3,10 @@ use crate::docs_tools::{
     MAX_SECTIONS,
 };
 use brain_contracts::{
-    tools::SearchDocsRequest, AuthorizedContext, Evidence, EvidenceKind, PortError, Query,
-    SourceVisibility, ToolExecution, ToolRequest, ToolValidationPurpose,
+    canonical_receipt::{format_receipt, CanonicalReceipt},
+    tools::SearchDocsRequest,
+    AuthorizedContext, Evidence, EvidenceKind, PortError, Query, SourceVisibility, ToolExecution,
+    ToolRequest, ToolValidationPurpose,
 };
 use sqlx::{postgres::PgRow, PgPool, Row};
 use std::{borrow::Cow, collections::BTreeSet, future::Future, time::Duration};
@@ -70,7 +72,7 @@ mod ports {
                 || Ok(Vec::new()),
                 |delegate| delegate.definitions(query, context, pin),
             )?;
-            if scopes(query, context).is_ok() {
+            if scopes(query, context) == Ok(brain_contracts::SourceVisibility::Public) {
                 definitions.push(self.definition.clone());
             }
             Ok(definitions)
@@ -85,6 +87,11 @@ mod ports {
             request: &ToolRequest,
         ) -> Result<ToolExecution, PortError> {
             if request.name() == self.definition.name {
+                if scopes(query, context)? != brain_contracts::SourceVisibility::Public {
+                    return Err(PortError::PermissionDenied(
+                        "Öffentliche Dokumentensuche benötigt einen öffentlichen Zugriff.".into(),
+                    ));
+                }
                 let call = ToolCall {
                     id: id.into(),
                     name: request.name(),
@@ -228,6 +235,75 @@ mod ports {
 }
 pub use ports::{DocsTools, InternalDocsReader};
 
+pub(crate) struct OperatorDocsRetrieval<R> {
+    public: R,
+    internal: Option<InternalDocsReader>,
+}
+
+impl<R> OperatorDocsRetrieval<R> {
+    pub(crate) fn new(public: R, reader: Option<DocsReader>) -> Self {
+        Self {
+            public,
+            internal: reader.map(InternalDocsReader::new),
+        }
+    }
+
+    fn internal(&self) -> Result<&InternalDocsReader, PortError> {
+        self.internal.as_ref().ok_or_else(|| {
+            PortError::Unavailable("Interne Dokumentensuche ist nicht eingerichtet.".into())
+        })
+    }
+}
+
+impl<R: brain_contracts::RetrievalPort> brain_contracts::RetrievalPort
+    for OperatorDocsRetrieval<R>
+{
+    fn retrieve(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> Result<Vec<Evidence>, PortError> {
+        if context.principal.scopes.contains("second_brain.internal") {
+            crate::internal_docs::authorize(query, context)?;
+            self.internal()?.retrieve(query, context)
+        } else {
+            self.public.retrieve(query, context)
+        }
+    }
+
+    fn validate_evidence(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+        for_provider: bool,
+    ) -> Result<(), PortError> {
+        if context.principal.scopes.contains("second_brain.internal") {
+            crate::internal_docs::authorize(query, context)?;
+            self.internal()?
+                .validate_evidence(query, context, evidence, for_provider)
+        } else {
+            self.public
+                .validate_evidence(query, context, evidence, for_provider)
+        }
+    }
+
+    fn validate_publication(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        evidence: &[Evidence],
+    ) -> Result<(), PortError> {
+        if context.principal.scopes.contains("second_brain.internal") {
+            crate::internal_docs::authorize(query, context)?;
+            self.internal()?
+                .validate_publication(query, context, evidence)
+        } else {
+            self.public.validate_publication(query, context, evidence)
+        }
+    }
+}
+
 const SEARCH: &str = include_str!("pg_docs/search.sql");
 
 #[derive(Clone)]
@@ -283,8 +359,13 @@ impl DocsReader {
         if dependency.game_context.is_some() || dependency.evidence.is_empty() {
             return Err(invalid());
         }
-        let fresh = self.search(query, context, "revalidation", &dependency.request)?;
-        if fresh.dependencies.len() != 1 || fresh.dependencies[0].evidence != dependency.evidence {
+        let fresh = self.search(
+            query,
+            context,
+            "revalidation",
+            &dependency.request.without_canonical_result(),
+        )?;
+        if fresh.dependencies.len() != 1 || fresh.dependencies[0] != *dependency {
             return Err(changed());
         }
         Ok(())
@@ -350,7 +431,7 @@ impl DocsReader {
                     .bind(allowed)
                     .bind(search.as_ref())
                     .bind(entity)
-                    .bind((limit + 1) as i64)
+                    .bind(limit as i64)
                     .fetch_all(&mut *tx)
                     .await
                     .map_err(database_error)?;
@@ -361,7 +442,12 @@ impl DocsReader {
             .map_err(|_| PortError::Unavailable("Zeitgrenze für Dokumente erreicht.".into()))?
         })?;
         context.check_deadline()?;
-        let truncated = rows.len() > limit;
+        let truncated = rows
+            .first()
+            .map(|row| row.try_get::<i64, _>("matching_sections"))
+            .transpose()
+            .map_err(database_error)?
+            .is_some_and(|count| count > limit as i64);
         let sections = rows
             .into_iter()
             .take(limit)
@@ -422,7 +508,7 @@ fn section(row: PgRow, context: &AuthorizedContext) -> Result<Section, PortError
     if [receipt, page, raw, run].into_iter().any(|id| id <= 0) || start < 1 || end < start {
         return Err(invalid());
     }
-    let id = receipt.to_string();
+    let mut id = receipt.to_string();
     let (visibility, allowed_scope, url) = match scope.as_str() {
         "public" => (
             SourceVisibility::Public,
@@ -432,7 +518,7 @@ fn section(row: PgRow, context: &AuthorizedContext) -> Result<Section, PortError
         "internal" => (SourceVisibility::Internal, "second_brain.internal", None),
         _ => return Err(invalid()),
     };
-    let evidence = Evidence {
+    let mut evidence = Evidence {
         evidence_id: id.clone(),
         source_id: format!("docs.{scope}/{page}"),
         logical_id: format!("receipt/{receipt}"),
@@ -446,6 +532,22 @@ fn section(row: PgRow, context: &AuthorizedContext) -> Result<Section, PortError
         provenance: None,
         patch: None,
     };
+    if visibility == SourceVisibility::Public {
+        evidence = format_receipt(&CanonicalReceipt {
+            raw_receipt_id: receipt,
+            raw_object_id: raw,
+            ingest_run_id: row.try_get("ingest_run_id").map_err(database_error)?,
+            source: "deadlock-docs".into(),
+            source_revision: revision.clone(),
+            path: path.clone(),
+            locator_kind: row.try_get("locator_kind").map_err(database_error)?,
+            locator: row.try_get("locator").map_err(database_error)?,
+            value_sha256: row.try_get("value_sha256").map_err(database_error)?,
+            extractor: row.try_get("extractor").map_err(database_error)?,
+            patch: None,
+        })?;
+        id = evidence.evidence_id.clone();
+    }
     Section::new(
         SectionView {
             page: path,

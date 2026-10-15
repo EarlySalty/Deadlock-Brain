@@ -4,8 +4,9 @@ WITH terms AS (
 )
 SELECT d.page_id,d.raw_object_id,d.receipt_id,d.valid_from_run,d.meta_key,d.scope,
     d.path,d.title,d.heading_path,left(d.body,1501) AS excerpt,
-    d.line_start,d.line_end,d.source_revision
-FROM serve.doc_section d CROSS JOIN terms
+    d.line_start,d.line_end,d.source_revision,p.ingest_run_id,p.extractor,p.locator_kind,p.locator,
+    encode(p.value_sha256,'hex') AS value_sha256,count(*) OVER() AS matching_sections
+FROM serve.doc_section d JOIN serve.published_receipt p ON p.id=d.receipt_id CROSS JOIN terms
 WHERE d.scope=$1 AND (d.tsv @@ terms.simple_query OR d.tsv_german @@ terms.german_query)
     AND ($3::bigint IS NULL OR EXISTS (
         SELECT 1 FROM serve.current_entity e JOIN serve.current_alias a ON a.entity_id=e.id

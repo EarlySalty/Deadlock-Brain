@@ -19,7 +19,7 @@ const EXACT: &str = "SELECT * FROM (
         a.receipt_id::text AS citation, a.source_revision, i.identity,
         1.0::real AS similarity
     FROM serve.current_alias a JOIN serve.entity_identity i ON i.entity_id=a.entity_id
-    WHERE a.alias_norm=$1 AND ($2::text IS NULL OR i.kind=$2)
+    WHERE i.kind<>'doc_page' AND i.kind<>'doc' AND a.alias_norm=$1 AND ($2::text IS NULL OR i.kind=$2)
     ORDER BY a.entity_id, a.receipt_id, a.lang
 ) candidates ORDER BY entity_id LIMIT $3";
 const FUZZY: &str = "SELECT * FROM (
@@ -27,7 +27,7 @@ const FUZZY: &str = "SELECT * FROM (
         a.receipt_id::text AS citation, a.source_revision, i.identity,
         public.similarity(a.alias_norm,$1) AS similarity
     FROM serve.current_alias a JOIN serve.entity_identity i ON i.entity_id=a.entity_id
-    WHERE a.alias_norm OPERATOR(public.%) $1
+    WHERE i.kind<>'doc_page' AND i.kind<>'doc' AND a.alias_norm OPERATOR(public.%) $1
         AND public.similarity(a.alias_norm,$1)>=0.3
         AND ($2::text IS NULL OR i.kind=$2)
     ORDER BY a.entity_id, public.similarity(a.alias_norm,$1) DESC, a.receipt_id, a.lang
