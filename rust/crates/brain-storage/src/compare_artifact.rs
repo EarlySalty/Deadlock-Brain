@@ -417,7 +417,12 @@ impl PgStore {
         principal: &Principal,
     ) -> Result<Option<CompareArtifact>, PortError> {
         Ok(self
-            .read_compare(id, principal, "SELECT brain.read_compare_artifact_v1($1)")
+            .read_compare(
+                id,
+                principal,
+                "SELECT brain.read_compare_artifact_v1($1)",
+                "5000ms",
+            )
             .await?
             .filter(|(_, stage)| *stage == CompareStage::Published)
             .map(|(artifact, _)| artifact))
@@ -456,8 +461,30 @@ impl PgStore {
         id: &str,
         principal: &Principal,
     ) -> Result<Option<(CompareArtifact, CompareStage)>, PortError> {
-        self.read_compare(id, principal, "SELECT brain.read_compare_artifact_v2($1)")
-            .await
+        self.read_compare(
+            id,
+            principal,
+            "SELECT brain.read_compare_artifact_v2($1)",
+            "5000ms",
+        )
+        .await
+    }
+
+    pub async fn read_site_route_compare(
+        &self,
+        id: &str,
+        principal: &Principal,
+        include_preview: bool,
+    ) -> Result<Option<(CompareArtifact, CompareStage)>, PortError> {
+        let query = if include_preview {
+            "SELECT serve.read_compare_artifact_v2($1)"
+        } else {
+            "SELECT serve.read_compare_artifact_v1($1)"
+        };
+        Ok(self
+            .read_compare(id, principal, query, "500ms")
+            .await?
+            .filter(|(_, stage)| include_preview || *stage == CompareStage::Published))
     }
 
     async fn read_compare(
@@ -465,6 +492,7 @@ impl PgStore {
         id: &str,
         principal: &Principal,
         query: &str,
+        timeout: &str,
     ) -> Result<Option<(CompareArtifact, CompareStage)>, PortError> {
         if !valid_compare_id(id) {
             return Ok(None);
@@ -474,7 +502,8 @@ impl PgStore {
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
-        sqlx::query("SET LOCAL statement_timeout='5000ms'")
+        sqlx::query("SELECT set_config('statement_timeout',$1,true)")
+            .bind(timeout)
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;

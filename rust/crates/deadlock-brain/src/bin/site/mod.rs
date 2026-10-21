@@ -1,3 +1,4 @@
+mod artifacts;
 mod compare;
 pub(crate) mod database;
 mod pages;
@@ -56,7 +57,9 @@ fn router(pool: PgPool) -> Router {
     };
     Router::<Site>::new()
         .route("/compare/{id}", get(compare::page))
+        .route("/compare/{id}/chart.svg", get(artifacts::chart))
         .route("/site/compare/{id}", get(compare::page))
+        .route("/site/compare/{id}/chart.svg", get(artifacts::chart))
         .route("/site/steckbriefe", get(profiles::index))
         .route("/site/steckbriefe/", get(profiles::index))
         .route("/site/steckbriefe/{kind}/{id}", get(profiles::page))

@@ -132,7 +132,7 @@ async fn published_site_contract_and_baba_visual_proof() {
         false,
     )
     .await;
-    sqlx::raw_sql("CREATE SCHEMA brain; CREATE TABLE brain.site_comments_v1(text text); CREATE FUNCTION brain.append_site_comment_v1(text,text,text) RETURNS void LANGUAGE sql AS 'SELECT'; REVOKE ALL ON SCHEMA brain FROM PUBLIC; REVOKE ALL ON FUNCTION brain.append_site_comment_v1(text,text,text) FROM PUBLIC;").execute(&admin).await.unwrap();
+    sqlx::raw_sql("CREATE SCHEMA brain; CREATE TABLE brain.site_comments_v1(text text); CREATE FUNCTION brain.append_site_comment_v1(text,text,text) RETURNS void LANGUAGE sql AS 'SELECT'; REVOKE ALL ON SCHEMA brain FROM PUBLIC; REVOKE ALL ON FUNCTION brain.append_site_comment_v1(text,text,text) FROM PUBLIC; CREATE FUNCTION brain.read_compare_artifact_v1(text) RETURNS jsonb LANGUAGE sql SECURITY DEFINER AS 'SELECT NULL::jsonb'; CREATE FUNCTION brain.read_compare_artifact_v2(text) RETURNS jsonb LANGUAGE sql SECURITY DEFINER AS 'SELECT NULL::jsonb'; REVOKE ALL ON FUNCTION brain.read_compare_artifact_v1(text), brain.read_compare_artifact_v2(text) FROM PUBLIC;").execute(&admin).await.unwrap();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let role_sql = fs::read_to_string(root.join("ops/brain-postgres/site-role.sql")).unwrap();
     let role_sql = role_sql
@@ -160,6 +160,8 @@ async fn published_site_contract_and_baba_visual_proof() {
     for sql in [
         "SELECT * FROM brain.site_comments_v1",
         "SELECT brain.append_site_comment_v1('x','x','x')",
+        "SELECT brain.read_compare_artifact_v1('x')",
+        "SELECT brain.read_compare_artifact_v2('x')",
         "SELECT * FROM canon.fact",
         "SELECT * FROM raw.object",
         "SELECT * FROM ops.ingest_run",
@@ -247,6 +249,10 @@ async fn published_site_contract_and_baba_visual_proof() {
         "/understanding/Baba.md",
         "/site/compare/legacy-artifact/chart.svg",
         "/site/compare/legacy-artifact",
+        "/site/compare/0000000000000000000000000000000000000000000000000000000000000000",
+        "/site/compare/0000000000000000000000000000000000000000000000000000000000000000/chart.svg",
+        "/compare/0000000000000000000000000000000000000000000000000000000000000000",
+        "/compare/0000000000000000000000000000000000000000000000000000000000000000/chart.svg",
         "/site/steckbriefe/hero/00",
         "/site/entities/hero/ff.html",
         "/site/public/missing.html",
@@ -353,6 +359,7 @@ async fn published_site_contract_and_baba_visual_proof() {
     sqlx::query("INSERT INTO ops.receipt_audit(run_id,receipt_id,outcome,observed_value_sha256) SELECT $1,receipt_id,'mismatch',sha256('mismatch'::bytea) FROM canon.fact WHERE entity_id=$2 AND stat_key='health'")
         .bind(audit_run).bind(hero).execute(&admin).await.unwrap();
     let hidden = client.get(format!("{url}{path}")).send().await.unwrap();
+    assert_eq!(hidden.status(), StatusCode::OK);
     assert!(!hidden.text().await.unwrap().contains("<td>780.0</td>"));
     handle.abort();
     let _ = handle.await;

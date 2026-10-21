@@ -1,14 +1,14 @@
 use anyhow::{Context, Result};
 use axum::{
     extract::{Path, Query, State},
-    http::{Method, StatusCode},
+    http::{HeaderMap, Method, StatusCode},
     response::Response,
 };
 use brain_contracts::{ToolCall, ToolName};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{profiles, Site};
+use super::{artifacts, profiles, Site};
 
 const COMPARE: &str = include_str!("../../../../brain-serve/src/pg_asset_compare.sql");
 
@@ -23,7 +23,11 @@ pub(super) async fn page(
     Path(id): Path<String>,
     Query(query): Query<Selection>,
     method: Method,
+    headers: HeaderMap,
 ) -> Response {
+    if query.entities.is_none() && brain_storage::compare_artifact::valid_compare_id(&id) {
+        return artifacts::page(site, id, method, &headers).await;
+    }
     let raw = query.entities.as_deref().unwrap_or(&id);
     let Ok(entities) = raw
         .split(',')
