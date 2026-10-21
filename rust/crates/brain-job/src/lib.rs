@@ -3,6 +3,7 @@
 pub mod assets;
 pub mod config;
 pub mod hero;
+pub mod patch_extract;
 pub mod registry;
 pub mod sources;
 pub mod timers;

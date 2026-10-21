@@ -1,5 +1,22 @@
 # Wave-2 integration handover
 
+## P4 integrated, 2026-10-21
+
+Exact P4 `35a54ce3465c02ca57bfa2b542481cee6ea2d7ab` is merged on top of `d6077a8e`. Six conflicts were resolved as append-only unions in contracts/tools, job extractor/source registries, serve modules and migration registry/tests. The path-included P4 port test includes the existing P2 asset module; its upgrade test expects the integrated migration union. Approved migration SQL blobs remain unchanged.
+
+Additive migration 31 (29 is reserved for P6, 30 for P7) replaces the redundant reader-coherence joins of version 23 to `serve.published_receipt` with metadata joins to `canon.receipt`; selected identities and facts still originate in `serve.current_entity`/`serve.current_fact`, which enforce the P9/v28 publication and quarantine checks. Reader fingerprints are checked for version 23 or 31.
+
+The brain-serve tool pool disables PostgreSQL JIT in its session setup and asserts `jit=off` on every acquire, so reused production connections keep it. The 500 ms statement limit is unchanged. A previous join/from collapse limit of 4 was removed: it made the real public item executor and the captured slot executors time out; without it and with JIT off all four asset executor tests pass locally (evidence `/home/nathanael/.local/state/brain-wave2-proof-20261014/integration-resume-20261021/`). Remote ionos test runs lack the local `/tmp` fixtures; fixture-dependent groups run with `CARGO_SLOT_REMOTE=0`.
+
+The patch source RSS contract (`VmHWM < 300000000`) failed once at 303706112 bytes. Cause: sqlx never shrinks a connection's write buffer, so every pooled connection that carried a 48 MiB `raw.object` insert kept that buffer; how many of the three pool connections were hit varied with timing (234 to 303 MB). `gamefacts::capture` now runs insert and lookup on one acquired connection and calls `shrink_buffers()` after the insert. Three local runs measured 198971392 to 199049216 bytes; the threshold is unchanged.
+
+Next: P10 `5e10cbf5` registers version 26, then origin/main. P5 remains deliberately excluded.
+
+## Queued stages after origin/main
+
+- Stage 4: P5 wiring `0dc6f130` (branch `feat/brain-p5-wiring-20261015`, migration 24, gate ALLOW). P5 docs transactions use `SET LOCAL jit=off` and join/from collapse limit 8; the tool pool sets no collapse limit, so the transaction-local value applies. Verify `pg_docs` 29/29 with 400 docs well under 500 ms and watch the two P2 slot executor tests (749 ms planning under load average 20 on the P5 branch) without raising the 500 ms limit.
+- Stage 5: P7 Steckbrief cut `eab6bb69` (branch `feat/brain-p7-steckbrief-cut-20261015`, migration 30, gate ALLOW). Deploy prerequisites: `brain_migrate` needs EXECUTE on `brain.read_compare_artifact_v1` and `_v2`, otherwise legacy compare links return 503; confirm in `ops.gamefacts_schema_version` that no database has v30 applied, because v30 was edited before any application. Five brain-maintenance tests need the legacy cluster `/tmp/brain-maintenance-test-20261002` and fail identically on `d6077a8e` (evidence in the P7 proof directory).
+
 ## P9 verified continuation, 2026-10-14
 
 The P9 fixer completed the scoped publication repair on the pending exact merge of `27ad636b9816013c5cb60855fc2af02d947fcd18`. Additive migration 28 replaces repeated global shadowing expansion with indexed receipt-local checks and statement-level empty-boundary gating. Comparison materializes selected facts once per entity while preserving counts and limits. The SECURITY DEFINER predicate has fixed `pg_catalog,pg_temp` search_path and EXECUTE only for the tool/service roles; canonical/raw access remains denied. All 37 approved migration blobs and the staged P3 parser integration repair are preserved. Temporary diagnostics are removed.

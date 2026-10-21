@@ -19,6 +19,11 @@ const EXACT: &str = "SELECT * FROM (
         a.receipt_id::text AS citation, a.source_revision, i.identity,
         1.0::real AS similarity
     FROM serve.current_alias a JOIN serve.entity_identity i ON i.entity_id=a.entity_id
+    JOIN serve.published_receipt identity_receipt ON identity_receipt.id=i.receipt_id
+    JOIN serve.published_receipt alias_receipt ON alias_receipt.id=a.receipt_id
+        AND alias_receipt.raw_object_id=identity_receipt.raw_object_id
+        AND alias_receipt.ingest_run_id=identity_receipt.ingest_run_id
+        AND alias_receipt.extractor=identity_receipt.extractor
     WHERE a.alias_norm=$1 AND ($2::text IS NULL OR i.kind=$2)
     ORDER BY a.entity_id, a.receipt_id, a.lang
 ) candidates ORDER BY entity_id LIMIT $3";
@@ -27,6 +32,11 @@ const FUZZY: &str = "SELECT * FROM (
         a.receipt_id::text AS citation, a.source_revision, i.identity,
         public.similarity(a.alias_norm,$1) AS similarity
     FROM serve.current_alias a JOIN serve.entity_identity i ON i.entity_id=a.entity_id
+    JOIN serve.published_receipt identity_receipt ON identity_receipt.id=i.receipt_id
+    JOIN serve.published_receipt alias_receipt ON alias_receipt.id=a.receipt_id
+        AND alias_receipt.raw_object_id=identity_receipt.raw_object_id
+        AND alias_receipt.ingest_run_id=identity_receipt.ingest_run_id
+        AND alias_receipt.extractor=identity_receipt.extractor
     WHERE a.alias_norm OPERATOR(public.%) $1
         AND public.similarity(a.alias_norm,$1)>=0.3
         AND ($2::text IS NULL OR i.kind=$2)
@@ -47,7 +57,8 @@ fn database_error(_: sqlx::Error) -> PortError {
 }
 
 async fn assert_session(connection: &mut PgConnection) -> Result<(), sqlx::Error> {
-    let (login, role, readonly, default_readonly, timeout, threshold): (
+    let (login, role, readonly, default_readonly, timeout, threshold, jit): (
+        String,
         String,
         String,
         String,
@@ -57,7 +68,8 @@ async fn assert_session(connection: &mut PgConnection) -> Result<(), sqlx::Error
     ) = sqlx::query_as(
         "SELECT session_user::text,current_user::text,
         current_setting('transaction_read_only'),current_setting('default_transaction_read_only'),
-        current_setting('statement_timeout'),current_setting('pg_trgm.similarity_threshold')",
+        current_setting('statement_timeout'),current_setting('pg_trgm.similarity_threshold'),
+        current_setting('jit')",
     )
     .fetch_one(connection)
     .await?;
@@ -67,6 +79,7 @@ async fn assert_session(connection: &mut PgConnection) -> Result<(), sqlx::Error
         || default_readonly != "on"
         || timeout != "500ms"
         || threshold != "0.3"
+        || jit != "off"
     {
         return Err(sqlx::Error::Protocol(
             "Werkzeugverbindung wurde verunreinigt.".into(),
@@ -84,6 +97,7 @@ pub(super) fn tool_pool(options: PgConnectOptions, wait: Duration) -> PgPool {
             sqlx::query("SET SESSION default_transaction_read_only=on").execute(&mut *connection).await?;
             sqlx::query("SET SESSION statement_timeout='500ms'").execute(&mut *connection).await?;
             sqlx::query("SET SESSION pg_trgm.similarity_threshold=0.3").execute(&mut *connection).await?;
+            sqlx::query("SET SESSION jit=off").execute(&mut *connection).await?;
             assert_session(connection).await?;
             let permitted: bool = sqlx::query_scalar("SELECT EXISTS (
                 SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid

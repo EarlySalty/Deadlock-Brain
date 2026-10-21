@@ -620,21 +620,28 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         )
         .with_provider(&prepared.config.provider);
         answer_kernel = answer_kernel.with_tools(
-            answer_trace::TracedTools(pg_tools::PgTools::new(
-                crate::deadlock_data::Tools {
-                    knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(
-                        ReleaseRetriever::new(
-                            prepared.reader.clone(),
-                            prepared.config.retrieval.limit,
-                        ),
-                    )
-                    .with_knowledge_retrieval(knowledge)
-                    .with_mirrored_entities(runtime.mirror.clone()),
-                    runtime: Arc::new(runtime),
-                },
-                gamefacts_pool,
-                tokio::runtime::Handle::current(),
-            )),
+            answer_trace::TracedTools(
+                crate::pg_patch_port::PgPatchToolPort::new(
+                    pg_tools::PgTools::new(
+                        crate::deadlock_data::Tools {
+                            knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(
+                                ReleaseRetriever::new(
+                                    prepared.reader.clone(),
+                                    prepared.config.retrieval.limit,
+                                ),
+                            )
+                            .with_knowledge_retrieval(knowledge)
+                            .with_mirrored_entities(runtime.mirror.clone()),
+                            runtime: Arc::new(runtime),
+                        },
+                        gamefacts_pool.clone(),
+                        tokio::runtime::Handle::current(),
+                    ),
+                    gamefacts_pool,
+                    tokio::runtime::Handle::current(),
+                )
+                .map_err(|_| Error::ReaderConfig)?,
+            ),
             resolver,
             format!(
                 "{}:{}",

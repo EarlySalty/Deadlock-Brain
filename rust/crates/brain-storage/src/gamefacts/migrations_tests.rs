@@ -19,7 +19,15 @@ fn registry_is_positive_unique_and_ordered_with_gaps() {
     assert!(ordered(MIGRATIONS).is_ok());
     assert_eq!(
         MIGRATIONS.iter().map(|(v, _)| *v).collect::<Vec<_>>(),
-        [1, 2, 3, 6, 7, 8, 9, 10, 11, 13, 28]
+        [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 13, 23, 28, 31]
+    );
+    assert_eq!(
+        sql_and_checksum(MIGRATIONS.iter().find(|(v, _)| *v == 4).unwrap().1)
+            .1
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>(),
+        "bc849a1a5e130487e8da4052168ca07a0b81bf4fb06f6f26a6a180b641d7ebee"
     );
     assert_eq!(
         sql_and_checksum(MIGRATIONS[0].1)
@@ -1099,6 +1107,49 @@ async fn signed_execution_defaults_are_checked_before_writes_and_allow_nullable_
     assert_nullable_execution_facts(&admin, &store, run).await;
     assert_admin_receipt_corruption_rollback(&admin, &writer, run).await;
     println!("42 signed execution mutations rejected before run/data creation; 3 nullable facts written and published; admin receipt corruption allowed and rolled back");
+    writer.pool.close().await;
+    admin.close().await;
+}
+
+#[tokio::test]
+async fn reader_coherence_preflight_rejects_view_body_owner_options_and_grant_drift() {
+    let (_pg, admin, writer) = preflight_fixture().await;
+    for (name, suffix) in [
+        ("entity_identity", " WHERE false"),
+        ("hero_profile", " AND false"),
+    ] {
+        let definition: String = sqlx::query_scalar("SELECT pg_get_viewdef(to_regclass($1),false)")
+            .bind(format!("serve.{name}"))
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+        let restore = format!("CREATE OR REPLACE VIEW serve.{name} AS {definition}");
+        let changed = format!(
+            "CREATE OR REPLACE VIEW serve.{name} AS {}{suffix}",
+            definition.trim_end().trim_end_matches(';')
+        );
+        assert_preflight_fault(&admin, &writer, &changed, &restore).await;
+        for (fault, restoration) in [
+            (
+                format!("ALTER VIEW serve.{name} OWNER TO brain_core_test"),
+                format!("ALTER VIEW serve.{name} OWNER TO brain_migrate"),
+            ),
+            (
+                format!("ALTER VIEW serve.{name} SET (security_invoker=true)"),
+                format!("ALTER VIEW serve.{name} RESET (security_invoker)"),
+            ),
+            (
+                format!("REVOKE SELECT ON serve.{name} FROM brain_tool"),
+                format!("GRANT SELECT ON serve.{name} TO brain_tool"),
+            ),
+            (
+                format!("REVOKE SELECT ON serve.{name} FROM brain_service"),
+                format!("GRANT SELECT ON serve.{name} TO brain_service"),
+            ),
+        ] {
+            assert_preflight_fault(&admin, &writer, &fault, &restoration).await;
+        }
+    }
     writer.pool.close().await;
     admin.close().await;
 }

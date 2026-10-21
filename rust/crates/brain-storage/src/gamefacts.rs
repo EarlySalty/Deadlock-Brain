@@ -21,8 +21,11 @@ async fn capture(
     digest.update(source.as_bytes());
     digest.update(path.as_bytes());
     let source_path_sha256 = digest.finalize().to_vec();
+    let mut connection = pool.acquire().await?;
     let inserted = sqlx::query("INSERT INTO raw.object(source,revision,path,source_path_sha256,content_sha256,bytes,ingest_run_id) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(source_path_sha256,content_sha256) DO NOTHING RETURNING id")
-        .bind(source).bind(revision).bind(path).bind(&source_path_sha256).bind(content_sha256.as_slice()).bind(&bytes).bind(run).fetch_optional(pool).await?;
+        .bind(source).bind(revision).bind(path).bind(&source_path_sha256).bind(content_sha256.as_slice()).bind(&bytes).bind(run).fetch_optional(&mut *connection).await;
+    connection.shrink_buffers();
+    let inserted = inserted?;
     if let Some(row) = inserted {
         return Ok(RawObject {
             id: row.try_get("id")?,
@@ -34,7 +37,7 @@ async fn capture(
         });
     }
     let row = sqlx::query("SELECT id,source,revision,path FROM raw.object WHERE source_path_sha256=$1 AND content_sha256=$2")
-        .bind(source_path_sha256).bind(content_sha256.as_slice()).fetch_one(pool).await?;
+        .bind(source_path_sha256).bind(content_sha256.as_slice()).fetch_one(&mut *connection).await?;
     if row.try_get::<String, _>("source")? != source || row.try_get::<String, _>("path")? != path {
         return Err(sqlx::Error::Protocol(
             "Rohobjekt-Schlüssel kollidiert".into(),

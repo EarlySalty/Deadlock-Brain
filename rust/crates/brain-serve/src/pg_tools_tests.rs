@@ -454,6 +454,184 @@ fn hash_citation_expansion_is_measured_before_result_binding() {
     assert!(!fits(&result, 1).unwrap());
 }
 
+fn coherence_set(
+    key: &str,
+    alias: &str,
+    raw: &brain_storage::gamefacts::RawObject,
+    full: bool,
+) -> FactSet {
+    let receipt = Receipt {
+        locator_kind: "raw_bytes".into(),
+        locator: String::new(),
+        value_sha256: raw.content_sha256,
+    };
+    let values = if full {
+        vec![
+            ("name_en", FactValue::Text("Previous".into())),
+            ("name_de", FactValue::Text("Vorher".into())),
+            ("health", FactValue::Number(100.0)),
+            ("armor", FactValue::Number(10.0)),
+            ("weapon_damage", FactValue::Number(20.0)),
+        ]
+    } else {
+        vec![
+            ("name_en", FactValue::Text("Current".into())),
+            ("health", FactValue::Number(200.0)),
+        ]
+    };
+    FactSet {
+        entities: vec![Entity {
+            kind: "hero".into(),
+            key: key.into(),
+            receipt: receipt.clone(),
+        }],
+        aliases: vec![Alias {
+            entity_key: key.into(),
+            alias: alias.into(),
+            lang: "en".into(),
+            receipt: receipt.clone(),
+        }],
+        facts: values
+            .into_iter()
+            .map(|(stat_key, value)| Fact {
+                entity_key: key.into(),
+                stat_key: stat_key.into(),
+                value,
+                receipt: receipt.clone(),
+            })
+            .collect(),
+        ..FactSet::default()
+    }
+}
+
+#[test]
+fn current_profile_and_both_alias_readers_share_raw_run_and_extractor_identity() {
+    let pg = scratch_pg::ScratchPg::start();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("");
+    let (admin, writer, pool, entities) = runtime.block_on(async {
+        let admin = sqlx::postgres::PgPoolOptions::new().max_connections(2)
+            .connect_with(options.clone()).await.unwrap();
+        sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly LOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate")
+            .execute(&admin).await.unwrap();
+        let migrator = brain_storage::PgStore::new(admin.clone());
+        migrator.migrate_gamefacts().await.unwrap();
+        let writer = sqlx::postgres::PgPoolOptions::new().max_connections(1)
+            .connect_with(options.clone().username("brain_ingest")).await.unwrap();
+        let roles: (String,String,bool) = sqlx::query_as("SELECT session_user::text,current_user::text,(SELECT rolsuper FROM pg_roles WHERE rolname=current_user)")
+            .fetch_one(&writer).await.unwrap();
+        assert_eq!(roles, ("brain_ingest".into(),"brain_ingest".into(),false));
+        let store = GameFactsStore::new(writer.clone());
+        let mut entities = Vec::new();
+        for dimension in ["raw", "run", "extractor"] {
+            let key = format!("hero_coherence_{dimension}");
+            let retired = "obsolete".to_owned();
+            let active = "current".to_owned();
+            let run = store.begin_run("coherence").await.unwrap();
+            let raw = store.capture(run,"coherence","previous",&format!("{key}.json"),br#"{"name":"Previous","health":100,"armor":10,"weapon_damage":20}"#.to_vec()).await.unwrap();
+            store.apply(run,&raw,"previous",&coherence_set(&key,&retired,&raw,true)).await.unwrap();
+            let (current_run,current_raw,extractor) = match dimension {
+                "raw" => (run,store.capture(run,"coherence","current",&format!("{key}.json"),br#"{"name":"Current","health":200}"#.to_vec()).await.unwrap(),"previous"),
+                "run" => {
+                    store.finish_run(run,true,Counts::default()).await.unwrap();
+                    (store.begin_run("coherence").await.unwrap(),raw.clone(),"previous")
+                }
+                "extractor" => (run,raw.clone(),"current"),
+                _ => unreachable!(),
+            };
+            store.apply(current_run,&current_raw,extractor,&coherence_set(&key,&active,&current_raw,false)).await.unwrap();
+            store.finish_run(current_run,true,Counts::default()).await.unwrap();
+            let entity: i64 = sqlx::query_scalar("SELECT id FROM canon.entity WHERE key=$1")
+                .bind(&key).fetch_one(&admin).await.unwrap();
+            let historical: i64 = sqlx::query_scalar("SELECT count(*) FROM serve.current_fact WHERE entity_id=$1")
+                .bind(entity).fetch_one(&admin).await.unwrap();
+            assert_eq!(historical,5);
+            entities.push((entity,retired,active));
+        }
+        brain_storage::PgStore::new(writer.clone()).check_gamefacts_schema().await.unwrap();
+        let pool = tool_pool(options.username("brain_readonly"),Duration::from_secs(2));
+        (admin,writer,pool,entities)
+    });
+    let tools = PgTools::new(Delegate, pool.clone(), runtime.handle().clone());
+    for (entity, retired, active) in entities {
+        let profile = tools
+            .execute(
+                &query(),
+                &context(),
+                None,
+                "coherent",
+                &request(ToolName::GetHero, json!({"hero":entity})),
+            )
+            .unwrap();
+        assert_eq!(profile.result.result["identity"]["name_en"], "Current");
+        assert_eq!(profile.result.result["identity"]["name_de"], Value::Null);
+        assert_eq!(
+            profile.result.result["identity"]["facts"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            profile.result.result["stats"]["facts"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            profile.result.result["stats"]["facts"][0]["stat_key"],
+            "health"
+        );
+        assert_eq!(profile.result.result["stats"]["facts"][0]["value"], 200.0);
+        assert_eq!(profile.result.result["weapon"]["facts"], json!([]));
+        runtime.block_on(async {
+            let mut connection = pool.begin().await.unwrap();
+            sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                .execute(&mut *connection)
+                .await
+                .unwrap();
+            assert_session(&mut connection).await.unwrap();
+            for sql in [EXACT, FUZZY] {
+                let stale = sqlx::query(sql)
+                    .bind(&retired)
+                    .bind(Some("hero"))
+                    .bind(5_i64)
+                    .fetch_all(&mut *connection)
+                    .await
+                    .unwrap();
+                assert!(stale
+                    .iter()
+                    .all(|row| row.get::<i64, _>("entity_id") != entity));
+                let current = sqlx::query(sql)
+                    .bind(&active)
+                    .bind(Some("hero"))
+                    .bind(5_i64)
+                    .fetch_all(&mut *connection)
+                    .await
+                    .unwrap();
+                assert!(current
+                    .iter()
+                    .any(|row| row.get::<i64, _>("entity_id") == entity));
+            }
+            connection.commit().await.unwrap();
+        });
+    }
+    runtime.block_on(async {
+        pool.close().await;
+        writer.close().await;
+        admin.close().await;
+    });
+}
+
 #[test]
 fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wiring() {
     let pg = scratch_pg::ScratchPg::start();

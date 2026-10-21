@@ -10,6 +10,8 @@ pub mod game_tools;
 mod health;
 mod operator_socket;
 pub mod pg_asset_tools;
+pub mod pg_patch_port;
+pub mod pg_patch_tools;
 mod secrets;
 mod service;
 

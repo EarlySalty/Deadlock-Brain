@@ -19,6 +19,10 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         include_str!("../../../../../scripts/migrations/2026-10-12-brain-gamefacts-p2-v3.sql"),
     ),
     (
+        4,
+        include_str!("../../../../../scripts/migrations/2026-10-12-brain-gamefacts-p4-patches-v1.sql"),
+    ),
+    (
         6,
         include_str!(
             "../../../../../scripts/migrations/2026-10-12-brain-gamefacts-p9-receipt-audit-v1.sql"
@@ -61,10 +65,18 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         ),
     ),
     (
+        23,
+        include_str!("../../../../../scripts/migrations/2026-10-14-brain-gamefacts-reader-coherence-v23.sql"),
+    ),
+    (
         28,
         include_str!(
             "../../../../../scripts/migrations/2026-10-14-brain-gamefacts-bounded-publication-v28.sql"
         ),
+    ),
+    (
+        31,
+        include_str!("../../../../../scripts/migrations/2026-10-15-brain-gamefacts-bounded-reader-coherence-v31.sql"),
     ),
 ];
 
@@ -360,6 +372,57 @@ async fn check_version_guards(
     }
     if let Some((_, template)) = migrations.iter().find(|(version, _)| *version == 10) {
         check_published_insert_guards(connection, template).await?;
+    }
+    if migrations.iter().any(|(version, _)| *version == 23) {
+        check_reader_coherence(
+            connection,
+            migrations.iter().any(|(version, _)| *version == 31),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn check_reader_coherence(
+    connection: &mut PgConnection,
+    bounded: bool,
+) -> Result<(), PortError> {
+    let (identity, profile) = if bounded {
+        (
+            "9db01b4af654674d0591e91aa9b16f98b0149a0919ee83ef4f9b4a13a303a324",
+            "481f7e176dc5ec4e69c79c8954127ed1de414ffa88e608b7b89a6586ffe702e5",
+        )
+    } else {
+        (
+            "fdd71e892ed3fec56af2a8399fb2f9e2a1a8ac12ebd3e01640a5a249a57965b3",
+            "0304a919a3011a08a62fdad0d127e256e8a946f201ff4db399d223862b5fc79c",
+        )
+    };
+    let valid: bool = sqlx::query_scalar(
+        "SELECT NOT EXISTS (
+            SELECT 1 FROM (VALUES
+                ('entity_identity',$1::text),
+                ('hero_profile',$2::text)
+            ) AS required(name,definition_sha256)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_class c
+                JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+                JOIN pg_catalog.pg_roles r ON r.oid=c.relowner
+                WHERE n.nspname='serve' AND c.relname=required.name AND c.relkind='v'
+                    AND r.rolname='brain_migrate' AND c.reloptions IS NULL
+                    AND encode(sha256(convert_to(pg_catalog.pg_get_viewdef(c.oid,false),'UTF8')),'hex')=required.definition_sha256
+                    AND has_table_privilege('brain_tool',c.oid,'SELECT')
+                    AND has_table_privilege('brain_service',c.oid,'SELECT')
+            )
+        )",
+    )
+    .bind(identity)
+    .bind(profile)
+    .fetch_one(connection)
+    .await
+    .map_err(|_| invalid())?;
+    if !valid {
+        return Err(invalid());
     }
     Ok(())
 }

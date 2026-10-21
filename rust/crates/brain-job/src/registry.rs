@@ -5,4 +5,5 @@ pub const EXTRACTORS: &[&dyn Extractor] = &[
     &crate::timers::TimerExtractor,
     &crate::assets::Assets,
     &crate::assets::hero_slots::HeroSlots,
+    &crate::patch_extract::PatchExtractor,
 ];
