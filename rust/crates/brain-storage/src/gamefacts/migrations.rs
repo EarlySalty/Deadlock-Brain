@@ -23,6 +23,10 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         include_str!("../../../../../scripts/migrations/2026-10-12-brain-gamefacts-p4-patches-v1.sql"),
     ),
     (
+        5,
+        include_str!("../../../../../scripts/migrations/2026-10-13-brain-gamefacts-p5-docs-v1.sql"),
+    ),
+    (
         6,
         include_str!(
             "../../../../../scripts/migrations/2026-10-12-brain-gamefacts-p9-receipt-audit-v1.sql"
@@ -67,6 +71,10 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
     (
         23,
         include_str!("../../../../../scripts/migrations/2026-10-14-brain-gamefacts-reader-coherence-v23.sql"),
+    ),
+    (
+        24,
+        include_str!("../../../../../scripts/migrations/2026-10-15-brain-gamefacts-p5-search-v24.sql"),
     ),
     (
         26,

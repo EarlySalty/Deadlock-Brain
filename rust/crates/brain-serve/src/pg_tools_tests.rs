@@ -652,6 +652,8 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
         let baba = publish(&admin,"Baba","hero_baba","r1",false).await;
         let abrams = publish(&admin,"Abrams","hero_abrams","r1",false).await;
         let large = publish(&admin,"Large","hero_large","r1",true).await;
+        publish(&admin,"DocsOnly","docs_only","r1",false).await;
+        sqlx::query("UPDATE canon.entity SET kind='doc_page' WHERE key='docs_only'").execute(&admin).await.unwrap();
         let pool = tool_pool(options.clone().username("brain_readonly"),Duration::from_secs(2));
         let mut connection = pool.acquire().await.unwrap();
         assert_session(&mut connection).await.unwrap();
@@ -668,6 +670,19 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
     let tools = PgTools::new(Delegate, pool.clone(), runtime.handle().clone());
     let query = query();
     let context = context();
+    for text in ["DocsOnly", "DocsOnlu"] {
+        let document = tools
+            .execute(
+                &query,
+                &context,
+                None,
+                "doc-excluded",
+                &request(ToolName::FindEntity, json!({"text":text})),
+            )
+            .unwrap();
+        assert!(document.result.is_error);
+        assert_eq!(document.result.result["error"], "entity_not_found");
+    }
     assert!(tools
         .required_calls(&query, &context, None)
         .unwrap()

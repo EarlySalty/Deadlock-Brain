@@ -26,7 +26,7 @@ const EXACT: &str = "SELECT * FROM (
         AND alias_receipt.raw_object_id=identity_receipt.raw_object_id
         AND alias_receipt.ingest_run_id=identity_receipt.ingest_run_id
         AND alias_receipt.extractor=identity_receipt.extractor
-    WHERE a.alias_norm=$1 AND ($2::text IS NULL OR i.kind=$2)
+    WHERE i.kind<>'doc_page' AND i.kind<>'doc' AND a.alias_norm=$1 AND ($2::text IS NULL OR i.kind=$2)
     ORDER BY a.entity_id, a.receipt_id, a.lang
 ) candidates ORDER BY entity_id LIMIT $3";
 const FUZZY: &str = "SELECT * FROM (
@@ -39,7 +39,7 @@ const FUZZY: &str = "SELECT * FROM (
         AND alias_receipt.raw_object_id=identity_receipt.raw_object_id
         AND alias_receipt.ingest_run_id=identity_receipt.ingest_run_id
         AND alias_receipt.extractor=identity_receipt.extractor
-    WHERE a.alias_norm OPERATOR(public.%) $1
+    WHERE i.kind<>'doc_page' AND i.kind<>'doc' AND a.alias_norm OPERATOR(public.%) $1
         AND public.similarity(a.alias_norm,$1)>=0.3
         AND ($2::text IS NULL OR i.kind=$2)
     ORDER BY a.entity_id, public.similarity(a.alias_norm,$1) DESC, a.receipt_id, a.lang

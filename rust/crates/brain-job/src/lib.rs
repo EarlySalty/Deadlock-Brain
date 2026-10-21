@@ -2,6 +2,7 @@
 
 pub mod assets;
 pub mod config;
+pub mod docs;
 pub mod hero;
 pub mod meta_source;
 pub mod meta_stats;

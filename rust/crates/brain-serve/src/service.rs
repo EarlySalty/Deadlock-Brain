@@ -562,6 +562,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     )
     .with_provider(&prepared.config.provider);
     let mut answer_artifacts = None;
+    let mut docs_reader = None;
     let mut answer_kernel = Kernel::new(retrieval, prepared.provider.clone())
         .with_quality_filters(prepared.config.kernel.quality_filters);
     if let Some(config) = &prepared.config.deadlock_api {
@@ -591,6 +592,11 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             options.clone(),
             Duration::from_millis(prepared.config.timeouts.postgres_pool_wait_ms),
         );
+        let docs = crate::pg_docs::DocsReader::new(
+            gamefacts_pool.clone(),
+            tokio::runtime::Handle::current(),
+        );
+        docs_reader = Some(docs.clone());
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(Duration::from_millis(
@@ -619,29 +625,41 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             prepared.discord_live.clone(),
         )
         .with_provider(&prepared.config.provider);
-        answer_kernel = answer_kernel.with_tools(
-            answer_trace::TracedTools(
-                crate::pg_patch_port::PgPatchToolPort::new(
-                    pg_tools::PgTools::new(
-                        crate::deadlock_data::Tools {
-                            knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(
-                                ReleaseRetriever::new(
-                                    prepared.reader.clone(),
-                                    prepared.config.retrieval.limit,
-                                ),
-                            )
-                            .with_knowledge_retrieval(knowledge)
-                            .with_mirrored_entities(runtime.mirror.clone()),
-                            runtime: Arc::new(runtime),
-                        },
-                        gamefacts_pool.clone(),
-                        tokio::runtime::Handle::current(),
-                    ),
-                    gamefacts_pool,
-                    tokio::runtime::Handle::current(),
-                )
-                .map_err(|_| Error::ReaderConfig)?,
+        let tools = crate::pg_patch_port::PgPatchToolPort::new(
+            pg_tools::PgTools::new(
+                crate::deadlock_data::Tools {
+                    knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(
+                        ReleaseRetriever::new(
+                            prepared.reader.clone(),
+                            prepared.config.retrieval.limit,
+                        ),
+                    )
+                    .with_knowledge_retrieval(knowledge)
+                    .with_mirrored_entities(runtime.mirror.clone()),
+                    runtime: Arc::new(runtime),
+                },
+                gamefacts_pool.clone(),
+                tokio::runtime::Handle::current(),
             ),
+            gamefacts_pool,
+            tokio::runtime::Handle::current(),
+        )
+        .map_err(|_| Error::ReaderConfig)?;
+        let tools =
+            crate::pg_docs::DocsTools::new(
+                Some(Arc::new(tools)),
+                docs,
+                ToolDefinition {
+                    name: brain_contracts::ToolName::SearchDocs,
+                    description:
+                        "Durchsucht veröffentlichte Dokumentationsabschnitte mit Quellenbelegen."
+                            .into(),
+                    input_schema: brain_contracts::tools::SearchDocsRequest::input_schema(),
+                },
+            )
+            .map_err(|_| Error::ReaderConfig)?;
+        answer_kernel = answer_kernel.with_tools(
+            answer_trace::TracedTools(tools),
             resolver,
             format!(
                 "{}:{}",
@@ -774,7 +792,10 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                 prepared.internal_credentials.clone(),
                 Arc::new(prepared.reader.clone()),
             ),
-            ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit),
+            crate::pg_docs::OperatorDocsRetrieval::new(
+                ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit),
+                docs_reader,
+            ),
             config.release.id.clone(),
             prepared.config.timeouts.request_ms,
             (&prepared.config.budgets).into(),
