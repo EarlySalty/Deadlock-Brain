@@ -1580,15 +1580,17 @@ async fn real_search_uses_owned_gin_naturally_within_statement_budget() {
         )
         .await;
     }
-    sqlx::raw_sql("ANALYZE canon.doc_search; ANALYZE canon.fact; ANALYZE canon.receipt; ANALYZE canon.entity; ANALYZE raw.object; ANALYZE ops.ingest_run").execute(&pool).await.unwrap();
+    sqlx::raw_sql("VACUUM (ANALYZE) canon.doc_search")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql("ANALYZE canon.fact; ANALYZE canon.receipt; ANALYZE canon.entity; ANALYZE raw.object; ANALYZE ops.ingest_run").execute(&pool).await.unwrap();
     let search = include_str!("../src/pg_docs/search.sql");
     let mut tx = pool.begin().await.unwrap();
-    sqlx::raw_sql(
-        "SET TRANSACTION READ ONLY; SET LOCAL ROLE brain_tool; SET LOCAL statement_timeout='500ms'",
-    )
-    .execute(&mut *tx)
-    .await
-    .unwrap();
+    sqlx::raw_sql(pg_docs::READ_TRANSACTION)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     let plan: serde_json::Value =
         sqlx::query_scalar(&format!("EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON) {search}"))
             .bind("public")
@@ -1598,12 +1600,25 @@ async fn real_search_uses_owned_gin_naturally_within_statement_budget() {
             .fetch_one(&mut *tx)
             .await
             .unwrap();
-    assert!(plan_matches(&plan, |node| matches!(
-        node["Index Name"].as_str(),
-        Some("doc_search_simple_gin" | "doc_search_german_gin")
-    ) && node["Index Cond"]
-        .as_str()
-        .is_some_and(|condition| condition.contains("@@"))));
+    let indexed = plan_matches(&plan, |node| {
+        if node["Relation Name"] == "doc_search" {
+            eprintln!(
+                "DOCS_SCAN_PROOF {}",
+                serde_json::json!({
+                    "node":node["Node Type"],"index":node["Index Name"],
+                    "filter":node["Filter"],"index_cond":node["Index Cond"],
+                    "rows":node["Actual Rows"],"cost":node["Total Cost"]
+                })
+            );
+        }
+        matches!(
+            node["Index Name"].as_str(),
+            Some("doc_search_simple_gin" | "doc_search_german_gin")
+        ) && node["Index Cond"]
+            .as_str()
+            .is_some_and(|condition| condition.contains("@@"))
+    });
+    assert!(indexed, "execution_ms={}", plan[0]["Execution Time"]);
     assert_eq!(plan[0]["Plan"]["Actual Rows"], 1);
     assert!(plan[0]["Execution Time"].as_f64().unwrap() < 500.0);
     eprintln!(

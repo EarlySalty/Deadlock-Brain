@@ -305,6 +305,7 @@ impl<R: brain_contracts::RetrievalPort> brain_contracts::RetrievalPort
 }
 
 const SEARCH: &str = include_str!("pg_docs/search.sql");
+pub(crate) const READ_TRANSACTION: &str = "SET TRANSACTION READ ONLY; SET LOCAL ROLE brain_tool; SET LOCAL statement_timeout='500ms'; SET LOCAL join_collapse_limit=8; SET LOCAL from_collapse_limit=8; SET LOCAL jit=off";
 
 #[derive(Clone)]
 pub struct DocsReader {
@@ -414,7 +415,7 @@ impl DocsReader {
         let rows = blocking(&self.runtime, async {
             tokio::time::timeout(budget, async {
                 let mut tx = self.pool.begin().await.map_err(database_error)?;
-                sqlx::raw_sql("SET TRANSACTION READ ONLY; SET LOCAL ROLE brain_tool; SET LOCAL statement_timeout='500ms'")
+                sqlx::raw_sql(READ_TRANSACTION)
                     .execute(&mut *tx)
                     .await
                     .map_err(database_error)?;
@@ -459,7 +460,11 @@ impl DocsReader {
 
 fn compact_plain_search(search: &str) -> Cow<'_, str> {
     if search.split_ascii_whitespace().any(|term| {
-        term.eq_ignore_ascii_case("or") || !term.bytes().all(|byte| byte.is_ascii_alphabetic())
+        term.eq_ignore_ascii_case("or")
+            || !term.chars().all(|character| {
+                character.is_ascii_alphabetic()
+                    || matches!(character, 'ä' | 'ö' | 'ü' | 'Ä' | 'Ö' | 'Ü' | 'ß' | 'ẞ')
+            })
     }) {
         return Cow::Borrowed(search);
     }
