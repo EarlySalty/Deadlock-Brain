@@ -40,7 +40,7 @@
     "quality_filters": true,
     "max_tool_calls": 8,
     "max_tool_result_bytes": 16384,
-    "input_bytes_per_token": 3
+    "input_bytes_per_token": 2
   },
   "credentials": [
     {

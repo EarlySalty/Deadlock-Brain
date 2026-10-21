@@ -223,7 +223,7 @@ fn default_max_tool_result_bytes() -> usize {
     16_384
 }
 fn default_input_bytes_per_token() -> u32 {
-    3
+    2
 }
 
 #[derive(Clone, Deserialize)]
