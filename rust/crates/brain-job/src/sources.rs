@@ -9,6 +9,10 @@ pub const SOURCES: &[(&str, Source)] = &[
     ("gametracking", crate::timers::source::load),
     ("assets", crate::assets::source::load),
     ("deadlock_patchnotes_db", crate::patch_extract::source::load),
+    (
+        crate::meta_source::SOURCE,
+        crate::meta_source::deadlock_api_meta,
+    ),
 ];
 pub const DEADLOCK_DATA_URL: &str = "https://github.com/deadlock-wiki/deadlock-data.git";
 

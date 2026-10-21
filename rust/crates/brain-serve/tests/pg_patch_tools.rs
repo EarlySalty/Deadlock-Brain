@@ -76,7 +76,10 @@ impl Database {
                 .fetch_all(&admin)
                 .await
                 .unwrap();
-        assert_eq!(versions, [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 13, 23, 28, 31]);
+        assert_eq!(
+            versions,
+            [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 13, 23, 26, 28, 31]
+        );
         let reader = PgPoolOptions::new()
             .max_connections(2)
             .after_connect(|connection, _| {

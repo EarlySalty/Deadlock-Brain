@@ -12,6 +12,10 @@ The patch source RSS contract (`VmHWM < 300000000`) failed once at 303706112 byt
 
 Next: P10 `5e10cbf5` registers version 26, then origin/main. P5 remains deliberately excluded.
 
+## P10 integrated, 2026-10-21
+
+Migration 26 (meta stats views over `serve.published_receipt`) sits between 23 and 28 in the registry; the union is now 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 13, 23, 26, 28, 31. `get_meta_stats` joins the canonical tool set beside timers and asset tools. Verification: fmt, check, strict clippy and 158 tests in 16 groups green locally (`p10-*.log` in the evidence directory).
+
 ## Queued stages after origin/main
 
 - Stage 4: P5 wiring `0dc6f130` (branch `feat/brain-p5-wiring-20261015`, migration 24, gate ALLOW). P5 docs transactions use `SET LOCAL jit=off` and join/from collapse limit 8; the tool pool sets no collapse limit, so the transaction-local value applies. Verify `pg_docs` 29/29 with 400 docs well under 500 ms and watch the two P2 slot executor tests (749 ms planning under load average 20 on the P5 branch) without raising the 500 ms limit.

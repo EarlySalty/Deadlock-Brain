@@ -1069,3 +1069,6 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
         admin.close().await;
     });
 }
+
+#[path = "meta_stats_pg_tests.rs"]
+mod meta_stats;

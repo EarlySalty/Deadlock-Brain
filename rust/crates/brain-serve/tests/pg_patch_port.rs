@@ -324,7 +324,10 @@ async fn database(pg: &scratch_pg::ScratchPg) -> (PgPool, PgPool, PgPool) {
             .fetch_all(&admin)
             .await
             .unwrap();
-    assert_eq!(versions, [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 13, 23, 28, 31]);
+    assert_eq!(
+        versions,
+        [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 13, 23, 26, 28, 31]
+    );
     let reader = PgPoolOptions::new()
         .max_connections(2)
         .after_connect(|connection, _| {
@@ -667,6 +670,7 @@ impl brain_contracts::AnswerProviderPort for CombinedProvider {
                 "get_ability",
                 "get_hero",
                 "get_item",
+                "get_meta_stats",
                 "get_timer",
                 "patch_history"
             ]

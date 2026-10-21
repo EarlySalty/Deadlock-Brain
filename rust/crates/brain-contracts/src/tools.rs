@@ -5,6 +5,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::entity_profile::EntityKind;
+#[path = "meta_stats.rs"]
+mod meta_stats;
 #[path = "timer.rs"]
 mod timer;
 use crate::{
@@ -16,6 +18,7 @@ pub use timer::{GetTimerRequest, TimerKind};
 #[path = "asset_tools.rs"]
 mod asset_tools;
 pub use asset_tools::{CompareRequest, GetAbilityRequest, GetItemRequest};
+pub use meta_stats::{GetMetaStatsRequest, MetaStatKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -35,6 +38,7 @@ pub enum ToolName {
     Compare,
     FindEntity,
     GetHero,
+    GetMetaStats,
 }
 
 impl ToolName {
@@ -55,6 +59,7 @@ impl ToolName {
             Self::Compare => "compare",
             Self::FindEntity => "find_entity",
             Self::GetHero => "get_hero",
+            Self::GetMetaStats => "get_meta_stats",
         }
     }
 }
@@ -485,6 +490,7 @@ pub enum ToolSubrequest {
     CanonicalPatchHistory(CanonicalPatchHistoryRequest),
     FindEntity(FindEntityRequest),
     GetHero(GetHeroRequest),
+    GetMetaStats(GetMetaStatsRequest),
 }
 
 impl ToolSubrequest {
@@ -520,6 +526,9 @@ impl ToolSubrequest {
             ToolName::Compare => serde_json::from_value(arguments.clone()).map(Self::Compare),
             ToolName::FindEntity => serde_json::from_value(arguments.clone()).map(Self::FindEntity),
             ToolName::GetHero => serde_json::from_value(arguments.clone()).map(Self::GetHero),
+            ToolName::GetMetaStats => {
+                serde_json::from_value(arguments.clone()).map(Self::GetMetaStats)
+            }
         };
         parsed.map_err(|_| invalid("Werkzeugargumente passen nicht zur typisierten Unteranfrage"))
     }
@@ -679,6 +688,7 @@ impl ToolSubrequest {
                 }
                 Ok(())
             }
+            Self::GetMetaStats(request) => request.validate(),
         }
     }
 }
@@ -1101,6 +1111,7 @@ impl ToolExecution {
                 | ToolName::GetItem
                 | ToolName::GetAbility
                 | ToolName::Compare
+                | ToolName::GetMetaStats
         ) || matches!(
             request.subrequest(),
             ToolSubrequest::CanonicalPatchHistory(_)
@@ -1138,6 +1149,7 @@ impl ToolExecution {
                 | ToolName::GetItem
                 | ToolName::GetAbility
                 | ToolName::Compare
+                | ToolName::GetMetaStats
         ) || matches!(
             request.subrequest(),
             ToolSubrequest::CanonicalPatchHistory(_)
@@ -2412,6 +2424,7 @@ mod tests {
             ToolName::GetTimer,
             ToolName::FindEntity,
             ToolName::GetHero,
+            ToolName::GetMetaStats,
         ];
         for name in names {
             let encoded = serde_json::to_value(name).unwrap();

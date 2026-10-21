@@ -1,3 +1,5 @@
+#[path = "meta_stats_tools.rs"]
+mod meta_stats_tools;
 #[path = "timer_tools.rs"]
 mod timer_tools;
 
@@ -255,6 +257,13 @@ impl<T> PgTools<T> {
                     };
                     value
                 }
+                ToolSubrequest::GetMetaStats(meta) => {
+                    let Some(value) = meta_stats_tools::read(&mut connection, meta).await? else {
+                        return Ok(error_execution(call_id, request.name(), "meta_stats_not_found",
+                            "Für diese Auswahl ist keine veröffentlichte Metastatistik gespeichert."));
+                    };
+                    value
+                }
                 _ => return Err(invalid()),
             };
             let execution = bounded_execution(&mut connection, call_id, request, result).await?;
@@ -376,7 +385,7 @@ impl<T: ToolExecutionPort> ToolExecutionPort for PgTools<T> {
 pub(super) fn canonical(name: ToolName) -> bool {
     matches!(
         name,
-        ToolName::FindEntity | ToolName::GetHero | ToolName::GetTimer
+        ToolName::FindEntity | ToolName::GetHero | ToolName::GetTimer | ToolName::GetMetaStats
     ) || crate::pg_asset_tools::canonical(name)
 }
 
@@ -406,6 +415,7 @@ fn definitions() -> Vec<ToolDefinition> {
                 "patch":{"type":"string","minLength":1,"maxLength":128},
                 "sections":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"string","enum":["stats","abilities","weapon"]}}}})},
         timer_tools::definition(),
+        meta_stats_tools::definition(),
     ].into_iter().chain(crate::pg_asset_tools::definitions()).collect()
 }
 
