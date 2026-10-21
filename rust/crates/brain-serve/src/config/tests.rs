@@ -290,7 +290,6 @@ fn c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft() {
         (1, "actor_id", json!("second-brain")),
         (1, "channel", json!("twitch")),
         (1, "scopes", json!(["docs.public", "bot.public"])),
-        (1, "release", json!(null)),
         (2, "actor_id", json!("docs-client")),
         (2, "channel", json!("docs")),
         (2, "scopes", json!(["second_brain.internal", "docs.public"])),
@@ -305,6 +304,9 @@ fn c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft() {
         changed["credentials"][index][field] = bad;
         assert!(parse(&changed).is_err());
     }
+    let mut pinless = value.clone();
+    pinless["credentials"][1]["release"] = json!(null);
+    assert!(parse(&pinless).is_ok());
     let mut changed = value.clone();
     changed["internal_operator"] = json!(null);
     assert!(parse(&changed).is_err());
@@ -368,7 +370,6 @@ fn maintenance_docs_require_exact_public_scope_and_matching_standard_pin() {
     for (field, invalid) in [
         ("scopes", json!(["bot.public", "docs.public"])),
         ("scopes", json!(["private"])),
-        ("release", json!(null)),
         (
             "release",
             json!({"id":"foreign","knowledge_version":"foreign"}),
@@ -379,6 +380,9 @@ fn maintenance_docs_require_exact_public_scope_and_matching_standard_pin() {
         changed["credentials"][1][field] = invalid;
         assert!(parse(&changed).is_err(), "{field}");
     }
+    let mut pinless = value.clone();
+    pinless["credentials"][1]["release"] = json!(null);
+    assert!(parse(&pinless).is_ok());
     let secrets = crate::Secrets::load(&config, |name| Some(format!("synthetic-{name}"))).unwrap();
     assert!(secrets
         .credentials

@@ -854,6 +854,10 @@ mod entity_profile_tests {
             "../../../../config/brain-serve.example.json"
         ))
         .unwrap();
+        value["kernel"]
+            .as_object_mut()
+            .unwrap()
+            .remove("quality_filters");
         assert!(
             !super::Config::parse(&serde_json::to_vec(&value).unwrap())
                 .unwrap()
@@ -875,6 +879,8 @@ mod entity_profile_tests {
             "../../../../config/brain-serve.example.json"
         ))
         .unwrap();
+        value["credentials"][0]["release"] =
+            serde_json::json!({"id":"pilot-r1","knowledge_version":"pilot-knowledge-v1"});
         let baseline = super::Config::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
         assert!(!baseline.credentials[0].entity_profile_model_context);
         value["credentials"][0]["entity_profile_model_context"] = serde_json::json!(true);
