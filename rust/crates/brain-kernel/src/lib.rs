@@ -1205,6 +1205,7 @@ mod tests {
         required_calls: Vec<brain_contracts::ToolCall>,
         retrieved_ids: Vec<String>,
         tool_result: Option<serde_json::Value>,
+        tool_result_once: bool,
     }
 
     #[derive(Clone)]
@@ -1330,10 +1331,12 @@ mod tests {
                         call_id.into()
                     },
                     name: request.name(),
-                    result: state
-                        .tool_result
-                        .clone()
-                        .unwrap_or_else(|| serde_json::json!({"status":"fixture"})),
+                    result: if state.tool_result_once {
+                        state.tool_result.take()
+                    } else {
+                        state.tool_result.clone()
+                    }
+                    .unwrap_or_else(|| serde_json::json!({"status":"fixture"})),
                     evidence_ids: vec![format!("{call_id}-cited")],
                     is_error: state.build_is_error
                         && request.name() == brain_contracts::ToolName::BuildPlan,
@@ -2560,6 +2563,60 @@ mod tests {
         assert_eq!(state.contexts[3].budget.max_network_rounds, 1);
     }
 
+    fn hero_profile() -> serde_json::Value {
+        serde_json::json!({"profile": "x".repeat(16_000)})
+    }
+
+    fn per_round_context() -> AuthorizedContext {
+        let mut context = context(&[], &["public"]);
+        context.deadline_ms = 600_000;
+        context.budget.max_network_rounds = 4;
+        context.budget.max_input_tokens = 32_000;
+        context.budget.max_output_tokens = 8192;
+        context
+    }
+
+    #[test]
+    fn four_round_lookup_with_hero_profile_fits_per_round_input_cap() {
+        let calls: Vec<_> = (0..3)
+            .map(|round| find_call(&format!("round-{round}")))
+            .collect();
+        let mut turns: Vec<_> = calls
+            .iter()
+            .map(|call| tool_turn(vec![call.clone()]))
+            .collect();
+        turns.push(final_turn(&["round-2-cited"]));
+        let (kernel, state) = tool_kernel(&calls, turns);
+        {
+            let mut state = state.lock().unwrap();
+            state.tool_result = Some(hero_profile());
+            state.tool_result_once = true;
+        }
+        let answer = kernel
+            .with_tools_only_limits(8, 16_384)
+            .answer_accounted(&query(AnswerProfile::Explain), &per_round_context());
+        assert_eq!(answer.value.status, AnswerStatus::Answered);
+        assert_eq!(answer.accounting.observed.network_rounds, 4);
+        assert_eq!(state.lock().unwrap().executions.len(), 3);
+    }
+
+    #[test]
+    fn single_round_over_input_cap_is_budget_exceeded() {
+        let calls = vec![find_call("hero-a"), find_call("hero-b")];
+        let (kernel, state) = tool_kernel(
+            &calls,
+            vec![tool_turn(calls.clone()), final_turn(&["hero-a-cited"])],
+        );
+        state.lock().unwrap().tool_result = Some(hero_profile());
+        let answer = kernel
+            .with_tools_only_limits(8, 16_384)
+            .answer_accounted(&query(AnswerProfile::Explain), &per_round_context());
+        assert_eq!(answer.value.status, AnswerStatus::BudgetExceeded);
+        let state = state.lock().unwrap();
+        assert_eq!(state.executions.len(), 2);
+        assert_eq!(state.calls, 1);
+    }
+
     #[test]
     fn required_tool_runs_before_model_and_retains_accounting_and_citation_checks() {
         for cited in [false, true] {
@@ -2667,7 +2724,7 @@ mod tests {
             );
         }
         assert!(
-            state.contexts[1].budget.max_input_tokens < state.contexts[0].budget.max_input_tokens
+            state.contexts[1].budget.max_input_tokens == state.contexts[0].budget.max_input_tokens
         );
     }
 
@@ -3594,7 +3651,10 @@ mod tests {
         assert_eq!(result.accounting.observed.network_rounds, 1);
         assert_eq!(result.accounting.observed.input_tokens, 10);
         assert_eq!(result.accounting.charged().network_rounds, 4);
-        assert_eq!(result.accounting.charged().input_tokens, 12000);
+        assert!(
+            result.accounting.charged().input_tokens
+                >= 12000 + result.accounting.observed.input_tokens
+        );
         assert_eq!(result.accounting.charged().output_tokens, 2000);
         assert_eq!(state.lock().unwrap().calls, 1);
     }

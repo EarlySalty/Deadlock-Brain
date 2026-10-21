@@ -728,12 +728,13 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
     let kernel = brain_kernel::Kernel::new(NoRetrieval, ScriptedProvider)
         .with_tools(traced, NoPin, "fixture");
     let kernel = brain_kernel::CachedKernel::new(kernel, 8, Duration::from_secs(30));
+    let mut tight = context.clone();
+    tight.budget.max_input_tokens = 8_000;
     assert_eq!(
-        kernel.answer_for_publication(&query, &context).status,
+        kernel.answer_for_publication(&query, &tight).status,
         AnswerStatus::BudgetExceeded
     );
-    let mut adapter_context = context.clone();
-    adapter_context.budget.max_input_tokens = 128_000;
+    let adapter_context = context.clone();
     let writer = runtime.block_on(async {
         super::super::answer_trace::PgTraceWriter::new(
             options.username("brain_service"),

@@ -189,6 +189,7 @@ mod tests {
             "../../../../../config/brain-serve.example.json"
         ))
         .unwrap();
+        value["release"] = json!({"id":"pilot-r1","knowledge_version":"pilot-knowledge-v1"});
         let base = value["release"].clone();
         let independent = json!({"id":"anderer-stand","knowledge_version":"anderes-wissen"});
         value["entity_profile_maintenance_config"] = json!("/tmp/brain-maintenance.json");
@@ -217,6 +218,7 @@ mod tests {
             "../../../../../config/brain-serve.example.json"
         ))
         .unwrap();
+        value["release"] = json!({"id":"pilot-r1","knowledge_version":"pilot-knowledge-v1"});
         let old = value["release"].clone();
         value["credentials"] = json!([
             {"token_env":"TWITCH_INTERNAL_API_TOKEN","actor_id":"twitch-bot","channel":"twitch","scopes":["bot.public"],"provider_egress":["public"]},

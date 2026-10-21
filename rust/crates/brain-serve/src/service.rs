@@ -296,9 +296,10 @@ fn startup_database_error(error: PortError) -> Error {
 async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
     let reader = prepared.reader.clone();
     tokio::task::spawn_blocking(move || {
-        reader
-            .check_core_schema()
-            .map_err(|_| Error::SchemaIncompatible)?;
+        reader.check_core_schema().map_err(|error| match error {
+            PortError::InvalidResponse(_) => Error::SchemaIncompatible,
+            other => startup_database_error(other),
+        })?;
         reader
             .check_tool_serving()
             .map_err(startup_database_error)?;

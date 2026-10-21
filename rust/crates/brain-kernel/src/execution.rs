@@ -92,6 +92,17 @@ fn remaining(
     next.budget.max_cost_micros = next.budget.max_cost_micros.checked_sub(usage.cost_micros)?;
     Some(next)
 }
+fn round_remaining(
+    context: &AuthorizedContext,
+    usage: &Usage,
+    elapsed: u64,
+) -> Option<AuthorizedContext> {
+    let per_round = Usage {
+        input_tokens: 0,
+        ..usage.clone()
+    };
+    remaining(context, &per_round, elapsed)
+}
 pub(super) fn validate_output<R: RetrievalPort>(
     retrieval: &R,
     query: &Query,
@@ -217,7 +228,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
         let mut pending = (!required.is_empty()).then_some(required);
         let mut required_evidence = Vec::<Vec<String>>::new();
         loop {
-            let next = remaining(context, &accounting.charged(), elapsed())
+            let next = round_remaining(context, &accounting.charged(), elapsed())
                 .ok_or(PortError::BudgetExceeded)?;
             if next.budget.max_network_rounds == 0 || next.budget.max_output_tokens == 0 {
                 return Err(PortError::BudgetExceeded);
@@ -268,7 +279,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     ToolWireFormat::OpenAiCompatible,
                     kernel.quality_filters,
                 )?);
-                let next = remaining(context, &accounting.charged(), elapsed())
+                let next = round_remaining(context, &accounting.charged(), elapsed())
                     .ok_or(PortError::BudgetExceeded)?;
                 if input > u64::from(next.budget.max_input_tokens) {
                     return Err(PortError::BudgetExceeded);
@@ -303,7 +314,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                 if accounting.unaccounted {
                     return Err(PortError::BudgetExceeded);
                 }
-                remaining(context, &accounting.charged(), elapsed())
+                round_remaining(context, &accounting.charged(), elapsed())
                     .ok_or(PortError::BudgetExceeded)?;
                 if turn.usage().network_rounds == 0 {
                     return Err(PortError::InvalidResponse(
@@ -329,7 +340,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                             "Ungültige finale Werkzeugantwort".into(),
                         ));
                     }
-                    let next = remaining(context, &accounting.charged(), elapsed())
+                    let next = round_remaining(context, &accounting.charged(), elapsed())
                         .ok_or(PortError::BudgetExceeded)?;
                     kernel.validate_tools(
                         query,
@@ -370,7 +381,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                             "Geprüftes Build-Ergebnis fehlt".into(),
                         ));
                     }
-                    remaining(context, &accounting.charged(), elapsed())
+                    round_remaining(context, &accounting.charged(), elapsed())
                         .ok_or(PortError::BudgetExceeded)?;
                     if !insufficient
                         && (!ledger.accepts(&answer)
@@ -409,7 +420,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     tool_calls += calls.len();
                     let mut results = Vec::new();
                     for (call, request) in calls {
-                        let next = remaining(context, &accounting.charged(), elapsed())
+                        let next = round_remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
                         kernel.validate_tools(
                             query,
@@ -419,7 +430,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                             ToolValidationPurpose::Provider,
                             purpose,
                         )?;
-                        let next = remaining(context, &accounting.charged(), elapsed())
+                        let next = round_remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
                         let Accounted {
                             value: execution,
@@ -440,7 +451,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         if accounting.unaccounted {
                             return Err(PortError::BudgetExceeded);
                         }
-                        remaining(context, &accounting.charged(), elapsed())
+                        round_remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
                         if serde_json::to_vec(&execution.result)
                             .map_err(|_| {
@@ -468,7 +479,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                             build_executions.push(execution.clone());
                         }
                         dependencies.extend(execution.dependencies);
-                        let next = remaining(context, &accounting.charged(), elapsed())
+                        let next = round_remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
                         kernel.validate_tools(
                             query,

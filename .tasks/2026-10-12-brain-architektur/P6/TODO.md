@@ -28,11 +28,20 @@ Proof lives in `/home/nathanael/.local/state/brain-wave3-proof-20261015/P6/` (`e
   - manifest/corpus/release openat 0
 - With the tools-first instruction, the model calls find_entity/get_hero, then every hero and item case ends in budget_exceeded.
   - Cause: `max_input_tokens` is charged cumulatively across rounds at 1 token per byte. Round 1 plus one hero profile (up to 16384 bytes) already exceeds 32000.
-- This needs an orchestrator decision: a per-round input cap, a larger cumulative cap, or smaller tool results.
+- Resolved by orchestrator decision A, see below.
 - Effects specific to the scratch environment:
   - strace slows pool connects, so requests return unavailable after the 250 ms pool wait.
   - serve.timer lookups take about 1 s on the scratch cluster.
 
+## Decision A: per-round input cap
+- The kernel tool loop checks `max_input_tokens` per model round, not cumulatively. The total stays bounded by at most 4 rounds. The round limit and all other budgets are unchanged, and there is no separate total-budget knob.
+- New kernel tests:
+  - a 4-round lookup with a 16 KB hero profile at 32000 is answered
+  - a single round over 32000 (two 16 KB results) is rejected with budget_exceeded
+- Updated assertions that encoded the old cumulative cap:
+  - in the kernel: the round-2 context gets the full per-round cap; an unaccounted tool failure reserves a full round cap
+  - in pg_tools: the real Baba/Abrams lookup answers at 32000, and an 8000 cap still rejects
+
 ## Open for integrator
-- Reduce the live brain-serve.json budgets to the validated range before deploy.
+- Before deploy, the integrator must lower the live `/home/nathanael/.config/deadlock-brain/brain-serve.json` budgets (currently 20 rounds and 20M input) to the validated values: at most 4 rounds and at most 32000 input tokens per round. The worker did not change the live config.
 - P4 (patch_history) and P5 (search_docs) are not wired on this base. The docs and patch E1 categories depend on them.
