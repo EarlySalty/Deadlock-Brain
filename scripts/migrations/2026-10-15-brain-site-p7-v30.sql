@@ -1,5 +1,5 @@
 BEGIN;
-CREATE FUNCTION serve.read_compare_artifact_v1(requested_id text)
+CREATE OR REPLACE FUNCTION serve.read_compare_artifact_v1(requested_id text)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
@@ -7,7 +7,7 @@ BEGIN
     RETURN brain.read_compare_artifact_v1(requested_id);
 END
 $function$;
-CREATE FUNCTION serve.read_compare_artifact_v2(requested_id text)
+CREATE OR REPLACE FUNCTION serve.read_compare_artifact_v2(requested_id text)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
