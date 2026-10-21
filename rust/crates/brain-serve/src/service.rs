@@ -200,6 +200,7 @@ impl Prepared {
             ),
         };
         provider_config.quality_filters = true;
+        provider_config.input_bytes_per_token = config.kernel.input_bytes_per_token;
         provider_config.timeout = Duration::from_millis(t.provider_ms);
         provider_config.retry_attempts = config.provider.retry_attempts;
         provider_config.retry_backoff = Duration::from_millis(config.provider.retry_backoff_ms);
@@ -405,7 +406,8 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         .with_tools_only_limits(
             prepared.config.kernel.max_tool_calls,
             prepared.config.kernel.max_tool_result_bytes,
-        );
+        )
+        .with_input_bytes_per_token(prepared.config.kernel.input_bytes_per_token);
     if let Some(config) = &prepared.config.deadlock_api {
         let pg = &prepared.config.postgres;
         let options = sqlx::postgres::PgConnectOptions::new_without_pgpass()
@@ -459,7 +461,8 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             .with_tools_only_limits(
                 prepared.config.kernel.max_tool_calls,
                 prepared.config.kernel.max_tool_result_bytes,
-            );
+            )
+            .with_input_bytes_per_token(prepared.config.kernel.input_bytes_per_token);
     }
     let kernel = CachedKernel::new(
         answer_kernel,

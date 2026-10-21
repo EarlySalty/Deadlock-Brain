@@ -1,6 +1,8 @@
 use super::*;
 use brain_contracts::{
-    provider_input::{grounded_turn_input_ceiling_with_quality, ToolWireFormat},
+    provider_input::{
+        estimated_input_tokens, grounded_turn_input_ceiling_with_quality, ToolWireFormat,
+    },
     EvidenceKind, ModelBlock, ProviderTurn, ToolConversation, ToolMessage,
 };
 use std::{
@@ -92,6 +94,25 @@ fn remaining(
     next.budget.max_cost_micros = next.budget.max_cost_micros.checked_sub(usage.cost_micros)?;
     Some(next)
 }
+fn observed_round_input(accounting: &UsageAccounting) -> Option<u64> {
+    let observed = &accounting.observed;
+    (!accounting.unaccounted && observed.input_tokens > 0 && observed.network_rounds > 0)
+        .then(|| observed.input_tokens / u64::from(observed.network_rounds))
+}
+
+fn round_input_estimate(
+    bytes_per_token: u32,
+    input_bytes: u64,
+    previous_round: Option<(u64, u64)>,
+) -> u64 {
+    match previous_round {
+        Some((bytes, observed)) if input_bytes >= bytes => {
+            observed.saturating_add(estimated_input_tokens(input_bytes - bytes, bytes_per_token))
+        }
+        _ => estimated_input_tokens(input_bytes, bytes_per_token),
+    }
+}
+
 fn round_remaining(
     context: &AuthorizedContext,
     usage: &Usage,
@@ -213,6 +234,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     let mut evidence = Vec::<Evidence>::new();
     let mut ledger = super::value_gate::ValueLedger::default();
     let mut provider_rounds = 0usize;
+    let mut previous_round = None;
     let mut tool_calls = 0usize;
     let mut seen_calls = BTreeSet::new();
     let result = (|| -> Result<brain_contracts::ProviderAnswer, PortError> {
@@ -263,7 +285,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     return Err(PortError::BudgetExceeded);
                 }
                 provider_rounds += 1;
-                let input = grounded_turn_input_ceiling_with_quality(
+                let input_bytes = grounded_turn_input_ceiling_with_quality(
                     query,
                     &evidence,
                     &session.definitions,
@@ -279,6 +301,8 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     ToolWireFormat::OpenAiCompatible,
                     kernel.quality_filters,
                 )?);
+                let input =
+                    round_input_estimate(kernel.input_bytes_per_token, input_bytes, previous_round);
                 let next = round_remaining(context, &accounting.charged(), elapsed())
                     .ok_or(PortError::BudgetExceeded)?;
                 if input > u64::from(next.budget.max_input_tokens) {
@@ -310,6 +334,8 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     unaccounted: reserved_input.is_none(),
                     ..UsageAccounting::default()
                 });
+                previous_round =
+                    observed_round_input(&turn_accounting).map(|observed| (input_bytes, observed));
                 accounting.accumulate(&turn_accounting);
                 if accounting.unaccounted {
                     return Err(PortError::BudgetExceeded);

@@ -85,6 +85,7 @@ pub struct Kernel<R, P> {
     provider: P,
     tools: Option<ToolBinding>,
     quality_filters: bool,
+    input_bytes_per_token: u32,
     clock: std::sync::Arc<dyn Fn() -> std::time::Instant + Send + Sync>,
 }
 
@@ -104,12 +105,18 @@ impl<R, P> Kernel<R, P> {
             provider,
             tools: None,
             quality_filters: true,
+            input_bytes_per_token: 1,
             clock: std::sync::Arc::new(std::time::Instant::now),
         }
     }
 
     pub fn with_quality_filters(mut self, enabled: bool) -> Self {
         self.quality_filters = enabled;
+        self
+    }
+
+    pub fn with_input_bytes_per_token(mut self, bytes_per_token: u32) -> Self {
+        self.input_bytes_per_token = bytes_per_token.max(1);
         self
     }
 
@@ -1708,6 +1715,7 @@ mod tests {
                 provider: kernel.provider,
                 tools: kernel.tools,
                 quality_filters: true,
+                input_bytes_per_token: kernel.input_bytes_per_token,
                 clock: kernel.clock,
             };
             let result = kernel.answer(&query(profile), &context(&[], &["public"]));
@@ -2788,7 +2796,7 @@ mod tests {
                 },
             ],
         };
-        let input_budget: u64 = [
+        let ceilings: Vec<u64> = [
             (&[][..], brain_contracts::ToolConversation::default()),
             (evidence.as_slice(), conversation),
         ]
@@ -2809,11 +2817,11 @@ mod tests {
                 .max()
                 .unwrap()
         })
-        .sum();
-        context.budget.max_input_tokens = u32::try_from(input_budget).unwrap();
+        .collect();
+        context.budget.max_input_tokens = u32::try_from(ceilings.iter().sum::<u64>()).unwrap();
         let answer = kernel.answer_with_purpose(&request, &context, AnswerPurpose::InternalRead);
         assert_eq!(answer.answer.status, AnswerStatus::Answered);
-        assert_eq!(answer.accounting.charged().input_tokens, input_budget);
+        assert_eq!(answer.accounting.charged().input_tokens, 10 + ceilings[1]);
         assert_eq!(state.lock().unwrap().executions.len(), 1);
         let brain_contracts::ToolSubrequest::HeroCompare(compare) =
             answer.tool_dependencies[0].request.subrequest()
@@ -3044,10 +3052,7 @@ mod tests {
     #[test]
     fn wiederholte_modellhistorie_ist_vor_dem_zweiten_versand_vollstaendig_reserviert() {
         let call = find_call("first");
-        let (kernel, state) = tool_kernel(
-            std::slice::from_ref(&call),
-            vec![tool_turn(vec![call.clone()]), final_turn(&["first-cited"])],
-        );
+        let (kernel, _) = tool_kernel(std::slice::from_ref(&call), Vec::new());
         let request = query(AnswerProfile::Explain);
         let mut context = context(&[], &["public"]);
         let session = kernel
@@ -3072,6 +3077,14 @@ mod tests {
         .max()
         .unwrap();
         context.budget.max_input_tokens = u32::try_from(input).unwrap();
+        let mut first_turn = tool_turn(vec![call.clone()]);
+        if let brain_contracts::ProviderTurn::ToolCalls { usage, .. } = &mut first_turn {
+            usage.input_tokens = input;
+        }
+        let (kernel, state) = tool_kernel(
+            std::slice::from_ref(&call),
+            vec![first_turn, final_turn(&["first-cited"])],
+        );
         assert_eq!(
             kernel.answer(&request, &context).status,
             AnswerStatus::BudgetExceeded

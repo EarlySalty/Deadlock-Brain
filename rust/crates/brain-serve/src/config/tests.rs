@@ -74,8 +74,13 @@ fn every_required_section_and_field_is_fail_closed() {
             let mut value = original.clone();
             value[section].as_object_mut().unwrap().remove(key);
             if section != "kernel"
-                || !["quality_filters", "max_tool_calls", "max_tool_result_bytes"]
-                    .contains(&key.as_str())
+                || ![
+                    "quality_filters",
+                    "max_tool_calls",
+                    "max_tool_result_bytes",
+                    "input_bytes_per_token",
+                ]
+                .contains(&key.as_str())
             {
                 assert!(parse(&value).is_err(), "missing field: {section}.{key}");
             }
@@ -161,6 +166,8 @@ fn tools_only_budgets_reject_unbounded_configuration() {
         ("budgets", "max_input_tokens", 32_001),
         ("kernel", "max_tool_calls", 9),
         ("kernel", "max_tool_result_bytes", 16_385),
+        ("kernel", "input_bytes_per_token", 0),
+        ("kernel", "input_bytes_per_token", 5),
     ] {
         let mut config = example();
         config[section][field] = json!(value);

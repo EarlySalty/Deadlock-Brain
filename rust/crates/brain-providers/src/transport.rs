@@ -311,8 +311,11 @@ impl OpenAiCompatibleProvider {
         if self.config.subscription && (!chat || route != "messages") {
             return Err(ProviderError::InvalidConfig);
         }
-        let input = brain_contracts::provider_input::transport_input_ceiling(payload, chat)
-            .map_err(provider_contract_error)?;
+        let input = brain_contracts::provider_input::estimated_input_tokens(
+            brain_contracts::provider_input::transport_input_ceiling(payload, chat)
+                .map_err(provider_contract_error)?,
+            self.config.input_bytes_per_token,
+        );
         let mut attempts = self
             .config
             .retry_attempts

@@ -42,6 +42,13 @@ Proof lives in `/home/nathanael/.local/state/brain-wave3-proof-20261015/P6/` (`e
   - in the kernel: the round-2 context gets the full per-round cap; an unaccounted tool failure reserves a full round cap
   - in pg_tools: the real Baba/Abrams lookup answers at 32000, and an 8000 cap still rejects
 
+## Decision a+b: single-counted evidence, byte-to-token estimate
+- Evidence that a tool result already carries is listed in the prompt by id, citation and source_basis with `content_in_tool_result: true`; its content is no longer repeated. Citations and receipts are unchanged.
+- Input tokens are estimated as bytes divided by `kernel.input_bytes_per_token` (brain-serve config, default 3, validated 1..=4). Kernel and provider transport both use it.
+- From round 2 on, the kernel uses the provider-reported input of the previous round plus the estimated byte growth when the previous round was accounted.
+- Unchanged: 32000 input cap per round, at most 4 rounds, at most 8 calls, at most 16384 bytes per tool result.
+- serve.timer on scratch: EXPLAIN ANALYZE about 2.0 to 2.4 s (`explain-urn.txt`, `explain-soul_box.txt` in the proof directory). serve.current_fact runs DISTINCT ON over all 226989 facts with an external merge sort (42 MB on disk at work_mem 4 MB) before the timer key filter applies. The cost comes from the view structure and the data volume, not from the scratch cluster, so production with the same fact count is affected too. It exceeds the 2000 ms statement timeout and needs a separate migration.
+
 ## Open for integrator
 - Before deploy, the integrator must lower the live `/home/nathanael/.config/deadlock-brain/brain-serve.json` budgets (currently 20 rounds and 20M input) to the validated values: at most 4 rounds and at most 32000 input tokens per round. The worker did not change the live config.
 - P4 (patch_history) and P5 (search_docs) are not wired on this base. The docs and patch E1 categories depend on them.

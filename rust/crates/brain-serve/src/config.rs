@@ -212,6 +212,8 @@ pub struct Kernel {
     pub max_tool_calls: usize,
     #[serde(default = "default_max_tool_result_bytes")]
     pub max_tool_result_bytes: usize,
+    #[serde(default = "default_input_bytes_per_token")]
+    pub input_bytes_per_token: u32,
 }
 
 fn default_max_tool_calls() -> usize {
@@ -219,6 +221,9 @@ fn default_max_tool_calls() -> usize {
 }
 fn default_max_tool_result_bytes() -> usize {
     16_384
+}
+fn default_input_bytes_per_token() -> u32 {
+    3
 }
 
 #[derive(Clone, Deserialize)]
@@ -583,7 +588,8 @@ impl Config {
             self.kernel.cache_entries <= 1024
                 && self.kernel.cache_ttl_ms <= 60_000
                 && (1..=8).contains(&self.kernel.max_tool_calls)
-                && (1..=16_384).contains(&self.kernel.max_tool_result_bytes),
+                && (1..=16_384).contains(&self.kernel.max_tool_result_bytes)
+                && (1..=4).contains(&self.kernel.input_bytes_per_token),
             "kernel",
         )?;
         if let Some(analytics) = &self.analytics {

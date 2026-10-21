@@ -39,7 +39,8 @@
     "cache_ttl_ms": 1,
     "quality_filters": true,
     "max_tool_calls": 8,
-    "max_tool_result_bytes": 16384
+    "max_tool_result_bytes": 16384,
+    "input_bytes_per_token": 3
   },
   "credentials": [
     {

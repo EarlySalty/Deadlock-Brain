@@ -559,7 +559,17 @@ fn beide_provider_fuehren_belegte_folgerunden_mit_allen_abhaengigkeiten() {
                 u64::from(input.context.budget.max_input_tokens),
                 u64::from(context().budget.max_input_tokens)
             );
-            expected_charge += charge(kind, &all, &conversation(round));
+            let previous: Vec<_> = (1..round).flat_map(evidence).collect();
+            let kernel_estimate = match round {
+                0 => ceiling(&all, &conversation(round)),
+                _ => {
+                    1 + ceiling(&all, &conversation(round))
+                        - ceiling(&previous, &conversation(round - 1))
+                }
+            };
+            expected_charge += kernel_estimate.max(
+                transport_input_ceiling(&kind.payload(&all, &conversation(round)), true).unwrap(),
+            );
         }
         for execution in executions.lock().unwrap().iter() {
             assert_eq!(
@@ -607,7 +617,7 @@ fn unzitierte_utf8_belege_stoppen_folgerunde_vor_provideraufruf() {
         );
         assert_eq!(outcome.value.status, AnswerStatus::BudgetExceeded);
         assert!(outcome.value.citations.is_empty());
-        assert_eq!(inputs.lock().unwrap().len(), 1);
+        assert_eq!(inputs.lock().unwrap().len(), 2);
         assert_eq!(executions.lock().unwrap().len(), 1);
         assert_eq!(server.finish().len(), 1);
         assert_eq!(outcome.accounting.charged().input_tokens, first);

@@ -203,6 +203,27 @@ fn tool_display_result(query: &Query, result: &ToolResult, evidence: &[Evidence]
 }
 
 pub fn grounded_messages(query: &Query, evidence: &[Evidence]) -> Vec<ChatMessage> {
+    grounded_messages_referencing(query, evidence, &BTreeSet::new())
+}
+
+fn tool_result_evidence_ids(conversation: &ToolConversation) -> BTreeSet<&str> {
+    conversation
+        .messages
+        .iter()
+        .filter_map(|message| match message {
+            ToolMessage::ToolResults { results } => Some(results),
+            ToolMessage::Assistant { .. } => None,
+        })
+        .flatten()
+        .flat_map(|result| result.evidence_ids.iter().map(String::as_str))
+        .collect()
+}
+
+fn grounded_messages_referencing(
+    query: &Query,
+    evidence: &[Evidence],
+    in_tool_results: &BTreeSet<&str>,
+) -> Vec<ChatMessage> {
     let projected = crate::invite::project_query(query);
     let is_discord_task = crate::discord_task::is_private_context_query(query);
     let evidence: Vec<_> = if crate::invite::requested(query) {
@@ -237,6 +258,14 @@ pub fn grounded_messages(query: &Query, evidence: &[Evidence]) -> Vec<ChatMessag
                 } else {
                     (citation.to_owned(), content)
                 };
+                if in_tool_results.contains(item.evidence_id.as_str()) {
+                    return json!({
+                        "id": item.evidence_id,
+                        "citation": citation,
+                        "source_basis": source_basis,
+                        "content_in_tool_result": true,
+                    });
+                }
                 json!({
                     "id": item.evidence_id,
                     "citation": citation,
@@ -324,7 +353,8 @@ pub fn grounded_turn_payload_with_quality(
     quality_filters: bool,
 ) -> Result<Value, PortError> {
     conversation.validate(definitions)?;
-    let mut grounded = grounded_messages(query, evidence);
+    let mut grounded =
+        grounded_messages_referencing(query, evidence, &tool_result_evidence_ids(conversation));
     grounded[0].content.push_str(" Nenne Spieltimer und Zahlenwerte nur aus versionsgebundenen Spielkonfigurationen oder passenden belegten Quellen. Nenne dazu den belegten Patchstand; ist nur eine Quellrevision bekannt, nenne diesen Stand und sage kurz, dass die aktuelle Patchgültigkeit nicht bestätigt ist. Quellrevisionen und Einlesedaten sind kein Patchnachweis. Uninterpretierte Konfigurationsfelder belegen ohne geklärte Bedeutung keine Spielregel oder Einheit. Fehlt ein gesicherter Wert, sage das kurz und direkt, statt nach Patch oder Bedeutung zurückzufragen. Vermische keine Werte aus Standardmodus und Street Brawl; ohne Modusangabe gilt Standardmodus.");
     if !quality_filters {
         grounded[0].content = grounded[0].content
@@ -469,6 +499,10 @@ pub fn grounded_turn_input_ceiling_with_quality(
         )?,
         true,
     )
+}
+
+pub fn estimated_input_tokens(input_bytes: u64, bytes_per_token: u32) -> u64 {
+    input_bytes.div_ceil(u64::from(bytes_per_token.max(1)))
 }
 
 pub fn transport_input_ceiling(payload: &Value, chat: bool) -> Result<u64, PortError> {
@@ -1533,7 +1567,8 @@ mod tests {
                 let offset = usize::from(format == ToolWireFormat::OpenAiCompatible);
                 let data: Value =
                     serde_json::from_str(messages[offset]["content"].as_str().unwrap()).unwrap();
-                assert_eq!(data["evidence"][1]["content"], ordinary_content);
+                assert_eq!(data["evidence"][1]["content"], Value::Null);
+                assert_eq!(data["evidence"][1]["content_in_tool_result"], true);
                 assert_eq!(data["evidence"][1]["citation"], ordinary_citation);
                 assert_eq!(data["evidence"][1]["source_basis"]["patch"], ordinary_patch);
                 let last = messages.last().unwrap();
