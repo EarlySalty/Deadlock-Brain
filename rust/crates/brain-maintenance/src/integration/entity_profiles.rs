@@ -1237,61 +1237,15 @@ where
 }
 
 #[cfg(test)]
+#[path = "../../../brain-storage/tests/support/scratch_pg.rs"]
+mod scratch_pg;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use brain_contracts::entity_profile::{EntityIdentity, EntityKind, ENTITY_PROFILE_VERSION};
 
-    struct ScratchPg {
-        directory: tempfile::TempDir,
-    }
-
-    impl ScratchPg {
-        fn start() -> Self {
-            let directory = tempfile::tempdir().unwrap();
-            let instance = Self { directory };
-            let data = instance.directory.path().join("data");
-            let socket = instance.directory.path().join("socket");
-            std::fs::create_dir(&socket).unwrap();
-            assert!(
-                std::process::Command::new("/usr/lib/postgresql/16/bin/initdb")
-                    .arg("-D")
-                    .arg(&data)
-                    .args(["-A", "trust", "-U", "brain_core_test", "--no-locale"])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-            let options = format!("-k {} -p 55441 -c listen_addresses=''", socket.display());
-            assert!(
-                std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-                    .arg("-D")
-                    .arg(&data)
-                    .arg("-l")
-                    .arg(instance.directory.path().join("postgres.log"))
-                    .args(["-o", &options, "-w", "start"])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-            instance
-        }
-    }
-
-    impl Drop for ScratchPg {
-        fn drop(&mut self) {
-            let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-                .arg("-D")
-                .arg(self.directory.path().join("data"))
-                .args(["-m", "immediate", "-w", "stop"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
-        }
-    }
+    use super::scratch_pg::ScratchPg;
 
     #[tokio::test]
     async fn import_validation_failure_is_visible_without_raw_values() {
@@ -1452,12 +1406,12 @@ mod tests {
 
     #[tokio::test]
     async fn derivation_timeout_keeps_safe_sqlstate_and_step() {
-        let pg = ScratchPg::start();
+        let pg = ScratchPg::start_at("brain-maintenance-pg", 55441);
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .connect_with(
                 sqlx::postgres::PgConnectOptions::new_without_pgpass()
-                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .host(pg.directory.as_path().join("socket").to_str().unwrap())
                     .port(55441)
                     .username("brain_core_test")
                     .database("postgres"),
@@ -1492,12 +1446,12 @@ mod tests {
     #[tokio::test]
     #[ignore = "Lokaler Beleg mit den vorgegebenen Originalpins"]
     async fn pinned_original_import() {
-        let pg = ScratchPg::start();
+        let pg = ScratchPg::start_at("brain-maintenance-pg", 55441);
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
             .connect_with(
                 sqlx::postgres::PgConnectOptions::new_without_pgpass()
-                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .host(pg.directory.as_path().join("socket").to_str().unwrap())
                     .port(55441)
                     .username("brain_core_test")
                     .database("postgres"),
@@ -1537,12 +1491,12 @@ mod tests {
 
     #[tokio::test]
     async fn existing_patch_import_and_parser_repeat_without_deleting_history() {
-        let pg = ScratchPg::start();
+        let pg = ScratchPg::start_at("brain-maintenance-pg", 55441);
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
             .connect_with(
                 sqlx::postgres::PgConnectOptions::new_without_pgpass()
-                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .host(pg.directory.as_path().join("socket").to_str().unwrap())
                     .port(55441)
                     .username("brain_core_test")
                     .database("postgres"),
@@ -1578,7 +1532,7 @@ mod tests {
             let grants = std::process::Command::new("/usr/lib/postgresql/16/bin/psql")
                 .arg("-X")
                 .arg("-h")
-                .arg(pg.directory.path().join("socket"))
+                .arg(pg.directory.as_path().join("socket"))
                 .args(["-p", "55441", "-U", "brain_core_test", "-d", "postgres"])
                 .args(["-v", "db=postgres", "-f"])
                 .arg(concat!(
@@ -1597,7 +1551,7 @@ mod tests {
             .max_connections(2)
             .connect_with(
                 sqlx::postgres::PgConnectOptions::new_without_pgpass()
-                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .host(pg.directory.as_path().join("socket").to_str().unwrap())
                     .port(55441)
                     .username("brain_ingest")
                     .database("postgres"),
@@ -1609,7 +1563,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(role, "brain_ingest");
-        let raw = pg.directory.path().join("raw");
+        let raw = pg.directory.as_path().join("raw");
         let initial = refresh_patch_history(&ingest_pool, &raw).await.unwrap();
         assert!(initial["parsed"]["events_inserted"].as_i64().unwrap() > 0);
         assert_eq!(initial["parsed"]["deleted_before_parse"], 0);
@@ -1725,12 +1679,12 @@ mod tests {
         use brain_storage::entity_profile::derivation::{
             derived_policy, GitDocumentReceipt, GIT_DOCUMENT_CONTRACT,
         };
-        let pg = ScratchPg::start();
+        let pg = ScratchPg::start_at("brain-maintenance-pg", 55441);
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
             .connect_with(
                 sqlx::postgres::PgConnectOptions::new_without_pgpass()
-                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .host(pg.directory.as_path().join("socket").to_str().unwrap())
                     .port(55441)
                     .username("brain_core_test")
                     .database("postgres"),

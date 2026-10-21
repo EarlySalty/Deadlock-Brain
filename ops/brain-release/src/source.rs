@@ -22,6 +22,15 @@ pub const BUILD_ARGS: [&str; 7] = [
     "--locked",
     "--release",
     "--jobs",
+    "12",
+    "--workspace",
+    "--bins",
+];
+pub const PREVIOUS_BUILD_ARGS: [&str; 7] = [
+    "build",
+    "--locked",
+    "--release",
+    "--jobs",
     "8",
     "--workspace",
     "--bins",
@@ -304,11 +313,9 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<()> {
         "Herkunft fehlt"
     );
     ensure!(
-        [BUILD_ARGS, LEGACY_BUILD_ARGS].iter().any(|args| manifest
-            .build_args
+        [BUILD_ARGS, PREVIOUS_BUILD_ARGS, LEGACY_BUILD_ARGS]
             .iter()
-            .map(String::as_str)
-            .eq(*args)),
+            .any(|args| manifest.build_args.iter().map(String::as_str).eq(*args)),
         "Unbekannter Buildaufruf"
     );
     ensure!(
@@ -436,6 +443,42 @@ pub fn verify_unchanged(source: &Path, bundle: &Path, manifest: &Manifest) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manifests_accept_current_and_historical_build_arguments() {
+        let mut manifest = Manifest {
+            format: 3,
+            source: Source {
+                sha: "a".repeat(40),
+                tree: "b".repeat(40),
+                fingerprint: "c".repeat(64),
+                path: "/not-executed".into(),
+                worktree_dev: 1,
+                worktree_ino: 1,
+                git_pointer_sha256: "d".repeat(64),
+            },
+            origin: ORIGIN.into(),
+            cargo_version: "test".into(),
+            rustc_version: "test".into(),
+            build_args: Vec::new(),
+            artifacts: BINS
+                .iter()
+                .map(|name| Artifact {
+                    name: (*name).into(),
+                    sha256: "e".repeat(64),
+                })
+                .collect(),
+        };
+        for format in [2, 3] {
+            manifest.format = format;
+            for args in [BUILD_ARGS, PREVIOUS_BUILD_ARGS, LEGACY_BUILD_ARGS] {
+                manifest.build_args = args.iter().map(|arg| (*arg).into()).collect();
+                validate_manifest(&manifest).unwrap();
+            }
+            manifest.build_args[4] = "16".into();
+            assert!(validate_manifest(&manifest).is_err());
+        }
+    }
 
     #[test]
     fn reuse_requires_the_complete_revision_not_the_old_worktree_path() {

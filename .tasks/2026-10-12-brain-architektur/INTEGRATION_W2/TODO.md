@@ -16,6 +16,10 @@ Next: P10 `5e10cbf5` registers version 26, then origin/main. P5 remains delibera
 
 Migration 26 (meta stats views over `serve.published_receipt`) sits between 23 and 28 in the registry; the union is now 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 13, 23, 26, 28, 31. `get_meta_stats` joins the canonical tool set beside timers and asset tools. Verification: fmt, check, strict clippy and 158 tests in 16 groups green locally (`p10-*.log` in the evidence directory).
 
+## origin/main c4bf51b5 integrated, 2026-10-21
+
+Clean merge (scratch PostgreSQL supervisor, entity profile cut, brain-release provenance). The scratch supervisor is an `#[ignore]`d harness entry `supervise_cluster` that only works when started by `ScratchPg` with its environment; under the mandatory `--include-ignored` any filter matching it runs it directly and it panics. Test commands therefore add `--skip supervise_cluster`; no real test is skipped. Verification: fmt, check, strict clippy for contracts, job, storage, serve, maintenance and ops/brain-release; 218 tests in 19 groups green (`main-*.log`).
+
 ## Queued stages after origin/main
 
 - Stage 4: P5 wiring `0dc6f130` (branch `feat/brain-p5-wiring-20261015`, migration 24, gate ALLOW). P5 docs transactions use `SET LOCAL jit=off` and join/from collapse limit 8; the tool pool sets no collapse limit, so the transaction-local value applies. Verify `pg_docs` 29/29 with 400 docs well under 500 ms and watch the two P2 slot executor tests (749 ms planning under load average 20 on the P5 branch) without raising the 500 ms limit.

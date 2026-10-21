@@ -1141,61 +1141,14 @@ fn main() {
 }
 
 #[cfg(test)]
+#[path = "../../../brain-storage/tests/support/scratch_pg.rs"]
+mod scratch_pg;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    struct ScratchPg {
-        directory: tempfile::TempDir,
-    }
-
-    impl ScratchPg {
-        fn start() -> Self {
-            let instance = Self {
-                directory: tempfile::tempdir().unwrap(),
-            };
-            let data = instance.directory.path().join("data");
-            let socket = instance.directory.path().join("socket");
-            std::fs::create_dir(&socket).unwrap();
-            assert!(
-                std::process::Command::new("/usr/lib/postgresql/16/bin/initdb")
-                    .arg("-D")
-                    .arg(&data)
-                    .args(["-A", "trust", "-U", "brain_core_test", "--no-locale"])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-            let options = format!("-k {} -p 55442 -c listen_addresses=''", socket.display());
-            assert!(
-                std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-                    .arg("-D")
-                    .arg(data)
-                    .arg("-l")
-                    .arg(instance.directory.path().join("postgres.log"))
-                    .args(["-o", &options, "-w", "start"])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-            instance
-        }
-    }
-
-    impl Drop for ScratchPg {
-        fn drop(&mut self) {
-            let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-                .arg("-D")
-                .arg(self.directory.path().join("data"))
-                .args(["-m", "immediate", "-w", "stop"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
-        }
-    }
+    use super::scratch_pg::ScratchPg;
 
     #[test]
     #[ignore = "Wird von der FD-Prozessregression mit einem regulären Test-stdin gestartet"]
@@ -1890,12 +1843,12 @@ mod tests {
         check_entity_profile_sources(&runtime, &store, &pool, &candidate, &candidate, &allowed)
             .await
             .unwrap();
-        let pg = ScratchPg::start();
+        let pg = ScratchPg::start_at("brain-maintenance-pg", 55442);
         let pool = PgPoolOptions::new()
             .max_connections(2)
             .connect_with(
                 PgConnectOptions::new_without_pgpass()
-                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .host(pg.directory.as_path().join("socket").to_str().unwrap())
                     .port(55442)
                     .username("brain_core_test")
                     .database("postgres"),
@@ -1922,7 +1875,7 @@ mod tests {
             .max_connections(2)
             .connect_with(
                 PgConnectOptions::new_without_pgpass()
-                    .host(pg.directory.path().join("socket").to_str().unwrap())
+                    .host(pg.directory.as_path().join("socket").to_str().unwrap())
                     .port(55442)
                     .username("brain_ingest")
                     .database("postgres"),

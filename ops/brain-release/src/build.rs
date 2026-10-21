@@ -32,15 +32,33 @@ fn build_dir_override(target: &Path) -> Result<String> {
 pub const RUSTFLAGS: &str = "--remap-path-prefix=/home/nathanael=/brain-operator";
 pub const TARGET: &str = "/home/nathanael/.cache/brain-release-target";
 
-fn run_cargo(source: &Path, target: &Path) -> Result<()> {
-    ensure!(
-        fs_safe::uid() == OPERATOR,
-        "Cargo darf niemals als root laufen"
-    );
-    fs_safe::new_dir(target)?;
-    let status = source::command("/home/nathanael/.local/bin/cargo-slot")
+fn join_cargo_budget() {
+    let pid = std::process::id().to_string();
+    let failures: Vec<_> = [
+        "/sys/fs/cgroup/cpu,cpuacct/cargo-budget/cgroup.procs",
+        "/sys/fs/cgroup/memory/cargo-budget/cgroup.procs",
+    ]
+    .into_iter()
+    .filter_map(|path| {
+        fs::write(path, &pid)
+            .err()
+            .map(|error| format!("{path}: {error}"))
+    })
+    .collect();
+    if !failures.is_empty() {
+        eprintln!(
+            "Warnung: Cargo-Budget nicht vollständig verfügbar; der Build läuft weiter: {}",
+            failures.join("; ")
+        );
+    }
+}
+
+fn cargo_command(source: &Path, target: &Path) -> Result<Command> {
+    let mut command = source::command("/home/nathanael/.local/bin/cargo-slot");
+    command
         .current_dir(source.join("rust"))
         .env("CARGO_SLOT_DEPLOY", "1")
+        .env("CARGO_SLOT_REMOTE", "0")
         .env("CARGO_INCREMENTAL", "0")
         .env("RUSTFLAGS", RUSTFLAGS)
         .env("RUSTC_WRAPPER", "/home/nathanael/.cargo/bin/sccache")
@@ -51,8 +69,18 @@ fn run_cargo(source: &Path, target: &Path) -> Result<()> {
         .arg("--config")
         .arg(build_dir_override(target)?)
         .stdout(std::io::stderr())
-        .stderr(Stdio::inherit())
-        .status()?;
+        .stderr(Stdio::inherit());
+    Ok(command)
+}
+
+fn run_cargo(source: &Path, target: &Path) -> Result<()> {
+    ensure!(
+        fs_safe::uid() == OPERATOR,
+        "Cargo darf niemals als root laufen"
+    );
+    fs_safe::new_dir(target)?;
+    join_cargo_budget();
+    let status = cargo_command(source, target)?.status()?;
     ensure!(
         status.success(),
         "Releasebau fehlgeschlagen (Exit {:?})",
@@ -272,6 +300,18 @@ pub fn compile(source: &Path, bundle: &Path) -> Result<Manifest> {
 mod tests {
     use super::*;
     use std::os::unix::fs::{symlink, PermissionsExt};
+
+    #[test]
+    fn cargo_child_explicitly_disables_remote_deployment() {
+        let command = cargo_command(Path::new("/source"), Path::new(TARGET)).unwrap();
+        assert_eq!(
+            command
+                .get_envs()
+                .find(|(key, _)| *key == "CARGO_SLOT_REMOTE")
+                .and_then(|(_, value)| value),
+            Some(std::ffi::OsStr::new("0"))
+        );
+    }
 
     #[test]
     fn target_is_fresh_and_removed_on_success_and_failure() {

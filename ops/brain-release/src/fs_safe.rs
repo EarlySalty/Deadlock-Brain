@@ -222,9 +222,7 @@ impl Lock {
         Self::open(path, owner, true)
     }
     fn open(path: &Path, owner: u32, nonblocking: bool) -> Result<Option<Self>> {
-        if path != Path::new("/tmp/deadlock-cargo-release.lock") {
-            checked_path(path.parent().context("Lock-Elternpfad fehlt")?, owner, true)?;
-        }
+        checked_path(path.parent().context("Lock-Elternpfad fehlt")?, owner, true)?;
         let file = OpenOptions::new()
             .read(true)
             .write(true)
