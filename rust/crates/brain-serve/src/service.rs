@@ -472,9 +472,13 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                 docs,
                 ToolDefinition {
                     name: brain_contracts::ToolName::SearchDocs,
-                    description:
-                        "Durchsucht veröffentlichte Dokumentationsabschnitte mit Quellenbelegen."
-                            .into(),
+                    description: "Durchsucht die deutschsprachige Community-Dokumentation \
+                        (Discord-Server, Bots, Steam- und Twitch-Verknüpfung, Voice-Lanes, Befehle, \
+                        Deadlock-Grundlagen) und liefert veröffentlichte Abschnitte mit Quellenbelegen. \
+                        Bei Fragen zu Server, Bots, Befehlen oder Abläufen zuerst hier suchen. \
+                        Suche mit wenigen deutschen Stichwörtern aus der Frage, Befehle mit \
+                        Schrägstrich, zum Beispiel /checkrank."
+                        .into(),
                     input_schema: brain_contracts::tools::SearchDocsRequest::input_schema(),
                 },
             )
