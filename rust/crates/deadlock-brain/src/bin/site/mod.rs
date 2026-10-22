@@ -1,31 +1,28 @@
-mod assets;
-mod comments;
+mod artifacts;
 mod compare;
 pub(crate) mod database;
+mod pages;
 pub(crate) mod profiles;
 
 use anyhow::{ensure, Context, Result};
 use axum::{
-    extract::{DefaultBodyLimit, State},
-    http::{header, Method, StatusCode, Uri},
-    response::{IntoResponse, Response},
+    extract::DefaultBodyLimit,
+    http::{header, HeaderValue},
+    response::Response,
     routing::get,
     Router,
 };
 use sqlx::PgPool;
-use std::{
-    net::SocketAddr,
-    path::{Path, PathBuf},
-    sync::{atomic::AtomicBool, Arc},
-};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use tokio::sync::Semaphore;
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
-    #[arg(long)]
-    pub corpus_root: PathBuf,
+    #[arg(long, hide = true)]
+    pub corpus_root: Option<PathBuf>,
     #[command(flatten)]
     pub database: database::ConnectionArgs,
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub serve_config: Option<PathBuf>,
     #[arg(long, default_value = "127.0.0.1:8087")]
     pub bind: SocketAddr,
@@ -37,10 +34,8 @@ pub async fn serve(args: Args) -> Result<()> {
         "Die Brain-Site darf nur auf Loopback lauschen."
     );
     let pool = args.database.pool("brain_site").await?;
-    if let Some(config) = args.serve_config.as_deref() {
-        profiles::release_from_config(config).await?;
-    }
-    let app = router_with_config(&args.corpus_root, pool, args.serve_config).await?;
+    database::preflight(&pool).await?;
+    let app = router(pool);
     let listener = tokio::net::TcpListener::bind(args.bind)
         .await
         .context("Der lokale Siteport ist nicht verfügbar.")?;
@@ -51,98 +46,58 @@ pub async fn serve(args: Args) -> Result<()> {
 
 #[derive(Clone)]
 struct Site {
-    assets: Arc<assets::Assets>,
-    serve_config: Option<PathBuf>,
     pool: PgPool,
-    comments_available: Arc<AtomicBool>,
+    requests: Arc<Semaphore>,
 }
 
-#[cfg(test)]
-pub async fn router(root: &Path, pool: PgPool) -> Result<Router> {
-    router_with_config(root, pool, None).await
-}
-
-async fn router_with_config(
-    root: &Path,
-    pool: PgPool,
-    serve_config: Option<PathBuf>,
-) -> Result<Router> {
-    comments::preflight(&pool).await?;
-    let assets = assets::Assets::new(root)?;
-    Ok(Router::new()
-        .route(
-            "/api/comments",
-            get(comments::get_comments).post(comments::post_comment),
-        )
+fn router(pool: PgPool) -> Router {
+    let site = Site {
+        pool,
+        requests: Arc::new(Semaphore::new(4)),
+    };
+    Router::<Site>::new()
         .route("/compare/{id}", get(compare::page))
-        .route("/compare/{id}/chart.svg", get(compare::chart))
+        .route("/compare/{id}/chart.svg", get(artifacts::chart))
         .route("/site/compare/{id}", get(compare::page))
-        .route("/site/compare/{id}/chart.svg", get(compare::chart))
+        .route("/site/compare/{id}/chart.svg", get(artifacts::chart))
         .route("/site/steckbriefe", get(profiles::index))
         .route("/site/steckbriefe/", get(profiles::index))
         .route("/site/steckbriefe/{kind}/{id}", get(profiles::page))
-        .fallback(file)
+        .route("/site/entities/{kind}/{id}", get(profiles::page))
+        .fallback(pages::page)
         .layer(DefaultBodyLimit::max(65536))
+        .layer(axum::middleware::from_fn_with_state(
+            site.clone(),
+            limit_requests,
+        ))
         .layer(axum::middleware::map_response(security_headers))
-        .with_state(Site {
-            assets: Arc::new(assets),
-            serve_config,
-            pool,
-            comments_available: Arc::new(AtomicBool::new(true)),
-        }))
+        .with_state(site)
 }
 
 async fn security_headers(mut response: Response) -> Response {
     let headers = response.headers_mut();
-    headers.insert("x-content-type-options", "nosniff".parse().unwrap());
-    headers.insert("referrer-policy", "same-origin".parse().unwrap());
     headers.insert(
-        "content-security-policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
-            .parse()
-            .unwrap(),
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
     );
+    headers.insert("referrer-policy", HeaderValue::from_static("same-origin"));
+    headers.insert("content-security-policy", HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"));
     headers
         .entry(header::CACHE_CONTROL)
-        .or_insert("no-cache".parse().unwrap());
+        .or_insert(HeaderValue::from_static("no-store"));
     response
-}
-
-async fn file(State(site): State<Site>, method: Method, uri: Uri) -> Response {
-    if method != Method::GET && method != Method::HEAD {
-        return (
-            StatusCode::METHOD_NOT_ALLOWED,
-            [(header::ALLOW, "GET, HEAD")],
-            "Diese Anfrage wird nicht unterstützt.",
-        )
-            .into_response();
-    }
-    if uri.path() == "/site" {
-        return (StatusCode::MOVED_PERMANENTLY, [(header::LOCATION, "site/")]).into_response();
-    }
-    let assets = site.assets.clone();
-    let path = uri.path().to_owned();
-    let result = tokio::task::spawn_blocking(move || assets.read(&path)).await;
-    match result {
-        Ok(Ok((content_type, bytes))) => {
-            let length = bytes.len().to_string();
-            (
-                StatusCode::OK,
-                [
-                    (header::CONTENT_TYPE, content_type.to_string()),
-                    (header::CONTENT_LENGTH, length),
-                ],
-                if method == Method::HEAD {
-                    Vec::new()
-                } else {
-                    bytes
-                },
-            )
-                .into_response()
-        }
-        _ => (StatusCode::NOT_FOUND, "Diese Seite ist nicht verfügbar.").into_response(),
-    }
 }
 
 #[cfg(test)]
 mod tests;
+
+async fn limit_requests(
+    axum::extract::State(site): axum::extract::State<Site>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let Ok(_permit) = site.requests.try_acquire_owned() else {
+        return profiles::unavailable(request.method().clone());
+    };
+    next.run(request).await
+}

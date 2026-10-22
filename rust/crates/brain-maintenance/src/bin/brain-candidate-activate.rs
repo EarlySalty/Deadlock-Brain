@@ -811,6 +811,7 @@ fn start(cli: &Cli) -> Result<(BTreeSet<String>, tokio::runtime::Runtime)> {
 }
 
 async fn run(cli: &Cli, allowed: BTreeSet<String>) -> Result<Report> {
+    brain_maintenance::require_maintenance_enabled()?;
     let runtime_bytes = protected_file(&cli.config, 65536)?;
     let runtime = RuntimeConfig::load(&cli.config)?;
     ensure!(
@@ -1118,6 +1119,10 @@ fn print_blocked(error: &anyhow::Error) {
 }
 
 fn main() {
+    if brain_maintenance::require_maintenance_enabled().is_err() {
+        eprintln!("Die bisherige Kandidatenaktivierung ist deaktiviert.");
+        std::process::exit(1);
+    }
     let cli = Cli::parse();
     let report =
         match start(&cli).and_then(|(allowed, runtime)| runtime.block_on(run(&cli, allowed))) {
@@ -1788,7 +1793,7 @@ mod tests {
         }]);
         let runtime_path = dir.path().join("runtime.json");
         std::fs::write(&runtime_path, serde_json::to_vec(&runtime).unwrap()).unwrap();
-        let mut runtime = RuntimeConfig::load(&runtime_path).unwrap();
+        let runtime = RuntimeConfig::load(&runtime_path).unwrap();
         let mut serve_value = c9_value();
         let credential = serve_value["credentials"]
             .as_array_mut()
@@ -2137,22 +2142,24 @@ mod tests {
             .authorized(&principal, false)
             .unwrap()
             .is_empty());
-        let retired = if tombstone_original {
-            let (status, retired) =
-                brain_maintenance::integration::runner::refresh_entity_profile_documents(
-                    &ingest,
-                    &ingest_pool,
-                    &loaded_config,
-                    &principal,
-                    &artifacts,
-                    &initial.candidate.release_id,
-                    &runtime,
-                )
-                .await
-                .unwrap();
-            assert_eq!(status["rendered"], 0);
-            retired.unwrap()
-        } else {
+        assert!(
+            brain_maintenance::integration::runner::refresh_entity_profile_documents(
+                &ingest,
+                &ingest_pool,
+                &loaded_config,
+                &principal,
+                &artifacts,
+                &initial.candidate.release_id,
+                &runtime,
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(std::fs::read(&html).unwrap(), older_html);
+        if tombstone_original {
+            return;
+        }
+        let retired = {
             assert_eq!(
                 brain_maintenance::integration::entity_profiles::retire_removed_git_profiles(
                     &ingest,
@@ -2188,28 +2195,13 @@ mod tests {
             .await
             .unwrap();
         assert!(empty.release.source_revisions[&sources[0]].is_empty());
-        assert_eq!(empty.revisions.contains(original), !tombstone_original);
+        assert!(empty.revisions.contains(original));
         assert!(empty.revisions.contains(&preserved));
         if let Some(kept) = wiki_heads.get(1) {
             assert!(empty.revisions.contains(kept));
             assert!(
                 !empty.release.source_revisions["existing"].contains_key(&wiki_heads[0].logical_id)
             );
-        }
-        if tombstone_original {
-            let (_, repeated) =
-                brain_maintenance::integration::runner::refresh_entity_profile_documents(
-                    &ingest,
-                    &ingest_pool,
-                    &loaded_config,
-                    &principal,
-                    &artifacts,
-                    &empty.release.release_id,
-                    &runtime,
-                )
-                .await
-                .unwrap();
-            assert!(repeated.is_none());
         }
         std::fs::write(&html, &older_html).unwrap();
         assert!(check_entity_profile_sources(
@@ -2380,7 +2372,7 @@ mod tests {
         )
         .await
         .is_err());
-        let (_, reappeared) =
+        assert!(
             brain_maintenance::integration::runner::refresh_entity_profile_documents(
                 &ingest,
                 &ingest_pool,
@@ -2391,155 +2383,8 @@ mod tests {
                 &runtime,
             )
             .await
-            .unwrap();
-        let reappeared = reappeared.unwrap();
-        let derived_allowed = reappeared.changed_sources.iter().cloned().collect();
-        let reappeared = ingest
-            .snapshot(&reappeared.candidate.release_id)
-            .await
-            .unwrap();
-        assert!(reappeared.revisions.contains(&preserved));
-        for wiki in &wiki_heads {
-            assert!(reappeared.revisions.contains(wiki));
-        }
-        check_transition(&empty.release, &reappeared.release, &derived_allowed).unwrap();
-        check_rights(
-            &empty,
-            &reappeared,
-            &derived_allowed,
-            Target::EntityProfiles,
-        )
-        .unwrap();
-        check_entity_profile_sources(
-            &runtime,
-            &ingest,
-            &ingest_pool,
-            &empty,
-            &reappeared,
-            &derived_allowed,
-        )
-        .await
-        .unwrap();
-        if tombstone_original {
-            let (_, repeated) =
-                brain_maintenance::integration::runner::refresh_entity_profile_documents(
-                    &ingest,
-                    &ingest_pool,
-                    &loaded_config,
-                    &principal,
-                    &artifacts,
-                    &reappeared.release.release_id,
-                    &runtime,
-                )
-                .await
-                .unwrap();
-            assert!(repeated.is_none());
-            let mut new_source_base = empty.clone();
-            new_source_base.release.source_revisions.remove("existing");
-            assert!(check_entity_profile_sources(
-                &runtime,
-                &ingest,
-                &ingest_pool,
-                &new_source_base,
-                &reappeared,
-                &derived_allowed,
-            )
-            .await
-            .is_err());
-            let mut mixed = reappeared.clone();
-            let record = mixed
-                .revisions
-                .iter_mut()
-                .find(|record| record.source_id == "existing")
-                .unwrap();
-            let mut encoded: serde_json::Value = serde_json::from_str(
-                &record.metadata[brain_storage::source_versions::DOCUMENT_METADATA_KEY],
-            )
-            .unwrap();
-            encoded["source_kind"] = serde_json::json!("game_file");
-            record.metadata.insert(
-                brain_storage::source_versions::DOCUMENT_METADATA_KEY.into(),
-                serde_json::to_string(&encoded).unwrap(),
-            );
-            assert!(check_entity_profile_sources(
-                &runtime,
-                &ingest,
-                &ingest_pool,
-                &empty,
-                &mixed,
-                &derived_allowed,
-            )
-            .await
-            .is_err());
-            let mut mislabeled = reappeared.clone();
-            let record = mislabeled
-                .revisions
-                .iter_mut()
-                .find(|record| record.source_id == "game-fixture")
-                .unwrap();
-            let mut encoded: serde_json::Value = serde_json::from_str(
-                &record.metadata[brain_storage::source_versions::DOCUMENT_METADATA_KEY],
-            )
-            .unwrap();
-            encoded["source_kind"] = serde_json::json!("wiki");
-            record.metadata.insert(
-                brain_storage::source_versions::DOCUMENT_METADATA_KEY.into(),
-                serde_json::to_string(&encoded).unwrap(),
-            );
-            assert!(check_entity_profile_sources(
-                &runtime,
-                &ingest,
-                &ingest_pool,
-                &empty,
-                &mislabeled,
-                &derived_allowed,
-            )
-            .await
-            .is_err());
-            let mut unregistered = RuntimeConfig::load(&runtime_path).unwrap();
-            unregistered.entity_profile_sources.clear();
-            assert!(check_entity_profile_sources(
-                &unregistered,
-                &ingest,
-                &ingest_pool,
-                &empty,
-                &reappeared,
-                &derived_allowed,
-            )
-            .await
-            .is_err());
-        }
-        ingest_pool.close().await;
-        pool.close().await;
-        config["internal_doc_scopes"] = serde_json::json!(["internal_docs"]);
-        std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
-        assert!(check_entity_profile_sources(
-            &runtime, &store, &pool, &candidate, &candidate, &allowed
-        )
-        .await
-        .is_err());
-        config["internal_doc_scopes"] =
-            serde_json::json!(["internal_docs", "source.review:game-fixture"]);
-        std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
-        runtime.entity_profile_sources[0].paths = BTreeSet::from(["other.json".into()]);
-        assert!(check_entity_profile_sources(
-            &runtime, &store, &pool, &candidate, &candidate, &allowed
-        )
-        .await
-        .is_err());
-        runtime.entity_profile_sources[0].paths = BTreeSet::from(["heroes.json".into()]);
-        let mut changed_policy = policy;
-        changed_policy
-            .sources
-            .get_mut("game-fixture")
-            .unwrap()
-            .authorization_ref = Some("operator:changed".into());
-        std::fs::write(&policy_path, serde_json::to_vec(&changed_policy).unwrap()).unwrap();
-        assert!(check_entity_profile_sources(
-            &runtime, &store, &pool, &candidate, &candidate, &allowed
-        )
-        .await
-        .is_err());
+            .is_err()
+        );
     }
 
     #[test]

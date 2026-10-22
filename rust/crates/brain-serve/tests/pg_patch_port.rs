@@ -326,7 +326,7 @@ async fn database(pg: &scratch_pg::ScratchPg) -> (PgPool, PgPool, PgPool) {
             .unwrap();
     assert_eq!(
         versions,
-        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 31]
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 30, 31]
     );
     let reader = PgPoolOptions::new()
         .max_connections(2)

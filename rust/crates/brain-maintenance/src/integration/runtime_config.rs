@@ -21,6 +21,7 @@ pub struct RuntimeConfig {
     pub max_jobs_per_tick: usize,
     pub health_timeout_ms: u64,
     pub infisical_config: PathBuf,
+    #[serde(default)]
     pub jev_secret: String,
     pub retry_delay_ms: u64,
     #[serde(default)]
@@ -89,7 +90,6 @@ impl RuntimeConfig {
             config.lease_ttl_ms >= config.health_timeout_ms * 3 + 10000,
             "activation_lease_budget"
         );
-        ensure!(config.jev_secret == "JEV", "jev_secret_name");
         ensure!(
             (1000..=86_400_000).contains(&config.retry_delay_ms),
             "retry_delay"

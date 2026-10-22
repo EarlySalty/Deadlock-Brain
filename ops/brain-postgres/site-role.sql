@@ -11,25 +11,35 @@ BEGIN
     END IF;
 END
 $role$;
+ALTER ROLE brain_site SET default_transaction_read_only=on;
+ALTER ROLE brain_site SET statement_timeout='500ms';
 GRANT CONNECT ON DATABASE brain TO brain_site;
-GRANT USAGE ON SCHEMA brain TO brain_site;
-DO $grants$
+DO $revoke$
+DECLARE schema_name text;
 BEGIN
-    IF to_regclass('brain.site_comments_v1') IS NOT NULL THEN
-        GRANT SELECT ON brain.site_comments_v1 TO brain_site;
+    FOR schema_name IN SELECT nspname FROM pg_namespace WHERE nspname IN('brain','canon','raw','ops','serve','docs') LOOP
+        EXECUTE format('REVOKE ALL ON SCHEMA %I FROM brain_site',schema_name);
+        EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM brain_site',schema_name);
+        EXECUTE format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM brain_site',schema_name);
+        EXECUTE format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM brain_site',schema_name);
+    END LOOP;
+END
+$revoke$;
+DO $serve$
+BEGIN
+    IF to_regclass('serve.hero_profile') IS NULL OR to_regprocedure('serve.receipt_is_published(bigint)') IS NULL THEN
+        RAISE EXCEPTION 'brain_site benötigt zuerst die Spielwerte-Migrationen';
     END IF;
-    IF to_regprocedure('brain.read_compare_artifact_v1(text)') IS NOT NULL THEN
-        GRANT EXECUTE ON FUNCTION brain.read_compare_artifact_v1(text) TO brain_site;
+    GRANT USAGE ON SCHEMA serve TO brain_site;
+    GRANT SELECT ON serve.entity_identity,serve.hero_profile,serve.item_card,serve.ability_card,serve.current_fact,serve.p2_fact,serve.published_receipt TO brain_site;
+    GRANT EXECUTE ON FUNCTION serve.receipt_is_published(bigint) TO brain_site;
+    IF to_regprocedure('serve.read_compare_artifact_v1(text)') IS NOT NULL AND to_regprocedure('serve.read_compare_artifact_v2(text)') IS NOT NULL THEN
+        GRANT EXECUTE ON FUNCTION serve.read_compare_artifact_v1(text), serve.read_compare_artifact_v2(text) TO brain_site;
     END IF;
-    IF to_regprocedure('brain.read_compare_artifact_v2(text)') IS NOT NULL THEN
-        GRANT EXECUTE ON FUNCTION brain.read_compare_artifact_v2(text) TO brain_site;
-    END IF;
-    IF to_regprocedure('brain.read_site_profile_bindings_v1(text,text)') IS NOT NULL THEN
-        GRANT EXECUTE ON FUNCTION brain.read_site_profile_bindings_v1(text,text) TO brain_site;
-    END IF;
-    IF to_regprocedure('brain.append_site_comment_v1(text,text,text)') IS NOT NULL THEN
-        GRANT EXECUTE ON FUNCTION brain.append_site_comment_v1(text,text,text) TO brain_site;
+    IF to_regclass('serve.site_doc_section') IS NOT NULL THEN
+        GRANT SELECT ON serve.site_doc_section TO brain_site;
+        GRANT EXECUTE ON FUNCTION serve.doc_meta(text),serve.doc_tsv(text) TO brain_site;
     END IF;
 END
-$grants$;
+$serve$;
 COMMIT;

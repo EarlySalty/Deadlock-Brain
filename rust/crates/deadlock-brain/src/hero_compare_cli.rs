@@ -85,8 +85,29 @@ async fn frozen_release(args: &CompareHeroesArgs, release: String) -> Result<Fro
     Ok(FrozenRelease(snapshot))
 }
 
+#[derive(serde::Deserialize)]
+struct ServeBinding {
+    release: ReleaseBinding,
+}
+#[derive(serde::Deserialize)]
+struct ReleaseBinding {
+    id: String,
+}
+async fn release_from_config(path: &std::path::Path) -> Result<String> {
+    ensure!(
+        path.is_absolute(),
+        "Die Dienstkonfiguration muss absolut sein."
+    );
+    let config: ServeBinding = serde_json::from_slice(&tokio::fs::read(path).await?)?;
+    ensure!(
+        !config.release.id.is_empty() && config.release.id.len() <= 160,
+        "Der Quellenstand ist ungültig."
+    );
+    Ok(config.release.id)
+}
+
 pub async fn run(args: CompareHeroesArgs) -> Result<()> {
-    let release = site::profiles::release_from_config(&args.serve_config).await?;
+    let release = release_from_config(&args.serve_config).await?;
     let store = PgStore::new(args.database.pool("brain_migrate").await?);
     let reader = frozen_release(&args, release.clone()).await?;
     let principal = public_principal();

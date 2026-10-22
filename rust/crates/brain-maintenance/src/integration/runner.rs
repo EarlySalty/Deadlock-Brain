@@ -83,7 +83,6 @@ pub struct Runner {
     pub(super) store: PgStore,
     pool: sqlx::PgPool,
     artifacts: Artifacts,
-    jev: Zeroizing<String>,
     patch_feed: Option<(Zeroizing<String>, Zeroizing<String>)>,
     pub(super) owner: String,
 }
@@ -295,16 +294,13 @@ async fn approved_public_documents(config: &MaintenanceConfig) -> Result<Vec<Cor
 
 impl Runner {
     pub async fn open(runtime: RuntimeConfig) -> Result<Self> {
+        crate::require_maintenance_enabled()?;
         let config = load_maintenance(&runtime.maintenance_config)?;
         let snapshot: BTreeMap<_, _> = dl_token_secrets::values(&runtime.infisical_config)
             .await
             .map_err(|_| anyhow::anyhow!("secret_source_unavailable"))?
             .into_iter()
             .collect();
-        let jev = snapshot
-            .get(&runtime.jev_secret)
-            .cloned()
-            .context("jev_secret_missing")?;
         let patch_feed = match &runtime.patch_feed_secret {
             Some(name) => Some((
                 snapshot
@@ -349,7 +345,6 @@ impl Runner {
             pool,
             runtime,
             artifacts,
-            jev,
             patch_feed,
             owner,
         })
@@ -801,6 +796,7 @@ impl Runner {
     }
 
     pub async fn bind_entity_profiles(&self, apply: bool) -> Result<serde_json::Value> {
+        crate::require_maintenance_enabled()?;
         let uid = self.require_operator()?;
         self.store.check_maintenance_schema().await?;
         let config = load_maintenance(&self.runtime.maintenance_config)?;
@@ -868,6 +864,7 @@ impl Runner {
         original_release_sha256: &str,
         expected_serve_config_sha256: &str,
     ) -> Result<serde_json::Value> {
+        crate::require_maintenance_enabled()?;
         let uid = self.require_operator()?;
         self.store.check_maintenance_schema().await?;
         let config = load_maintenance(&self.runtime.maintenance_config)?;
@@ -1223,13 +1220,7 @@ impl Runner {
                                 &self.store,
                                 &mut lease,
                                 self.runtime.lease_ttl_ms,
-                                triage::triage(
-                                    &config,
-                                    repo,
-                                    &scan,
-                                    &job.spec.target_path,
-                                    &self.jev,
-                                ),
+                                triage::triage(&config, repo, &scan, &job.spec.target_path, ""),
                             )
                         },
                     )
@@ -2266,6 +2257,7 @@ async fn refresh_entity_profile_documents_phase(
     serde_json::Value,
     Option<super::entity_profiles::PreparedRefresh>,
 )> {
+    crate::require_maintenance_enabled()?;
     let root = runtime
         .entity_profile_corpus_root
         .as_ref()

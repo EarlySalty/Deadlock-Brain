@@ -74,6 +74,7 @@ async fn main() {
     }
 }
 async fn run() -> Result<()> {
+    brain_maintenance::require_maintenance_enabled()?;
     let cli = Cli::parse();
     if let Task::ProjectHtml { input } = &cli.command {
         let bytes = read_bounded(input, 4 * 1024 * 1024)?;
