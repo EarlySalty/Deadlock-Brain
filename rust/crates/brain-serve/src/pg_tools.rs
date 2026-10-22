@@ -16,33 +16,50 @@ use std::{collections::BTreeMap, future::Future, time::Duration};
 
 const MAX_BYTES: usize = 16_384;
 const MAX_EVIDENCE: usize = 100;
-const EXACT: &str = "SELECT * FROM (
-    SELECT DISTINCT ON (a.entity_id) a.entity_id, i.kind, i.key, a.alias_norm, a.lang,
-        a.receipt_id::text AS citation, a.source_revision, i.identity,
+const EXACT: &str = "WITH alias_candidates AS MATERIALIZED (
+    SELECT a.entity_id, a.alias_norm, a.lang, a.receipt_id, a.source_revision,
         1.0::real AS similarity
-    FROM serve.current_alias a JOIN serve.entity_identity i ON i.entity_id=a.entity_id
-    JOIN serve.published_receipt identity_receipt ON identity_receipt.id=i.receipt_id
+    FROM serve.current_alias a
+    WHERE a.alias_norm=$1
+), current_candidates AS MATERIALIZED (
+    SELECT a.* FROM alias_candidates a
     JOIN serve.published_receipt alias_receipt ON alias_receipt.id=a.receipt_id
-        AND alias_receipt.raw_object_id=identity_receipt.raw_object_id
-        AND alias_receipt.ingest_run_id=identity_receipt.ingest_run_id
-        AND alias_receipt.extractor=identity_receipt.extractor
-    WHERE i.kind<>'doc_page' AND i.kind<>'doc' AND a.alias_norm=$1 AND ($2::text IS NULL OR i.kind=$2)
+    WHERE NOT EXISTS(SELECT 1 FROM serve.published_receipt newer
+        WHERE newer.source=alias_receipt.source AND newer.path=alias_receipt.path
+            AND (newer.ingest_run_id,newer.id)>(alias_receipt.ingest_run_id,alias_receipt.id)
+            AND (newer.raw_object_id<>alias_receipt.raw_object_id
+                OR newer.ingest_run_id<>alias_receipt.ingest_run_id
+                OR newer.extractor<>alias_receipt.extractor))
+)
+SELECT * FROM (
+    SELECT DISTINCT ON (a.entity_id) a.entity_id, i.kind, i.key, a.alias_norm, a.lang,
+        a.receipt_id::text AS citation, a.source_revision, i.identity, a.similarity
+    FROM current_candidates a JOIN serve.entity_identity i ON i.entity_id=a.entity_id
+    WHERE i.kind<>'doc_page' AND i.kind<>'doc' AND ($2::text IS NULL OR i.kind=$2)
     ORDER BY a.entity_id, a.receipt_id, a.lang
 ) candidates ORDER BY entity_id LIMIT $3";
-const FUZZY: &str = "SELECT * FROM (
-    SELECT DISTINCT ON (a.entity_id) a.entity_id, i.kind, i.key, a.alias_norm, a.lang,
-        a.receipt_id::text AS citation, a.source_revision, i.identity,
+const FUZZY: &str = "WITH alias_candidates AS MATERIALIZED (
+    SELECT a.entity_id, a.alias_norm, a.lang, a.receipt_id, a.source_revision,
         public.similarity(a.alias_norm,$1) AS similarity
-    FROM serve.current_alias a JOIN serve.entity_identity i ON i.entity_id=a.entity_id
-    JOIN serve.published_receipt identity_receipt ON identity_receipt.id=i.receipt_id
-    JOIN serve.published_receipt alias_receipt ON alias_receipt.id=a.receipt_id
-        AND alias_receipt.raw_object_id=identity_receipt.raw_object_id
-        AND alias_receipt.ingest_run_id=identity_receipt.ingest_run_id
-        AND alias_receipt.extractor=identity_receipt.extractor
-    WHERE i.kind<>'doc_page' AND i.kind<>'doc' AND a.alias_norm OPERATOR(public.%) $1
+    FROM serve.current_alias a
+    WHERE a.alias_norm OPERATOR(public.%) $1
         AND public.similarity(a.alias_norm,$1)>=0.3
-        AND ($2::text IS NULL OR i.kind=$2)
-    ORDER BY a.entity_id, public.similarity(a.alias_norm,$1) DESC, a.receipt_id, a.lang
+), current_candidates AS MATERIALIZED (
+    SELECT a.* FROM alias_candidates a
+    JOIN serve.published_receipt alias_receipt ON alias_receipt.id=a.receipt_id
+    WHERE NOT EXISTS(SELECT 1 FROM serve.published_receipt newer
+        WHERE newer.source=alias_receipt.source AND newer.path=alias_receipt.path
+            AND (newer.ingest_run_id,newer.id)>(alias_receipt.ingest_run_id,alias_receipt.id)
+            AND (newer.raw_object_id<>alias_receipt.raw_object_id
+                OR newer.ingest_run_id<>alias_receipt.ingest_run_id
+                OR newer.extractor<>alias_receipt.extractor))
+)
+SELECT * FROM (
+    SELECT DISTINCT ON (a.entity_id) a.entity_id, i.kind, i.key, a.alias_norm, a.lang,
+        a.receipt_id::text AS citation, a.source_revision, i.identity, a.similarity
+    FROM current_candidates a JOIN serve.entity_identity i ON i.entity_id=a.entity_id
+    WHERE i.kind<>'doc_page' AND i.kind<>'doc' AND ($2::text IS NULL OR i.kind=$2)
+    ORDER BY a.entity_id, a.similarity DESC, a.receipt_id, a.lang
 ) candidates ORDER BY similarity DESC, entity_id LIMIT $3";
 const RECEIPTS: &str = "SELECT p.id, p.raw_object_id, p.source, p.source_revision, p.path,
     p.locator_kind, p.locator, encode(p.value_sha256,'hex') AS value_sha256,

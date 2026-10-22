@@ -506,7 +506,7 @@ fn coherence_set(
 }
 
 #[test]
-fn current_profile_and_both_alias_readers_share_raw_run_and_extractor_identity() {
+fn superseded_hero_objects_hide_their_aliases_and_profile_values() {
     let pg = scratch_pg::ScratchPg::start();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -626,6 +626,144 @@ fn current_profile_and_both_alias_readers_share_raw_run_and_extractor_identity()
             connection.commit().await.unwrap();
         });
     }
+    runtime.block_on(async {
+        pool.close().await;
+        writer.close().await;
+        admin.close().await;
+    });
+}
+
+fn language_set(
+    key: &str,
+    alias: &str,
+    lang: &str,
+    raw: &brain_storage::gamefacts::RawObject,
+    identity: bool,
+) -> FactSet {
+    let receipt = Receipt {
+        locator_kind: "raw_bytes".into(),
+        locator: String::new(),
+        value_sha256: raw.content_sha256,
+    };
+    FactSet {
+        entities: if identity {
+            vec![Entity {
+                kind: "item".into(),
+                key: key.into(),
+                receipt: receipt.clone(),
+            }]
+        } else {
+            Vec::new()
+        },
+        aliases: vec![Alias {
+            entity_key: key.into(),
+            alias: alias.into(),
+            lang: lang.into(),
+            receipt: receipt.clone(),
+        }],
+        facts: vec![Fact {
+            entity_key: key.into(),
+            stat_key: format!("name_{lang}"),
+            value: FactValue::Text(alias.into()),
+            receipt,
+        }],
+        ..FactSet::default()
+    }
+}
+
+fn found_entities(tools: &PgTools<Delegate>, text: &str) -> Vec<i64> {
+    let found = tools
+        .execute(
+            &query(),
+            &context(),
+            None,
+            "language",
+            &request(ToolName::FindEntity, json!({"text":text,"kind":"item"})),
+        )
+        .unwrap();
+    if found.result.is_error {
+        assert_eq!(found.result.result["error"], "entity_not_found");
+        return Vec::new();
+    }
+    found.result.result["entities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entity| entity["entity_id"].as_i64().unwrap())
+        .collect()
+}
+
+#[test]
+fn item_aliases_from_the_current_english_file_resolve_to_the_german_identity() {
+    let pg = scratch_pg::ScratchPg::start();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("");
+    let key = "upgrade_language_coherence";
+    let (admin, writer, pool, entity) = runtime.block_on(async {
+        let admin = sqlx::postgres::PgPoolOptions::new().max_connections(2)
+            .connect_with(options.clone()).await.unwrap();
+        sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest LOGIN; CREATE ROLE brain_service NOLOGIN; CREATE ROLE brain_readonly LOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate")
+            .execute(&admin).await.unwrap();
+        brain_storage::PgStore::new(admin.clone()).migrate_gamefacts().await.unwrap();
+        let writer = sqlx::postgres::PgPoolOptions::new().max_connections(1)
+            .connect_with(options.clone().username("brain_ingest")).await.unwrap();
+        let store = GameFactsStore::new(writer.clone());
+        let run = store.begin_run("assets").await.unwrap();
+        let german = store.capture(run,"assets","r1",&format!("items/de/{key}.json"),br#"{"name":"Kugelhagel"}"#.to_vec()).await.unwrap();
+        store.apply(run,&german,"assets",&language_set(key,"Kugelhagel","de",&german,true)).await.unwrap();
+        let english = store.capture(run,"assets","r1",&format!("items/en/{key}.json"),br#"{"name":"Bullet Storm"}"#.to_vec()).await.unwrap();
+        store.apply(run,&english,"assets",&language_set(key,"Bullet Storm","en",&english,false)).await.unwrap();
+        store.finish_run(run,true,Counts::default()).await.unwrap();
+        let entity: i64 = sqlx::query_scalar("SELECT id FROM canon.entity WHERE key=$1")
+            .bind(key).fetch_one(&admin).await.unwrap();
+        let receipts: (i64,i64) = sqlx::query_as("SELECT i.raw_object_id,a.raw_object_id FROM serve.current_entity i JOIN serve.current_alias a ON a.entity_id=i.id AND a.lang='en' WHERE i.id=$1")
+            .bind(entity).fetch_one(&admin).await.unwrap();
+        assert_eq!(receipts,(german.id,english.id));
+        let pool = tool_pool(options.username("brain_readonly"),Duration::from_secs(2));
+        (admin,writer,pool,entity)
+    });
+    let tools = PgTools::new(Delegate, pool.clone(), runtime.handle().clone());
+    assert_eq!(found_entities(&tools, "Bullet Storm"), vec![entity]);
+    assert_eq!(found_entities(&tools, "Bullet Stor"), vec![entity]);
+    assert_eq!(found_entities(&tools, "Kugelhagel"), vec![entity]);
+    runtime.block_on(async {
+        let store = GameFactsStore::new(writer.clone());
+        let run = store.begin_run("assets").await.unwrap();
+        let english = store
+            .capture(
+                run,
+                "assets",
+                "r2",
+                &format!("items/en/{key}.json"),
+                br#"{"name":"Mystic Burst"}"#.to_vec(),
+            )
+            .await
+            .unwrap();
+        store
+            .apply(
+                run,
+                &english,
+                "assets",
+                &language_set(key, "Mystic Burst", "en", &english, false),
+            )
+            .await
+            .unwrap();
+        store
+            .finish_run(run, true, Counts::default())
+            .await
+            .unwrap();
+    });
+    assert_eq!(found_entities(&tools, "Bullet Storm"), Vec::<i64>::new());
+    assert_eq!(found_entities(&tools, "Mystic Burst"), vec![entity]);
+    assert_eq!(found_entities(&tools, "Kugelhagel"), vec![entity]);
     runtime.block_on(async {
         pool.close().await;
         writer.close().await;
