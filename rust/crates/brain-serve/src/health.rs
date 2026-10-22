@@ -20,8 +20,15 @@ use std::{
 };
 use tokio::sync::Semaphore;
 
+pub(crate) struct ReadyRelease {
+    pub id: String,
+    pub knowledge_version: String,
+    pub bindings_sha256: String,
+}
+
 pub(crate) struct Health {
     pub draining: AtomicBool,
+    release: ReadyRelease,
     timeout: Duration,
     slots: Arc<Semaphore>,
     reader: LocalPgReader,
@@ -173,12 +180,14 @@ pub(crate) fn validate_bound_manifest(
 
 impl Health {
     pub(crate) fn tools_only(
+        release: ReadyRelease,
         timeout: Duration,
         reader: LocalPgReader,
         operator_socket: Option<std::path::PathBuf>,
     ) -> Self {
         Self {
             draining: AtomicBool::new(false),
+            release,
             timeout,
             slots: Arc::new(Semaphore::new(1)),
             reader,
@@ -258,7 +267,11 @@ pub(crate) fn router(health: Arc<Health>) -> Router {
                         StatusCode::OK,
                         [(header::CACHE_CONTROL, "no-store")],
                         axum::Json(serde_json::json!({
-                            "status":"ready", "serving_contract":"brain.tools-only.v2"
+                            "status":"ready",
+                            "serving_contract":"brain.tools-only.v2",
+                            "release_id":health.release.id,
+                            "knowledge_version":health.release.knowledge_version,
+                            "release_bindings_sha256":health.release.bindings_sha256
                         })),
                     )
                         .into_response()

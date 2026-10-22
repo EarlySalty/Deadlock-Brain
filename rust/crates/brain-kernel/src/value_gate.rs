@@ -32,13 +32,17 @@ fn normalize(text: &str) -> Option<String> {
     ))
 }
 
+fn follows_word(bytes: &[u8], index: usize) -> bool {
+    index > 0 && bytes[index - 1].is_ascii_alphanumeric()
+}
+
 fn numbers(text: &str) -> Vec<String> {
     let bytes = text.as_bytes();
     let mut result = Vec::new();
     let mut index = 0;
     while index < bytes.len() {
         let start = index;
-        if matches!(bytes[index], b'-' | b'+') {
+        if matches!(bytes[index], b'-' | b'+') && !follows_word(bytes, index) {
             index += 1;
         }
         let digits = index;
@@ -190,6 +194,16 @@ mod tests {
         assert_eq!(normalize("-0.000"), normalize("0"));
         assert_eq!(normalize("1e3"), normalize("1000"));
         assert_ne!(normalize("1.00000001"), normalize("1"));
+    }
+
+    #[test]
+    fn hyphen_after_digit_or_letter_is_not_a_sign() {
+        assert_eq!(
+            numbers("10-20 Sekunden"),
+            [normalize("10"), normalize("20")].map(Option::unwrap)
+        );
+        assert_eq!(numbers("Stufe-3"), [normalize("3")].map(Option::unwrap));
+        assert_eq!(numbers("Wert -5"), [normalize("-5")].map(Option::unwrap));
     }
 
     #[test]

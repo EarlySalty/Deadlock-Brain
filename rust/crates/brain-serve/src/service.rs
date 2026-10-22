@@ -312,6 +312,11 @@ async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
     .await
     .map_err(|_| Error::ReaderUnavailable)??;
     Ok(Arc::new(Health::tools_only(
+        crate::health::ReadyRelease {
+            id: prepared.config.release.id.clone(),
+            knowledge_version: prepared.config.release.knowledge_version.clone(),
+            bindings_sha256: prepared.config.release_bindings_sha256(),
+        },
         Duration::from_millis(prepared.config.timeouts.readiness_ms),
         prepared.reader.clone(),
         prepared

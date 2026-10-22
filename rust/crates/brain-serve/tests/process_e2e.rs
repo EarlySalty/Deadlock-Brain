@@ -115,6 +115,10 @@ async fn tools_only_process_needs_no_corpus_release_and_refuses_unknown_heroes()
         serde_json::from_str::<Value>(&body).unwrap()["serving_contract"],
         "brain.tools-only.v2"
     );
+    let ready = serde_json::from_str::<Value>(&body).unwrap();
+    for field in ["release_id", "knowledge_version", "release_bindings_sha256"] {
+        assert!(ready[field].as_str().is_some_and(|value| !value.is_empty()));
+    }
     let query = json!({"request_id":"unknown-hero","conversation_id":"unknown-hero","text":"Wie viel Leben hat NonexistentHero987654?","profile":"fact","requested_scopes":["docs.public"]});
     let result = tokio::task::spawn_blocking(move || {
         common::request(&address, "POST", "/v1/answer", Some(API_TOKEN), Some(query))
