@@ -22,6 +22,7 @@ pub struct ProviderConfig {
     pub retry_backoff: Duration,
     pub max_response_bytes: usize,
     pub pricing: Option<PriceCeiling>,
+    pub input_bytes_per_token: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -78,6 +79,7 @@ impl ProviderConfig {
             retry_backoff: Duration::from_millis(250),
             max_response_bytes: 2 * 1024 * 1024,
             pricing: None,
+            input_bytes_per_token: 1,
         }
     }
 

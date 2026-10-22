@@ -10,10 +10,12 @@ pub(crate) const DOCS_ENTITY_PROFILE_BINDING: &str = "docs.public/entity_profile
 pub struct Config {
     pub bind: SocketAddr,
     pub postgres: Postgres,
+    #[serde(default)]
     pub release: Release,
     pub provider: Provider,
     pub budgets: Budgets,
     pub timeouts: Timeouts,
+    #[serde(default)]
     pub retrieval: Retrieval,
     pub kernel: Kernel,
     pub analytics: Option<Analytics>,
@@ -106,6 +108,15 @@ pub struct Release {
     pub knowledge_version: String,
 }
 
+impl Default for Release {
+    fn default() -> Self {
+        Self {
+            id: "postgres-tools-v2".into(),
+            knowledge_version: "brain.tools-only.v2".into(),
+        }
+    }
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Provider {
@@ -175,6 +186,15 @@ pub struct Retrieval {
     pub limit: usize,
 }
 
+impl Default for Retrieval {
+    fn default() -> Self {
+        Self {
+            kind: RetrievalKind::ReleaseLexical,
+            limit: 6,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RetrievalKind {
@@ -188,6 +208,22 @@ pub struct Kernel {
     pub cache_ttl_ms: u64,
     #[serde(default)]
     pub quality_filters: bool,
+    #[serde(default = "default_max_tool_calls")]
+    pub max_tool_calls: usize,
+    #[serde(default = "default_max_tool_result_bytes")]
+    pub max_tool_result_bytes: usize,
+    #[serde(default = "default_input_bytes_per_token")]
+    pub input_bytes_per_token: u32,
+}
+
+fn default_max_tool_calls() -> usize {
+    8
+}
+fn default_max_tool_result_bytes() -> usize {
+    16_384
+}
+fn default_input_bytes_per_token() -> u32 {
+    2
 }
 
 #[derive(Clone, Deserialize)]
@@ -513,8 +549,8 @@ impl Config {
         )?;
         let b = &self.budgets;
         require(
-            (1..=20).contains(&b.max_network_rounds)
-                && b.max_input_tokens > 0
+            (1..=4).contains(&b.max_network_rounds)
+                && (1..=32_000).contains(&b.max_input_tokens)
                 && b.max_output_tokens > 0
                 && b.max_cost_micros > 0,
             "budgets",
@@ -549,7 +585,11 @@ impl Config {
         )?;
         require((1..=100).contains(&self.retrieval.limit), "retrieval")?;
         require(
-            self.kernel.cache_entries <= 1024 && self.kernel.cache_ttl_ms <= 60_000,
+            self.kernel.cache_entries <= 1024
+                && self.kernel.cache_ttl_ms <= 60_000
+                && (1..=8).contains(&self.kernel.max_tool_calls)
+                && (1..=16_384).contains(&self.kernel.max_tool_result_bytes)
+                && (1..=4).contains(&self.kernel.input_bytes_per_token),
             "kernel",
         )?;
         if let Some(analytics) = &self.analytics {
@@ -661,8 +701,7 @@ impl Config {
                             || (grant.scopes == BTreeSet::from(["bot.public".into()])
                                 && release.id == self.release.id
                                 && release.knowledge_version == self.release.knowledge_version))
-                        && grant.provider_egress == BTreeSet::from(["public".into()])
-                        && grant.release.is_some(),
+                        && grant.provider_egress == BTreeSet::from(["public".into()]),
                     "docs_client_grant",
                 )?;
             }
@@ -821,6 +860,10 @@ mod entity_profile_tests {
             "../../../../config/brain-serve.example.json"
         ))
         .unwrap();
+        value["kernel"]
+            .as_object_mut()
+            .unwrap()
+            .remove("quality_filters");
         assert!(
             !super::Config::parse(&serde_json::to_vec(&value).unwrap())
                 .unwrap()
@@ -842,6 +885,8 @@ mod entity_profile_tests {
             "../../../../config/brain-serve.example.json"
         ))
         .unwrap();
+        value["credentials"][0]["release"] =
+            serde_json::json!({"id":"pilot-r1","knowledge_version":"pilot-knowledge-v1"});
         let baseline = super::Config::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
         assert!(!baseline.credentials[0].entity_profile_model_context);
         value["credentials"][0]["entity_profile_model_context"] = serde_json::json!(true);

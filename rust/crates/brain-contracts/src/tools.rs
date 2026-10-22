@@ -2665,6 +2665,7 @@ mod tests {
         .is_err());
         assert!(turn.into_answer().is_err());
         let answer = ProviderAnswer {
+            claims: Vec::new(),
             text: "Antwort".into(),
             cited_evidence_ids: vec!["e1".into()],
             usage: Usage::default(),
@@ -2679,6 +2680,7 @@ mod tests {
             answer
         );
         assert!(ProviderTurn::from(ProviderAnswer {
+            claims: Vec::new(),
             cited_evidence_ids: vec!["e1".into(), "e1".into()],
             ..answer.clone()
         })

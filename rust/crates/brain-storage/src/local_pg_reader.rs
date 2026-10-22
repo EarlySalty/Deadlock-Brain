@@ -691,6 +691,14 @@ impl LocalPgReader {
         tx.commit()
     }
 
+    pub fn check_tool_serving(&self) -> Result<(), PortError> {
+        let mut client = self.pool.acquire()?;
+        client.query_one("SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='serve' AND c.relname='hero_profile')", &[])?
+            .try_get::<_, bool>(0).map_err(error).and_then(|available| {
+                if available { Ok(()) } else { Err(invalid("Veröffentlichte Spielansichten fehlen")) }
+            })
+    }
+
     pub fn check_permissions(&self) -> Result<(), PortError> {
         let mut client = self.pool.acquire()?;
         let row = client

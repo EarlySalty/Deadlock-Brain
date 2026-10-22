@@ -98,6 +98,7 @@ impl AnswerProviderPort for PartialCitationProvider {
             revoke(store, record("b", 1), *tombstone);
         }
         Ok(ProviderAnswer {
+            claims: Vec::new(),
             text: "answer containing uncited B input".into(),
             cited_evidence_ids: vec![evidence
                 .iter()

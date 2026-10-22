@@ -215,7 +215,9 @@ fn append_result(conversation: &mut ToolConversation, blocks: Vec<ModelBlock>) {
         .push(ToolMessage::ToolResults { results });
 }
 fn turn_context() -> AuthorizedContext {
-    context().with_request_deadline().into_owned()
+    let mut context = context().with_request_deadline().into_owned();
+    context.budget.max_input_tokens = 32_000;
+    context
 }
 fn turn_provider(native: bool, config: ProviderConfig) -> Box<dyn AnswerProviderPort> {
     if native {

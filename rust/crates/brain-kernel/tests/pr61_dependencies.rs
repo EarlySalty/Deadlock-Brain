@@ -94,6 +94,7 @@ impl AnswerProviderPort for Provider {
             self.revoked.store(true, Ordering::SeqCst);
         }
         Ok(ProviderAnswer {
+            claims: Vec::new(),
             text,
             cited_evidence_ids: vec!["public".into()],
             usage: Usage {

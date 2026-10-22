@@ -36,10 +36,6 @@ mod pg_tools;
 #[path = "../src/answer_trace.rs"]
 mod answer_trace;
 
-mod deadlock_data {
-    pub(crate) use crate::scratch_pg;
-}
-
 type Validation = (
     Option<PinnedGameContext>,
     Vec<ToolEvidenceDependency>,
@@ -712,7 +708,20 @@ impl brain_contracts::AnswerProviderPort for CombinedProvider {
                     .collect::<std::collections::BTreeMap<_, _>>();
                 assert_eq!(seen.len(), evidence.len());
                 assert_eq!(seen, self.expected);
+                let citation = results[0].result["changes"][0]["citation"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
+                let claims = [650, 600]
+                    .into_iter()
+                    .map(|value| brain_contracts::NumericClaim {
+                        citation_id: citation.clone(),
+                        value: value.into(),
+                        unit: None,
+                    })
+                    .collect();
                 return Ok(ProviderTurn::from(ProviderAnswer {
+                    claims,
                     text: "Babas Gesundheit beträgt 650. Die offizielle Patchzeile nennt eine Erhöhung von 600 auf 650.".into(),
                     cited_evidence_ids: self.expected.keys().cloned().collect(),
                     usage: Usage { network_rounds: 1, ..Usage::default() },

@@ -129,6 +129,7 @@ impl AnswerProviderPort for Provider {
             store.apply_record(head.clone())?;
         }
         Ok(ProviderAnswer {
+            claims: Vec::new(),
             text: "PATCH_BOUND_650".into(),
             cited_evidence_ids: vec![evidence[0].evidence_id.clone()],
             usage: Usage::default(),

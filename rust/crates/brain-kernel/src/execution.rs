@@ -1,6 +1,8 @@
 use super::*;
 use brain_contracts::{
-    provider_input::{grounded_turn_input_ceiling_with_quality, ToolWireFormat},
+    provider_input::{
+        estimated_input_tokens, grounded_turn_input_ceiling_with_quality, ToolWireFormat,
+    },
     EvidenceKind, ModelBlock, ProviderTurn, ToolConversation, ToolMessage,
 };
 use std::{
@@ -91,6 +93,36 @@ fn remaining(
         .checked_sub(u32::try_from(usage.output_tokens).ok()?)?;
     next.budget.max_cost_micros = next.budget.max_cost_micros.checked_sub(usage.cost_micros)?;
     Some(next)
+}
+fn observed_round_input(accounting: &UsageAccounting) -> Option<u64> {
+    let observed = &accounting.observed;
+    (!accounting.unaccounted && observed.input_tokens > 0 && observed.network_rounds > 0)
+        .then(|| observed.input_tokens / u64::from(observed.network_rounds))
+}
+
+fn round_input_estimate(
+    bytes_per_token: u32,
+    input_bytes: u64,
+    previous_round: Option<(u64, u64)>,
+) -> u64 {
+    match previous_round {
+        Some((bytes, observed)) if input_bytes >= bytes => {
+            observed.saturating_add(estimated_input_tokens(input_bytes - bytes, bytes_per_token))
+        }
+        _ => estimated_input_tokens(input_bytes, bytes_per_token),
+    }
+}
+
+fn round_remaining(
+    context: &AuthorizedContext,
+    usage: &Usage,
+    elapsed: u64,
+) -> Option<AuthorizedContext> {
+    let per_round = Usage {
+        input_tokens: 0,
+        ..usage.clone()
+    };
+    remaining(context, &per_round, elapsed)
 }
 pub(super) fn validate_output<R: RetrievalPort>(
     retrieval: &R,
@@ -200,10 +232,10 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     let mut build_executions = Vec::<brain_contracts::ToolExecution>::new();
     let mut conversation = ToolConversation::default();
     let mut evidence = Vec::<Evidence>::new();
-    let mut retrieved_evidence = Vec::<Evidence>::new();
-    let mut retrieval_checked = false;
-    let mut successful_tool_data = false;
-    let mut deterministic_refusal = false;
+    let mut ledger = super::value_gate::ValueLedger::default();
+    let mut provider_rounds = 0usize;
+    let mut previous_round = None;
+    let mut tool_calls = 0usize;
     let mut seen_calls = BTreeSet::new();
     let result = (|| -> Result<brain_contracts::ProviderAnswer, PortError> {
         let binding = kernel
@@ -218,7 +250,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
         let mut pending = (!required.is_empty()).then_some(required);
         let mut required_evidence = Vec::<Vec<String>>::new();
         loop {
-            let next = remaining(context, &accounting.charged(), elapsed())
+            let next = round_remaining(context, &accounting.charged(), elapsed())
                 .ok_or(PortError::BudgetExceeded)?;
             if next.budget.max_network_rounds == 0 || next.budget.max_output_tokens == 0 {
                 return Err(PortError::BudgetExceeded);
@@ -249,65 +281,11 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     usage: Usage::default(),
                 }
             } else {
-                if query.profile.requires_game_evidence() && !retrieval_checked {
-                    let (retrieved, usage) = kernel.retrieval.retrieve_with_usage(query, &next)?;
-                    accounting.accumulate(&UsageAccounting::observed(usage));
-                    remaining(context, &accounting.charged(), elapsed())
-                        .ok_or(PortError::BudgetExceeded)?;
-                    if retrieved.len() > 100 {
-                        return Err(PortError::InvalidResponse(
-                            "Evidence Pack ist zu groß.".into(),
-                        ));
-                    }
-                    let had_retrieved = !retrieved.is_empty();
-                    retrieved_evidence = retrieved
-                        .into_iter()
-                        .filter(|item| {
-                            item.validate().is_ok() && evidence_allowed(&context.principal, item)
-                        })
-                        .collect();
-                    if had_retrieved && retrieved_evidence.is_empty() {
-                        return Err(PortError::PermissionDenied(
-                            "Keine freigegebene Evidenz.".into(),
-                        ));
-                    }
-                    for item in &retrieved_evidence {
-                        insert_evidence(&mut evidence, item)?;
-                    }
-                    retrieval_checked = true;
+                if provider_rounds >= context.budget.max_network_rounds.min(4) as usize {
+                    return Err(PortError::BudgetExceeded);
                 }
-                if query.profile.requires_game_evidence()
-                    && evidence.is_empty()
-                    && !successful_tool_data
-                {
-                    log_game_refusal(query);
-                    deterministic_refusal = true;
-                    return Ok(brain_contracts::ProviderAnswer {
-                        text: String::new(),
-                        cited_evidence_ids: Vec::new(),
-                        usage: Usage::default(),
-                    });
-                }
-                if !retrieved_evidence.is_empty() {
-                    let next = remaining(context, &accounting.charged(), elapsed())
-                        .ok_or(PortError::BudgetExceeded)?;
-                    if !provider_evidence_allowed(query, &next, &retrieved_evidence) {
-                        return Err(PortError::PermissionDenied(
-                            "Provider-Egress ist nicht freigegeben.".into(),
-                        ));
-                    }
-                    kernel
-                        .retrieval
-                        .validate_evidence(query, &next, &retrieved_evidence, true)?;
-                    validate_output(
-                        &kernel.retrieval,
-                        query,
-                        &next,
-                        &retrieved_evidence,
-                        purpose,
-                    )?;
-                }
-                let input = grounded_turn_input_ceiling_with_quality(
+                provider_rounds += 1;
+                let input_bytes = grounded_turn_input_ceiling_with_quality(
                     query,
                     &evidence,
                     &session.definitions,
@@ -323,7 +301,9 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     ToolWireFormat::OpenAiCompatible,
                     kernel.quality_filters,
                 )?);
-                let next = remaining(context, &accounting.charged(), elapsed())
+                let input =
+                    round_input_estimate(kernel.input_bytes_per_token, input_bytes, previous_round);
+                let next = round_remaining(context, &accounting.charged(), elapsed())
                     .ok_or(PortError::BudgetExceeded)?;
                 if input > u64::from(next.budget.max_input_tokens) {
                     return Err(PortError::BudgetExceeded);
@@ -354,11 +334,13 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     unaccounted: reserved_input.is_none(),
                     ..UsageAccounting::default()
                 });
+                previous_round =
+                    observed_round_input(&turn_accounting).map(|observed| (input_bytes, observed));
                 accounting.accumulate(&turn_accounting);
                 if accounting.unaccounted {
                     return Err(PortError::BudgetExceeded);
                 }
-                remaining(context, &accounting.charged(), elapsed())
+                round_remaining(context, &accounting.charged(), elapsed())
                     .ok_or(PortError::BudgetExceeded)?;
                 if turn.usage().network_rounds == 0 {
                     return Err(PortError::InvalidResponse(
@@ -379,13 +361,12 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                             .all(|id| evidence.iter().any(|item| &item.evidence_id == *id));
                     if answer.text.len() > 64 * 1024
                         || (!insufficient && answer.text.trim().is_empty())
-                        || (kernel.quality_filters && !insufficient && !grounded)
                     {
                         return Err(PortError::InvalidResponse(
                             "Ungültige finale Werkzeugantwort".into(),
                         ));
                     }
-                    let next = remaining(context, &accounting.charged(), elapsed())
+                    let next = round_remaining(context, &accounting.charged(), elapsed())
                         .ok_or(PortError::BudgetExceeded)?;
                     kernel.validate_tools(
                         query,
@@ -403,21 +384,6 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         &build_executions,
                         purpose,
                     )?;
-                    if !retrieved_evidence.is_empty() {
-                        kernel.retrieval.validate_evidence(
-                            query,
-                            &next,
-                            &retrieved_evidence,
-                            true,
-                        )?;
-                        validate_output(
-                            &kernel.retrieval,
-                            query,
-                            &next,
-                            &retrieved_evidence,
-                            purpose,
-                        )?;
-                    }
                     if !insufficient
                         && required_evidence.iter().any(|required| {
                             !required
@@ -441,8 +407,20 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                             "Geprüftes Build-Ergebnis fehlt".into(),
                         ));
                     }
-                    remaining(context, &accounting.charged(), elapsed())
+                    round_remaining(context, &accounting.charged(), elapsed())
                         .ok_or(PortError::BudgetExceeded)?;
+                    if !insufficient
+                        && (!ledger.accepts(&answer)
+                            || ((binding.tools_only || kernel.quality_filters)
+                                && (!grounded || evidence.is_empty())))
+                    {
+                        return Ok(brain_contracts::ProviderAnswer {
+                            claims: Vec::new(),
+                            text: String::new(),
+                            cited_evidence_ids: Vec::new(),
+                            usage: Usage::default(),
+                        });
+                    }
                     return Ok(answer);
                 }
                 ProviderTurn::ToolCalls { blocks, .. } => {
@@ -462,9 +440,13 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                                 .map(|request| (call, request))
                         })
                         .collect::<Result<Vec<_>, _>>()?;
+                    if tool_calls.saturating_add(calls.len()) > binding.max_calls {
+                        return Err(PortError::BudgetExceeded);
+                    }
+                    tool_calls += calls.len();
                     let mut results = Vec::new();
                     for (call, request) in calls {
-                        let next = remaining(context, &accounting.charged(), elapsed())
+                        let next = round_remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
                         kernel.validate_tools(
                             query,
@@ -474,7 +456,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                             ToolValidationPurpose::Provider,
                             purpose,
                         )?;
-                        let next = remaining(context, &accounting.charged(), elapsed())
+                        let next = round_remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
                         let Accounted {
                             value: execution,
@@ -495,9 +477,19 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         if accounting.unaccounted {
                             return Err(PortError::BudgetExceeded);
                         }
-                        remaining(context, &accounting.charged(), elapsed())
+                        round_remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
+                        if serde_json::to_vec(&execution.result)
+                            .map_err(|_| {
+                                PortError::InvalidResponse("Ungültiges Werkzeugergebnis".into())
+                            })?
+                            .len()
+                            > binding.max_result_bytes
+                        {
+                            return Err(PortError::BudgetExceeded);
+                        }
                         execution.validate_for(call, &request, session.game_context.as_ref())?;
+                        ledger.insert(&execution.result);
                         if required_ids.contains(&call.id) {
                             if execution.result.is_error || execution.result.evidence_ids.is_empty()
                             {
@@ -513,7 +505,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                             build_executions.push(execution.clone());
                         }
                         dependencies.extend(execution.dependencies);
-                        let next = remaining(context, &accounting.charged(), elapsed())
+                        let next = round_remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
                         kernel.validate_tools(
                             query,
@@ -529,8 +521,6 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         {
                             insert_evidence(&mut evidence, item)?;
                         }
-                        successful_tool_data |=
-                            !execution.result.is_error && !execution.result.result.is_null();
                         results.push(execution.result);
                     }
                     conversation
@@ -549,11 +539,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             query,
             context,
             AnswerStatus::InsufficientEvidence,
-            if deterministic_refusal {
-                brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
-            } else {
-                "Keine ausreichenden Belege für diese Antwort."
-            },
+            "Keine ausreichenden Belege für diese Antwort.",
             Vec::new(),
             accounting.observed.clone(),
         )
@@ -596,7 +582,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     accounting.observed.clone(),
                 ),
                 accounting: accounting.clone(),
-                dependencies: retrieved_evidence.into(),
+                dependencies: Vec::new().into(),
                 tool_dependencies: dependencies.into(),
                 build_executions: build_executions.into(),
             }
@@ -609,7 +595,16 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             response(
                 query,
                 context,
-                validation_status(&error),
+                if kernel
+                    .tools
+                    .as_ref()
+                    .is_some_and(|binding| binding.tools_only)
+                    && matches!(error, PortError::InvalidResponse(_))
+                {
+                    AnswerStatus::InsufficientEvidence
+                } else {
+                    validation_status(&error)
+                },
                 "Werkzeugantwort konnte nicht sicher abgeschlossen werden.",
                 Vec::new(),
                 accounting.observed.clone(),

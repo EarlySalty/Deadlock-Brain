@@ -1088,6 +1088,7 @@ mod tests {
                 assert_eq!(data["query"], query.text);
                 assert!(!payload[1].content.contains("discord.request:"));
                 Ok(ProviderAnswer {
+                    claims: Vec::new(),
                     text: "Antwort aus gespeichertem Wissen".into(),
                     cited_evidence_ids: vec![items[0].evidence_id.clone()],
                     usage: Usage::default(),
@@ -1823,6 +1824,7 @@ mod tests {
                     .content
                     .contains("Aktuelle Live-Fakten belegen keinen historischen Zustand"));
                 Ok(ProviderAnswer {
+                    claims: Vec::new(),
                     text: String::new(),
                     cited_evidence_ids: Vec::new(),
                     usage: Usage {

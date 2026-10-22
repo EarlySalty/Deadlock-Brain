@@ -1,5 +1,5 @@
 use super::*;
-use crate::deadlock_data::scratch_pg;
+use crate::scratch_pg;
 use brain_contracts::{Budget, Principal};
 use brain_job::{ingest, registry::EXTRACTORS, GameFactsStore, InputObject};
 use sha2::{Digest, Sha256};

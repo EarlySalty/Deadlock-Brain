@@ -2,7 +2,10 @@ use super::*;
 use serde_json::{json, Value};
 const EXAMPLE: &[u8] = include_bytes!("../../../../../config/brain-serve.example.json");
 fn example() -> Value {
-    serde_json::from_slice(EXAMPLE).unwrap()
+    let mut value: Value = serde_json::from_slice(EXAMPLE).unwrap();
+    value["release"] = json!({"id":"pilot-r1","knowledge_version":"pilot-knowledge-v1"});
+    value["retrieval"] = json!({"kind":"release_lexical","limit":6});
+    value
 }
 fn parse(value: &Value) -> Result<Config, Error> {
     Config::parse(&serde_json::to_vec(value).unwrap())
@@ -12,10 +15,10 @@ fn parse(value: &Value) -> Result<Config, Error> {
 fn example_parses_without_secret_values_and_preserves_pilot_defaults() {
     let config = Config::parse(EXAMPLE).unwrap();
     assert_eq!(config.bind.to_string(), "127.0.0.1:8787");
-    assert_eq!(config.release.id, "pilot-r1");
+    assert_eq!(config.release.id, "postgres-tools-v2");
     assert_eq!(config.retrieval.limit, 6);
-    assert_eq!(config.budgets.max_input_tokens, 12000);
-    assert_eq!(Budget::from(&config.budgets), Budget::default());
+    assert_eq!(config.budgets.max_input_tokens, 32000);
+    assert_eq!(Budget::from(&config.budgets).max_network_rounds, 4);
     assert_eq!(config.provider.api_key_env, "BRAIN_SERVE_PROVIDER_API_KEY");
 }
 
@@ -54,7 +57,9 @@ fn every_required_section_and_field_is_fail_closed() {
     for key in original.as_object().unwrap().keys() {
         let mut value = original.clone();
         value.as_object_mut().unwrap().remove(key);
-        assert!(parse(&value).is_err(), "missing section: {key}");
+        if !["release", "retrieval"].contains(&key.as_str()) {
+            assert!(parse(&value).is_err(), "missing section: {key}");
+        }
     }
     for section in [
         "postgres",
@@ -68,7 +73,17 @@ fn every_required_section_and_field_is_fail_closed() {
         for key in original[section].as_object().unwrap().keys() {
             let mut value = original.clone();
             value[section].as_object_mut().unwrap().remove(key);
-            assert!(parse(&value).is_err(), "missing field: {section}.{key}");
+            if section != "kernel"
+                || ![
+                    "quality_filters",
+                    "max_tool_calls",
+                    "max_tool_result_bytes",
+                    "input_bytes_per_token",
+                ]
+                .contains(&key.as_str())
+            {
+                assert!(parse(&value).is_err(), "missing field: {section}.{key}");
+            }
         }
     }
     for key in original["credentials"][0].as_object().unwrap().keys() {
@@ -145,18 +160,20 @@ fn numeric_limits_and_pins_are_not_silently_clamped_or_defaulted() {
 }
 
 #[test]
-fn twenty_rounds_and_ten_minute_request_preserve_explicit_budgets() {
-    let mut value = example();
-    value["budgets"] = json!({"max_network_rounds":20,"max_input_tokens":20_000_000,"max_output_tokens":8192,"max_cost_micros":1_000_000});
-    value["timeouts"]["request_ms"] = json!(600_000);
-    value["timeouts"]["provider_ms"] = json!(600_000);
-    value["timeouts"]["shutdown_ms"] = json!(600_000);
-    let config = parse(&value).unwrap();
-    assert_eq!(config.budgets.max_network_rounds, 20);
-    assert_eq!(config.timeouts.request_ms, 600_000);
-    assert_eq!(config.timeouts.provider_ms, 600_000);
-    assert_eq!(config.budgets.max_input_tokens, 20_000_000);
-    assert_eq!(config.budgets.max_output_tokens, 8192);
+fn tools_only_budgets_reject_unbounded_configuration() {
+    for (section, field, value) in [
+        ("budgets", "max_network_rounds", 5),
+        ("budgets", "max_input_tokens", 32_001),
+        ("kernel", "max_tool_calls", 9),
+        ("kernel", "max_tool_result_bytes", 16_385),
+        ("kernel", "input_bytes_per_token", 0),
+        ("kernel", "input_bytes_per_token", 5),
+    ] {
+        let mut config = example();
+        config[section][field] = json!(value);
+        assert!(parse(&config).is_err());
+    }
+    assert!(Config::parse(EXAMPLE).is_ok());
 }
 
 #[test]
@@ -280,7 +297,6 @@ fn c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft() {
         (1, "actor_id", json!("second-brain")),
         (1, "channel", json!("twitch")),
         (1, "scopes", json!(["docs.public", "bot.public"])),
-        (1, "release", json!(null)),
         (2, "actor_id", json!("docs-client")),
         (2, "channel", json!("docs")),
         (2, "scopes", json!(["second_brain.internal", "docs.public"])),
@@ -295,6 +311,9 @@ fn c9_grants_sind_exakt_und_releasebindungen_werden_beim_neustart_geprueft() {
         changed["credentials"][index][field] = bad;
         assert!(parse(&changed).is_err());
     }
+    let mut pinless = value.clone();
+    pinless["credentials"][1]["release"] = json!(null);
+    assert!(parse(&pinless).is_ok());
     let mut changed = value.clone();
     changed["internal_operator"] = json!(null);
     assert!(parse(&changed).is_err());
@@ -358,7 +377,6 @@ fn maintenance_docs_require_exact_public_scope_and_matching_standard_pin() {
     for (field, invalid) in [
         ("scopes", json!(["bot.public", "docs.public"])),
         ("scopes", json!(["private"])),
-        ("release", json!(null)),
         (
             "release",
             json!({"id":"foreign","knowledge_version":"foreign"}),
@@ -369,6 +387,9 @@ fn maintenance_docs_require_exact_public_scope_and_matching_standard_pin() {
         changed["credentials"][1][field] = invalid;
         assert!(parse(&changed).is_err(), "{field}");
     }
+    let mut pinless = value.clone();
+    pinless["credentials"][1]["release"] = json!(null);
+    assert!(parse(&pinless).is_ok());
     let secrets = crate::Secrets::load(&config, |name| Some(format!("synthetic-{name}"))).unwrap();
     assert!(secrets
         .credentials

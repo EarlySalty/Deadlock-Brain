@@ -4,8 +4,8 @@ mod answer_trace;
 mod pg_tools;
 
 use crate::{
-    analytics::{AnalyticsRetriever, AnalyticsRuntime},
-    config::{ProviderKind, RetrievalKind},
+    analytics::AnalyticsRuntime,
+    config::ProviderKind,
     discord_live::{DiscordLive, DiscordRetriever},
     health::{self, Health},
     log_event, Config, Error, Secrets,
@@ -29,80 +29,9 @@ use brain_storage::{LocalPgPoolStats, LocalPgReader};
 use dbrain_retrieval::ReleaseRetriever;
 use std::{
     future::IntoFuture,
-    io::Read,
-    path::Path,
     sync::{atomic::Ordering, Arc, Mutex},
     time::{Duration, Instant},
 };
-
-fn entity_profile_effective_uid() -> Result<u32, PortError> {
-    let mut status = String::new();
-    std::fs::File::open("/proc/self/status")
-        .and_then(|file| file.take(16 * 1024).read_to_string(&mut status))
-        .map_err(|_| {
-            PortError::PermissionDenied("Lokale Operatoridentität kann nicht geprüft werden".into())
-        })?;
-    status
-        .lines()
-        .find_map(|line| line.strip_prefix("Uid:"))
-        .and_then(|uids| uids.split_ascii_whitespace().nth(1))
-        .and_then(|uid| uid.parse().ok())
-        .ok_or_else(|| PortError::PermissionDenied("Tatsächliche effektive UID fehlt".into()))
-}
-
-fn entity_profile_reader(
-    reader: LocalPgReader,
-    config_path: Option<&Path>,
-) -> Result<LocalPgReader, Error> {
-    let Some(config_path) = config_path else {
-        return Ok(reader);
-    };
-    let uid = entity_profile_effective_uid().map_err(|_| Error::ReaderConfig)?;
-    LocalPgReader::entity_profile_operator(config_path, uid).map_err(|_| Error::ReaderConfig)?;
-    let operator_config = config_path.to_owned();
-    let blob_config = operator_config.clone();
-    Ok(reader.with_entity_profile_access(
-        move || {
-            LocalPgReader::entity_profile_operator(
-                &operator_config,
-                entity_profile_effective_uid()?,
-            )
-        },
-        move |record| {
-            let (repository_path, commit, registered_origin, repository_url, path) =
-                LocalPgReader::entity_evidence_repository(
-                    &blob_config,
-                    entity_profile_effective_uid()?,
-                    record,
-                )?;
-            let pinned =
-                dbrain_sources::git_source::PinnedRepository::open(&repository_path, &commit)
-                    .map_err(|_| {
-                        PortError::InvalidResponse(
-                            "Registriertes Originalrepository kann nicht gelesen werden".into(),
-                        )
-                    })?;
-            pinned.require_origin(&[&registered_origin]).map_err(|_| {
-                PortError::InvalidResponse(
-                    "Originalrepository widerspricht seiner Registrierung".into(),
-                )
-            })?;
-            let bytes = pinned.read_blob(&path).map_err(|_| {
-                PortError::InvalidResponse(
-                    "Gepinnter Originalblob kann nicht gelesen werden".into(),
-                )
-            })?;
-            Ok(brain_storage::entity_profile::derivation::GitBlobEvidence {
-                source_id: record.descriptor.head.source_id.clone(),
-                logical_id: record.descriptor.head.logical_id.clone(),
-                store_revision: record.descriptor.head.revision,
-                git_commit: commit,
-                repository_url,
-                bytes,
-            })
-        },
-    ))
-}
 
 struct Shutdown {
     deadline: Mutex<Option<Instant>>,
@@ -260,18 +189,6 @@ impl Prepared {
                 )
             })
             .map_err(|_| Error::ReaderConfig)?;
-        let reader =
-            entity_profile_reader(reader, config.entity_profile_maintenance_config.as_deref())?;
-        let reader = reader
-            .with_entity_profile_model_consumers(
-                config
-                    .credentials
-                    .iter()
-                    .filter(|credential| credential.entity_profile_model_context)
-                    .map(|credential| (credential.actor_id.clone(), credential.channel.clone()))
-                    .collect(),
-            )
-            .map_err(|_| Error::ReaderConfig)?;
         let mut provider_config = match config.provider.kind {
             ProviderKind::CodexSubscription => {
                 ProviderConfig::codex_subscription(&config.provider.base_url)
@@ -282,7 +199,8 @@ impl Prepared {
                 &config.provider.model,
             ),
         };
-        provider_config.quality_filters = config.kernel.quality_filters;
+        provider_config.quality_filters = true;
+        provider_config.input_bytes_per_token = config.kernel.input_bytes_per_token;
         provider_config.timeout = Duration::from_millis(t.provider_ms);
         provider_config.retry_attempts = config.provider.retry_attempts;
         provider_config.retry_backoff = Duration::from_millis(config.provider.retry_backoff_ms);
@@ -334,11 +252,6 @@ impl Prepared {
         })
     }
 
-    #[cfg(test)]
-    pub(crate) fn probe_components(&self) -> (LocalPgReader, impl AnswerProviderPort + Clone) {
-        (self.reader.clone(), self.provider.clone())
-    }
-
     pub fn remaining_shutdown(&self) -> Duration {
         self.shutdown.remaining()
     }
@@ -383,91 +296,29 @@ fn startup_database_error(error: PortError) -> Error {
 
 async fn initialize(prepared: &Prepared) -> Result<Arc<Health>, Error> {
     let reader = prepared.reader.clone();
-    let release_id = prepared.config.release.id.clone();
-    let knowledge_version = prepared.config.release.knowledge_version.clone();
-    let client_releases: Vec<_> = prepared
-        .config
-        .credentials
-        .iter()
-        .filter_map(|credential| {
-            credential
-                .release
-                .clone()
-                .map(|release| (release, prepared.config.bound_scope(credential)))
-        })
-        .collect();
-    let analytics_patch = prepared
-        .config
-        .analytics
-        .as_ref()
-        .map(|value| value.patch.clone());
-    let snapshot = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         reader.check_core_schema().map_err(|error| match error {
             PortError::InvalidResponse(_) => Error::SchemaIncompatible,
-            PortError::PermissionDenied(_) => Error::DatabasePermissions,
-            _ => Error::DatabaseUnavailable,
+            other => startup_database_error(other),
         })?;
+        reader
+            .check_tool_serving()
+            .map_err(startup_database_error)?;
         reader.check_permissions().map_err(startup_database_error)?;
         reader
             .check_response_audit()
-            .map_err(startup_database_error)?;
-        let snapshot = reader
-            .read_manifest(&release_id)
-            .map_err(|error| match error {
-                PortError::InvalidResponse(_) => Error::ReleaseUnavailable,
-                other => startup_database_error(other),
-            })?;
-        if snapshot.release.knowledge_version != knowledge_version {
-            return Err(Error::KnowledgeVersion);
-        }
-        if analytics_patch
-            .as_deref()
-            .is_some_and(|patch| patch != snapshot.release.patch)
-        {
-            return Err(Error::ConfigInvalid("analytics_patch"));
-        }
-        health::validate_manifest(&snapshot)?;
-        let mut releases = vec![snapshot.release];
-        for (expected, scope) in client_releases {
-            let client_snapshot =
-                reader
-                    .read_manifest(&expected.id)
-                    .map_err(|error| match error {
-                        PortError::InvalidResponse(_) => Error::ReleaseUnavailable,
-                        other => startup_database_error(other),
-                    })?;
-            if client_snapshot.release.knowledge_version != expected.knowledge_version {
-                return Err(Error::KnowledgeVersion);
-            }
-            health::validate_manifest(&client_snapshot)?;
-            if let Some(scope) = scope {
-                health::validate_bound_manifest(&client_snapshot, &scope)?;
-            }
-            if !releases.contains(&client_snapshot.release) {
-                releases.push(client_snapshot.release);
-            }
-        }
-        Ok(releases)
+            .map_err(startup_database_error)
     })
     .await
     .map_err(|_| Error::ReaderUnavailable)??;
-    Ok(Arc::new(Health::new(
-        snapshot,
+    Ok(Arc::new(Health::tools_only(
+        crate::health::ReadyRelease {
+            id: prepared.config.release.id.clone(),
+            knowledge_version: prepared.config.release.knowledge_version.clone(),
+            bindings_sha256: prepared.config.release_bindings_sha256(),
+        },
         Duration::from_millis(prepared.config.timeouts.readiness_ms),
         prepared.reader.clone(),
-        prepared
-            .config
-            .credentials
-            .iter()
-            .filter_map(|credential| {
-                credential.release.as_ref().and_then(|release| {
-                    prepared
-                        .config
-                        .bound_scope(credential)
-                        .map(|scope| (release.id.clone(), scope))
-                })
-            })
-            .collect(),
         prepared
             .config
             .internal_operator
@@ -547,24 +398,22 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             result.map_err(|_| Error::StartupTimeout)??
         }
     };
-    let retrieval = match prepared.config.retrieval.kind {
-        RetrievalKind::ReleaseLexical => {
-            ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit)
-        }
-    };
-    let mut discord_context = retrieval.clone();
-    let retrieval = AnalyticsRetriever::new(retrieval, prepared.analytics.clone());
-    let retrieval = DiscordRetriever::new(retrieval, prepared.discord_live.clone())
-        .with_provider(&prepared.config.provider);
-    let public_retrieval = DiscordRetriever::new(
-        ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit),
-        prepared.discord_live.clone(),
-    )
-    .with_provider(&prepared.config.provider);
+    let public_retrieval =
+        DiscordRetriever::new(crate::tool_base::ToolBase, prepared.discord_live.clone())
+            .with_provider(&prepared.config.provider);
     let mut answer_artifacts = None;
+    let mut answer_kernel = Kernel::new(crate::tool_base::ToolBase, prepared.provider.clone())
+        .with_tools(
+            crate::tool_base::ToolBase,
+            crate::tool_base::ToolBase,
+            "brain.tools-only.v2:disabled",
+        )
+        .with_tools_only_limits(
+            prepared.config.kernel.max_tool_calls,
+            prepared.config.kernel.max_tool_result_bytes,
+        )
+        .with_input_bytes_per_token(prepared.config.kernel.input_bytes_per_token);
     let mut docs_reader = None;
-    let mut answer_kernel = Kernel::new(retrieval, prepared.provider.clone())
-        .with_quality_filters(prepared.config.kernel.quality_filters);
     if let Some(config) = &prepared.config.deadlock_api {
         let pg = &prepared.config.postgres;
         let options = sqlx::postgres::PgConnectOptions::new_without_pgpass()
@@ -607,37 +456,9 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             pool.clone(),
             tokio::runtime::Handle::current(),
         ));
-        let mirror = brain_storage::entity_profile::MirroredGameContextReader::new(
-            pool,
-            tokio::runtime::Handle::current(),
-            brain_contracts::tools::ToolLanguage::German,
-        )
-        .map_err(|_| Error::ReaderConfig)?;
-        let config = config.clone();
-        let runtime =
-            tokio::task::spawn_blocking(move || crate::deadlock_data::Runtime::new(config, mirror))
-                .await
-                .map_err(|_| Error::ReaderUnavailable)??;
-        discord_context = discord_context.with_context_mirror(runtime.mirror.clone());
-        let resolver = crate::deadlock_data::Resolver(runtime.mirror.clone());
-        let knowledge = DiscordRetriever::new(
-            ReleaseRetriever::new(prepared.reader.clone(), prepared.config.retrieval.limit),
-            prepared.discord_live.clone(),
-        )
-        .with_provider(&prepared.config.provider);
         let tools = crate::pg_patch_port::PgPatchToolPort::new(
             pg_tools::PgTools::new(
-                crate::deadlock_data::Tools {
-                    knowledge: dbrain_retrieval::ReleaseToolExecutionPort::new(
-                        ReleaseRetriever::new(
-                            prepared.reader.clone(),
-                            prepared.config.retrieval.limit,
-                        ),
-                    )
-                    .with_knowledge_retrieval(knowledge)
-                    .with_mirrored_entities(runtime.mirror.clone()),
-                    runtime: Arc::new(runtime),
-                },
+                crate::tool_base::ToolBase,
                 gamefacts_pool.clone(),
                 tokio::runtime::Handle::current(),
             ),
@@ -658,14 +479,20 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                 },
             )
             .map_err(|_| Error::ReaderConfig)?;
-        answer_kernel = answer_kernel.with_tools(
-            answer_trace::TracedTools(tools),
-            resolver,
-            format!(
-                "{}:{}",
-                prepared.config.provider.base_url, prepared.config.provider.model
-            ),
-        );
+        answer_kernel = answer_kernel
+            .with_tools(
+                answer_trace::TracedTools(tools),
+                crate::tool_base::ToolBase,
+                format!(
+                    "brain.tools-only.v2:{}:{}",
+                    prepared.config.provider.base_url, prepared.config.provider.model
+                ),
+            )
+            .with_tools_only_limits(
+                prepared.config.kernel.max_tool_calls,
+                prepared.config.kernel.max_tool_result_bytes,
+            )
+            .with_input_bytes_per_token(prepared.config.kernel.input_bytes_per_token);
     }
     let kernel = CachedKernel::new(
         answer_kernel,
@@ -689,36 +516,18 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     let api = brain_api::ApiService::new(
         policy,
         kernel,
-        &prepared.config.release.id,
+        "postgres-tools-v2",
         prepared.config.timeouts.request_ms,
         (&prepared.config.budgets).into(),
     )
     .with_retrieval(public_retrieval)
-    .with_discord_context_resolver(discord_context)
+    .with_discord_context_resolver(crate::tool_base::ToolBase)
     .with_discord_consumers(
         prepared
             .config
             .trusted_discord_consumers
             .iter()
             .map(|consumer| (consumer.actor_id.clone(), consumer.channel.clone()))
-            .collect(),
-    )
-    .with_release_bindings(
-        prepared
-            .config
-            .credentials
-            .iter()
-            .map(|credential| {
-                (
-                    (credential.actor_id.clone(), credential.channel.clone()),
-                    credential
-                        .release
-                        .as_ref()
-                        .unwrap_or(&prepared.config.release)
-                        .id
-                        .clone(),
-                )
-            })
             .collect(),
     )
     .with_bot_task_consumers(
@@ -878,87 +687,3 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
 #[cfg(test)]
 #[path = "answer_provider_tests.rs"]
 mod answer_provider_tests;
-
-#[cfg(test)]
-mod entity_profile_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn effective_uid_matches_kernel_peer_credentials() {
-        let (stream, _peer) = tokio::net::UnixStream::pair().unwrap();
-        assert_eq!(
-            entity_profile_effective_uid().unwrap(),
-            stream.peer_cred().unwrap().uid()
-        );
-    }
-
-    #[test]
-    fn configured_reader_requires_existing_operator_config_without_new_pool() {
-        let dir = tempfile::tempdir().unwrap();
-        let reader = LocalPgReader::new(dir.path(), 5432, "brain_core_test", "postgres").unwrap();
-        let maximum = reader.pool_stats().max_connections;
-        let unchanged = entity_profile_reader(reader.clone(), None).unwrap();
-        assert_eq!(unchanged.pool_stats().max_connections, maximum);
-        let path = dir.path().join("maintenance.json");
-        assert!(entity_profile_reader(reader.clone(), Some(&path)).is_err());
-        std::fs::write(
-            &path,
-            br#"{"internal_doc_scopes":["internal_docs"],"game_sources":[]}"#,
-        )
-        .unwrap();
-        let configured = entity_profile_reader(reader, Some(&path)).unwrap();
-        assert_eq!(configured.pool_stats().max_connections, maximum);
-        assert_eq!(configured.pool_stats().created_connections, 0);
-    }
-
-    #[test]
-    fn model_consumer_binding_is_exact_and_does_not_grant_operator_egress() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("maintenance.json");
-        std::fs::write(
-            &path,
-            br#"{"internal_doc_scopes":["internal_docs"],"game_sources":[]}"#,
-        )
-        .unwrap();
-        let reader = LocalPgReader::new(dir.path(), 5432, "brain_core_test", "postgres").unwrap();
-        let consumers = std::collections::BTreeSet::from([("dl-bot".into(), "discord".into())]);
-        assert!(reader
-            .clone()
-            .with_entity_profile_model_consumers(consumers.clone())
-            .is_err());
-        let configured = entity_profile_reader(reader, Some(&path)).unwrap();
-        let principal = brain_contracts::Principal {
-            actor_id: "dl-bot".into(),
-            channel: "discord".into(),
-            scopes: std::collections::BTreeSet::from(["bot.public".into()]),
-            provider_egress: std::collections::BTreeSet::from(["public".into()]),
-        };
-        assert!(!configured.permits_entity_profile_model_context(&principal));
-        let configured = configured
-            .with_entity_profile_model_consumers(consumers)
-            .unwrap();
-        assert!(configured
-            .clone()
-            .permits_entity_profile_model_context(&principal));
-        for (actor, channel) in [
-            ("docs-client", "docs"),
-            ("dl-bot", "twitch"),
-            ("second-brain", "internal"),
-        ] {
-            let mut other = principal.clone();
-            other.actor_id = actor.into();
-            other.channel = channel.into();
-            assert!(!configured.permits_entity_profile_model_context(&other));
-        }
-        let mut widened = principal;
-        widened.provider_egress.insert("internal".into());
-        assert!(!configured.permits_entity_profile_model_context(&widened));
-        assert_eq!(configured.pool_stats().created_connections, 0);
-        assert!(configured
-            .with_entity_profile_model_consumers(std::collections::BTreeSet::from([(
-                "second-brain".into(),
-                "internal".into()
-            )]))
-            .is_err());
-    }
-}

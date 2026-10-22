@@ -531,7 +531,18 @@ pub struct AnswerResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct NumericClaim {
+    pub citation_id: String,
+    pub value: serde_json::Number,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderAnswer {
+    #[serde(default)]
+    pub claims: Vec<NumericClaim>,
     pub text: String,
     #[serde(default)]
     pub cited_evidence_ids: Vec<String>,
