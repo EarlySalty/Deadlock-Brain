@@ -79,6 +79,29 @@ fn exact_source_and_supported_fields_only() {
 }
 
 #[test]
+fn patch_note_spellings_become_aliases() {
+    let set = accepted(&raw(
+        br#"{"hero_krill":{"Name":"Mo & Krill"},"hero_doorman":{"Name":"The Doorman"}}"#,
+    ));
+    let mut aliases: Vec<_> = set
+        .aliases
+        .iter()
+        .map(|alias| (alias.entity_key.as_str(), alias.alias.as_str()))
+        .collect();
+    aliases.sort();
+    assert_eq!(
+        aliases,
+        [
+            ("hero_doorman", "doorman"),
+            ("hero_doorman", "the doorman"),
+            ("hero_krill", "krill"),
+            ("hero_krill", "mo & krill"),
+            ("hero_krill", "mo and krill"),
+        ]
+    );
+}
+
+#[test]
 fn duplicate_decoded_keys_and_normalized_collisions_reject() {
     for bytes in [
         br#"{"hero_a":{"Name":"A"},"hero_a":{"Name":"B"}}"#.as_slice(),

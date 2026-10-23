@@ -181,7 +181,11 @@ impl PatchExtractor {
                 && (section(body) || known_heading || text.starts_with("## "));
             let new_bullet = bullet(text).is_some()
                 && pending.is_none_or(|(_, previous, _)| {
-                    depth <= previous && (statement_start(body) || section(body) || known_heading)
+                    depth <= previous
+                        && (statement_start(body)
+                            || section(body)
+                            || known_heading
+                            || subject_prefixed(body))
                 });
             if heading || new_bullet {
                 if let Some((begin, _, position)) = pending.take() {
@@ -218,13 +222,15 @@ impl PatchExtractor {
         current: Option<(&str, usize)>,
     ) -> Option<serde_json::Value> {
         let mut body = bullet(row.raw)?;
+        let mut statement = body;
         let mut binding = current;
         if let Some((subject, rest)) = body.split_once(':').or_else(|| body.split_once(" - ")) {
             if !structural_heading(subject) {
                 return None;
             }
             binding = Some((label(subject), row.position));
-            body = rest.trim();
+            statement = rest.trim();
+            body = ability_change(statement).unwrap_or(statement);
         }
         let (subject, context) = binding.filter(|_| action_subject(body).is_some())?;
         if row.raw.lines().skip(1).any(|line| {
@@ -255,7 +261,7 @@ impl PatchExtractor {
         }) {
             return None;
         }
-        let values = explicit_values(body);
+        let values = explicit_values(statement);
         Some(serde_json::json!({
             "reference": limits::normalize_alias(subject), "subject": subject,
             "statement_index": row.position, "context_index": (context != row.position).then_some(context),
@@ -269,7 +275,7 @@ impl Extractor for PatchExtractor {
         "patchnotes"
     }
     fn version(&self) -> &'static str {
-        "2"
+        "3"
     }
     fn accepts(&self, source: &str, path: &str) -> bool {
         source == SOURCE
@@ -450,7 +456,27 @@ fn structural_heading(body: &str) -> bool {
         && subject.chars().any(char::is_alphabetic)
         && subject
             .chars()
-            .all(|ch| ch.is_alphanumeric() || ch.is_whitespace() || "-_'’".contains(ch))
+            .all(|ch| ch.is_alphanumeric() || ch.is_whitespace() || "-_'’&".contains(ch))
+}
+
+fn subject_prefixed(body: &str) -> bool {
+    body.split_once(':')
+        .is_some_and(|(name, _)| structural_heading(name))
+}
+
+fn ability_change(rest: &str) -> Option<&str> {
+    let (name, change) = rest.split_once(" - ")?;
+    let name = name.trim();
+    let change = change.trim();
+    let named = !name.is_empty()
+        && name.chars().count() <= 48
+        && name.chars().any(char::is_alphabetic)
+        && name
+            .chars()
+            .all(|ch| ch.is_alphanumeric() || ch.is_whitespace() || "-_'’&,!?.".contains(ch))
+        && !first_word(name).is_some_and(qualification_word)
+        && action_subject(name).is_none();
+    (named && action_subject(change).is_some()).then_some(change)
 }
 
 fn statement_start(body: &str) -> bool {

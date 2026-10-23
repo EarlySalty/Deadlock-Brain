@@ -21,7 +21,7 @@ pub(super) fn escape(value: &str) -> String {
 }
 
 pub(super) fn document(title: &str, body: &str) -> String {
-    format!("<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{} · Deadlock</title><style>body{{overflow-wrap:anywhere;font:1rem/1.6 system-ui,sans-serif;color:#20252b;background:#f7f5ef;margin:0}}main{{max-width:70rem;margin:auto;padding:clamp(1rem,4vw,3rem)}}a{{color:#254a80}}table{{border-collapse:collapse;width:100%}}th,td{{padding:.7rem;text-align:left;border-bottom:1px solid #bfc3c8;vertical-align:top;overflow-wrap:anywhere}}.scroll{{overflow-x:auto}}code,pre{{white-space:pre-wrap;overflow-wrap:anywhere}}li{{margin:.5rem 0}}article{{margin:2rem 0}}:focus-visible{{outline:3px solid #254a80;outline-offset:3px}}</style></head><body><main><nav><a href=\"/brain/site/steckbriefe\">Steckbriefe</a></nav>{body}</main></body></html>", escape(title))
+    format!("<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{} · Deadlock</title><style>body{{overflow-wrap:break-word;font:1rem/1.6 system-ui,sans-serif;color:#20252b;background:#f7f5ef;margin:0}}main{{max-width:70rem;margin:auto;padding:clamp(1rem,4vw,3rem)}}a{{color:#254a80}}table{{border-collapse:collapse;width:100%}}th,td{{padding:.7rem;text-align:left;border-bottom:1px solid #bfc3c8;vertical-align:top;overflow-wrap:normal;word-break:normal;hyphens:manual}}.scroll{{overflow-x:auto}}code,pre{{white-space:pre-wrap;overflow-wrap:anywhere}}li{{margin:.5rem 0}}article{{margin:2rem 0}}:focus-visible{{outline:3px solid #254a80;outline-offset:3px}}</style></head><body><main><nav><a href=\"/brain/site/steckbriefe\">Steckbriefe</a></nav>{body}</main></body></html>", escape(title))
 }
 
 pub(super) fn response(status: StatusCode, html: String, method: Method) -> Response {
@@ -151,8 +151,22 @@ pub(super) fn display_name(identity: &Value) -> Option<&str> {
         .find(|name| !name.is_empty() && *name != key && !key_shaped(name))
 }
 
-pub(super) fn name(identity: &Value) -> &str {
-    display_name(identity).unwrap_or("Unbekannt")
+fn stat_label(stat_key: &str) -> Option<&'static str> {
+    Some(match stat_key {
+        "max_health" => "Maximale Lebenspunkte",
+        "base_health_regen" => "Lebensregeneration",
+        "max_move_speed" => "Bewegungstempo",
+        "sprint_speed" => "Sprinttempo",
+        "stamina" => "Ausdauer",
+        "light_melee_damage" => "Leichter Nahkampfschaden",
+        "heavy_melee_damage" => "Schwerer Nahkampfschaden",
+        "type" => "Typ",
+        "weapon_bullet_damage" => "Schaden pro Kugel",
+        "weapon_rounds_per_second" => "Schüsse pro Sekunde",
+        "weapon_clip_size" => "Max. Munition",
+        "weapon_reload_time" => "Nachladezeit",
+        _ => return None,
+    })
 }
 
 pub(super) fn fact_rows(section: &Value) -> String {
@@ -165,6 +179,7 @@ pub(super) fn fact_rows(section: &Value) -> String {
         let label = fact["label"]
             .as_str()
             .filter(|s| !s.is_empty())
+            .or_else(|| fact["stat_key"].as_str().and_then(stat_label))
             .or_else(|| fact["stat_key"].as_str())
             .unwrap_or("Wert");
         let value = fact["value"]
@@ -321,7 +336,7 @@ pub(super) async fn page(
     match result {
         Ok(Outcome::Page(html)) => response(StatusCode::OK, html, method),
         Ok(Outcome::Redirect(location)) => (
-            StatusCode::MOVED_PERMANENTLY,
+            StatusCode::TEMPORARY_REDIRECT,
             [(header::LOCATION, location)],
         )
             .into_response(),
@@ -359,11 +374,11 @@ fn index_list(identities: &[Value]) -> Result<(usize, String)> {
 pub(super) async fn index(State(site): State<Site>, method: Method) -> Response {
     let result: Result<String> = async {
         let mut tx = transaction(&site).await?;
-        let heroes = sqlx::query_scalar::<_, Value>("SELECT identity FROM serve.entity_identity WHERE kind='hero' AND serve.hero_is_playable(entity_id) LIMIT 256")
+        let heroes = sqlx::query_scalar::<_, Value>("SELECT identity FROM serve.entity_identity WHERE kind='hero' AND serve.hero_is_playable(entity_id) ORDER BY key LIMIT 256")
             .fetch_all(&mut *tx)
             .await?;
         let items = sqlx::query_scalar::<_, Value>(
-            "SELECT identity FROM serve.entity_identity WHERE kind='item' LIMIT 1024",
+            "SELECT identity FROM serve.entity_identity WHERE kind='item' ORDER BY key LIMIT 1024",
         )
         .fetch_all(&mut *tx)
         .await?;

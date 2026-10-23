@@ -15,7 +15,7 @@ impl Extractor for Assets {
         "assets"
     }
     fn version(&self) -> &'static str {
-        "2"
+        "3"
     }
     fn accepts(&self, source: &str, path: &str) -> bool {
         source == "assets"
@@ -302,7 +302,7 @@ impl<'a> Record<'a> {
                     (format!("{}.{}", self.kind, unescape(field)), condition)
                 }
                 ["upgrades", tier, "property_upgrades", entry, "bonus"]
-                    if self.kind == "ability" && is_number =>
+                    if self.kind == "ability" && (is_number || measured_bonus(leaf).is_some()) =>
                 {
                     for pointer in [
                         format!("{prefix}/upgrades"),
@@ -347,6 +347,11 @@ impl<'a> Record<'a> {
                     }
                     condition["upgrade_entry"] =
                         json!(entry.parse::<u64>().map_err(|_| "assets_upgrade_entry")?);
+                    if let Some((_, unit)) =
+                        measured_bonus(leaf).filter(|(_, unit)| !unit.is_empty())
+                    {
+                        condition["unit"] = json!(unit);
+                    }
                     (format!("ability.{}", name.text), condition)
                 }
                 _ => continue,
@@ -459,7 +464,29 @@ fn unescape(part: &str) -> String {
 fn rejection(code: &'static str) -> Rejection {
     Rejection::new(code, "Assets-Objekt verletzt den Datenvertrag")
 }
+fn measured_bonus(leaf: &Leaf<'_>) -> Option<(String, &'static str)> {
+    if !leaf.textual || !leaf.pointer.ends_with("/bonus") || numeric(&leaf.text) {
+        return None;
+    }
+    let (number, unit) = ["m", "s", ""]
+        .into_iter()
+        .find_map(|unit| leaf.text.strip_suffix(unit).map(|number| (number, unit)))?;
+    let (sign, digits) = match number.strip_prefix('-') {
+        Some(rest) => ("-", rest),
+        None => ("", number),
+    };
+    let digits = match digits.strip_prefix('.') {
+        Some(fraction) => format!("0.{fraction}"),
+        None => digits.to_owned(),
+    };
+    let number = format!("{sign}{digits}");
+    limits::validate_numeric_lexeme(&number).ok()?;
+    Some((number, unit))
+}
 fn fact_value(leaf: &Leaf<'_>) -> Result<FactValue, Rejection> {
+    if let Some((number, _)) = measured_bonus(leaf) {
+        return Ok(FactValue::Text(number));
+    }
     if leaf.numeric
         || (leaf.textual
             && (leaf.pointer.ends_with("/value") || leaf.pointer.ends_with("/bonus"))
@@ -524,8 +551,10 @@ fn emit(
         .ok_or_else(|| rejection("assets_qualifier_type"))?;
     attributes.insert("source_language".into(), json!(language));
     if field.leaf.textual
-        && numeric(&field.leaf.text)
-        && (field.leaf.pointer.ends_with("/value") || field.leaf.pointer.ends_with("/bonus"))
+        && (measured_bonus(field.leaf).is_some()
+            || (numeric(&field.leaf.text)
+                && (field.leaf.pointer.ends_with("/value")
+                    || field.leaf.pointer.ends_with("/bonus"))))
     {
         attributes.insert("numeric".into(), json!(true));
     }

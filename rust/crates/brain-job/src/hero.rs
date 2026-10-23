@@ -30,6 +30,9 @@ impl Extractor for Hero {
     fn name(&self) -> &'static str {
         "hero"
     }
+    fn version(&self) -> &'static str {
+        "2"
+    }
     fn accepts(&self, source: &str, path: &str) -> bool {
         source == "deadlock-data" && path == "data/json/hero-data.json"
     }
@@ -120,6 +123,35 @@ fn scalars(
     Ok(())
 }
 
+fn aliases(key: &str, name: &str) -> BTreeSet<(String, &'static str)> {
+    let name = limits::normalize_alias(name);
+    let mut names = BTreeSet::from([name.clone()]);
+    if let Some(rest) = name.strip_prefix("the ") {
+        names.insert(rest.trim().to_owned());
+    }
+    if name.contains(" & ") {
+        names.insert(name.replace(" & ", " and "));
+        names.extend(
+            name.split(" & ")
+                .map(str::trim)
+                .filter(|part| part.chars().count() >= 3)
+                .map(str::to_owned),
+        );
+    }
+    let mut result: BTreeSet<_> = names
+        .into_iter()
+        .filter(|alias| !alias.is_empty())
+        .map(|alias| (alias, "en"))
+        .collect();
+    if let Some(internal) = key.strip_prefix("hero_").filter(|rest| !rest.is_empty()) {
+        let internal = internal.replace('_', " ");
+        if !result.iter().any(|(alias, _)| *alias == internal) {
+            result.insert((internal, "und"));
+        }
+    }
+    result
+}
+
 fn extract(raw: &RawObject) -> Result<FactSet, Rejection> {
     if raw.bytes.len() > MAX_SOURCE_BYTES {
         return Err(Rejection::new(
@@ -155,12 +187,19 @@ fn extract(raw: &RawObject) -> Result<FactSet, Rejection> {
             key: key.clone(),
             receipt: receipt(raw, parent.clone())?,
         });
-        set.aliases.push(Alias {
-            entity_key: key.clone(),
-            alias: limits::normalize_alias(name.as_str().ok_or_else(malformed)?),
-            lang: "en".into(),
-            receipt: name_receipt.clone(),
-        });
+        for (alias, lang) in aliases(&key, name.as_str().ok_or_else(malformed)?) {
+            let receipt = if lang == "und" {
+                receipt(raw, parent.clone())?
+            } else {
+                name_receipt.clone()
+            };
+            set.aliases.push(Alias {
+                entity_key: key.clone(),
+                alias,
+                lang: lang.into(),
+                receipt,
+            });
+        }
         set.facts.push(Fact {
             entity_key: key.clone(),
             stat_key: "name_en".into(),

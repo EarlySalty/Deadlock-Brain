@@ -21,7 +21,7 @@ fn registry_is_positive_unique_and_ordered_with_gaps() {
         MIGRATIONS.iter().map(|(v, _)| *v).collect::<Vec<_>>(),
         [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 30, 31, 32, 33, 34, 35, 36, 37,
-            38, 39, 40
+            38, 39, 40, 41
         ]
     );
     assert_eq!(

@@ -112,7 +112,7 @@ fn complete_statements_emit_patch_owned_alias_text_and_source_stat_labels() {
         let fingerprint = Sha256::digest(reference.as_bytes());
         assert_eq!(*key, format!("patch_change_r{fingerprint:x}_{index}"));
     }
-    assert_eq!(PatchExtractor.version(), "2");
+    assert_eq!(PatchExtractor.version(), "3");
     let rows = parse("- Baba: Damage increased from 1 to 2");
     assert_eq!(rows[0]["stat_label"], "Damage");
 }
@@ -148,10 +148,13 @@ fn multiple_subjects_and_unsafe_boundaries_cannot_truncate_statements() {
         "- Baba: Added knockback against sinclair",
         "- Baba: Added knockback and Unknown removed knockback",
         "- Baba: Added knockback\n  Unknown removed knockback",
-        "- Baba & Sinclair: Added knockback",
     ] {
         assert!(parse(content).is_empty(), "{content}");
     }
+    let rows = parse("- Baba & Sinclair: Added knockback");
+    assert!(rows
+        .iter()
+        .all(|row| row["reference"] != "baba" && row["reference"] != "sinclair"));
     for qualifier in [
         "when attacking objectives",
         "When Damage increased from 1 to 2",
@@ -163,6 +166,20 @@ fn multiple_subjects_and_unsafe_boundaries_cannot_truncate_statements() {
             assert!(parse(&content).is_empty(), "{content}");
         }
     }
+}
+
+#[test]
+fn ampersand_heroes_and_ability_prefixed_lines_keep_their_subject() {
+    let rows = parse("- Mo & Krill: Scorn damage increased from 40 to 45");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["reference"], "mo & krill");
+    let rows = parse("- Rat King: Rat Swarm - Base Cooldown reduced from 28s to 24s");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["reference"], "rat king");
+    let rows = parse(
+        "- Baba: Added knockback\n- Rat King: Rule, Ratannia! - no longer scales with spirit",
+    );
+    assert_eq!(rows[0]["line_text"], "- Baba: Added knockback");
 }
 
 #[test]

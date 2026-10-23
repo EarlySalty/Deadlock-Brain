@@ -39,7 +39,7 @@ pub(super) async fn abilities(connection: &mut PgConnection, key: &str) -> Resul
 }
 
 pub(super) async fn changes(connection: &mut PgConnection, key: &str) -> Result<Vec<Change>> {
-    let rows = sqlx::query("SELECT patch_label,to_char(released_at AT TIME ZONE 'UTC','DD.MM.YYYY') AS released,line_text,citation,source_revision FROM serve.site_hero_patch_changes($1) LIMIT 160")
+    let rows = sqlx::query("SELECT patch_label,to_char(released_at AT TIME ZONE 'UTC','DD.MM.YYYY') AS released,line_text,citation,source_revision FROM serve.site_hero_patch_changes($1) ORDER BY ordinal LIMIT 160")
         .bind(key)
         .fetch_all(connection)
         .await?;
@@ -86,6 +86,7 @@ pub(super) fn plain(text: &str) -> String {
     while let Some(start) = rest.find('<') {
         out.push_str(&rest[..start]);
         let Some(end) = rest[start..].find('>') else {
+            out.push_str(&rest[start..]);
             rest = "";
             break;
         };
@@ -167,10 +168,37 @@ fn pick<'a>(facts: &'a [Value], stat_key: &str) -> Option<&'a Value> {
 }
 
 fn label(fact: &Value) -> Option<&str> {
-    fact["label"]
-        .as_str()
-        .map(str::trim)
-        .filter(|label| !label.is_empty())
+    let text = |field: &str| {
+        fact[field]
+            .as_str()
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
+    };
+    let chosen = text("label_de").or_else(|| text("label"))?;
+    Some(german_label(chosen).unwrap_or(chosen))
+}
+
+fn german_label(english: &str) -> Option<&'static str> {
+    Some(match english {
+        "Burst Damage" => "Salvenschaden",
+        "Cooldown" => "Abklingzeit",
+        "Duration" => "Dauer",
+        "Damage" => "Schaden",
+        "Damage Per Second" => "Schaden pro Sek.",
+        "Radius" => "Radius",
+        "Cast Range" => "Wirkreichweite",
+        "Cast Delay" => "Zauberverzögerung",
+        "Charge Delay" => "Verzögerung zw. Aufladungen",
+        "Channel Duration" => "Kanalisierungsdauer",
+        "Move Speed" => "Bewegungstempo",
+        "Fire Rate" => "Feuerrate",
+        "Weapon Damage" => "Waffenschaden",
+        "Bullet Damage" => "Kugelschaden",
+        "Bullet Resist" => "Kugelresistenz",
+        "Spirit Resist" => "Magieresistenz",
+        "Max Stacks" => "Max. Stapel",
+        _ => return None,
+    })
 }
 
 fn shown_value(value: &Value) -> bool {
@@ -208,7 +236,7 @@ fn scaling(fact: &Value) -> String {
     let scale = condition(fact, "scale_value").and_then(Value::as_str);
     match (condition(fact, "scale_type").and_then(Value::as_str), scale) {
         (Some("ETechPower"), Some(scale)) => {
-            format!("skaliert mit Spirit Power (×{})", escape(scale))
+            format!("skaliert mit Magiekraft (×{})", escape(scale))
         }
         _ => String::new(),
     }
@@ -286,7 +314,10 @@ fn upgrades(facts: &[Value], shown: &mut Vec<Value>) -> String {
         if !deltas.is_empty() {
             html.push_str("<ul>");
             for (fact, base) in deltas {
-                let unit = fact["unit"].as_str().or_else(|| base["unit"].as_str());
+                let unit = base["unit"]
+                    .as_str()
+                    .filter(|unit| !unit.is_empty())
+                    .or_else(|| fact["unit"].as_str());
                 html.push_str(&format!(
                     "<li>{}: {}{}</li>",
                     escape(label(base).unwrap_or("")),
@@ -472,6 +503,26 @@ mod tests {
         assert_eq!(
             anchor("ability_sleep_dagger\"><x"),
             "ability_sleep_dagger---x"
+        );
+        assert_eq!(
+            plain("Schaden < 50 bei Treffer"),
+            "Schaden < 50 bei Treffer"
+        );
+    }
+
+    #[test]
+    fn labels_prefer_game_localization() {
+        assert_eq!(
+            label(&json!({"label": "Cast Delay", "label_de": "Zauberverzögerung"})),
+            Some("Zauberverzögerung")
+        );
+        assert_eq!(
+            label(&json!({"label": "Cast Delay"})),
+            Some("Zauberverzögerung")
+        );
+        assert_eq!(
+            label(&json!({"label": "Burst Damage", "label_de": "Burst Damage"})),
+            Some("Salvenschaden")
         );
     }
 }

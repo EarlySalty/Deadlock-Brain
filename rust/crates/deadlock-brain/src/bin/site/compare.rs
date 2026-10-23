@@ -58,7 +58,9 @@ pub(super) async fn page(
         let mut body = String::from("<h1>Vergleich</h1><p>Aktuell beobachteter Quellenstand. Der offizielle Patchstand ist unbekannt. Bedingungen und Einheiten gehören zum jeweiligen Wert.</p>");
         for identity in value["entities"].as_array().context("entities")? {
             let id = &identity["entity_id"];
-            body.push_str(&format!("<h2>{}</h2>", profiles::escape(profiles::name(identity))));
+            if let Some(name) = profiles::display_name(identity) {
+                body.push_str(&format!("<h2>{}</h2>", profiles::escape(name)));
+            }
             let facts: Vec<_> = value["stats"]["facts"].as_array().context("facts")?.iter().filter(|fact| fact["entity_id"] == *id).cloned().collect();
             body.push_str(&profiles::fact_rows(&json!({"facts":facts,"truncated":value["stats"]["truncated"]})));
             for cell in value["cells"].as_array().context("cells")?.iter().filter(|cell| cell["entity_id"] == *id) {

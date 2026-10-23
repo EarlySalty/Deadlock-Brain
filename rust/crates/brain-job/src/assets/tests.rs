@@ -146,6 +146,31 @@ fn upgrades_remain_conservative_and_qualified_occurrences_are_not_flattened() {
     assert_eq!(code(br#"{"id":1,"class_name":"a","type":"ability","upgrades":[{"property_upgrades":[{"name":"Damage","bonus":1},{"name":"damage","bonus":2}]}]}"#), "key_collision");
 }
 #[test]
+fn measured_upgrade_bonuses_keep_their_tier() {
+    let bytes = br#"{"id":1,"class_name":"a","type":"ability","upgrades":[{"property_upgrades":[{"name":"InvisMoveSpeedMod","bonus":"7m"},{"name":"Duration","bonus":".375"},{"name":"Cooldown","bonus":"-2s"}]}]}"#;
+    let records = records(bytes).expect("records");
+    let fields = records[0].fields("en").expect("fields");
+    let units: Vec<_> = fields
+        .iter()
+        .filter(|field| field.condition.get("upgrade_tier").is_some())
+        .map(|field| field.condition.get("unit").and_then(Value::as_str))
+        .collect();
+    assert_eq!(units, [Some("m"), None, Some("s")]);
+    let set = accepted(bytes);
+    let values: Vec<_> = set
+        .facts
+        .iter()
+        .filter(|f| f.stat_key.starts_with("p2_v_"))
+        .filter_map(|f| match &f.value {
+            FactValue::Text(value) => Some(value.as_str()),
+            _ => None,
+        })
+        .collect();
+    for expected in ["7", "0.375", "-2"] {
+        assert!(values.contains(&expected), "{expected}");
+    }
+}
+#[test]
 fn references_do_not_require_a_catalog_or_invent_resolved_links() {
     let bytes = br#"{"id":2,"class_name":"Upgrade_Parent","type":"upgrade","component_items":["UPGRADE_BASE","upgrade_unknown"]}"#;
     let set = accepted(bytes);
