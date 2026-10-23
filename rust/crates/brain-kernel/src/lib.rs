@@ -1797,6 +1797,13 @@ mod tests {
             .collect();
         assert_eq!(exhausted, ["find8"]);
         drop(state);
+        let (kernel, state) = tool_kernel(&calls, vec![final_turn(&["find0-cited"])]);
+        state.lock().unwrap().required_calls = calls.clone();
+        let result = kernel
+            .with_tools_only_limits(8, 16_384)
+            .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
+        assert_eq!(result.status, AnswerStatus::BudgetExceeded);
+        assert!(state.lock().unwrap().executions.is_empty());
         let (kernel, _) = tool_kernel(&calls[..1], vec![tool_turn(calls[..1].to_vec())]);
         let result = kernel
             .with_tools_only_limits(8, 1)

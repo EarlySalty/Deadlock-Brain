@@ -451,6 +451,13 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         })
                         .collect::<Result<Vec<_>, _>>()?;
                     let allowed = binding.max_calls.saturating_sub(tool_calls);
+                    if calls
+                        .iter()
+                        .skip(allowed)
+                        .any(|(call, _)| required_ids.contains(&call.id))
+                    {
+                        return Err(PortError::BudgetExceeded);
+                    }
                     let mut results: Vec<_> = calls
                         .iter()
                         .skip(allowed)
