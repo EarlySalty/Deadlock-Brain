@@ -193,6 +193,9 @@ impl Prepared {
             ProviderKind::CodexSubscription => {
                 ProviderConfig::codex_subscription(&config.provider.base_url)
             }
+            ProviderKind::DlAiGateway => {
+                ProviderConfig::dl_ai_gateway(&config.provider.base_url, &config.provider.slot)
+            }
             ProviderKind::OpenaiCompatible => ProviderConfig::new(
                 provider_key,
                 &config.provider.base_url,
@@ -210,7 +213,7 @@ impl Prepared {
             output_micros_per_token: price.output_micros_per_token,
         });
         let provider = match config.provider.kind {
-            ProviderKind::OpenaiCompatible => {
+            ProviderKind::OpenaiCompatible | ProviderKind::DlAiGateway => {
                 OpenAiCompatibleProvider::new(provider_config).map(|provider| {
                     AnswerProvider::OpenAi(provider.with_response_audit(Arc::new(reader.clone())))
                 })
@@ -489,7 +492,8 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                 crate::tool_base::ToolBase,
                 format!(
                     "brain.tools-only.v2:{}:{}",
-                    prepared.config.provider.base_url, prepared.config.provider.model
+                    prepared.config.provider.base_url,
+                    prepared.config.provider.route_identity()
                 ),
             )
             .with_tools_only_limits(

@@ -14,6 +14,7 @@ use thiserror::Error;
 pub struct ProviderConfig {
     api_key: String,
     subscription: bool,
+    gateway_slot: Option<String>,
     pub quality_filters: bool,
     pub base_url: String,
     pub model: String,
@@ -54,6 +55,7 @@ impl std::fmt::Debug for ProviderConfig {
             .field("api_key", &"<redacted>")
             .field("base_url", &self.base_url)
             .field("model", &self.model)
+            .field("gateway_slot", &self.gateway_slot)
             .field("timeout", &self.timeout)
             .field("retry_attempts", &self.retry_attempts)
             .field("retry_backoff", &self.retry_backoff)
@@ -71,6 +73,7 @@ impl ProviderConfig {
         Self {
             api_key: api_key.into(),
             subscription: false,
+            gateway_slot: None,
             quality_filters: true,
             base_url: base_url.into(),
             model: model.into(),
@@ -89,6 +92,41 @@ impl ProviderConfig {
         config.retry_attempts = 1;
         config
     }
+
+    pub fn dl_ai_gateway(base_url: impl Into<String>, slot: impl Into<String>) -> Self {
+        let mut config = Self::new("", base_url, "");
+        config.subscription = true;
+        config.gateway_slot = Some(slot.into());
+        config.retry_attempts = 1;
+        config
+    }
+
+    fn provider_label(&self) -> &'static str {
+        match (self.subscription, &self.gateway_slot) {
+            (true, Some(_)) => "dl_ai_gateway",
+            (true, None) => "codex_subscription",
+            (false, _) => "openai_compatible",
+        }
+    }
+
+    fn configured_model(&self) -> Option<String> {
+        self.gateway_slot.is_none().then(|| self.model.clone())
+    }
+
+    fn audit_model(&self) -> String {
+        match &self.gateway_slot {
+            Some(slot) => format!("dl_ai_gateway:{slot}"),
+            None => self.model.clone(),
+        }
+    }
+}
+
+pub fn valid_gateway_slot(slot: &str) -> bool {
+    !slot.is_empty()
+        && slot.len() <= 64
+        && slot
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
 }
 
 #[derive(Debug, Error)]
@@ -145,7 +183,7 @@ impl CodexSubscriptionProvider {
     }
 
     pub fn new(config: ProviderConfig) -> Result<Self> {
-        if !config.subscription {
+        if !config.subscription || config.gateway_slot.is_some() {
             return Err(ProviderError::InvalidConfig);
         }
         OpenAiCompatibleProvider::new(config).map(Self)
@@ -199,6 +237,9 @@ impl AnswerProviderPort for CodexSubscriptionProvider {
 impl OpenAiCompatibleProvider {
     fn report_failure(&self, request_id: Option<&str>, error: &ProviderError) {
         let category = match error {
+            ProviderError::HttpStatus { status } if self.config.gateway_slot.is_some() => {
+                gateway_failure_category(*status)
+            }
             ProviderError::HttpStatus { status } => format!("http_{}", status.as_u16()),
             ProviderError::Http(error) if error.is_builder() || error.is_decode() => {
                 "invalid_config".into()
@@ -255,7 +296,7 @@ impl OpenAiCompatibleProvider {
     pub fn new(config: ProviderConfig) -> Result<Self> {
         if (!config.subscription && config.api_key.trim().is_empty())
             || config.base_url.trim().is_empty()
-            || config.model.trim().is_empty()
+            || (config.gateway_slot.is_none() && config.model.trim().is_empty())
         {
             return Err(ProviderError::InvalidConfig);
         }
@@ -263,13 +304,17 @@ impl OpenAiCompatibleProvider {
         if config.subscription {
             let url =
                 reqwest::Url::parse(&config.base_url).map_err(|_| ProviderError::InvalidConfig)?;
+            let native_allowed = match &config.gateway_slot {
+                Some(slot) => config.model.is_empty() && valid_gateway_slot(slot),
+                None => config.model == "gpt-6-luna",
+            };
             if !url.host_str().is_some_and(|host| {
                 host.trim_matches(['[', ']'])
                     .parse::<std::net::IpAddr>()
                     .is_ok_and(|ip| ip.is_loopback())
-            }) || config.model != "gpt-6-luna"
-                || !config.api_key.is_empty()
+            }) || !native_allowed
                 || config.retry_attempts != 1
+                || !config.api_key.is_empty()
                 || config.pricing.is_some()
             {
                 return Err(ProviderError::InvalidConfig);
@@ -313,13 +358,26 @@ impl OpenAiCompatibleProvider {
             self.config.quality_filters,
         )
         .map_err(provider_contract_error)?;
-        payload["model"] = serde_json::json!(self.config.model);
+        if let Some(model) = self.config.configured_model() {
+            payload["model"] = serde_json::json!(model);
+        }
         payload["max_tokens"] = serde_json::json!(context.budget.max_output_tokens);
         payload["stream"] = serde_json::json!(false);
         if self.config.model == "accounts/fireworks/models/deepseek-v4p1-flash" {
             payload["reasoning_effort"] = serde_json::json!("none");
         }
         self.send_chat(payload, context, request, accounting, transport_failure)
+    }
+}
+
+fn gateway_failure_category(status: StatusCode) -> String {
+    match status.as_u16() {
+        429 => "gateway_limit".into(),
+        529 => "gateway_busy".into(),
+        504 => "gateway_timeout".into(),
+        503 => "gateway_unavailable".into(),
+        502 => "gateway_output_unusable".into(),
+        other => format!("gateway_http_{other}"),
     }
 }
 
@@ -636,6 +694,136 @@ mod tests {
         assert!(
             CodexSubscriptionProvider::new(ProviderConfig::codex_subscription(
                 "https://example.com/v1"
+            ))
+            .is_err()
+        );
+    }
+
+    #[derive(Default)]
+    struct RecordingAudit(
+        std::sync::Mutex<Vec<brain_contracts::response_audit::ResponseDeviation>>,
+    );
+
+    impl brain_contracts::response_audit::ResponseAuditPort for RecordingAudit {
+        fn append(
+            &self,
+            deviation: &brain_contracts::response_audit::ResponseDeviation,
+        ) -> std::result::Result<(), PortError> {
+            deviation.validate()?;
+            self.0.lock().unwrap().push(deviation.clone());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn gateway_rejections_are_audited_under_the_slot_label() {
+        let bodies = [
+            r#"{"model":"claude-haiku-5-5","stop_reason":"end_turn","content":"kaputt","usage":{"input_tokens":1,"output_tokens":1}}"#,
+            r#"{"model":"","stop_reason":"end_turn","content":[{"type":"text","text":"Antwort"}],"usage":{"input_tokens":1,"output_tokens":1}}"#,
+        ];
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for body in bodies {
+                let (mut stream, _) = listener.accept().unwrap();
+                let _ = read_request(&mut stream);
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+        });
+        let audit = std::sync::Arc::new(RecordingAudit::default());
+        let provider = OpenAiCompatibleProvider::new(ProviderConfig::dl_ai_gateway(
+            format!("http://{address}/v1"),
+            "brain_answer",
+        ))
+        .unwrap()
+        .with_response_audit(audit.clone());
+        for _ in bodies {
+            let error = provider.answer(&query(), &context(), &[]).unwrap_err();
+            assert!(matches!(error, PortError::InvalidResponse(_)));
+        }
+        server.join().unwrap();
+        let recorded = audit.0.lock().unwrap();
+        assert_eq!(recorded.len(), 2);
+        assert!(recorded
+            .iter()
+            .all(|deviation| deviation.model == "dl_ai_gateway:brain_answer"));
+        assert_eq!(recorded[1].check.check, "model_identity");
+    }
+
+    #[test]
+    fn gateway_sends_slot_without_model_and_reports_served_model() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for status in ["200 OK", "429 Too Many Requests", "529 Overloaded"] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = read_request(&mut stream);
+                assert!(request.starts_with("POST /v1/messages "));
+                assert!(request
+                    .to_ascii_lowercase()
+                    .contains("x-dl-ai-slot: brain_answer"));
+                assert!(!request.to_ascii_lowercase().contains("authorization:"));
+                let (_, body) = request.split_once("\r\n\r\n").unwrap();
+                let payload: serde_json::Value = serde_json::from_str(body).unwrap();
+                assert!(payload.get("model").is_none());
+                assert_eq!(payload["stream"], false);
+                let response = if status.starts_with("200") {
+                    r#"{"model":"claude-haiku-5-5","stop_reason":"end_turn","content":[{"type":"text","text":"Antwort"}],"usage":{"input_tokens":12,"output_tokens":3}}"#
+                } else {
+                    r#"{"type":"error","error":{"type":"rate_limit_error","message":"limit"}}"#
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    response.len(),
+                    response
+                )
+                .unwrap();
+            }
+        });
+        let provider = OpenAiCompatibleProvider::new(ProviderConfig::dl_ai_gateway(
+            format!("http://{address}/v1"),
+            "brain_answer",
+        ))
+        .unwrap();
+        let answer = provider
+            .answer_accounted(&query(), &context(), &[])
+            .unwrap();
+        assert_eq!(answer.value.text, "Antwort");
+        assert_eq!(
+            answer.value.usage.provider.as_deref(),
+            Some("dl_ai_gateway")
+        );
+        assert_eq!(
+            answer.value.usage.model.as_deref(),
+            Some("claude-haiku-5-5")
+        );
+        assert_eq!(
+            answer.accounting.observed.model.as_deref(),
+            Some("claude-haiku-5-5")
+        );
+        for _ in 0..2 {
+            let error = provider.answer(&query(), &context(), &[]).unwrap_err();
+            assert!(matches!(error, PortError::Unavailable(_)));
+        }
+        server.join().unwrap();
+        for invalid in [
+            ProviderConfig::dl_ai_gateway("https://example.com/v1", "brain_answer"),
+            ProviderConfig::dl_ai_gateway(format!("http://{address}/v1"), ""),
+            ProviderConfig::dl_ai_gateway(format!("http://{address}/v1"), "slot\r\nx"),
+        ] {
+            assert!(OpenAiCompatibleProvider::new(invalid).is_err());
+        }
+        assert!(
+            CodexSubscriptionProvider::new(ProviderConfig::dl_ai_gateway(
+                format!("http://{address}/v1"),
+                "brain_answer"
             ))
             .is_err()
         );
