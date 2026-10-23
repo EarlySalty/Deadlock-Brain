@@ -10,6 +10,8 @@ use brain_contracts::{
 use serde::Deserialize;
 use serde_json::Value;
 
+const GATEWAY_SLOT_HEADER: &str = "x-dl-ai-slot";
+
 pub(super) struct ChatRequest<'a> {
     pub query: &'a brain_contracts::Query,
     pub evidence: &'a [Evidence],
@@ -63,18 +65,26 @@ impl OpenAiCompatibleProvider {
                 compatible_response(&bytes, &mut failed_check)?
             };
             failed_check = super::audit::check("model_identity", "model", "the configured model");
-            if parsed.model != self.config.model {
+            let identity_valid = match self.config.configured_model() {
+                Some(model) => parsed.model == model,
+                None => served_model_valid(&parsed.model),
+            };
+            if !identity_valid {
                 return Err(ProviderError::InvalidResponse(
                     "model or choice count mismatch".into(),
                 ));
+            }
+            if self.config.configured_model().is_none() {
+                accounting.observed.model = Some(parsed.model.clone());
             }
             failed_check = super::audit::check(
                 "usage_budget",
                 "usage",
                 "reported usage within the request budget",
             );
-            let usage =
+            let mut usage =
                 self.charged_usage(context, charge, parsed.input_tokens, parsed.output_tokens)?;
+            usage.model = usage.model.or_else(|| Some(parsed.model.clone()));
             let charged = accounting.charged();
             if accounting.unaccounted
                 || charged.input_tokens > u64::from(context.budget.max_input_tokens)
@@ -355,7 +365,11 @@ impl OpenAiCompatibleProvider {
                 .map_err(|_| ProviderError::BudgetExceeded)?;
             let request = self.client.post(&url);
             let request = if self.config.subscription {
-                request.header("anthropic-version", "2023-06-01")
+                let request = request.header("anthropic-version", "2023-06-01");
+                match &self.config.gateway_slot {
+                    Some(slot) => request.header(GATEWAY_SLOT_HEADER, slot),
+                    None => request,
+                }
             } else {
                 request.bearer_auth(&self.config.api_key)
             }
@@ -375,15 +389,8 @@ impl OpenAiCompatibleProvider {
             };
             accounting.accumulate(&UsageAccounting {
                 observed: Usage {
-                    provider: Some(
-                        if self.config.subscription {
-                            "codex_subscription"
-                        } else {
-                            "openai_compatible"
-                        }
-                        .into(),
-                    ),
-                    model: Some(self.config.model.clone()),
+                    provider: Some(self.config.provider_label().into()),
+                    model: self.config.configured_model(),
                     network_rounds: 1,
                     ..Usage::default()
                 },
@@ -678,15 +685,8 @@ impl OpenAiCompatibleProvider {
             return Err(ProviderError::BudgetExceeded);
         }
         Ok(Usage {
-            provider: Some(
-                if self.config.subscription {
-                    "codex_subscription"
-                } else {
-                    "openai_compatible"
-                }
-                .into(),
-            ),
-            model: Some(self.config.model.clone()),
+            provider: Some(self.config.provider_label().into()),
+            model: self.config.configured_model(),
             input_tokens: input,
             output_tokens: output,
             network_rounds: charge.rounds,
@@ -717,6 +717,14 @@ struct ParsedTurn {
     finish_reason: ProviderFinishReason,
     input_tokens: u64,
     output_tokens: u64,
+}
+
+fn served_model_valid(model: &str) -> bool {
+    !model.is_empty()
+        && model.len() <= 512
+        && model
+            .bytes()
+            .all(|byte| byte.is_ascii_graphic() && byte != b'"' && byte != b'\\')
 }
 
 fn invalid_schema() -> ProviderError {

@@ -100,7 +100,8 @@ impl Secrets {
             crate::config::ProviderKind::OpenaiCompatible => {
                 required(&lookup, &config.provider.api_key_env, "provider", true)?
             }
-            crate::config::ProviderKind::CodexSubscription => String::new(),
+            crate::config::ProviderKind::CodexSubscription
+            | crate::config::ProviderKind::DlAiGateway => String::new(),
         };
         let postgres_password = match config.postgres.auth {
             DatabaseAuth::Peer => None,

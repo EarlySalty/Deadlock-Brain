@@ -122,7 +122,10 @@ impl Default for Release {
 pub struct Provider {
     pub kind: ProviderKind,
     pub base_url: String,
+    #[serde(default)]
     pub model: String,
+    #[serde(default)]
+    pub slot: String,
     #[serde(default)]
     pub api_key_env: String,
     pub retry_attempts: usize,
@@ -136,6 +139,16 @@ pub struct Provider {
 pub enum ProviderKind {
     OpenaiCompatible,
     CodexSubscription,
+    DlAiGateway,
+}
+
+impl Provider {
+    pub fn route_identity(&self) -> &str {
+        match self.kind {
+            ProviderKind::DlAiGateway => &self.slot,
+            ProviderKind::OpenaiCompatible | ProviderKind::CodexSubscription => &self.model,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -295,6 +308,14 @@ fn identifier(value: &str, maximum: usize) -> bool {
         && value
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || b"._:/-".contains(&c))
+}
+
+fn loopback_ip(endpoint: &reqwest::Url) -> bool {
+    endpoint.host_str().is_some_and(|host| {
+        host.trim_matches(['[', ']'])
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+    })
 }
 
 fn secret_name(value: &str) -> bool {
@@ -527,18 +548,26 @@ impl Config {
                 && endpoint.fragment().is_none()
                 && (endpoint.scheme() == "https" || (endpoint.scheme() == "http" && loopback))
                 && (loopback || p.pricing.is_some())
-                && identifier(&p.model, 512)
                 && match p.kind {
-                    ProviderKind::OpenaiCompatible => secret_name(&p.api_key_env),
+                    ProviderKind::OpenaiCompatible => {
+                        identifier(&p.model, 512)
+                            && p.slot.is_empty()
+                            && secret_name(&p.api_key_env)
+                    }
                     ProviderKind::CodexSubscription => {
-                        p.api_key_env.is_empty()
+                        identifier(&p.model, 512)
+                            && p.slot.is_empty()
+                            && p.api_key_env.is_empty()
                             && p.model == "gpt-6-luna"
-                            && endpoint.host_str().is_some_and(|host| {
-                                host.trim_matches(['[', ']'])
-                                    .parse::<std::net::IpAddr>()
-                                    .is_ok_and(|ip| ip.is_loopback())
-                            })
+                            && loopback_ip(&endpoint)
                             && p.retry_attempts == 1
+                            && p.pricing.is_none()
+                    }
+                    ProviderKind::DlAiGateway => {
+                        p.model.is_empty()
+                            && identifier(&p.slot, 64)
+                            && p.api_key_env.is_empty()
+                            && loopback_ip(&endpoint)
                             && p.pricing.is_none()
                     }
                 }
