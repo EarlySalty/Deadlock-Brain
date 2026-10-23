@@ -578,9 +578,13 @@ impl Config {
             "provider",
         )?;
         let b = &self.budgets;
+        let input_ceiling = match p.kind {
+            ProviderKind::DlAiGateway => 2_000_000,
+            _ => 32_000,
+        };
         require(
             (1..=4).contains(&b.max_network_rounds)
-                && (1..=32_000).contains(&b.max_input_tokens)
+                && (1..=input_ceiling).contains(&b.max_input_tokens)
                 && b.max_output_tokens > 0
                 && b.max_cost_micros > 0,
             "budgets",

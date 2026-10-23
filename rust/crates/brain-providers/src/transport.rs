@@ -652,7 +652,7 @@ impl OpenAiCompatibleProvider {
             unaccounted: overflow || cost.is_err(),
         });
         if overflow
-            || input > reservation.input_tokens
+            || (input > reservation.input_tokens && !self.config.meters_unreserved_input())
             || output > reservation.output_tokens
             || accounting.unaccounted
         {
@@ -668,7 +668,9 @@ impl OpenAiCompatibleProvider {
         input: u64,
         output: u64,
     ) -> Result<Usage> {
-        if input > charge.input_per_round || output > charge.output_per_round {
+        if (input > charge.input_per_round && !self.config.meters_unreserved_input())
+            || output > charge.output_per_round
+        {
             return Err(ProviderError::BudgetExceeded);
         }
         let failed_rounds = charge

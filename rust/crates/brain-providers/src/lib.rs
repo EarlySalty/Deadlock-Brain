@@ -109,6 +109,10 @@ impl ProviderConfig {
         }
     }
 
+    fn meters_unreserved_input(&self) -> bool {
+        self.gateway_slot.is_some()
+    }
+
     fn configured_model(&self) -> Option<String> {
         self.gateway_slot.is_none().then(|| self.model.clone())
     }
@@ -827,6 +831,45 @@ mod tests {
             ))
             .is_err()
         );
+    }
+
+    #[test]
+    fn gateway_meters_reported_input_beyond_the_byte_reservation() {
+        let body = r#"{"model":"claude-haiku-5-5","stop_reason":"end_turn","content":[{"type":"text","text":"Antwort"}],"usage":{"input_tokens":4000,"cache_read_input_tokens":496000,"output_tokens":3}}"#;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let _ = read_request(&mut stream);
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+        });
+        let mut context = context();
+        context.budget.max_input_tokens = 1_000_000;
+        let gateway = OpenAiCompatibleProvider::new(ProviderConfig::dl_ai_gateway(
+            format!("http://{address}/v1"),
+            "brain_answer",
+        ))
+        .unwrap();
+        let answer = gateway.answer_accounted(&query(), &context, &[]).unwrap();
+        assert_eq!(answer.value.text, "Antwort");
+        assert_eq!(answer.accounting.observed.input_tokens, 500_000);
+        assert_eq!(answer.accounting.charged().input_tokens, 500_000);
+        assert!(!answer.accounting.unaccounted);
+        let subscription = CodexSubscriptionProvider::new(ProviderConfig::codex_subscription(
+            format!("http://{address}/v1"),
+        ))
+        .unwrap();
+        let error = subscription.answer(&query(), &context, &[]).unwrap_err();
+        assert!(matches!(error, PortError::BudgetExceeded));
+        server.join().unwrap();
     }
 
     #[test]
