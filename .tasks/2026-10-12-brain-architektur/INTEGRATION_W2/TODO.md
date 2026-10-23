@@ -30,6 +30,10 @@ Migration 30 sits between 28 and 31; the union is now 1, 2, 3, 4, 5, 6, 7, 8, 9,
 
 Deploy prerequisites: `brain_migrate` needs EXECUTE on `brain.read_compare_artifact_v1` and `_v2`, otherwise legacy compare links return 503; confirm in `ops.gamefacts_schema_version` that no database has v30 applied, because v30 was edited before any application. Five brain-maintenance tests need the legacy cluster `/tmp/brain-maintenance-test-20261002` and fail identically on `d6077a8e` (evidence in the P7 proof directory).
 
+## Stage 9: keyed gamefacts lookups integrated, 2026-10-23
+
+`fix/brain-alias-exact-audit-20261023` 8326af5a (migration 35, keyed gamefacts tool lookups under audit rows) fast-forwarded the branch from d01d96d0. The registry ends `[...,30,31,32,33,34,35]` in `migrations.rs` and all four registry assertions. fmt, check and strict clippy pass for brain-serve, brain-storage, brain-job, brain-contracts and brain-kernel (`s9-stage.out`). Tests (`s9-tests.log`): 362 passed, 9 failed. brain-serve lib 123, pg_docs 33, pg_patch_port 40, pg_patch_tools 16 and all `gamefacts_*` groups pass. The 9 failures are the same env-gated tests as in stages 7 and 8. E1 stays skipped until the provider limit lifts.
+
 ## Stage 8: keyed doc_page publication integrated, 2026-10-23
 
 Merge commit 3298da51 adds `fix/brain-docpage-publication-20261023` 17081070 (migration 34, redefines `serve.doc_page`, `serve.doc_section` and `serve.doc_search_hit`). The four registry assertions resolve to `[1,2,3,4,5,6,7,8,9,10,11,13,23,24,26,28,30,31,32,33,34]`; `migrations.rs` merged without conflict. fmt, check and strict clippy pass for brain-serve, brain-storage, brain-job, brain-contracts and brain-kernel (`s8-stage.out`). Tests (`s8-tests.log`, brain-serve and brain-storage `--lib --tests`): 360 passed, 9 failed. brain-serve lib 122, pg_docs 33, pg_patch_port 39, pg_patch_tools 16 and all `gamefacts_*` groups pass. The 9 failures are the same env-gated tests as in stage 7, each stopping at a missing env var.
