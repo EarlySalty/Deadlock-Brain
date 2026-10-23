@@ -128,6 +128,10 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         39,
         include_str!("../../../../../scripts/migrations/2026-10-23-brain-site-entity-card-v39.sql"),
     ),
+    (
+        40,
+        include_str!("../../../../../scripts/migrations/2026-10-23-brain-site-hero-steckbrief-v40.sql"),
+    ),
 ];
 
 fn invalid() -> PortError {
@@ -424,11 +428,8 @@ async fn check_version_guards(
         check_published_insert_guards(connection, template).await?;
     }
     if migrations.iter().any(|(version, _)| *version == 23) {
-        check_reader_coherence(
-            connection,
-            migrations.iter().any(|(version, _)| *version == 31),
-        )
-        .await?;
+        let has = |wanted: i32| migrations.iter().any(|(version, _)| *version == wanted);
+        check_reader_coherence(connection, has(31), has(40)).await?;
     }
     Ok(())
 }
@@ -436,8 +437,14 @@ async fn check_version_guards(
 async fn check_reader_coherence(
     connection: &mut PgConnection,
     bounded: bool,
+    hero_abilities: bool,
 ) -> Result<(), PortError> {
-    let (identity, profile) = if bounded {
+    let (identity, profile) = if bounded && hero_abilities {
+        (
+            "9db01b4af654674d0591e91aa9b16f98b0149a0919ee83ef4f9b4a13a303a324",
+            "3a1d4d7de46b0e287c1dcc7a2c8e87716952d84c2061e517791f88edde96eccb",
+        )
+    } else if bounded {
         (
             "9db01b4af654674d0591e91aa9b16f98b0149a0919ee83ef4f9b4a13a303a324",
             "481f7e176dc5ec4e69c79c8954127ed1de414ffa88e608b7b89a6586ffe702e5",

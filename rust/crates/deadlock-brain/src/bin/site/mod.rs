@@ -1,6 +1,7 @@
 mod artifacts;
 mod compare;
 pub(crate) mod database;
+mod hero;
 mod pages;
 pub(crate) mod profiles;
 

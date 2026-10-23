@@ -598,7 +598,20 @@ async fn published_site_contract_and_baba_visual_proof() {
             "{key}"
         );
     }
-    for (kind, key) in [("item", "upgrade_fixture"), ("ability", "ability_fixture")] {
+    assert!(!index.contains("Prüffähigkeit"));
+    assert!(html.contains("Für diesen Helden sind keine belegten Fähigkeiten verfügbar."));
+    for route in ["steckbriefe", "entities"] {
+        let ability = client
+            .get(format!(
+                "{url}/site/{route}/ability/{}",
+                hex::encode("ability_fixture")
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(ability.status(), StatusCode::NOT_FOUND, "{route}");
+    }
+    for (kind, key) in [("item", "upgrade_fixture")] {
         let card = client
             .get(format!(
                 "{url}/site/steckbriefe/{kind}/{}",
