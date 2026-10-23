@@ -36,6 +36,9 @@ BEGIN
     IF to_regprocedure('serve.read_compare_artifact_v1(text)') IS NOT NULL AND to_regprocedure('serve.read_compare_artifact_v2(text)') IS NOT NULL THEN
         GRANT EXECUTE ON FUNCTION serve.read_compare_artifact_v1(text), serve.read_compare_artifact_v2(text) TO brain_site;
     END IF;
+    IF to_regprocedure('serve.hero_is_playable(bigint)') IS NOT NULL THEN
+        GRANT EXECUTE ON FUNCTION serve.hero_is_playable(bigint) TO brain_site;
+    END IF;
     IF to_regclass('serve.site_doc_section') IS NOT NULL THEN
         GRANT SELECT ON serve.site_doc_section TO brain_site;
         GRANT EXECUTE ON FUNCTION serve.doc_meta(text),serve.doc_tsv(text) TO brain_site;

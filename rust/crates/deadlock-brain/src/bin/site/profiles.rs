@@ -196,7 +196,7 @@ pub(super) async fn load_profile(
     key: &str,
 ) -> Result<Option<Value>> {
     let sql = match kind {
-        "hero" => "SELECT jsonb_build_object('identity',h.identity,'stats',h.stats,'weapon',h.weapon,'abilities',h.abilities) FROM serve.hero_profile h JOIN serve.entity_identity e USING(entity_id) WHERE e.key=$1 LIMIT 1",
+        "hero" => "SELECT p.profile FROM (SELECT h.entity_id,jsonb_build_object('identity',h.identity,'stats',h.stats,'weapon',h.weapon,'abilities',h.abilities) AS profile FROM serve.hero_profile h JOIN serve.entity_identity e USING(entity_id) WHERE e.key=$1 OFFSET 0) p WHERE serve.hero_is_playable(p.entity_id) LIMIT 1",
         "item" => "SELECT c.card FROM serve.item_card c JOIN serve.entity_identity e USING(entity_id) WHERE e.key=$1 LIMIT 1",
         "ability" => "SELECT c.card FROM serve.ability_card c JOIN serve.entity_identity e USING(entity_id) WHERE e.key=$1 LIMIT 1",
         _ => return Ok(None),
@@ -263,7 +263,7 @@ pub(super) async fn index(
     }
     let result: Result<String> = async {
         let mut tx = transaction(&site).await?;
-        let rows = sqlx::query_scalar::<_, Value>("SELECT identity FROM serve.entity_identity WHERE kind IN('hero','item','ability') AND key>$1 ORDER BY key LIMIT 257")
+        let rows = sqlx::query_scalar::<_, Value>("SELECT identity FROM serve.entity_identity WHERE kind IN('hero','item','ability') AND key>$1 AND (kind<>'hero' OR serve.hero_is_playable(entity_id)) ORDER BY key LIMIT 257")
             .bind(&after).fetch_all(&mut *tx).await?;
         let mut body = String::from("<h1>Steckbriefe</h1><p>Helden, Items und Fähigkeiten mit belegten Werten und Quellenstand.</p><ul>");
         for identity in rows.iter().take(256) {

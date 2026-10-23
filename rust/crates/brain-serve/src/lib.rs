@@ -3,6 +3,9 @@
 
 mod analytics;
 mod answer_artifacts;
+#[cfg(test)]
+#[path = "../../brain-storage/tests/support/playable_hero.rs"]
+mod assets_fixture;
 pub mod config;
 mod discord_live;
 mod docs_tools;

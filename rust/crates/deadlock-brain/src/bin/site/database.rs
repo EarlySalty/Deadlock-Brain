@@ -93,6 +93,9 @@ pub(super) async fn preflight(pool: &PgPool) -> Result<()> {
     sqlx::query("SELECT entity_id FROM serve.item_card LIMIT 0")
         .execute(&mut *tx)
         .await?;
+    sqlx::query("SELECT serve.hero_is_playable(0)")
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(())
 }

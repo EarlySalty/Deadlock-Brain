@@ -1,6 +1,8 @@
 WITH selected AS (
     SELECT entity_id,identity FROM serve.entity_identity
-    WHERE entity_id=ANY($1::bigint[]) AND kind IN('hero','item') ORDER BY entity_id LIMIT 4
+    WHERE entity_id=ANY($1::bigint[]) AND kind IN('hero','item')
+        AND (kind<>'hero' OR serve.hero_is_playable(entity_id))
+    ORDER BY entity_id LIMIT 4
 ), facts AS MATERIALIZED (
     SELECT entity_id,stat_key,fact,total FROM (
         SELECT e.entity_id,f.stat_key,f.fact,

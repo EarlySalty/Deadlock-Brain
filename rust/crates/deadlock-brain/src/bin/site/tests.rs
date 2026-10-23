@@ -13,6 +13,9 @@ use std::{fs, path::PathBuf};
 #[path = "../../../../brain-storage/tests/support/scratch_pg.rs"]
 mod scratch_pg;
 
+#[path = "../../../../brain-storage/tests/support/playable_hero.rs"]
+mod assets_fixture;
+
 async fn publish(
     pool: &PgPool,
     kind: &str,
@@ -208,6 +211,21 @@ async fn published_site_contract_and_baba_visual_proof() {
     let hero = publish(&admin, "hero", "hero_baba", "Baba", 780.0, true).await;
     let other = publish(&admin, "hero", "hero_abrams", "Abrams", 800.0, true).await;
     publish(&admin, "item", "upgrade_fixture", "Prüfitem", 25.0, true).await;
+    let retired = publish(&admin, "hero", "hero_retired", "Ausgemustert", 700.0, true).await;
+    let dummy = publish(&admin, "hero", "hero_target_dummy", "Zielpuppe", 1.0, true).await;
+    assets_fixture::flagged(
+        &admin,
+        "hero_baba",
+        json!({"player_selectable":true,"disabled":false,"in_development":true}),
+    )
+    .await;
+    assets_fixture::playable(&admin, "hero_abrams").await;
+    assets_fixture::flagged(
+        &admin,
+        "hero_retired",
+        json!({"player_selectable":false,"disabled":true,"in_development":false}),
+    )
+    .await;
     publish(
         &admin,
         "hero",
@@ -320,7 +338,29 @@ async fn published_site_contract_and_baba_visual_proof() {
         .await
         .unwrap();
     assert!(index.contains("Baba"));
+    assert!(index.contains("Prüfitem"));
     assert!(!index.contains("Nicht veröffentlicht"));
+    assert!(!index.contains("Ausgemustert"));
+    assert!(!index.contains("Zielpuppe"));
+    for (key, hidden) in [("hero_retired", retired), ("hero_target_dummy", dummy)] {
+        let profile = client
+            .get(format!("{url}/site/steckbriefe/hero/{}", hex::encode(key)))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(profile.status(), StatusCode::NOT_FOUND, "{key}");
+        let compare = client
+            .get(format!("{url}/site/compare/{hero},{hidden}?stats=health"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(compare.status(), StatusCode::NOT_FOUND, "{key}");
+        let compare = compare.text().await.unwrap();
+        assert!(
+            !compare.contains("Ausgemustert") && !compare.contains("Zielpuppe"),
+            "{key}"
+        );
+    }
     for path in [
         "/api/comments",
         "/site/app.js",

@@ -187,7 +187,7 @@ pub(crate) async fn read(
         ToolSubrequest::GetAbility(ability) => {
             let selection = if let (Some(hero), Some(slot)) = (ability.hero, ability.slot) {
                 let links = sqlx::query_scalar::<_, Value>(
-                    "SELECT link FROM serve.p2_hero_slot WHERE from_entity_id=$1 AND slot=$2 LIMIT 2",
+                    "SELECT link FROM serve.p2_hero_slot WHERE from_entity_id=$1 AND slot=$2 AND serve.hero_is_playable($1) LIMIT 2",
                 )
                 .bind(hero as i64)
                 .bind(i32::from(slot))
