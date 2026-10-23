@@ -47,12 +47,19 @@ async fn identity(
     let Some(entity) = request.entity else {
         return Ok(None);
     };
-    let fact = sqlx::query_scalar::<_, Value>(IDENTITY)
-        .bind(entity as i64)
-        .bind(request.kind.as_str())
-        .fetch_optional(connection)
-        .await
-        .map_err(super::database_error)?;
+    let fact = if request.kind.as_str() == "hero" {
+        sqlx::query_scalar::<_, Option<Value>>("SELECT serve.hero_game_identity($1)")
+            .bind(entity as i64)
+            .fetch_one(connection)
+            .await
+    } else {
+        sqlx::query_scalar::<_, Value>(IDENTITY)
+            .bind(entity as i64)
+            .bind(request.kind.as_str())
+            .fetch_optional(connection)
+            .await
+    }
+    .map_err(super::database_error)?;
     Ok(fact.and_then(|fact| {
         let id = fact.get("value")?.as_str()?.parse().ok()?;
         Some((id, Some(fact)))

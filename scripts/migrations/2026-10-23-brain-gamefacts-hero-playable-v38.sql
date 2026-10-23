@@ -47,23 +47,49 @@ BEGIN
 END
 $playable$;
 
+CREATE FUNCTION serve.hero_assets_game_id(hero_entity bigint)
+RETURNS TABLE(receipt_id bigint,source_revision text,game_id text)
+LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $assets$
+    SELECT f.receipt_id::bigint,f.source_revision::text,o.hero->>'id'
+    FROM canon.entity e
+    CROSS JOIN LATERAL (
+        SELECT f.receipt_id,f.raw_object_id,f.source_revision FROM serve.current_fact f
+        WHERE f.entity_id=e.id AND f.stat_key='p2_slot_1_hero' AND f.source='assets'
+            AND f.value_text::text=e.key
+        ORDER BY f.receipt_id DESC
+        LIMIT 1
+    ) f
+    CROSS JOIN LATERAL (
+        SELECT convert_from(o.bytes,'UTF8')::jsonb AS hero FROM raw.object o
+        WHERE o.id=f.raw_object_id AND o.source='assets'
+        OFFSET 0
+    ) o
+    WHERE e.id=hero_entity AND e.kind='hero' AND jsonb_typeof(o.hero->'id')='number'
+        AND o.hero->>'id' ~ '^[1-9][0-9]{0,18}$'
+$assets$;
+
+CREATE FUNCTION serve.hero_game_identity(hero_entity bigint) RETURNS jsonb
+LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $identity$
+    SELECT jsonb_build_object(
+        'stat_key','identity_game_id','value',a.game_id,'condition','{}'::jsonb,
+        'citation',a.receipt_id::text,'source_revision',a.source_revision,'patch',NULL
+    )
+    FROM (SELECT * FROM serve.hero_assets_game_id(hero_entity) OFFSET 0) a
+    WHERE serve.hero_is_playable(hero_entity)
+    LIMIT 1
+$identity$;
+
 CREATE FUNCTION serve.hero_game_id_is_playable(game_id text) RETURNS boolean
-LANGUAGE plpgsql STABLE STRICT SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $game$
-BEGIN
-    RETURN EXISTS(
+LANGUAGE sql STABLE STRICT SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $game$
+    SELECT EXISTS(
         SELECT 1 FROM (
-            SELECT DISTINCT f.entity_id FROM canon.fact f
-            WHERE f.stat_key COLLATE "C"='identity_game_id' AND f.value_text::text=game_id
-        ) c
-        JOIN canon.entity e ON e.id=c.entity_id AND e.kind='hero'
-        CROSS JOIN LATERAL (
-            SELECT cf.value_text FROM serve.current_fact cf
-            WHERE cf.entity_id=c.entity_id AND cf.stat_key='identity_game_id'
+            SELECT e.id FROM canon.entity e
+            CROSS JOIN LATERAL serve.hero_assets_game_id(e.id) a
+            WHERE e.kind='hero' AND a.game_id=hero_game_id_is_playable.game_id
             OFFSET 0
-        ) current_id
-        WHERE current_id.value_text::text=game_id AND serve.hero_is_playable(c.entity_id)
-    );
-END
+        ) h
+        WHERE serve.hero_is_playable(h.id)
+    )
 $game$;
 
 CREATE OR REPLACE VIEW serve.entity_card AS
@@ -162,8 +188,10 @@ CROSS JOIN LATERAL (
 ) l
 WHERE e.kind IN('item','ability');
 
-REVOKE ALL ON FUNCTION serve.hero_is_playable(bigint),serve.hero_game_id_is_playable(text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION serve.hero_is_playable(bigint),serve.hero_game_id_is_playable(text) TO brain_tool,brain_service;
+REVOKE ALL ON FUNCTION serve.hero_is_playable(bigint),serve.hero_assets_game_id(bigint),
+    serve.hero_game_identity(bigint),serve.hero_game_id_is_playable(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION serve.hero_is_playable(bigint),serve.hero_game_identity(bigint),
+    serve.hero_game_id_is_playable(text) TO brain_tool,brain_service;
 DO $site$
 BEGIN
     IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='brain_site') THEN
