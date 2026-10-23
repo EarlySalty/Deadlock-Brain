@@ -19,14 +19,14 @@ const READONLY_PASSWORD: &str = "synthetic-unused-trust-password";
 
 async fn provider(State(calls): State<Arc<AtomicUsize>>, Json(body): Json<Value>) -> Json<Value> {
     calls.fetch_add(1, Ordering::SeqCst);
-    if body.to_string().contains("DrainProbe") {
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-    }
     let has_result = body["messages"]
         .as_array()
         .unwrap()
         .iter()
         .any(|message| message["role"] == "tool");
+    if !has_result && body.to_string().contains("DrainProbe") {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+    }
     let message = if has_result {
         json!({"content":json!({"text":"","cited_evidence_ids":[],"claims":[]}).to_string()})
     } else {
@@ -223,7 +223,7 @@ async fn assert_database_outage_recovers(admin: &sqlx::PgPool, address: &str, ca
         serde_json::from_str::<Value>(&body).unwrap()["status"],
         "insufficient_evidence"
     );
-    assert_eq!(calls.load(Ordering::SeqCst), before + 2);
+    assert_eq!(calls.load(Ordering::SeqCst), before + 3);
 }
 
 async fn assert_in_flight_answer_drains(service: &mut Service, address: &str, calls: &AtomicUsize) {
@@ -335,7 +335,7 @@ async fn tools_only_process_needs_no_corpus_release_and_refuses_unknown_heroes()
     assert_eq!(answer["knowledge_release"], RELEASE_ID);
     assert!(answer["citations"].as_array().unwrap().is_empty());
     assert!(answer.get("claims").is_none());
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
     assert_eq!(common::get(&service.address(), "/readyz").0, 200);
     assert_scope_and_token_denials(&address, &calls).await;
     assert_warm_schema_marker_is_enforced(&pool, &address).await;

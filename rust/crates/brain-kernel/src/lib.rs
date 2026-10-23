@@ -1525,6 +1525,7 @@ mod tests {
                     brain_contracts::ToolMessage::Assistant { .. } => None,
                 })
                 .flatten()
+                .filter(|result| !result.is_budget_exhausted())
                 .flat_map(|result| {
                     [
                         format!("{}-cited", result.call_id),
@@ -1704,7 +1705,8 @@ mod tests {
             if let brain_contracts::ProviderTurn::Final { answer, .. } = &mut refusal {
                 answer.text.clear();
             }
-            let (kernel, state) = tool_kernel(std::slice::from_ref(&call), vec![refusal]);
+            let (kernel, state) =
+                tool_kernel(std::slice::from_ref(&call), vec![refusal.clone(), refusal]);
             let calls = Arc::new(AtomicUsize::new(0));
             let kernel = Kernel {
                 retrieval: RetrievalProbe {
@@ -1721,7 +1723,7 @@ mod tests {
             let result = kernel.answer(&query(profile), &context(&[], &["public"]));
             assert_eq!(result.status, AnswerStatus::InsufficientEvidence);
             assert_eq!(calls.load(Ordering::SeqCst), 0);
-            assert_eq!(state.lock().unwrap().calls, 1);
+            assert_eq!(state.lock().unwrap().calls, 2);
         }
     }
 
@@ -1751,7 +1753,7 @@ mod tests {
             }
             let (kernel, state) = tool_kernel(
                 std::slice::from_ref(&call),
-                vec![tool_turn(vec![call.clone()]), answer],
+                vec![tool_turn(vec![call.clone()]), answer.clone(), answer],
             );
             state.lock().unwrap().tool_result =
                 Some(serde_json::json!({"citation":"find-cited", "value":780}));
@@ -1769,12 +1771,32 @@ mod tests {
     #[test]
     fn tool_loop_enforces_configured_call_and_result_caps() {
         let calls: Vec<_> = (0..9).map(|id| find_call(&format!("find{id}"))).collect();
-        let (kernel, state) = tool_kernel(&calls, vec![tool_turn(calls.clone())]);
+        let (kernel, state) = tool_kernel(
+            &calls,
+            vec![tool_turn(calls.clone()), final_turn(&["find0-cited"])],
+        );
         let result = kernel
             .with_tools_only_limits(8, 16_384)
             .answer(&query(AnswerProfile::Explain), &context(&[], &["public"]));
-        assert_eq!(result.status, AnswerStatus::BudgetExceeded);
-        assert!(state.lock().unwrap().executions.is_empty());
+        assert_eq!(result.status, AnswerStatus::Answered);
+        let state = state.lock().unwrap();
+        assert_eq!(state.executions.len(), 8);
+        let exhausted: Vec<_> = state
+            .observed
+            .last()
+            .unwrap()
+            .messages
+            .iter()
+            .filter_map(|message| match message {
+                brain_contracts::ToolMessage::ToolResults { results } => Some(results),
+                brain_contracts::ToolMessage::Assistant { .. } => None,
+            })
+            .flatten()
+            .filter(|result| result.is_budget_exhausted())
+            .map(|result| result.call_id.as_str())
+            .collect();
+        assert_eq!(exhausted, ["find8"]);
+        drop(state);
         let (kernel, _) = tool_kernel(&calls[..1], vec![tool_turn(calls[..1].to_vec())]);
         let result = kernel
             .with_tools_only_limits(8, 1)
@@ -1825,7 +1847,10 @@ mod tests {
     #[test]
     fn private_preloaded_evidence_never_enters_the_tool_loop() {
         let call = find_call("find");
-        let (mut kernel, state) = tool_kernel(std::slice::from_ref(&call), vec![final_turn(&[])]);
+        let (mut kernel, state) = tool_kernel(
+            std::slice::from_ref(&call),
+            vec![final_turn(&[]), final_turn(&[])],
+        );
         kernel.retrieval = FixedRetrieval(vec![evidence(
             "private",
             EvidenceKind::Prose,
@@ -1837,7 +1862,7 @@ mod tests {
             &context(&["private"], &["public"]),
         );
         assert_eq!(answer.status, AnswerStatus::InsufficientEvidence);
-        assert_eq!(state.lock().unwrap().calls, 1);
+        assert_eq!(state.lock().unwrap().calls, 2);
         assert!(answer.citations.is_empty());
     }
 

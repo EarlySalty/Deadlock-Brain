@@ -237,6 +237,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     let mut previous_round = None;
     let mut tool_calls = 0usize;
     let mut seen_calls = BTreeSet::new();
+    let mut resampled = false;
     let result = (|| -> Result<brain_contracts::ProviderAnswer, PortError> {
         let binding = kernel
             .tools
@@ -409,11 +410,20 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     }
                     round_remaining(context, &accounting.charged(), elapsed())
                         .ok_or(PortError::BudgetExceeded)?;
-                    if !insufficient
+                    let discarded = !insufficient
                         && (!ledger.accepts(&answer)
                             || ((binding.tools_only || kernel.quality_filters)
-                                && (!grounded || evidence.is_empty())))
+                                && (!grounded || evidence.is_empty())));
+                    if (insufficient || discarded)
+                        && !resampled
+                        && !session.definitions.is_empty()
+                        && (binding.tools_only || kernel.quality_filters)
+                        && provider_rounds < context.budget.max_network_rounds.min(4) as usize
                     {
+                        resampled = true;
+                        continue;
+                    }
+                    if discarded {
                         return Ok(brain_contracts::ProviderAnswer {
                             claims: Vec::new(),
                             text: String::new(),
@@ -440,12 +450,14 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                                 .map(|request| (call, request))
                         })
                         .collect::<Result<Vec<_>, _>>()?;
-                    if tool_calls.saturating_add(calls.len()) > binding.max_calls {
-                        return Err(PortError::BudgetExceeded);
-                    }
-                    tool_calls += calls.len();
-                    let mut results = Vec::new();
-                    for (call, request) in calls {
+                    let allowed = binding.max_calls.saturating_sub(tool_calls);
+                    let mut results: Vec<_> = calls
+                        .iter()
+                        .skip(allowed)
+                        .map(|(call, _)| brain_contracts::ToolResult::budget_exhausted(call))
+                        .collect();
+                    tool_calls += calls.len().min(allowed);
+                    for (call, request) in calls.into_iter().take(allowed) {
                         let next = round_remaining(context, &accounting.charged(), elapsed())
                             .ok_or(PortError::BudgetExceeded)?;
                         kernel.validate_tools(

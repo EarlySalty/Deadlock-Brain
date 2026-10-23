@@ -936,6 +936,24 @@ pub struct ToolResult {
     pub is_error: bool,
 }
 
+pub const TOOL_BUDGET_EXHAUSTED: &str = "tool_budget_exhausted";
+
+impl ToolResult {
+    pub fn budget_exhausted(call: &ToolCall) -> Self {
+        Self {
+            call_id: call.id.clone(),
+            name: call.name,
+            result: serde_json::json!({ "error": TOOL_BUDGET_EXHAUSTED }),
+            evidence_ids: Vec::new(),
+            is_error: true,
+        }
+    }
+
+    pub fn is_budget_exhausted(&self) -> bool {
+        self.is_error && self.result["error"].as_str() == Some(TOOL_BUDGET_EXHAUSTED)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ModelBlock {

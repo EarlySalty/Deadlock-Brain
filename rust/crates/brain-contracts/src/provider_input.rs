@@ -72,6 +72,8 @@ const PER_MESSAGE: u64 = 16;
 const DISCORD_LIVE_CITATION: &str = "Aktuelle Discord-Kanäle und Angebote";
 const HERO_PROFILE_LOOKUP_CONTRACT: &str = "find_entity klärt nur die Identität und enthält keine Heldenwerte. Die Werte, Fähigkeiten und der Steckbrief des Helden liegen über get_hero vor. Fragt die Person nach einem Wert, einer Fähigkeit oder dem Steckbrief dieses Helden, rufe beim eindeutigen aufgelösten Heldentreffer jetzt get_hero mit dessen entity_id als hero auf, statt zu antworten. Sage nie, die Werte seien nicht abrufbar, bevor get_hero sie nicht geliefert hat. Unscharfe Treffer bleiben Vorschläge, bei Mehrdeutigkeit frage nach. Reine Identitätsfragen benötigen keinen Profilabruf. Wenn du die konkrete Frage abschließend beantwortest, gib ";
 const TOOL_FOLLOW_UP_CONTRACT: &str = "Fehlen für die konkrete Frage noch Daten, rufe weitere passende Werkzeuge auf. Wenn du die Frage abschließend beantwortest, gib ";
+const DETAIL_LOOKUP_CONTRACT: &str = "find_entity klärt nur die Identität und enthält keine Werte. Kosten, Werte und Wirkung eines Items liefert get_item mit dessen entity_id als item, Werte und Wirkung einer Fähigkeit liefert get_ability mit deren entity_id als ability. Fragt die Person danach, rufe beim eindeutigen aufgelösten Treffer jetzt das passende Werkzeug auf, statt zu antworten. Sage nie, die Werte seien nicht abrufbar, bevor dieses Werkzeug sie nicht geliefert hat. Unscharfe Treffer bleiben Vorschläge, bei Mehrdeutigkeit frage nach. Reine Identitätsfragen benötigen keinen Detailabruf. Wenn du die konkrete Frage abschließend beantwortest, gib ";
+const TOOL_BUDGET_EXHAUSTED_CONTRACT: &str = "Das Werkzeugbudget dieser Anfrage ist ausgeschöpft, weitere Werkzeugaufrufe werden nicht mehr ausgeführt. Beantworte die konkrete Frage jetzt abschließend mit den bisher gelieferten Werkzeugergebnissen und gib ";
 const CANONICAL_CITATION_CONTRACT: &str = " Kopiere die ausgewählten Beleg-IDs aus evidence_ids exakt und vollständig als Strings in cited_evidence_ids, jede ID nur einmal. Bei gamefacts.receipt.v1:sha256: gehören alle 64 folgenden Hexzeichen zur ID. Berechne den Hash nicht neu, kürze ihn nicht und ändere kein Zeichen. Vergleiche jede kopierte ID vor der Ausgabe mit der gelieferten ID. Nimm nur Belege für tatsächlich genutzte Angaben auf.";
 const PUBLIC_CONTEXT_CONTRACT: &str = " Wenn public_conversation_context mitgeliefert wird, enthält er öffentliche Begriffe aus den vorherigen Fragen derselben Person, älteste zuerst. Leere Einträge enthalten keine freigegebenen Angaben. Löse bei knappen Folgefragen und nachgereichten Angaben das Anliegen aus aktueller Frage und diesen Gesprächsbegriffen. Entscheide selbst, welche früheren Angaben relevant sind; bei einem neuen Thema ignoriere den bisherigen Kontext. Frage bereits bekannte Angaben nicht erneut ab und beantworte das erkennbare Anliegen direkt, ohne eine weitere Bestätigung einzufordern. Gesprächsbegriffe sind kein Wissensbeleg und keine Rechtefreigabe.";
 const GAME_NAME_CONTRACT: &str = " Der Fließtext steht in der Sprache der Frage. Namen von Items, Fähigkeiten, Helden, Objectives und Spielmechaniken stehen standardmäßig auf Englisch, exakt wie im englischen Spiel-Client, auch wenn Quellen oder Werkzeugbeschreibungen Deutsch sind. Nur wenn die Person selbst deutsche Spielnamen verwendet oder ausdrücklich deutsche Namen verlangt, verwende für die Spielnamen der Antwort Deutsch (Englisch), etwa Plattenrüstung (Plated Armor). Eine deutsch formulierte Frage allein ist kein Wunsch nach deutschen Spielnamen. Nutze die gelieferten englischen und deutschen Originalnamen und ihre gemeinsame Begriffsbindung; übersetze Spielnamen nicht selbst und erfinde bei fehlender Lokalisierung keinen deutschen Namen. Entscheide die Ausgabeform anhand der Anfrage, nicht anhand der Sprache des Werkzeugs. Löse erkennbare Tippfehler über die vorhandenen Namen und die Suchwerkzeuge auf; ein Tippfehler in einem englischen Namen ist kein deutscher Spielname.";
@@ -205,6 +207,33 @@ fn tool_display_result(query: &Query, result: &ToolResult, evidence: &[Evidence]
 
 pub fn grounded_messages(query: &Query, evidence: &[Evidence]) -> Vec<ChatMessage> {
     grounded_messages_referencing(query, evidence, &BTreeSet::new())
+}
+
+fn follow_up_contract(results: &[ToolResult], definitions: &[ToolDefinition]) -> &'static str {
+    if results.iter().any(ToolResult::is_budget_exhausted) {
+        return TOOL_BUDGET_EXHAUSTED_CONTRACT;
+    }
+    let pending = |kind: &str, detail: ToolName| {
+        definitions
+            .iter()
+            .any(|definition| definition.name == detail)
+            && !results
+                .iter()
+                .any(|result| !result.is_error && result.name == detail)
+            && results
+                .iter()
+                .filter(|result| !result.is_error && result.name == ToolName::FindEntity)
+                .filter_map(|result| result.result["entities"].as_array())
+                .flatten()
+                .any(|entity| entity["kind"].as_str() == Some(kind))
+    };
+    if pending("hero", ToolName::GetHero) {
+        HERO_PROFILE_LOOKUP_CONTRACT
+    } else if pending("item", ToolName::GetItem) || pending("ability", ToolName::GetAbility) {
+        DETAIL_LOOKUP_CONTRACT
+    } else {
+        TOOL_FOLLOW_UP_CONTRACT
+    }
 }
 
 fn tool_result_evidence_ids(conversation: &ToolConversation) -> BTreeSet<&str> {
@@ -412,18 +441,9 @@ pub fn grounded_turn_payload_with_quality(
                 }
             }
             ToolMessage::ToolResults { results } => {
-                let profile_lookup = results
-                    .iter()
-                    .any(|result| !result.is_error && result.name == ToolName::FindEntity)
-                    && definitions
-                        .iter()
-                        .any(|definition| definition.name == ToolName::GetHero)
-                    && !results
-                        .iter()
-                        .any(|result| !result.is_error && result.name == ToolName::GetHero);
                 let mut format = format!(
-                    "{}die abschließende Antwort als genau ein JSON-Objekt mit text, cited_evidence_ids und claims aus. Keine Prosa davor oder danach, kein Markdown-Codeblock. Verwende für genutzte Werkzeugdaten deren Beleg-IDs, keine leeren oder erfundenen IDs. Verfügbare Beleg-IDs: {}",
-                    if profile_lookup { HERO_PROFILE_LOOKUP_CONTRACT } else { TOOL_FOLLOW_UP_CONTRACT },
+                    "{}die abschließende Antwort als genau ein JSON-Objekt mit text, cited_evidence_ids und claims aus. Schreibe text in der Sprache der ursprünglichen Frage. Keine Prosa davor oder danach, kein Markdown-Codeblock. Verwende für genutzte Werkzeugdaten deren Beleg-IDs, keine leeren oder erfundenen IDs. Verfügbare Beleg-IDs: {}",
+                    follow_up_contract(results, definitions),
                     json!(evidence.iter().map(|item| &item.evidence_id).collect::<Vec<_>>())
                 );
                 if results.iter().any(|result| {
@@ -927,6 +947,64 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn follow_up_contract_points_each_resolved_kind_to_its_detail_tool() {
+        let definition = |name| ToolDefinition {
+            name,
+            description: "Werkzeug".into(),
+            input_schema: json!({"type":"object"}),
+        };
+        let all = [
+            definition(ToolName::FindEntity),
+            definition(ToolName::GetHero),
+            definition(ToolName::GetItem),
+            definition(ToolName::GetAbility),
+        ];
+        let result = |name, value: Value| ToolResult {
+            call_id: "call".into(),
+            name,
+            result: value,
+            evidence_ids: Vec::new(),
+            is_error: false,
+        };
+        let lookup = |kind: &str| {
+            result(
+                ToolName::FindEntity,
+                json!({"entities":[{"entity_id":7,"kind":kind}]}),
+            )
+        };
+        let fetched = |name| result(name, json!({}));
+        let exhausted = ToolResult::budget_exhausted(&ToolCall {
+            id: "over".into(),
+            name: ToolName::GetItem,
+            arguments: json!({"item":7}),
+        });
+        for (results, offered, expected) in [
+            (vec![lookup("hero")], &all[..], HERO_PROFILE_LOOKUP_CONTRACT),
+            (vec![lookup("item")], &all[..], DETAIL_LOOKUP_CONTRACT),
+            (vec![lookup("ability")], &all[..], DETAIL_LOOKUP_CONTRACT),
+            (vec![lookup("timer")], &all[..], TOOL_FOLLOW_UP_CONTRACT),
+            (
+                vec![lookup("item"), fetched(ToolName::GetItem)],
+                &all[..],
+                TOOL_FOLLOW_UP_CONTRACT,
+            ),
+            (
+                vec![lookup("hero"), fetched(ToolName::GetHero)],
+                &all[..],
+                TOOL_FOLLOW_UP_CONTRACT,
+            ),
+            (vec![lookup("item")], &all[..2], TOOL_FOLLOW_UP_CONTRACT),
+            (
+                vec![lookup("item"), exhausted],
+                &all[..],
+                TOOL_BUDGET_EXHAUSTED_CONTRACT,
+            ),
+        ] {
+            assert_eq!(follow_up_contract(&results, offered), expected);
         }
     }
 
