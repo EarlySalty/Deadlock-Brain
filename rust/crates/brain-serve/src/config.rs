@@ -310,14 +310,6 @@ fn identifier(value: &str, maximum: usize) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || b"._:/-".contains(&c))
 }
 
-fn gateway_slot(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
-}
-
 fn loopback_ip(endpoint: &reqwest::Url) -> bool {
     endpoint.host_str().is_some_and(|host| {
         host.trim_matches(['[', ']'])
@@ -573,7 +565,7 @@ impl Config {
                     }
                     ProviderKind::DlAiGateway => {
                         p.model.is_empty()
-                            && gateway_slot(&p.slot)
+                            && brain_providers::valid_gateway_slot(&p.slot)
                             && p.api_key_env.is_empty()
                             && loopback_ip(&endpoint)
                             && p.retry_attempts == 1

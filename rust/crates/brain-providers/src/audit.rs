@@ -71,7 +71,7 @@ impl OpenAiCompatibleProvider {
                 let identifiers_redacted = raw != output.raw_output;
                 ResponseDeviation {
                     request_id: project(&query.request_id),
-                    model: project(&self.config.model),
+                    model: project(&self.config.audit_model()),
                     check: ResponseCheck {
                         check: diagnostic_metadata(&output.check.check, person_id),
                         field: diagnostic_metadata(&output.check.field, person_id),

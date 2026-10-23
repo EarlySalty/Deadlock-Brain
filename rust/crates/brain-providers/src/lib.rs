@@ -112,6 +112,21 @@ impl ProviderConfig {
     fn configured_model(&self) -> Option<String> {
         self.gateway_slot.is_none().then(|| self.model.clone())
     }
+
+    fn audit_model(&self) -> String {
+        match &self.gateway_slot {
+            Some(slot) => format!("dl_ai_gateway:{slot}"),
+            None => self.model.clone(),
+        }
+    }
+}
+
+pub fn valid_gateway_slot(slot: &str) -> bool {
+    !slot.is_empty()
+        && slot.len() <= 64
+        && slot
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
 }
 
 #[derive(Debug, Error)]
@@ -290,14 +305,7 @@ impl OpenAiCompatibleProvider {
             let url =
                 reqwest::Url::parse(&config.base_url).map_err(|_| ProviderError::InvalidConfig)?;
             let native_allowed = match &config.gateway_slot {
-                Some(slot) => {
-                    config.model.is_empty()
-                        && !slot.is_empty()
-                        && slot.len() <= 64
-                        && slot
-                            .bytes()
-                            .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
-                }
+                Some(slot) => config.model.is_empty() && valid_gateway_slot(slot),
                 None => config.model == "gpt-6-luna",
             };
             if !url.host_str().is_some_and(|host| {
@@ -689,6 +697,63 @@ mod tests {
             ))
             .is_err()
         );
+    }
+
+    #[derive(Default)]
+    struct RecordingAudit(
+        std::sync::Mutex<Vec<brain_contracts::response_audit::ResponseDeviation>>,
+    );
+
+    impl brain_contracts::response_audit::ResponseAuditPort for RecordingAudit {
+        fn append(
+            &self,
+            deviation: &brain_contracts::response_audit::ResponseDeviation,
+        ) -> std::result::Result<(), PortError> {
+            deviation.validate()?;
+            self.0.lock().unwrap().push(deviation.clone());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn gateway_rejections_are_audited_under_the_slot_label() {
+        let bodies = [
+            r#"{"model":"claude-haiku-5-5","stop_reason":"end_turn","content":"kaputt","usage":{"input_tokens":1,"output_tokens":1}}"#,
+            r#"{"model":"","stop_reason":"end_turn","content":[{"type":"text","text":"Antwort"}],"usage":{"input_tokens":1,"output_tokens":1}}"#,
+        ];
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for body in bodies {
+                let (mut stream, _) = listener.accept().unwrap();
+                let _ = read_request(&mut stream);
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .unwrap();
+            }
+        });
+        let audit = std::sync::Arc::new(RecordingAudit::default());
+        let provider = OpenAiCompatibleProvider::new(ProviderConfig::dl_ai_gateway(
+            format!("http://{address}/v1"),
+            "brain_answer",
+        ))
+        .unwrap()
+        .with_response_audit(audit.clone());
+        for _ in bodies {
+            let error = provider.answer(&query(), &context(), &[]).unwrap_err();
+            assert!(matches!(error, PortError::InvalidResponse(_)));
+        }
+        server.join().unwrap();
+        let recorded = audit.0.lock().unwrap();
+        assert_eq!(recorded.len(), 2);
+        assert!(recorded
+            .iter()
+            .all(|deviation| deviation.model == "dl_ai_gateway:brain_answer"));
+        assert_eq!(recorded[1].check.check, "model_identity");
     }
 
     #[test]
