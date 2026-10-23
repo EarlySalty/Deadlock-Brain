@@ -5,7 +5,7 @@ use crate::{
     limits, Entity, Extractor, Fact, FactSet, FactValue, Outcome, RawObject, Receipt, Rejection,
 };
 use brain_storage::gamefacts::receipts;
-use chrono::DateTime;
+use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
@@ -73,15 +73,30 @@ impl PatchExtractor {
         }
         let title: String = serde_json::from_str(field("title")?).map_err(|_| "title_invalid")?;
         let url: String = serde_json::from_str(field("url")?).map_err(|_| "url_invalid")?;
-        if title.trim().is_empty() || !official_url(&url) {
+        let origin = origin(&url).ok_or("untrusted_origin")?;
+        if title.trim().is_empty() {
             return Err("untrusted_origin");
         }
+        let thread_day = match origin {
+            Origin::Announcement => None,
+            Origin::ForumPost { thread_slug, .. } => {
+                Some(update_thread_day(&title, thread_slug).ok_or("unofficial_thread")?)
+            }
+        };
         let date: Option<String> =
             serde_json::from_str(field("posted_at")?).map_err(|_| "date_invalid")?;
         let content: Option<String> =
             serde_json::from_str(field("raw_content")?).map_err(|_| "content_invalid")?;
         let Some(date) = date else { return Ok(None) };
-        DateTime::parse_from_rfc3339(&date).map_err(|_| "date_invalid")?;
+        let posted = DateTime::parse_from_rfc3339(&date)
+            .map_err(|_| "date_invalid")?
+            .with_timezone(&Utc);
+        let (title, url) = match (origin, thread_day) {
+            (Origin::ForumPost { post_id, .. }, Some(day)) => {
+                forum_post_identity(&title, post_id, day, posted)?
+            }
+            _ => (title, url),
+        };
         let Some(content) = content.filter(|text| !text.trim().is_empty()) else {
             return Ok(None);
         };
@@ -282,26 +297,99 @@ impl Extractor for PatchExtractor {
         }
     }
 }
-fn official_url(value: &str) -> bool {
+const FORUM: &str = "https://forums.playdeadlock.com";
+
+#[derive(Clone, Copy)]
+enum Origin<'a> {
+    Announcement,
+    ForumPost {
+        post_id: &'a str,
+        thread_slug: Option<&'a str>,
+    },
+}
+
+fn origin(value: &str) -> Option<Origin<'_>> {
+    if let Some(post) = forum_post(value) {
+        return Some(post);
+    }
     let value = value.strip_suffix('/').unwrap_or(value);
     for prefix in [
         "https://store.steampowered.com/news/app/1422450/view/",
         "https://steamcommunity.com/games/1422450/announcements/detail/",
     ] {
         if let Some(id) = value.strip_prefix(prefix) {
-            return decimal_id(id);
+            return decimal_id(id).then_some(Origin::Announcement);
         }
     }
     value
         .strip_prefix("https://forums.playdeadlock.com/threads/")
-        .and_then(|thread| thread.rsplit_once('.'))
-        .is_some_and(|(slug, id)| {
-            !slug.is_empty()
-                && slug
-                    .bytes()
-                    .all(|ch| ch.is_ascii_alphanumeric() || ch == b'-')
-                && decimal_id(id)
-        })
+        .and_then(thread_slug)
+        .map(|_| Origin::Announcement)
+}
+
+fn forum_post(value: &str) -> Option<Origin<'_>> {
+    if let Some(id) = value.strip_prefix("https://forums.playdeadlock.com/posts/") {
+        let id = id.strip_suffix('/').unwrap_or(id);
+        return decimal_id(id).then_some(Origin::ForumPost {
+            post_id: id,
+            thread_slug: None,
+        });
+    }
+    let (thread, post_id) = value
+        .strip_prefix("https://forums.playdeadlock.com/threads/")?
+        .split_once("#post-")?;
+    let thread = thread.strip_suffix('/').unwrap_or(thread);
+    let thread = match thread.rsplit_once("/page-") {
+        Some((head, page)) if decimal_id(page) => head,
+        _ => thread,
+    };
+    let slug = thread_slug(thread)?;
+    decimal_id(post_id).then_some(Origin::ForumPost {
+        post_id,
+        thread_slug: Some(slug),
+    })
+}
+
+fn thread_slug(thread: &str) -> Option<&str> {
+    let (slug, id) = thread.rsplit_once('.')?;
+    (!slug.is_empty()
+        && slug
+            .bytes()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == b'-')
+        && decimal_id(id))
+    .then_some(slug)
+}
+
+fn update_thread_day(title: &str, slug: Option<&str>) -> Option<NaiveDate> {
+    let (date, suffix) = title.split_at_checked(10)?;
+    let numbered = suffix
+        .strip_prefix(" Update")
+        .and_then(|rest| rest.strip_prefix(' '))
+        .is_some_and(|number| decimal_id(number) && number.len() <= 2);
+    let shape = date.bytes().enumerate().all(|(index, byte)| match index {
+        2 | 5 => byte == b'-',
+        _ => byte.is_ascii_digit(),
+    });
+    if !shape || !(suffix.is_empty() || suffix == " Update" || numbered) {
+        return None;
+    }
+    if slug.is_some_and(|slug| slug != title.to_ascii_lowercase().replace(' ', "-")) {
+        return None;
+    }
+    NaiveDate::parse_from_str(date, "%m-%d-%Y").ok()
+}
+
+fn forum_post_identity(
+    title: &str,
+    post_id: &str,
+    day: NaiveDate,
+    posted: DateTime<Utc>,
+) -> Result<(String, String), &'static str> {
+    if posted < day.and_time(NaiveTime::MIN).and_utc() {
+        return Err("post_before_thread");
+    }
+    let label = format!("{title} (Post {post_id}, {})", posted.format("%Y-%m-%d"));
+    Ok((label, format!("{FORUM}/posts/{post_id}/")))
 }
 
 fn decimal_id(value: &str) -> bool {
