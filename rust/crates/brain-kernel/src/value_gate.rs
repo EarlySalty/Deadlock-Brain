@@ -3,7 +3,10 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Default)]
-pub(super) struct ValueLedger(BTreeMap<String, BTreeSet<String>>, BTreeSet<String>);
+pub(super) struct ValueLedger {
+    values: BTreeMap<String, BTreeSet<String>>,
+    labels: BTreeMap<String, BTreeSet<String>>,
+}
 
 fn patch_labels(key: &str, value: &Value) -> Vec<String> {
     let Some(text) = value.as_str() else {
@@ -14,7 +17,8 @@ fn patch_labels(key: &str, value: &Value) -> Vec<String> {
         "released_at" => text.get(..10),
         _ => None,
     };
-    [Some(text), label]
+    label
+        .map(|label| [text, label])
         .into_iter()
         .flatten()
         .filter(|label| label.len() >= 8 && label.bytes().any(|byte| !byte.is_ascii_digit()))
@@ -110,17 +114,20 @@ impl ValueLedger {
     fn row(&mut self, value: &Value, inherited: Option<&str>, allowed: &[String]) {
         match value {
             Value::Object(fields) => {
-                let citation = fields
+                let returned = |id: &&str| allowed.iter().any(|known| known == id);
+                let own = fields
                     .get("citation")
                     .or_else(|| fields.get("evidence_id"))
-                    .and_then(Value::as_str)
-                    .or(inherited)
-                    .filter(|id| allowed.iter().any(|known| known == id));
+                    .and_then(Value::as_str);
+                let citation = own.or(inherited).filter(returned);
+                if let Some(id) = own.filter(returned) {
+                    let labels = fields
+                        .iter()
+                        .flat_map(|(key, value)| patch_labels(key, value));
+                    self.labels.entry(id.into()).or_default().extend(labels);
+                }
                 if let Some(id) = citation {
-                    self.0.entry(id.into()).or_default();
-                    for (key, value) in fields {
-                        self.1.extend(patch_labels(key, value));
-                    }
+                    self.values.entry(id.into()).or_default();
                 }
                 for (key, value) in fields {
                     if !matches!(
@@ -143,12 +150,15 @@ impl ValueLedger {
             }
             Value::Number(number) => {
                 if let (Some(id), Some(number)) = (inherited, normalize(&number.to_string())) {
-                    self.0.entry(id.into()).or_default().insert(number);
+                    self.values.entry(id.into()).or_default().insert(number);
                 }
             }
             Value::String(text) => {
                 if let Some(id) = inherited {
-                    self.0.entry(id.into()).or_default().extend(numbers(text));
+                    self.values
+                        .entry(id.into())
+                        .or_default()
+                        .extend(numbers(text));
                 }
             }
             _ => {}
@@ -163,7 +173,7 @@ impl ValueLedger {
             };
             if !answer.cited_evidence_ids.contains(&claim.citation_id)
                 || !self
-                    .0
+                    .values
                     .get(&claim.citation_id)
                     .is_some_and(|values| values.contains(&value))
             {
@@ -171,7 +181,12 @@ impl ValueLedger {
             }
             covered.insert(value);
         }
-        let mut labels: Vec<_> = self.1.iter().collect();
+        let mut labels: Vec<_> = answer
+            .cited_evidence_ids
+            .iter()
+            .filter_map(|id| self.labels.get(id))
+            .flatten()
+            .collect();
         labels.sort_by_key(|label| std::cmp::Reverse(label.len()));
         let text = labels.into_iter().fold(answer.text.clone(), |text, label| {
             text.replace(label.as_str(), " ")
@@ -270,6 +285,20 @@ mod tests {
         assert!(!ledger.accepts(&named("Patch 09-29-2026: von 50 auf 76.")));
         assert!(!ledger.accepts(&named("Patch 10-01-2026: von 50 auf 75.")));
         assert!(!ledger.accepts(&named("Am 15.10.2026: von 50 auf 75.")));
+        let mut uncited = named("Patch 09-29-2026: von 50 auf 75.");
+        uncited.cited_evidence_ids = vec!["other".into()];
+        uncited.claims.clear();
+        assert!(!ledger.accepts(&uncited));
+        let mut quoted = named("Bonus increased from +50% to +75%");
+        quoted.claims.clear();
+        assert!(!ledger.accepts(&quoted));
+        let mut nested = ValueLedger::default();
+        nested.insert(&ToolResult { call_id: "patch".into(), name: ToolName::PatchHistory,
+            result: json!({"citation":"line","line_text":"Patch 10-01-2026","unreturned":{"patch":"10-01-2026 (Post 1)"}}),
+            evidence_ids: vec!["line".into()], is_error: false });
+        let mut inherited = named("Patch 10-01-2026.");
+        inherited.claims.clear();
+        assert!(!nested.accepts(&inherited));
     }
 
     #[test]
