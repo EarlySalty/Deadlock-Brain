@@ -237,6 +237,66 @@ fn condition_note(key: &str, value: &Value, condition: &Value) -> Option<String>
     })
 }
 
+fn numbered(key: &str, prefix: &str) -> bool {
+    key.strip_prefix(prefix)
+        .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+fn key_label(key: &str) -> &str {
+    match key {
+        "scale_class" => "Skalierungsart",
+        "scale_subclass" => "Skalierungsfunktion",
+        "scale_type" => "Skalierungsgröße",
+        "scale_value" => "Skalierungsfaktor",
+        "scale_stat_filter" => "Skalierungsfilter",
+        "display_units" => "Anzeigeeinheit",
+        "upgrade_type" => "Upgrade-Art",
+        "upgrade_entry" => "Upgrade-Eintrag",
+        "upgrade_tier" => "Upgrade-Stufe",
+        "operation" => "Rechenart",
+        "lang" => "Sprache",
+        "conditional" => "Bedingung",
+        _ if numbered(key, "scale_stat_") => "Weitere Skalierungsgröße",
+        _ if numbered(key, "usage_flag_") => "Verwendung",
+        _ if numbered(key, "required_upgrade_bit_") => "Benötigtes Upgrade",
+        other => other,
+    }
+}
+
+fn value_text(key: &str, value: &Value) -> String {
+    match value {
+        Value::String(text) => {
+            let text = text.trim();
+            let scale = key == "scale_type" || numbered(key, "scale_stat_");
+            match text {
+                "" => "leer".into(),
+                "EDisplayUnit_Meters" => "Meter".into(),
+                "EDisplayUnit_MetersPerSecond" => "Meter pro Sekunde".into(),
+                "EDisplayUnit_Normal" => "ohne Einheit".into(),
+                _ => scale
+                    .then(|| scale_name(text))
+                    .flatten()
+                    .unwrap_or(text)
+                    .into(),
+            }
+        }
+        Value::Bool(true) => "ja".into(),
+        Value::Bool(false) => "nein".into(),
+        Value::Null => "leer".into(),
+        Value::Number(number) => number.to_string(),
+        Value::Array(values) => values
+            .iter()
+            .map(|value| value_text(key, value))
+            .collect::<Vec<_>>()
+            .join(", "),
+        Value::Object(fields) => fields
+            .iter()
+            .map(|(name, value)| format!("{} {}", key_label(name), value_text(name, value)))
+            .collect::<Vec<_>>()
+            .join(", "),
+    }
+}
+
 fn qualifier_citation<'a>(fact: &'a Value, key: &str) -> Option<&'a str> {
     fact["qualifiers"]
         .as_array()?
@@ -245,26 +305,50 @@ fn qualifier_citation<'a>(fact: &'a Value, key: &str) -> Option<&'a str> {
         .as_str()
 }
 
+fn beleg_link(fact: &Value, key: &str) -> String {
+    qualifier_citation(fact, key)
+        .map(|citation| format!(" <a href=\"#beleg-{0}\">Beleg {0}</a>", escape(citation)))
+        .unwrap_or_default()
+}
+
 fn condition_notes(fact: &Value) -> String {
     let condition = &fact["condition"];
     let Some(fields) = condition.as_object() else {
         return String::new();
     };
-    let mut html = String::new();
+    let scaled = condition_note("scale_type", &condition["scale_type"], condition).is_some();
+    let mut notes = Vec::new();
+    let mut details = Vec::new();
     for (key, value) in fields {
-        let Some(note) = condition_note(key, value, condition) else {
-            continue;
-        };
-        html.push_str(&format!("<p>{}", escape(&note)));
-        if let Some(citation) = qualifier_citation(fact, key) {
-            html.push_str(&format!(
-                " <a href=\"#beleg-{0}\">Beleg {0}</a>",
-                escape(citation)
-            ));
+        match condition_note(key, value, condition) {
+            Some(note) => {
+                let extra = if key == "scale_type" {
+                    beleg_link(fact, "scale_value")
+                } else {
+                    String::new()
+                };
+                notes.push(format!(
+                    "<p>{}{}{extra}</p>",
+                    escape(&note),
+                    beleg_link(fact, key)
+                ));
+            }
+            None if key == "scale_value" && scaled => {}
+            None => details.push(format!(
+                "{}: {}{}",
+                escape(key_label(key)),
+                escape(&value_text(key, value)),
+                beleg_link(fact, key)
+            )),
         }
-        html.push_str("</p>");
     }
-    html
+    if !details.is_empty() {
+        notes.push(format!(
+            "<p>Weitere Quellangaben: {}</p>",
+            details.join("; ")
+        ));
+    }
+    notes.concat()
 }
 
 pub(super) fn fact_rows(section: &Value) -> String {
@@ -537,5 +621,32 @@ mod tests {
         ] {
             assert_eq!(display_name(&identity), shown);
         }
+    }
+
+    #[test]
+    fn conditions_render_as_german_text_without_json() {
+        assert_eq!(condition_notes(&json!({"condition": {}})), "");
+        let html = condition_notes(&json!({
+            "condition": {
+                "scale_type": "ETechPower",
+                "scale_value": "0.5",
+                "scale_class": "scale_function_tech_damage",
+                "display_units": "EDisplayUnit_Meters",
+                "usage_flag_1": "Mystery",
+                "custom": {"a": [1, true]}
+            },
+            "qualifiers": [
+                {"key": "scale_type", "citation": "7"},
+                {"key": "scale_value", "citation": "8"},
+                {"key": "usage_flag_1", "citation": "9"}
+            ]
+        }));
+        assert!(html.contains("Skaliert mit Magiekraft (×0.5) <a href=\"#beleg-7\">Beleg 7</a> <a href=\"#beleg-8\">Beleg 8</a>"));
+        assert!(html.contains("Skalierungsart: scale_function_tech_damage"));
+        assert!(html.contains("Anzeigeeinheit: Meter"));
+        assert!(html.contains("Verwendung: Mystery <a href=\"#beleg-9\">Beleg 9</a>"));
+        assert!(html.contains("custom: a 1, ja"));
+        assert!(!html.contains('{'));
+        assert!(!html.contains("Skalierungsfaktor"));
     }
 }

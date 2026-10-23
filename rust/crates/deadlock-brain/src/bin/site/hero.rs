@@ -367,6 +367,27 @@ fn ability_names(ability: &Ability) -> Vec<String> {
     names
 }
 
+fn note_line(line: &str) -> bool {
+    let line = line.trim();
+    let body = ["- ", "* ", "• "]
+        .into_iter()
+        .find_map(|prefix| line.strip_prefix(prefix))
+        .unwrap_or(line);
+    body.split_once(':').is_some_and(|(name, _)| {
+        let name = name.trim_matches(|ch: char| ch.is_whitespace() || "#*:[]`".contains(ch));
+        name.eq_ignore_ascii_case("note") || name.eq_ignore_ascii_case("notes")
+    })
+}
+
+fn statement_text(text: &str) -> String {
+    text.lines()
+        .enumerate()
+        .take_while(|(index, line)| *index == 0 || !note_line(line))
+        .map(|(_, line)| line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn change_text(text: &str) -> String {
     text.lines()
         .map(|line| {
@@ -477,7 +498,7 @@ pub(super) fn render(
         let names = ability_names(ability);
         let mut own = Vec::new();
         for (index, change) in changes.iter().enumerate() {
-            let text = change.text.to_lowercase();
+            let text = statement_text(&change.text).to_lowercase();
             if !used[index] && names.iter().any(|name| text.contains(name.as_str())) {
                 used[index] = true;
                 own.push(change);
@@ -536,5 +557,16 @@ mod tests {
             label(&json!({"label": "Burst Damage", "label_de": "Burst Damage"})),
             Some("Salvenschaden")
         );
+    }
+
+    #[test]
+    fn note_lines_render_with_their_statement_but_do_not_attribute() {
+        let text = "Baba: Damage increased from 1 to 2\n- Note: Rat Swarm unchanged";
+        assert_eq!(statement_text(text), "Baba: Damage increased from 1 to 2");
+        assert_eq!(
+            change_text(text),
+            "Baba: Damage increased from 1 to 2<br>Note: Rat Swarm unchanged"
+        );
+        assert_eq!(statement_text("A\n  when x"), "A\n  when x");
     }
 }

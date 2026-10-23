@@ -104,3 +104,15 @@ fn unnamed_note(count: usize) -> &'static str {
         _ => "<p>Einträge ohne Namen werden nicht angezeigt.</p>",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::unnamed_note;
+
+    #[test]
+    fn unnamed_entries_are_reported_once() {
+        assert_eq!(unnamed_note(0), "");
+        assert!(unnamed_note(1).starts_with("<p>Ein Eintrag"));
+        assert!(unnamed_note(3).starts_with("<p>Einträge"));
+    }
+}
