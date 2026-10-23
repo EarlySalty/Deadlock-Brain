@@ -1,13 +1,15 @@
 WITH terms AS (
     SELECT websearch_to_tsquery('pg_catalog.simple',$2) AS simple_query,
         websearch_to_tsquery('pg_catalog.german',$2) AS german_query,
-        CASE WHEN websearch_to_tsquery('pg_catalog.german',$2)::text !~ '[!|()<]' THEN ARRAY(
+        CASE WHEN $2 !~ '"' AND $2 !~* '(^|[[:space:]])(-|or([[:space:]]|$))' THEN ARRAY(
             SELECT DISTINCT CASE WHEN w.command<>''
                     THEN '('||w.lexemes||' | ''/'||w.command||''')'
                     ELSE '('||w.lexemes||')' END
             FROM (SELECT regexp_replace(lower(word),'^/|[^[:alnum:]_-]','','g') AS command,
-                    (SELECT string_agg(''''||replace(replace(lexeme,'\','\\'),'''','''''')||'''',' & ')
-                        FROM unnest(tsvector_to_array(to_tsvector('pg_catalog.german',word))) lexeme) AS lexemes
+                    (SELECT string_agg(''''||replace(replace(l.lexeme,'\','\\'),'''','''''')||'''',' & ')
+                        FROM (SELECT lexeme,bool_or(lexeme !~ '-') OVER () AS has_part
+                            FROM unnest(tsvector_to_array(to_tsvector('pg_catalog.german',word))) lexeme) l
+                        WHERE l.lexeme !~ '-' OR NOT l.has_part) AS lexemes
                 FROM regexp_split_to_table(btrim($2),'[[:space:]]+') word) w
             WHERE w.lexemes IS NOT NULL
         ) END AS operands
@@ -59,7 +61,7 @@ WITH terms AS (
 SELECT f.page_id,f.raw_object_id,f.receipt_id,f.valid_from_run,f.meta_key,f.scope,
     f.path,f.title,f.heading_path,f.excerpt,
     f.line_start,f.line_end,f.source_revision,f.ingest_run_id,f.extractor,f.locator_kind,f.locator,
-    f.value_sha256,count(*) OVER() AS matching_sections
+    f.value_sha256,count(*) OVER() AS bounded_matches
 FROM found f
 ORDER BY f.rank
 LIMIT $4

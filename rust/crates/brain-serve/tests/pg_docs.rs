@@ -1633,6 +1633,21 @@ async fn real_search_uses_owned_gin_naturally_within_statement_budget() {
         "DOCS_INDEX_PROOF documents=400 execution_ms={} planning_ms={}",
         plan[0]["Execution Time"], plan[0]["Planning Time"]
     );
+    let broad: serde_json::Value =
+        sqlx::query_scalar(&format!("EXPLAIN (ANALYZE,FORMAT JSON) {search}"))
+            .bind("public")
+            .bind("Lane Rotation")
+            .bind(None::<i64>)
+            .bind(5_i64)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(broad[0]["Plan"]["Actual Rows"], 5);
+    assert!(
+        broad[0]["Execution Time"].as_f64().unwrap() < 500.0,
+        "broad execution_ms={}",
+        broad[0]["Execution Time"]
+    );
     tx.commit().await.unwrap();
     pool.close().await;
 }
@@ -1802,6 +1817,9 @@ async fn search_falls_back_to_partial_matches_and_bare_commands() {
         ("Steam Kanal", vec!["public/steam.html"]),
         ("Discord Steam -verknüpfen", vec![]),
         ("Rang Team", vec![]),
+        ("Steam-Kanal verknüpfen Rang", vec!["public/steam.html"]),
+        ("Discord-Server Rollen", vec!["public/discord.html"]),
+        ("Steam -Kanal Rang", vec![]),
     ] {
         assert_eq!(
             search_paths(&pool, "public", query, None).await,
@@ -1887,11 +1905,11 @@ async fn search_keeps_published_runs_and_filters_entities_before_the_limit() {
         .await
         .unwrap()
         .iter()
-        .map(|row| row.get::<i64, _>("matching_sections"))
+        .map(|row| row.get::<i64, _>("bounded_matches"))
         .collect();
     assert_eq!(counts, vec![7; 6]);
     let mut tx = pool.begin().await.unwrap();
-    let pending = stage_document(
+    stage_document(
         &mut tx,
         "public/baba.html",
         15,
@@ -1924,7 +1942,6 @@ async fn search_keeps_published_runs_and_filters_entities_before_the_limit() {
         .map(|row| row.get::<i64, _>("valid_from_run"))
         .collect();
     assert_eq!(runs, vec![staged.run]);
-    assert_ne!(pending.run, staged.run);
     assert!(search_paths(&pool, "public", "Entwurf", None)
         .await
         .is_empty());

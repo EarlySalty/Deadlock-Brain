@@ -21,10 +21,10 @@ Branch `fix/brain-docs-search-20261023`, base `179c41d4`.
   `brain_tool` and `brain_service`, the keys, scope and both tsvectors of the newest published run per
   page (rows of unpublished or failed newer runs do not hide the published page). No body text.
 - `search.sql`: the strict websearch tier stays first. Only when it has no hit and the query has no
-  operators (`-`, `OR`, quotes), it falls back to sections that match at least two query words (or the
-  only word), each word also matching its `/command` form. The entity filter runs on the candidates
+  operators in the raw input (a word starting with `-`, a standalone `or`, or a quote), it falls back to sections that match at least two query words (or the
+  only word), each word also matching its `/command` form. Hyphenated words (`Steam-Bot`) match through their parts, so they never disable the fallback. The entity filter runs on the candidates
   before any limit; full `serve.doc_section` validation runs lazily in rank order and stops after
-  `limit + 1` validated sections, which also yields the exact truncation flag.
+  `limit + 1` validated sections, so `bounded_matches` counts at most `limit + 1` rows and only feeds the truncation flag.
 - `search_docs` tool description in `service.rs`.
 
 ## Known limit (pre-existing)
