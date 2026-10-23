@@ -1863,7 +1863,7 @@ async fn audited_publication_keeps_multi_page_docs_search_within_statement_budge
             .unwrap();
     let execution = plan[0]["Execution Time"].as_f64().unwrap();
     eprintln!(
-        "DOCS_AUDITED_PUBLICATION_PROOF audit_rows={} rejections={} audited={} shadowed={} pages=5 execution_ms={execution} planning_ms={}",
+        "DOCS_AUDITED_PUBLICATION_PROOF audit_rows={} rejections={} audited={} shadowed={} sections=5 execution_ms={execution} planning_ms={}",
         boundary.0, boundary.1, boundary.2, boundary.3, plan[0]["Planning Time"]
     );
     assert_eq!(plan[0]["Plan"]["Actual Rows"], 5);

@@ -20,9 +20,20 @@ Real-data scratch DB with the audit seed (5000 audit rows, 1000 rejections, 999 
 - `Steam verknüpfen`, EXPLAIN ANALYZE: 2080 ms before (`explain-before-steam-verknuepfen.txt`), 56 ms execution and 31 ms planning after (`explain-after-steam-verknuepfen.txt`).
 - Warm search timings after (`search-timing-after.txt`): Steam verknüpfen 61-117 ms, Steam 61-68 ms, Lane Rotation Heilung 37-50 ms, Baba bewegt 5-8 ms.
 - Tool views (`tools-timing-after.txt`) match the base function measurements.
-- The EXACT alias lookup times out at 20 s under this seed with the base function as well. This is pre-existing and outside this fix.
+- The EXACT alias lookup times out at 20 s under this seed with the base function as well (see open items below).
 
 Regression test `audited_publication_keeps_multi_page_docs_search_within_statement_budget` (5002 audit rows, 1001 rejections, 1002 audited quarantines, shadowed rows):
 - Base hits the statement timeout.
 - The fix runs in 45 ms execution and 31 ms planning.
 - Rejected, audited and shadowed pages stay hidden, and internal pages are unreachable from the public scope.
+
+## Open: E1 docs and refusal rerun
+- State: blocked by provider quota. The run `e1-fix-docs-refusal-audited` reached the audit-seeded scratch DB but all 32 cases returned `unavailable`.
+- Cause: the local router at `127.0.0.1:18769` answered HTTP 429 `The usage limit has been reached`. Its reset is announced for 2026-11-17.
+- The serve log shows no docs time limit hit and the Postgres error log is empty.
+- To continue, once the quota is back run from the worktree:
+  `P6_E1_NOSTRACE=1 DOCPAGE_SEED_SQL=<proof>/seed-audit.sql <proof>/e1-scratch.sh rust/target/verify <proof> <proof>/../docs-search-fix/gold-docs-refusal.json fix-docs-refusal-audited`
+- Targets: docs at least 7/10, refusals 20/22.
+
+## Open: EXACT alias lookup under audit rows
+The EXACT alias lookup from `pg_tools` needs 20 s or more under the audit seed, with both the base and the fixed state. It runs `serve.receipt_is_published` for every alias and identity row. It needs its own task in the gamefacts tool path.
