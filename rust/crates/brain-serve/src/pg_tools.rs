@@ -34,8 +34,12 @@ const EXACT: &str = "WITH alias_candidates AS MATERIALIZED (
 SELECT * FROM (
     SELECT DISTINCT ON (a.entity_id) a.entity_id, i.kind, i.key, a.alias_norm, a.lang,
         a.receipt_id::text AS citation, a.source_revision, i.identity, a.similarity
-    FROM current_candidates a JOIN serve.entity_identity i ON i.entity_id=a.entity_id
-    WHERE i.kind<>'doc_page' AND i.kind<>'doc' AND ($2::text IS NULL OR i.kind=$2)
+    FROM current_candidates a CROSS JOIN LATERAL (
+        SELECT i.kind,i.key,i.identity FROM serve.entity_identity i
+        WHERE i.entity_id=a.entity_id AND i.kind<>'doc_page' AND i.kind<>'doc'
+            AND ($2::text IS NULL OR i.kind=$2)
+        OFFSET 0
+    ) i
     ORDER BY a.entity_id, a.receipt_id, a.lang
 ) candidates ORDER BY entity_id LIMIT $3";
 const FUZZY: &str = "WITH alias_candidates AS MATERIALIZED (
@@ -57,8 +61,12 @@ const FUZZY: &str = "WITH alias_candidates AS MATERIALIZED (
 SELECT * FROM (
     SELECT DISTINCT ON (a.entity_id) a.entity_id, i.kind, i.key, a.alias_norm, a.lang,
         a.receipt_id::text AS citation, a.source_revision, i.identity, a.similarity
-    FROM current_candidates a JOIN serve.entity_identity i ON i.entity_id=a.entity_id
-    WHERE i.kind<>'doc_page' AND i.kind<>'doc' AND ($2::text IS NULL OR i.kind=$2)
+    FROM current_candidates a CROSS JOIN LATERAL (
+        SELECT i.kind,i.key,i.identity FROM serve.entity_identity i
+        WHERE i.entity_id=a.entity_id AND i.kind<>'doc_page' AND i.kind<>'doc'
+            AND ($2::text IS NULL OR i.kind=$2)
+        OFFSET 0
+    ) i
     ORDER BY a.entity_id, a.similarity DESC, a.receipt_id, a.lang
 ) candidates ORDER BY similarity DESC, entity_id LIMIT $3";
 const RECEIPTS: &str = "SELECT p.id, p.raw_object_id, p.source, p.source_revision, p.path,

@@ -1225,5 +1225,150 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
     });
 }
 
+const AUDIT_FILLER: &str = include_str!("../tests/fixtures/audit_filler.sql");
+
+fn patch_sql(name: &str) -> String {
+    include_str!("pg_patch_tools.rs")
+        .split_once(&format!("const {name}: &str = \""))
+        .unwrap()
+        .1
+        .split_once("\";")
+        .unwrap()
+        .0
+        .replace("\\\"", "\"")
+}
+
+async fn alias_receipt(admin: &PgPool, key: &str) -> i64 {
+    sqlx::query_scalar("SELECT a.receipt_id FROM canon.alias a JOIN canon.entity e ON e.id=a.entity_id WHERE e.key=$1 ORDER BY a.receipt_id DESC LIMIT 1")
+        .bind(key).fetch_one(admin).await.unwrap()
+}
+
+async fn audit(admin: &PgPool, receipt: i64, rejected: bool) {
+    let run: i64 = sqlx::query_scalar("INSERT INTO ops.receipt_audit_run(sampled,rejected_receipts,rejected_objects) VALUES(1,1,1) RETURNING id")
+        .fetch_one(admin).await.unwrap();
+    let statement = if rejected {
+        "INSERT INTO ops.receipt_audit_rejection(run_id,raw_object_id,code,detail) SELECT $1,raw_object_id,'hash_mismatch','test' FROM canon.receipt WHERE id=$2"
+    } else {
+        "INSERT INTO ops.receipt_audit(run_id,receipt_id,outcome) VALUES($1,$2,'locator_not_found')"
+    };
+    sqlx::query(statement)
+        .bind(run)
+        .bind(receipt)
+        .execute(admin)
+        .await
+        .unwrap();
+}
+
+type Explain<'q> = sqlx::query::QueryScalar<'q, sqlx::Postgres, Value, sqlx::postgres::PgArguments>;
+
+async fn explained_ms(
+    pool: &PgPool,
+    sql: &str,
+    bind: impl FnOnce(Explain<'_>) -> Explain<'_>,
+) -> f64 {
+    let mut connection = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    assert_session(&mut connection).await.unwrap();
+    let explain = format!("EXPLAIN (ANALYZE,FORMAT JSON) {sql}");
+    let plan = bind(sqlx::query_scalar(&explain))
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
+    connection.commit().await.unwrap();
+    plan[0]["Planning Time"].as_f64().unwrap() + plan[0]["Execution Time"].as_f64().unwrap()
+}
+
+async fn lookup_entities(pool: &PgPool, sql: &str, alias: &str) -> Vec<(i64, String)> {
+    let mut connection = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    let rows = sqlx::query(sql)
+        .bind(alias)
+        .bind(Some("hero"))
+        .bind(6_i64)
+        .fetch_all(&mut *connection)
+        .await
+        .unwrap();
+    connection.commit().await.unwrap();
+    rows.iter()
+        .map(|row| (row.get("entity_id"), row.get("alias_norm")))
+        .collect()
+}
+
+async fn hero(admin: &PgPool, alias: &str, key: &str, revision: &str) -> i64 {
+    ingest_fixture(admin, alias, key, revision, vec![json!(780)], true).await
+}
+
+#[test]
+fn audited_publication_keeps_gamefacts_lookups_within_statement_budget() {
+    let pg = scratch_pg::ScratchPg::start();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("");
+    runtime.block_on(async {
+        let admin = sqlx::postgres::PgPoolOptions::new().max_connections(2)
+            .connect_with(options.clone()).await.unwrap();
+        sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate")
+            .execute(&admin).await.unwrap();
+        brain_storage::PgStore::new(admin.clone()).migrate_gamefacts().await.unwrap();
+        let visible = hero(&admin, "auditsichtbar", "hero_audit_visible", "r1").await;
+        let rejected = hero(&admin, "auditabgelehnt", "hero_audit_rejected", "r1").await;
+        let audited = hero(&admin, "auditgeprueft", "hero_audit_audited", "r1").await;
+        let superseded = hero(&admin, "auditalt", "hero_audit_superseded", "r1").await;
+        hero(&admin, "auditneu", "hero_audit_superseded", "r2").await;
+        let shadowed = hero(&admin, "auditschatten", "hero_audit_shadowed", "r1").await;
+        hero(&admin, "auditschatten", "hero_audit_shadowed", "r2").await;
+        timers::publish_timer(&admin, "timer-r1", false).await;
+        sqlx::raw_sql(AUDIT_FILLER).execute(&admin).await.unwrap();
+        audit(&admin, alias_receipt(&admin, "hero_audit_rejected").await, true).await;
+        audit(&admin, alias_receipt(&admin, "hero_audit_audited").await, false).await;
+        audit(&admin, alias_receipt(&admin, "hero_audit_shadowed").await, false).await;
+        let boundary: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM ops.receipt_audit),(SELECT count(*) FROM ops.receipt_audit_rejection),(SELECT count(*) FROM canon.receipt_quarantine WHERE cause='audited'),(SELECT count(*) FROM canon.receipt_quarantine WHERE cause='shadowed')")
+            .fetch_one(&admin).await.unwrap();
+        assert!(boundary.0 >= 5000 && boundary.1 >= 1000 && boundary.2 >= 1000 && boundary.3 >= 1, "{boundary:?}");
+        sqlx::raw_sql("ANALYZE").execute(&admin).await.unwrap();
+        let pool = tool_pool(options.username("brain_readonly"), Duration::from_secs(2));
+        for sql in [EXACT, FUZZY] {
+            assert!(lookup_entities(&pool, sql, "auditsichtbar").await.contains(&(visible, "auditsichtbar".into())));
+            assert!(lookup_entities(&pool, sql, "auditneu").await.contains(&(superseded, "auditneu".into())));
+            for (alias, hidden) in [("auditabgelehnt", rejected), ("auditgeprueft", audited), ("auditalt", superseded), ("auditschatten", shadowed)] {
+                assert!(!lookup_entities(&pool, sql, alias).await.contains(&(hidden, alias.into())), "{alias}");
+            }
+        }
+        let timer_sql = include_str!("timer_query.sql").trim().trim_end_matches(';').to_owned();
+        let timer: Vec<Value> = sqlx::query_scalar(&timer_sql).bind("rejuvenator").fetch_all(&pool).await.unwrap();
+        assert_eq!(timer.len(), 2);
+        let current = patch_sql("CURRENT");
+        let resolve = patch_sql("RESOLVE");
+        let changes = patch_sql("CHANGES");
+        let timings = [
+            ("exact", explained_ms(&pool, EXACT, |query| query.bind("auditsichtbar").bind(None::<String>).bind(6_i64)).await),
+            ("fuzzy", explained_ms(&pool, FUZZY, |query| query.bind("auditsichtbar").bind(None::<String>).bind(6_i64)).await),
+            ("timer", explained_ms(&pool, &timer_sql, |query| query.bind("rejuvenator")).await),
+            ("patch_current", explained_ms(&pool, &current, |query| query).await),
+            ("patch_resolve", explained_ms(&pool, &resolve, |query| query.bind("2026-01-01")).await),
+            ("patch_changes", explained_ms(&pool, &changes, |query| query.bind(visible).bind(None::<i64>).bind(None::<String>).bind(None::<String>)).await),
+        ];
+        eprintln!("GAMEFACTS_AUDITED_PUBLICATION_PROOF audit_rows={} rejections={} audited={} shadowed={} planning_plus_execution_ms={timings:?}", boundary.0, boundary.1, boundary.2, boundary.3);
+        for (name, elapsed) in timings {
+            assert!(elapsed < 500.0, "{name} planning_plus_execution_ms={elapsed}");
+        }
+        pool.close().await;
+        admin.close().await;
+    });
+}
+
 #[path = "meta_stats_pg_tests.rs"]
 mod meta_stats;

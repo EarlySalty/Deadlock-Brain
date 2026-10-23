@@ -1,6 +1,6 @@
 use super::*;
 
-async fn publish_timer(admin: &PgPool, revision: &str, large: bool) {
+pub(super) async fn publish_timer(admin: &PgPool, revision: &str, large: bool) {
     let store = GameFactsStore::new(admin.clone());
     let run = store.begin_run("timer_fixture").await.unwrap();
     let count = if large { 40 } else { 2 };
