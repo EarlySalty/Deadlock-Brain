@@ -56,13 +56,19 @@ pub(super) async fn page(
         let Some(result) = brain_serve::pg_asset_tools::bounded_comparison_result("site-compare", &request, value)? else { return Ok(None); };
         let value = result.result;
         let mut body = String::from("<h1>Vergleich</h1><p>Aktuell beobachteter Quellenstand. Der offizielle Patchstand ist unbekannt. Bedingungen und Einheiten gehören zum jeweiligen Wert.</p>");
+        let mut unnamed = 0;
+        let mut shown = Vec::new();
         for identity in value["entities"].as_array().context("entities")? {
             let id = &identity["entity_id"];
-            if let Some(name) = profiles::display_name(identity) {
-                body.push_str(&format!("<h2>{}</h2>", profiles::escape(name)));
-            }
+            let Some(name) = profiles::display_name(identity) else {
+                unnamed += 1;
+                continue;
+            };
+            body.push_str(&format!("<h2>{}</h2>", profiles::escape(name)));
             let facts: Vec<_> = value["stats"]["facts"].as_array().context("facts")?.iter().filter(|fact| fact["entity_id"] == *id).cloned().collect();
-            body.push_str(&profiles::fact_rows(&json!({"facts":facts,"truncated":value["stats"]["truncated"]})));
+            body.push_str(&profiles::fact_rows(&json!({"facts":&facts,"truncated":value["stats"]["truncated"]})));
+            shown.push(identity.clone());
+            shown.extend(facts);
             for cell in value["cells"].as_array().context("cells")?.iter().filter(|cell| cell["entity_id"] == *id) {
                 let message = match cell["status"].as_str() {
                     Some("missing") => Some("kein belegter Wert verfügbar"),
@@ -74,7 +80,10 @@ pub(super) async fn page(
                 }
             }
         }
-        body.push_str(&profiles::receipts(&mut tx, &value).await?);
+        body.push_str(unnamed_note(unnamed));
+        if !shown.is_empty() {
+            body.push_str(&profiles::receipts(&mut tx, &Value::Array(shown)).await?);
+        }
         tx.commit().await?;
         Ok(Some(profiles::document("Vergleich", &body)))
     }.await;
@@ -85,5 +94,13 @@ pub(super) async fn page(
             eprintln!("site_comparison_unavailable");
             profiles::unavailable(method)
         }
+    }
+}
+
+fn unnamed_note(count: usize) -> &'static str {
+    match count {
+        0 => "",
+        1 => "<p>Ein Eintrag ohne Namen wird nicht angezeigt.</p>",
+        _ => "<p>Einträge ohne Namen werden nicht angezeigt.</p>",
     }
 }

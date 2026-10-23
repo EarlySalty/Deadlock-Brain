@@ -367,6 +367,17 @@ fn ability_names(ability: &Ability) -> Vec<String> {
     names
 }
 
+fn change_text(text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            let line = line.trim();
+            escape(line.strip_prefix("- ").unwrap_or(line).trim())
+        })
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("<br>")
+}
+
 fn change_items(changes: &[&Change], shown: &mut Vec<Value>) -> String {
     let mut html = String::from("<ul>");
     for change in changes {
@@ -378,7 +389,7 @@ fn change_items(changes: &[&Change], shown: &mut Vec<Value>) -> String {
         html.push_str(&format!(
             "<li><strong>{}</strong>: {}{}</li>",
             escape(&when),
-            escape(&change.text),
+            change_text(&change.text),
             beleg(&change.citation)
         ));
         shown.push(change.citation.clone());

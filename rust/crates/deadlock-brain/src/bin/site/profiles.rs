@@ -169,6 +169,104 @@ fn stat_label(stat_key: &str) -> Option<&'static str> {
     })
 }
 
+fn scale_name(scale_type: &str) -> Option<&'static str> {
+    Some(match scale_type {
+        "ETechPower" => "Magiekraft",
+        "ETechDuration" => "Magiedauer",
+        "ETechRange" => "Magiereichweite",
+        "ETechRadius" => "Magieradius",
+        "ETechCooldown" => "Fähigkeitsabklingzeit",
+        "EItemCooldown" => "Item-Abklingzeit",
+        "ETechCooldownBetweenChargeUses" => "Abklingzeit zwischen Aufladungen",
+        "EMaxChargesIncrease" => "zusätzlichen Aufladungen",
+        "EHealingOutput" => "Heilungsleistung",
+        "EMeleeRange" => "Nahkampfreichweite",
+        "ELevelUpBoons" => "Stufenboni",
+        "ELightMeleeDamage" => "leichtem Nahkampfschaden",
+        "EHeavyMeleeDamage" => "schwerem Nahkampfschaden",
+        "EBuildUpRate" => "Aufbaurate",
+        "EBaseWeaponDamageIncrease" | "EWeaponDamageScale" => "Waffenschaden",
+        "EWeaponPower" => "Waffenkraft",
+        "EBulletDamage" => "Kugelschaden",
+        _ => return None,
+    })
+}
+
+fn conditional_text(text: &str) -> &str {
+    match text {
+        "against NPCs" => "gegen NSC",
+        "after proc" => "nach Auslösung",
+        "within Range" => "im Nahbereich",
+        "beyond Range" => "außer Reichweite",
+        other => other,
+    }
+}
+
+fn condition_note(key: &str, value: &Value, condition: &Value) -> Option<String> {
+    let text = value
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+    Some(match key {
+        "lang" => match text? {
+            "de" => "Deutscher Spieltext".into(),
+            "en" => "Englischer Spieltext".into(),
+            _ => return None,
+        },
+        "usage_flag_0" => match text? {
+            "ConditionallyApplied" => "Gilt nur unter Bedingungen".into(),
+            "ConditionallyEnemyApplied" => "Wirkt unter Bedingungen auf Gegner".into(),
+            "IntrinsicallyProvidedInAbility" => "Fester Teil der Fähigkeit".into(),
+            _ => return None,
+        },
+        "conditional" => format!("Bedingung: {}", conditional_text(text?)),
+        "scale_type" => {
+            let name = scale_name(text?)?;
+            match condition["scale_value"]
+                .as_str()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+            {
+                Some(factor) => format!("Skaliert mit {name} (×{factor})"),
+                None => format!("Wird von {name} beeinflusst"),
+            }
+        }
+        "upgrade_tier" => format!("Upgrade-Stufe {}", value.as_u64()?),
+        "operation" if text? == "delta" => "Bonus auf den Grundwert".into(),
+        _ => return None,
+    })
+}
+
+fn qualifier_citation<'a>(fact: &'a Value, key: &str) -> Option<&'a str> {
+    fact["qualifiers"]
+        .as_array()?
+        .iter()
+        .find(|qualifier| qualifier["key"] == key)?["citation"]
+        .as_str()
+}
+
+fn condition_notes(fact: &Value) -> String {
+    let condition = &fact["condition"];
+    let Some(fields) = condition.as_object() else {
+        return String::new();
+    };
+    let mut html = String::new();
+    for (key, value) in fields {
+        let Some(note) = condition_note(key, value, condition) else {
+            continue;
+        };
+        html.push_str(&format!("<p>{}", escape(&note)));
+        if let Some(citation) = qualifier_citation(fact, key) {
+            html.push_str(&format!(
+                " <a href=\"#beleg-{0}\">Beleg {0}</a>",
+                escape(citation)
+            ));
+        }
+        html.push_str("</p>");
+    }
+    html
+}
+
 pub(super) fn fact_rows(section: &Value) -> String {
     let mut html = String::from("<div class=\"scroll\"><table><thead><tr><th scope=\"col\">Wert</th><th scope=\"col\">Angabe</th><th scope=\"col\">Bedingung und Beleg</th></tr></thead><tbody>");
     let rows = section["facts"]
@@ -192,17 +290,15 @@ pub(super) fn fact_rows(section: &Value) -> String {
             .filter(|unit| !unit.is_empty())
             .map(|unit| format!(" {unit}"))
             .unwrap_or_default();
-        html.push_str(&format!("<tr><th scope=\"row\">{}</th><td>{}{}</td><td><code>{}</code> <a href=\"#beleg-{}\">Beleg {}</a>", escape(label), escape(&value), escape(&unit), escape(&fact["condition"].to_string()), escape(citation), escape(citation)));
-        if let Some(qualifiers) = fact["qualifiers"].as_array() {
-            for qualifier in qualifiers {
-                html.push_str(&format!(
-                    "<p><code>{}: {}</code> <a href=\"#beleg-{}\">Beleg</a></p>",
-                    escape(qualifier["key"].as_str().unwrap_or("Bedingung")),
-                    escape(&qualifier["value"].to_string()),
-                    escape(qualifier["citation"].as_str().unwrap_or(""))
-                ));
-            }
-        }
+        html.push_str(&format!(
+            "<tr><th scope=\"row\">{}</th><td>{}{}</td><td><a href=\"#beleg-{}\">Beleg {}</a>{}",
+            escape(label),
+            escape(&value),
+            escape(&unit),
+            escape(citation),
+            escape(citation),
+            condition_notes(fact)
+        ));
         html.push_str("</td></tr>");
     }
     html.push_str("</tbody></table></div>");
