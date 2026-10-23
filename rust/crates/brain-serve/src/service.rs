@@ -520,7 +520,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
     let api = brain_api::ApiService::new(
         policy,
         kernel,
-        "postgres-tools-v2",
+        &prepared.config.release.id,
         prepared.config.timeouts.request_ms,
         (&prepared.config.budgets).into(),
     )

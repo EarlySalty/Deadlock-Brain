@@ -62,42 +62,41 @@ STARTED=1
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_empty_schema_test
 "${PG_ENV[@]}" "$PG_BIN/createdb" -h "$CLUSTER" -p 55439 -U brain_core_test brain_scram_test
 cd "$ROOT/rust"
-env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
-  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
-  "CARGO_BUILD_JOBS=1" "SQLX_OFFLINE=true" "BRAIN_CORE_TEST_PG_SOCKET=$CLUSTER" \
-  "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-legacy-import --test cli_scratch \
+SUMMARY=()
+run_test() {
+  local label="$1" socket="$2"
+  shift 2
+  local environment=(env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}"
+    "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_BUILD_JOBS=1" "SQLX_OFFLINE=true")
+  if [[ "$socket" == socket ]]; then
+    environment+=("BRAIN_CORE_TEST_PG_SOCKET=$CLUSTER")
+  fi
+  "${environment[@]}" "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" "$@" 2>&1 \
+    | tee "$SCRATCH/$label.log"
+  local passed
+  passed="$(sed -nE 's/^test result: ok\. ([0-9]+) passed;.*/\1/p' "$SCRATCH/$label.log" | awk '{total += $1} END {print total + 0}')"
+  if (( passed == 0 )); then
+    printf 'Runner step %s executed no tests; the test name or filter is stale.\n' "$label" >&2
+    exit 1
+  fi
+  SUMMARY+=("$label passed=$passed")
+}
+run_test legacy-cli socket -p brain-legacy-import --test cli_scratch \
   cli_reads_archive_and_replays_tombstones_and_revokes -- --ignored --exact --nocapture
-env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
-  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
-  "CARGO_BUILD_JOBS=1" "SQLX_OFFLINE=true" "BRAIN_CORE_TEST_PG_SOCKET=$CLUSTER" \
-  "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-legacy-import --lib \
+run_test legacy-lib socket -p brain-legacy-import --lib \
   scratch_import_release_tombstone_and_revoke -- --ignored --nocapture
-env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
-  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
-  "CARGO_BUILD_JOBS=1" "SQLX_OFFLINE=true" "BRAIN_CORE_TEST_PG_SOCKET=$CLUSTER" \
-  "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-legacy-import --bin brain-legacy-import \
+run_test legacy-bin socket -p brain-legacy-import --bin brain-legacy-import \
   tests::same_database_archive_to_core_requires_bound_private_snapshot -- --ignored --exact --nocapture
-env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
-  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
-  "CARGO_BUILD_JOBS=1" "SQLX_OFFLINE=true" "BRAIN_CORE_TEST_PG_SOCKET=$CLUSTER" \
-  "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-serve --test process_e2e \
-  binary_loopback_health_readiness_shutdown_and_no_fallback -- --ignored --exact --nocapture
-env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
-  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
-  "CARGO_BUILD_JOBS=1" "SQLX_OFFLINE=true" "BRAIN_CORE_TEST_PG_SOCKET=$CLUSTER" \
-  "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-serve --test process \
+run_test serve-process-e2e socket -p brain-serve --test process_e2e \
+  tools_only_process_needs_no_corpus_release_and_refuses_unknown_heroes -- --exact --nocapture
+run_test serve-scram socket -p brain-serve --test process \
   private_scratch_scram_accepts_runtime_password_and_rejects_wrong_password -- --ignored --exact --nocapture
-env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
-  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
-  "CARGO_BUILD_JOBS=1" "SQLX_OFFLINE=true" \
-  "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-serve --test process \
+run_test serve-inline-secrets plain -p brain-serve --test process \
   incomplete_configuration_and_inline_secrets_never_reach_startup -- --exact --nocapture
-env -i "PATH=$PATH" "HOME=$SCRATCH" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
-  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
-  "CARGO_BUILD_JOBS=1" "SQLX_OFFLINE=true" \
-  "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-serve --test process \
+run_test serve-bad-arguments plain -p brain-serve --test process \
   missing_config_and_bad_arguments_exit_without_echoing_input -- --exact --nocapture
 if grep -Eq 'too many clients already|too many connections for role' "$SCRATCH/postgres.log"; then
   printf 'Scratch PostgreSQL exceeded its connection limit.\n' >&2
   exit 1
 fi
+printf 'runner_result %s\n' "${SUMMARY[@]}"
