@@ -12,7 +12,8 @@ BEGIN
         SELECT f.raw_object_id,f.source_revision FROM serve.current_fact f
         WHERE f.entity_id=e.id AND f.stat_key='p2_slot_1_hero' AND f.source='assets'
             AND f.value_text::text=e.key
-        OFFSET 0
+        ORDER BY f.receipt_id DESC
+        LIMIT 1
     ) f
     WHERE e.id=hero_entity AND e.kind='hero';
     IF hero_object IS NULL THEN
@@ -38,6 +39,10 @@ BEGIN
         ) o
         WHERE o.hero->'player_selectable'='true'::jsonb
             AND o.hero->'disabled'='false'::jsonb
+            AND (o.hero->'prerelease_only' IS NULL OR o.hero->'prerelease_only'='false'::jsonb)
+            AND (o.hero->'assigned_players_only' IS NULL OR o.hero->'assigned_players_only'='false'::jsonb)
+            AND (o.hero->'in_hero_labs' IS NULL OR o.hero->'in_hero_labs'='false'::jsonb)
+            AND (o.hero->'InHeroLabs' IS NULL OR o.hero->'InHeroLabs'='false'::jsonb)
     );
 END
 $playable$;

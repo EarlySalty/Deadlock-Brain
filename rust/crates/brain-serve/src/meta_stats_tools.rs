@@ -20,7 +20,7 @@ pub(super) fn definition() -> ToolDefinition {
     }
 }
 
-async fn playable_game_id(
+async fn game_id_is_visible(
     connection: &mut PgConnection,
     request: &GetMetaStatsRequest,
     id: u64,
@@ -40,7 +40,7 @@ async fn identity(
     request: &GetMetaStatsRequest,
 ) -> Result<Option<(u64, Option<Value>)>, PortError> {
     if let Some(id) = request.game_id {
-        return Ok(playable_game_id(connection, request, id)
+        return Ok(game_id_is_visible(connection, request, id)
             .await?
             .then_some((id, None)));
     }

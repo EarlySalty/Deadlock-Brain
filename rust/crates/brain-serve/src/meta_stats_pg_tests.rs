@@ -390,6 +390,23 @@ fn meta_stats_treat_hidden_heroes_as_unknown() {
             json!({"player_selectable":false,"disabled":true,"in_development":false}),
         )
         .await;
+        for (game_id, key, restriction, playable) in [
+            ("3", "hero_meta_prerelease", json!({"prerelease_only":true}), false),
+            ("4", "hero_meta_assigned", json!({"assigned_players_only":null}), false),
+            ("5", "hero_meta_labs", json!({"in_hero_labs":true}), false),
+            ("6", "hero_meta_labs_legacy", json!({"InHeroLabs":"false"}), false),
+            ("7", "hero_meta_unrestricted", json!({"prerelease_only":false,"assigned_players_only":false,"in_hero_labs":false}), true),
+        ] {
+            let entity = publish_identity(&admin, key, game_id).await;
+            let mut flags = json!({"player_selectable":true,"disabled":false,"in_development":false});
+            for (field, value) in restriction.as_object().unwrap() {
+                flags[field] = value.clone();
+            }
+            crate::assets_fixture::flagged(&admin, key, flags).await;
+            let served: bool = sqlx::query_scalar("SELECT serve.hero_is_playable($1)").bind(entity).fetch_one(&admin).await.unwrap();
+            let by_game_id: bool = sqlx::query_scalar("SELECT serve.hero_game_id_is_playable($1)").bind(game_id).fetch_one(&admin).await.unwrap();
+            assert_eq!((served, by_game_id), (playable, playable), "{key}");
+        }
         let pool = tool_pool(options.clone().username("brain_readonly"), Duration::from_secs(2));
         (admin, pool, visible, hidden)
     });
