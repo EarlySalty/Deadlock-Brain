@@ -83,7 +83,8 @@ FROM (
             CROSS JOIN LATERAL (
                 SELECT i.entity_id,i.identity FROM serve.entity_identity i
                 WHERE i.entity_id=CASE WHEN r.from_entity=e.entity_id
-                    THEN r.to_entity ELSE r.from_entity END LIMIT 1
+                    THEN r.to_entity ELSE r.from_entity END
+                    AND (i.kind<>'hero' OR serve.hero_is_playable(i.entity_id)) LIMIT 1
             ) t
             WHERE r.from_entity=e.entity_id OR r.to_entity=e.entity_id
         ) x
@@ -98,6 +99,7 @@ WITH current_links AS (
     CROSS JOIN LATERAL (
         SELECT peer.entity_id FROM serve.entity_identity peer
         WHERE peer.entity_id=CASE WHEN r.from_entity=$1 THEN r.to_entity ELSE r.from_entity END
+            AND (peer.kind<>'hero' OR serve.hero_is_playable(peer.entity_id))
         LIMIT 1
     ) peer
     WHERE (r.from_entity=$1 OR r.to_entity=$1)

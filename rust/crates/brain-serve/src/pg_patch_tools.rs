@@ -29,6 +29,8 @@ const RESOLVE: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
 const CHANGES: &str = "WITH selected AS MATERIALIZED (
         SELECT * FROM serve.p4_patch_change
         WHERE entity_id=$1 AND ($2::bigint IS NULL OR patch_id=$2)
+            AND (NOT EXISTS(SELECT 1 FROM serve.current_entity h WHERE h.id=$1 AND h.kind='hero')
+                OR serve.hero_is_playable($1))
     ) SELECT jsonb_build_object('id',c.change_id,'entity_id',c.entity_id,
     'stat_key',c.stat_key,'old',c.old_value,'new',c.new_value,'change_kind',c.change_kind,
     'line_text',c.line_text,'subject',c.subject,'statement_index',c.statement_index,

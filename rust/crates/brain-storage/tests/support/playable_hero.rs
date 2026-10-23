@@ -18,9 +18,7 @@ pub async fn playable(pool: &PgPool, key: &str) {
 pub async fn flagged(pool: &PgPool, key: &str, flags: Value) {
     let present: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM canon.fact f JOIN canon.entity e ON e.id=f.entity_id WHERE e.key=$1 AND f.stat_key='p2_slot_1_hero')")
         .bind(key).fetch_one(pool).await.unwrap();
-    if present {
-        return;
-    }
+    assert!(!present, "assets hero fixture for {key} is already set up");
     let entity: i64 = sqlx::query_scalar("SELECT id FROM canon.entity WHERE key=$1")
         .bind(key)
         .fetch_one(pool)

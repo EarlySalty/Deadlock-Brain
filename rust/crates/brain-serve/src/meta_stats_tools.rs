@@ -20,12 +20,29 @@ pub(super) fn definition() -> ToolDefinition {
     }
 }
 
+async fn playable_game_id(
+    connection: &mut PgConnection,
+    request: &GetMetaStatsRequest,
+    id: u64,
+) -> Result<bool, PortError> {
+    if request.kind.as_str() != "hero" {
+        return Ok(true);
+    }
+    sqlx::query_scalar("SELECT serve.hero_game_id_is_playable($1)")
+        .bind(id.to_string())
+        .fetch_one(connection)
+        .await
+        .map_err(super::database_error)
+}
+
 async fn identity(
     connection: &mut PgConnection,
     request: &GetMetaStatsRequest,
 ) -> Result<Option<(u64, Option<Value>)>, PortError> {
     if let Some(id) = request.game_id {
-        return Ok(Some((id, None)));
+        return Ok(playable_game_id(connection, request, id)
+            .await?
+            .then_some((id, None)));
     }
     let Some(entity) = request.entity else {
         return Ok(None);

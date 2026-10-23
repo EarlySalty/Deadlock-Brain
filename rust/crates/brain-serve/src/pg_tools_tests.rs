@@ -7,7 +7,7 @@ use brain_contracts::{
 };
 use brain_kernel::AnswerKernelPort;
 use brain_storage::gamefacts::{
-    Alias, Counts, Entity, Fact, FactSet, FactValue, GameFactsStore, Receipt,
+    Alias, Counts, Entity, Fact, FactSet, FactValue, GameFactsStore, Receipt, Relation,
 };
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, sync::Arc};
@@ -103,6 +103,40 @@ async fn playable_hero(admin: &PgPool, key: &str) {
     if key.starts_with("hero_") {
         assets_fixture::playable(admin, key).await;
     }
+}
+
+async fn relate(admin: &PgPool, from: &str, to: &str) {
+    let store = GameFactsStore::new(admin.clone());
+    let run = store.begin_run("fixture").await.unwrap();
+    let bytes = serde_json::to_vec(&json!({"from":from,"to":to})).unwrap();
+    let raw = store
+        .capture(
+            run,
+            "fixture",
+            "r1",
+            &format!("relation-{from}-{to}.json"),
+            bytes.clone(),
+        )
+        .await
+        .unwrap();
+    let set = FactSet {
+        relations: vec![Relation {
+            from_key: from.into(),
+            kind: "related_to".into(),
+            to_key: to.into(),
+            receipt: Receipt {
+                locator_kind: "raw_bytes".into(),
+                locator: String::new(),
+                value_sha256: Sha256::digest(&bytes).into(),
+            },
+        }],
+        ..FactSet::default()
+    };
+    store.apply(run, &raw, "fixture_v1", &set).await.unwrap();
+    store
+        .finish_run(run, true, Counts::default())
+        .await
+        .unwrap();
 }
 
 async fn ingest_fixture(
@@ -1267,6 +1301,11 @@ fn hero_lookups_follow_published_assets_playability() {
         for (key, kind) in [("upgrade_fixture_blade", "item"), ("ability_fixture_spark", "ability")] {
             sqlx::query("UPDATE canon.entity SET kind=$2 WHERE key=$1").bind(key).bind(kind).execute(&admin).await.unwrap();
         }
+        for hero in ["hero_baba", "hero_hidden_fixture", "hero_target_dummy"] {
+            for target in ["upgrade_fixture_blade", "ability_fixture_spark"] {
+                relate(&admin, hero, target).await;
+            }
+        }
         let pool = tool_pool(options.clone().username("brain_readonly"), Duration::from_secs(2));
         (admin, pool, [baba, disabled, dummy, item, ability])
     });
@@ -1310,6 +1349,24 @@ fn hero_lookups_follow_published_assets_playability() {
         let found = execute(ToolName::FindEntity, json!({"text":text,"kind":kind}));
         assert_eq!(found.result["resolved"], true, "{text}");
         assert_eq!(found.result["entities"][0]["entity_id"], expected, "{text}");
+    }
+    for (name, arguments) in [
+        (ToolName::GetItem, json!({"item":item})),
+        (ToolName::GetAbility, json!({"ability":ability})),
+    ] {
+        let card = execute(name, arguments);
+        assert!(!card.is_error, "{}", card.result);
+        let owners: Vec<i64> = card.result["links"]["links"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|link| link["entity_id"].as_i64().unwrap())
+            .collect();
+        assert_eq!(owners, [baba], "{}", card.result);
+        assert_eq!(card.result["links"]["omitted_count"], 0);
+        assert_eq!(card.result["links"]["truncated"], false);
+        let text = card.result.to_string();
+        assert!(!text.contains("Verborgen") && !text.contains("Zielpuppe"));
     }
     runtime.block_on(async {
         let playable: Vec<bool> = sqlx::query_scalar("SELECT serve.hero_is_playable(id) FROM unnest($1::bigint[]) WITH ORDINALITY ids(id,position) ORDER BY position")
@@ -1410,7 +1467,9 @@ async fn lookup_entities(pool: &PgPool, sql: &str, alias: &str) -> Vec<(i64, Str
 
 async fn hero(admin: &PgPool, alias: &str, key: &str, revision: &str) -> i64 {
     let entity = ingest_fixture(admin, alias, key, revision, vec![json!(780)], true).await;
-    playable_hero(admin, key).await;
+    if revision == "r1" {
+        playable_hero(admin, key).await;
+    }
     entity
 }
 

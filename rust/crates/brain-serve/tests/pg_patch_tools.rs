@@ -22,6 +22,9 @@ use std::collections::{BTreeMap, BTreeSet};
 #[path = "../../brain-storage/tests/support/scratch_pg.rs"]
 mod scratch_pg;
 
+#[path = "../../brain-storage/tests/support/playable_hero.rs"]
+mod assets_fixture;
+
 #[path = "../src/pg_patch_tools.rs"]
 mod p4_unit_contracts;
 
@@ -189,6 +192,11 @@ impl Database {
         raw
     }
 
+    async fn playable_hero_id(&self, key: &str) -> i64 {
+        assets_fixture::playable(&self.admin, key).await;
+        self.hero_id(key).await
+    }
+
     async fn hero_id(&self, key: &str) -> i64 {
         sqlx::query_scalar("SELECT id FROM serve.current_entity WHERE key=$1")
             .bind(key)
@@ -244,6 +252,13 @@ impl Database {
     }
 
     async fn execute(&self, arguments: Value) -> ToolExecution {
+        let entity = arguments["entity"].as_i64().unwrap();
+        let execution = self.execute_unchecked(arguments).await;
+        self.assert_change_projection_equivalence(entity).await;
+        execution
+    }
+
+    async fn execute_unchecked(&self, arguments: Value) -> ToolExecution {
         let id = "\"".repeat(512);
         let request = ToolCall {
             id: id.clone(),
@@ -263,8 +278,6 @@ impl Database {
             started.elapsed().as_micros().try_into().unwrap(),
             std::sync::atomic::Ordering::Relaxed,
         );
-        self.assert_change_projection_equivalence(request.arguments()["entity"].as_i64().unwrap())
-            .await;
         execution
     }
 
@@ -662,7 +675,7 @@ async fn real_current_projection_and_composed_patch_history() {
             true,
         )
         .await;
-    let id = db.hero_id("hero_baba").await;
+    let id = db.playable_hero_id("hero_baba").await;
     let line = "Baba: Health increased from 123 to 150.\n  when nearby, äöüß stay intact";
     let first = db
         .publish_with_factset(
@@ -711,7 +724,7 @@ async fn real_current_projection_and_composed_patch_history() {
             },
         )
         .await;
-    let infernus_id = db.hero_id("hero_infernus").await;
+    let infernus_id = db.playable_hero_id("hero_infernus").await;
     error(
         &db.execute(json!({"entity":infernus_id})).await,
         "no_patch_changes",
@@ -1150,7 +1163,7 @@ async fn incoherent_heads_and_removed_statements_are_hidden() {
         true,
     )
     .await;
-    let id = db.hero_id("hero_baba").await;
+    let id = db.playable_hero_id("hero_baba").await;
     for mismatch in ["extractor", "run", "raw"] {
         let source = "deadlock_patchnotes_db";
         let mut value = patch(
@@ -1345,7 +1358,7 @@ async fn quarantined_omitted_middle_post_invalidates_every_validation_purpose() 
             true,
         )
         .await;
-    let entity = db.hero_id("hero_baba").await;
+    let entity = db.playable_hero_id("hero_baba").await;
     let mut objects = vec![hero];
     for index in 1..=3 {
         objects.push(
@@ -1539,7 +1552,7 @@ async fn escaped_unicode_reference_keeps_exact_alias_and_receipt_binding() {
             true,
         )
         .await;
-    let id = db.hero_id("hero_escaped").await;
+    let id = db.playable_hero_id("hero_escaped").await;
     let patch = db
         .publish(
             "deadlock_patchnotes_db",
@@ -1564,5 +1577,56 @@ async fn escaped_unicode_reference_keeps_exact_alias_and_receipt_binding() {
     assert_eq!(rows(&execution)[0]["stat_key"], "health");
     assert_eq!(rows(&execution)[0]["subject"], reference);
     verify_receipts(&execution, &[hero, patch]);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn hidden_heroes_have_no_patch_changes() {
+    let pg = scratch_pg::ScratchPg::start();
+    let db = Database::start(&pg).await;
+    for (key, alias) in [("hero_baba", "Baba"), ("hero_retired", "Retired")] {
+        db.publish(
+            "heroes",
+            key,
+            key,
+            json!({"key":key,"aliases":[alias],"health":500}),
+            true,
+        )
+        .await;
+    }
+    let visible = db.playable_hero_id("hero_baba").await;
+    assets_fixture::flagged(
+        &db.admin,
+        "hero_retired",
+        json!({"player_selectable":false,"disabled":true,"in_development":false}),
+    )
+    .await;
+    let hidden = db.hero_id("hero_retired").await;
+    db.publish(
+        "deadlock_patchnotes_db",
+        "10",
+        "patch-hidden",
+        patch(
+            10,
+            "hidden",
+            "2026-10-01T12:00:00Z",
+            vec![
+                change(1, "baba", "health", "Baba: health changed from 400 to 500"),
+                change(
+                    2,
+                    "retired",
+                    "health",
+                    "Retired: health changed from 400 to 500",
+                ),
+            ],
+        ),
+        false,
+    )
+    .await;
+    assert_eq!(rows(&db.execute(json!({"entity":visible})).await).len(), 1);
+    error(
+        &db.execute_unchecked(json!({"entity":hidden})).await,
+        "no_patch_changes",
+    );
     db.close().await;
 }

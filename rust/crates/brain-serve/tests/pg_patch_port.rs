@@ -368,6 +368,7 @@ async fn adapter_executes_real_pg_and_revalidates_without_legacy_pin_or_retrieva
         true,
     )
     .await;
+    assets_fixture::playable(&admin, "hero_baba").await;
     let patch = publish(&store, "deadlock_patchnotes_db", json!({"title":"Patch 287","posted_at":"2026-10-10T12:00:00Z","url":"https://store.steampowered.com/news/app/1422450/view/287","raw_content":"Baba health increased from 600 to 650"}), false).await;
     let entity: i64 =
         sqlx::query_scalar("SELECT id FROM serve.current_entity WHERE key='hero_baba'")

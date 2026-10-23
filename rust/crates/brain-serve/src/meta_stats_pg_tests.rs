@@ -165,25 +165,31 @@ BEGIN
 END
 $history$"#;
 
-async fn publish_identity(admin: &PgPool) {
+async fn publish_identity(admin: &PgPool, key: &str, game_id: &str) -> i64 {
     let store = GameFactsStore::new(admin.clone());
     let run = store.begin_run("fixture").await.unwrap();
-    let bytes = br#"{"id":2}"#.to_vec();
+    let bytes = format!("{{\"id\":{game_id}}}").into_bytes();
     let raw = store
-        .capture(run, "fixture", "assets-r1", "heroes.json", bytes.clone())
+        .capture(
+            run,
+            "fixture",
+            "assets-r1",
+            &format!("{key}.json"),
+            bytes.clone(),
+        )
         .await
         .unwrap();
     let set = FactSet {
         entities: vec![Entity {
             kind: "hero".into(),
-            key: "hero_meta_fixture".into(),
+            key: key.into(),
             receipt: receipt("raw_bytes", String::new(), &bytes),
         }],
         facts: vec![Fact {
-            entity_key: "hero_meta_fixture".into(),
+            entity_key: key.into(),
             stat_key: "identity_game_id".into(),
-            value: FactValue::Text("2".into()),
-            receipt: receipt("json_pointer", "/id".into(), b"2"),
+            value: FactValue::Text(game_id.into()),
+            receipt: receipt("json_pointer", "/id".into(), game_id.as_bytes()),
         }],
         ..FactSet::default()
     };
@@ -192,6 +198,11 @@ async fn publish_identity(admin: &PgPool) {
         .finish_run(run, true, Counts::default())
         .await
         .unwrap();
+    sqlx::query_scalar("SELECT id FROM canon.entity WHERE key=$1")
+        .bind(key)
+        .fetch_one(admin)
+        .await
+        .unwrap()
 }
 
 #[test]
@@ -222,9 +233,10 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
             publish_snapshot(&admin, revision, wins, wins != 505).await;
         }
         sqlx::raw_sql(OLDER_HISTORY).execute(&admin).await.unwrap();
-        publish_identity(&admin).await;
-        let entity: i64 = sqlx::query_scalar("SELECT id FROM canon.entity WHERE key='hero_meta_fixture'")
-            .fetch_one(&admin).await.unwrap();
+        publish_identity(&admin, "hero_meta_first", "1").await;
+        crate::assets_fixture::playable(&admin, "hero_meta_first").await;
+        let entity = publish_identity(&admin, "hero_meta_fixture", "2").await;
+        crate::assets_fixture::playable(&admin, "hero_meta_fixture").await;
         let pool = tool_pool(options.clone().username("brain_readonly"), Duration::from_secs(2));
         (admin, pool, entity)
     });
@@ -345,6 +357,75 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
                 .any(|line| line.contains("meta_stat_capture_order")),
         "{plan:#?}"
     );
+    runtime.block_on(async {
+        pool.close().await;
+        admin.close().await;
+    });
+}
+
+#[test]
+fn meta_stats_treat_hidden_heroes_as_unknown() {
+    let pg = scratch_pg::ScratchPg::start();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("");
+    let (admin, pool, visible, hidden) = runtime.block_on(async {
+        let admin = sqlx::postgres::PgPoolOptions::new().max_connections(2).connect_with(options.clone()).await.unwrap();
+        sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate").execute(&admin).await.unwrap();
+        brain_storage::PgStore::new(admin.clone()).migrate_gamefacts().await.unwrap();
+        publish_snapshot(&admin, "2026-10-06T05:00:00Z", 505, true).await;
+        let visible = publish_identity(&admin, "hero_meta_visible", "1").await;
+        crate::assets_fixture::playable(&admin, "hero_meta_visible").await;
+        let hidden = publish_identity(&admin, "hero_meta_hidden", "2").await;
+        crate::assets_fixture::flagged(
+            &admin,
+            "hero_meta_hidden",
+            json!({"player_selectable":false,"disabled":true,"in_development":false}),
+        )
+        .await;
+        let pool = tool_pool(options.clone().username("brain_readonly"), Duration::from_secs(2));
+        (admin, pool, visible, hidden)
+    });
+    let tools = PgTools::new(Delegate, pool.clone(), runtime.handle().clone());
+    let execute = |arguments: Value| {
+        tools
+            .execute(
+                &query(),
+                &context(),
+                None,
+                "meta",
+                &request(ToolName::GetMetaStats, arguments),
+            )
+            .unwrap()
+            .result
+    };
+    for arguments in [
+        json!({"kind":"hero","game_id":1}),
+        json!({"kind":"hero","entity":visible}),
+    ] {
+        let found = execute(arguments.clone());
+        assert!(!found.is_error, "{arguments} {}", found.result);
+        assert_eq!(found.result["facts"][0]["value"]["hero_id"], 1);
+    }
+    for arguments in [
+        json!({"kind":"hero","game_id":2}),
+        json!({"kind":"hero","entity":hidden}),
+    ] {
+        let missing = execute(arguments.clone());
+        assert!(missing.is_error, "{arguments}");
+        assert_eq!(
+            missing.result["error"], "meta_stats_not_found",
+            "{arguments}"
+        );
+        assert!(missing.evidence_ids.is_empty(), "{arguments}");
+    }
     runtime.block_on(async {
         pool.close().await;
         admin.close().await;

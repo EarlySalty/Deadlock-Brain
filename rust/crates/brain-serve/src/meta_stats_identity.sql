@@ -6,4 +6,5 @@ FROM serve.current_fact f
 JOIN serve.current_entity e ON e.id=f.entity_id
 WHERE f.entity_id=$1 AND e.kind=$2 AND f.stat_key='identity_game_id'
     AND f.value_text ~ '^[1-9][0-9]{0,18}$'
+    AND (e.kind<>'hero' OR serve.hero_is_playable(e.id))
 LIMIT 1
