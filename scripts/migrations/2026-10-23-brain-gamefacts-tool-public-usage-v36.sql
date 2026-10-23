@@ -1,0 +1,5 @@
+BEGIN;
+
+GRANT USAGE ON SCHEMA public TO brain_tool;
+
+COMMIT;
