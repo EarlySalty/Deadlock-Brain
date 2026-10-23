@@ -196,9 +196,9 @@ pub(super) async fn load_profile(
     key: &str,
 ) -> Result<Option<Value>> {
     let sql = match kind {
-        "hero" => "SELECT p.profile FROM (SELECT h.entity_id,jsonb_build_object('identity',h.identity,'stats',h.stats,'weapon',h.weapon,'abilities',h.abilities) AS profile FROM serve.hero_profile h JOIN serve.entity_identity e USING(entity_id) WHERE e.key=$1 OFFSET 0) p WHERE serve.hero_is_playable(p.entity_id) LIMIT 1",
-        "item" => "SELECT c.card FROM serve.item_card c JOIN serve.entity_identity e USING(entity_id) WHERE e.key=$1 LIMIT 1",
-        "ability" => "SELECT c.card FROM serve.ability_card c JOIN serve.entity_identity e USING(entity_id) WHERE e.key=$1 LIMIT 1",
+        "hero" => "SELECT p.profile FROM (SELECT h.entity_id,jsonb_build_object('identity',h.identity,'stats',h.stats,'weapon',h.weapon,'abilities',h.abilities) AS profile FROM serve.hero_profile h WHERE h.entity_id=(SELECT serve.site_entity_id($1)) OFFSET 0) p WHERE serve.hero_is_playable(p.entity_id) LIMIT 1",
+        "item" => "SELECT card FROM serve.site_entity_card($1) WHERE kind='item' LIMIT 1",
+        "ability" => "SELECT card||jsonb_build_object('hero_selection',jsonb_build_object('available',false,'reason','hero_slot_not_published')) FROM serve.site_entity_card($1) WHERE kind='ability' LIMIT 1",
         _ => return Ok(None),
     };
     Ok(sqlx::query_scalar(sql)

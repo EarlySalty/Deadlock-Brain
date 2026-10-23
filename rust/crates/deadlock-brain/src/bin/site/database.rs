@@ -96,6 +96,11 @@ pub(super) async fn preflight(pool: &PgPool) -> Result<()> {
     sqlx::query("SELECT serve.hero_is_playable(0)")
         .execute(&mut *tx)
         .await?;
+    sqlx::query(
+        "SELECT serve.site_entity_id(''), (SELECT count(*) FROM serve.site_entity_card(''))",
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(())
 }
