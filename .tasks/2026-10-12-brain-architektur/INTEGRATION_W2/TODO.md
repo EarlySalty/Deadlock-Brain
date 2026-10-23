@@ -30,6 +30,12 @@ Migration 30 sits between 28 and 31; the union is now 1, 2, 3, 4, 5, 6, 7, 8, 9,
 
 Deploy prerequisites: `brain_migrate` needs EXECUTE on `brain.read_compare_artifact_v1` and `_v2`, otherwise legacy compare links return 503; confirm in `ops.gamefacts_schema_version` that no database has v30 applied, because v30 was edited before any application. Five brain-maintenance tests need the legacy cluster `/tmp/brain-maintenance-test-20261002` and fail identically on `d6077a8e` (evidence in the P7 proof directory).
 
+## Stage 8: keyed doc_page publication integrated, 2026-10-23
+
+Merge commit 3298da51 adds `fix/brain-docpage-publication-20261023` 17081070 (migration 34, redefines `serve.doc_page`, `serve.doc_section` and `serve.doc_search_hit`). The four registry assertions resolve to `[1,2,3,4,5,6,7,8,9,10,11,13,23,24,26,28,30,31,32,33,34]`; `migrations.rs` merged without conflict. fmt, check and strict clippy pass for brain-serve, brain-storage, brain-job, brain-contracts and brain-kernel (`s8-stage.out`). Tests (`s8-tests.log`, brain-serve and brain-storage `--lib --tests`): 360 passed, 9 failed. brain-serve lib 122, pg_docs 33, pg_patch_port 39, pg_patch_tools 16 and all `gamefacts_*` groups pass. The 9 failures are the same env-gated tests as in stage 7, each stopping at a missing env var.
+
+E1 is skipped by coordinator decision: the provider router has a usage limit until 2026-11-17. Once it is lifted, run one combined E1 on the then-current head and track `answer_trace_failed`. A stage 9 fixer (slow exact alias lookup under audit rows) branches from this head.
+
 ## Stage 7: coherence and docs search fixes integrated, 2026-10-23
 
 `fix/brain-coherence-multifile-20261023` 557e0710 (migration 32, source-path coherence in `find_entity`) fast-forwarded the branch from 179c41d4. Merge commit 4d057156 adds `fix/brain-docs-search-20261023` 1f837b1c (migration 33, docs search fallback and `serve.doc_search_hit`). The five registry conflicts resolve to `[1,2,3,4,5,6,7,8,9,10,11,13,23,24,26,28,30,31,32,33]` in `migrations.rs`, `migrations_tests.rs`, `gamefacts_patch_migration.rs`, `pg_patch_port.rs` and `pg_patch_tools.rs`. fmt, check and strict clippy pass for brain-serve, brain-storage, brain-job, brain-contracts and brain-kernel (`s7-stage.out`).
