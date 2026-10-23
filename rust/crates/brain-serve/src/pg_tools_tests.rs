@@ -7,12 +7,12 @@ use brain_contracts::{
 };
 use brain_kernel::AnswerKernelPort;
 use brain_storage::gamefacts::{
-    Alias, Counts, Entity, Fact, FactSet, FactValue, GameFactsStore, Receipt,
+    Alias, Counts, Entity, Fact, FactSet, FactValue, GameFactsStore, Receipt, Relation,
 };
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, sync::Arc};
 
-use crate::scratch_pg;
+use crate::{assets_fixture, scratch_pg};
 
 struct Delegate;
 
@@ -94,7 +94,49 @@ async fn publish(admin: &PgPool, name: &str, key: &str, revision: &str, large: b
     } else {
         vec![json!(780)]
     };
-    ingest_fixture(admin, name, key, revision, values, true).await
+    let entity = ingest_fixture(admin, name, key, revision, values, true).await;
+    playable_hero(admin, key).await;
+    entity
+}
+
+async fn playable_hero(admin: &PgPool, key: &str) {
+    if key.starts_with("hero_") {
+        assets_fixture::playable(admin, key).await;
+    }
+}
+
+async fn relate(admin: &PgPool, from: &str, to: &str) {
+    let store = GameFactsStore::new(admin.clone());
+    let run = store.begin_run("fixture").await.unwrap();
+    let bytes = serde_json::to_vec(&json!({"from":from,"to":to})).unwrap();
+    let raw = store
+        .capture(
+            run,
+            "fixture",
+            "r1",
+            &format!("relation-{from}-{to}.json"),
+            bytes.clone(),
+        )
+        .await
+        .unwrap();
+    let set = FactSet {
+        relations: vec![Relation {
+            from_key: from.into(),
+            kind: "related_to".into(),
+            to_key: to.into(),
+            receipt: Receipt {
+                locator_kind: "raw_bytes".into(),
+                locator: String::new(),
+                value_sha256: Sha256::digest(&bytes).into(),
+            },
+        }],
+        ..FactSet::default()
+    };
+    store.apply(run, &raw, "fixture_v1", &set).await.unwrap();
+    store
+        .finish_run(run, true, Counts::default())
+        .await
+        .unwrap();
 }
 
 async fn ingest_fixture(
@@ -555,6 +597,7 @@ fn superseded_hero_objects_hide_their_aliases_and_profile_values() {
             let historical: i64 = sqlx::query_scalar("SELECT count(*) FROM serve.current_fact WHERE entity_id=$1")
                 .bind(entity).fetch_one(&admin).await.unwrap();
             assert_eq!(historical,5);
+            playable_hero(&admin,&key).await;
             entities.push((entity,retired,active));
         }
         brain_storage::PgStore::new(writer.clone()).check_gamefacts_schema().await.unwrap();
@@ -1225,6 +1268,128 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
     });
 }
 
+#[test]
+fn hero_lookups_follow_published_assets_playability() {
+    let pg = scratch_pg::ScratchPg::start();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("");
+    let (admin, pool, ids) = runtime.block_on(async {
+        let admin = sqlx::postgres::PgPoolOptions::new().max_connections(2)
+            .connect_with(options.clone()).await.unwrap();
+        sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate")
+            .execute(&admin).await.unwrap();
+        brain_storage::PgStore::new(admin.clone()).migrate_gamefacts().await.unwrap();
+        let fixture = |name: &'static str, key: &'static str| {
+            let admin = admin.clone();
+            async move { ingest_fixture(&admin, name, key, "r1", vec![json!(780)], true).await }
+        };
+        let baba = fixture("Baba", "hero_baba").await;
+        assets_fixture::flagged(&admin, "hero_baba", json!({"player_selectable":true,"disabled":false,"in_development":true})).await;
+        let disabled = fixture("Verborgen", "hero_hidden_fixture").await;
+        assets_fixture::flagged(&admin, "hero_hidden_fixture", json!({"player_selectable":false,"disabled":true,"in_development":false})).await;
+        let dummy = fixture("Zielpuppe", "hero_target_dummy").await;
+        let item = fixture("Klinge", "upgrade_fixture_blade").await;
+        let ability = fixture("Funke", "ability_fixture_spark").await;
+        for (key, kind) in [("upgrade_fixture_blade", "item"), ("ability_fixture_spark", "ability")] {
+            sqlx::query("UPDATE canon.entity SET kind=$2 WHERE key=$1").bind(key).bind(kind).execute(&admin).await.unwrap();
+        }
+        for hero in ["hero_baba", "hero_hidden_fixture", "hero_target_dummy"] {
+            for target in ["upgrade_fixture_blade", "ability_fixture_spark"] {
+                relate(&admin, hero, target).await;
+            }
+        }
+        let pool = tool_pool(options.clone().username("brain_readonly"), Duration::from_secs(2));
+        (admin, pool, [baba, disabled, dummy, item, ability])
+    });
+    let [baba, disabled, dummy, item, ability] = ids;
+    let tools = PgTools::new(Delegate, pool.clone(), runtime.handle().clone());
+    let query = query();
+    let context = context();
+    let execute = |name: ToolName, arguments: Value| {
+        tools
+            .execute(
+                &query,
+                &context,
+                None,
+                "playable",
+                &request(name, arguments),
+            )
+            .unwrap()
+            .result
+    };
+    let found = execute(ToolName::FindEntity, json!({"text":"Baba","kind":"hero"}));
+    assert_eq!(found.result["resolved"], true);
+    assert_eq!(found.result["entities"][0]["entity_id"], baba);
+    let profile = execute(ToolName::GetHero, json!({"hero":baba}));
+    assert!(!profile.is_error);
+    assert_eq!(profile.result["identity"]["name_en"], "Baba");
+    for (text, hidden) in [("Verborgen", disabled), ("Zielpuppe", dummy)] {
+        for arguments in [
+            json!({"text":text}),
+            json!({"text":text,"kind":"hero"}),
+            json!({"text":format!("{text}x")}),
+        ] {
+            let missing = execute(ToolName::FindEntity, arguments);
+            assert!(missing.is_error, "{text}");
+            assert_eq!(missing.result["error"], "entity_not_found", "{text}");
+        }
+        let profile = execute(ToolName::GetHero, json!({"hero":hidden}));
+        assert!(profile.is_error, "{text}");
+        assert!(profile.evidence_ids.is_empty(), "{text}");
+    }
+    for (text, kind, expected) in [("Klinge", "item", item), ("Funke", "ability", ability)] {
+        let found = execute(ToolName::FindEntity, json!({"text":text,"kind":kind}));
+        assert_eq!(found.result["resolved"], true, "{text}");
+        assert_eq!(found.result["entities"][0]["entity_id"], expected, "{text}");
+    }
+    for (name, arguments) in [
+        (ToolName::GetItem, json!({"item":item})),
+        (ToolName::GetAbility, json!({"ability":ability})),
+    ] {
+        let card = execute(name, arguments);
+        assert!(!card.is_error, "{}", card.result);
+        let owners: Vec<i64> = card.result["links"]["links"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|link| link["entity_id"].as_i64().unwrap())
+            .collect();
+        assert_eq!(owners, [baba], "{}", card.result);
+        assert_eq!(card.result["links"]["omitted_count"], 0);
+        assert_eq!(card.result["links"]["truncated"], false);
+        let text = card.result.to_string();
+        assert!(!text.contains("Verborgen") && !text.contains("Zielpuppe"));
+    }
+    runtime.block_on(async {
+        let playable: Vec<bool> = sqlx::query_scalar("SELECT serve.hero_is_playable(id) FROM unnest($1::bigint[]) WITH ORDINALITY ids(id,position) ORDER BY position")
+            .bind(ids.to_vec()).fetch_all(&pool).await.unwrap();
+        assert_eq!(playable, [true, false, false, false, false]);
+        let compared: Value = sqlx::query_scalar(include_str!("pg_asset_compare.sql"))
+            .bind(vec![baba, disabled, dummy, item])
+            .bind(Vec::<String>::new())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let shown: Vec<i64> = compared["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|identity| identity["entity_id"].as_i64().unwrap())
+            .collect();
+        assert_eq!(shown, [baba, item]);
+        pool.close().await;
+        admin.close().await;
+    });
+}
+
 const AUDIT_FILLER: &str = include_str!("../tests/fixtures/audit_filler.sql");
 
 fn patch_sql(name: &str) -> String {
@@ -1301,7 +1466,11 @@ async fn lookup_entities(pool: &PgPool, sql: &str, alias: &str) -> Vec<(i64, Str
 }
 
 async fn hero(admin: &PgPool, alias: &str, key: &str, revision: &str) -> i64 {
-    ingest_fixture(admin, alias, key, revision, vec![json!(780)], true).await
+    let entity = ingest_fixture(admin, alias, key, revision, vec![json!(780)], true).await;
+    if revision == "r1" {
+        playable_hero(admin, key).await;
+    }
+    entity
 }
 
 #[test]
@@ -1330,6 +1499,10 @@ fn audited_publication_keeps_gamefacts_lookups_within_statement_budget() {
         hero(&admin, "auditneu", "hero_audit_superseded", "r2").await;
         let shadowed = hero(&admin, "auditschatten", "hero_audit_shadowed", "r1").await;
         hero(&admin, "auditschatten", "hero_audit_shadowed", "r2").await;
+        let mut roster = Vec::new();
+        for n in 0..67 {
+            roster.extend([hero(&admin, &format!("kaderheld {n:02}"), &format!("hero_roster_{n:02}"), "r1").await]);
+        }
         timers::publish_timer(&admin, "timer-r1", false).await;
         sqlx::raw_sql(AUDIT_FILLER).execute(&admin).await.unwrap();
         audit(&admin, alias_receipt(&admin, "hero_audit_rejected").await, true).await;
@@ -1360,6 +1533,8 @@ fn audited_publication_keeps_gamefacts_lookups_within_statement_budget() {
             ("patch_current", explained_ms(&pool, &current, |query| query).await),
             ("patch_resolve", explained_ms(&pool, &resolve, |query| query.bind("2026-01-01")).await),
             ("patch_changes", explained_ms(&pool, &changes, |query| query.bind(visible).bind(None::<i64>).bind(None::<String>).bind(None::<String>)).await),
+            ("fuzzy_roster", explained_ms(&pool, FUZZY, |query| query.bind("kaderheld").bind(Some("hero")).bind(6_i64)).await),
+            ("hero_roster", explained_ms(&pool, hero_sql(&GetHeroRequest { hero: roster[10] as u64, patch: None, sections: None }), |query| query.bind(roster[10])).await),
         ];
         eprintln!("GAMEFACTS_AUDITED_PUBLICATION_PROOF audit_rows={} rejections={} audited={} shadowed={} planning_plus_execution_ms={timings:?}", boundary.0, boundary.1, boundary.2, boundary.3);
         for (name, elapsed) in timings {

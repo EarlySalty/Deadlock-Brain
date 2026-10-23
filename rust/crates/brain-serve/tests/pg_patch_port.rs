@@ -27,6 +27,9 @@ use std::{
 #[path = "../../brain-storage/tests/support/scratch_pg.rs"]
 pub(crate) mod scratch_pg;
 
+#[path = "../../brain-storage/tests/support/playable_hero.rs"]
+pub(crate) mod assets_fixture;
+
 #[path = "../src/pg_asset_tools.rs"]
 mod pg_asset_tools;
 
@@ -322,7 +325,10 @@ async fn database(pg: &scratch_pg::ScratchPg) -> (PgPool, PgPool, PgPool) {
             .unwrap();
     assert_eq!(
         versions,
-        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 30, 31, 32, 33, 34, 35, 36, 37]
+        [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 30, 31, 32, 33, 34, 35, 36, 37,
+            38, 39
+        ]
     );
     let reader = PgPoolOptions::new()
         .max_connections(2)
@@ -365,6 +371,7 @@ async fn adapter_executes_real_pg_and_revalidates_without_legacy_pin_or_retrieva
         true,
     )
     .await;
+    assets_fixture::playable(&admin, "hero_baba").await;
     let patch = publish(&store, "deadlock_patchnotes_db", json!({"title":"Patch 287","posted_at":"2026-10-10T12:00:00Z","url":"https://store.steampowered.com/news/app/1422450/view/287","raw_content":"Baba health increased from 600 to 650"}), false).await;
     let entity: i64 =
         sqlx::query_scalar("SELECT id FROM serve.current_entity WHERE key='hero_baba'")
@@ -796,6 +803,7 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
         true,
     )
     .await;
+    assets_fixture::playable(&admin, "hero_baba").await;
     publish(&store, "deadlock_patchnotes_db", json!({"title":"Patch 287","posted_at":"2026-10-10T12:00:00Z","url":"https://store.steampowered.com/news/app/1422450/view/287","raw_content":"Baba health increased from 600 to 650"}), false).await;
     sqlx::raw_sql("ALTER ROLE brain_readonly LOGIN; ALTER ROLE brain_service LOGIN")
         .execute(&admin)

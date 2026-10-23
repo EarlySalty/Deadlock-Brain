@@ -38,6 +38,7 @@ SELECT * FROM (
         SELECT i.kind,i.key,i.identity FROM serve.entity_identity i
         WHERE i.entity_id=a.entity_id AND i.kind<>'doc_page' AND i.kind<>'doc'
             AND ($2::text IS NULL OR i.kind=$2)
+            AND (i.kind<>'hero' OR serve.hero_is_playable(i.entity_id))
         OFFSET 0
     ) i
     ORDER BY a.entity_id, a.receipt_id, a.lang
@@ -65,6 +66,7 @@ SELECT * FROM (
         SELECT i.kind,i.key,i.identity FROM serve.entity_identity i
         WHERE i.entity_id=a.entity_id AND i.kind<>'doc_page' AND i.kind<>'doc'
             AND ($2::text IS NULL OR i.kind=$2)
+            AND (i.kind<>'hero' OR serve.hero_is_playable(i.entity_id))
         OFFSET 0
     ) i
     ORDER BY a.entity_id, a.similarity DESC, a.receipt_id, a.lang
@@ -458,13 +460,13 @@ fn hero_sql(request: &GetHeroRequest) -> &'static str {
         }
     });
     match mask {
-        1=>"SELECT jsonb_build_object('identity',identity,'stats',stats) FROM serve.hero_profile WHERE entity_id=$1 LIMIT 1",
-        2=>"SELECT jsonb_build_object('identity',identity,'abilities',abilities) FROM serve.hero_profile WHERE entity_id=$1 LIMIT 1",
-        3=>"SELECT jsonb_build_object('identity',identity,'stats',stats,'abilities',abilities) FROM serve.hero_profile WHERE entity_id=$1 LIMIT 1",
-        4=>"SELECT jsonb_build_object('identity',identity,'weapon',weapon) FROM serve.hero_profile WHERE entity_id=$1 LIMIT 1",
-        5=>"SELECT jsonb_build_object('identity',identity,'stats',stats,'weapon',weapon) FROM serve.hero_profile WHERE entity_id=$1 LIMIT 1",
-        6=>"SELECT jsonb_build_object('identity',identity,'abilities',abilities,'weapon',weapon) FROM serve.hero_profile WHERE entity_id=$1 LIMIT 1",
-        _=>"SELECT jsonb_build_object('identity',identity,'stats',stats,'abilities',abilities,'weapon',weapon) FROM serve.hero_profile WHERE entity_id=$1 LIMIT 1",
+        1=>"SELECT jsonb_build_object('identity',identity,'stats',stats) FROM serve.hero_profile WHERE entity_id=$1 AND serve.hero_is_playable($1) LIMIT 1",
+        2=>"SELECT jsonb_build_object('identity',identity,'abilities',abilities) FROM serve.hero_profile WHERE entity_id=$1 AND serve.hero_is_playable($1) LIMIT 1",
+        3=>"SELECT jsonb_build_object('identity',identity,'stats',stats,'abilities',abilities) FROM serve.hero_profile WHERE entity_id=$1 AND serve.hero_is_playable($1) LIMIT 1",
+        4=>"SELECT jsonb_build_object('identity',identity,'weapon',weapon) FROM serve.hero_profile WHERE entity_id=$1 AND serve.hero_is_playable($1) LIMIT 1",
+        5=>"SELECT jsonb_build_object('identity',identity,'stats',stats,'weapon',weapon) FROM serve.hero_profile WHERE entity_id=$1 AND serve.hero_is_playable($1) LIMIT 1",
+        6=>"SELECT jsonb_build_object('identity',identity,'abilities',abilities,'weapon',weapon) FROM serve.hero_profile WHERE entity_id=$1 AND serve.hero_is_playable($1) LIMIT 1",
+        _=>"SELECT jsonb_build_object('identity',identity,'stats',stats,'abilities',abilities,'weapon',weapon) FROM serve.hero_profile WHERE entity_id=$1 AND serve.hero_is_playable($1) LIMIT 1",
     }
 }
 

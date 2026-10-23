@@ -1,6 +1,6 @@
 # Hero identity, answer status and build publication
 
-The shared rule is `brain_contracts::hero_status::hero_status`. Hero identity and release status are separate. Development and disabled heroes remain available to answers, entity profiles, wiki retrieval and game tools. Only publication requires `is_released_hero`.
+The shared rule is `brain_contracts::hero_status::hero_status`. Hero identity and release status are separate. Build publication requires `is_released_hero`. Served game facts follow the same release flags through `serve.hero_is_playable`, see Serving visibility.
 
 ## Rule
 
@@ -12,7 +12,13 @@ Status precedence:
 2. A real catalog hero with `player_selectable=true`, `disabled=false`, and no prerelease or assigned-player restriction: `released`, even when `in_development=true`.
 3. Other real heroes: `in_development`.
 
-Missing or malformed playability flags cannot grant release. Explicit contradictory deadlock-data selectable/disabled flags also prevent release. Optional restriction flags may be absent, but explicit null or nonboolean values prevent release. No identity decision uses a specific hero name. Unreleased heroes may be inspected, ranked or calculated, but may not have builds published. Answers mention a nonreleased status briefly, for example “laut Spieldaten noch in Entwicklung”.
+Missing or malformed playability flags cannot grant release. Explicit contradictory deadlock-data selectable/disabled flags also prevent release. Optional restriction flags may be absent, but explicit null or nonboolean values prevent release. No identity decision uses a specific hero name. Unreleased heroes may not have builds published.
+
+## Serving visibility
+
+`serve.hero_is_playable(entity_id)` in migration v38 is the database form of the release flags above. A hero is playable only when its current published assets hero object belongs to the latest published complete assets snapshot, has `player_selectable=true` and `disabled=false`, and has each of `prerelease_only`, `assigned_players_only`, `in_hero_labs` and `InHeroLabs` absent or `false`. Heroes without that evidence are not served.
+
+These game tools treat a hero that is not playable like an unknown entity: `find_entity`, `get_hero`, hero slots, comparisons, `get_meta_stats` (by entity via `serve.hero_game_identity` and by `game_id` via `serve.hero_game_id_is_playable`, both matching the numeric `id` of that same assets hero object, not an `identity_game_id` fact) and patch changes return their existing not-found or empty result. Item and ability cards keep their own content and drop only the links to such heroes, in the tools and on the site. The site does not render hero pages for them. Every check is keyed per hero row.
 
 Deadlock-data import binds compact catalog observations to the verified assets mirror for the same client version. The derived snapshot records the catalog source run, source document and original hash under `_hero_catalog.receipt`; raw source originals remain unchanged. Missing verified catalog data fails the import explicitly. Normal maintenance reimports snapshots and rebuilds normalized entities and wiki pages; no manual database rewrite is required.
 
