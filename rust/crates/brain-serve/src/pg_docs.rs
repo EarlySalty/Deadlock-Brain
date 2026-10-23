@@ -445,7 +445,7 @@ impl DocsReader {
         context.check_deadline()?;
         let truncated = rows
             .first()
-            .map(|row| row.try_get::<i64, _>("matching_sections"))
+            .map(|row| row.try_get::<i64, _>("bounded_matches"))
             .transpose()
             .map_err(database_error)?
             .is_some_and(|count| count > limit as i64);

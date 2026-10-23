@@ -1633,6 +1633,21 @@ async fn real_search_uses_owned_gin_naturally_within_statement_budget() {
         "DOCS_INDEX_PROOF documents=400 execution_ms={} planning_ms={}",
         plan[0]["Execution Time"], plan[0]["Planning Time"]
     );
+    let broad: serde_json::Value =
+        sqlx::query_scalar(&format!("EXPLAIN (ANALYZE,FORMAT JSON) {search}"))
+            .bind("public")
+            .bind("Lane Rotation")
+            .bind(None::<i64>)
+            .bind(5_i64)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(broad[0]["Plan"]["Actual Rows"], 5);
+    assert!(
+        broad[0]["Execution Time"].as_f64().unwrap() < 500.0,
+        "broad execution_ms={}",
+        broad[0]["Execution Time"]
+    );
     tx.commit().await.unwrap();
     pool.close().await;
 }
@@ -1739,5 +1754,196 @@ async fn p9_audit_quarantine_hides_indexed_docs_and_never_revives_older_chunks()
             .await
             .unwrap();
     assert_eq!(sections, 0);
+    pool.close().await;
+}
+
+async fn search_paths(pool: &PgPool, scope: &str, query: &str, entity: Option<i64>) -> Vec<String> {
+    sqlx::query(include_str!("../src/pg_docs/search.sql"))
+        .bind(scope)
+        .bind(query)
+        .bind(entity)
+        .bind(6_i64)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| row.get::<String, _>("path"))
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_falls_back_to_partial_matches_and_bare_commands() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    for (version, path, title, body) in [
+        (
+            1,
+            "public/steam.html",
+            "Steam verknüpfen",
+            ["Nutze /checkrank ", "im Kanal."],
+        ),
+        (
+            2,
+            "public/discord.html",
+            "Discord Server",
+            ["Rollen ", "und Kanäle."],
+        ),
+        (
+            3,
+            "internal/steam.html",
+            "Steam verknüpfen Discord",
+            ["Nur ", "Team."],
+        ),
+    ] {
+        document_with_content(
+            &pool,
+            path,
+            version,
+            None,
+            true,
+            DocumentContent {
+                title,
+                heading_path: &[],
+                body,
+                ..DocumentContent::default()
+            },
+        )
+        .await;
+    }
+    for (query, expected) in [
+        ("Steam Discord verknüpfen Rang", vec!["public/steam.html"]),
+        ("checkrank", vec!["public/steam.html"]),
+        ("/checkrank", vec!["public/steam.html"]),
+        ("Steam Kanal", vec!["public/steam.html"]),
+        ("Discord Steam -verknüpfen", vec![]),
+        ("Rang Team", vec![]),
+        ("Steam-Kanal verknüpfen Rang", vec!["public/steam.html"]),
+        ("Discord-Server Rollen", vec!["public/discord.html"]),
+        ("Steam -Kanal Rang", vec![]),
+    ] {
+        assert_eq!(
+            search_paths(&pool, "public", query, None).await,
+            expected,
+            "{query}"
+        );
+    }
+    assert_eq!(
+        search_paths(&pool, "internal", "Steam Discord", None).await,
+        vec!["internal/steam.html"]
+    );
+    pool.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_keeps_published_runs_and_filters_entities_before_the_limit() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    for version in 1..=13 {
+        document_with_content(
+            &pool,
+            &format!("public/guide-{version}.html"),
+            version,
+            None,
+            true,
+            DocumentContent {
+                title: "Guide Guide",
+                heading_path: &[],
+                body: ["Guide ", "Guide Guide."],
+                ..DocumentContent::default()
+            },
+        )
+        .await;
+    }
+    let mut tx = pool.begin().await.unwrap();
+    let staged = stage_document(
+        &mut tx,
+        "public/baba.html",
+        14,
+        None,
+        true,
+        DocumentContent {
+            title: "Baba",
+            heading_path: &[],
+            body: ["Guide ", "für Baba."],
+            ..DocumentContent::default()
+        },
+    )
+    .await;
+    let game: i64 = sqlx::query_scalar(
+        "INSERT INTO canon.entity(kind,key,receipt_id) VALUES('hero','baba',$1) RETURNING id",
+    )
+    .bind(staged.identity_receipt)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO canon.entity_identity(entity_id,receipt_id) VALUES($1,$2)")
+        .bind(game)
+        .bind(staged.identity_receipt)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO canon.alias(entity_id,alias_norm,lang,receipt_id) VALUES($1,'baba','de',$2)",
+    )
+    .bind(game)
+    .bind(staged.identity_receipt)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    publish(&mut tx, staged.run).await;
+    tx.commit().await.unwrap();
+    assert_eq!(
+        search_paths(&pool, "public", "Guide", Some(game)).await,
+        vec!["public/baba.html"]
+    );
+    let counts: Vec<i64> = sqlx::query(include_str!("../src/pg_docs/search.sql"))
+        .bind("public")
+        .bind("Guide")
+        .bind(None::<i64>)
+        .bind(6_i64)
+        .fetch_all(&pool)
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| row.get::<i64, _>("bounded_matches"))
+        .collect();
+    assert_eq!(counts, vec![7; 6]);
+    let mut tx = pool.begin().await.unwrap();
+    stage_document(
+        &mut tx,
+        "public/baba.html",
+        15,
+        Some(staged.page),
+        true,
+        DocumentContent {
+            title: "Baba",
+            heading_path: &[],
+            body: ["Entwurf ", "ohne Freigabe."],
+            ..DocumentContent::default()
+        },
+    )
+    .await;
+    tx.commit().await.unwrap();
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM canon.doc_search WHERE entity_id=$1")
+        .bind(staged.page)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rows, 2);
+    let runs: Vec<i64> = sqlx::query(include_str!("../src/pg_docs/search.sql"))
+        .bind("public")
+        .bind("Baba")
+        .bind(None::<i64>)
+        .bind(6_i64)
+        .fetch_all(&pool)
+        .await
+        .unwrap()
+        .iter()
+        .map(|row| row.get::<i64, _>("valid_from_run"))
+        .collect();
+    assert_eq!(runs, vec![staged.run]);
+    assert!(search_paths(&pool, "public", "Entwurf", None)
+        .await
+        .is_empty());
     pool.close().await;
 }

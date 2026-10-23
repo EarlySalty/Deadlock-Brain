@@ -97,7 +97,7 @@ async fn patch_migration_preserves_existing_facts_and_checks_patch_identity() {
             .unwrap();
     assert_eq!(
         versions,
-        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 30, 31, 32]
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 30, 31, 32, 33]
     );
     sqlx::raw_sql("INSERT INTO ops.ingest_run(source) VALUES('pending_boundary_fixture');
         INSERT INTO canon.receipt(raw_object_id,ingest_run_id,extractor,locator_kind,locator,value_sha256) VALUES(1,2,'fixture','raw_bytes','',decode(repeat('00',32),'hex'));
