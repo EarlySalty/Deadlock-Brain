@@ -237,7 +237,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     let mut previous_round = None;
     let mut tool_calls = 0usize;
     let mut seen_calls = BTreeSet::new();
-    let mut resampled = false;
+    let mut first_outcome = None::<brain_contracts::ProviderAnswer>;
     let result = (|| -> Result<brain_contracts::ProviderAnswer, PortError> {
         let binding = kernel
             .tools
@@ -414,24 +414,26 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         && (!ledger.accepts(&answer)
                             || ((binding.tools_only || kernel.quality_filters)
                                 && (!grounded || evidence.is_empty())));
-                    if (insufficient || discarded)
-                        && !resampled
-                        && !session.definitions.is_empty()
-                        && (binding.tools_only || kernel.quality_filters)
-                        && provider_rounds < context.budget.max_network_rounds.min(4) as usize
-                    {
-                        resampled = true;
-                        continue;
-                    }
-                    if discarded {
-                        return Ok(brain_contracts::ProviderAnswer {
+                    let outcome = if discarded {
+                        brain_contracts::ProviderAnswer {
                             claims: Vec::new(),
                             text: String::new(),
                             cited_evidence_ids: Vec::new(),
                             usage: Usage::default(),
-                        });
+                        }
+                    } else {
+                        answer
+                    };
+                    if (insufficient || discarded)
+                        && first_outcome.is_none()
+                        && !session.definitions.is_empty()
+                        && (binding.tools_only || kernel.quality_filters)
+                        && provider_rounds < context.budget.max_network_rounds.min(4) as usize
+                    {
+                        first_outcome = Some(outcome);
+                        continue;
                     }
-                    return Ok(answer);
+                    return Ok(outcome);
                 }
                 ProviderTurn::ToolCalls { blocks, .. } => {
                     let calls = blocks
@@ -553,6 +555,16 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             }
         }
     })();
+    let result = match (result, first_outcome) {
+        (Err(error), Some(first)) => {
+            eprintln!(
+                "{}",
+                serde_json::json!({"event":"brain_tool_resample_failed","request_id":query.request_id,"error":error.to_string()})
+            );
+            Ok(first)
+        }
+        (result, _) => result,
+    };
     let outcome: KernelAnswer = match result {
         Ok(answer) if answer.text.is_empty() && answer.cited_evidence_ids.is_empty() => response(
             query,

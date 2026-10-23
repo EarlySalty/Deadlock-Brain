@@ -1812,6 +1812,65 @@ mod tests {
     }
 
     #[test]
+    fn tool_resample_answers_or_keeps_the_first_refusal() {
+        let empty = || -> brain_contracts::ProviderTurn {
+            ProviderAnswer {
+                claims: Vec::new(),
+                text: String::new(),
+                cited_evidence_ids: Vec::new(),
+                usage: Usage {
+                    network_rounds: 1,
+                    ..Usage::default()
+                },
+            }
+            .into()
+        };
+        let calls: Vec<_> = ["a", "b", "c"].map(find_call).into();
+        let run = |turns, required: Vec<brain_contracts::ToolCall>, fail_on| {
+            let (kernel, state) = tool_kernel(&calls, turns);
+            {
+                let mut state = state.lock().unwrap();
+                state.required_calls = required;
+                state.provider_fail_on = fail_on;
+                state.provider_failure = Some(PortFailure::accounted(
+                    PortError::Unavailable("fixture".into()),
+                    UsageAccounting::observed(Usage {
+                        network_rounds: 1,
+                        ..Usage::default()
+                    }),
+                ));
+            }
+            let mut context = context(&[], &["public"]);
+            context.budget.max_network_rounds = 4;
+            context.budget.max_input_tokens = 1_000_000;
+            let answer = kernel
+                .with_tools_only_limits(8, 16_384)
+                .answer_accounted(&query(AnswerProfile::Explain), &context);
+            let calls = state.lock().unwrap().calls;
+            (answer, calls)
+        };
+        let tool = |index: usize| tool_turn(vec![calls[index].clone()]);
+        let (answer, provider_calls) = run(
+            vec![tool(0), final_turn(&[]), final_turn(&["a-cited"])],
+            Vec::new(),
+            0,
+        );
+        assert_eq!(answer.value.status, AnswerStatus::Answered);
+        assert_eq!(provider_calls, 3);
+        let (answer, provider_calls) = run(vec![tool(0), empty()], Vec::new(), 3);
+        assert_eq!(answer.value.status, AnswerStatus::InsufficientEvidence);
+        assert_eq!(provider_calls, 3);
+        assert_eq!(answer.accounting.observed.network_rounds, 3);
+        let (answer, provider_calls) = run(vec![tool(0), tool(1), empty(), tool(2)], Vec::new(), 0);
+        assert_eq!(answer.value.status, AnswerStatus::InsufficientEvidence);
+        assert_eq!(provider_calls, 4);
+        let (answer, provider_calls) =
+            run(vec![empty(), final_turn(&[])], vec![calls[0].clone()], 0);
+        assert_eq!(answer.value.status, AnswerStatus::InsufficientEvidence);
+        assert_eq!(provider_calls, 2);
+    }
+
+    #[test]
     fn tool_loop_stops_before_a_fifth_provider_round() {
         let calls: Vec<_> = (0..4).map(|id| find_call(&format!("find{id}"))).collect();
         let turns = calls
