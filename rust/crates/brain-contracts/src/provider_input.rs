@@ -356,7 +356,7 @@ pub fn grounded_turn_payload_with_quality(
     conversation.validate(definitions)?;
     let mut grounded =
         grounded_messages_referencing(query, evidence, &tool_result_evidence_ids(conversation));
-    grounded[0].content.push_str(" Nenne Spieltimer und Zahlenwerte nur aus versionsgebundenen Spielkonfigurationen oder passenden belegten Quellen. Nenne einen Patchstand nur, wenn ein Werkzeug ihn als Patch belegt. Quellrevisionen, Hashes und Einlesedaten sind kein Patchnachweis und gehören nie in text. Uninterpretierte Konfigurationsfelder belegen ohne geklärte Bedeutung keine Spielregel oder Einheit. Fehlt ein gesicherter Wert, sage das kurz und direkt, statt nach Patch oder Bedeutung zurückzufragen. Vermische keine Werte aus Standardmodus und Street Brawl; ohne Modusangabe gilt Standardmodus.");
+    grounded[0].content.push_str(" Nenne Spieltimer und Zahlenwerte nur aus versionsgebundenen Spielkonfigurationen oder passenden belegten Quellen. Nenne einen Patchstand nur, wenn eine gelieferte Quelle oder ein Werkzeug ihn als Patch belegt. Quellrevisionen, Hashes und Einlesedaten sind kein Patchnachweis und gehören nie in text. Uninterpretierte Konfigurationsfelder belegen ohne geklärte Bedeutung keine Spielregel oder Einheit. Fehlt ein gesicherter Wert, sage das kurz und direkt, statt nach Patch oder Bedeutung zurückzufragen. Vermische keine Werte aus Standardmodus und Street Brawl; ohne Modusangabe gilt Standardmodus.");
     if !quality_filters {
         grounded[0].content = grounded[0].content
             .replace(

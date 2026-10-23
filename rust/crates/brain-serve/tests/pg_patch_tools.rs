@@ -1296,7 +1296,10 @@ async fn incoherent_heads_and_removed_statements_are_hidden() {
         false,
     )
     .await;
-    error(&db.execute(json!({"entity":id})).await, "no_patch_changes");
+    error(
+        &db.execute(json!({"entity":id})).await,
+        "official_patch_unavailable",
+    );
     let changes: i64 = sqlx::query_scalar("SELECT count(*) FROM serve.p4_patch_change")
         .fetch_one(&db.reader)
         .await
@@ -1630,6 +1633,95 @@ async fn hidden_heroes_have_no_patch_changes() {
     error(
         &db.execute_unchecked(json!({"entity":hidden})).await,
         "no_patch_changes",
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn entityless_history_lists_playable_hero_changes_of_newest_changed_patch() {
+    let pg = scratch_pg::ScratchPg::start();
+    let db = Database::start(&pg).await;
+    for (key, alias) in [
+        ("hero_baba", "Baba"),
+        ("hero_haze", "Haze"),
+        ("hero_retired", "Retired"),
+    ] {
+        db.publish(
+            "heroes",
+            key,
+            key,
+            json!({"key":key,"aliases":[alias],"health":500}),
+            true,
+        )
+        .await;
+    }
+    let baba = db.playable_hero_id("hero_baba").await;
+    let haze = db.playable_hero_id("hero_haze").await;
+    assets_fixture::flagged(
+        &db.admin,
+        "hero_retired",
+        json!({"player_selectable":false,"disabled":true,"in_development":false}),
+    )
+    .await;
+    for (id, label, date, changes) in [
+        (
+            10,
+            "changed",
+            "2026-10-01T12:00:00Z",
+            vec![
+                change(1, "baba", "health", "Baba: health changed from 400 to 500"),
+                change(2, "haze", "health", "Haze: health changed from 600 to 650"),
+                change(
+                    3,
+                    "retired",
+                    "health",
+                    "Retired: health changed from 400 to 500",
+                ),
+            ],
+        ),
+        (
+            11,
+            "hidden only",
+            "2026-10-05T12:00:00Z",
+            vec![change(
+                1,
+                "retired",
+                "health",
+                "Retired: health changed from 500 to 550",
+            )],
+        ),
+        (12, "news", "2026-10-09T12:00:00Z", vec![]),
+    ] {
+        db.publish(
+            "deadlock_patchnotes_db",
+            &id.to_string(),
+            label,
+            patch(id, label, date, changes),
+            false,
+        )
+        .await;
+    }
+    let execution = db.execute_unchecked(json!({})).await;
+    assert_eq!(
+        execution.result.result["current_official_patch"]["label"],
+        "changed"
+    );
+    assert!(execution.result.result["entity_id"].is_null());
+    let entities = rows(&execution)
+        .iter()
+        .map(|row| row["entity_id"].as_i64().unwrap())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(entities, BTreeSet::from([baba, haze]));
+    error(
+        &db.execute(json!({"entity":baba})).await,
+        "no_patch_changes",
+    );
+    let ranged = db
+        .execute_unchecked(json!({"since":"changed","until":"news"}))
+        .await;
+    assert_eq!(
+        rows(&ranged).len() as u64 + ranged.result.result["omitted_count"].as_u64().unwrap(),
+        2
     );
     db.close().await;
 }

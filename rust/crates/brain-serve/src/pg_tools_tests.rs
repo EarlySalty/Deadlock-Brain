@@ -1590,6 +1590,8 @@ fn tool_queries_run_under_production_public_schema_revoke() {
         sqlx::query(&patch_sql("CURRENT")).fetch_all(&pool).await.unwrap();
         sqlx::query(&patch_sql("RESOLVE")).bind("2026-01-01").fetch_all(&pool).await.unwrap();
         sqlx::query(&patch_sql("CHANGES")).bind(baba).bind(None::<i64>).bind(None::<String>).bind(None::<String>).fetch_all(&pool).await.unwrap();
+        sqlx::query(&patch_sql("CURRENT_ALL")).fetch_all(&pool).await.unwrap();
+        sqlx::query(&patch_sql("CHANGES_ALL")).bind(None::<i64>).bind(None::<i64>).bind(None::<String>).bind(None::<String>).fetch_all(&pool).await.unwrap();
         sqlx::query(include_str!("pg_docs/search.sql")).bind("public").bind("Baba Schaden").bind(None::<i64>).bind(5_i64).fetch_all(&pool).await.unwrap();
         sqlx::query(include_str!("meta_stats_identity.sql")).bind(baba).bind("hero").fetch_all(&pool).await.unwrap();
         sqlx::query(meta_stats_tools::QUERY).bind("meta_hero_stats").bind("hero_1").fetch_all(&pool).await.unwrap();
