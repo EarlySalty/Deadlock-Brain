@@ -1826,14 +1826,14 @@ mod tests {
             .into()
         };
         let calls: Vec<_> = ["a", "b", "c"].map(find_call).into();
-        let run = |turns, required: Vec<brain_contracts::ToolCall>, fail_on| {
+        let run_with = |turns, required: Vec<brain_contracts::ToolCall>, fail_on, error| {
             let (kernel, state) = tool_kernel(&calls, turns);
             {
                 let mut state = state.lock().unwrap();
                 state.required_calls = required;
                 state.provider_fail_on = fail_on;
                 state.provider_failure = Some(PortFailure::accounted(
-                    PortError::Unavailable("fixture".into()),
+                    error,
                     UsageAccounting::observed(Usage {
                         network_rounds: 1,
                         ..Usage::default()
@@ -1849,7 +1849,27 @@ mod tests {
             let calls = state.lock().unwrap().calls;
             (answer, calls)
         };
+        let run = |turns, required, fail_on| {
+            run_with(
+                turns,
+                required,
+                fail_on,
+                PortError::Unavailable("fixture".into()),
+            )
+        };
+        let invalid = || PortError::InvalidResponse("fixture".into());
         let tool = |index: usize| tool_turn(vec![calls[index].clone()]);
+        let (answer, provider_calls) = run_with(
+            vec![tool(0), final_turn(&["a-cited"])],
+            Vec::new(),
+            2,
+            invalid(),
+        );
+        assert_eq!(answer.value.status, AnswerStatus::Answered);
+        assert_eq!(provider_calls, 3);
+        let (answer, provider_calls) = run_with(vec![tool(0)], Vec::new(), 2, invalid());
+        assert_eq!(answer.value.status, AnswerStatus::InsufficientEvidence);
+        assert_eq!(provider_calls, 2);
         let (answer, provider_calls) = run(
             vec![tool(0), final_turn(&[]), final_turn(&["a-cited"])],
             Vec::new(),

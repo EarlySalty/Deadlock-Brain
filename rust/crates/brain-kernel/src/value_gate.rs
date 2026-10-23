@@ -3,7 +3,24 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Default)]
-pub(super) struct ValueLedger(BTreeMap<String, BTreeSet<String>>);
+pub(super) struct ValueLedger(BTreeMap<String, BTreeSet<String>>, BTreeSet<String>);
+
+fn patch_labels(key: &str, value: &Value) -> Vec<String> {
+    let Some(text) = value.as_str() else {
+        return Vec::new();
+    };
+    let label = match key {
+        "patch" => text.split_whitespace().next(),
+        "released_at" => text.get(..10),
+        _ => None,
+    };
+    [Some(text), label]
+        .into_iter()
+        .flatten()
+        .filter(|label| label.len() >= 8 && label.bytes().any(|byte| !byte.is_ascii_digit()))
+        .map(str::to_owned)
+        .collect()
+}
 
 fn normalize(text: &str) -> Option<String> {
     let text = text.replace(',', ".");
@@ -101,6 +118,9 @@ impl ValueLedger {
                     .filter(|id| allowed.iter().any(|known| known == id));
                 if let Some(id) = citation {
                     self.0.entry(id.into()).or_default();
+                    for (key, value) in fields {
+                        self.1.extend(patch_labels(key, value));
+                    }
                 }
                 for (key, value) in fields {
                     if !matches!(
@@ -151,9 +171,12 @@ impl ValueLedger {
             }
             covered.insert(value);
         }
-        numbers(&answer.text)
-            .iter()
-            .all(|value| covered.contains(value))
+        let mut labels: Vec<_> = self.1.iter().collect();
+        labels.sort_by_key(|label| std::cmp::Reverse(label.len()));
+        let text = labels.into_iter().fold(answer.text.clone(), |text, label| {
+            text.replace(label.as_str(), " ")
+        });
+        numbers(&text).iter().all(|value| covered.contains(value))
     }
 }
 
@@ -222,6 +245,31 @@ mod tests {
         assert!(!ledger().accepts(&answer));
         answer.text = "Baba ist ein Held.".into();
         assert!(ledger().accepts(&answer));
+    }
+
+    #[test]
+    fn returned_patch_identity_may_be_named_without_claims() {
+        let mut ledger = ValueLedger::default();
+        ledger.insert(&ToolResult { call_id: "patch".into(), name: ToolName::PatchHistory,
+            result: json!({"changes":[{"citation":"line","line_text":"Bonus increased from +50% to +75%","patch":"09-29-2026 (Post 330973, 2026-10-15)","released_at":"2026-10-15T03:12:00+00:00"}],"unreturned":{"patch":"10-01-2026 (Post 1)"}}),
+            evidence_ids: vec!["line".into()], is_error: false });
+        let named = |text: &str| ProviderAnswer {
+            text: text.into(),
+            cited_evidence_ids: vec!["line".into()],
+            claims: [50, 75]
+                .map(|value| NumericClaim {
+                    citation_id: "line".into(),
+                    value: value.into(),
+                    unit: None,
+                })
+                .into(),
+            usage: Usage::default(),
+        };
+        assert!(ledger.accepts(&named("Patch 09-29-2026 vom 2026-10-15: von 50 auf 75.")));
+        assert!(ledger.accepts(&named("09-29-2026 (Post 330973, 2026-10-15): 50 auf 75")));
+        assert!(!ledger.accepts(&named("Patch 09-29-2026: von 50 auf 76.")));
+        assert!(!ledger.accepts(&named("Patch 10-01-2026: von 50 auf 75.")));
+        assert!(!ledger.accepts(&named("Am 15.10.2026: von 50 auf 75.")));
     }
 
     #[test]

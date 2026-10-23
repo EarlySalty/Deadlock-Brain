@@ -320,7 +320,24 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     &conversation,
                 ) {
                     Ok(turn) => turn,
-                    Err(failure) => return Err(account_failure(&mut accounting, failure, &next)),
+                    Err(failure) => {
+                        let error = account_failure(&mut accounting, failure, &next);
+                        if matches!(error, PortError::InvalidResponse(_))
+                            && binding.tools_only
+                            && first_outcome.is_none()
+                            && !session.definitions.is_empty()
+                            && provider_rounds < context.budget.max_network_rounds.min(4) as usize
+                        {
+                            first_outcome = Some(brain_contracts::ProviderAnswer {
+                                claims: Vec::new(),
+                                text: String::new(),
+                                cited_evidence_ids: Vec::new(),
+                                usage: Usage::default(),
+                            });
+                            continue;
+                        }
+                        return Err(error);
+                    }
                 };
                 let reserved_input =
                     input.checked_mul(u64::from(turn_accounting.observed.network_rounds));
