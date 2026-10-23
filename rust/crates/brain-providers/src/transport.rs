@@ -64,7 +64,15 @@ impl OpenAiCompatibleProvider {
             } else {
                 compatible_response(&bytes, &mut failed_check)?
             };
-            failed_check = super::audit::check("model_identity", "model", "the configured model");
+            failed_check = super::audit::check(
+                "model_identity",
+                "model",
+                if self.config.configured_model().is_some() {
+                    "the configured model"
+                } else {
+                    "a well-formed served model name"
+                },
+            );
             let identity_valid = match self.config.configured_model() {
                 Some(model) => parsed.model == model,
                 None => served_model_valid(&parsed.model),

@@ -298,13 +298,14 @@ impl OpenAiCompatibleProvider {
                             .bytes()
                             .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
                 }
-                None => config.model == "gpt-6-luna" && config.retry_attempts == 1,
+                None => config.model == "gpt-6-luna",
             };
             if !url.host_str().is_some_and(|host| {
                 host.trim_matches(['[', ']'])
                     .parse::<std::net::IpAddr>()
                     .is_ok_and(|ip| ip.is_loopback())
             }) || !native_allowed
+                || config.retry_attempts != 1
                 || !config.api_key.is_empty()
                 || config.pricing.is_some()
             {
