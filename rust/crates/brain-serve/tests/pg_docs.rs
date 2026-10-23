@@ -1757,6 +1757,155 @@ async fn p9_audit_quarantine_hides_indexed_docs_and_never_revives_older_chunks()
     pool.close().await;
 }
 
+const AUDIT_FILLER: &str = "DO $seed$
+DECLARE run bigint; audit bigint;
+BEGIN
+    INSERT INTO ops.ingest_run(source,status) VALUES('assets','failed') RETURNING id INTO run;
+    INSERT INTO raw.object(source,revision,path,source_path_sha256,content_sha256,bytes,ingest_run_id)
+        SELECT 'assets',repeat('a',40),'filler/'||n||'.json',sha256(('filler:'||n)::bytea),sha256(n::text::bytea),'{}'::bytea,run
+        FROM generate_series(1,6000) n;
+    INSERT INTO canon.receipt(raw_object_id,ingest_run_id,extractor,locator_kind,locator,value_sha256)
+        SELECT o.id,run,'assets','bytes','0:2',sha256(o.id::text::bytea) FROM raw.object o WHERE o.ingest_run_id=run;
+    INSERT INTO canon.entity(kind,key,receipt_id)
+        SELECT 'item','filler_'||r.raw_object_id,r.id FROM canon.receipt r WHERE r.ingest_run_id=run;
+    INSERT INTO canon.entity_identity(entity_id,receipt_id) SELECT e.id,e.receipt_id FROM canon.entity e
+        JOIN canon.receipt r ON r.id=e.receipt_id WHERE r.ingest_run_id=run;
+    INSERT INTO canon.fact(entity_id,stat_key,value_num,valid_from_run,receipt_id) SELECT e.id,'cost',1,run,e.receipt_id
+        FROM canon.entity e JOIN canon.receipt r ON r.id=e.receipt_id WHERE r.ingest_run_id=run;
+    UPDATE ops.ingest_run SET status='succeeded',finished=clock_timestamp() WHERE id=run;
+    FOR round IN 1..25 LOOP
+        INSERT INTO ops.receipt_audit_run(sampled,verified_receipts,rejected_receipts,rejected_objects)
+            VALUES(200,160,40,40) RETURNING id INTO audit;
+        INSERT INTO ops.receipt_audit(run_id,receipt_id,outcome,observed_value_sha256)
+            SELECT audit,s.id,CASE WHEN s.n<=40 THEN 'mismatch' ELSE 'match' END,sha256(''::bytea)
+            FROM (SELECT r.id,row_number() OVER (ORDER BY r.id) AS n FROM canon.receipt r
+                WHERE r.ingest_run_id=run AND r.id%25=round-1 ORDER BY r.id LIMIT 200) s;
+        INSERT INTO ops.receipt_audit_rejection(run_id,raw_object_id,code,detail)
+            SELECT audit,o.id,'hash_mismatch','seeded' FROM raw.object o
+            WHERE o.ingest_run_id=run AND o.id%25=(round+12)%25 ORDER BY o.id DESC LIMIT 40;
+    END LOOP;
+END
+$seed$";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn audited_publication_keeps_multi_page_docs_search_within_statement_budget() {
+    let pg = scratch_pg::ScratchPg::start();
+    let pool = setup(&pg).await;
+    let mut public = Vec::new();
+    for version in 1..=400 {
+        let path = format!("public/guide{version}.html");
+        public.push(document(&pool, &path, version, None, true).await);
+    }
+    let (internal, _) = document(&pool, "internal/geheim.html", 401, None, true).await;
+    let (shadowed_page, _) = document(&pool, "public/shadowed.html", 402, None, true).await;
+    let (_, shadowing_body) = document(
+        &pool,
+        "public/shadowed.html",
+        403,
+        Some(shadowed_page),
+        true,
+    )
+    .await;
+    sqlx::raw_sql(AUDIT_FILLER).execute(&pool).await.unwrap();
+    let audit: i64 = sqlx::query_scalar(
+        "INSERT INTO ops.receipt_audit_run(sampled,rejected_receipts,rejected_objects) VALUES(2,2,1) RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let (audited_page, audited_body) = public[0];
+    let (rejected_page, rejected_body) = public[1];
+    for body in [audited_body, shadowing_body] {
+        sqlx::query("INSERT INTO ops.receipt_audit(run_id,receipt_id,outcome) VALUES($1,$2,'locator_not_found')")
+            .bind(audit).bind(body).execute(&pool).await.unwrap();
+    }
+    sqlx::query("INSERT INTO ops.receipt_audit_rejection(run_id,raw_object_id,code,detail) SELECT $1,raw_object_id,'hash_mismatch','test' FROM canon.receipt WHERE id=$2")
+        .bind(audit).bind(rejected_body).execute(&pool).await.unwrap();
+    let boundary: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM ops.receipt_audit),(SELECT count(*) FROM ops.receipt_audit_rejection),(SELECT count(*) FROM canon.receipt_quarantine WHERE cause='audited'),(SELECT count(*) FROM canon.receipt_quarantine WHERE cause='shadowed')")
+        .fetch_one(&pool).await.unwrap();
+    assert!(boundary.0 >= 5000 && boundary.1 >= 1000 && boundary.2 >= 1000 && boundary.3 >= 1);
+    sqlx::raw_sql("VACUUM (ANALYZE) canon.doc_search")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql("ANALYZE canon.fact; ANALYZE canon.receipt; ANALYZE canon.entity; ANALYZE canon.entity_identity; ANALYZE raw.object; ANALYZE ops.ingest_run; ANALYZE canon.receipt_quarantine; ANALYZE ops.receipt_audit_rejection")
+        .execute(&pool).await.unwrap();
+    let diverging: i64 = sqlx::query_scalar("SELECT count(*) FROM canon.receipt r WHERE serve.receipt_is_published(r.id)<>EXISTS(SELECT 1 FROM serve.published_receipt p WHERE p.id=r.id)")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(diverging, 0);
+    let pages: Vec<i64> = sqlx::query_scalar("SELECT page_id FROM serve.doc_page ORDER BY page_id")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert!(!pages.contains(&rejected_page));
+    assert!(pages.contains(&internal) && pages.contains(&public[2].0));
+    let hidden_sections: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM serve.doc_section WHERE page_id=ANY($1)")
+            .bind(vec![audited_page, rejected_page, shadowed_page])
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(hidden_sections, 0);
+    let search = include_str!("../src/pg_docs/search.sql");
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::raw_sql(pg_docs::READ_TRANSACTION)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let plan: serde_json::Value =
+        sqlx::query_scalar(&format!("EXPLAIN (ANALYZE,FORMAT JSON) {search}"))
+            .bind("public")
+            .bind("Baba bewegt")
+            .bind(None::<i64>)
+            .bind(5_i64)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    let execution = plan[0]["Execution Time"].as_f64().unwrap();
+    eprintln!(
+        "DOCS_AUDITED_PUBLICATION_PROOF audit_rows={} rejections={} audited={} shadowed={} pages=5 execution_ms={execution} planning_ms={}",
+        boundary.0, boundary.1, boundary.2, boundary.3, plan[0]["Planning Time"]
+    );
+    assert_eq!(plan[0]["Plan"]["Actual Rows"], 5);
+    assert!(execution < 500.0, "execution_ms={execution}");
+    tx.commit().await.unwrap();
+    let rows = sqlx::query(search)
+        .bind("public")
+        .bind("Baba bewegt")
+        .bind(None::<i64>)
+        .bind(500_i64)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    let paths: BTreeSet<String> = rows
+        .iter()
+        .map(|row| row.get::<String, _>("path"))
+        .collect();
+    assert!(paths.len() >= 2);
+    for hidden in [
+        "public/guide1.html",
+        "public/guide2.html",
+        "public/shadowed.html",
+        "internal/geheim.html",
+    ] {
+        assert!(!paths.contains(hidden), "{hidden}");
+    }
+    let reader = DocsReader::new(pool.clone(), tokio::runtime::Handle::current());
+    let (query, ctx) = context(false);
+    let evidence = reader.retrieve(&query, &ctx).unwrap();
+    assert!(evidence.len() >= 2);
+    reader
+        .validate_evidence(&query, &ctx, &evidence, ToolValidationPurpose::Cache)
+        .unwrap();
+    for item in &evidence {
+        let receipt =
+            brain_contracts::canonical_receipt::CanonicalReceipt::from_evidence(item).unwrap();
+        assert!(receipt.path.starts_with("public/guide"));
+        assert!(!["public/guide1.html", "public/guide2.html"].contains(&receipt.path.as_str()));
+    }
+    pool.close().await;
+}
+
 async fn search_paths(pool: &PgPool, scope: &str, query: &str, entity: Option<i64>) -> Vec<String> {
     sqlx::query(include_str!("../src/pg_docs/search.sql"))
         .bind(scope)
