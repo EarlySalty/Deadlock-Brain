@@ -102,6 +102,21 @@ fn patch_note_spellings_become_aliases() {
 }
 
 #[test]
+fn curated_source_typos_bind_to_their_hero() {
+    let set = accepted(&raw(br#"{"hero_hornet":{"Name":"Vindicta"}}"#));
+    let typo = set
+        .aliases
+        .iter()
+        .find(|alias| alias.alias == "vindcita")
+        .expect("typo alias");
+    assert_eq!(
+        (typo.entity_key.as_str(), typo.lang.as_str()),
+        ("hero_hornet", "en")
+    );
+    assert_eq!(typo.receipt.locator, "/hero_hornet/Name");
+}
+
+#[test]
 fn duplicate_decoded_keys_and_normalized_collisions_reject() {
     for bytes in [
         br#"{"hero_a":{"Name":"A"},"hero_a":{"Name":"B"}}"#.as_slice(),

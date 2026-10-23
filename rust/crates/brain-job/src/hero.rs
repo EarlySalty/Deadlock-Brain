@@ -6,7 +6,7 @@ use brain_storage::gamefacts::receipts::value_bytes;
 use dbrain_sources::external::{parse_json_strict, MAX_SOURCE_BYTES};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub struct Hero;
 
@@ -31,7 +31,7 @@ impl Extractor for Hero {
         "hero"
     }
     fn version(&self) -> &'static str {
-        "2"
+        "3"
     }
     fn accepts(&self, source: &str, path: &str) -> bool {
         source == "deadlock-data" && path == "data/json/hero-data.json"
@@ -152,7 +152,19 @@ fn aliases(key: &str, name: &str) -> BTreeSet<(String, &'static str)> {
     result
 }
 
+const SOURCE_TYPOS: &str = include_str!("../data/hero-source-typos.json");
+
+fn source_typos() -> Result<BTreeMap<String, Vec<String>>, Rejection> {
+    serde_json::from_str(SOURCE_TYPOS).map_err(|_| {
+        Rejection::new(
+            "malformed_typo_list",
+            "Liste bekannter Schreibfehler für Heldennamen ist ungültig",
+        )
+    })
+}
+
 fn extract(raw: &RawObject) -> Result<FactSet, Rejection> {
+    let typos = source_typos()?;
     if raw.bytes.len() > MAX_SOURCE_BYTES {
         return Err(Rejection::new(
             "value_too_large",
@@ -187,7 +199,17 @@ fn extract(raw: &RawObject) -> Result<FactSet, Rejection> {
             key: key.clone(),
             receipt: receipt(raw, parent.clone())?,
         });
-        for (alias, lang) in aliases(&key, name.as_str().ok_or_else(malformed)?) {
+        let mut names = aliases(&key, name.as_str().ok_or_else(malformed)?);
+        names.extend(
+            typos
+                .get(&key)
+                .into_iter()
+                .flatten()
+                .map(|typo| limits::normalize_alias(typo))
+                .filter(|alias| !alias.is_empty())
+                .map(|alias| (alias, "en")),
+        );
+        for (alias, lang) in names {
             let receipt = if lang == "und" {
                 receipt(raw, parent.clone())?
             } else {

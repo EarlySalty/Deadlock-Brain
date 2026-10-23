@@ -112,7 +112,7 @@ fn complete_statements_emit_patch_owned_alias_text_and_source_stat_labels() {
         let fingerprint = Sha256::digest(reference.as_bytes());
         assert_eq!(*key, format!("patch_change_r{fingerprint:x}_{index}"));
     }
-    assert_eq!(PatchExtractor.version(), "3");
+    assert_eq!(PatchExtractor.version(), "4");
     let rows = parse("- Baba: Damage increased from 1 to 2");
     assert_eq!(rows[0]["stat_label"], "Damage");
 }
@@ -176,10 +176,25 @@ fn ampersand_heroes_and_ability_prefixed_lines_keep_their_subject() {
     let rows = parse("- Rat King: Rat Swarm - Base Cooldown reduced from 28s to 24s");
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["reference"], "rat king");
+    assert_eq!(rows[0]["stat_label"], "Base Cooldown");
     let rows = parse(
         "- Baba: Added knockback\n- Rat King: Rule, Ratannia! - no longer scales with spirit",
     );
     assert_eq!(rows[0]["line_text"], "- Baba: Added knockback");
+}
+
+#[test]
+fn sibling_note_bullets_stay_with_their_statement() {
+    let rows = parse(
+        "- Baba: Damage increased from 1 to 2\n- Note: applies to both forms\n- Bebop: Added knockback",
+    );
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[0]["line_text"],
+        "- Baba: Damage increased from 1 to 2\n- Note: applies to both forms"
+    );
+    assert_eq!(rows[0]["stat_label"], "Damage");
+    assert_eq!(rows[1]["reference"], "bebop");
 }
 
 #[test]

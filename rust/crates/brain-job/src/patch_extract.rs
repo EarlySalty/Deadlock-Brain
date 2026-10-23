@@ -157,7 +157,7 @@ impl PatchExtractor {
                     value: FactValue::Text(change.to_string()),
                     receipt: receipt("raw_content")?,
                 });
-                if row.raw.contains('\n') {
+                if statement_core(row.raw).contains('\n') {
                     current = None;
                 }
             } else {
@@ -186,6 +186,7 @@ impl PatchExtractor {
                             || section(body)
                             || known_heading
                             || subject_prefixed(body))
+                        && !annotation(body)
                 });
             if heading || new_bullet {
                 if let Some((begin, _, position)) = pending.take() {
@@ -221,7 +222,8 @@ impl PatchExtractor {
         row: Segment<'_>,
         current: Option<(&str, usize)>,
     ) -> Option<serde_json::Value> {
-        let mut body = bullet(row.raw)?;
+        let core = statement_core(row.raw);
+        let mut body = bullet(core)?;
         let mut statement = body;
         let mut binding = current;
         if let Some((subject, rest)) = body.split_once(':').or_else(|| body.split_once(" - ")) {
@@ -233,7 +235,7 @@ impl PatchExtractor {
             body = ability_change(statement).unwrap_or(statement);
         }
         let (subject, context) = binding.filter(|_| action_subject(body).is_some())?;
-        if row.raw.lines().skip(1).any(|line| {
+        if core.lines().skip(1).any(|line| {
             !line.trim().is_empty()
                 && (!line.starts_with(char::is_whitespace)
                     || !first_word(bullet(line).unwrap_or(line.trim()))
@@ -261,7 +263,7 @@ impl PatchExtractor {
         }) {
             return None;
         }
-        let values = explicit_values(statement);
+        let values = explicit_values(statement).and(explicit_values(body));
         Some(serde_json::json!({
             "reference": limits::normalize_alias(subject), "subject": subject,
             "statement_index": row.position, "context_index": (context != row.position).then_some(context),
@@ -275,7 +277,7 @@ impl Extractor for PatchExtractor {
         "patchnotes"
     }
     fn version(&self) -> &'static str {
-        "3"
+        "4"
     }
     fn accepts(&self, source: &str, path: &str) -> bool {
         source == SOURCE
@@ -457,6 +459,25 @@ fn structural_heading(body: &str) -> bool {
         && subject
             .chars()
             .all(|ch| ch.is_alphanumeric() || ch.is_whitespace() || "-_'’&".contains(ch))
+}
+
+fn annotation(body: &str) -> bool {
+    body.split_once(':').is_some_and(|(name, _)| {
+        let name = label(name);
+        name.eq_ignore_ascii_case("note") || name.eq_ignore_ascii_case("notes")
+    })
+}
+
+fn statement_core(raw: &str) -> &str {
+    let mut end = 0;
+    for (index, line) in raw.split_inclusive('\n').enumerate() {
+        let text = line.trim_end_matches(['\r', '\n']);
+        if index > 0 && bullet(text).is_some_and(annotation) {
+            break;
+        }
+        end += line.len();
+    }
+    raw[..end].trim_end_matches(['\r', '\n'])
 }
 
 fn subject_prefixed(body: &str) -> bool {
