@@ -54,7 +54,11 @@ WITH terms AS (
         WHERE d.page_id=c.page_id AND d.valid_from_run=c.valid_from_run
             AND d.meta_key=c.meta_key AND d.receipt_id=c.receipt_id AND d.scope=$1
     ) d
-    JOIN serve.published_receipt p ON p.id=d.receipt_id
+    CROSS JOIN LATERAL (
+        SELECT p.ingest_run_id,p.extractor,p.locator_kind,p.locator,p.value_sha256
+        FROM serve.published_receipt p WHERE p.id=d.receipt_id
+        OFFSET 0
+    ) p
     ORDER BY c.rank
     LIMIT $4+1
 )
