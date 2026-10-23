@@ -1,34 +1,44 @@
 # docs-search-fix
 
-Branch `fix/brain-docs-search-20261023`, Basis `179c41d4`.
+Branch `fix/brain-docs-search-20261023`, base `179c41d4`.
 
-## Ursache
+## Root cause
 
-1. `search.sql` nutzte nur `websearch_to_tsquery` mit UND-Semantik. Die Modellanfragen enthalten
-   Synonyme und Füllwörter (z. B. `Steam account mit Discord Server verknüpfen verbinden`), daher
-   passte fast nie ein Abschnitt auf alle Begriffe.
-2. Breitere Treffer liefen in den 500-ms-Guard: `serve.doc_section` prüft pro Kandidatenzeile die
-   Veröffentlichung (~7,6 ms je Zeile). Schon `Steam` (131 Kandidaten) lief in den Timeout.
-3. Befehle stehen als Pfad-Token (`/checkrank`) im Index; ohne Schrägstrich gesucht gab es keinen Treffer.
-4. Die Werkzeugbeschreibung sagte nicht, dass die Doku deutsch ist und was sie abdeckt; das Modell
-   suchte englisch oder gar nicht.
+1. `search.sql` only used `websearch_to_tsquery` with AND semantics. Model queries carry synonyms and
+   filler words (for example `Steam account mit Discord Server verknüpfen verbinden`), so almost no
+   section contained every term.
+2. Broader matches ran into the 500 ms guard: `serve.doc_section` validates publication per candidate
+   row (about 7.6 ms per row). Even `Steam` (131 candidates) timed out.
+3. Commands are indexed as file tokens (`/checkrank`); a search without the slash found nothing.
+4. The `search_docs` description did not say the docs are German or what they cover, so the model
+   searched in English or not at all.
 
-## Änderung
+## Change
 
 - Migration 33 `scripts/migrations/2026-10-23-brain-gamefacts-docs-search-v33.sql`:
-  `serve.doc_section` gibt die Schlüssel aus `canon.doc_search` aus (gleiche Spalten, gleiche Prüfung),
-  damit Schlüssel-Joins über den Primärschlüssel laufen; neue View `serve.doc_search_hit`
-  (nur veröffentlichte Quittungen, jüngster Lauf je Seite, keine Texte) für `brain_tool`/`brain_service`.
-- `search.sql`: strikte Stufe unverändert vorn; nur wenn sie leer ist und die Anfrage keine
-  Operatoren (`-`, `OR`) hat, Rückfall auf Abschnitte mit mindestens zwei Suchbegriffen, inklusive
-  `/befehl`-Variante. Höchstens 12 Kandidaten laufen durch die volle Prüfung von `serve.doc_section`.
-- Werkzeugbeschreibung `search_docs` in `service.rs`.
+  `serve.doc_section` keeps the v24 body and validation, but emits its key columns from
+  `canon.doc_search` so key joins use the primary key. New view `serve.doc_search_hit` exposes, for
+  `brain_tool` and `brain_service`, the keys, scope and both tsvectors of the newest published run per
+  page (rows of unpublished or failed newer runs do not hide the published page). No body text.
+- `search.sql`: the strict websearch tier stays first. Only when it has no hit and the query has no
+  operators (`-`, `OR`, quotes), it falls back to sections that match at least two query words (or the
+  only word), each word also matching its `/command` form. The entity filter runs on the candidates
+  before any limit; full `serve.doc_section` validation runs lazily in rank order and stops after
+  `limit + 1` validated sections, which also yields the exact truncation flag.
+- `search_docs` tool description in `service.rs`.
 
-## Nachweis
+## Known limit (pre-existing)
+
+With any audit rejection or `audited` quarantine row present, `serve.published_receipt` calls
+`serve.receipt_is_published` per receipt, and `serve.doc_page` inside `serve.doc_section` then costs
+about 270 ms per page. A search that validates two or more pages exceeds 500 ms; the original
+`search.sql` fails the same way (`Steam verknüpfen` timed out on the same data). The hit view itself
+stays at about 60 ms in that mode. Fixing it needs a keyed rewrite of `serve.doc_page` or of the P9
+publication check, which is outside this fix.
+
+## Evidence
 
 `/home/nathanael/.local/state/brain-wave2-proof-20261014/docs-search-fix/`
-- Basis (gleicher Build ohne Fix): docs 0/10 (`e1-base-docs.txt`), integriert 1/10.
-- Fix: docs beantwortet 8/10, korrekt 7/10, Zitate 8/8; unanswerable 20/22 wie Basis
-  (`e1-fix-docs-refusal.txt`). Rest: docs-003 Zitat vom Kernel abgelehnt, docs-006 Modell lehnt trotz
-  Treffern ab, docs-010 Antwort ohne erwarteten Begriff. Der Timeout bei unanswerable-006 kommt aus
-  dem Spielwerte-Port, nicht aus der Doku-Suche.
+- Base (same build without the fix): docs 0/10 (`e1-base-docs.txt`), integrated head 1/10.
+- Fix round 0: docs answered 8/10, correct 7/10, citations 8/8; unanswerable 20/22 as the base
+  (`e1-fix-docs-refusal.txt`).

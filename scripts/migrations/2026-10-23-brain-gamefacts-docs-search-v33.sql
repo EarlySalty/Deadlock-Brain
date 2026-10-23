@@ -34,10 +34,15 @@ WHERE (SELECT count(*) FROM generate_series(0,(m.meta->>'chunks')::integer-1) ex
 
 CREATE VIEW serve.doc_search_hit AS
 SELECT s.entity_id AS page_id,s.valid_from_run,s.meta_key,s.receipt_id,s.tsv,s.tsv_german,
-    CASE WHEN p.path LIKE 'public/%' THEN 'public' ELSE 'internal' END AS scope
+    (SELECT CASE WHEN o.path LIKE 'public/%' THEN 'public' ELSE 'internal' END
+        FROM raw.object o WHERE o.id=s.raw_object_id AND o.source='deadlock-docs') AS scope
 FROM canon.doc_search s
-JOIN serve.published_receipt p ON p.id=s.receipt_id AND p.raw_object_id=s.raw_object_id AND p.source='deadlock-docs'
-WHERE s.valid_from_run=(SELECT max(l.valid_from_run) FROM canon.doc_search l WHERE l.entity_id=s.entity_id);
+WHERE EXISTS (SELECT 1 FROM serve.published_receipt p WHERE p.id=s.receipt_id AND p.raw_object_id=s.raw_object_id)
+AND NOT EXISTS (
+    SELECT 1 FROM canon.doc_search newer
+    JOIN serve.published_receipt np ON np.id=newer.receipt_id AND np.raw_object_id=newer.raw_object_id
+    WHERE newer.entity_id=s.entity_id AND newer.valid_from_run>s.valid_from_run
+);
 REVOKE ALL ON serve.doc_search_hit FROM PUBLIC;
 GRANT SELECT ON serve.doc_search_hit TO brain_tool,brain_service;
 
