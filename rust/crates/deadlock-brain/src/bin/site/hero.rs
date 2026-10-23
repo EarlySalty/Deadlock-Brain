@@ -181,6 +181,7 @@ fn label(fact: &Value) -> Option<&str> {
 fn german_label(english: &str) -> Option<&'static str> {
     Some(match english {
         "Burst Damage" => "Salvenschaden",
+        "Grab Range" => "Greifreichweite",
         "Cooldown" => "Abklingzeit",
         "Duration" => "Dauer",
         "Damage" => "Schaden",
