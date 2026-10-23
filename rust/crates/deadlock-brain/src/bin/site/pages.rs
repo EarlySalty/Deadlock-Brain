@@ -44,9 +44,9 @@ pub(super) async fn page(State(site): State<Site>, method: Method, uri: Uri) -> 
     }
     let result: Result<Option<String>> = async {
         let mut tx = profiles::transaction(&site).await?;
-        let available: bool = sqlx::query_scalar("SELECT to_regclass('serve.site_doc_section') IS NOT NULL").fetch_one(&mut *tx).await?;
+        let available: bool = sqlx::query_scalar("SELECT to_regprocedure('serve.site_doc_page(text)') IS NOT NULL").fetch_one(&mut *tx).await?;
         if !available { return Ok(None); }
-        let rows = sqlx::query("SELECT title,body,source_revision,receipt_id::text AS citation FROM serve.site_doc_section WHERE path=$1 ORDER BY ordinal LIMIT 65")
+        let rows = sqlx::query("SELECT title,body,source_revision,receipt_id::text AS citation FROM serve.site_doc_page($1) ORDER BY ordinal LIMIT 65")
             .bind(path).fetch_all(&mut *tx).await?;
         if rows.is_empty() { return Ok(None); }
         ensure!(rows.len() <= 64, "doc_section_limit");

@@ -40,6 +40,9 @@ BEGIN
         GRANT SELECT ON serve.site_doc_section TO brain_site;
         GRANT EXECUTE ON FUNCTION serve.doc_meta(text),serve.doc_tsv(text) TO brain_site;
     END IF;
+    IF to_regprocedure('serve.site_doc_page(text)') IS NOT NULL THEN
+        GRANT EXECUTE ON FUNCTION serve.site_doc_page(text) TO brain_site;
+    END IF;
 END
 $serve$;
 COMMIT;

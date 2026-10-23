@@ -172,6 +172,190 @@ async fn publish_doc(pool: &PgPool, path: &str, version: u16, title: &str, body:
     tx.commit().await.unwrap();
 }
 
+async fn insert_doc_fact(
+    connection: &mut sqlx::PgConnection,
+    entity: i64,
+    run: i64,
+    receipt: i64,
+    key: &str,
+    value: &str,
+) {
+    sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,value_text,valid_from_run,receipt_id) VALUES($1,$2,$3,$4,$5)")
+        .bind(entity)
+        .bind(key)
+        .bind(value)
+        .bind(run)
+        .bind(receipt)
+        .execute(connection)
+        .await
+        .unwrap();
+}
+
+fn corpus_path(page: usize) -> String {
+    let scope = if page < 116 { "public" } else { "internal" };
+    format!("{scope}/korpus/seite-{page}.html")
+}
+
+async fn publish_doc_corpus(pool: &PgPool, pages: usize) -> i64 {
+    let mut tx = pool.begin().await.unwrap();
+    let run: i64 = sqlx::query_scalar(
+        "INSERT INTO ops.ingest_run(source,status) VALUES('deadlock-docs','failed') RETURNING id",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let revision = format!("{:040x}", 0xc0ffee_u32);
+    for page in 0..pages {
+        let path = corpus_path(page);
+        let sections: u32 = match page {
+            42 => 40,
+            0..87 => 6,
+            _ => 5,
+        };
+        let raw: i64 = sqlx::query_scalar("INSERT INTO raw.object(source,revision,path,source_path_sha256,content_sha256,bytes,ingest_run_id) VALUES('deadlock-docs',$1,$2,$3,$4,$5,$6) RETURNING id")
+            .bind(&revision)
+            .bind(&path)
+            .bind(Sha256::digest(path.as_bytes()).to_vec())
+            .bind(Sha256::digest(format!("inhalt:{path}").as_bytes()).to_vec())
+            .bind(b"test".to_vec())
+            .bind(run)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        let identity = doc_receipt(&mut tx, raw, run, false).await;
+        let entity: i64 = sqlx::query_scalar(
+            "INSERT INTO canon.entity(kind,key,receipt_id) VALUES('doc_page',$1,$2) RETURNING id",
+        )
+        .bind(format!("doc_korpus_{page}"))
+        .bind(identity)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO canon.entity_identity(entity_id,receipt_id) VALUES($1,$2)")
+            .bind(entity)
+            .bind(identity)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let title = format!("Korpusseite {page}");
+        for (key, value) in [
+            ("doc_path", path.as_str()),
+            ("doc_title", title.as_str()),
+            ("doc_lang", "de"),
+        ] {
+            let receipt = doc_receipt(&mut tx, raw, run, false).await;
+            insert_doc_fact(&mut tx, entity, run, receipt, key, value).await;
+        }
+        for ordinal in 0..sections {
+            let prefix = if ordinal == 0 {
+                "doc_intro".to_owned()
+            } else {
+                format!("doc_section_{ordinal}")
+            };
+            let meta = json!({"ordinal":ordinal,"locator":format!("abschnitt-{ordinal}"),"heading_path":[title.clone(),format!("Abschnitt {ordinal}")],"line_start":ordinal+1,"line_end":ordinal+1,"chunks":1}).to_string();
+            let body =
+                format!("Seite {page} Abschnitt {ordinal}: Seelen, Items und Helden im Überblick.");
+            let receipt = doc_receipt(&mut tx, raw, run, true).await;
+            insert_doc_fact(
+                &mut tx,
+                entity,
+                run,
+                receipt,
+                &format!("{prefix}_meta"),
+                &meta,
+            )
+            .await;
+            let receipt = doc_receipt(&mut tx, raw, run, true).await;
+            insert_doc_fact(
+                &mut tx,
+                entity,
+                run,
+                receipt,
+                &format!("{prefix}_body_0"),
+                &body,
+            )
+            .await;
+        }
+        let count = doc_receipt(&mut tx, raw, run, false).await;
+        sqlx::query("INSERT INTO canon.fact(entity_id,stat_key,value_num,valid_from_run,receipt_id) VALUES($1,'doc_section_count',$2,$3,$4)")
+            .bind(entity)
+            .bind(f64::from(sections))
+            .bind(run)
+            .bind(count)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    sqlx::query("UPDATE ops.ingest_run SET status='succeeded',finished=clock_timestamp() WHERE id=$1 AND status='failed'")
+        .bind(run)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    run
+}
+
+async fn audit_doc_corpus(pool: &PgPool, run: i64, rejected_path: &str) {
+    let audit: i64 =
+        sqlx::query_scalar("INSERT INTO ops.receipt_audit_run DEFAULT VALUES RETURNING id")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO ops.receipt_audit(run_id,receipt_id,outcome,observed_value_sha256) SELECT $1,f.receipt_id,'match',sha256('match'::bytea) FROM canon.fact f JOIN canon.receipt r ON r.id=f.receipt_id WHERE r.ingest_run_id=$2 AND f.value_text IS DISTINCT FROM $3 ORDER BY f.receipt_id LIMIT 199")
+        .bind(audit)
+        .bind(run)
+        .bind(rejected_path)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO ops.receipt_audit(run_id,receipt_id,outcome,observed_value_sha256) SELECT $1,f.receipt_id,'mismatch',sha256('mismatch'::bytea) FROM canon.fact f JOIN canon.receipt r ON r.id=f.receipt_id WHERE r.ingest_run_id=$2 AND f.stat_key='doc_path' AND f.value_text=$3")
+        .bind(audit)
+        .bind(run)
+        .bind(rejected_path)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+const SITE_DOC_PAGE: &str = "SELECT title,body,source_revision,receipt_id::text AS citation FROM serve.site_doc_page($1) ORDER BY ordinal LIMIT 65";
+
+async fn site_doc_lookup_ms(site: &PgPool, path: &str) -> (f64, f64, f64) {
+    let mut tx = site.begin().await.unwrap();
+    sqlx::query("SET LOCAL statement_timeout='500ms'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let plan: Value =
+        sqlx::query_scalar(&format!("EXPLAIN (ANALYZE, FORMAT JSON) {SITE_DOC_PAGE}"))
+            .bind(path)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    let started = std::time::Instant::now();
+    let rows = sqlx::query(SITE_DOC_PAGE)
+        .bind(path)
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+    let wall = started.elapsed().as_secs_f64() * 1000.0;
+    assert_eq!(rows.len(), 40);
+    tx.commit().await.unwrap();
+    (
+        plan[0]["Planning Time"].as_f64().unwrap(),
+        plan[0]["Execution Time"].as_f64().unwrap(),
+        wall,
+    )
+}
+
+async fn explain(pool: &PgPool, sql: &str, path: &str) -> String {
+    let lines: Vec<String> = sqlx::query_scalar(&format!("EXPLAIN (ANALYZE, BUFFERS) {sql}"))
+        .bind(path)
+        .fetch_all(pool)
+        .await
+        .unwrap();
+    format!("{}\n", lines.join("\n"))
+}
+
 #[tokio::test]
 async fn published_site_contract_and_baba_visual_proof() {
     let pg = scratch_pg::ScratchPg::start();
@@ -235,6 +419,7 @@ async fn published_site_contract_and_baba_visual_proof() {
     assert!(database::preflight(&old_site).await.is_err());
     old_site.close().await;
     sqlx::raw_sql(&role_sql).execute(&admin).await.unwrap();
+
     let site = PgPoolOptions::new()
         .max_connections(4)
         .connect_with(options.username("brain_site"))
@@ -254,10 +439,11 @@ async fn published_site_contract_and_baba_visual_proof() {
     ] {
         assert!(sqlx::query(sql).execute(&site).await.is_err(), "{sql}");
     }
+    let site_server = site.clone();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let handle = tokio::spawn(async move {
-        axum::serve(listener, router(site)).await.unwrap();
+        axum::serve(listener, router(site_server)).await.unwrap();
     });
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -402,6 +588,110 @@ async fn published_site_contract_and_baba_visual_proof() {
             .status(),
         StatusCode::NOT_FOUND
     );
+    let corpus_run = publish_doc_corpus(&admin, 181).await;
+    let rejected = corpus_path(1);
+    audit_doc_corpus(&admin, corpus_run, &rejected).await;
+    sqlx::query("ANALYZE").execute(&admin).await.unwrap();
+    let scopes: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT scope,count(*) FROM serve.doc_section GROUP BY scope ORDER BY scope",
+    )
+    .fetch_all(&admin)
+    .await
+    .unwrap();
+    assert!(
+        scopes.iter().map(|(_, count)| count).sum::<i64>() >= 1020,
+        "{scopes:?}"
+    );
+    let quarantined: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM canon.receipt_quarantine WHERE cause='audited'")
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+    assert!(quarantined >= 1);
+    let target = corpus_path(42);
+    let mut timings = Vec::new();
+    for _ in 0..3 {
+        let (planning, execution, wall) = site_doc_lookup_ms(&site, &target).await;
+        assert!(planning + execution < 100.0, "{planning} {execution}");
+        assert!(wall < 100.0, "{wall}");
+        timings.push(format!(
+            "planning_ms={planning:.3} execution_ms={execution:.3} fetch_wall_ms={wall:.3}"
+        ));
+    }
+    let started = std::time::Instant::now();
+    let page = client
+        .get(format!("{url}/site/{target}"))
+        .send()
+        .await
+        .unwrap();
+    let http_ms = started.elapsed().as_secs_f64() * 1000.0;
+    assert_eq!(page.status(), StatusCode::OK);
+    let page = page.text().await.unwrap();
+    assert_eq!(page.matches("<article>").count(), 40);
+    assert!(page.contains("Seite 42 Abschnitt 39"));
+    for path in [
+        format!("/site/{rejected}"),
+        format!("/site/{}", corpus_path(150)),
+        "/site/public/korpus/unbekannt.html".to_owned(),
+    ] {
+        assert_eq!(
+            client
+                .get(format!("{url}{path}"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND,
+            "{path}"
+        );
+    }
+    let internal_sections: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM serve.doc_section WHERE path=$1")
+            .bind(corpus_path(150))
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+    assert_eq!(internal_sections, 5);
+    let hidden_sections: i64 = sqlx::query_scalar("SELECT count(*) FROM serve.site_doc_page($1)")
+        .bind(corpus_path(150))
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+    assert_eq!(hidden_sections, 0);
+    let (view_rows, missing, extra): (i64, i64, i64) = sqlx::query_as(
+        "WITH legacy AS MATERIALIZED (
+            SELECT path,title::text,body::text,source_revision::text,receipt_id,ordinal FROM serve.site_doc_section
+        ), keyed AS MATERIALIZED (
+            SELECT p.path,x.title,x.body,x.source_revision,x.receipt_id,x.ordinal
+            FROM (SELECT DISTINCT value_text::text AS path FROM canon.fact WHERE stat_key='doc_path') p
+            CROSS JOIN LATERAL serve.site_doc_page(p.path) x
+        )
+        SELECT (SELECT count(*) FROM legacy),
+            (SELECT count(*) FROM (SELECT * FROM legacy EXCEPT ALL SELECT * FROM keyed) d),
+            (SELECT count(*) FROM (SELECT * FROM keyed EXCEPT ALL SELECT * FROM legacy) d)",
+    )
+    .fetch_one(&admin)
+    .await
+    .unwrap();
+    assert!(view_rows >= 690, "{view_rows}");
+    assert_eq!((missing, extra), (0, 0));
+    if let Some(directory) = std::env::var_os("BRAIN_SITE_DOC_PROOF_DIR") {
+        let directory = PathBuf::from(directory);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join("legacy-view-explain.txt"),
+            explain(&admin, "SELECT title,body,source_revision,receipt_id::text AS citation FROM serve.site_doc_section WHERE path=$1 ORDER BY ordinal LIMIT 65", &target).await,
+        )
+        .unwrap();
+        fs::write(
+            directory.join("timings.txt"),
+            format!(
+                "sections_by_scope={scopes:?}\naudited_quarantine={quarantined}\nequivalence_view_rows={view_rows} missing={missing} extra={extra}\ntarget_sections=40\n{}\nhttp_page_ms={http_ms:.3}\n",
+                timings.join("\n")
+            ),
+        )
+        .unwrap();
+    }
     if let Some(directory) = std::env::var_os("BRAIN_P7_PROOF_DIR") {
         let directory = PathBuf::from(directory);
         fs::create_dir_all(&directory).unwrap();
