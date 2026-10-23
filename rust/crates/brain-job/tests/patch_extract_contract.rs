@@ -265,35 +265,42 @@ fn identity(set: &FactSet) -> (&str, &str, &str) {
 }
 
 #[test]
-fn official_update_thread_replies_become_ordered_hotfixes_with_canonical_urls() {
+fn official_update_thread_posts_get_unique_dated_labels_and_canonical_urls() {
     for (title, url, posted_at, label, canonical) in [
         (
             "11-21-2025 Update",
             "https://forums.playdeadlock.com/posts/172057/",
             "2025-11-23T17:11:20.000000Z",
-            "11-21-2025 Update Hotfix 2025-11-23 (Post 172057)",
+            "11-21-2025 Update (Post 172057, 2025-11-23)",
             "https://forums.playdeadlock.com/posts/172057/",
         ),
         (
             "09-29-2026",
             "https://forums.playdeadlock.com/posts/330973",
             "2026-10-15T03:12:00.000000Z",
-            "09-29-2026 Hotfix 2026-10-15 (Post 330973)",
+            "09-29-2026 (Post 330973, 2026-10-15)",
             "https://forums.playdeadlock.com/posts/330973/",
         ),
         (
             "12-29-2025 Update",
             "https://forums.playdeadlock.com/posts/180519/",
             "2025-12-30T06:33:52.000000Z",
-            "12-29-2025 Update",
+            "12-29-2025 Update (Post 180519, 2025-12-30)",
             "https://forums.playdeadlock.com/posts/180519/",
         ),
         (
             "03-06-2026 Update",
             "https://forums.playdeadlock.com/threads/03-06-2026-update.114328/#post-216766",
             "2026-03-06T21:37:48.000000Z",
-            "03-06-2026 Update",
+            "03-06-2026 Update (Post 216766, 2026-03-06)",
             "https://forums.playdeadlock.com/posts/216766/",
+        ),
+        (
+            "03-06-2026 Update",
+            "https://forums.playdeadlock.com/threads/03-06-2026-update.114328/page-2#post-217001",
+            "2026-03-08T10:00:00.000000Z",
+            "03-06-2026 Update (Post 217001, 2026-03-08)",
+            "https://forums.playdeadlock.com/posts/217001/",
         ),
     ] {
         let bytes = forum_post(title, url, posted_at);
@@ -307,66 +314,83 @@ fn official_update_thread_replies_become_ordered_hotfixes_with_canonical_urls() 
 
 #[test]
 fn forum_replies_outside_official_update_threads_stay_untrusted() {
-    for (title, url, posted_at) in [
+    for (title, url, posted_at, code) in [
         (
             "General Discussion",
             "https://forums.playdeadlock.com/posts/172057/",
             "2025-11-23T17:11:20Z",
+            "unofficial_thread",
         ),
         (
             "Re: 11-21-2025 Update",
             "https://forums.playdeadlock.com/posts/172057/",
             "2025-11-23T17:11:20Z",
+            "unofficial_thread",
         ),
         (
             "11-21-2025 Update feedback",
             "https://forums.playdeadlock.com/posts/172057/",
             "2025-11-23T17:11:20Z",
+            "unofficial_thread",
         ),
         (
             "13-40-2025 Update",
             "https://forums.playdeadlock.com/posts/172057/",
             "2025-11-23T17:11:20Z",
+            "unofficial_thread",
         ),
         (
             "11-21-2025 Update",
             "https://forums.playdeadlock.com/posts/172057/",
             "2025-11-20T23:59:59Z",
+            "post_before_thread",
         ),
         (
             "03-06-2026 Update",
             "https://forums.playdeadlock.com/threads/hero-feedback.114328/#post-216766",
             "2026-03-06T21:37:48Z",
+            "unofficial_thread",
+        ),
+        (
+            "03-06-2026 Update",
+            "https://forums.playdeadlock.com/threads/03-06-2026-update.114328/page-0#post-216766",
+            "2026-03-06T21:37:48Z",
+            "untrusted_origin",
         ),
         (
             "11-21-2025 Update",
             "https://forums.playdeadlock.com/posts/172057/?page=2",
             "2025-11-23T17:11:20Z",
+            "untrusted_origin",
         ),
         (
             "11-21-2025 Update",
             "https://forums.playdeadlock.com/posts/0/",
             "2025-11-23T17:11:20Z",
+            "untrusted_origin",
         ),
         (
             "11-21-2025 Update",
             "http://forums.playdeadlock.com/posts/172057/",
             "2025-11-23T17:11:20Z",
+            "untrusted_origin",
         ),
         (
             "11-21-2025 Update",
             "https://forums.playdeadlock.com.evil.test/posts/172057/",
             "2025-11-23T17:11:20Z",
+            "untrusted_origin",
         ),
         (
             "11-21-2025 Update",
             "https://steamcommunity.com/posts/172057/",
             "2025-11-23T17:11:20Z",
+            "untrusted_origin",
         ),
     ] {
         assert_eq!(
             reject("42", &forum_post(title, url, posted_at)),
-            "untrusted_origin",
+            code,
             "{title} {url} {posted_at}"
         );
     }

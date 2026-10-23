@@ -5,7 +5,7 @@ use crate::{
     limits, Entity, Extractor, Fact, FactSet, FactValue, Outcome, RawObject, Receipt, Rejection,
 };
 use brain_storage::gamefacts::receipts;
-use chrono::{DateTime, NaiveDate, TimeDelta, Utc};
+use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
@@ -80,7 +80,7 @@ impl PatchExtractor {
         let thread_day = match origin {
             Origin::Announcement => None,
             Origin::ForumPost { thread_slug, .. } => {
-                Some(update_thread_day(&title, thread_slug).ok_or("untrusted_origin")?)
+                Some(update_thread_day(&title, thread_slug).ok_or("unofficial_thread")?)
             }
         };
         let date: Option<String> =
@@ -298,7 +298,6 @@ impl Extractor for PatchExtractor {
     }
 }
 const FORUM: &str = "https://forums.playdeadlock.com";
-const PRIMARY_POST_WINDOW_HOURS: i64 = 32;
 
 #[derive(Clone, Copy)]
 enum Origin<'a> {
@@ -339,7 +338,12 @@ fn forum_post(value: &str) -> Option<Origin<'_>> {
     let (thread, post_id) = value
         .strip_prefix("https://forums.playdeadlock.com/threads/")?
         .split_once("#post-")?;
-    let slug = thread_slug(thread.strip_suffix('/').unwrap_or(thread))?;
+    let thread = thread.strip_suffix('/').unwrap_or(thread);
+    let thread = match thread.rsplit_once("/page-") {
+        Some((head, page)) if decimal_id(page) => head,
+        _ => thread,
+    };
+    let slug = thread_slug(thread)?;
     decimal_id(post_id).then_some(Origin::ForumPost {
         post_id,
         thread_slug: Some(slug),
@@ -381,19 +385,11 @@ fn forum_post_identity(
     day: NaiveDate,
     posted: DateTime<Utc>,
 ) -> Result<(String, String), &'static str> {
-    let opened = day.and_time(chrono::NaiveTime::MIN).and_utc();
-    if posted < opened {
-        return Err("untrusted_origin");
+    if posted < day.and_time(NaiveTime::MIN).and_utc() {
+        return Err("post_before_thread");
     }
-    let url = format!("{FORUM}/posts/{post_id}/");
-    if posted < opened + TimeDelta::hours(PRIMARY_POST_WINDOW_HOURS) {
-        return Ok((title.to_owned(), url));
-    }
-    let label = format!(
-        "{title} Hotfix {} (Post {post_id})",
-        posted.format("%Y-%m-%d")
-    );
-    Ok((label, url))
+    let label = format!("{title} (Post {post_id}, {})", posted.format("%Y-%m-%d"));
+    Ok((label, format!("{FORUM}/posts/{post_id}/")))
 }
 
 fn decimal_id(value: &str) -> bool {
