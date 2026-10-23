@@ -1370,5 +1370,74 @@ fn audited_publication_keeps_gamefacts_lookups_within_statement_budget() {
     });
 }
 
+#[test]
+fn tool_queries_run_under_production_public_schema_revoke() {
+    let pg = scratch_pg::ScratchPg::start();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let options = PgConnectOptions::new_without_pgpass()
+        .host(&pg.directory.join("socket").to_string_lossy())
+        .port(55439)
+        .username("brain_core_test")
+        .database("postgres")
+        .password("");
+    let (admin, pool, baba) = runtime.block_on(async {
+        let admin = sqlx::postgres::PgPoolOptions::new().max_connections(2)
+            .connect_with(options.clone()).await.unwrap();
+        sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; REVOKE ALL ON SCHEMA public FROM PUBLIC; ALTER SCHEMA public OWNER TO brain_migrate")
+            .execute(&admin).await.unwrap();
+        brain_storage::PgStore::new(admin.clone()).migrate_gamefacts().await.unwrap();
+        let baba = publish(&admin, "Baba", "hero_baba", "r1", false).await;
+        timers::publish_timer(&admin, "timer-r1", false).await;
+        let privileges: Vec<(String, bool, bool)> = sqlx::query_as("SELECT r.rolname::text,has_schema_privilege(r.oid,'public','USAGE'),has_schema_privilege(r.oid,'public','CREATE') FROM pg_roles r WHERE r.rolname IN ('brain_tool','brain_readonly','brain_service','brain_ingest') ORDER BY r.rolname")
+            .fetch_all(&admin).await.unwrap();
+        assert_eq!(privileges, vec![
+            ("brain_ingest".into(), false, false),
+            ("brain_readonly".into(), false, false),
+            ("brain_service".into(), false, false),
+            ("brain_tool".into(), true, false),
+        ]);
+        let mut writer = admin.begin().await.unwrap();
+        sqlx::query("SET LOCAL ROLE brain_tool").execute(&mut *writer).await.unwrap();
+        let created = sqlx::query("CREATE TABLE public.brain_tool_probe(id int)").execute(&mut *writer).await;
+        assert!(created.unwrap_err().to_string().contains("permission denied for schema public"));
+        writer.rollback().await.unwrap();
+        let pool = tool_pool(options.username("brain_readonly"), Duration::from_secs(2));
+        for sql in [EXACT, FUZZY] {
+            assert_eq!(lookup_entities(&pool, sql, "baba").await, vec![(baba, "baba".into())]);
+        }
+        assert_eq!(lookup_entities(&pool, FUZZY, "babaa").await, vec![(baba, "baba".into())]);
+        let timer_sql = include_str!("timer_query.sql").trim().trim_end_matches(';').to_owned();
+        let timer: Vec<Value> = sqlx::query_scalar(&timer_sql).bind("rejuvenator").fetch_all(&pool).await.unwrap();
+        assert_eq!(timer.len(), 2);
+        sqlx::query(&patch_sql("CURRENT")).fetch_all(&pool).await.unwrap();
+        sqlx::query(&patch_sql("RESOLVE")).bind("2026-01-01").fetch_all(&pool).await.unwrap();
+        sqlx::query(&patch_sql("CHANGES")).bind(baba).bind(None::<i64>).bind(None::<String>).bind(None::<String>).fetch_all(&pool).await.unwrap();
+        sqlx::query(include_str!("pg_docs/search.sql")).bind("public").bind("Baba Schaden").bind(None::<i64>).bind(5_i64).fetch_all(&pool).await.unwrap();
+        sqlx::query(include_str!("meta_stats_identity.sql")).bind(baba).bind("hero").fetch_all(&pool).await.unwrap();
+        sqlx::query(meta_stats_tools::QUERY).bind("meta_hero_stats").bind("hero_1").fetch_all(&pool).await.unwrap();
+        (admin, pool, baba)
+    });
+    let tools = PgTools::new(Delegate, pool.clone(), runtime.handle().clone());
+    let fuzzy = tools
+        .execute(
+            &query(),
+            &context(),
+            None,
+            "fuzzy",
+            &request(ToolName::FindEntity, json!({"text":"Babaa"})),
+        )
+        .unwrap();
+    assert!(!fuzzy.result.is_error, "{}", fuzzy.result.result);
+    assert_eq!(fuzzy.result.result["match"], "suggestion");
+    assert_eq!(fuzzy.result.result["entities"][0]["entity_id"], baba);
+    runtime.block_on(async {
+        pool.close().await;
+        admin.close().await;
+    });
+}
+
 #[path = "meta_stats_pg_tests.rs"]
 mod meta_stats;
