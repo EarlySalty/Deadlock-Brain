@@ -336,7 +336,7 @@ pub struct PatchHistoryRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CanonicalPatchHistoryRequest {
-    pub entity: u64,
+    pub entity: Option<u64>,
     pub since: Option<String>,
     pub until: Option<String>,
     pub limit: Option<usize>,
@@ -345,9 +345,9 @@ pub struct CanonicalPatchHistoryRequest {
 pub fn canonical_patch_history_definition() -> ToolDefinition {
     ToolDefinition {
         name: ToolName::PatchHistory,
-        description: "Liest belegte offizielle Patchänderungen für die positive kanonische entity_id aus find_entity, keine ältere Spiel-ID. Ohne Zeitraum gilt nur der chronologisch neueste offizielle Patch, nicht der letzte Patch mit einer Änderung dieser Entität. since und until sind inklusive Patchlabels oder exakte Veröffentlichungszeitpunkte mit Zeitzone. Mehrdeutige Labels werden abgewiesen. Höchstens 20 vollständige Änderungszeilen. Eine leere Änderungsliste beweist keinen unveränderten Spielwert. Jede citation verweist auf den Beleg im offiziellen Rohobjekt. Fehlende oder abgeschnittene Zeilen nicht ergänzen.".into(),
+        description: "Liest belegte offizielle Patchänderungen. entity ist optional und ist dann die positive kanonische entity_id aus find_entity, keine ältere Spiel-ID. Ohne entity liefert das Werkzeug die Änderungen aller Entitäten, etwa für die Frage, was im neuesten Patch geändert wurde. Ohne Zeitraum gilt nur der chronologisch neueste offizielle Patch mit belegten Änderungszeilen, nicht der letzte Patch mit einer Änderung dieser Entität. since und until sind inklusive Patchlabels oder exakte Veröffentlichungszeitpunkte mit Zeitzone. Mehrdeutige Labels werden abgewiesen. Höchstens 20 vollständige Änderungszeilen. Eine leere Änderungsliste beweist keinen unveränderten Spielwert. Jede citation verweist auf den Beleg im offiziellen Rohobjekt. Fehlende oder abgeschnittene Zeilen nicht ergänzen.".into(),
         input_schema: serde_json::json!({
-            "type":"object","additionalProperties":false,"required":["entity"],
+            "type":"object","additionalProperties":false,
             "properties":{
                 "entity":{"type":"integer","minimum":1,"maximum":i64::MAX},
                 "since":{"type":"string","minLength":1,"maxLength":128},
@@ -556,7 +556,7 @@ impl ToolSubrequest {
             ToolName::DamageCalculate => {
                 serde_json::from_value(arguments.clone()).map(Self::DamageCalculate)
             }
-            ToolName::PatchHistory if arguments["entity"].is_number() => {
+            ToolName::PatchHistory if arguments.get("entity").is_none_or(Value::is_number) => {
                 serde_json::from_value(arguments.clone()).map(Self::CanonicalPatchHistory)
             }
             ToolName::PatchHistory => {
@@ -618,7 +618,9 @@ impl ToolSubrequest {
                 request.scenario.validate()
             }
             Self::CanonicalPatchHistory(request) => {
-                validate_numeric_id(request.entity)?;
+                if let Some(entity) = request.entity {
+                    validate_numeric_id(entity)?;
+                }
                 for patch in request.since.iter().chain(&request.until) {
                     if patch.trim().is_empty()
                         || patch.len() > 128

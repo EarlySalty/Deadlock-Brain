@@ -38,10 +38,22 @@ fn numeric_canonical_ids_and_legacy_objects_have_distinct_requests() {
     assert_eq!(
         request.subrequest(),
         &ToolSubrequest::CanonicalPatchHistory(CanonicalPatchHistoryRequest {
-            entity: 1,
+            entity: Some(1),
             since: None,
             until: None,
             limit: None,
+        })
+    );
+    let request = call(json!({"limit":5}))
+        .validate(std::slice::from_ref(&definition))
+        .unwrap();
+    assert_eq!(
+        request.subrequest(),
+        &ToolSubrequest::CanonicalPatchHistory(CanonicalPatchHistoryRequest {
+            entity: None,
+            since: None,
+            until: None,
+            limit: Some(5),
         })
     );
     for limit in [1, 20] {
@@ -53,7 +65,7 @@ fn numeric_canonical_ids_and_legacy_objects_have_distinct_requests() {
         assert_eq!(
             request.subrequest(),
             &ToolSubrequest::CanonicalPatchHistory(CanonicalPatchHistoryRequest {
-                entity: i64::MAX as u64,
+                entity: Some(i64::MAX as u64),
                 since: Some("ä".repeat(64)),
                 until: Some("2026-10-01".into()),
                 limit: Some(limit),
@@ -80,7 +92,6 @@ fn numeric_canonical_ids_and_legacy_objects_have_distinct_requests() {
 fn canonical_bounds_missing_ids_and_mixed_modes_are_rejected() {
     let definition = canonical_patch_history_definition();
     for arguments in [
-        json!({}),
         json!({"entity":0}),
         json!({"entity":-1}),
         json!({"entity":1.5}),

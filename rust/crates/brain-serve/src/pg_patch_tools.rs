@@ -16,7 +16,10 @@ const CURRENT: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
     'released_at',released_at,'official_url',official_url,'head_citation',official_receipt_id::text,
     'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
     'url_citation',url_receipt_id::text)
-    FROM serve.p4_patch_catalog ORDER BY released_at DESC,patch_id DESC LIMIT 1";
+    FROM serve.p4_patch_catalog c
+    WHERE EXISTS(SELECT 1 FROM serve.current_fact f WHERE f.entity_id=c.patch_id
+        AND f.stat_key COLLATE \"C\" >= 'patch_change_r' AND f.stat_key COLLATE \"C\" < 'patch_change_s')
+    ORDER BY released_at DESC,patch_id DESC LIMIT 1";
 const RESOLVE: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
     'released_at',released_at,'official_url',official_url,'head_citation',official_receipt_id::text,
     'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
@@ -28,9 +31,9 @@ const RESOLVE: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
     ORDER BY released_at DESC,patch_id DESC LIMIT 2";
 const CHANGES: &str = "WITH selected AS MATERIALIZED (
         SELECT * FROM serve.p4_patch_change
-        WHERE entity_id=$1 AND ($2::bigint IS NULL OR patch_id=$2)
-            AND (NOT EXISTS(SELECT 1 FROM serve.current_entity h WHERE h.id=$1 AND h.kind='hero')
-                OR serve.hero_is_playable($1))
+        WHERE ($1::bigint IS NULL OR entity_id=$1) AND ($2::bigint IS NULL OR patch_id=$2)
+            AND (NOT EXISTS(SELECT 1 FROM serve.current_entity h WHERE h.id=entity_id AND h.kind='hero')
+                OR serve.hero_is_playable(entity_id))
     ) SELECT jsonb_build_object('id',c.change_id,'entity_id',c.entity_id,
     'stat_key',c.stat_key,'old',c.old_value,'new',c.new_value,'change_kind',c.change_kind,
     'line_text',c.line_text,'subject',c.subject,'statement_index',c.statement_index,
@@ -85,7 +88,18 @@ pub async fn execute_patch_history(
     let ToolSubrequest::CanonicalPatchHistory(history) = request.subrequest() else {
         return Err(invalid());
     };
-    let budget = context.remaining_time()?.min(Duration::from_millis(500));
+    let (budget, statement_timeout) = if history.entity.is_some() {
+        (
+            Duration::from_millis(500),
+            "SET LOCAL statement_timeout = '500ms'",
+        )
+    } else {
+        (
+            Duration::from_millis(2_500),
+            "SET LOCAL statement_timeout = '2000ms'",
+        )
+    };
+    let budget = context.remaining_time()?.min(budget);
     let execution = tokio::time::timeout(budget, async {
         let mut connection = pool.acquire().await.map_err(database_error)?;
         let mut transaction = connection.begin().await.map_err(database_error)?;
@@ -93,7 +107,7 @@ pub async fn execute_patch_history(
             .execute(&mut *transaction)
             .await
             .map_err(database_error)?;
-        sqlx::query("SET LOCAL statement_timeout = '500ms'")
+        sqlx::query(statement_timeout)
             .execute(&mut *transaction)
             .await
             .map_err(database_error)?;
@@ -264,7 +278,10 @@ async fn history_execution(
             return Ok(error_execution(id, request.name(), "patch_range_reversed"));
         }
     }
-    let entity = i64::try_from(history.entity).map_err(|_| invalid())?;
+    let entity = history
+        .entity
+        .map(|entity| i64::try_from(entity).map_err(|_| invalid()))
+        .transpose()?;
     let patch_id = if ranged {
         None
     } else {
