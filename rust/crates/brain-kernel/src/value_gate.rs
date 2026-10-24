@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) struct ValueLedger {
     values: BTreeMap<String, BTreeSet<String>>,
     labels: BTreeMap<String, BTreeSet<String>>,
+    names: BTreeMap<String, BTreeSet<String>>,
 }
 
 fn patch_labels(key: &str, value: &Value) -> Vec<String> {
@@ -26,20 +27,51 @@ fn patch_labels(key: &str, value: &Value) -> Vec<String> {
         .collect()
 }
 
-fn name_tokens(text: &str) -> impl Iterator<Item = String> + '_ {
-    text.split(|character: char| !character.is_ascii_alphanumeric())
-        .filter(|token| {
-            let bytes = token.as_bytes();
-            bytes
-                .windows(2)
-                .any(|pair| pair[0].is_ascii_alphabetic() && pair[1].is_ascii_digit())
-                || bytes.windows(3).any(|triple| {
-                    triple[0].is_ascii_digit()
-                        && triple[1].is_ascii_uppercase()
-                        && triple[2].is_ascii_uppercase()
-                })
+const NAME_FIELDS: [&str; 5] = ["line_text", "name", "label", "text", "title"];
+
+fn is_name(token: &str) -> bool {
+    let bytes = token.as_bytes();
+    bytes
+        .windows(2)
+        .any(|pair| pair[0].is_ascii_alphabetic() && pair[1].is_ascii_digit())
+        || bytes.windows(3).any(|triple| {
+            triple[0].is_ascii_digit()
+                && triple[1].is_ascii_uppercase()
+                && triple[2].is_ascii_uppercase()
         })
-        .map(str::to_owned)
+}
+
+fn touches_number(bytes: &[u8], start: usize, end: usize) -> bool {
+    let separator = |byte: &u8| matches!(byte, b'.' | b',' | b'-' | b'+');
+    let before = start.checked_sub(1).and_then(|index| bytes.get(index));
+    let signed = bytes[start].is_ascii_digit() && before.is_some_and(separator);
+    let glued_before = before.is_some_and(separator)
+        && start
+            .checked_sub(2)
+            .and_then(|index| bytes.get(index))
+            .is_some_and(u8::is_ascii_digit);
+    let glued_after =
+        bytes.get(end).is_some_and(separator) && bytes.get(end + 1).is_some_and(u8::is_ascii_digit);
+    signed || glued_before || glued_after
+}
+
+fn name_spans(text: &str) -> Vec<std::ops::Range<usize>> {
+    let bytes = text.as_bytes();
+    let mut start = None;
+    let mut spans = Vec::new();
+    for (index, character) in text.char_indices().chain([(text.len(), ' ')]) {
+        match (start, character.is_alphanumeric()) {
+            (None, true) => start = Some(index),
+            (Some(from), false) => {
+                if is_name(&text[from..index]) && !touches_number(bytes, from, index) {
+                    spans.extend(std::iter::once(from..index));
+                }
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    spans
 }
 
 fn normalize(text: &str) -> Option<String> {
@@ -144,6 +176,15 @@ impl ValueLedger {
                 }
                 if let Some(id) = citation {
                     self.values.entry(id.into()).or_default();
+                    let names = NAME_FIELDS
+                        .iter()
+                        .filter_map(|key| fields.get(*key).and_then(Value::as_str))
+                        .flat_map(|text| {
+                            name_spans(text)
+                                .into_iter()
+                                .map(|span| text[span].to_owned())
+                        });
+                    self.names.entry(id.into()).or_default().extend(names);
                 }
                 for (key, value) in fields {
                     if !matches!(
@@ -175,10 +216,6 @@ impl ValueLedger {
                         .entry(id.into())
                         .or_default()
                         .extend(numbers(text));
-                    self.labels
-                        .entry(id.into())
-                        .or_default()
-                        .extend(name_tokens(text));
                 }
             }
             _ => {}
@@ -211,6 +248,21 @@ impl ValueLedger {
         let text = labels.into_iter().fold(answer.text.clone(), |text, label| {
             text.replace(label.as_str(), " ")
         });
+        let names: BTreeSet<&str> = answer
+            .cited_evidence_ids
+            .iter()
+            .filter_map(|id| self.names.get(id))
+            .flatten()
+            .map(String::as_str)
+            .collect();
+        let text = name_spans(&text)
+            .into_iter()
+            .rev()
+            .filter(|span| names.contains(&text[span.clone()]))
+            .fold(text.clone(), |mut text, span| {
+                text.replace_range(span, " ");
+                text
+            });
         numbers(&text).iter().all(|value| covered.contains(value))
     }
 }
@@ -345,9 +397,43 @@ mod tests {
         assert!(!ledger.accepts(&named("Chimera Mk2: Slow um 15% verringert.", &[15])));
         assert!(!ledger.accepts(&named("Chimera Mk1: Slow um 16% verringert.", &[15])));
         assert!(!ledger.accepts(&named("Abklingzeit 25s.", &[])));
+        assert!(!ledger.accepts(&named("Chimera XMk1: Slow um 15% verringert.", &[15])));
+        assert!(!ledger.accepts(&named("Chimera Mk11: Slow um 15% verringert.", &[15])));
         let mut uncited = named("Chimera Mk1.", &[]);
         uncited.cited_evidence_ids = vec!["other".into()];
         assert!(!ledger.accepts(&uncited));
+    }
+
+    #[test]
+    fn names_glued_to_numbers_stay_numbers() {
+        let mut ledger = ValueLedger::default();
+        ledger.insert(&ToolResult { call_id: "patch".into(), name: ToolName::PatchHistory,
+            result: json!({"changes":[{"citation":"line","line_text":"Spirit x1.5, Scale x2,5, Burst 1.5AP, Drain -50HP, Lvl1-3","released_at":"2026-10-15T03:12:00+00:00"}]}),
+            evidence_ids: vec!["line".into()], is_error: false });
+        let named = |text: &str, values: &[f64]| ProviderAnswer {
+            text: text.into(),
+            cited_evidence_ids: vec!["line".into()],
+            claims: values
+                .iter()
+                .filter_map(|value| serde_json::Number::from_f64(*value))
+                .map(|value| NumericClaim {
+                    citation_id: "line".into(),
+                    value,
+                    unit: None,
+                })
+                .collect(),
+            usage: Usage::default(),
+        };
+        assert!(!ledger.accepts(&named("Skalierung x1", &[])));
+        assert!(!ledger.accepts(&named("Skalierung x2", &[])));
+        assert!(!ledger.accepts(&named("Burst 5AP", &[])));
+        assert!(!ledger.accepts(&named("Drain +50HP", &[])));
+        assert!(!ledger.accepts(&named("Drain 50HP", &[])));
+        assert!(!ledger.accepts(&named("Um 15T03", &[])));
+        assert!(ledger.accepts(&named("Spirit x1.5", &[1.5])));
+        assert!(ledger.accepts(&named("Scale x2,5", &[2.5])));
+        assert!(ledger.accepts(&named("Lvl1-3", &[1.0, 3.0])));
+        assert!(ledger.accepts(&named("Drain -50HP", &[-50.0])));
     }
 
     #[test]
