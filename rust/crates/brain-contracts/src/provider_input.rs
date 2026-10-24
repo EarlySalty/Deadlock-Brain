@@ -188,7 +188,7 @@ fn tool_display_result(query: &Query, result: &ToolResult, evidence: &[Evidence]
     if is_discord_task {
         display_context(&mut value);
     }
-    if crate::language::english(&answer_question(query)) {
+    if crate::language::english(&current_question(query)) {
         drop_german_labels(&mut value);
     }
     if result.name == ToolName::ServerKnowledge {
@@ -263,8 +263,12 @@ fn tool_result_evidence_ids(conversation: &ToolConversation) -> BTreeSet<&str> {
         .collect()
 }
 
-pub fn answer_question(query: &Query) -> String {
+fn answer_question(query: &Query) -> String {
     provider_question(&crate::invite::project_query(query)).0
+}
+
+pub fn current_question(query: &Query) -> String {
+    provider_question(query).0
 }
 
 fn provider_question(
@@ -904,7 +908,7 @@ mod tests {
             .unwrap(),
         );
         assert!(crate::language::english(&german.text));
-        assert_eq!(answer_question(&german), "Was kostet das?");
+        assert_eq!(current_question(&german), "Was kostet das?");
         assert_eq!(tool_display_result(&german, &result, &[]), result.result);
     }
 

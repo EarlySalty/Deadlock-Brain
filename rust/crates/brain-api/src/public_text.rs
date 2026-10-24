@@ -28,7 +28,9 @@ fn insufficient_text(english: bool, twitch_bot: bool, text: &str) -> String {
 }
 
 pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool) {
-    let english = brain_contracts::language::english(&query.text);
+    let english = brain_contracts::language::english(
+        &brain_contracts::provider_input::current_question(query),
+    );
     if matches!(
         answer.status,
         AnswerStatus::Answered | AnswerStatus::Unverified | AnswerStatus::BuildRejected
