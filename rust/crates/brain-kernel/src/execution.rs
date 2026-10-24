@@ -226,7 +226,7 @@ pub(super) fn identity_only(
 }
 
 fn language_drift(query: &Query, answer: &brain_contracts::ProviderAnswer) -> bool {
-    brain_contracts::language::english(&query.text)
+    brain_contracts::language::english(&brain_contracts::provider_input::answer_question(query))
         && brain_contracts::language::german_leaning(&answer.text)
 }
 

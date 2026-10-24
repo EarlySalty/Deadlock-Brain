@@ -188,7 +188,7 @@ fn tool_display_result(query: &Query, result: &ToolResult, evidence: &[Evidence]
     if is_discord_task {
         display_context(&mut value);
     }
-    if crate::language::english(&query.text) {
+    if crate::language::english(&answer_question(query)) {
         drop_german_labels(&mut value);
     }
     if result.name == ToolName::ServerKnowledge {
@@ -261,6 +261,10 @@ fn tool_result_evidence_ids(conversation: &ToolConversation) -> BTreeSet<&str> {
         .flatten()
         .flat_map(|result| result.evidence_ids.iter().map(String::as_str))
         .collect()
+}
+
+pub fn answer_question(query: &Query) -> String {
+    provider_question(&crate::invite::project_query(query)).0
 }
 
 fn provider_question(
@@ -435,7 +439,7 @@ pub fn grounded_turn_payload_with_quality(
         .map(|message| json!(message))
         .collect();
     let last = conversation.messages.len().saturating_sub(1);
-    let question = provider_question(&crate::invite::project_query(query)).0;
+    let question = answer_question(query);
     for (index, message) in conversation.messages.iter().enumerate() {
         match message {
             ToolMessage::Assistant { blocks } => {
@@ -881,6 +885,27 @@ mod tests {
         assert!(shown["facts"]["facts"][0].get("label_de").is_none());
         assert_eq!(shown["facts"]["facts"][0]["value"], 800);
         assert_eq!(tool_display_result(&query(), &result, &[]), result.result);
+        let mut german = query();
+        german.text = "Was kostet das?".into();
+        german.answer_context = Some(crate::AnswerContext::Discord(crate::DiscordAnswerContext {
+            purpose: Some("bot_context:direct".into()),
+            ..Default::default()
+        }));
+        german
+            .text
+            .push_str(crate::discord_task::PUBLIC_CONTEXT_PREFIX);
+        german.text.push_str(
+            &serde_json::to_string(&crate::discord_task::DiscordContextProjection {
+                turns: vec![vec![
+                    "What does the item cost".into(),
+                    "How much health is in the latest patch".into(),
+                ]],
+            })
+            .unwrap(),
+        );
+        assert!(crate::language::english(&german.text));
+        assert_eq!(answer_question(&german), "Was kostet das?");
+        assert_eq!(tool_display_result(&german, &result, &[]), result.result);
     }
 
     fn canonical_tool_evidence() -> Evidence {
