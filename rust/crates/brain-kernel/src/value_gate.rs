@@ -26,6 +26,22 @@ fn patch_labels(key: &str, value: &Value) -> Vec<String> {
         .collect()
 }
 
+fn name_tokens(text: &str) -> impl Iterator<Item = String> + '_ {
+    text.split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|token| {
+            let bytes = token.as_bytes();
+            bytes
+                .windows(2)
+                .any(|pair| pair[0].is_ascii_alphabetic() && pair[1].is_ascii_digit())
+                || bytes.windows(3).any(|triple| {
+                    triple[0].is_ascii_digit()
+                        && triple[1].is_ascii_uppercase()
+                        && triple[2].is_ascii_uppercase()
+                })
+        })
+        .map(str::to_owned)
+}
+
 fn normalize(text: &str) -> Option<String> {
     let text = text.replace(',', ".");
     let (mantissa, exponent) = text
@@ -159,6 +175,10 @@ impl ValueLedger {
                         .entry(id.into())
                         .or_default()
                         .extend(numbers(text));
+                    self.labels
+                        .entry(id.into())
+                        .or_default()
+                        .extend(name_tokens(text));
                 }
             }
             _ => {}
@@ -299,6 +319,35 @@ mod tests {
         let mut inherited = named("Patch 10-01-2026.");
         inherited.claims.clear();
         assert!(!nested.accepts(&inherited));
+    }
+
+    #[test]
+    fn returned_names_with_digits_need_no_claim() {
+        let mut ledger = ValueLedger::default();
+        ledger.insert(&ToolResult { call_id: "patch".into(), name: ToolName::PatchHistory,
+            result: json!({"changes":[{"citation":"line","line_text":"- Deadman Danny: Chimera Mk1 - Slow reduced by 15%, Close the Deal 1AP from +50 to +90, 25s"}]}),
+            evidence_ids: vec!["line".into()], is_error: false });
+        let named = |text: &str, values: &[i64]| ProviderAnswer {
+            text: text.into(),
+            cited_evidence_ids: vec!["line".into()],
+            claims: values
+                .iter()
+                .map(|value| NumericClaim {
+                    citation_id: "line".into(),
+                    value: (*value).into(),
+                    unit: None,
+                })
+                .collect(),
+            usage: Usage::default(),
+        };
+        assert!(ledger.accepts(&named("Chimera Mk1: Slow um 15% verringert.", &[15])));
+        assert!(ledger.accepts(&named("Close the Deal: 1AP von +50 auf +90.", &[50, 90])));
+        assert!(!ledger.accepts(&named("Chimera Mk2: Slow um 15% verringert.", &[15])));
+        assert!(!ledger.accepts(&named("Chimera Mk1: Slow um 16% verringert.", &[15])));
+        assert!(!ledger.accepts(&named("Abklingzeit 25s.", &[])));
+        let mut uncited = named("Chimera Mk1.", &[]);
+        uncited.cited_evidence_ids = vec!["other".into()];
+        assert!(!ledger.accepts(&uncited));
     }
 
     #[test]
