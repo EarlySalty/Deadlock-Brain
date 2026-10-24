@@ -86,7 +86,10 @@ impl RequestTrace {
                 "provider_error" => "provider_error",
                 "budget_exceeded" => "budget_exceeded",
                 "unauthorized_evidence" => "unauthorized_evidence",
-                "answered" | "insufficient_evidence" | "build_rejected" => return None,
+                "insufficient_evidence" => "insufficient_evidence",
+                "build_rejected" => "build_rejected",
+                "unverified" => "unverified",
+                "answered" => return None,
                 _ => "invalid_api_response",
             }
         };

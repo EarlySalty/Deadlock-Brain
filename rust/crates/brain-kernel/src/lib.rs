@@ -338,6 +338,14 @@ impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
             || context.knowledge_release.trim().is_empty()
             || !query.requested_scopes.is_subset(&context.principal.scopes)
         {
+            execution::log_not_answered(
+                query,
+                AnswerStatus::UnauthorizedEvidence,
+                "request_context",
+                "invalid_context",
+                0,
+                0,
+            );
             return response(
                 query,
                 context,
@@ -352,6 +360,14 @@ impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
         let session = match self.prepare_tools(query, context) {
             Ok(session) => session,
             Err(error) => {
+                execution::log_not_answered(
+                    query,
+                    execution::validation_status(&error),
+                    "tool_binding",
+                    execution::error_class(&error),
+                    0,
+                    0,
+                );
                 return response(
                     query,
                     context,
@@ -381,6 +397,14 @@ impl<R: RetrievalPort, P: AnswerProviderPort> Kernel<R, P> {
             .as_ref()
             .is_some_and(|binding| binding.tools_only)
         {
+            execution::log_not_answered(
+                query,
+                AnswerStatus::InsufficientEvidence,
+                "tool_definitions",
+                "no_tool_definitions",
+                0,
+                0,
+            );
             return response(
                 query,
                 context,

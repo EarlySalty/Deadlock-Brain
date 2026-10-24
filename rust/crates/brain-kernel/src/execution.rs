@@ -226,9 +226,35 @@ pub(super) fn identity_only(
 }
 
 fn language_drift(query: &Query, answer: &brain_contracts::ProviderAnswer) -> bool {
-    brain_contracts::language::clearly_english(&brain_contracts::provider_input::current_question(
-        query,
-    )) && brain_contracts::language::german_leaning(&answer.text)
+    use brain_contracts::language::{
+        clearly_english, clearly_german, english_leaning, german_leaning,
+    };
+    let question = brain_contracts::provider_input::current_question(query);
+    (clearly_english(&question) && german_leaning(&answer.text))
+        || (clearly_german(&question) && english_leaning(&answer.text))
+}
+
+pub(super) fn error_class(error: &PortError) -> &'static str {
+    match error {
+        PortError::PermissionDenied(_) => "permission_denied",
+        PortError::Unavailable(_) => "unavailable",
+        PortError::InvalidResponse(_) => "invalid_response",
+        PortError::BudgetExceeded => "budget_exceeded",
+    }
+}
+
+pub(super) fn log_not_answered(
+    query: &Query,
+    status: AnswerStatus,
+    stage: &str,
+    reason: &str,
+    provider_rounds: usize,
+    tool_calls: usize,
+) {
+    eprintln!(
+        "{}",
+        serde_json::json!({"event":"brain_answer_not_answered","request_id":query.request_id,"status":status,"stage":stage,"reason":reason,"provider_rounds":provider_rounds,"tool_calls":tool_calls})
+    );
 }
 
 fn insert_evidence(evidence: &mut Vec<Evidence>, item: &Evidence) -> Result<(), PortError> {
@@ -270,11 +296,14 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     let mut seen_calls = BTreeSet::new();
     let mut first_outcome = None::<brain_contracts::ProviderAnswer>;
     let mut grounded_first = None::<brain_contracts::ProviderAnswer>;
+    let mut stage = "setup";
+    let mut rejection = None::<&'static str>;
     let result = (|| -> Result<brain_contracts::ProviderAnswer, PortError> {
         let binding = kernel
             .tools
             .as_ref()
             .ok_or_else(|| PortError::Unavailable("Werkzeuganschluss fehlt".into()))?;
+        stage = "required_calls";
         let required =
             binding
                 .port
@@ -318,6 +347,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     return Err(PortError::BudgetExceeded);
                 }
                 provider_rounds += 1;
+                stage = "provider_round";
                 conversation.final_round = provider_rounds
                     == context.budget.max_network_rounds.min(4) as usize
                     || next.budget.max_network_rounds == 1;
@@ -405,7 +435,9 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             turn.validate(&session.definitions)?;
             match turn {
                 ProviderTurn::Final { answer, .. } => {
+                    stage = "final_validation";
                     let ids: BTreeSet<_> = answer.cited_evidence_ids.iter().collect();
+                    let cited = ids.len();
                     let insufficient = answer.text.is_empty() && ids.is_empty();
                     let grounded = !ids.is_empty()
                         && ids.len() == answer.cited_evidence_ids.len()
@@ -462,10 +494,19 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     }
                     round_remaining(context, &accounting.charged(), elapsed())
                         .ok_or(PortError::BudgetExceeded)?;
-                    let discarded = !insufficient
-                        && (!ledger.accepts(&answer)
-                            || ((binding.tools_only || kernel.quality_filters)
-                                && (!grounded || evidence.is_empty())));
+                    let checked = binding.tools_only || kernel.quality_filters;
+                    let reason = if insufficient {
+                        Some("model_insufficient")
+                    } else if !ledger.accepts(&answer) {
+                        Some("value_gate_rejected")
+                    } else if checked && evidence.is_empty() {
+                        Some("no_tool_evidence")
+                    } else if checked && !grounded {
+                        Some("citation_ungrounded")
+                    } else {
+                        None
+                    };
+                    let discarded = !insufficient && reason.is_some();
                     let outcome = if discarded {
                         brain_contracts::ProviderAnswer {
                             claims: Vec::new(),
@@ -476,10 +517,23 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     } else {
                         answer
                     };
-                    let retry = !insufficient
-                        && !discarded
-                        && (identity_only(&conversation, &outcome)
-                            || language_drift(query, &outcome));
+                    let retry_reason = if insufficient || discarded {
+                        None
+                    } else if identity_only(&conversation, &outcome) {
+                        Some("identity_only")
+                    } else if language_drift(query, &outcome) {
+                        Some("language_drift")
+                    } else {
+                        None
+                    };
+                    let retry = retry_reason.is_some();
+                    if let Some(code) = reason.or(retry_reason) {
+                        rejection = Some(code);
+                        eprintln!(
+                            "{}",
+                            serde_json::json!({"event":"brain_tool_round_rejected","request_id":query.request_id,"round":provider_rounds,"reason":code,"evidence":evidence.len(),"cited":cited})
+                        );
+                    }
                     if (insufficient || discarded || retry)
                         && first_outcome.is_none()
                         && !session.definitions.is_empty()
@@ -500,6 +554,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     return Ok(outcome);
                 }
                 ProviderTurn::ToolCalls { blocks, .. } => {
+                    stage = "tool_execution";
                     let calls = blocks
                         .iter()
                         .filter_map(|block| match block {
@@ -623,22 +678,32 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
         (Err(error), Some(first)) => {
             eprintln!(
                 "{}",
-                serde_json::json!({"event":"brain_tool_resample_failed","request_id":query.request_id,"error":error.to_string()})
+                serde_json::json!({"event":"brain_tool_resample_failed","request_id":query.request_id,"stage":stage,"reason":error_class(&error),"error":error.to_string()})
             );
             Ok(first)
         }
         (result, _) => result,
     };
     let outcome: KernelAnswer = match result {
-        Ok(answer) if answer.text.is_empty() && answer.cited_evidence_ids.is_empty() => response(
-            query,
-            context,
-            AnswerStatus::InsufficientEvidence,
-            "Keine ausreichenden Belege für diese Antwort.",
-            Vec::new(),
-            accounting.observed.clone(),
-        )
-        .into(),
+        Ok(answer) if answer.text.is_empty() && answer.cited_evidence_ids.is_empty() => {
+            log_not_answered(
+                query,
+                AnswerStatus::InsufficientEvidence,
+                "final_validation",
+                rejection.unwrap_or("model_insufficient"),
+                provider_rounds,
+                tool_calls,
+            );
+            response(
+                query,
+                context,
+                AnswerStatus::InsufficientEvidence,
+                "Keine ausreichenden Belege für diese Antwort.",
+                Vec::new(),
+                accounting.observed.clone(),
+            )
+            .into()
+        }
         Ok(answer) => {
             let grounded = !answer.cited_evidence_ids.is_empty()
                 && answer
@@ -687,19 +752,28 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                 "{}",
                 serde_json::json!({"event":"brain_tool_answer_failed","request_id":query.request_id,"error":error.to_string()})
             );
+            let status = if kernel
+                .tools
+                .as_ref()
+                .is_some_and(|binding| binding.tools_only)
+                && matches!(error, PortError::InvalidResponse(_))
+            {
+                AnswerStatus::InsufficientEvidence
+            } else {
+                validation_status(&error)
+            };
+            log_not_answered(
+                query,
+                status,
+                stage,
+                error_class(&error),
+                provider_rounds,
+                tool_calls,
+            );
             response(
                 query,
                 context,
-                if kernel
-                    .tools
-                    .as_ref()
-                    .is_some_and(|binding| binding.tools_only)
-                    && matches!(error, PortError::InvalidResponse(_))
-                {
-                    AnswerStatus::InsufficientEvidence
-                } else {
-                    validation_status(&error)
-                },
+                status,
                 "Werkzeugantwort konnte nicht sicher abgeschlossen werden.",
                 Vec::new(),
                 accounting.observed.clone(),
