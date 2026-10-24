@@ -88,13 +88,45 @@ fn tag_name(tag: &str) -> String {
         .to_ascii_lowercase()
 }
 
-const GAME_TAGS: [&str; 18] = [
-    "a", "b", "br", "circle", "div", "em", "font", "g", "i", "img", "p", "path", "rect", "script",
-    "span", "strong", "style", "svg",
+const GAME_TAGS: [&str; 34] = [
+    "a",
+    "b",
+    "br",
+    "circle",
+    "clippath",
+    "defs",
+    "div",
+    "ellipse",
+    "em",
+    "font",
+    "g",
+    "i",
+    "img",
+    "label",
+    "li",
+    "line",
+    "lineargradient",
+    "p",
+    "panel",
+    "path",
+    "polygon",
+    "polyline",
+    "rect",
+    "script",
+    "span",
+    "stop",
+    "strong",
+    "style",
+    "sub",
+    "sup",
+    "svg",
+    "title",
+    "u",
+    "use",
 ];
 
 fn game_tag(tag: &str) -> bool {
-    GAME_TAGS.contains(&tag_name(tag).as_str())
+    tag.starts_with("!--") || GAME_TAGS.contains(&tag_name(tag).as_str())
 }
 
 fn decode(text: &str) -> String {
@@ -703,6 +735,10 @@ mod tests {
             "Bonus &lt;3 Stacks&gt; und a &lt; b <strong>c</strong>"
         );
         assert_eq!(plain("Ziel <Name> erhält <b>2</b>"), "Ziel <Name> erhält 2");
+        assert_eq!(
+            markup("<Panel class=\"x\"><svg><defs><clipPath id=\"a\"><rect/></clipPath></defs></svg></Panel>Text<!-- x -->"),
+            "Text"
+        );
     }
 
     #[test]
