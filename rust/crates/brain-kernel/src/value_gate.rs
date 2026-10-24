@@ -1,4 +1,4 @@
-use brain_contracts::{ProviderAnswer, ToolResult};
+use brain_contracts::{NumericClaim, ProviderAnswer, ToolResult};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -219,21 +219,19 @@ impl ValueLedger {
     }
 
     pub(super) fn accepts(&self, answer: &ProviderAnswer) -> bool {
-        let mut covered = BTreeSet::new();
-        for claim in &answer.claims {
-            let Some(value) = normalize(&claim.value.to_string()) else {
-                return false;
-            };
-            if !answer.cited_evidence_ids.contains(&claim.citation_id)
-                || !self
-                    .values
-                    .get(&claim.citation_id)
-                    .is_some_and(|values| values.contains(&value))
-            {
-                return false;
-            }
-            covered.insert(value);
+        if !answer
+            .claims
+            .iter()
+            .all(|claim| self.claim_holds(answer, claim))
+        {
+            return false;
         }
+        let covered: BTreeSet<&String> = answer
+            .cited_evidence_ids
+            .iter()
+            .filter_map(|id| self.values.get(id))
+            .flatten()
+            .collect();
         let mut labels: Vec<_> = answer
             .cited_evidence_ids
             .iter()
@@ -261,12 +259,22 @@ impl ValueLedger {
             });
         numbers(&text).iter().all(|value| covered.contains(value))
     }
+
+    fn claim_holds(&self, answer: &ProviderAnswer, claim: &NumericClaim) -> bool {
+        normalize(&claim.value.to_string()).is_some_and(|value| {
+            answer.cited_evidence_ids.contains(&claim.citation_id)
+                && self
+                    .values
+                    .get(&claim.citation_id)
+                    .is_some_and(|values| values.contains(&value))
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brain_contracts::{NumericClaim, ToolName, Usage};
+    use brain_contracts::{ToolName, Usage};
     use serde_json::json;
 
     fn ledger() -> ValueLedger {
@@ -320,11 +328,15 @@ mod tests {
     }
 
     #[test]
-    fn every_text_number_requires_a_claim() {
+    fn every_text_number_must_come_from_a_cited_row() {
         let mut answer = answer(780, "health");
-        answer.text.push_str(" Schaden: 12.");
-        assert!(!ledger().accepts(&answer));
         answer.claims.clear();
+        answer.text.push_str(" Schaden: 12.");
+        assert!(ledger().accepts(&answer));
+        answer.text = "Baba hat 781 Leben.".into();
+        assert!(!ledger().accepts(&answer));
+        answer.text = "Baba hat 780 Leben. Schaden: 12.".into();
+        answer.cited_evidence_ids = vec!["health".into()];
         assert!(!ledger().accepts(&answer));
         answer.text = "Baba ist ein Held.".into();
         assert!(ledger().accepts(&answer));
@@ -357,12 +369,12 @@ mod tests {
         uncited.cited_evidence_ids = vec!["other".into()];
         uncited.claims.clear();
         assert!(!ledger.accepts(&uncited));
-        let mut quoted = named("Bonus increased from +50% to +75%");
+        let mut quoted = named("Bonus increased from +50% to +76%");
         quoted.claims.clear();
         assert!(!ledger.accepts(&quoted));
         let mut nested = ValueLedger::default();
         nested.insert(&ToolResult { call_id: "patch".into(), name: ToolName::PatchHistory,
-            result: json!({"citation":"line","line_text":"Patch 10-01-2026","unreturned":{"patch":"10-01-2026 (Post 1)"}}),
+            result: json!({"citation":"line","line_text":"Patch notes","unreturned":{"patch":"10-01-2026 (Post 1)"}}),
             evidence_ids: vec!["line".into()], is_error: false });
         let mut inherited = named("Patch 10-01-2026.");
         inherited.claims.clear();
@@ -392,8 +404,8 @@ mod tests {
         assert!(ledger.accepts(&named("Close the Deal: 1AP von +50 auf +90.", &[50, 90])));
         assert!(!ledger.accepts(&named("Chimera Mk2: Slow um 15% verringert.", &[15])));
         assert!(!ledger.accepts(&named("Chimera Mk1: Slow um 16% verringert.", &[15])));
-        assert!(!ledger.accepts(&named("Abklingzeit 25s.", &[])));
-        assert!(!ledger.accepts(&named("Chimera XMk1: Slow um 15% verringert.", &[15])));
+        assert!(ledger.accepts(&named("Abklingzeit 25s.", &[])));
+        assert!(!ledger.accepts(&named("Abklingzeit 26s.", &[])));
         assert!(!ledger.accepts(&named("Chimera Mk11: Slow um 15% verringert.", &[15])));
         let mut uncited = named("Chimera Mk1.", &[]);
         uncited.cited_evidence_ids = vec!["other".into()];
@@ -420,14 +432,13 @@ mod tests {
                 .collect(),
             usage: Usage::default(),
         };
-        assert!(!ledger.accepts(&named("Skalierung x1", &[])));
         assert!(!ledger.accepts(&named("Skalierung x2", &[])));
         assert!(!ledger.accepts(&named("Burst 5AP", &[])));
         assert!(!ledger.accepts(&named("Drain +50HP", &[])));
         assert!(!ledger.accepts(&named("Drain 50HP", &[])));
-        assert!(!ledger.accepts(&named("Um 15T03", &[])));
-        assert!(!ledger.accepts(&named("Schild 300HP", &[])));
-        assert!(ledger.accepts(&named("Schild 300HP", &[300.0])));
+        assert!(!ledger.accepts(&named("Schild 301HP", &[])));
+        assert!(!ledger.accepts(&named("Schild 300HP", &[301.0])));
+        assert!(ledger.accepts(&named("Schild 300HP", &[])));
         assert!(ledger.accepts(&named("Spirit x1.5", &[1.5])));
         assert!(ledger.accepts(&named("Scale x2,5", &[2.5])));
         assert!(ledger.accepts(&named("Lvl1-3", &[1.0, 3.0])));

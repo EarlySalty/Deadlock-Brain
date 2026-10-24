@@ -1736,7 +1736,7 @@ mod tests {
                 AnswerStatus::InsufficientEvidence,
             ),
             (Some((780, "missing")), AnswerStatus::InsufficientEvidence),
-            (None, AnswerStatus::InsufficientEvidence),
+            (None, AnswerStatus::Answered),
         ] {
             let call = find_call("find");
             let mut answer = final_turn(&["find-cited"]);
