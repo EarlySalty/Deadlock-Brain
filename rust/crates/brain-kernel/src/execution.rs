@@ -200,6 +200,36 @@ pub(super) fn has_build_citation<'a>(
     })
 }
 
+pub(super) fn identity_only(
+    conversation: &ToolConversation,
+    answer: &brain_contracts::ProviderAnswer,
+) -> bool {
+    let mut identity = BTreeSet::new();
+    for result in conversation
+        .messages
+        .iter()
+        .flat_map(|message| match message {
+            ToolMessage::ToolResults { results } => results.as_slice(),
+            ToolMessage::Assistant { .. } => &[],
+        })
+    {
+        if result.name != brain_contracts::ToolName::FindEntity {
+            return false;
+        }
+        identity.extend(result.evidence_ids.iter());
+    }
+    !answer.cited_evidence_ids.is_empty()
+        && answer
+            .cited_evidence_ids
+            .iter()
+            .all(|id| identity.contains(id))
+}
+
+fn language_drift(query: &Query, answer: &brain_contracts::ProviderAnswer) -> bool {
+    brain_contracts::language::english(&query.text)
+        && brain_contracts::language::german_leaning(&answer.text)
+}
+
 fn insert_evidence(evidence: &mut Vec<Evidence>, item: &Evidence) -> Result<(), PortError> {
     if let Some(previous) = evidence
         .iter()
@@ -444,7 +474,11 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     } else {
                         answer
                     };
-                    if (insufficient || discarded)
+                    let retry = !insufficient
+                        && !discarded
+                        && (identity_only(&conversation, &outcome)
+                            || language_drift(query, &outcome));
+                    if (insufficient || discarded || retry)
                         && first_outcome.is_none()
                         && !session.definitions.is_empty()
                         && (binding.tools_only || kernel.quality_filters)

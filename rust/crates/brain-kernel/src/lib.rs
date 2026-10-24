@@ -1891,6 +1891,76 @@ mod tests {
     }
 
     #[test]
+    fn english_questions_answered_in_german_are_resampled_once() {
+        let profile = find_call("profile");
+        let text_turn = |text: &str| {
+            let mut turn = final_turn(&["profile-cited"]);
+            if let brain_contracts::ProviderTurn::Final { answer, .. } = &mut turn {
+                answer.text = text.into();
+            }
+            turn
+        };
+        let (kernel, state) = tool_kernel(
+            std::slice::from_ref(&profile),
+            vec![
+                tool_turn(vec![profile.clone()]),
+                text_turn("Metal Skin kostet 3200 Souls. Du wirst immun gegen Kugelschaden."),
+                text_turn("Metal Skin makes you immune to bullets."),
+            ],
+        );
+        let mut context = context(&[], &["public"]);
+        context.budget.max_network_rounds = 4;
+        context.budget.max_input_tokens = 1_000_000;
+        let mut query = query(AnswerProfile::Fact);
+        query.text = "What does the item Metal Skin do?".into();
+        let answer = kernel
+            .with_tools_only_limits(8, 16_384)
+            .answer(&query, &context);
+        assert_eq!(answer.status, AnswerStatus::Answered);
+        assert_eq!(answer.text, "Metal Skin makes you immune to bullets.");
+        assert_eq!(state.lock().unwrap().calls, 3);
+    }
+
+    #[test]
+    fn answers_citing_only_identity_lookups_count_as_unfinished() {
+        let result = |name, id: &str| brain_contracts::ToolResult {
+            call_id: id.into(),
+            name,
+            result: serde_json::json!({}),
+            evidence_ids: vec![format!("{id}-cited")],
+            is_error: false,
+        };
+        let answer = |id: &str| ProviderAnswer {
+            claims: Vec::new(),
+            text: "Lash".into(),
+            cited_evidence_ids: vec![id.into()],
+            usage: Usage::default(),
+        };
+        let identity = brain_contracts::ToolMessage::ToolResults {
+            results: vec![result(brain_contracts::ToolName::FindEntity, "identity")],
+        };
+        let profile = brain_contracts::ToolMessage::ToolResults {
+            results: vec![result(brain_contracts::ToolName::GetHero, "profile")],
+        };
+        let conversation = |messages| brain_contracts::ToolConversation {
+            messages,
+            final_round: false,
+        };
+        assert!(execution::identity_only(
+            &conversation(vec![identity.clone()]),
+            &answer("identity-cited")
+        ));
+        assert!(!execution::identity_only(
+            &conversation(vec![identity, profile]),
+            &answer("identity-cited")
+        ));
+        assert!(!execution::identity_only(
+            &conversation(Vec::new()),
+            &answer("identity-cited")
+        ));
+    }
+
+    #[test]
     fn tool_loop_stops_before_a_fifth_provider_round() {
         let calls: Vec<_> = (0..4).map(|id| find_call(&format!("find{id}"))).collect();
         let turns = calls

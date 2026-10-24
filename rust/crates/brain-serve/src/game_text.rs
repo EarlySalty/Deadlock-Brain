@@ -249,7 +249,28 @@ fn localized_label(fact: &Map<String, Value>) -> Option<&'static str> {
             .map(str::trim)
             .filter(|label| !label.is_empty())
     };
-    german_label(text("label_de").or_else(|| text("label"))?)
+    match text("label_de").or_else(|| text("label")) {
+        Some(label) => german_label(label),
+        None => text("stat_key").and_then(stat_key_label),
+    }
+}
+
+fn stat_key_label(key: &str) -> Option<&'static str> {
+    Some(match key {
+        "item_cost" => "Kosten in Seelen",
+        "max_health" => "Maximale Lebenspunkte",
+        "base_health_regen" => "Lebensregeneration",
+        "max_move_speed" => "Maximales Bewegungstempo",
+        "sprint_speed" => "Sprinttempo",
+        "stamina" => "Ausdauer",
+        "light_melee_damage" => "Leichter Nahkampfschaden",
+        "heavy_melee_damage" => "Schwerer Nahkampfschaden",
+        "weapon_bullet_damage" => "Schaden pro Kugel",
+        "weapon_clip_size" => "Magazingröße",
+        "weapon_reload_time" => "Nachladezeit",
+        "weapon_rounds_per_second" => "Schüsse pro Sekunde",
+        _ => return None,
+    })
 }
 
 fn present_fact(fact: &mut Map<String, Value>) {

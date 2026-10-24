@@ -103,13 +103,14 @@ fn options(pg: &scratch_pg::ScratchPg) -> PgConnectOptions {
 
 async fn assert_item_card_matches_view(admin: &PgPool, pool: &PgPool, id: i64) {
     let (call, request) = call(ToolName::GetItem, json!({"item":id}));
-    let card = sqlx::query_scalar::<_, Value>(
+    let mut card = sqlx::query_scalar::<_, Value>(
         "SELECT card FROM serve.item_card WHERE entity_id=$1 LIMIT 1",
     )
     .bind(id)
     .fetch_one(admin)
     .await
     .expect("published reference card");
+    crate::game_text::present(&mut card["facts"]);
     let expected = crate::pg_asset_tools::bounded_card_result(&call.id, &request, card)
         .expect("reference bounds")
         .expect("published reference selection");

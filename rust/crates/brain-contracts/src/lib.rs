@@ -22,6 +22,7 @@ pub mod game_mode;
 pub mod hero_status;
 pub mod internal_api;
 pub mod invite;
+pub mod language;
 pub mod lexical;
 pub mod maintenance;
 pub mod postgres;
