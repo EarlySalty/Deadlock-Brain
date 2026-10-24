@@ -110,7 +110,7 @@ async fn assert_item_card_matches_view(admin: &PgPool, pool: &PgPool, id: i64) {
     .fetch_one(admin)
     .await
     .expect("published reference card");
-    crate::game_text::present(&mut card["facts"]);
+    crate::game_text::present(card.get_mut("facts").expect("reference card facts"));
     let expected = crate::pg_asset_tools::bounded_card_result(&call.id, &request, card)
         .expect("reference bounds")
         .expect("published reference selection");

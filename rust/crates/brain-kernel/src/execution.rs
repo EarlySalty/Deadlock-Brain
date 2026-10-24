@@ -268,6 +268,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     let mut tool_calls = 0usize;
     let mut seen_calls = BTreeSet::new();
     let mut first_outcome = None::<brain_contracts::ProviderAnswer>;
+    let mut grounded_first = None::<brain_contracts::ProviderAnswer>;
     let result = (|| -> Result<brain_contracts::ProviderAnswer, PortError> {
         let binding = kernel
             .tools
@@ -484,8 +485,16 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         && (binding.tools_only || kernel.quality_filters)
                         && provider_rounds < context.budget.max_network_rounds.min(4) as usize
                     {
+                        if retry {
+                            grounded_first = Some(outcome.clone());
+                        }
                         first_outcome = Some(outcome);
                         continue;
+                    }
+                    if insufficient || discarded {
+                        if let Some(first) = grounded_first.take() {
+                            return Ok(first);
+                        }
                     }
                     return Ok(outcome);
                 }

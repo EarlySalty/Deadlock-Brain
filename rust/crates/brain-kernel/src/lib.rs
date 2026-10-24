@@ -1890,8 +1890,7 @@ mod tests {
         assert_eq!(provider_calls, 2);
     }
 
-    #[test]
-    fn english_questions_answered_in_german_are_resampled_once() {
+    fn german_resample(second: &str) -> (AnswerResponse, usize) {
         let profile = find_call("profile");
         let text_turn = |text: &str| {
             let mut turn = final_turn(&["profile-cited"]);
@@ -1904,8 +1903,8 @@ mod tests {
             std::slice::from_ref(&profile),
             vec![
                 tool_turn(vec![profile.clone()]),
-                text_turn("Metal Skin kostet 3200 Souls. Du wirst immun gegen Kugelschaden."),
-                text_turn("Metal Skin makes you immune to bullets."),
+                text_turn("Metal Skin macht dich immun gegen Kugelschaden."),
+                text_turn(second),
             ],
         );
         let mut context = context(&[], &["public"]);
@@ -1916,9 +1915,27 @@ mod tests {
         let answer = kernel
             .with_tools_only_limits(8, 16_384)
             .answer(&query, &context);
+        let calls = state.lock().unwrap().calls;
+        (answer, calls)
+    }
+
+    #[test]
+    fn english_questions_answered_in_german_are_resampled_once() {
+        let (answer, calls) = german_resample("Metal Skin makes you immune to bullets.");
         assert_eq!(answer.status, AnswerStatus::Answered);
         assert_eq!(answer.text, "Metal Skin makes you immune to bullets.");
-        assert_eq!(state.lock().unwrap().calls, 3);
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn a_discarded_resample_keeps_the_grounded_first_answer() {
+        let (answer, calls) = german_resample("Metal Skin costs 9999 souls.");
+        assert_eq!(answer.status, AnswerStatus::Answered);
+        assert_eq!(
+            answer.text,
+            "Metal Skin macht dich immun gegen Kugelschaden."
+        );
+        assert_eq!(calls, 3);
     }
 
     #[test]

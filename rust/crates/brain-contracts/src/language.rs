@@ -92,31 +92,52 @@ const GERMAN_MARKERS: &[&str] = &[
     "eine",
 ];
 
-fn marker_counts(text: &str) -> (usize, usize) {
-    let words = text
-        .split(|character: char| !character.is_alphanumeric())
+const SHARED_WORDS: &[&str] = &["was", "die", "man", "hat"];
+
+fn words(text: &str) -> Vec<String> {
+    text.split(|character: char| !character.is_alphanumeric())
         .filter(|word| !word.is_empty())
         .map(str::to_lowercase)
-        .collect::<Vec<_>>();
-    let count = |markers: &[&str]| {
-        words
-            .iter()
-            .filter(|word| markers.contains(&word.as_str()))
-            .count()
-    };
-    let umlauts = text.chars().any(|character| "äöüßÄÖÜ".contains(character));
-    (
-        count(ENGLISH_MARKERS),
-        count(GERMAN_MARKERS) + usize::from(umlauts),
-    )
+        .collect()
+}
+
+fn count(words: &[String], markers: &[&str], excluded: &[&str]) -> usize {
+    words
+        .iter()
+        .filter(|word| markers.contains(&word.as_str()) && !excluded.contains(&word.as_str()))
+        .count()
+}
+
+fn umlauts(text: &str) -> usize {
+    usize::from(text.chars().any(|character| "äöüßÄÖÜ".contains(character)))
 }
 
 pub fn english(text: &str) -> bool {
-    let (english, german) = marker_counts(text);
-    english > german
+    let words = words(text);
+    count(&words, ENGLISH_MARKERS, &[]) > count(&words, GERMAN_MARKERS, &[]) + umlauts(text)
 }
 
 pub fn german_leaning(text: &str) -> bool {
-    let (english, german) = marker_counts(text);
-    german > english
+    let words = words(text);
+    let german = count(&words, GERMAN_MARKERS, SHARED_WORDS) + umlauts(text);
+    german >= 2 && german > count(&words, ENGLISH_MARKERS, &[])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn german_answer_prose_is_told_apart_from_english_prose() {
+        assert!(german_leaning(
+            "Metal Skin kostet 3200 Souls. Der Effekt laut Spieldaten: Become immune to bullets. Du wirst also immun gegen Kugelschaden."
+        ));
+        assert!(!german_leaning("Minions die faster near the Walker."));
+        assert!(!german_leaning("Was it worth it? The man hat a plan."));
+        assert!(!german_leaning(
+            "Metal Skin makes you immune to bullets for a few seconds."
+        ));
+        assert!(english("What does Metal Skin cost?"));
+        assert!(!english("Was kostet Metal Skin?"));
+    }
 }
