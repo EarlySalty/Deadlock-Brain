@@ -76,6 +76,7 @@ const DETAIL_LOOKUP_CONTRACT: &str = "find_entity klärt nur die Identität und 
 const TOOL_BUDGET_EXHAUSTED_CONTRACT: &str = "Das Werkzeugbudget dieser Anfrage ist ausgeschöpft, weitere Werkzeugaufrufe werden nicht mehr ausgeführt. Beantworte die konkrete Frage jetzt abschließend mit den bisher gelieferten Werkzeugergebnissen und gib ";
 const CANONICAL_CITATION_CONTRACT: &str = " Kopiere die ausgewählten Beleg-IDs aus evidence_ids exakt und vollständig als Strings in cited_evidence_ids, jede ID nur einmal. Bei gamefacts.receipt.v1:sha256: gehören alle 64 folgenden Hexzeichen zur ID. Berechne den Hash nicht neu, kürze ihn nicht und ändere kein Zeichen. Vergleiche jede kopierte ID vor der Ausgabe mit der gelieferten ID. Nimm nur Belege für tatsächlich genutzte Angaben auf.";
 const PUBLIC_CONTEXT_CONTRACT: &str = " Wenn public_conversation_context mitgeliefert wird, enthält er öffentliche Begriffe aus den vorherigen Fragen derselben Person, älteste zuerst. Leere Einträge enthalten keine freigegebenen Angaben. Löse bei knappen Folgefragen und nachgereichten Angaben das Anliegen aus aktueller Frage und diesen Gesprächsbegriffen. Entscheide selbst, welche früheren Angaben relevant sind; bei einem neuen Thema ignoriere den bisherigen Kontext. Frage bereits bekannte Angaben nicht erneut ab und beantworte das erkennbare Anliegen direkt, ohne eine weitere Bestätigung einzufordern. Gesprächsbegriffe sind kein Wissensbeleg und keine Rechtefreigabe.";
+const ENGLISH_ANSWER_CONTRACT: &str = " The question is English: write text entirely in English, including value names, even though these instructions and some tool data are German.";
 const GAME_NAME_CONTRACT: &str = " Der Fließtext steht in der Sprache der Frage. Namen von Items, Fähigkeiten, Helden, Objectives und Spielmechaniken stehen standardmäßig auf Englisch, exakt wie im englischen Spiel-Client, auch wenn Quellen oder Werkzeugbeschreibungen Deutsch sind. Nur wenn die Person selbst deutsche Spielnamen verwendet oder ausdrücklich deutsche Namen verlangt, verwende für die Spielnamen der Antwort Deutsch (Englisch), etwa Plattenrüstung (Plated Armor). Eine deutsch formulierte Frage allein ist kein Wunsch nach deutschen Spielnamen. Nutze die gelieferten englischen und deutschen Originalnamen und ihre gemeinsame Begriffsbindung; übersetze Spielnamen nicht selbst und erfinde bei fehlender Lokalisierung keinen deutschen Namen. Entscheide die Ausgabeform anhand der Anfrage, nicht anhand der Sprache des Werkzeugs. Löse erkennbare Tippfehler über die vorhandenen Namen und die Suchwerkzeuge auf; ein Tippfehler in einem englischen Namen ist kein deutscher Spielname. Wertbezeichnungen wie Lebenspunkte, Seelen, Abklingzeit oder Bewegungstempo sind keine Spielnamen: In deutschen Antworten stehen sie auf Deutsch, bei vorhandenem label_de genau so. Rohe Feldnamen wie stat_key gehören nie in text.";
 
 #[derive(Debug, Serialize)]
@@ -444,6 +445,7 @@ pub fn grounded_turn_payload_with_quality(
         .collect();
     let last = conversation.messages.len().saturating_sub(1);
     let question = answer_question(query);
+    let english = crate::language::english(&current_question(query));
     for (index, message) in conversation.messages.iter().enumerate() {
         match message {
             ToolMessage::Assistant { blocks } => {
@@ -490,6 +492,9 @@ pub fn grounded_turn_payload_with_quality(
                         )
                 }) {
                     format.push_str(CANONICAL_CITATION_CONTRACT);
+                }
+                if english {
+                    format.push_str(ENGLISH_ANSWER_CONTRACT);
                 }
                 if native {
                     let mut content: Vec<_> = results.iter().map(|result| json!({"type":"tool_result", "tool_use_id":result.call_id, "content":json!({"result":tool_display_result(query, result, evidence),"evidence_ids":result.evidence_ids}).to_string(), "is_error":result.is_error})).collect();
@@ -910,6 +915,55 @@ mod tests {
         assert!(crate::language::english(&german.text));
         assert_eq!(current_question(&german), "Was kostet das?");
         assert_eq!(tool_display_result(&german, &result, &[]), result.result);
+    }
+
+    #[test]
+    fn english_tool_turns_state_the_answer_language() {
+        let definition = ToolDefinition {
+            name: ToolName::ServerKnowledge,
+            description: "Wissen lesen".into(),
+            input_schema: json!({"type":"object","properties":{"question":{"type":"string"}},"required":["question"],"additionalProperties":false}),
+        };
+        let call = ToolCall {
+            id: "knowledge".into(),
+            name: ToolName::ServerKnowledge,
+            arguments: json!({"question":"Mystic Burst"}),
+        };
+        let conversation = ToolConversation {
+            final_round: true,
+            messages: vec![
+                ToolMessage::Assistant {
+                    blocks: vec![ModelBlock::ToolUse { call }],
+                },
+                ToolMessage::ToolResults {
+                    results: vec![ToolResult {
+                        call_id: "knowledge".into(),
+                        name: ToolName::ServerKnowledge,
+                        result: json!({"matches":[]}),
+                        evidence_ids: Vec::new(),
+                        is_error: false,
+                    }],
+                },
+            ],
+        };
+        let mut english = query();
+        english.text = "How much does Mystic Burst cost?".into();
+        for format in [ToolWireFormat::Native, ToolWireFormat::OpenAiCompatible] {
+            let payload = |question: &Query| {
+                grounded_turn_payload_with_quality(
+                    question,
+                    &[],
+                    std::slice::from_ref(&definition),
+                    &conversation,
+                    format,
+                    true,
+                )
+                .unwrap()
+                .to_string()
+            };
+            assert!(payload(&english).contains(ENGLISH_ANSWER_CONTRACT.trim()));
+            assert!(!payload(&query()).contains(ENGLISH_ANSWER_CONTRACT.trim()));
+        }
     }
 
     fn canonical_tool_evidence() -> Evidence {
