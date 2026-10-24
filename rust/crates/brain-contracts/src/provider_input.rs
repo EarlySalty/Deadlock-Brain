@@ -171,11 +171,25 @@ fn evidence_source_basis(item: &Evidence) -> Value {
     )
 }
 
+fn drop_german_labels(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            fields.remove("label_de");
+            fields.values_mut().for_each(drop_german_labels);
+        }
+        Value::Array(items) => items.iter_mut().for_each(drop_german_labels),
+        _ => {}
+    }
+}
+
 fn tool_display_result(query: &Query, result: &ToolResult, evidence: &[Evidence]) -> Value {
     let mut value = result.result.clone();
     let is_discord_task = crate::discord_task::is_private_context_query(query);
     if is_discord_task {
         display_context(&mut value);
+    }
+    if crate::language::english(&query.text) {
+        drop_german_labels(&mut value);
     }
     if result.name == ToolName::ServerKnowledge {
         if let Some(matches) = value.get_mut("matches").and_then(Value::as_array_mut) {
@@ -850,6 +864,23 @@ mod tests {
             json!({"request_id":"r", "conversation_id":"c", "text":"Wo bekomme ich Hilfe?"}),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn english_questions_see_no_german_stat_labels() {
+        let result = ToolResult {
+            call_id: "item".into(),
+            name: ToolName::GetItem,
+            result: json!({"facts":{"facts":[{"stat_key":"item_cost","label":null,"label_de":"Kosten in Seelen","value":800}]}}),
+            evidence_ids: vec!["5".into()],
+            is_error: false,
+        };
+        let mut english = query();
+        english.text = "How much does Mystic Burst cost?".into();
+        let shown = tool_display_result(&english, &result, &[]);
+        assert!(shown["facts"]["facts"][0].get("label_de").is_none());
+        assert_eq!(shown["facts"]["facts"][0]["value"], 800);
+        assert_eq!(tool_display_result(&query(), &result, &[]), result.result);
     }
 
     fn canonical_tool_evidence() -> Evidence {
