@@ -117,6 +117,12 @@ pub fn english(text: &str) -> bool {
     count(&words, ENGLISH_MARKERS, &[]) > count(&words, GERMAN_MARKERS, &[]) + umlauts(text)
 }
 
+pub fn clearly_english(text: &str) -> bool {
+    let words = words(text);
+    let english = count(&words, ENGLISH_MARKERS, &["in"]);
+    english >= 2 && english > count(&words, GERMAN_MARKERS, &[]) + umlauts(text)
+}
+
 pub fn german_leaning(text: &str) -> bool {
     let words = words(text);
     let german = count(&words, GERMAN_MARKERS, SHARED_WORDS) + umlauts(text);
@@ -138,6 +144,10 @@ mod tests {
             "Metal Skin makes you immune to bullets for a few seconds."
         ));
         assert!(english("What does Metal Skin cost?"));
+        assert!(clearly_english("What does Metal Skin cost?"));
+        assert!(clearly_english("What counters Infernus?"));
+        assert!(!clearly_english("Haze Build in Street Brawl?"));
+        assert!(!clearly_english("Was kostet Metal Skin?"));
         assert!(!english("Was kostet Metal Skin?"));
     }
 }

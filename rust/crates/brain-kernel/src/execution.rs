@@ -226,8 +226,9 @@ pub(super) fn identity_only(
 }
 
 fn language_drift(query: &Query, answer: &brain_contracts::ProviderAnswer) -> bool {
-    brain_contracts::language::english(&brain_contracts::provider_input::current_question(query))
-        && brain_contracts::language::german_leaning(&answer.text)
+    brain_contracts::language::clearly_english(&brain_contracts::provider_input::current_question(
+        query,
+    )) && brain_contracts::language::german_leaning(&answer.text)
 }
 
 fn insert_evidence(evidence: &mut Vec<Evidence>, item: &Evidence) -> Result<(), PortError> {

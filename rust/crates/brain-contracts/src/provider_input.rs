@@ -189,7 +189,7 @@ fn tool_display_result(query: &Query, result: &ToolResult, evidence: &[Evidence]
     if is_discord_task {
         display_context(&mut value);
     }
-    if crate::language::english(&current_question(query)) {
+    if crate::language::clearly_english(&current_question(query)) {
         drop_german_labels(&mut value);
     }
     if result.name == ToolName::ServerKnowledge {
@@ -445,7 +445,7 @@ pub fn grounded_turn_payload_with_quality(
         .collect();
     let last = conversation.messages.len().saturating_sub(1);
     let question = answer_question(query);
-    let english = crate::language::english(&current_question(query));
+    let english = crate::language::clearly_english(&current_question(query));
     for (index, message) in conversation.messages.iter().enumerate() {
         match message {
             ToolMessage::Assistant { blocks } => {
