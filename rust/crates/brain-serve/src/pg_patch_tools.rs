@@ -34,6 +34,13 @@ const CURRENT_ALL: &str = "WITH changed AS MATERIALIZED (
     FROM serve.p4_patch_catalog c
     WHERE c.patch_id IN(SELECT patch_id FROM changed WHERE entity_id IN(SELECT entity_id FROM playable))
     ORDER BY released_at DESC,patch_id DESC LIMIT 1";
+const CURRENT_BY_HEAD: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
+    'released_at',released_at,'official_url',official_url,'head_citation',official_receipt_id::text,
+    'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
+    'url_citation',url_receipt_id::text)
+    FROM serve.p4_patch_catalog
+    WHERE official_receipt_id=$1
+    ORDER BY released_at DESC,patch_id DESC LIMIT 2";
 const RESOLVE: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
     'released_at',released_at,'official_url',official_url,'head_citation',official_receipt_id::text,
     'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
@@ -291,6 +298,27 @@ async fn history_execution(
     request: &ToolRequest,
     history: &CanonicalPatchHistoryRequest,
 ) -> Result<ToolExecution, PortError> {
+    let ranged = history.since.is_some() || history.until.is_some();
+    if history.entity.is_none() && !ranged {
+        let Some((current, rows)) = latest_changes(connection).await? else {
+            return Ok(error_execution(
+                id,
+                request.name(),
+                "official_patch_unavailable",
+            ));
+        };
+        patch_timestamp(&current)?;
+        return finish_history(
+            connection,
+            id,
+            request,
+            history,
+            current,
+            [None, None],
+            rows,
+        )
+        .await;
+    }
     let current_query = if history.entity.is_some() {
         CURRENT
     } else {
@@ -328,7 +356,6 @@ async fn history_execution(
         .iter()
         .map(|patch| patch.as_ref().map(patch_timestamp).transpose())
         .collect::<Result<Vec<_>, _>>()?;
-    let ranged = history.since.is_some() || history.until.is_some();
     if ranged {
         let reversed: bool = sqlx::query_scalar("SELECT $1::text IS NOT NULL AND $2::text IS NOT NULL AND $1::timestamptz > $2::timestamptz")
             .bind(timestamps[0]).bind(timestamps[1]).fetch_one(&mut *connection).await.map_err(database_error)?;
@@ -363,6 +390,67 @@ async fn history_execution(
         .fetch_all(&mut *connection)
         .await
         .map_err(database_error)?;
+    let [since, until]: [Option<Value>; 2] = bounds.try_into().map_err(|_| invalid())?;
+    finish_history(
+        connection,
+        id,
+        request,
+        history,
+        current,
+        [since, until],
+        rows,
+    )
+    .await
+}
+
+async fn latest_changes(
+    connection: &mut PgConnection,
+) -> Result<Option<(Value, Vec<Value>)>, PortError> {
+    let rows = sqlx::query_scalar::<_, Value>(CHANGES_ALL)
+        .bind(None::<i64>)
+        .bind(None::<i64>)
+        .bind(None::<&str>)
+        .bind(None::<&str>)
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(database_error)?;
+    let Some(head) = rows
+        .first()
+        .map(|row| {
+            row["head_citation"]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(invalid)
+        })
+        .transpose()?
+    else {
+        return Ok(None);
+    };
+    let head_id = head.parse::<i64>().map_err(|_| invalid())?;
+    let patches = sqlx::query_scalar::<_, Value>(CURRENT_BY_HEAD)
+        .bind(head_id)
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(database_error)?;
+    let PatchResolution::Found(current) = select_patch(patches) else {
+        return Err(invalid());
+    };
+    let rows = rows
+        .into_iter()
+        .filter(|row| row["head_citation"].as_str() == Some(head.as_str()))
+        .collect();
+    Ok(Some((current, rows)))
+}
+
+async fn finish_history(
+    connection: &mut PgConnection,
+    id: &str,
+    request: &ToolRequest,
+    history: &CanonicalPatchHistoryRequest,
+    current: Value,
+    bounds: [Option<Value>; 2],
+    rows: Vec<Value>,
+) -> Result<ToolExecution, PortError> {
     let cap_reached = rows.len() == 20;
     let limit = history.limit.unwrap_or(20);
     let omitted = rows.len().saturating_sub(limit);
