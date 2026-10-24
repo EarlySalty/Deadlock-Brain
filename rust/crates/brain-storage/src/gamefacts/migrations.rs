@@ -140,6 +140,14 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         42,
         include_str!("../../../../../scripts/migrations/2026-10-24-brain-site-generation-v42.sql"),
     ),
+    (
+        43,
+        include_str!("../../../../../scripts/migrations/2026-10-24-brain-patch-tool-generation-v43.sql"),
+    ),
+    (
+        44,
+        include_str!("../../../../../scripts/migrations/2026-10-24-brain-hero-profile-names-v44.sql"),
+    ),
 ];
 
 fn invalid() -> PortError {
@@ -437,7 +445,7 @@ async fn check_version_guards(
     }
     if migrations.iter().any(|(version, _)| *version == 23) {
         let has = |wanted: i32| migrations.iter().any(|(version, _)| *version == wanted);
-        check_reader_coherence(connection, has(31), has(40)).await?;
+        check_reader_coherence(connection, has(31), has(40), has(44)).await?;
     }
     Ok(())
 }
@@ -446,8 +454,14 @@ async fn check_reader_coherence(
     connection: &mut PgConnection,
     bounded: bool,
     hero_abilities: bool,
+    profile_names: bool,
 ) -> Result<(), PortError> {
-    let (identity, profile) = if bounded && hero_abilities {
+    let (identity, profile) = if bounded && hero_abilities && profile_names {
+        (
+            "9db01b4af654674d0591e91aa9b16f98b0149a0919ee83ef4f9b4a13a303a324",
+            "0025911a71108e8ea68fc2f62c30826b051c919de2a021cd8ea5ae092c2b6755",
+        )
+    } else if bounded && hero_abilities {
         (
             "9db01b4af654674d0591e91aa9b16f98b0149a0919ee83ef4f9b4a13a303a324",
             "3a1d4d7de46b0e287c1dcc7a2c8e87716952d84c2061e517791f88edde96eccb",

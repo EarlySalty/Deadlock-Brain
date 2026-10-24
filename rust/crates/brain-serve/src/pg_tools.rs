@@ -264,10 +264,11 @@ impl<T> PgTools<T> {
                 ToolSubrequest::GetHero(hero) => {
                     let profile = sqlx::query_scalar::<_,Value>(hero_sql(hero))
                         .bind(hero.hero as i64).fetch_optional(&mut *connection).await.map_err(database_error)?;
-                    let Some(profile) = profile else {
+                    let Some(mut profile) = profile else {
                         return Ok(error_execution(call_id, request.name(), "hero_not_found",
                             "Kein veröffentlichter Heldensteckbrief für diese Entitäts-ID gefunden."));
                     };
+                    crate::game_text::present(&mut profile);
                     profile
                 }
                 ToolSubrequest::GetTimer(timer) => {

@@ -83,7 +83,7 @@ impl Database {
             versions,
             [
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 30, 31, 32, 33, 34, 35, 36,
-                37, 38, 39, 40, 41, 42
+                37, 38, 39, 40, 41, 42, 43, 44
             ]
         );
         let reader = PgPoolOptions::new()
@@ -347,6 +347,38 @@ fn collect_plan_indexes(value: &Value, indexes: &mut BTreeSet<String>) {
     }
 }
 
+async fn assert_cached_latest_matches(db: &Database, uncached: &ToolExecution) {
+    let id = "\"".repeat(512);
+    let request = ToolCall {
+        id: id.clone(),
+        name: ToolName::PatchHistory,
+        arguments: json!({}),
+    }
+    .validate(&[canonical_patch_history_definition()])
+    .unwrap();
+    let (query, context) = query_context();
+    let cache = p4_unit_contracts::LatestPatchCache::default();
+    let call = || {
+        p4_unit_contracts::execute_cached_patch_history(
+            &db.reader, &cache, &query, &context, &id, &request,
+        )
+    };
+    let (a, b, c, d, e) = tokio::join!(call(), call(), call(), call(), call());
+    for execution in [a, b, c, d, e] {
+        let execution = execution.unwrap();
+        assert_eq!(execution.result, uncached.result);
+        p4_unit_contracts::validate_cached_patch_dependency(
+            &db.reader,
+            &cache,
+            &query,
+            &context,
+            &execution.dependencies[0],
+        )
+        .await
+        .unwrap();
+    }
+}
+
 fn query_context() -> (Query, AuthorizedContext) {
     (
         Query {
@@ -566,7 +598,7 @@ fn execution_bytes(execution: &ToolExecution) -> usize {
     };
     execution.validate_for(&call, &request, None).unwrap();
     assert_eq!(execution.result.call_id, "\"".repeat(512));
-    serde_json::to_vec(execution).unwrap().len()
+    serde_json::to_vec(&execution.result).unwrap().len()
 }
 
 fn verify_receipts(execution: &ToolExecution, objects: &[RawObject]) {
@@ -865,26 +897,14 @@ async fn real_current_projection_and_composed_patch_history() {
     let bounded = db
         .execute(json!({"entity":id,"since":"p1","until":"p2"}))
         .await;
-    let complete = projected_execution(&bounded, &[&execution], 2);
-    assert_eq!(rows(&complete), rows(&execution));
-    verify_receipt_integrity(
-        &complete,
-        &[
-            baba.clone(),
-            infernus.clone(),
-            first.clone(),
-            second.clone(),
-        ],
-    );
-    let complete_bytes = execution_bytes(&complete);
-    let bounded_bytes = execution_bytes(&bounded);
-    assert!(complete_bytes >= 16_384);
-    assert_eq!(rows(&bounded), &rows(&execution)[..1]);
-    assert_eq!(bounded.result.result["omitted_count"], 1);
-    assert_eq!(bounded.result.result["truncated"], true);
+    assert_eq!(rows(&bounded), rows(&execution));
+    assert_eq!(bounded.result.result["omitted_count"], 0);
+    assert_eq!(bounded.result.result["truncated"], false);
     assert_eq!(bounded.result.result["omitted_count_is_lower_bound"], false);
+    let bounded_bytes = serde_json::to_vec(&bounded.result).unwrap().len();
+    assert!(bounded_bytes < 16_384);
     println!(
-        "P4_PROJECTION_BOUND_PROOF two original statements independently visible with exact original-byte receipts; full sealed two-row execution={complete_bytes} bytes, final one-row execution={bounded_bytes} bytes, omitted_count=1, limit=16384, worst_call_id=512 escaped quotes"
+        "P4_PROJECTION_BOUND_PROOF two original statements independently visible with exact original-byte receipts; complete two-row result={bounded_bytes} bytes, limit=16384 on the provider-visible result, worst_call_id=512 escaped quotes"
     );
     assert_eq!(
         bounded.result.result["current_official_patch"]["label"],
@@ -1447,22 +1467,16 @@ async fn quarantined_omitted_middle_post_invalidates_every_validation_purpose() 
         .execute(json!({"entity":entity,"since":"p1","until":"p3"}))
         .await;
     let complete = projected_execution(&all, &[&parts[0], &parts[1], &parts[2]], 3);
-    let prefix = projected_execution(&all, &[&parts[0], &parts[1]], 3);
     assert_eq!(rows(&complete).len(), 3);
     verify_receipt_integrity(&complete, &objects);
-    verify_receipt_integrity(&prefix, &objects);
-    let complete_bytes = execution_bytes(&complete);
-    let prefix_bytes = execution_bytes(&prefix);
-    let bounded_bytes = execution_bytes(&all);
-    assert!(complete_bytes >= 16_384);
-    assert!(prefix_bytes >= 16_384);
-    assert_eq!(rows(&all), rows(&parts[0]));
-    assert_eq!(all.result.result["omitted_count"], 2);
-    assert_eq!(all.result.result["truncated"], true);
+    assert_eq!(rows(&all), rows(&complete));
+    assert_eq!(all.result.result["omitted_count"], 0);
+    assert_eq!(all.result.result["truncated"], false);
     assert_eq!(all.result.result["omitted_count_is_lower_bound"], false);
     verify_receipts(&all, &objects);
+    let bounded_bytes = execution_bytes(&all);
     println!(
-        "P4_THREE_POST_BOUND_PROOF real CHANGES projection=3 rows, independent bounded requests verify every original-byte receipt; full sealed three-row execution={complete_bytes} bytes, two-row prefix={prefix_bytes} bytes, final one-row execution={bounded_bytes} bytes, limit=16384, worst_call_id=512 escaped quotes"
+        "P4_THREE_POST_BOUND_PROOF real CHANGES projection=3 rows, independent bounded requests verify every original-byte receipt; complete three-row result={bounded_bytes} bytes, limit=16384 on the provider-visible result, worst_call_id=512 escaped quotes"
     );
     let middle = &rows(&parts[1])[0];
     assert_eq!(middle["patch"], "p2");
@@ -1472,9 +1486,7 @@ async fn quarantined_omitted_middle_post_invalidates_every_validation_purpose() 
     assert_eq!(rows(&stale).len(), 1);
     assert_eq!(rows(&stale)[0]["patch"], "p3");
     assert_eq!(stale.result.result["omitted_count"], 2);
-    assert_eq!(rows(&stale), rows(&all));
-    assert_eq!(stale.result.evidence_ids, all.result.evidence_ids);
-    assert_eq!(stale.dependencies[0].evidence, all.dependencies[0].evidence);
+    assert_eq!(rows(&stale), rows(&parts[0]));
     verify_receipts(&stale, &objects);
     assert!(!stale
         .result
@@ -1707,11 +1719,17 @@ async fn entityless_history_lists_playable_hero_changes_of_newest_changed_patch(
         "changed"
     );
     assert!(execution.result.result["entity_id"].is_null());
-    let entities = rows(&execution)
+    assert!(!execution.result.is_error, "{:?}", execution.result.result);
+    let entities = execution.result.result["groups"]
+        .as_array()
+        .unwrap()
         .iter()
-        .map(|row| row["entity_id"].as_i64().unwrap())
+        .map(|group| group["entity_id"].as_i64().unwrap())
         .collect::<BTreeSet<_>>();
     assert_eq!(entities, BTreeSet::from([baba, haze]));
+    assert_eq!(execution.result.result["total_count"], 2);
+    assert_eq!(execution.result.result["truncated"], false);
+    assert_cached_latest_matches(&db, &execution).await;
     error(
         &db.execute(json!({"entity":baba})).await,
         "no_patch_changes",

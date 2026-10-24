@@ -482,7 +482,7 @@ fn fact_label(fact: &Value) -> &str {
         .as_str()
         .map(str::trim)
         .filter(|label| !label.is_empty() && !key_shaped(label))
-        .map(|label| hero::german_label(label).unwrap_or(label))
+        .map(|label| brain_serve::game_text::german_label(label).unwrap_or(label))
         .or_else(|| stat_key.and_then(stat_label))
         .or_else(|| stat_key.filter(|key| !key_shaped(key)))
         .unwrap_or("Wert")

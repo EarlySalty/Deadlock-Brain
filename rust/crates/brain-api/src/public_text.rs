@@ -43,7 +43,7 @@ pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool)
         let destination = if discord {
             format!("<#{}>", COACHING_CHANNEL_ID)
         } else {
-            format!("Discord oder {COACHING_URL}")
+            format!("Discord ({COACHING_URL})")
         };
         answer.text = answer.text.replace(COACHING_REFERENCE, &destination);
         if answer.text.len() > brain_contracts::public_api::MAX_PUBLIC_ANSWER_TEXT_BYTES {
@@ -208,7 +208,8 @@ mod tests {
                 assert!(response.text.contains("<#1494373349944459355>"));
                 assert!(!response.text.contains(COACHING_URL));
             } else {
-                assert!(response.text.contains(COACHING_URL));
+                assert!(response.text.contains(&format!("Discord ({COACHING_URL})")));
+                assert!(!response.text.contains(" oder "));
                 assert!(!response.text.contains("<#"));
             }
         }

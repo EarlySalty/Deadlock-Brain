@@ -36,6 +36,9 @@ mod pg_asset_tools;
 #[path = "../src/pg_tools.rs"]
 mod pg_tools;
 
+#[path = "../src/game_text.rs"]
+mod game_text;
+
 #[path = "../src/answer_trace.rs"]
 mod answer_trace;
 
@@ -327,7 +330,7 @@ async fn database(pg: &scratch_pg::ScratchPg) -> (PgPool, PgPool, PgPool) {
         versions,
         [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 30, 31, 32, 33, 34, 35, 36, 37,
-            38, 39, 40, 41, 42
+            38, 39, 40, 41, 42, 43, 44
         ]
     );
     let reader = PgPoolOptions::new()

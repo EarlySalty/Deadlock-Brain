@@ -1,3 +1,4 @@
+use crate::pg_patch_tools::LatestPatchCache;
 use brain_contracts::{
     tools::{canonical_patch_history_definition, BuildPlanRequest, ToolSubrequest},
     Accounted, AuthorizedContext, PinnedGameContext, PortError, PortFailure, Query, ToolCall,
@@ -11,6 +12,7 @@ pub struct PgPatchToolPort<T> {
     delegate: T,
     pool: PgPool,
     runtime: Handle,
+    cache: LatestPatchCache,
 }
 
 impl<T> PgPatchToolPort<T> {
@@ -22,6 +24,7 @@ impl<T> PgPatchToolPort<T> {
             delegate,
             pool,
             runtime,
+            cache: LatestPatchCache::default(),
         })
     }
 
@@ -93,8 +96,13 @@ impl<T: ToolExecutionPort> ToolExecutionPort for PgPatchToolPort<T> {
         request: &ToolRequest,
     ) -> Result<ToolExecution, PortError> {
         if canonical(request) {
-            self.drive(crate::pg_patch_tools::execute_patch_history(
-                &self.pool, query, context, call_id, request,
+            self.drive(crate::pg_patch_tools::execute_cached_patch_history(
+                &self.pool,
+                &self.cache,
+                query,
+                context,
+                call_id,
+                request,
             ))
         } else {
             self.delegate
@@ -159,8 +167,12 @@ impl<T: ToolExecutionPort> ToolExecutionPort for PgPatchToolPort<T> {
         let mut delegated = Vec::new();
         for dependency in dependencies {
             if canonical(&dependency.request) {
-                self.drive(crate::pg_patch_tools::validate_patch_dependency(
-                    &self.pool, query, context, dependency,
+                self.drive(crate::pg_patch_tools::validate_cached_patch_dependency(
+                    &self.pool,
+                    &self.cache,
+                    query,
+                    context,
+                    dependency,
                 ))?;
             } else {
                 delegated.push(dependency.clone());

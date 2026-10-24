@@ -340,19 +340,22 @@ pub struct CanonicalPatchHistoryRequest {
     pub since: Option<String>,
     pub until: Option<String>,
     pub limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<usize>,
 }
 
 pub fn canonical_patch_history_definition() -> ToolDefinition {
     ToolDefinition {
         name: ToolName::PatchHistory,
-        description: "Liest belegte offizielle Patchänderungen. entity ist optional und ist dann die positive kanonische entity_id aus find_entity, keine ältere Spiel-ID. Ohne entity liefert das Werkzeug die belegten Änderungszeilen zu spielbaren Helden und ihren Fähigkeiten, etwa für die Frage, was im neuesten Patch geändert wurde. Itemänderungen und allgemeine Zeilen ohne Heldenbezug sind nicht enthalten, nenne die Liste deshalb nicht vollständig. Ohne Zeitraum gilt nur der chronologisch neueste offizielle Patch mit belegten Änderungszeilen, ohne entity mit belegten Heldenzeilen, nicht der letzte Patch mit einer Änderung dieser Entität. since und until sind inklusive Patchlabels oder exakte Veröffentlichungszeitpunkte mit Zeitzone. Mehrdeutige Labels werden abgewiesen. Höchstens 20 vollständige Änderungszeilen. Eine leere Änderungsliste beweist keinen unveränderten Spielwert. Jede citation verweist auf den Beleg im offiziellen Rohobjekt. Fehlende oder abgeschnittene Zeilen nicht ergänzen.".into(),
+        description: "Liest belegte offizielle Patchänderungen. entity ist optional und ist dann die positive kanonische entity_id aus find_entity, keine ältere Spiel-ID. Ohne entity und ohne Zeitraum liefert das Werkzeug alle belegten Änderungszeilen aus dem Heldenabschnitt des chronologisch neuesten offiziellen Patches mit belegten Heldenzeilen, gruppiert nach subject. entity_id ist bei Gruppen ohne eindeutig zugeordneten Helden null. Gib bei dieser Frage jede Zeile aus groups mit ihren Werten wieder. completeness all_extracted_hero_section_lines heißt, dass alle aus dem Heldenabschnitt gelesenen Zeilen enthalten sind; Zeilen aus anderen Abschnitten der Patchnotes, etwa Items oder allgemeine Änderungen, werden nicht gelesen. Ist truncated true, liefert ein weiterer Aufruf mit offset gleich next_offset die übrigen Zeilen. offset gilt nur ohne entity und ohne Zeitraum. Mit entity gilt ohne Zeitraum nur der chronologisch neueste offizielle Patch mit belegten Änderungszeilen, nicht der letzte Patch mit einer Änderung dieser Entität. since und until sind inklusive Patchlabels oder exakte Veröffentlichungszeitpunkte mit Zeitzone. Mehrdeutige Labels werden abgewiesen. Mit entity oder Zeitraum höchstens 20 vollständige Änderungszeilen. Eine leere Änderungsliste beweist keinen unveränderten Spielwert. Jede citation verweist auf den Beleg im offiziellen Rohobjekt. Fehlende oder abgeschnittene Zeilen nicht ergänzen.".into(),
         input_schema: serde_json::json!({
             "type":"object","additionalProperties":false,
             "properties":{
                 "entity":{"type":"integer","minimum":1,"maximum":i64::MAX},
                 "since":{"type":"string","minLength":1,"maxLength":128},
                 "until":{"type":"string","minLength":1,"maxLength":128},
-                "limit":{"type":"integer","minimum":1,"maximum":20}
+                "limit":{"type":"integer","minimum":1,"maximum":20},
+                "offset":{"type":"integer","minimum":0,"maximum":10000}
             }
         }),
     }
@@ -636,6 +639,9 @@ impl ToolSubrequest {
                     .is_some_and(|limit| !(1..=20).contains(&limit))
                 {
                     return Err(invalid("Patchverlauf erlaubt ein bis 20 Ergebnisse"));
+                }
+                if request.offset.is_some_and(|offset| offset > 10_000) {
+                    return Err(invalid("Patchverlauf erlaubt höchstens Versatz 10000"));
                 }
                 Ok(())
             }

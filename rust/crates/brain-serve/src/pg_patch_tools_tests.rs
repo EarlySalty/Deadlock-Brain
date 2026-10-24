@@ -43,8 +43,8 @@ fn history(rows: Vec<Value>) -> Value {
 }
 
 #[test]
-fn bounds_cover_the_whole_execution_and_preserve_complete_rows() {
-    let statement = "Baba: vollständige Änderung mit Umlauten äöüß. ".repeat(12);
+fn bounds_cover_the_result_and_preserve_complete_rows() {
+    let statement = "Baba: vollständige Änderung mit Umlauten äöüß. ".repeat(24);
     let value = history((1..=20).map(|id| change(id, &statement)).collect());
     let evidence = (1..=20)
         .chain(100..=105)
@@ -53,7 +53,7 @@ fn bounds_cover_the_whole_execution_and_preserve_complete_rows() {
     let execution = bound_execution(&"\"".repeat(512), &request(), value, &evidence).unwrap();
     assert!(!execution.result.is_error);
     ensure_size(&execution).unwrap();
-    assert!(serde_json::to_vec(&execution).unwrap().len() < MAX_BYTES);
+    assert!(serde_json::to_vec(&execution.result).unwrap().len() < MAX_BYTES);
     let rows = execution.result.result["changes"].as_array().unwrap();
     assert!(!rows.is_empty() && rows.len() < 20);
     assert_eq!(
@@ -71,26 +71,35 @@ fn bounds_cover_the_whole_execution_and_preserve_complete_rows() {
 }
 
 #[test]
-fn oversized_receipts_and_rows_never_leave_uncited_success() {
-    for (statement, padding) in [
-        ("x".repeat(MAX_BYTES), 0),
-        ("Baba: health changed".into(), MAX_BYTES),
-    ] {
-        let execution = bound_execution(
-            "p1",
-            &request(),
-            history(vec![change(1, &statement)]),
-            &std::iter::once(receipt(1, padding))
-                .chain((100..=105).map(|id| receipt(id, 0)))
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
-        assert!(execution.result.is_error);
-        assert_eq!(execution.result.result["error"], "result_too_large");
-        assert!(execution.result.evidence_ids.is_empty());
-        assert!(execution.dependencies.is_empty());
-        ensure_size(&execution).unwrap();
-    }
+fn oversized_rows_never_leave_uncited_success() {
+    let evidence = std::iter::once(receipt(1, 0))
+        .chain((100..=105).map(|id| receipt(id, 0)))
+        .collect::<Vec<_>>();
+    let execution = bound_execution(
+        "p1",
+        &request(),
+        history(vec![change(1, &"x".repeat(MAX_BYTES))]),
+        &evidence,
+    )
+    .unwrap();
+    assert!(execution.result.is_error);
+    assert_eq!(execution.result.result["error"], "result_too_large");
+    assert!(execution.result.evidence_ids.is_empty());
+    assert!(execution.dependencies.is_empty());
+    ensure_size(&execution).unwrap();
+    let padded = std::iter::once(receipt(1, MAX_BYTES))
+        .chain((100..=105).map(|id| receipt(id, 0)))
+        .collect::<Vec<_>>();
+    let execution = bound_execution(
+        "p1",
+        &request(),
+        history(vec![change(1, "Baba: health changed")]),
+        &padded,
+    )
+    .unwrap();
+    assert!(!execution.result.is_error);
+    assert_eq!(execution.result.evidence_ids.len(), 7);
+    assert_eq!(execution.dependencies[0].evidence.len(), 7);
     assert!(bound_execution(
         "p1",
         &request(),

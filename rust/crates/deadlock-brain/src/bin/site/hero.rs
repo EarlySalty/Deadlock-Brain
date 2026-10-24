@@ -3,6 +3,9 @@ use serde_json::{json, Value};
 use sqlx::{PgConnection, Row};
 
 use super::profiles::{display_name, escape, fact_rows};
+use brain_serve::game_text::{
+    attribute, decode, game_tag, german_label, image_alt, plain, tag_name,
+};
 
 pub(super) struct Ability {
     slot: i32,
@@ -78,118 +81,6 @@ pub(super) fn anchor(key: &str) -> String {
             }
         })
         .collect()
-}
-
-fn tag_name(tag: &str) -> String {
-    tag.trim_start_matches('/')
-        .split(|c: char| c.is_whitespace() || c == '/')
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase()
-}
-
-const GAME_TAGS: [&str; 34] = [
-    "a",
-    "b",
-    "br",
-    "circle",
-    "clippath",
-    "defs",
-    "div",
-    "ellipse",
-    "em",
-    "font",
-    "g",
-    "i",
-    "img",
-    "label",
-    "li",
-    "line",
-    "lineargradient",
-    "p",
-    "panel",
-    "path",
-    "polygon",
-    "polyline",
-    "rect",
-    "script",
-    "span",
-    "stop",
-    "strong",
-    "style",
-    "sub",
-    "sup",
-    "svg",
-    "title",
-    "u",
-    "use",
-];
-
-fn game_tag(tag: &str) -> bool {
-    tag.starts_with("!--") || GAME_TAGS.contains(&tag_name(tag).as_str())
-}
-
-fn decode(text: &str) -> String {
-    text.replace("&nbsp;", " ")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&amp;", "&")
-}
-
-fn image_alt<'a>(tag: &'a str, after: &str) -> &'a str {
-    if labelled_next(after) {
-        return "";
-    }
-    attribute(tag, "alt")
-        .filter(|alt| !alt.starts_with('_'))
-        .unwrap_or("")
-}
-
-fn labelled_next(after: &str) -> bool {
-    let after = after.trim_start();
-    after.starts_with('<')
-        && after[1..].split('>').next().is_some_and(|tag| {
-            tag_name(tag) == "span"
-                && attribute(tag, "class").is_some_and(|class| {
-                    class
-                        .split_whitespace()
-                        .any(|name| name == "inline-attribute-label")
-                })
-        })
-}
-
-pub(super) fn plain(text: &str) -> String {
-    let mut out = String::new();
-    let mut rest = text;
-    while let Some(start) = rest.find('<') {
-        out.push_str(&rest[..start]);
-        let Some(end) = rest[start..].find('>') else {
-            out.push_str(&rest[start..]);
-            rest = "";
-            break;
-        };
-        let tag = &rest[start + 1..start + end];
-        if !game_tag(tag) {
-            out.push('<');
-            rest = &rest[start + 1..];
-            continue;
-        }
-        match tag_name(tag).as_str() {
-            "br" => out.push('\n'),
-            "img" => out.push_str(image_alt(tag, &rest[start + end + 1..])),
-            _ => {}
-        }
-        rest = &rest[start + end + 1..];
-    }
-    out.push_str(rest);
-    decode(&out)
-        .lines()
-        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn emphasised(tag: &str) -> bool {
@@ -290,13 +181,6 @@ pub(super) fn strip_bullet(line: &str) -> &str {
     line
 }
 
-fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
-    let marker = format!("{name}=\"");
-    let start = tag.find(&marker)? + marker.len();
-    let end = tag[start..].find('"')?;
-    Some(tag[start..start + end].trim())
-}
-
 fn paragraph(text: &str) -> String {
     plain(text)
         .lines()
@@ -344,53 +228,6 @@ fn label(fact: &Value) -> Option<&str> {
     };
     let chosen = text("label_de").or_else(|| text("label"))?;
     Some(german_label(chosen).unwrap_or(chosen))
-}
-
-pub(super) fn german_label(english: &str) -> Option<&'static str> {
-    Some(match english {
-        "Burst Damage" => "Salvenschaden",
-        "Grab Range" => "Greifreichweite",
-        "Cooldown" => "Abklingzeit",
-        "Duration" => "Dauer",
-        "Damage" => "Schaden",
-        "Damage Per Second" => "Schaden pro Sek.",
-        "Radius" => "Radius",
-        "Cast Range" => "Wirkreichweite",
-        "Cast Delay" => "Zauberverzögerung",
-        "Charge Delay" => "Verzögerung zw. Aufladungen",
-        "Channel Duration" => "Kanalisierungsdauer",
-        "Move Speed" => "Bewegungstempo",
-        "Fire Rate" => "Feuerrate",
-        "Weapon Damage" => "Waffenschaden",
-        "Bullet Damage" => "Kugelschaden",
-        "Bullet Resist" => "Kugelresistenz",
-        "Spirit Resist" => "Magieresistenz",
-        "Max Stacks" => "Max. Stapel",
-        "Bonus Health" => "Bonus-Lebenspunkte",
-        "Health Regen" => "Lebensregeneration",
-        "Out of Combat Regen" => "Regeneration außerhalb des Kampfes",
-        "Sprint Speed" => "Sprinttempo",
-        "Stamina" => "Ausdauer",
-        "Ammo" => "Munition",
-        "Max Ammo" => "Max. Munition",
-        "Reload Time" => "Nachladezeit",
-        "Bullet Velocity" => "Kugelgeschwindigkeit",
-        "Bullet Lifesteal" => "Kugel-Lebensraub",
-        "Spirit Lifesteal" => "Magie-Lebensraub",
-        "Spirit Power" => "Magiekraft",
-        "Spirit Damage" => "Magieschaden",
-        "Ability Duration" => "Fähigkeitsdauer",
-        "Ability Cooldown Reduction" => "Reduzierung der Fähigkeitsabklingzeit",
-        "Bonus Ability Charges" => "Zusätzliche Fähigkeitsaufladungen",
-        "Barrier" => "Barriere",
-        "Slow Duration" => "Verlangsamungsdauer",
-        "Debuff Resist" => "Schwächungsresistenz",
-        "Incoming Healing" => "Erhaltene Heilung",
-        "Outgoing Healing" => "Ausgehende Heilung",
-        "Damage Reduction" => "Schadensreduzierung",
-        "Heal Amount" => "Heilmenge",
-        _ => return None,
-    })
 }
 
 fn shown_value(value: &Value) -> bool {

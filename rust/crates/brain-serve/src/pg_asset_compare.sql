@@ -22,7 +22,7 @@ WITH selected AS (
     ) f
 ), ranked AS (
     SELECT fact,row_number() OVER(ORDER BY entity_id,stat_key,fact::text) AS ord,
-        sum(octet_length(fact::text)) OVER(ORDER BY entity_id,stat_key,fact::text) AS bytes
+        sum(octet_length(regexp_replace(fact::text,'<[^>]*>','','g'))) OVER(ORDER BY entity_id,stat_key,fact::text) AS bytes
     FROM cells CROSS JOIN LATERAL jsonb_array_elements(COALESCE(rows,'[]'::jsonb)) f(fact)
 )
 SELECT jsonb_build_object(

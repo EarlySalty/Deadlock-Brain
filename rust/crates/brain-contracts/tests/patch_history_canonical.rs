@@ -42,6 +42,7 @@ fn numeric_canonical_ids_and_legacy_objects_have_distinct_requests() {
             since: None,
             until: None,
             limit: None,
+            offset: None,
         })
     );
     let request = call(json!({"limit":5}))
@@ -54,6 +55,7 @@ fn numeric_canonical_ids_and_legacy_objects_have_distinct_requests() {
             since: None,
             until: None,
             limit: Some(5),
+            offset: None,
         })
     );
     for limit in [1, 20] {
@@ -69,6 +71,7 @@ fn numeric_canonical_ids_and_legacy_objects_have_distinct_requests() {
                 since: Some("ä".repeat(64)),
                 until: Some("2026-10-01".into()),
                 limit: Some(limit),
+                offset: None,
             })
         );
         assert_eq!(

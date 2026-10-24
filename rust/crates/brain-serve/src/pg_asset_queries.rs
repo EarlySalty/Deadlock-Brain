@@ -22,12 +22,12 @@ FROM (
                         AND c.fact->>'value'<>'' THEN 1
                     WHEN c.stat_key LIKE 'identity\_%' ESCAPE '\' THEN 5
                     WHEN NULLIF(c.fact->>'label','') IS NOT NULL
-                        AND c.fact->'value' NOT IN('0'::jsonb,'""'::jsonb,'false'::jsonb,'null'::jsonb) THEN
+                        AND c.fact->'value' NOT IN('0'::jsonb,'-1'::jsonb,'""'::jsonb,'false'::jsonb,'null'::jsonb) THEN
                         CASE WHEN c.fact->'condition'->>'usage_flag_0'='ConditionallyApplied'
                             OR c.fact->'condition'->>'scale_class' LIKE '%damage%' THEN 2 ELSE 3 END
                     ELSE 4 END,c.stat_key,c.fact::text
             ) AS ord,
-            c.fact,octet_length(c.fact::text)+187-octet_length(c.fact->>'citation')
+            c.fact,octet_length(regexp_replace(c.fact::text,'<[^>]*>','','g'))+187-octet_length(c.fact->>'citation')
                 +COALESCE((SELECT sum(187-octet_length(q->>'citation'))
                     FROM jsonb_array_elements(c.fact->'qualifiers') q),0) AS result_bytes
         FROM serve.p2_fact c WHERE c.entity_id=$1
@@ -168,6 +168,7 @@ async fn read_card(
             .map_err(database_error)?;
     }
     let mut card = json!({"identity":identity,"facts":facts,"links":links});
+    crate::game_text::present(&mut card["facts"]);
     if kind == "ability" {
         card["hero_selection"] = json!({"available":false,"reason":"hero_slot_not_published"});
     }
@@ -226,12 +227,13 @@ pub(crate) async fn read(
         }
         ToolSubrequest::Compare(compare) => {
             let entities: Vec<i64> = compare.entities.iter().map(|id| *id as i64).collect();
-            let value = sqlx::query_scalar::<_, Value>(COMPARE)
+            let mut value = sqlx::query_scalar::<_, Value>(COMPARE)
                 .bind(entities)
                 .bind(&compare.stats)
                 .fetch_one(&mut *connection)
                 .await
                 .map_err(database_error)?;
+            crate::game_text::present(&mut value["stats"]);
             bounded_comparison_result(call_id, request, value)?
         }
         _ => return Err(invalid()),

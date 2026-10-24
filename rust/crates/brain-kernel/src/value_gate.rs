@@ -34,11 +34,7 @@ fn is_name(token: &str) -> bool {
     bytes
         .windows(2)
         .any(|pair| pair[0].is_ascii_alphabetic() && pair[1].is_ascii_digit())
-        || bytes.windows(3).any(|triple| {
-            triple[0].is_ascii_digit()
-                && triple[1].is_ascii_uppercase()
-                && triple[2].is_ascii_uppercase()
-        })
+        || matches!(bytes, [digit, b'A', b'P'] if digit.is_ascii_digit())
 }
 
 fn touches_number(bytes: &[u8], start: usize, end: usize) -> bool {
@@ -64,7 +60,7 @@ fn name_spans(text: &str) -> Vec<std::ops::Range<usize>> {
             (None, true) => start = Some(index),
             (Some(from), false) => {
                 if is_name(&text[from..index]) && !touches_number(bytes, from, index) {
-                    spans.extend(std::iter::once(from..index));
+                    spans.push(from..index);
                 }
                 start = None;
             }
@@ -408,7 +404,7 @@ mod tests {
     fn names_glued_to_numbers_stay_numbers() {
         let mut ledger = ValueLedger::default();
         ledger.insert(&ToolResult { call_id: "patch".into(), name: ToolName::PatchHistory,
-            result: json!({"changes":[{"citation":"line","line_text":"Spirit x1.5, Scale x2,5, Burst 1.5AP, Drain -50HP, Lvl1-3","released_at":"2026-10-15T03:12:00+00:00"}]}),
+            result: json!({"changes":[{"citation":"line","line_text":"Spirit x1.5, Scale x2,5, Burst 1.5AP, Drain -50HP, Lvl1-3, Shield 300HP, Live 2026-10-15T03:12","released_at":"2026-10-15T03:12:00+00:00"}]}),
             evidence_ids: vec!["line".into()], is_error: false });
         let named = |text: &str, values: &[f64]| ProviderAnswer {
             text: text.into(),
@@ -430,6 +426,8 @@ mod tests {
         assert!(!ledger.accepts(&named("Drain +50HP", &[])));
         assert!(!ledger.accepts(&named("Drain 50HP", &[])));
         assert!(!ledger.accepts(&named("Um 15T03", &[])));
+        assert!(!ledger.accepts(&named("Schild 300HP", &[])));
+        assert!(ledger.accepts(&named("Schild 300HP", &[300.0])));
         assert!(ledger.accepts(&named("Spirit x1.5", &[1.5])));
         assert!(ledger.accepts(&named("Scale x2,5", &[2.5])));
         assert!(ledger.accepts(&named("Lvl1-3", &[1.0, 3.0])));

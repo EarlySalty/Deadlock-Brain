@@ -12,6 +12,7 @@ use std::{
 };
 
 const MAX_BYTES: usize = 16_384;
+const MAX_EVIDENCE: usize = 100;
 const CURRENT: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
     'released_at',released_at,'official_url',official_url,'head_citation',official_receipt_id::text,
     'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
@@ -34,13 +35,6 @@ const CURRENT_ALL: &str = "WITH changed AS MATERIALIZED (
     FROM serve.p4_patch_catalog c
     WHERE c.patch_id IN(SELECT patch_id FROM changed WHERE entity_id IN(SELECT entity_id FROM playable))
     ORDER BY released_at DESC,patch_id DESC LIMIT 1";
-const CURRENT_BY_HEAD: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
-    'released_at',released_at,'official_url',official_url,'head_citation',official_receipt_id::text,
-    'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
-    'url_citation',url_receipt_id::text)
-    FROM serve.p4_patch_catalog
-    WHERE official_receipt_id=$1
-    ORDER BY released_at DESC,patch_id DESC LIMIT 2";
 const RESOLVE: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
     'released_at',released_at,'official_url',official_url,'head_citation',official_receipt_id::text,
     'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
@@ -125,12 +119,100 @@ const CHANGES_ALL: &str = "WITH base AS MATERIALIZED (
     WHERE ($3::text IS NULL OR p.released_at >= $3::timestamptz)
         AND ($4::text IS NULL OR p.released_at <= $4::timestamptz)
     ORDER BY p.released_at DESC,p.patch_id DESC,c.change_id DESC LIMIT 20";
+const LATEST: &str = "WITH base AS MATERIALIZED (
+        SELECT * FROM serve.p4_patch_change
+    ), playable AS MATERIALIZED (
+        SELECT e.entity_id FROM (SELECT DISTINCT entity_id FROM base) e
+        WHERE NOT EXISTS(SELECT 1 FROM serve.current_entity h WHERE h.id=e.entity_id AND h.kind='hero')
+            OR serve.hero_is_playable(e.entity_id)
+    ), head AS MATERIALIZED (
+        SELECT c.* FROM serve.p4_patch_catalog c
+        WHERE c.patch_id IN(SELECT patch_id FROM base WHERE entity_id IN(SELECT entity_id FROM playable))
+        ORDER BY c.released_at DESC,c.patch_id DESC LIMIT 1
+    ), bound AS (
+        SELECT b.change_id,b.entity_id,b.subject,b.statement_index,b.line_text,b.receipt_id,
+            b.binding_receipt_id,b.entity_receipt_id
+        FROM base b JOIN head h ON h.patch_id=b.patch_id
+        WHERE b.entity_id IN(SELECT entity_id FROM playable)
+    ), unbound AS (
+        SELECT f.id AS change_id,NULL::bigint AS entity_id,payload.value->>'subject' AS subject,
+            payload.value->'statement_index' AS statement_index,payload.value->>'line_text' AS line_text,
+            f.receipt_id,NULL::bigint AS binding_receipt_id,NULL::bigint AS entity_receipt_id
+        FROM head h JOIN serve.current_fact f ON f.entity_id=h.patch_id
+            AND f.raw_object_id=h.raw_object_id AND f.valid_from_run=h.ingest_run_id
+        CROSS JOIN LATERAL (
+            SELECT CASE WHEN pg_input_is_valid(f.value_text::text,'jsonb')
+                THEN f.value_text::jsonb ELSE '{}'::jsonb END AS value OFFSET 0
+        ) payload
+        WHERE f.stat_key COLLATE \"C\" >= 'patch_change_r' AND f.stat_key COLLATE \"C\" < 'patch_change_s'
+            AND f.stat_key ~ '^patch_change_r[0-9a-f]{64}_[0-9]+$'
+            AND jsonb_typeof(payload.value)='object'
+            AND jsonb_typeof(payload.value->'subject')='string' AND btrim(payload.value->>'subject')<>''
+            AND jsonb_typeof(payload.value->'line_text')='string' AND btrim(payload.value->>'line_text')<>''
+            AND jsonb_typeof(payload.value->'statement_index')='number'
+            AND payload.value->>'statement_index'=substring(f.stat_key::text FROM '[0-9]+$')
+            AND EXISTS(SELECT 1 FROM serve.published_receipt r WHERE r.id=f.receipt_id
+                AND r.extractor=h.extractor AND r.raw_object_id=h.raw_object_id
+                AND r.ingest_run_id=h.ingest_run_id
+                AND r.locator_kind='json_pointer' AND r.locator='/raw_content')
+            AND NOT EXISTS(SELECT 1 FROM base b WHERE b.change_id=f.id)
+    ) SELECT jsonb_build_object('current',jsonb_build_object('id',h.patch_id,'label',h.label,
+        'released_at',h.released_at,'official_url',h.official_url,'head_citation',h.official_receipt_id::text,
+        'label_citation',h.label_receipt_id::text,'released_at_citation',h.released_at_receipt_id::text,
+        'url_citation',h.url_receipt_id::text),
+        'changes',COALESCE((SELECT jsonb_agg(jsonb_build_object('subject',c.subject,'entity_id',c.entity_id,
+            'line_text',c.line_text,'citation',c.receipt_id::text,
+            'binding_citation',c.binding_receipt_id::text,'entity_citation',c.entity_receipt_id::text)
+            ORDER BY (c.statement_index)::numeric,c.change_id)
+            FROM (SELECT * FROM bound UNION ALL SELECT * FROM unbound) c),'[]'::jsonb))
+    FROM head h";
+const LATEST_WINDOW: usize = 56;
+const PATCH_CITATIONS: [&str; 4] = [
+    "head_citation",
+    "label_citation",
+    "released_at_citation",
+    "url_citation",
+];
+const LATEST_CAPACITY: usize = 64;
 const RECEIPTS: &str = "SELECT jsonb_build_object('receipt_id',receipt_id,'source_id',source_id,
     'evidence_revision',evidence_revision,'receipt',receipt)
     FROM serve.p4_patch_receipt WHERE receipt_id=ANY($1::bigint[]) ORDER BY receipt_id LIMIT 172";
 
+#[derive(Default)]
+struct LatestState {
+    generation: String,
+    entries: BTreeMap<String, ToolExecution>,
+}
+
+#[derive(Default)]
+pub struct LatestPatchCache {
+    state: tokio::sync::Mutex<LatestState>,
+}
+
 pub async fn execute_patch_history(
     pool: &PgPool,
+    query: &Query,
+    context: &AuthorizedContext,
+    id: &str,
+    request: &ToolRequest,
+) -> Result<ToolExecution, PortError> {
+    run_patch_history(pool, None, query, context, id, request).await
+}
+
+pub async fn execute_cached_patch_history(
+    pool: &PgPool,
+    cache: &LatestPatchCache,
+    query: &Query,
+    context: &AuthorizedContext,
+    id: &str,
+    request: &ToolRequest,
+) -> Result<ToolExecution, PortError> {
+    run_patch_history(pool, Some(cache), query, context, id, request).await
+}
+
+async fn run_patch_history(
+    pool: &PgPool,
+    cache: Option<&LatestPatchCache>,
     query: &Query,
     context: &AuthorizedContext,
     id: &str,
@@ -148,6 +230,7 @@ pub async fn execute_patch_history(
     let ToolSubrequest::CanonicalPatchHistory(history) = request.subrequest() else {
         return Err(invalid());
     };
+    let latest = history.entity.is_none() && history.since.is_none() && history.until.is_none();
     let (budget, statement_timeout) = if history.entity.is_some() {
         (
             Duration::from_millis(500),
@@ -161,6 +244,10 @@ pub async fn execute_patch_history(
     };
     let budget = context.remaining_time()?.min(budget);
     let execution = tokio::time::timeout(budget, async {
+        let mut state = match cache.filter(|_| latest) {
+            Some(cache) => Some(cache.state.lock().await),
+            None => None,
+        };
         let mut connection = pool.acquire().await.map_err(database_error)?;
         let mut transaction = connection.begin().await.map_err(database_error)?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
@@ -180,7 +267,10 @@ pub async fn execute_patch_history(
                 "Patchabfrage benötigt den freigegebenen Lesezugang.".into(),
             ));
         }
-        let execution = history_execution(&mut transaction, id, request, history).await?;
+        let execution = match state.as_deref_mut() {
+            Some(state) => cached_execution(&mut transaction, state, id, request, history).await?,
+            None => history_execution(&mut transaction, id, request, history).await?,
+        };
         transaction.commit().await.map_err(database_error)?;
         Ok::<_, PortError>(execution)
     })
@@ -192,8 +282,56 @@ pub async fn execute_patch_history(
     Ok(execution)
 }
 
+async fn cached_execution(
+    connection: &mut PgConnection,
+    state: &mut LatestState,
+    id: &str,
+    request: &ToolRequest,
+    history: &CanonicalPatchHistoryRequest,
+) -> Result<ToolExecution, PortError> {
+    let generation: String = sqlx::query_scalar("SELECT serve.site_generation()")
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(database_error)?;
+    if state.generation != generation {
+        state.generation = generation;
+        state.entries.clear();
+    }
+    let key = request.arguments().to_string();
+    if let Some(cached) = state.entries.get(&key) {
+        let mut execution = cached.clone();
+        execution.result.call_id = id.into();
+        return Ok(execution);
+    }
+    let execution = history_execution(connection, id, request, history).await?;
+    if state.entries.len() < LATEST_CAPACITY {
+        state.entries.insert(key, execution.clone());
+    }
+    Ok(execution)
+}
+
 pub async fn validate_patch_dependency(
     pool: &PgPool,
+    query: &Query,
+    context: &AuthorizedContext,
+    dependency: &ToolEvidenceDependency,
+) -> Result<(), PortError> {
+    revalidate(pool, None, query, context, dependency).await
+}
+
+pub async fn validate_cached_patch_dependency(
+    pool: &PgPool,
+    cache: &LatestPatchCache,
+    query: &Query,
+    context: &AuthorizedContext,
+    dependency: &ToolEvidenceDependency,
+) -> Result<(), PortError> {
+    revalidate(pool, Some(cache), query, context, dependency).await
+}
+
+async fn revalidate(
+    pool: &PgPool,
+    cache: Option<&LatestPatchCache>,
     query: &Query,
     context: &AuthorizedContext,
     dependency: &ToolEvidenceDependency,
@@ -201,8 +339,9 @@ pub async fn validate_patch_dependency(
     if dependency.game_context.is_some() || dependency.evidence.is_empty() {
         return Err(invalid());
     }
-    let current = execute_patch_history(
+    let current = run_patch_history(
         pool,
+        cache,
         query,
         context,
         "revalidation",
@@ -300,24 +439,14 @@ async fn history_execution(
 ) -> Result<ToolExecution, PortError> {
     let ranged = history.since.is_some() || history.until.is_some();
     if history.entity.is_none() && !ranged {
-        let Some((current, rows)) = latest_changes(connection).await? else {
-            return Ok(error_execution(
-                id,
-                request.name(),
-                "official_patch_unavailable",
-            ));
-        };
-        patch_timestamp(&current)?;
-        return finish_history(
-            connection,
+        return latest_execution(connection, id, request, history).await;
+    }
+    if history.offset.is_some() {
+        return Ok(error_execution(
             id,
-            request,
-            history,
-            current,
-            [None, None],
-            rows,
-        )
-        .await;
+            request.name(),
+            "patch_offset_unsupported",
+        ));
     }
     let current_query = if history.entity.is_some() {
         CURRENT
@@ -403,44 +532,256 @@ async fn history_execution(
     .await
 }
 
-async fn latest_changes(
+async fn latest_execution(
     connection: &mut PgConnection,
-) -> Result<Option<(Value, Vec<Value>)>, PortError> {
-    let rows = sqlx::query_scalar::<_, Value>(CHANGES_ALL)
-        .bind(None::<i64>)
-        .bind(None::<i64>)
-        .bind(None::<&str>)
-        .bind(None::<&str>)
-        .fetch_all(&mut *connection)
+    id: &str,
+    request: &ToolRequest,
+    history: &CanonicalPatchHistoryRequest,
+) -> Result<ToolExecution, PortError> {
+    let Some(mut latest) = sqlx::query_scalar::<_, Value>(LATEST)
+        .fetch_optional(&mut *connection)
         .await
-        .map_err(database_error)?;
-    let Some(head) = rows
-        .iter()
-        .find(|row| !row["released_at"].is_null())
-        .map(|row| {
-            row["head_citation"]
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(invalid)
-        })
-        .transpose()?
+        .map_err(database_error)?
     else {
-        return Ok(None);
+        return Ok(error_execution(
+            id,
+            request.name(),
+            "official_patch_unavailable",
+        ));
     };
-    let head_id = head.parse::<i64>().map_err(|_| invalid())?;
-    let patches = sqlx::query_scalar::<_, Value>(CURRENT_BY_HEAD)
-        .bind(head_id)
-        .fetch_all(&mut *connection)
+    let current = latest["current"].take();
+    patch_timestamp(&current)?;
+    let Value::Array(rows) = latest["changes"].take() else {
+        return Err(invalid());
+    };
+    if rows.is_empty() {
+        return Ok(error_execution(id, request.name(), "no_patch_changes"));
+    }
+    let offset = history.offset.unwrap_or(0);
+    if offset >= rows.len() {
+        return Ok(error_execution(
+            id,
+            request.name(),
+            "patch_offset_out_of_range",
+        ));
+    }
+    let window = history.limit.unwrap_or(LATEST_WINDOW).min(LATEST_WINDOW);
+    let rows_window = &rows[offset..rows.len().min(offset + window)];
+    let ids = latest_citations(&current, rows_window)?;
+    let evidence = load_receipts(connection, &ids).await?;
+    let receipts = receipt_map(&evidence)?;
+    for count in (1..=rows_window.len()).rev() {
+        let page = LatestPage {
+            offset,
+            count,
+            total: rows.len(),
+        };
+        let value = latest_value(&current, rows_window, &page);
+        if let Some(execution) = latest_bounded(id, request, value, &receipts)? {
+            return Ok(execution);
+        }
+    }
+    Ok(error_execution(id, request.name(), "result_too_large"))
+}
+
+struct LatestPage {
+    offset: usize,
+    count: usize,
+    total: usize,
+}
+
+fn latest_citations(current: &Value, rows: &[Value]) -> Result<BTreeSet<String>, PortError> {
+    let mut ids = BTreeSet::new();
+    for field in PATCH_CITATIONS {
+        ids.insert(positive_citation(&current[field])?);
+    }
+    for row in rows {
+        ids.insert(positive_citation(&row["citation"])?);
+        let bound = !row["entity_id"].is_null();
+        for field in ["binding_citation", "entity_citation"] {
+            match (bound, row[field].is_null()) {
+                (true, false) => {
+                    ids.insert(positive_citation(&row[field])?);
+                }
+                (false, true) => {}
+                _ => return Err(invalid()),
+            }
+        }
+        if bound && row["entity_id"].as_i64().is_none_or(|id| id <= 0) {
+            return Err(invalid());
+        }
+        for field in ["subject", "line_text"] {
+            if row[field]
+                .as_str()
+                .is_none_or(|text| text.trim().is_empty())
+            {
+                return Err(invalid());
+            }
+        }
+    }
+    Ok(ids)
+}
+
+fn positive_citation(value: &Value) -> Result<String, PortError> {
+    value
+        .as_str()
+        .filter(|id| id.parse::<i64>().is_ok_and(|id| id > 0))
+        .map(str::to_owned)
+        .ok_or_else(invalid)
+}
+
+fn latest_value(current: &Value, rows: &[Value], page: &LatestPage) -> Value {
+    let mut groups: Vec<Value> = Vec::new();
+    for row in &rows[..page.count] {
+        let change = json!({"citation":row["citation"],"line_text":row["line_text"]});
+        let open = groups.last_mut().filter(|group| {
+            group["subject"] == row["subject"] && group["entity_id"] == row["entity_id"]
+        });
+        match open.and_then(|group| group["changes"].as_array_mut()) {
+            Some(changes) => changes.push(change),
+            None => groups.push(
+                json!({"subject":row["subject"],"entity_id":row["entity_id"],
+                "binding_citation":row["binding_citation"],"entity_citation":row["entity_citation"],
+                "changes":[change]}),
+            ),
+        }
+    }
+    let next = page.offset + page.count;
+    let complete = page.offset == 0 && next == page.total;
+    let mut current = current.clone();
+    current["citation"] = current["released_at_citation"].clone();
+    json!({"entity_id":null,"current_official_patch":current,
+        "range":{"since":null,"until":null},"groups":groups,
+        "offset":page.offset,"returned_count":page.count,"total_count":page.total,
+        "next_offset":(next < page.total).then_some(next),"truncated":next < page.total,
+        "completeness":if complete {"all_extracted_hero_section_lines"} else {"partial"}})
+}
+
+fn latest_bounded(
+    id: &str,
+    request: &ToolRequest,
+    mut value: Value,
+    receipts: &BTreeMap<String, Evidence>,
+) -> Result<Option<ToolExecution>, PortError> {
+    let ids = remap_latest(&mut value, receipts)?;
+    let selected = ids
+        .iter()
+        .map(|id| receipts.get(id).cloned().ok_or_else(invalid))
+        .collect::<Result<Vec<_>, _>>()?;
+    sealed(id, request, value, selected)
+}
+
+fn sealed(
+    id: &str,
+    request: &ToolRequest,
+    value: Value,
+    selected: Vec<Evidence>,
+) -> Result<Option<ToolExecution>, PortError> {
+    if selected.len() > MAX_EVIDENCE {
+        return Ok(None);
+    }
+    let result = ToolResult {
+        call_id: id.into(),
+        name: request.name(),
+        result: value,
+        evidence_ids: selected
+            .iter()
+            .map(|evidence| evidence.evidence_id.clone())
+            .collect(),
+        is_error: false,
+    };
+    if !result_fits(&result)? {
+        return Ok(None);
+    }
+    let dependency = ToolEvidenceDependency {
+        request: request.clone(),
+        game_context: None,
+        evidence: selected,
+    }
+    .with_canonical_result(&result)?;
+    Ok(Some(ToolExecution {
+        result,
+        dependencies: vec![dependency],
+        usage: Usage::default(),
+    }))
+}
+
+fn remap_latest(
+    value: &mut Value,
+    receipts: &BTreeMap<String, Evidence>,
+) -> Result<BTreeSet<String>, PortError> {
+    let mut ids = BTreeSet::new();
+    let mut citation = |value: &mut Value| -> Result<(), PortError> {
+        let raw = positive_citation(value)?;
+        *value = json!(receipts.get(&raw).ok_or_else(invalid)?.evidence_id);
+        ids.insert(raw);
+        Ok(())
+    };
+    let current = &mut value["current_official_patch"];
+    for field in PATCH_CITATIONS.into_iter().chain(["citation"]) {
+        citation(&mut current[field])?;
+    }
+    for group in value["groups"].as_array_mut().ok_or_else(invalid)? {
+        for field in ["binding_citation", "entity_citation"] {
+            if !group[field].is_null() {
+                citation(&mut group[field])?;
+            }
+        }
+        for change in group["changes"].as_array_mut().ok_or_else(invalid)? {
+            citation(&mut change["citation"])?;
+        }
+    }
+    Ok(ids)
+}
+
+fn result_fits(result: &ToolResult) -> Result<bool, PortError> {
+    let mut worst = result.clone();
+    worst.call_id = "\"".repeat(512);
+    Ok(serde_json::to_vec(&worst).map_err(|_| invalid())?.len() < MAX_BYTES)
+}
+
+async fn load_receipts(
+    connection: &mut PgConnection,
+    ids: &BTreeSet<String>,
+) -> Result<Vec<Evidence>, PortError> {
+    let numeric_ids = ids
+        .iter()
+        .map(|id| id.parse::<i64>().map_err(|_| invalid()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let rows = sqlx::query_scalar::<_, Value>(RECEIPTS)
+        .bind(numeric_ids)
+        .fetch_all(connection)
         .await
         .map_err(database_error)?;
-    let PatchResolution::Found(current) = select_patch(patches) else {
-        return Ok(None);
-    };
-    let rows = rows
+    let evidence = rows
         .into_iter()
-        .filter(|row| row["head_citation"].as_str() == Some(head.as_str()))
-        .collect();
-    Ok(Some((current, rows)))
+        .map(receipt_evidence)
+        .collect::<Result<Vec<_>, _>>()?;
+    let resolved_ids = evidence
+        .iter()
+        .map(|evidence| {
+            CanonicalReceipt::from_evidence(evidence)
+                .map(|receipt| receipt.raw_receipt_id.to_string())
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    if resolved_ids != *ids || evidence.len() != ids.len() {
+        return Err(invalid());
+    }
+    Ok(evidence)
+}
+
+fn receipt_map(evidence: &[Evidence]) -> Result<BTreeMap<String, Evidence>, PortError> {
+    let mut receipts = BTreeMap::new();
+    for evidence in evidence {
+        let metadata = CanonicalReceipt::from_evidence(evidence)?;
+        if receipts
+            .insert(metadata.raw_receipt_id.to_string(), evidence.clone())
+            .is_some()
+        {
+            return Err(invalid());
+        }
+    }
+    Ok(receipts)
 }
 
 async fn finish_history(
@@ -463,29 +804,7 @@ async fn finish_history(
         return Ok(error_execution(id, request.name(), "no_patch_changes"));
     }
     let ids = receipt_ids(&value)?;
-    let numeric_ids = ids
-        .iter()
-        .map(|id| id.parse::<i64>().map_err(|_| invalid()))
-        .collect::<Result<Vec<_>, _>>()?;
-    let rows = sqlx::query_scalar::<_, Value>(RECEIPTS)
-        .bind(numeric_ids)
-        .fetch_all(connection)
-        .await
-        .map_err(database_error)?;
-    let evidence = rows
-        .into_iter()
-        .map(receipt_evidence)
-        .collect::<Result<Vec<_>, _>>()?;
-    let resolved_ids = evidence
-        .iter()
-        .map(|evidence| {
-            CanonicalReceipt::from_evidence(evidence)
-                .map(|receipt| receipt.raw_receipt_id.to_string())
-        })
-        .collect::<Result<BTreeSet<_>, _>>()?;
-    if resolved_ids != ids || evidence.len() != ids.len() {
-        return Err(invalid());
-    }
+    let evidence = load_receipts(connection, &ids).await?;
     bound_execution(id, request, value, &evidence)
 }
 
@@ -642,16 +961,7 @@ fn bound_execution(
     mut value: Value,
     evidence: &[Evidence],
 ) -> Result<ToolExecution, PortError> {
-    let mut receipts = BTreeMap::new();
-    for evidence in evidence {
-        let metadata = CanonicalReceipt::from_evidence(evidence)?;
-        if receipts
-            .insert(metadata.raw_receipt_id.to_string(), evidence.clone())
-            .is_some()
-        {
-            return Err(invalid());
-        }
-    }
+    let receipts = receipt_map(evidence)?;
     loop {
         if value["changes"].as_array().ok_or_else(invalid)?.is_empty() {
             return Ok(error_execution(id, request.name(), "result_too_large"));
@@ -661,36 +971,10 @@ fn bound_execution(
             .iter()
             .map(|id| receipts.get(id).cloned().ok_or_else(invalid))
             .collect::<Result<Vec<_>, _>>()?;
-        let mut result = ToolResult {
-            call_id: id.into(),
-            name: request.name(),
-            result: value.clone(),
-            evidence_ids: selected
-                .iter()
-                .map(|evidence| evidence.evidence_id.clone())
-                .collect(),
-            is_error: false,
-        };
-        remap_citations(&mut result.result, &receipts)?;
-        let mut execution = ToolExecution {
-            result,
-            dependencies: vec![ToolEvidenceDependency {
-                request: request.clone(),
-                game_context: None,
-                evidence: selected,
-            }],
-            usage: Usage::default(),
-        };
-        let mut worst = execution.clone();
-        worst.result.call_id = "\"".repeat(512);
-        if serde_json::to_vec(&worst).map_err(|_| invalid())?.len() < MAX_BYTES {
-            execution.dependencies[0] = execution.dependencies[0]
-                .clone()
-                .with_canonical_result(&execution.result)?;
-            worst.dependencies.clone_from(&execution.dependencies);
-            if serde_json::to_vec(&worst).map_err(|_| invalid())?.len() < MAX_BYTES {
-                return Ok(execution);
-            }
+        let mut result = value.clone();
+        remap_citations(&mut result, &receipts)?;
+        if let Some(execution) = sealed(id, request, result, selected)? {
+            return Ok(execution);
         }
         value["changes"].as_array_mut().ok_or_else(invalid)?.pop();
         let omitted = value["omitted_count"].as_u64().unwrap_or(0);
@@ -700,7 +984,11 @@ fn bound_execution(
 }
 
 fn ensure_size(execution: &ToolExecution) -> Result<(), PortError> {
-    if serde_json::to_vec(execution).map_err(|_| invalid())?.len() >= MAX_BYTES {
+    if serde_json::to_vec(&execution.result)
+        .map_err(|_| invalid())?
+        .len()
+        >= MAX_BYTES
+    {
         return Err(PortError::Unavailable(
             "Patchabfrage überschreitet die Antwortgrenze.".into(),
         ));

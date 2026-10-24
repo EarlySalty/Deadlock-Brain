@@ -9,6 +9,7 @@ mod assets_fixture;
 pub mod config;
 mod discord_live;
 mod docs_tools;
+pub mod game_text;
 pub mod game_tools;
 mod health;
 mod internal_docs;
