@@ -164,6 +164,21 @@ impl PatchExtractor {
                 current = None;
             }
         }
+        let raw_content = receipt("raw_content")?;
+        for line in subject_lines(&content) {
+            let value = line.json().to_string();
+            let mut references = vec![("patch_line_r", line.subject)];
+            references.extend(line.renamed_to.map(|name| ("patch_rename_r", name)));
+            for (prefix, name) in references {
+                let fingerprint = Sha256::digest(limits::normalize_alias(name).as_bytes());
+                set.facts.push(Fact {
+                    entity_key: key.clone(),
+                    stat_key: format!("{prefix}{fingerprint:x}_{}_{}", line.line, line.piece),
+                    value: FactValue::Text(value.clone()),
+                    receipt: raw_content.clone(),
+                });
+            }
+        }
         Ok(Some(set))
     }
 
@@ -277,7 +292,7 @@ impl Extractor for PatchExtractor {
         "patchnotes"
     }
     fn version(&self) -> &'static str {
-        "4"
+        "5"
     }
     fn accepts(&self, source: &str, path: &str) -> bool {
         source == SOURCE
@@ -306,6 +321,166 @@ impl Extractor for PatchExtractor {
     }
 }
 const FORUM: &str = "https://forums.playdeadlock.com";
+const SUBJECT_LINES: usize = 1536;
+const SUBJECT_CHARS: usize = 40;
+const SUBJECT_WORDS: usize = 5;
+const LINE_BYTES: usize = 2048;
+
+struct SubjectLine<'a> {
+    subject: &'a str,
+    line: usize,
+    piece: usize,
+    text: &'a str,
+    renamed_to: Option<&'a str>,
+}
+
+impl SubjectLine<'_> {
+    fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "reference": limits::normalize_alias(self.subject), "subject": self.subject,
+            "line_index": self.line, "piece_index": self.piece, "line_text": self.text,
+            "renamed_to": self.renamed_to,
+        })
+    }
+}
+
+fn subject_lines(content: &str) -> Vec<SubjectLine<'_>> {
+    let mut output = Vec::new();
+    let mut hero_section = false;
+    for (line, text) in content.lines().enumerate() {
+        let mut piece = 0;
+        for chunk in chunks(text) {
+            match chunk {
+                Chunk::Section(name) => {
+                    hero_section = name.to_ascii_lowercase().contains("hero");
+                }
+                Chunk::Text(_) if hero_section => {}
+                Chunk::Text(body) => {
+                    for part in pieces(body) {
+                        if output.len() < SUBJECT_LINES {
+                            output.extend(subject_line(part, line, piece));
+                        }
+                        piece += 1;
+                    }
+                }
+            }
+        }
+    }
+    output
+}
+
+enum Chunk<'a> {
+    Section(&'a str),
+    Text(&'a str),
+}
+
+fn chunks(text: &str) -> Vec<Chunk<'_>> {
+    let trimmed = text.trim();
+    if let Some(name) = trimmed.strip_prefix('#') {
+        return vec![Chunk::Section(label(name))];
+    }
+    if section(trimmed) {
+        return vec![Chunk::Section(label(trimmed))];
+    }
+    let mut output = Vec::new();
+    let mut rest = text;
+    while let Some((before, name, after)) = section_marker(rest) {
+        output.extend([Chunk::Text(before), Chunk::Section(name)]);
+        rest = after;
+    }
+    output.extend([Chunk::Text(rest)]);
+    output
+}
+
+fn section_marker(text: &str) -> Option<(&str, &str, &str)> {
+    let mut offset = 0;
+    while let Some(start) = text[offset..].find('[').map(|index| index + offset) {
+        let end = text[start..].find(']').map(|index| index + start)?;
+        let name = text[start + 1..end].trim();
+        if !name.is_empty()
+            && name.len() <= SUBJECT_CHARS
+            && name.chars().all(|ch| ch.is_ascii_alphabetic() || ch == ' ')
+        {
+            return Some((&text[..start], name, &text[end + 1..]));
+        }
+        offset = start + 1;
+    }
+    None
+}
+
+fn pieces(body: &str) -> Vec<&str> {
+    let mut output = Vec::new();
+    let mut start = 0;
+    let mut cursor = 0;
+    while let Some((split, width)) = [" - ", " * ", " • "]
+        .into_iter()
+        .filter_map(|separator| {
+            body[cursor..]
+                .find(separator)
+                .map(|index| (index + cursor, separator.len()))
+        })
+        .min()
+    {
+        if subject(&body[split + width..]).is_some() {
+            output.extend([&body[start..split]]);
+            start = split + width;
+        }
+        cursor = split + width;
+    }
+    output.extend([&body[start..]]);
+    output
+}
+
+fn subject(piece: &str) -> Option<(&str, &str)> {
+    let body = bullet(piece).unwrap_or(piece.trim());
+    let (name, rest) = body.split_once(':')?;
+    let name = label(name);
+    let rest = rest.trim();
+    (structural_heading(name)
+        && name.chars().count() <= SUBJECT_CHARS
+        && name.split_whitespace().count() <= SUBJECT_WORDS
+        && !rest.is_empty())
+    .then_some((name, rest))
+}
+
+fn subject_line(piece: &str, line: usize, index: usize) -> Option<SubjectLine<'_>> {
+    let text = piece.trim();
+    if text.len() > LINE_BYTES {
+        return None;
+    }
+    let (subject, rest) = subject(text)?;
+    Some(SubjectLine {
+        subject,
+        line,
+        piece: index,
+        text: bullet(text).unwrap_or(text),
+        renamed_to: renamed_to(subject, rest),
+    })
+}
+
+fn strip_prefix_ignoring_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    value
+        .get(..prefix.len())
+        .filter(|head| head.eq_ignore_ascii_case(prefix))
+        .and_then(|_| value.get(prefix.len()..))
+}
+
+fn renamed_to<'a>(subject: &str, rest: &'a str) -> Option<&'a str> {
+    let rest = strip_prefix_ignoring_case(rest, "now ").unwrap_or(rest);
+    let rest = strip_prefix_ignoring_case(rest, "renamed ")?;
+    let rest = strip_prefix_ignoring_case(rest, subject)
+        .map(str::trim_start)
+        .unwrap_or(rest);
+    let name = strip_prefix_ignoring_case(rest, "to ")?
+        .trim()
+        .trim_end_matches('.')
+        .trim();
+    (structural_heading(name)
+        && name.chars().count() <= SUBJECT_CHARS
+        && name.split_whitespace().count() <= SUBJECT_WORDS
+        && !name.eq_ignore_ascii_case(subject))
+    .then_some(name)
+}
 
 #[derive(Clone, Copy)]
 enum Origin<'a> {

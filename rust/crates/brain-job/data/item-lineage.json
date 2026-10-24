@@ -1,0 +1,327 @@
+{
+  "schema": "item-lineage/v1",
+  "entries": [
+    {
+      "item": "upgrade_reduce_debuff_duration",
+      "event": "renamed",
+      "former_name": "Debuff Remover",
+      "lang": "en",
+      "patch_date": "2026-01-30",
+      "patch_label": "01-30-2026 Update",
+      "patch_url": "https://forums.playdeadlock.com/posts/194636/",
+      "source_url": "https://forums.playdeadlock.com/posts/194636/",
+      "source_quote": "Debuff Remover: Now renamed to Dispel Magic"
+    },
+    {
+      "item": "upgrade_glitch",
+      "event": "renamed",
+      "former_name": "Curse",
+      "lang": "en",
+      "patch_date": "2026-01-30",
+      "patch_label": "01-30-2026 Update",
+      "patch_url": "https://forums.playdeadlock.com/posts/194636/",
+      "source_url": "https://forums.playdeadlock.com/posts/194636/",
+      "source_quote": "Curse: Renamed Curse to Cursed Relic"
+    },
+    {
+      "item": "upgrade_weapon_backstabber",
+      "event": "renamed",
+      "former_name": "Backstabber",
+      "lang": "en",
+      "patch_date": "2026-03-06",
+      "patch_label": "Gameplay Update - 03-06-2026",
+      "patch_url": "https://steamcommunity.com/games/1422450/announcements/detail/519740319207522796",
+      "source_url": "https://steamcommunity.com/games/1422450/announcements/detail/519740319207522796",
+      "source_quote": "Backstabber: Renamed to Stalker"
+    },
+    {
+      "item": "upgrade_self_bubble",
+      "event": "renamed",
+      "former_name": "Shifting Shroud",
+      "lang": "en",
+      "patch_date": "2024-06-13",
+      "patch_label": "06-13-2024 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/06-13-2024-update.5773/",
+      "source_url": "https://forums.playdeadlock.com/threads/06-13-2024-update.5773/",
+      "source_quote": "Shifting Shroud: Renamed to Ethereal Shift"
+    },
+    {
+      "item": "upgrade_medic_bullets",
+      "event": "renamed",
+      "former_name": "Medic Bullets",
+      "lang": "en",
+      "patch_date": "2024-07-04",
+      "patch_label": "07-04-2024 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/07-04-2024-update.9652/",
+      "source_url": "https://forums.playdeadlock.com/threads/07-04-2024-update.9652/",
+      "source_quote": "Medic Bullets: Renamed to Restorative Shot"
+    },
+    {
+      "item": "upgrade_tech_purge",
+      "event": "renamed",
+      "former_name": "Improved Spirit Armor",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204723",
+      "source_quote": "Improved Spirit Armor renamed to Spirit Resilience"
+    },
+    {
+      "item": "upgrade_improved_bullet_armor",
+      "event": "renamed",
+      "former_name": "Improved Bullet Armor",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204594",
+      "source_quote": "Improved Bullet Armor renamed to Bullet Resilience."
+    },
+    {
+      "item": "upgrade_magic_tempo",
+      "event": "renamed",
+      "former_name": "Improved Cooldown",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204429",
+      "source_quote": "This item was previously named Improved Cooldown."
+    },
+    {
+      "item": "upgrade_magic_shield",
+      "event": "renamed",
+      "former_name": "Enchanter's Barrier",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204619",
+      "source_quote": "Enchanter's Barrier renamed to Enchanter's Emblem."
+    },
+    {
+      "item": "upgrade_tech_range",
+      "event": "renamed",
+      "former_name": "Improved Reach",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204640",
+      "source_quote": "Renamed from Improved Reach to Greater Expansion"
+    },
+    {
+      "item": "upgrade_high_velocity_mag",
+      "event": "renamed",
+      "former_name": "High-Velocity Mag",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204477",
+      "source_quote": "This item was previously named High-Velocity Mag, which is reflected in its internal name."
+    },
+    {
+      "item": "upgrade_pristine_emblem",
+      "event": "renamed",
+      "former_name": "Pristine Emblem",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204687",
+      "source_quote": "Renamed from Pristine Emblem to Opening Rounds."
+    },
+    {
+      "item": "upgrade_withering_whip",
+      "event": "renamed",
+      "former_name": "Withering Whip",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204706",
+      "source_quote": "Withering Whip renamed to Rusted Barrel."
+    },
+    {
+      "item": "upgrade_targeted_silence",
+      "event": "renamed",
+      "former_name": "Silence Glyph",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204713",
+      "source_quote": "Silence Glyph renamed to Silence Wave."
+    },
+    {
+      "item": "upgrade_spellslinger_headshots",
+      "event": "renamed",
+      "former_name": "Spellslinger Headshots",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204549",
+      "source_quote": "This item was previously named Spellslinger Headshots."
+    },
+    {
+      "item": "upgrade_tech_defense_shredders",
+      "event": "renamed",
+      "former_name": "Soul Shredder Bullets",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204553",
+      "source_quote": "This item was previously named Soul Shredder Bullets until the Shop Rework and Spirit Shredder Bullets until the City Never Sleeps patch."
+    },
+    {
+      "item": "upgrade_tech_defense_shredders",
+      "event": "renamed",
+      "former_name": "Spirit Shredder Bullets",
+      "lang": "en",
+      "patch_date": "2026-09-29",
+      "patch_label": "City Never Sleeps",
+      "patch_url": "https://steamcommunity.com/games/1422450/announcements/detail/694273194214819791",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204553",
+      "source_quote": "This item was previously named Soul Shredder Bullets until the Shop Rework and Spirit Shredder Bullets until the City Never Sleeps patch."
+    },
+    {
+      "item": "upgrade_magic_shock",
+      "event": "renamed",
+      "former_name": "Improved Burst",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204739",
+      "source_quote": "Renamed from Improved Burst to Tankbuster"
+    },
+    {
+      "item": "upgrade_hollow_point_rounds",
+      "event": "renamed",
+      "former_name": "Hollow Point Ward",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204653",
+      "source_quote": "Renamed to Hollow Point from Hollow Point Ward."
+    },
+    {
+      "item": "upgrade_regenerating_bullet_shield",
+      "event": "renamed",
+      "former_name": "Combat Barrier",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204414",
+      "source_quote": "Renamed from Combat Barrier to Battle Vest."
+    },
+    {
+      "item": "upgrade_clip_size",
+      "event": "renamed",
+      "former_name": "Basic Magazine",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204812",
+      "source_quote": "This item was previously named Basic Magazine."
+    },
+    {
+      "item": "upgrade_magic_reach",
+      "event": "renamed",
+      "former_name": "Mystic Reach",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204502",
+      "source_quote": "Mystic Reach renamed to Mystic Expansion"
+    },
+    {
+      "item": "upgrade_superior_stamina",
+      "event": "renamed",
+      "former_name": "Superior Stamina",
+      "lang": "en",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204561",
+      "source_quote": "Superior Stamina renamed to Stamina Mastery."
+    },
+    {
+      "item": "upgrade_aprounds",
+      "event": "renamed",
+      "former_name": "Armor Piercing Rounds",
+      "lang": "en",
+      "patch_date": "2026-09-29",
+      "patch_label": "City Never Sleeps",
+      "patch_url": "https://steamcommunity.com/games/1422450/announcements/detail/694273194214819791",
+      "source_url": "https://deadlock.wiki/index.php?oldid=204872",
+      "source_quote": "Changed name of Armor Piercing Rounds to Armor Piercer"
+    },
+    {
+      "item": "upgrade_health_nova",
+      "event": "renamed",
+      "former_name": "Health Nova",
+      "lang": "en",
+      "patch_date": null,
+      "patch_label": null,
+      "patch_url": null,
+      "source_url": "https://deadlock.wiki/index.php?oldid=204471",
+      "source_quote": "This item was previously named Health Nova."
+    },
+    {
+      "item": "upgrade_tech_armor",
+      "event": "removed",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=114911",
+      "source_quote": "Spirit Armor was a component of Improved Spirit Armor before it was removed. Improved Spirit Armor was renamed to Spirit Resilience.",
+      "successor": "upgrade_tech_purge"
+    },
+    {
+      "item": "upgrade_bullet_armor",
+      "event": "removed",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=114910",
+      "source_quote": "Bullet Armor was a component of Improved Bullet Armor before it was removed. Improved Bullet Armor was renamed to Bullet Resilience.",
+      "successor": "upgrade_improved_bullet_armor"
+    },
+    {
+      "item": "upgrade_ammo_scavenger",
+      "event": "removed",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=78363",
+      "source_quote": "This page contains game content that has been removed from the game."
+    },
+    {
+      "item": "upgrade_resilience",
+      "event": "removed",
+      "patch_date": "2025-05-08",
+      "patch_label": "05-08-2025 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/05-08-2025-update.63133/",
+      "source_url": "https://deadlock.wiki/index.php?oldid=114899",
+      "source_quote": "This page contains game content that has been removed from the game."
+    },
+    {
+      "item": "upgrade_rebirth",
+      "event": "removed",
+      "patch_date": "2024-11-07",
+      "patch_label": "11-07-2024 Update",
+      "patch_url": "https://forums.playdeadlock.com/threads/11-07-2024-update.44786/",
+      "source_url": "https://forums.playdeadlock.com/threads/11-07-2024-update.44786/",
+      "source_quote": "Soul Rebirth: Removed from the game"
+    }
+  ]
+}

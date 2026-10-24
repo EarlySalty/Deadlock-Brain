@@ -3,6 +3,7 @@ mod cache;
 mod compare;
 pub(crate) mod database;
 mod hero;
+mod lineage;
 mod pages;
 pub(crate) mod profiles;
 

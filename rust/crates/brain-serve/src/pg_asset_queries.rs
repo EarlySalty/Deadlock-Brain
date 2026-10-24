@@ -169,6 +169,15 @@ async fn read_card(
     }
     let mut card = json!({"identity":identity,"facts":facts,"links":links});
     crate::game_text::present(&mut card["facts"]);
+    if kind == "item" {
+        card["lineage"] = sqlx::query_scalar::<_, Value>("SELECT serve.item_lineage($1,8)")
+            .bind(id)
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(database_error)?
+            .filter(Value::is_object)
+            .ok_or_else(invalid)?;
+    }
     if kind == "ability" {
         card["hero_selection"] = json!({"available":false,"reason":"hero_slot_not_published"});
     }

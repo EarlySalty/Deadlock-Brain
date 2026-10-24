@@ -178,6 +178,10 @@ fn describe(source: &str, revision: &str, path: &str, patch: Option<&Patch>) -> 
             },
             url: patch.and_then(|patch| patch.url.clone()),
         },
+        "item-lineage" => Source {
+            title: "Kuratierte Item-Historie aus Deadlock-Wiki und Patchnotes".into(),
+            url: None,
+        },
         "deadlock-docs" => Source {
             title: "Deadlock-Dokumentation".into(),
             url: None,
@@ -198,7 +202,7 @@ fn revision_label(revision: &str) -> String {
     }
 }
 
-fn web_link(url: &str) -> Option<&str> {
+pub(super) fn web_link(url: &str) -> Option<&str> {
     (url.starts_with("https://") && !url.contains(char::is_whitespace)).then_some(url)
 }
 
@@ -625,9 +629,11 @@ async fn item_page(connection: &mut PgConnection, key: &str) -> Result<Outcome> 
     let Some(title) = display_name(&card["identity"]) else {
         return Ok(Outcome::Missing);
     };
+    let lineage = super::lineage::load(connection, key).await?;
     let mut body = format!(
-        "<h1>{}</h1>{INTRO}<h2>Eigenschaften</h2>{}",
+        "<h1>{}</h1>{INTRO}{}<h2>Eigenschaften</h2>{}",
         escape(title),
+        super::lineage::removed(&lineage),
         fact_rows(&card["facts"])
     );
     let links = link_items(
@@ -639,7 +645,9 @@ async fn item_page(connection: &mut PgConnection, key: &str) -> Result<Outcome> 
     if !links.is_empty() {
         body.push_str(&format!("<h2>Verknüpfungen</h2><ul>{links}</ul>"));
     }
-    body.push_str(&receipts(connection, &card).await?);
+    body.push_str(&super::lineage::render(&lineage));
+    let cited = Value::Array(vec![card.clone(), lineage]);
+    body.push_str(&receipts(connection, &cited).await?);
     Ok(Outcome::Page(document(title, &body)))
 }
 

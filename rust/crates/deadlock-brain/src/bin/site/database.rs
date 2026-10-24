@@ -104,6 +104,9 @@ pub(super) async fn preflight(pool: &PgPool) -> Result<()> {
     sqlx::query("SELECT serve.site_ability_hero(''), (SELECT count(*) FROM serve.site_hero_abilities('')), (SELECT count(*) FROM serve.site_hero_patch_changes(''))")
         .execute(&mut *tx)
         .await?;
+    sqlx::query("SELECT serve.site_item_lineage('')")
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("SELECT serve.site_generation()")
         .execute(&mut *tx)
         .await?;

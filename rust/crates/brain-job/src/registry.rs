@@ -8,4 +8,5 @@ pub const EXTRACTORS: &[&dyn Extractor] = &[
     &crate::assets::hero_slots::HeroSlots,
     &crate::patch_extract::PatchExtractor,
     &crate::meta_stats::MetaStats,
+    &crate::item_lineage::ItemLineage,
 ];

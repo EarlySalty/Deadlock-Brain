@@ -14,6 +14,7 @@ pub const SOURCES: &[(&str, Source)] = &[
         crate::meta_source::deadlock_api_meta,
     ),
     ("deadlock-docs", crate::docs::source::load),
+    (crate::item_lineage::SOURCE, crate::item_lineage::load),
 ];
 pub const DEADLOCK_DATA_URL: &str = "https://github.com/deadlock-wiki/deadlock-data.git";
 

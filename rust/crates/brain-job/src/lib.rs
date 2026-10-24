@@ -4,6 +4,7 @@ pub mod assets;
 pub mod config;
 pub mod docs;
 pub mod hero;
+pub mod item_lineage;
 pub mod meta_source;
 pub mod meta_stats;
 pub mod patch_extract;

@@ -72,6 +72,47 @@ fn changes(set: &FactSet) -> Vec<Value> {
         .map(|fact| serde_json::from_str(text(&fact.value)).unwrap())
         .collect()
 }
+fn subject_line(fact: &brain_job::Fact) -> bool {
+    fact.stat_key.starts_with("patch_line_r") || fact.stat_key.starts_with("patch_rename_r")
+}
+
+fn subject_lines(content: &str, prefix: &str, name: &str) -> Vec<Value> {
+    let fingerprint = Sha256::digest(name.as_bytes());
+    accepted("42", &envelope(content))
+        .facts
+        .iter()
+        .filter(|fact| {
+            fact.stat_key
+                .starts_with(&format!("{prefix}{fingerprint:x}_"))
+        })
+        .map(|fact| serde_json::from_str(text(&fact.value)).unwrap())
+        .collect()
+}
+
+#[test]
+fn item_subject_lines_skip_hero_sections_and_record_renames() {
+    let content = "[ General ] - Debuff Remover: Now renamed to Dispel Magic - Curse: Renamed Curse to Cursed Relic [ Spirit Items ] - Dispel Magic: Cooldown increased from 45s to 50s - only on allies [ Heroes ] - Abrams: Siphon Life renamed to Drain";
+    let lines = subject_lines(content, "patch_line_r", "debuff remover");
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["renamed_to"], "Dispel Magic");
+    assert_eq!(
+        lines[0]["line_text"],
+        "Debuff Remover: Now renamed to Dispel Magic"
+    );
+    let renamed = subject_lines(content, "patch_rename_r", "dispel magic");
+    assert_eq!(renamed[0]["subject"], "Debuff Remover");
+    assert_eq!(
+        subject_lines(content, "patch_rename_r", "cursed relic")[0]["subject"],
+        "Curse"
+    );
+    let current = subject_lines(content, "patch_line_r", "dispel magic");
+    assert_eq!(
+        current[0]["line_text"],
+        "Dispel Magic: Cooldown increased from 45s to 50s - only on allies"
+    );
+    assert!(subject_lines(content, "patch_line_r", "abrams").is_empty());
+}
+
 fn parse(content: &str) -> Vec<Value> {
     changes(&accepted("42", &envelope(content)))
 }
@@ -112,7 +153,7 @@ fn complete_statements_emit_patch_owned_alias_text_and_source_stat_labels() {
         let fingerprint = Sha256::digest(reference.as_bytes());
         assert_eq!(*key, format!("patch_change_r{fingerprint:x}_{index}"));
     }
-    assert_eq!(PatchExtractor.version(), "4");
+    assert_eq!(PatchExtractor.version(), "5");
     let rows = parse("- Baba: Damage increased from 1 to 2");
     assert_eq!(rows[0]["stat_label"], "Damage");
 }
@@ -460,7 +501,10 @@ fn original_public_baba_roster_and_release_are_not_balance_changes() {
         let set = accepted(id, bytes);
         assert!(changes(&set).is_empty(), "{id}");
         assert_eq!(set.entities[0].key, format!("patch_{id}"));
-        assert_eq!(set.facts.len(), 3);
+        assert_eq!(
+            set.facts.iter().filter(|fact| !subject_line(fact)).count(),
+            3
+        );
     }
 }
 
@@ -543,7 +587,7 @@ async fn real_store_poison_rejections_finish_and_leave_following_run_available()
         (succeeded, 1),
         ("SELECT count(*) FROM canon.entity WHERE key IN('patch_41','patch_42')", 0),
         ("SELECT count(*) FROM canon.receipt r JOIN raw.object o ON o.id=r.raw_object_id WHERE o.path IN('41','42')", 0),
-        ("SELECT count(*) FROM serve.current_fact WHERE entity_id IN(SELECT id FROM serve.current_entity WHERE key='patch_43')", 4),
+        ("SELECT count(*) FROM serve.current_fact WHERE entity_id IN(SELECT id FROM serve.current_entity WHERE key='patch_43') AND stat_key NOT LIKE 'patch\\_line\\_r%'", 4),
         ("SELECT count(*) FROM raw.object", 3),
     ] {
         assert_eq!(count(&admin, sql).await, expected, "{sql}");

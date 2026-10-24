@@ -21,6 +21,9 @@ const EXACT: &str = "WITH alias_candidates AS MATERIALIZED (
         1.0::real AS similarity
     FROM serve.current_alias a
     WHERE a.alias_norm=$1
+    UNION ALL
+    SELECT r.entity_id, r.alias_norm, r.lang, r.receipt_id, r.source_revision, 1.0::real
+    FROM serve.item_rename_target($1) r
 ), current_candidates AS MATERIALIZED (
     SELECT a.* FROM alias_candidates a
     JOIN serve.published_receipt alias_receipt ON alias_receipt.id=a.receipt_id
@@ -241,7 +244,7 @@ impl<T> PgTools<T> {
                     }
                     let ambiguous = rows.len() > 1;
                     let omitted = rows.len().saturating_sub(limit);
-                    let entities = rows.into_iter().take(limit).map(|row| {
+                    let mut entities = rows.into_iter().take(limit).map(|row| {
                         let entity_id = row.try_get::<i64,_>("entity_id").map_err(database_error)?;
                         let identity = row.try_get::<Value,_>("identity").map_err(database_error)?;
                         let similarity = row.try_get::<f32,_>("similarity").map_err(database_error)?;
@@ -257,6 +260,9 @@ impl<T> PgTools<T> {
                             "patch":null,"source_revision":row.try_get::<String,_>("source_revision").map_err(database_error)?,
                             "identity":identity}))
                     }).collect::<Result<Vec<Value>,PortError>>()?;
+                    for entity in entities.iter_mut().filter(|entity| entity["kind"] == "item") {
+                        attach_lineage(&mut connection, entity).await?;
+                    }
                     json!({"entities":entities,"match":if exact {"exact"} else {"suggestion"},
                         "ambiguous":ambiguous,"resolved":exact && !ambiguous,
                         "truncated":omitted>0,"omitted_count":omitted,"omitted_count_is_lower_bound":omitted>0})
@@ -431,7 +437,7 @@ fn kind_name(kind: CanonicalEntityKind) -> &'static str {
 fn definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {name:ToolName::FindEntity,
-            description:"Sucht veröffentlichte Spielentitäten nach Namen oder Alias. Für einen Heldensteckbrief zuerst find_entity mit kind hero verwenden und anschließend get_hero mit der zurückgegebenen entity_id. Diese positive Datenbank-ID ist keine ältere Spiel-ID. Exakte eindeutige Treffer sind aufgelöst; unscharfe Treffer sind nur Vorschläge, keine sichere Zuordnung. Bei Mehrdeutigkeit nachfragen. Belege enthalten den beobachteten Quellenstand, keinen bestätigten offiziellen Patch.".into(),
+            description:"Sucht veröffentlichte Spielentitäten nach Namen oder Alias. Für einen Heldensteckbrief zuerst find_entity mit kind hero verwenden und anschließend get_hero mit der zurückgegebenen entity_id. Diese positive Datenbank-ID ist keine ältere Spiel-ID. Exakte eindeutige Treffer sind aufgelöst; unscharfe Treffer sind nur Vorschläge, keine sichere Zuordnung. Bei Mehrdeutigkeit nachfragen. Items enthalten lineage: Antworte immer mit dem aktuellen Shopnamen aus name_en oder name_de und nenne einen gesuchten alten Namen aus former_names als früheren Namen. Bei status removed ist das Item nicht mehr im Shop; nenne dann den Patch und, falls vorhanden, den Nachfolger aus removed.successor. history zeigt die letzten Patchnotiz-Zeilen zum Item. Belege enthalten den beobachteten Quellenstand, keinen bestätigten offiziellen Patch.".into(),
             input_schema:json!({"type":"object","additionalProperties":false,"required":["text"],"properties":{
                 "text":{"type":"string","minLength":1,"maxLength":128},
                 "kind":{"type":"string","enum":["hero","ability","item","weapon","timer","rule"]},
@@ -485,6 +491,27 @@ fn error_execution(id: &str, name: ToolName, code: &str, message: &str) -> ToolE
     }
 }
 
+async fn attach_lineage(
+    connection: &mut PgConnection,
+    entity: &mut Value,
+) -> Result<(), PortError> {
+    let id = entity["entity_id"].as_i64().ok_or_else(invalid)?;
+    let lineage = sqlx::query_scalar::<_, Value>("SELECT serve.item_lineage($1,3)")
+        .bind(id)
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(database_error)?
+        .filter(Value::is_object)
+        .ok_or_else(invalid)?;
+    for name in ["name_en", "name_de"] {
+        if entity[name].is_null() {
+            entity[name] = lineage["item"][name].clone();
+        }
+    }
+    entity["lineage"] = lineage;
+    Ok(())
+}
+
 fn citations(value: &Value, ids: &mut BTreeMap<i64, String>) -> Result<(), PortError> {
     match value {
         Value::Object(object) => {
@@ -518,6 +545,12 @@ fn citations(value: &Value, ids: &mut BTreeMap<i64, String>) -> Result<(), PortE
                 "links",
                 "entities",
                 "qualifiers",
+                "lineage",
+                "removed",
+                "former_names",
+                "predecessors",
+                "history",
+                "changes",
             ] {
                 if let Some(field) = object.get(key) {
                     citations(field, ids)?;
@@ -534,12 +567,40 @@ fn citations(value: &Value, ids: &mut BTreeMap<i64, String>) -> Result<(), PortE
     Ok(())
 }
 
+fn trim_history(entity: &mut Value) -> bool {
+    let Some(history) = entity
+        .get_mut("lineage")
+        .and_then(|lineage| lineage.get_mut("history"))
+        .and_then(Value::as_object_mut)
+    else {
+        return false;
+    };
+    let Some(changes) = history.get_mut("changes").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    if changes.pop().is_none() {
+        return false;
+    }
+    let omitted = history
+        .get("omitted_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    history.insert("omitted_count".into(), json!(omitted.saturating_add(1)));
+    history.insert("truncated".into(), json!(true));
+    true
+}
+
 fn trim_row(value: &mut Value) -> bool {
     let Some(object) = value.as_object_mut() else {
         return false;
     };
     for key in ["weapon", "abilities", "stats"] {
         if object.get_mut(key).is_some_and(trim_row) {
+            return true;
+        }
+    }
+    if let Some(entities) = object.get_mut("entities").and_then(Value::as_array_mut) {
+        if entities.iter_mut().rev().any(trim_history) {
             return true;
         }
     }
@@ -585,6 +646,12 @@ fn replace_citations(
                 "links",
                 "entities",
                 "qualifiers",
+                "lineage",
+                "removed",
+                "former_names",
+                "predecessors",
+                "history",
+                "changes",
             ] {
                 if let Some(field) = object.get_mut(key) {
                     replace_citations(field, receipts)?;

@@ -30,7 +30,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: ToolName::GetItem,
-            description: "Liest die veröffentlichte Itemkarte aus kanonischen Spielwerten. item ist die positive kanonische Datenbank-ID aus find_entity mit kind item, keine öffentliche Spiel-ID. Werte, Bedingungen, Einheiten und Quellenbelege unverändert beachten. Fehlender Patch oder current bedeutet beobachteter Quellenstand; historische Patches sind nicht verfügbar. Fehlende oder ausgelassene Fakten nicht ergänzen.".into(),
+            description: "Liest die veröffentlichte Itemkarte aus kanonischen Spielwerten. item ist die positive kanonische Datenbank-ID aus find_entity mit kind item, keine öffentliche Spiel-ID. Werte, Bedingungen, Einheiten und Quellenbelege unverändert beachten. Fehlender Patch oder current bedeutet beobachteter Quellenstand; historische Patches sind nicht verfügbar. Fehlende oder ausgelassene Fakten nicht ergänzen. lineage nennt frühere Namen mit Patch und Quelle, den Status removed samt Nachfolger und die letzten Patchnotiz-Zeilen; immer den aktuellen Shopnamen verwenden und alte Namen nur als früheren Namen nennen.".into(),
             input_schema: json!({"type":"object","additionalProperties":false,"required":["item"],"properties":{
                 "item":{"type":"integer","minimum":1,"maximum":i64::MAX},
                 "patch":{"type":"string","minLength":1,"maxLength":128}}}),
@@ -187,9 +187,34 @@ fn section_receipts(value: &Value, key: &str, ids: &mut BTreeSet<String>) -> Res
     Ok(())
 }
 
+fn lineage_receipts(value: &Value, ids: &mut BTreeSet<String>) -> Result<(), PortError> {
+    let Some(lineage) = value.get("lineage") else {
+        return Ok(());
+    };
+    if let Some(removed) = lineage.get("removed").filter(|removed| !removed.is_null()) {
+        row_receipt(removed, ids)?;
+    }
+    for name in lineage["former_names"].as_array().ok_or_else(invalid)? {
+        row_receipt(name, ids)?;
+    }
+    for predecessor in lineage["predecessors"].as_array().ok_or_else(invalid)? {
+        row_receipt(&predecessor["removed"], ids)?;
+    }
+    let history = &lineage["history"];
+    let omitted = history["omitted_count"].as_u64().ok_or_else(invalid)?;
+    if history["truncated"].as_bool() != Some(omitted > 0) {
+        return Err(invalid());
+    }
+    for change in history["changes"].as_array().ok_or_else(invalid)? {
+        row_receipt(change, ids)?;
+    }
+    Ok(())
+}
+
 fn card_receipts(value: &Value) -> Result<BTreeSet<String>, PortError> {
     let mut ids = BTreeSet::new();
     identity_receipts(&value["identity"], &mut ids)?;
+    lineage_receipts(value, &mut ids)?;
     let entity = positive_id(&value["identity"]["entity_id"])?;
     section_receipts(&value["facts"], "facts", &mut ids)?;
     section_receipts(&value["links"], "links", &mut ids)?;
@@ -375,6 +400,14 @@ fn trim_section(
 }
 
 fn trim_card(value: &mut Value, request: &ToolRequest) -> Result<bool, PortError> {
+    if let Some(history) = value
+        .get_mut("lineage")
+        .and_then(|lineage| lineage.get_mut("history"))
+    {
+        if trim_section(history, "changes", |_| false)? {
+            return Ok(true);
+        }
+    }
     if request.name() != ToolName::GetItem && trim_section(&mut value["facts"], "facts", |_| false)?
     {
         return Ok(true);
