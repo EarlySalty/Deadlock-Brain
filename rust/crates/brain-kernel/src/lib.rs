@@ -1219,6 +1219,7 @@ mod tests {
         tool_usage: Usage,
         provider_failure: Option<PortFailure>,
         provider_fail_on: usize,
+        provider_fail_until: usize,
         tool_failure: Option<PortFailure>,
         tool_fail_on: usize,
         contexts: Vec<AuthorizedContext>,
@@ -1509,7 +1510,11 @@ mod tests {
             conversation: &brain_contracts::ToolConversation,
         ) -> Result<Accounted<brain_contracts::ProviderTurn>, PortFailure> {
             let mut state = self.state.lock().unwrap();
-            if state.calls + 1 == state.provider_fail_on {
+            let call = state.calls + 1;
+            if call == state.provider_fail_on
+                || (state.provider_fail_on > 0
+                    && (state.provider_fail_on..=state.provider_fail_until).contains(&call))
+            {
                 state.calls += 1;
                 state.contexts.push(context.clone());
                 state.observed.push(conversation.clone());
@@ -1960,6 +1965,40 @@ mod tests {
             "Metal Skin macht dich immun gegen Kugelschaden."
         );
         assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn broken_envelopes_are_repaired_at_most_twice() {
+        let call = find_call("find");
+        for (fail_until, status) in [
+            (3, AnswerStatus::Answered),
+            (4, AnswerStatus::InsufficientEvidence),
+        ] {
+            let (kernel, state) = tool_kernel(
+                std::slice::from_ref(&call),
+                vec![tool_turn(vec![call.clone()]), final_turn(&["find-cited"])],
+            );
+            {
+                let mut state = state.lock().unwrap();
+                state.provider_fail_on = 2;
+                state.provider_fail_until = fail_until;
+                state.provider_failure = Some(PortFailure::accounted(
+                    PortError::InvalidResponse("fixture".into()),
+                    UsageAccounting::observed(Usage {
+                        network_rounds: 1,
+                        ..Usage::default()
+                    }),
+                ));
+            }
+            let mut context = context(&[], &["public"]);
+            context.budget.max_network_rounds = 6;
+            context.budget.max_input_tokens = 1_000_000;
+            let response = kernel
+                .with_tools_only_limits(8, 16_384)
+                .answer(&query(AnswerProfile::Fact), &context);
+            assert_eq!(response.status, status);
+            assert_eq!(state.lock().unwrap().calls, 4);
+        }
     }
 
     #[test]

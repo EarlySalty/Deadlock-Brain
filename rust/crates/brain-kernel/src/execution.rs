@@ -11,6 +11,7 @@ use std::{
 };
 const MAX_TOOL_ROUNDS: u32 = 6;
 const MAX_REPAIR_NUMBERS: usize = 24;
+const MAX_ENVELOPE_REPAIRS: usize = 2;
 
 pub(super) fn validation_status(error: &PortError) -> AnswerStatus {
     match error {
@@ -300,6 +301,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     let mut first_outcome = None::<brain_contracts::ProviderAnswer>;
     let mut grounded_first = None::<brain_contracts::ProviderAnswer>;
     let mut soft_retried = false;
+    let mut envelope_repairs = 0usize;
     let mut stage = "setup";
     let mut rejection = None::<&'static str>;
     let result = (|| -> Result<brain_contracts::ProviderAnswer, PortError> {
@@ -394,11 +396,13 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     Err(failure) => {
                         let error = account_failure(&mut accounting, failure, &next);
                         if matches!(error, PortError::InvalidResponse(_))
+                            && envelope_repairs < MAX_ENVELOPE_REPAIRS
                             && binding.tools_only
                             && !session.definitions.is_empty()
                             && provider_rounds
                                 < context.budget.max_network_rounds.min(MAX_TOOL_ROUNDS) as usize
                         {
+                            envelope_repairs += 1;
                             rejection = Some("invalid_envelope");
                             eprintln!(
                                 "{}",
@@ -702,11 +706,11 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     })();
     let result = match (result, grounded_first.or(first_outcome)) {
         (Err(error), Some(first)) => {
-            rejection = Some(error_class(&error));
             eprintln!(
                 "{}",
-                serde_json::json!({"event":"brain_tool_resample_failed","request_id":query.request_id,"stage":stage,"reason":error_class(&error),"error":error.to_string()})
+                serde_json::json!({"event":"brain_tool_resample_failed","request_id":query.request_id,"stage":stage,"reason":error_class(&error),"prior_reason":rejection,"error":error.to_string()})
             );
+            rejection = rejection.or(Some(error_class(&error)));
             Ok(first)
         }
         (result, _) => result,
