@@ -46,6 +46,9 @@ BEGIN
         GRANT EXECUTE ON FUNCTION serve.site_hero_abilities(text),serve.site_ability_hero(text),
             serve.site_hero_patch_changes(text) TO brain_site;
     END IF;
+    IF to_regprocedure('serve.site_generation()') IS NOT NULL THEN
+        GRANT EXECUTE ON FUNCTION serve.site_generation() TO brain_site;
+    END IF;
     IF to_regclass('serve.site_doc_section') IS NOT NULL THEN
         GRANT SELECT ON serve.site_doc_section TO brain_site;
         GRANT EXECUTE ON FUNCTION serve.doc_meta(text),serve.doc_tsv(text) TO brain_site;

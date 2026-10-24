@@ -9,7 +9,7 @@ use serde_json::Value;
 use sqlx::{PgConnection, Row};
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{hero, Site};
+use super::{cache, hero, Site};
 
 pub(super) fn escape(value: &str) -> String {
     value
@@ -558,6 +558,27 @@ enum Outcome {
     Missing,
 }
 
+impl Outcome {
+    fn rendered(&self) -> Option<cache::Rendered> {
+        match self {
+            Outcome::Page(html) => Some(cache::Rendered::Page(html.as_str().into())),
+            Outcome::Redirect(location) => {
+                Some(cache::Rendered::Redirect(location.as_str().into()))
+            }
+            Outcome::Missing => None,
+        }
+    }
+}
+
+impl From<cache::Rendered> for Outcome {
+    fn from(rendered: cache::Rendered) -> Self {
+        match rendered {
+            cache::Rendered::Page(html) => Outcome::Page(html.to_string()),
+            cache::Rendered::Redirect(location) => Outcome::Redirect(location.to_string()),
+        }
+    }
+}
+
 const INTRO: &str =
     "<p>Aktuell beobachteter Quellenstand. Der offizielle Patchstand ist unbekannt.</p>";
 
@@ -633,6 +654,27 @@ async fn ability_redirect(connection: &mut PgConnection, key: &str) -> Result<Ou
     })
 }
 
+async fn cached_outcome(site: &Site, kind: &str, key: &str) -> Result<Outcome> {
+    let mut tx = transaction(site).await?;
+    let generation = cache::generation(&mut tx).await?;
+    let cache_key = format!("{kind}/{key}");
+    if let Some(hit) = site.pages.get(&generation, &cache_key) {
+        tx.commit().await?;
+        return Ok(hit.into());
+    }
+    let outcome = match kind {
+        "hero" => hero_page(&mut tx, key).await?,
+        "item" => item_page(&mut tx, key).await?,
+        "ability" => ability_redirect(&mut tx, key).await?,
+        _ => Outcome::Missing,
+    };
+    tx.commit().await?;
+    if let Some(rendered) = outcome.rendered() {
+        site.pages.put(&generation, cache_key, rendered);
+    }
+    Ok(outcome)
+}
+
 pub(super) async fn page(
     State(site): State<Site>,
     Path((kind, id)): Path<(String, String)>,
@@ -642,19 +684,10 @@ pub(super) async fn page(
     let Some(key) = decode_id(id) else {
         return missing(method);
     };
-    let result: Result<Outcome> = async {
-        let mut tx = transaction(&site).await?;
-        let outcome = match kind.as_str() {
-            "hero" => hero_page(&mut tx, &key).await?,
-            "item" => item_page(&mut tx, &key).await?,
-            "ability" => ability_redirect(&mut tx, &key).await?,
-            _ => Outcome::Missing,
-        };
-        tx.commit().await?;
-        Ok(outcome)
+    if !matches!(kind.as_str(), "hero" | "item" | "ability") {
+        return missing(method);
     }
-    .await;
-    match result {
+    match cached_outcome(&site, &kind, &key).await {
         Ok(Outcome::Page(html)) => response(StatusCode::OK, html, method),
         Ok(Outcome::Redirect(location)) => (
             StatusCode::TEMPORARY_REDIRECT,
@@ -692,9 +725,16 @@ fn index_list(identities: &[Value]) -> Result<(usize, String)> {
     Ok((count, html))
 }
 
+const INDEX_KEY: &str = "index";
+
 pub(super) async fn index(State(site): State<Site>, method: Method) -> Response {
     let result: Result<String> = async {
         let mut tx = transaction(&site).await?;
+        let generation = cache::generation(&mut tx).await?;
+        if let Some(cache::Rendered::Page(html)) = site.pages.get(&generation, INDEX_KEY) {
+            tx.commit().await?;
+            return Ok(html.to_string());
+        }
         let heroes = sqlx::query_scalar::<_, Value>("SELECT identity FROM serve.entity_identity WHERE kind='hero' AND serve.hero_is_playable(entity_id) ORDER BY key LIMIT 256")
             .fetch_all(&mut *tx)
             .await?;
@@ -716,7 +756,13 @@ pub(super) async fn index(State(site): State<Site>, method: Method) -> Response 
         if hero_count + item_count == 0 {
             body.push_str("<p>Es sind noch keine veröffentlichten Steckbriefe verfügbar.</p>");
         }
-        Ok(document("Steckbriefe", &body))
+        let html = document("Steckbriefe", &body);
+        site.pages.put(
+            &generation,
+            INDEX_KEY.to_owned(),
+            cache::Rendered::Page(html.as_str().into()),
+        );
+        Ok(html)
     }
     .await;
     match result {

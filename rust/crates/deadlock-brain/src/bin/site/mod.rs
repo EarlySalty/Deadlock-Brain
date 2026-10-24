@@ -1,4 +1,5 @@
 mod artifacts;
+mod cache;
 mod compare;
 pub(crate) mod database;
 mod hero;
@@ -14,7 +15,7 @@ use axum::{
     Router,
 };
 use sqlx::PgPool;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
 
 #[derive(Debug, clap::Args)]
@@ -49,12 +50,16 @@ pub async fn serve(args: Args) -> Result<()> {
 struct Site {
     pool: PgPool,
     requests: Arc<Semaphore>,
+    pages: cache::PageCache,
 }
+
+const QUEUE_WAIT: Duration = Duration::from_secs(10);
 
 fn router(pool: PgPool) -> Router {
     let site = Site {
         pool,
         requests: Arc::new(Semaphore::new(4)),
+        pages: cache::PageCache::default(),
     };
     Router::<Site>::new()
         .route("/compare/{id}", get(compare::page))
@@ -97,7 +102,9 @@ async fn limit_requests(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
-    let Ok(_permit) = site.requests.try_acquire_owned() else {
+    let Ok(Ok(_permit)) = tokio::time::timeout(QUEUE_WAIT, site.requests.acquire_owned()).await
+    else {
+        eprintln!("site_busy");
         return profiles::unavailable(request.method().clone());
     };
     next.run(request).await
