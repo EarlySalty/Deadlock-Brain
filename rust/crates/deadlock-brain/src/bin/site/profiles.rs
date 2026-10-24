@@ -21,7 +21,7 @@ pub(super) fn escape(value: &str) -> String {
 }
 
 pub(super) fn document(title: &str, body: &str) -> String {
-    format!("<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{} · Deadlock</title><style>body{{overflow-wrap:break-word;font:1rem/1.6 system-ui,sans-serif;color:#20252b;background:#f7f5ef;margin:0}}main{{max-width:70rem;margin:auto;padding:clamp(1rem,4vw,3rem)}}a{{color:#254a80}}table{{border-collapse:collapse;width:100%}}th,td{{padding:.7rem;text-align:left;border-bottom:1px solid #bfc3c8;vertical-align:top;overflow-wrap:normal;word-break:normal;hyphens:manual}}.scroll{{overflow-x:auto}}code,pre{{white-space:pre-wrap;overflow-wrap:anywhere}}li{{margin:.5rem 0}}article{{margin:2rem 0}}:focus-visible{{outline:3px solid #254a80;outline-offset:3px}}</style></head><body><main><nav><a href=\"/brain/site/steckbriefe\">Steckbriefe</a></nav>{body}</main></body></html>", escape(title))
+    format!("<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{} · Deadlock</title><style>body{{overflow-wrap:break-word;font:1rem/1.6 system-ui,sans-serif;color:#20252b;background:#f7f5ef;margin:0}}main{{max-width:70rem;margin:auto;padding:clamp(1rem,4vw,3rem)}}a{{color:#254a80}}table{{border-collapse:collapse;width:100%}}th,td{{padding:.7rem;text-align:left;border-bottom:1px solid #bfc3c8;vertical-align:top;overflow-wrap:normal;word-break:normal;hyphens:manual}}.scroll{{overflow-x:auto}}@media (max-width:40rem){{.scroll table,.scroll tbody,.scroll tr,.scroll th,.scroll td{{display:block;width:auto}}.scroll thead{{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}.scroll tr{{border:1px solid #bfc3c8;border-radius:.4rem;background:#fff;margin:0 0 1rem;padding:.4rem 0}}.scroll th,.scroll td{{border-bottom:0;padding:.3rem .8rem;overflow-wrap:anywhere}}.scroll td[data-label]::before{{content:attr(data-label);display:block;font-size:.85rem;font-weight:600;color:#4a525b}}}}code,pre{{white-space:pre-wrap;overflow-wrap:anywhere}}li{{margin:.5rem 0}}article{{margin:2rem 0}}:focus-visible{{outline:3px solid #254a80;outline-offset:3px}}</style></head><body><main><nav><a href=\"/brain/site/steckbriefe\">Steckbriefe</a></nav>{body}</main></body></html>", escape(title))
 }
 
 pub(super) fn response(status: StatusCode, html: String, method: Method) -> Response {
@@ -517,7 +517,7 @@ pub(super) fn fact_rows(section: &Value) -> String {
     for fact in rows {
         let citation = fact["citation"].as_str().unwrap_or("");
         html.push_str(&format!(
-            "<tr><th scope=\"row\">{}</th><td>{}</td><td><a href=\"#beleg-{}\">Beleg {}</a>{}",
+            "<tr><th scope=\"row\">{}</th><td data-label=\"Angabe\">{}</td><td data-label=\"Bedingung und Beleg\"><a href=\"#beleg-{}\">Beleg {}</a>{}",
             escape(fact_label(fact)),
             fact_value(fact),
             escape(citation),
@@ -805,9 +805,11 @@ mod tests {
             {"stat_key": "item_secret_key", "citation": "5", "value": 1, "unit": " m"},
             {"label": "Weapon Damage", "stat_key": "item_x", "citation": "6", "value": "7"}
         ]}));
-        assert!(html.contains("<th scope=\"row\">Beschreibung</th><td>Gain <strong>Barrier</strong> on <strong>spirit damage</strong>.<br><br>Then x&amp; more plain</td>"), "{html}");
-        assert!(html.contains("<th scope=\"row\">Kosten</th><td>800 Seelen</td>"));
-        assert!(html.contains("<th scope=\"row\">Wert</th><td>1 m</td>"));
+        assert!(html.contains("<th scope=\"row\">Beschreibung</th><td data-label=\"Angabe\">Gain <strong>Barrier</strong> on <strong>spirit damage</strong>.<br><br>Then x&amp; more plain</td>"), "{html}");
+        assert!(
+            html.contains("<th scope=\"row\">Kosten</th><td data-label=\"Angabe\">800 Seelen</td>")
+        );
+        assert!(html.contains("<th scope=\"row\">Wert</th><td data-label=\"Angabe\">1 m</td>"));
         assert!(html.contains("<th scope=\"row\">Waffenschaden</th>"));
         for hidden in ["svg", "span", "script", "item_", "souls", "#EC9719"] {
             assert!(!html.contains(hidden), "{hidden}");

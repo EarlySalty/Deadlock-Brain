@@ -88,6 +88,15 @@ fn tag_name(tag: &str) -> String {
         .to_ascii_lowercase()
 }
 
+const GAME_TAGS: [&str; 18] = [
+    "a", "b", "br", "circle", "div", "em", "font", "g", "i", "img", "p", "path", "rect", "script",
+    "span", "strong", "style", "svg",
+];
+
+fn game_tag(tag: &str) -> bool {
+    GAME_TAGS.contains(&tag_name(tag).as_str())
+}
+
 fn decode(text: &str) -> String {
     text.replace("&nbsp;", " ")
         .replace("&lt;", "<")
@@ -130,6 +139,11 @@ pub(super) fn plain(text: &str) -> String {
             break;
         };
         let tag = &rest[start + 1..start + end];
+        if !game_tag(tag) {
+            out.push('<');
+            rest = &rest[start + 1..];
+            continue;
+        }
         match tag_name(tag).as_str() {
             "br" => out.push('\n'),
             "img" => out.push_str(image_alt(tag, &rest[start + end + 1..])),
@@ -166,6 +180,11 @@ pub(super) fn markup(text: &str) -> String {
             break;
         };
         let tag = &rest[start + 1..start + end];
+        if !game_tag(tag) {
+            out.push_str("&lt;");
+            rest = &rest[start + 1..];
+            continue;
+        }
         match (tag_name(tag).as_str(), tag.starts_with('/')) {
             ("br", _) => out.push_str("<br>"),
             ("img", _) => out.push_str(&escape(image_alt(tag, &rest[start + end + 1..]))),
@@ -403,7 +422,7 @@ fn values_table(facts: &[Value], shown: &mut Vec<Value>) -> String {
     let mut html = String::from("<h4>Werte</h4><div class=\"scroll\"><table><thead><tr><th scope=\"col\">Angabe</th><th scope=\"col\">Wert</th><th scope=\"col\">Hinweis und Beleg</th></tr></thead><tbody>");
     for fact in rows {
         html.push_str(&format!(
-            "<tr><th scope=\"row\">{}</th><td>{}</td><td>{}{}</td></tr>",
+            "<tr><th scope=\"row\">{}</th><td data-label=\"Wert\">{}</td><td data-label=\"Hinweis und Beleg\">{}{}</td></tr>",
             escape(label(fact).unwrap_or("")),
             escape(&amount(fact, fact["unit"].as_str(), false)),
             scaling(fact),
@@ -679,6 +698,11 @@ mod tests {
             plain("Schaden < 50 bei Treffer"),
             "Schaden < 50 bei Treffer"
         );
+        assert_eq!(
+            markup("Bonus <3 Stacks> und a < b <span class=\"highlight\">c</span>"),
+            "Bonus &lt;3 Stacks&gt; und a &lt; b <strong>c</strong>"
+        );
+        assert_eq!(plain("Ziel <Name> erhält <b>2</b>"), "Ziel <Name> erhält 2");
     }
 
     #[test]

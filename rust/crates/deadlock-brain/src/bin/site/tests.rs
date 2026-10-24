@@ -529,7 +529,7 @@ async fn published_site_contract_and_baba_visual_proof() {
     for fact in get_hero["stats"]["facts"].as_array().unwrap() {
         let stat = fact["stat_key"].as_str().unwrap();
         assert!(html.contains(&format!(
-            "<th scope=\"row\">{stat}</th><td>{}</td>",
+            "<th scope=\"row\">{stat}</th><td data-label=\"Angabe\">{}</td>",
             fact["value"]
         )));
         assert!(html.contains(&format!(
@@ -540,7 +540,7 @@ async fn published_site_contract_and_baba_visual_proof() {
     }
     assert!(html.contains("gamefacts.receipt.v1:sha256:"));
     assert!(!html.contains("Kommentar"));
-    assert!(!html.contains("<td>999.0</td>"));
+    assert!(!html.contains(">999.0</td>"));
     let head = client.head(format!("{url}{path}")).send().await.unwrap();
     assert_eq!(head.status(), StatusCode::OK);
     assert_eq!(
@@ -878,7 +878,7 @@ async fn published_site_contract_and_baba_visual_proof() {
         .bind(audit_run).bind(hero).execute(&admin).await.unwrap();
     let hidden = client.get(format!("{url}{path}")).send().await.unwrap();
     assert_eq!(hidden.status(), StatusCode::OK);
-    assert!(!hidden.text().await.unwrap().contains("<td>780.0</td>"));
+    assert!(!hidden.text().await.unwrap().contains(">780.0</td>"));
     handle.abort();
     let _ = handle.await;
     admin.close().await;
