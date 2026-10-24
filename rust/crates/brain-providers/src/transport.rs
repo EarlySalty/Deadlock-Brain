@@ -44,6 +44,7 @@ impl OpenAiCompatibleProvider {
         } else {
             "chat/completions"
         };
+        let aliases = super::evidence_alias::EvidenceAliases::shorten(&mut payload, evidence);
         let (bytes, charge) = self.transport_json_with_accounting(
             route,
             &mut payload,
@@ -52,6 +53,7 @@ impl OpenAiCompatibleProvider {
             accounting,
             transport_failure,
         )?;
+        let bytes = aliases.restore(bytes);
         let mut failed_check = super::audit::check(
             "chat_schema",
             "response",

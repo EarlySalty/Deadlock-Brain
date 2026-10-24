@@ -4,7 +4,141 @@ pub const COACHING_CHANNEL_ID: u64 = 1494373349944459355;
 pub const COACHING_URL: &str = "https://deutsche-deadlock-community.de/coaching";
 pub const COACHING_REFERENCE: &str = "[[coaching]]";
 
+const ENGLISH_MARKERS: &[&str] = &[
+    "what",
+    "how",
+    "which",
+    "who",
+    "why",
+    "when",
+    "where",
+    "does",
+    "do",
+    "did",
+    "is",
+    "are",
+    "the",
+    "much",
+    "many",
+    "changed",
+    "cost",
+    "costs",
+    "health",
+    "damage",
+    "ability",
+    "abilities",
+    "counter",
+    "counters",
+    "counts",
+    "should",
+    "can",
+    "best",
+    "against",
+    "latest",
+    "fast",
+    "speed",
+    "bullet",
+    "ultimate",
+    "of",
+    "for",
+    "in",
+    "it",
+    "i",
+];
+
+const GERMAN_MARKERS: &[&str] = &[
+    "was",
+    "wie",
+    "welche",
+    "welcher",
+    "welches",
+    "wer",
+    "warum",
+    "wann",
+    "wo",
+    "ist",
+    "sind",
+    "hat",
+    "haben",
+    "der",
+    "die",
+    "das",
+    "den",
+    "dem",
+    "und",
+    "im",
+    "bei",
+    "wurde",
+    "viel",
+    "viele",
+    "macht",
+    "gegen",
+    "kostet",
+    "schnell",
+    "hoch",
+    "von",
+    "mit",
+    "ich",
+    "kann",
+    "soll",
+    "neuesten",
+    "letzten",
+    "geändert",
+    "lebenspunkte",
+    "fähigkeit",
+    "fähigkeiten",
+    "grundschaden",
+    "seelen",
+    "helfen",
+    "läuft",
+    "spiele",
+    "man",
+    "auch",
+    "ein",
+    "eine",
+];
+
+fn english_question(text: &str) -> bool {
+    let words = text
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>();
+    let count = |markers: &[&str]| {
+        words
+            .iter()
+            .filter(|word| markers.contains(&word.as_str()))
+            .count()
+    };
+    let umlauts = text.chars().any(|character| "äöüßÄÖÜ".contains(character));
+    count(ENGLISH_MARKERS) > count(GERMAN_MARKERS) + usize::from(umlauts)
+}
+
+fn insufficient_text(english: bool, twitch_bot: bool, text: &str) -> String {
+    let no_value = text == brain_contracts::answer_contract::NO_AUTHORIZED_VALUE;
+    match (english, no_value, twitch_bot) {
+        (false, true, _) => text,
+        (true, true, _) => {
+            "I have no verified value for that in the released game data. I don't guess numbers."
+        }
+        (true, false, true) => {
+            "I don't have verified info on that right now. Please ask Nani on Discord."
+        }
+        (true, false, false) => {
+            "I don't have verified info on that right now. Ask me about the game: heroes, items, builds or mechanics."
+        }
+        (false, false, true) => {
+            "Dazu habe ich gerade keine gesicherten Infos. Frag bitte Nani im Discord."
+        }
+        (false, false, false) => {
+            "Dazu habe ich gerade keine gesicherten Infos. Frag mich was zum Spiel: Held, Item, Build oder Mechanik."
+        }
+    }
+    .into()
+}
+
 pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool) {
+    let english = english_question(&query.text);
     if matches!(
         answer.status,
         AnswerStatus::Answered | AnswerStatus::Unverified | AnswerStatus::BuildRejected
@@ -18,9 +152,7 @@ pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool)
             answer.text.trim()
         );
     }
-    if answer.status == AnswerStatus::InsufficientEvidence
-        && answer.text != brain_contracts::answer_contract::NO_AUTHORIZED_VALUE
-    {
+    if answer.status == AnswerStatus::InsufficientEvidence {
         let question = query.text.to_lowercase();
         let twitch_bot = [
             "twitch-bot",
@@ -30,12 +162,7 @@ pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool)
         ]
         .iter()
         .any(|term| question.contains(term));
-        answer.text = if twitch_bot {
-            "Dazu habe ich gerade keine gesicherten Infos. Frag bitte Nani im Discord."
-        } else {
-            "Dazu habe ich gerade keine gesicherten Infos. Frag mich was zum Spiel: Held, Item, Build oder Mechanik."
-        }
-        .into();
+        answer.text = insufficient_text(english, twitch_bot, &answer.text);
     } else if matches!(
         answer.status,
         AnswerStatus::Answered | AnswerStatus::Unverified | AnswerStatus::BuildRejected
@@ -53,6 +180,9 @@ pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool)
             }
             answer.text.truncate(end);
         }
+    } else if english {
+        answer.text =
+            "I couldn't answer that safely right now. Please try again in a moment.".into();
     }
 }
 
@@ -191,6 +321,44 @@ mod tests {
     }
 
     #[test]
+    fn fixed_texts_follow_the_question_language() {
+        for question in [
+            "What changed in the latest patch?",
+            "What changed for Baba in the latest patch?",
+            "How much health does Seven have?",
+            "What counters Infernus?",
+            "What is Pocket's ultimate ability?",
+        ] {
+            assert!(english_question(question), "{question}");
+            let mut response = answer(AnswerStatus::InsufficientEvidence, "Interner Hinweis");
+            prepare(&mut response, &query(question), false);
+            assert!(response.text.starts_with("I don't have verified info"));
+            let mut value = answer(
+                AnswerStatus::InsufficientEvidence,
+                brain_contracts::answer_contract::NO_AUTHORIZED_VALUE,
+            );
+            prepare(&mut value, &query(question), false);
+            assert!(value.text.starts_with("I have no verified value"));
+            let mut error = answer(
+                AnswerStatus::Unavailable,
+                "Werkzeugantwort konnte nicht sicher abgeschlossen werden.",
+            );
+            prepare(&mut error, &query(question), false);
+            assert!(error.text.starts_with("I couldn't answer that"));
+            assert_eq!(error.status, AnswerStatus::Unavailable);
+        }
+        for question in [
+            "Was wurde im neuesten Patch geändert?",
+            "Was macht das Item Unstoppable?",
+            "Welche Items helfen gegen Haze?",
+            "Wie schnell läuft Lash?",
+            "Haze?",
+        ] {
+            assert!(!english_question(question), "{question}");
+        }
+    }
+
+    #[test]
     fn coaching_ziel_kommt_von_der_plattform_nicht_vom_modell() {
         for discord in [true, false] {
             let mut response = answer(
@@ -209,7 +377,7 @@ mod tests {
                 assert!(!response.text.contains(COACHING_URL));
             } else {
                 assert!(response.text.contains(&format!("Discord ({COACHING_URL})")));
-                assert!(!response.text.contains(" oder "));
+                assert!(!response.text.contains("Discord oder"));
                 assert!(!response.text.contains("<#"));
             }
         }

@@ -36,6 +36,7 @@ mod audit;
 pub use audit::OutputDeviation;
 mod circuit;
 mod embeddings;
+mod evidence_alias;
 mod generation;
 mod hardening;
 mod model_selection;
