@@ -151,6 +151,7 @@ fn query() -> Query {
 fn conversation(calls: &[ToolCall]) -> ToolConversation {
     ToolConversation {
         final_round: false,
+        unsupported_numbers: Vec::new(),
         messages: vec![
             ToolMessage::Assistant {
                 blocks: calls

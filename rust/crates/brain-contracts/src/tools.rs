@@ -1052,6 +1052,8 @@ pub struct ToolConversation {
     pub messages: Vec<ToolMessage>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub final_round: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_numbers: Vec<String>,
 }
 
 impl ToolConversation {
@@ -2608,6 +2610,7 @@ mod tests {
         };
         let conversation = ToolConversation {
             final_round: false,
+            unsupported_numbers: Vec::new(),
             messages: vec![
                 assistant.clone(),
                 ToolMessage::ToolResults {
@@ -2630,6 +2633,7 @@ mod tests {
         ] {
             assert!(ToolConversation {
                 final_round: false,
+                unsupported_numbers: Vec::new(),
                 messages: vec![assistant.clone(), ToolMessage::ToolResults { results }]
             }
             .validate(&[definition()])
@@ -2637,6 +2641,7 @@ mod tests {
         }
         assert!(ToolConversation {
             final_round: false,
+            unsupported_numbers: Vec::new(),
             messages: vec![assistant.clone()]
         }
         .validate(&[definition()])
@@ -2646,6 +2651,7 @@ mod tests {
         assert!(repeated.validate(&[definition()]).is_err());
         assert!(ToolConversation {
             final_round: false,
+            unsupported_numbers: Vec::new(),
             messages: vec![ToolMessage::Assistant {
                 blocks: vec![
                     ModelBlock::ToolUse { call: call() },

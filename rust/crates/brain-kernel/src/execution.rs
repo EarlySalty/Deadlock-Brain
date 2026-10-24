@@ -9,6 +9,9 @@ use std::{
     collections::BTreeSet,
     time::{Duration, Instant},
 };
+const MAX_TOOL_ROUNDS: u32 = 6;
+const MAX_REPAIR_NUMBERS: usize = 24;
+
 pub(super) fn validation_status(error: &PortError) -> AnswerStatus {
     match error {
         PortError::PermissionDenied(_) => AnswerStatus::UnauthorizedEvidence,
@@ -296,6 +299,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     let mut seen_calls = BTreeSet::new();
     let mut first_outcome = None::<brain_contracts::ProviderAnswer>;
     let mut grounded_first = None::<brain_contracts::ProviderAnswer>;
+    let mut soft_retried = false;
     let mut stage = "setup";
     let mut rejection = None::<&'static str>;
     let result = (|| -> Result<brain_contracts::ProviderAnswer, PortError> {
@@ -343,13 +347,15 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     usage: Usage::default(),
                 }
             } else {
-                if provider_rounds >= context.budget.max_network_rounds.min(4) as usize {
+                if provider_rounds
+                    >= context.budget.max_network_rounds.min(MAX_TOOL_ROUNDS) as usize
+                {
                     return Err(PortError::BudgetExceeded);
                 }
                 provider_rounds += 1;
                 stage = "provider_round";
                 conversation.final_round = provider_rounds
-                    == context.budget.max_network_rounds.min(4) as usize
+                    == context.budget.max_network_rounds.min(MAX_TOOL_ROUNDS) as usize
                     || next.budget.max_network_rounds == 1;
                 let input_bytes = grounded_turn_input_ceiling_with_quality(
                     query,
@@ -389,11 +395,16 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         let error = account_failure(&mut accounting, failure, &next);
                         if matches!(error, PortError::InvalidResponse(_))
                             && binding.tools_only
-                            && first_outcome.is_none()
                             && !session.definitions.is_empty()
-                            && provider_rounds < context.budget.max_network_rounds.min(4) as usize
+                            && provider_rounds
+                                < context.budget.max_network_rounds.min(MAX_TOOL_ROUNDS) as usize
                         {
-                            first_outcome = Some(brain_contracts::ProviderAnswer {
+                            rejection = Some("invalid_envelope");
+                            eprintln!(
+                                "{}",
+                                serde_json::json!({"event":"brain_tool_round_rejected","request_id":query.request_id,"round":provider_rounds,"reason":"invalid_envelope","evidence":evidence.len(),"cited":0})
+                            );
+                            first_outcome.get_or_insert_with(|| brain_contracts::ProviderAnswer {
                                 claims: Vec::new(),
                                 text: String::new(),
                                 cited_evidence_ids: Vec::new(),
@@ -507,6 +518,15 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         None
                     };
                     let discarded = !insufficient && reason.is_some();
+                    let unsupported: Vec<String> = if reason == Some("value_gate_rejected") {
+                        ledger
+                            .unsupported(&answer)
+                            .into_iter()
+                            .take(MAX_REPAIR_NUMBERS)
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
                     let outcome = if discarded {
                         brain_contracts::ProviderAnswer {
                             claims: Vec::new(),
@@ -531,19 +551,24 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         rejection = Some(code);
                         eprintln!(
                             "{}",
-                            serde_json::json!({"event":"brain_tool_round_rejected","request_id":query.request_id,"round":provider_rounds,"reason":code,"evidence":evidence.len(),"cited":cited})
+                            serde_json::json!({"event":"brain_tool_round_rejected","request_id":query.request_id,"round":provider_rounds,"reason":code,"evidence":evidence.len(),"cited":cited,"unsupported_numbers":unsupported.len()})
                         );
                     }
-                    if (insufficient || discarded || retry)
-                        && first_outcome.is_none()
+                    let soft = insufficient || retry;
+                    if (discarded || (soft && !soft_retried))
                         && !session.definitions.is_empty()
-                        && (binding.tools_only || kernel.quality_filters)
-                        && provider_rounds < context.budget.max_network_rounds.min(4) as usize
+                        && checked
+                        && provider_rounds
+                            < context.budget.max_network_rounds.min(MAX_TOOL_ROUNDS) as usize
                     {
                         if retry {
-                            grounded_first = Some(outcome.clone());
+                            grounded_first.get_or_insert_with(|| outcome.clone());
                         }
-                        first_outcome = Some(outcome);
+                        if retry || first_outcome.is_none() {
+                            first_outcome = Some(outcome);
+                        }
+                        soft_retried |= soft;
+                        conversation.unsupported_numbers = unsupported;
                         continue;
                     }
                     if insufficient || discarded {
@@ -555,6 +580,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                 }
                 ProviderTurn::ToolCalls { blocks, .. } => {
                     stage = "tool_execution";
+                    conversation.unsupported_numbers.clear();
                     let calls = blocks
                         .iter()
                         .filter_map(|block| match block {
@@ -674,8 +700,9 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             }
         }
     })();
-    let result = match (result, first_outcome) {
+    let result = match (result, grounded_first.or(first_outcome)) {
         (Err(error), Some(first)) => {
+            rejection = Some(error_class(&error));
             eprintln!(
                 "{}",
                 serde_json::json!({"event":"brain_tool_resample_failed","request_id":query.request_id,"stage":stage,"reason":error_class(&error),"error":error.to_string()})
@@ -689,7 +716,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
             log_not_answered(
                 query,
                 AnswerStatus::InsufficientEvidence,
-                "final_validation",
+                stage,
                 rejection.unwrap_or("model_insufficient"),
                 provider_rounds,
                 tool_calls,

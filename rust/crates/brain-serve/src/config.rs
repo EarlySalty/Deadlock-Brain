@@ -583,7 +583,7 @@ impl Config {
             _ => 32_000,
         };
         require(
-            (1..=4).contains(&b.max_network_rounds)
+            (1..=6).contains(&b.max_network_rounds)
                 && (1..=input_ceiling).contains(&b.max_input_tokens)
                 && b.max_output_tokens > 0
                 && b.max_cost_micros > 0,

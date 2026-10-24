@@ -1963,6 +1963,40 @@ mod tests {
     }
 
     #[test]
+    fn value_gate_rejections_are_repaired_while_rounds_remain() {
+        let call = find_call("find");
+        let text_turn = |text: &str| {
+            let mut turn = final_turn(&["find-cited"]);
+            if let brain_contracts::ProviderTurn::Final { answer, .. } = &mut turn {
+                answer.text = text.into();
+            }
+            turn
+        };
+        let (kernel, state) = tool_kernel(
+            std::slice::from_ref(&call),
+            vec![
+                tool_turn(vec![call.clone()]),
+                text_turn("Baba hat 781 Leben."),
+                text_turn("Baba hat 782 Leben."),
+                text_turn("Baba hat 780 Leben."),
+            ],
+        );
+        state.lock().unwrap().tool_result =
+            Some(serde_json::json!({"citation":"find-cited", "value":780}));
+        let mut context = context(&[], &["public"]);
+        context.budget.max_network_rounds = 6;
+        context.budget.max_input_tokens = 1_000_000;
+        let response = kernel
+            .with_tools_only_limits(8, 16_384)
+            .answer(&query(AnswerProfile::Fact), &context);
+        assert_eq!(response.status, AnswerStatus::Answered);
+        assert_eq!(response.text, "Baba hat 780 Leben.");
+        let state = state.lock().unwrap();
+        assert_eq!(state.calls, 4);
+        assert_eq!(state.observed.last().unwrap().unsupported_numbers, ["782"]);
+    }
+
+    #[test]
     fn answers_citing_only_identity_lookups_count_as_unfinished() {
         let result = |name, id: &str| brain_contracts::ToolResult {
             call_id: id.into(),
@@ -1986,6 +2020,7 @@ mod tests {
         let conversation = |messages| brain_contracts::ToolConversation {
             messages,
             final_round: false,
+            unsupported_numbers: Vec::new(),
         };
         assert!(execution::identity_only(
             &conversation(vec![identity.clone()]),
@@ -2002,8 +2037,8 @@ mod tests {
     }
 
     #[test]
-    fn tool_loop_stops_before_a_fifth_provider_round() {
-        let calls: Vec<_> = (0..4).map(|id| find_call(&format!("find{id}"))).collect();
+    fn tool_loop_stops_before_a_seventh_provider_round() {
+        let calls: Vec<_> = (0..6).map(|id| find_call(&format!("find{id}"))).collect();
         let turns = calls
             .iter()
             .map(|call| tool_turn(vec![call.clone()]))
@@ -2016,7 +2051,7 @@ mod tests {
             .with_tools_only_limits(8, 16_384)
             .answer(&query(AnswerProfile::Explain), &context);
         assert_eq!(result.status, AnswerStatus::BudgetExceeded);
-        assert_eq!(state.lock().unwrap().calls, 4);
+        assert_eq!(state.lock().unwrap().calls, 6);
     }
 
     #[test]
@@ -3010,6 +3045,7 @@ mod tests {
             .collect();
         let conversation = brain_contracts::ToolConversation {
             final_round: false,
+            unsupported_numbers: Vec::new(),
             messages: vec![
                 brain_contracts::ToolMessage::Assistant {
                     blocks: vec![brain_contracts::ModelBlock::ToolUse { call }],

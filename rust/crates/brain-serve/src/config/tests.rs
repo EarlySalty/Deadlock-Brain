@@ -162,7 +162,7 @@ fn numeric_limits_and_pins_are_not_silently_clamped_or_defaulted() {
 #[test]
 fn tools_only_budgets_reject_unbounded_configuration() {
     for (section, field, value) in [
-        ("budgets", "max_network_rounds", 5),
+        ("budgets", "max_network_rounds", 7),
         ("budgets", "max_input_tokens", 32_001),
         ("kernel", "max_tool_calls", 9),
         ("kernel", "max_tool_result_bytes", 16_385),

@@ -164,6 +164,7 @@ fn history() -> ToolConversation {
     ToolConversation {
         messages,
         final_round: false,
+        unsupported_numbers: Vec::new(),
     }
 }
 

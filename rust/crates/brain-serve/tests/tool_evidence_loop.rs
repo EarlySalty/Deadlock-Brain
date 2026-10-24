@@ -191,6 +191,7 @@ fn result(index: usize) -> ToolResult {
 fn conversation(rounds: usize) -> ToolConversation {
     ToolConversation {
         final_round: false,
+        unsupported_numbers: Vec::new(),
         messages: (1..=rounds)
             .flat_map(|index| {
                 [

@@ -102,6 +102,13 @@ fn follows_word(bytes: &[u8], index: usize) -> bool {
 }
 
 fn numbers(text: &str) -> Vec<String> {
+    number_spans(text)
+        .into_iter()
+        .map(|(_, value)| value)
+        .collect()
+}
+
+fn number_spans(text: &str) -> Vec<(&str, String)> {
     let bytes = text.as_bytes();
     let mut result = Vec::new();
     let mut index = 0;
@@ -142,7 +149,7 @@ fn numbers(text: &str) -> Vec<String> {
             }
         }
         if let Some(value) = normalize(&text[start..index]) {
-            result.push(value);
+            result.push((&text[start..index], value));
         }
     }
     result
@@ -219,13 +226,14 @@ impl ValueLedger {
     }
 
     pub(super) fn accepts(&self, answer: &ProviderAnswer) -> bool {
-        if !answer
+        answer
             .claims
             .iter()
             .all(|claim| self.claim_holds(answer, claim))
-        {
-            return false;
-        }
+            && self.unsupported(answer).is_empty()
+    }
+
+    pub(super) fn unsupported(&self, answer: &ProviderAnswer) -> Vec<String> {
         let covered: BTreeSet<&String> = answer
             .cited_evidence_ids
             .iter()
@@ -257,7 +265,13 @@ impl ValueLedger {
                 text.replace_range(span, " ");
                 text
             });
-        numbers(&text).iter().all(|value| covered.contains(value))
+        let mut missing: Vec<String> = Vec::new();
+        for (raw, value) in number_spans(&text) {
+            if !covered.contains(&value) && !missing.iter().any(|seen| seen == raw) {
+                missing.push(raw.to_string());
+            }
+        }
+        missing
     }
 
     fn claim_holds(&self, answer: &ProviderAnswer, claim: &NumericClaim) -> bool {

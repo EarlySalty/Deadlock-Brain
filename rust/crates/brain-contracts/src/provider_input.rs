@@ -184,6 +184,16 @@ fn drop_german_labels(value: &mut Value) {
     }
 }
 
+fn repair_contract(conversation: &ToolConversation) -> String {
+    if conversation.unsupported_numbers.is_empty() {
+        return String::new();
+    }
+    format!(
+        " Deine vorige Antwort wurde verworfen, weil diese Zahlen in keiner zitierten Werkzeugzeile wörtlich stehen: {}. Übernimm Zahlen nur wörtlich aus Werkzeugzeilen und zitiere deren Beleg-IDs. Lass eine Zahl weg, statt sie zu berechnen, umzurechnen oder aus dem Gedächtnis zu ergänzen.",
+        conversation.unsupported_numbers.join(", ")
+    )
+}
+
 fn answer_language_contract(query: &Query) -> &'static str {
     let question = current_question(query);
     if crate::language::clearly_english(&question) {
@@ -451,6 +461,14 @@ pub fn grounded_turn_payload_with_quality(
     }
     grounded[0].content.push_str(" Antwortvertrag brain.tools-only.v2: Jede Zahl im text steht wörtlich in einer zitierten Werkzeugzeile, ohne Berechnung, Umrechnung oder selbst gezählte Anzahlen. Schreibe Zahlen als Ziffern mit Dezimalkomma oder -punkt. Beleg-IDs gehören nicht in text. claims ist immer []. Ohne passende Belege {\"text\":\"\",\"cited_evidence_ids\":[],\"claims\":[]}.");
     grounded[0].content.push_str(language_contract);
+    let repair = repair_contract(conversation);
+    let repair_in_results = matches!(
+        conversation.messages.last(),
+        Some(ToolMessage::ToolResults { .. })
+    );
+    if !repair_in_results {
+        grounded[0].content.push_str(&repair);
+    }
     let native = format == ToolWireFormat::Native;
     let mut messages: Vec<Value> = grounded
         .iter()
@@ -498,6 +516,9 @@ pub fn grounded_turn_payload_with_quality(
                     json!(evidence.iter().map(|item| &item.evidence_id).collect::<Vec<_>>())
                 );
                 format.push_str(language_contract);
+                if repair_in_results && index == last {
+                    format.push_str(&repair);
+                }
                 if results.iter().any(|result| {
                     !result.is_error
                         && matches!(
@@ -942,6 +963,7 @@ mod tests {
         };
         let conversation = ToolConversation {
             final_round: true,
+            unsupported_numbers: Vec::new(),
             messages: vec![
                 ToolMessage::Assistant {
                     blocks: vec![ModelBlock::ToolUse { call }],
@@ -1317,6 +1339,7 @@ mod tests {
     fn canonical_tool_conversation(result: &ToolResult, arguments: Value) -> ToolConversation {
         ToolConversation {
             final_round: false,
+            unsupported_numbers: Vec::new(),
             messages: vec![
                 ToolMessage::Assistant {
                     blocks: vec![ModelBlock::ToolUse {
@@ -1773,6 +1796,7 @@ mod tests {
         };
         let conversation = ToolConversation {
             final_round: false,
+            unsupported_numbers: Vec::new(),
             messages: vec![
                 ToolMessage::Assistant {
                     blocks: vec![ModelBlock::ToolUse {
