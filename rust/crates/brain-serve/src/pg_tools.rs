@@ -437,7 +437,7 @@ fn kind_name(kind: CanonicalEntityKind) -> &'static str {
 fn definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {name:ToolName::FindEntity,
-            description:"Sucht veröffentlichte Spielentitäten nach Namen oder Alias. Für einen Heldensteckbrief zuerst find_entity mit kind hero verwenden und anschließend get_hero mit der zurückgegebenen entity_id. Diese positive Datenbank-ID ist keine ältere Spiel-ID. Exakte eindeutige Treffer sind aufgelöst; unscharfe Treffer sind nur Vorschläge, keine sichere Zuordnung. Bei Mehrdeutigkeit nachfragen. Items enthalten lineage: Antworte immer mit dem aktuellen Shopnamen aus name_en oder name_de und nenne einen gesuchten alten Namen aus former_names als früheren Namen. Bei status removed ist das Item nicht mehr im Shop; nenne dann den Patch und, falls vorhanden, den Nachfolger aus removed.successor. history zeigt die letzten Patchnotiz-Zeilen zum Item. Belege enthalten den beobachteten Quellenstand, keinen bestätigten offiziellen Patch.".into(),
+            description:"Sucht veröffentlichte Spielentitäten nach Namen oder Alias. Für einen Heldensteckbrief zuerst find_entity mit kind hero verwenden und anschließend get_hero mit der zurückgegebenen entity_id. Diese positive Datenbank-ID ist keine ältere Spiel-ID. Exakte eindeutige Treffer sind aufgelöst; unscharfe Treffer sind nur Vorschläge, keine sichere Zuordnung. Bei Mehrdeutigkeit nachfragen. Items enthalten lineage: Antworte immer mit dem aktuellen Shopnamen aus name_en oder name_de und nenne einen gesuchten alten Namen aus former_names als früheren Namen. Bei status removed ist das Item nicht mehr im Shop; nenne dann den Patch und, falls vorhanden, den Nachfolger aus removed.successor. successor_item enthält dann die aktuelle Itemkarte des Nachfolgers mit Werten, Kosten, Stufe und Historie; beantworte Fragen zum alten Item mit diesen Werten des Nachfolgers, ohne get_item erneut aufzurufen. history zeigt die letzten Patchnotiz-Zeilen zum Item. Belege enthalten den beobachteten Quellenstand, keinen bestätigten offiziellen Patch.".into(),
             input_schema:json!({"type":"object","additionalProperties":false,"required":["text"],"properties":{
                 "text":{"type":"string","minLength":1,"maxLength":128},
                 "kind":{"type":"string","enum":["hero","ability","item","weapon","timer","rule"]},
@@ -509,7 +509,7 @@ async fn attach_lineage(
         }
     }
     entity["lineage"] = lineage;
-    Ok(())
+    crate::pg_asset_tools::attach_successor(connection, entity, 3).await
 }
 
 fn citations(value: &Value, ids: &mut BTreeMap<i64, String>) -> Result<(), PortError> {
@@ -551,6 +551,7 @@ fn citations(value: &Value, ids: &mut BTreeMap<i64, String>) -> Result<(), PortE
                 "predecessors",
                 "history",
                 "changes",
+                "successor_item",
             ] {
                 if let Some(field) = object.get(key) {
                     citations(field, ids)?;
@@ -590,6 +591,39 @@ fn trim_history(entity: &mut Value) -> bool {
     true
 }
 
+fn trim_rows(section: &mut Value, key: &str) -> bool {
+    let Some(object) = section.as_object_mut() else {
+        return false;
+    };
+    if object
+        .get_mut(key)
+        .and_then(Value::as_array_mut)
+        .and_then(Vec::pop)
+        .is_none()
+    {
+        return false;
+    }
+    let omitted = object
+        .get("omitted_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    object.insert("omitted_count".into(), json!(omitted.saturating_add(1)));
+    object.insert("truncated".into(), json!(true));
+    true
+}
+
+fn trim_successor(entity: &mut Value) -> bool {
+    let Some(successor) = entity.get_mut("successor_item") else {
+        return false;
+    };
+    trim_history(successor)
+        || ["links", "facts"].into_iter().any(|key| {
+            successor
+                .get_mut(key)
+                .is_some_and(|section| trim_rows(section, key))
+        })
+}
+
 fn trim_row(value: &mut Value) -> bool {
     let Some(object) = value.as_object_mut() else {
         return false;
@@ -600,7 +634,9 @@ fn trim_row(value: &mut Value) -> bool {
         }
     }
     if let Some(entities) = object.get_mut("entities").and_then(Value::as_array_mut) {
-        if entities.iter_mut().rev().any(trim_history) {
+        if entities.iter_mut().rev().any(trim_history)
+            || entities.iter_mut().rev().any(trim_successor)
+        {
             return true;
         }
     }
@@ -652,6 +688,7 @@ fn replace_citations(
                 "predecessors",
                 "history",
                 "changes",
+                "successor_item",
             ] {
                 if let Some(field) = object.get_mut(key) {
                     replace_citations(field, receipts)?;

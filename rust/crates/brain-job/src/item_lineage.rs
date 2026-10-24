@@ -6,7 +6,10 @@ use brain_storage::gamefacts::receipts;
 use dbrain_sources::external::parse_json_strict;
 use serde_json::{value::RawValue, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 pub const SOURCE: &str = "item-lineage";
 pub const PATH: &str = "item-lineage.json";
@@ -50,10 +53,38 @@ impl Extractor for ItemLineage {
     }
 }
 
+pub async fn log_alias_conflicts(pool: &sqlx::PgPool) -> anyhow::Result<usize> {
+    let rows = sqlx::query_as::<_, (String, String, Vec<String>)>(
+        "SELECT alias_norm,lang,item_keys FROM ops.item_alias_conflicts()",
+    )
+    .fetch_all(pool)
+    .await?;
+    for (alias, lang, items) in &rows {
+        eprintln!(
+            "{}",
+            serde_json::json!({
+                "event": "item_lineage_alias_conflict",
+                "alias": alias,
+                "lang": lang,
+                "items": items,
+                "reason": "alias_maps_to_multiple_items_excluded_from_history_and_renames",
+            })
+        );
+    }
+    Ok(rows.len())
+}
+
 fn malformed() -> Rejection {
     Rejection::new(
         "malformed_item_lineage",
         "Item-Historie entspricht nicht dem Quellenvertrag",
+    )
+}
+
+fn alias_conflict(alias: &str, first: &str, second: &str) -> Rejection {
+    Rejection::new(
+        "item_lineage_alias_conflict",
+        format!("Früherer Name {alias} gehört zu zwei Items: {first} und {second}"),
     )
 }
 
@@ -189,6 +220,7 @@ fn extract(bytes: &[u8]) -> Result<FactSet, Rejection> {
         receipt: receipt("raw_bytes", String::new(), bytes),
     });
     let mut seen = BTreeSet::new();
+    let mut owners = BTreeMap::new();
     for (index, (entry, lexeme)) in parsed.iter().zip(envelope.entries).enumerate() {
         let checked = check(entry)?;
         set.facts.push(Fact {
@@ -204,8 +236,14 @@ fn extract(bytes: &[u8]) -> Result<FactSet, Rejection> {
         let Some(former) = checked.former else {
             continue;
         };
-        if !seen.insert((checked.item.clone(), limits::normalize_alias(&former))) {
+        let normalized = limits::normalize_alias(&former);
+        if !seen.insert((checked.item.clone(), normalized.clone())) {
             return Err(malformed());
+        }
+        if let Some(other) = owners.insert(normalized.clone(), checked.item.clone()) {
+            if other != checked.item {
+                return Err(alias_conflict(&normalized, &other, &checked.item));
+            }
         }
         let fields: std::collections::BTreeMap<&str, &RawValue> =
             serde_json::from_str(lexeme.get()).map_err(|_| malformed())?;
@@ -255,6 +293,15 @@ mod tests {
             .any(|alias| alias.entity_key == "upgrade_tech_purge"
                 && alias.alias == "Improved Spirit Armor"));
         assert_eq!(set.entities.len(), 1);
+    }
+
+    #[test]
+    fn former_name_shared_by_two_items_is_rejected_with_reason() {
+        let bytes = br#"{"schema":"item-lineage/v1","entries":[{"item":"upgrade_a","event":"renamed","former_name":"Old Name","lang":"en","patch_date":null,"patch_label":null,"patch_url":null,"source_url":"https://deadlock.wiki/","source_quote":"q"},{"item":"upgrade_b","event":"renamed","former_name":"old name","lang":"en","patch_date":null,"patch_label":null,"patch_url":null,"source_url":"https://deadlock.wiki/","source_quote":"q"}]}"#;
+        let Outcome::Rejected(rejection) = ItemLineage.extract(&raw(bytes)) else {
+            panic!("conflicting former names must be rejected");
+        };
+        assert_eq!(rejection.code, "item_lineage_alias_conflict");
     }
 
     #[test]

@@ -169,7 +169,12 @@ fn history(lineage: &Value) -> String {
         .as_u64()
         .filter(|omitted| *omitted > 0)
     {
-        html += &format!("<p>{omitted} ältere Einträge sind nicht aufgeführt.</p>");
+        let bound = if lineage["history"]["omitted_count_is_lower_bound"] == true {
+            "Mindestens "
+        } else {
+            ""
+        };
+        html += &format!("<p>{bound}{omitted} ältere Einträge sind nicht aufgeführt.</p>");
     }
     html
 }

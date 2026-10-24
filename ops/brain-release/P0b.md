@@ -57,3 +57,16 @@ sudo -n flock --exclusive /opt/deadlock-brain/.deploy.lock /usr/bin/systemctl en
 ```
 
 If matching user units already exist, disable and stop those instances before installation. The explicit privileged install uses the independently reviewed package files; the root-owned P0b helper does not accept arbitrary unit text or invoke arbitrary caller-selected commands. Its future releases preserve P1's additional system units because it installs only its three named services.
+
+## Item lineage refresh triggers
+
+`brain-job@item-lineage.service` runs without a manual step through two drop-ins. `ops/brain-serve.service.d/item-lineage.conf` adds `Wants=` to `brain-serve.service`, so every release restart of the serve unit after the migrations also starts the lineage job. `ops/brain-job@deadlock_patchnotes_db.service.d/item-lineage.conf` adds `OnSuccess=` to the patch note import, so every successful import is followed by a lineage run. The job is idempotent: unchanged inputs are ignored. The helper never writes the `.d` directories, so its releases keep both drop-ins. Install them from a clean verified origin/main worktree under the deploy lock:
+
+```bash
+sudo -n flock --exclusive /opt/deadlock-brain/.deploy.lock /bin/sh -ec '
+/usr/bin/install -d -o root -g root -m 0755 /etc/systemd/system/brain-serve.service.d /etc/systemd/system/brain-job@deadlock_patchnotes_db.service.d
+/usr/bin/install -o root -g root -m 0644 ops/brain-serve.service.d/item-lineage.conf /etc/systemd/system/brain-serve.service.d/
+/usr/bin/install -o root -g root -m 0644 ops/brain-job@deadlock_patchnotes_db.service.d/item-lineage.conf /etc/systemd/system/brain-job@deadlock_patchnotes_db.service.d/
+/usr/bin/systemctl daemon-reload
+'
+```

@@ -89,6 +89,10 @@ async fn run() -> anyhow::Result<()> {
             "run={} accepted={} rejected={} ignored={}",
             report.run_id, report.counts.accepted, report.counts.rejected, report.counts.ignored
         );
+        if source == brain_job::item_lineage::SOURCE {
+            let conflicts = brain_job::item_lineage::log_alias_conflicts(&pool).await?;
+            println!("alias_conflicts={conflicts}");
+        }
         anyhow::Ok(())
     }
     .await;

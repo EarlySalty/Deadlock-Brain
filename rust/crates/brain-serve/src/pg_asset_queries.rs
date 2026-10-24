@@ -130,7 +130,64 @@ fn database_error(_: sqlx::Error) -> PortError {
     PortError::Unavailable("Spielwerte können derzeit nicht sicher gelesen werden.".into())
 }
 
+async fn read_lineage(
+    connection: &mut PgConnection,
+    id: i64,
+    history_limit: i32,
+) -> Result<Value, PortError> {
+    sqlx::query_scalar::<_, Value>("SELECT serve.item_lineage($1,$2)")
+        .bind(id)
+        .bind(history_limit)
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(database_error)?
+        .filter(Value::is_object)
+        .ok_or_else(invalid)
+}
+
+fn successor_id(lineage: &Value) -> Option<i64> {
+    if lineage["status"] != "removed" {
+        return None;
+    }
+    lineage["removed"]["successor"]["entity_id"]
+        .as_i64()
+        .filter(|id| *id > 0)
+}
+
+pub(crate) async fn attach_successor(
+    connection: &mut PgConnection,
+    target: &mut Value,
+    history_limit: i32,
+) -> Result<(), PortError> {
+    let Some(successor) = successor_id(&target["lineage"]) else {
+        return Ok(());
+    };
+    if let Some(mut card) = base_card(connection, successor, "item").await? {
+        card["lineage"] = read_lineage(connection, successor, history_limit).await?;
+        target["successor_item"] = card;
+    }
+    Ok(())
+}
+
 async fn read_card(
+    connection: &mut PgConnection,
+    id: i64,
+    kind: &str,
+) -> Result<Option<Value>, PortError> {
+    let Some(mut card) = base_card(connection, id, kind).await? else {
+        return Ok(None);
+    };
+    if kind == "item" {
+        card["lineage"] = read_lineage(connection, id, 8).await?;
+        attach_successor(connection, &mut card, 3).await?;
+    }
+    if kind == "ability" {
+        card["hero_selection"] = json!({"available":false,"reason":"hero_slot_not_published"});
+    }
+    Ok(Some(card))
+}
+
+async fn base_card(
     connection: &mut PgConnection,
     id: i64,
     kind: &str,
@@ -169,18 +226,6 @@ async fn read_card(
     }
     let mut card = json!({"identity":identity,"facts":facts,"links":links});
     crate::game_text::present(&mut card["facts"]);
-    if kind == "item" {
-        card["lineage"] = sqlx::query_scalar::<_, Value>("SELECT serve.item_lineage($1,8)")
-            .bind(id)
-            .fetch_optional(&mut *connection)
-            .await
-            .map_err(database_error)?
-            .filter(Value::is_object)
-            .ok_or_else(invalid)?;
-    }
-    if kind == "ability" {
-        card["hero_selection"] = json!({"available":false,"reason":"hero_slot_not_published"});
-    }
     Ok(Some(card))
 }
 

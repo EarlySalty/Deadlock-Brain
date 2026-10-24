@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[path = "pg_asset_queries.rs"]
 mod queries;
-pub(crate) use queries::read;
+pub(crate) use queries::{attach_successor, read};
 
 pub const MAX_RESULT_BYTES: usize = 16_384;
 
@@ -30,7 +30,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: ToolName::GetItem,
-            description: "Liest die veröffentlichte Itemkarte aus kanonischen Spielwerten. item ist die positive kanonische Datenbank-ID aus find_entity mit kind item, keine öffentliche Spiel-ID. Werte, Bedingungen, Einheiten und Quellenbelege unverändert beachten. Fehlender Patch oder current bedeutet beobachteter Quellenstand; historische Patches sind nicht verfügbar. Fehlende oder ausgelassene Fakten nicht ergänzen. lineage nennt frühere Namen mit Patch und Quelle, den Status removed samt Nachfolger und die letzten Patchnotiz-Zeilen; immer den aktuellen Shopnamen verwenden und alte Namen nur als früheren Namen nennen.".into(),
+            description: "Liest die veröffentlichte Itemkarte aus kanonischen Spielwerten. item ist die positive kanonische Datenbank-ID aus find_entity mit kind item, keine öffentliche Spiel-ID. Werte, Bedingungen, Einheiten und Quellenbelege unverändert beachten. Fehlender Patch oder current bedeutet beobachteter Quellenstand; historische Patches sind nicht verfügbar. Fehlende oder ausgelassene Fakten nicht ergänzen. lineage nennt frühere Namen mit Patch und Quelle, den Status removed samt Nachfolger und die letzten Patchnotiz-Zeilen. Bei removed mit Nachfolger enthält successor_item die aktuelle Itemkarte des Nachfolgers mit Werten, Kosten, Stufe und Historie; diese Werte für die Bewertung verwenden. Immer den aktuellen Shopnamen verwenden und alte Namen nur als früheren Namen nennen.".into(),
             input_schema: json!({"type":"object","additionalProperties":false,"required":["item"],"properties":{
                 "item":{"type":"integer","minimum":1,"maximum":i64::MAX},
                 "patch":{"type":"string","minLength":1,"maxLength":128}}}),
@@ -211,13 +211,42 @@ fn lineage_receipts(value: &Value, ids: &mut BTreeSet<String>) -> Result<(), Por
     Ok(())
 }
 
+fn successor_receipts(value: &Value, ids: &mut BTreeSet<String>) -> Result<(), PortError> {
+    let Some(successor) = value.get("successor_item") else {
+        return Ok(());
+    };
+    let expected = &value["lineage"]["removed"]["successor"]["entity_id"];
+    if value["lineage"]["status"] != "removed"
+        || successor.get("successor_item").is_some()
+        || successor["identity"]["kind"] != "item"
+        || successor["identity"]["entity_id"] != *expected
+    {
+        return Err(invalid());
+    }
+    entity_receipts(successor, ids)
+}
+
+fn entity_receipts(value: &Value, ids: &mut BTreeSet<String>) -> Result<(), PortError> {
+    identity_receipts(&value["identity"], ids)?;
+    lineage_receipts(value, ids)?;
+    let entity = positive_id(&value["identity"]["entity_id"])?;
+    section_receipts(&value["facts"], "facts", ids)?;
+    section_receipts(&value["links"], "links", ids)?;
+    if value["facts"]["facts"]
+        .as_array()
+        .ok_or_else(invalid)?
+        .iter()
+        .any(|row| row["entity_id"].as_u64() != Some(entity))
+    {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
 fn card_receipts(value: &Value) -> Result<BTreeSet<String>, PortError> {
     let mut ids = BTreeSet::new();
-    identity_receipts(&value["identity"], &mut ids)?;
-    lineage_receipts(value, &mut ids)?;
-    let entity = positive_id(&value["identity"]["entity_id"])?;
-    section_receipts(&value["facts"], "facts", &mut ids)?;
-    section_receipts(&value["links"], "links", &mut ids)?;
+    entity_receipts(value, &mut ids)?;
+    successor_receipts(value, &mut ids)?;
     if let Some(abilities) = value.get("abilities") {
         section_receipts(abilities, "links", &mut ids)?;
         if abilities["links"]
@@ -227,14 +256,6 @@ fn card_receipts(value: &Value) -> Result<BTreeSet<String>, PortError> {
         {
             return Err(invalid());
         }
-    }
-    if value["facts"]["facts"]
-        .as_array()
-        .ok_or_else(invalid)?
-        .iter()
-        .any(|row| row["entity_id"].as_u64() != Some(entity))
-    {
-        return Err(invalid());
     }
     Ok(ids)
 }
@@ -399,17 +420,47 @@ fn trim_section(
     Ok(true)
 }
 
-fn trim_card(value: &mut Value, request: &ToolRequest) -> Result<bool, PortError> {
-    if let Some(history) = value
+fn trim_history(value: &mut Value) -> Result<bool, PortError> {
+    match value
         .get_mut("lineage")
         .and_then(|lineage| lineage.get_mut("history"))
     {
-        if trim_section(history, "changes", |_| false)? {
-            return Ok(true);
-        }
+        Some(history) => trim_section(history, "changes", |_| false),
+        None => Ok(false),
     }
-    if request.name() != ToolName::GetItem && trim_section(&mut value["facts"], "facts", |_| false)?
+}
+
+fn trim_successor(value: &mut Value, section: &str) -> Result<bool, PortError> {
+    match value.get_mut("successor_item") {
+        Some(successor) if section == "changes" => trim_history(successor),
+        Some(successor) => trim_section(&mut successor[section], section, |_| false),
+        None => Ok(false),
+    }
+}
+
+pub(crate) fn trim_item_card(value: &mut Value) -> Result<bool, PortError> {
+    if trim_history(value)? || trim_successor(value, "changes")? {
+        return Ok(true);
+    }
+    if trim_section(&mut value["links"], "links", |_| false)? || trim_successor(value, "links")? {
+        return Ok(true);
+    }
+    if value.get("successor_item").is_some()
+        && trim_section(&mut value["facts"], "facts", |_| false)?
     {
+        return Ok(true);
+    }
+    trim_successor(value, "facts")
+}
+
+fn trim_card(value: &mut Value, request: &ToolRequest) -> Result<bool, PortError> {
+    if request.name() == ToolName::GetItem {
+        return trim_item_card(value);
+    }
+    if trim_history(value)? {
+        return Ok(true);
+    }
+    if trim_section(&mut value["facts"], "facts", |_| false)? {
         return Ok(true);
     }
     if trim_section(&mut value["links"], "links", |_| false)? {
