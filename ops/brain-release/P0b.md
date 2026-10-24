@@ -60,13 +60,14 @@ If matching user units already exist, disable and stop those instances before in
 
 ## Item lineage refresh triggers
 
-`brain-job@item-lineage.service` runs without a manual step through two drop-ins. `ops/brain-serve.service.d/item-lineage.conf` adds `Wants=` to `brain-serve.service`, so every release restart of the serve unit after the migrations also starts the lineage job. `ops/brain-job@deadlock_patchnotes_db.service.d/item-lineage.conf` adds `OnSuccess=` to the patch note import, so every successful import is followed by a lineage run. The job is idempotent: unchanged inputs are ignored. The helper never writes the `.d` directories, so its releases keep both drop-ins. Install them from a clean verified origin/main worktree under the deploy lock:
+After a one-time privileged install of three drop-ins, `brain-job@item-lineage.service` runs without further manual steps. `ops/brain-serve.service.d/item-lineage.conf` adds `Wants=` to `brain-serve.service`, so every release restart of the serve unit after the migrations also starts the lineage job. `ops/brain-job@deadlock_patchnotes_db.service.d/item-lineage.conf` adds `OnSuccess=` to the patch note import, so every successful import is followed by a lineage run. `ops/brain-job@item-lineage.service.d/order.conf` orders the job after the Brain PostgreSQL instance and the serve unit, so it never starts against a database that is still coming up. The job is idempotent: unchanged inputs are ignored. The helper never writes the `.d` directories, so its releases keep all three drop-ins. The host runs systemd 255, which supports `OnSuccess=`. Install them from a clean verified origin/main worktree under the deploy lock:
 
 ```bash
 sudo -n flock --exclusive /opt/deadlock-brain/.deploy.lock /bin/sh -ec '
-/usr/bin/install -d -o root -g root -m 0755 /etc/systemd/system/brain-serve.service.d /etc/systemd/system/brain-job@deadlock_patchnotes_db.service.d
+/usr/bin/install -d -o root -g root -m 0755 /etc/systemd/system/brain-serve.service.d /etc/systemd/system/brain-job@deadlock_patchnotes_db.service.d /etc/systemd/system/brain-job@item-lineage.service.d
 /usr/bin/install -o root -g root -m 0644 ops/brain-serve.service.d/item-lineage.conf /etc/systemd/system/brain-serve.service.d/
 /usr/bin/install -o root -g root -m 0644 ops/brain-job@deadlock_patchnotes_db.service.d/item-lineage.conf /etc/systemd/system/brain-job@deadlock_patchnotes_db.service.d/
+/usr/bin/install -o root -g root -m 0644 ops/brain-job@item-lineage.service.d/order.conf /etc/systemd/system/brain-job@item-lineage.service.d/
 /usr/bin/systemctl daemon-reload
 '
 ```

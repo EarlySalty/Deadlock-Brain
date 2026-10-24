@@ -90,8 +90,13 @@ async fn run() -> anyhow::Result<()> {
             report.run_id, report.counts.accepted, report.counts.rejected, report.counts.ignored
         );
         if source == brain_job::item_lineage::SOURCE {
-            let conflicts = brain_job::item_lineage::log_alias_conflicts(&pool).await?;
-            println!("alias_conflicts={conflicts}");
+            match brain_job::item_lineage::log_alias_conflicts(&pool).await {
+                Ok(conflicts) => println!("alias_conflicts={conflicts}"),
+                Err(error) => eprintln!(
+                    "{}",
+                    serde_json::json!({"event":"item_lineage_alias_conflicts_unavailable","error":error.to_string()})
+                ),
+            }
         }
         anyhow::Ok(())
     }
