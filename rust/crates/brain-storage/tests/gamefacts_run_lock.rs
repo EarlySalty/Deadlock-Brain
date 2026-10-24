@@ -66,6 +66,24 @@ async fn fixture() -> (ScratchPg, PgPool, PgPool) {
 }
 
 #[tokio::test]
+async fn waiting_run_holds_only_its_lock_connection() {
+    let (_pg, pool, independent) = fixture().await;
+    let first = GameFactsStore::new(pool.clone());
+    let second = GameFactsStore::new(independent.clone());
+    let guard = first.lock_run().await.unwrap();
+    sqlx::query("SELECT 1").execute(&independent).await.unwrap();
+    while independent.num_idle() == 0 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(independent.size(), 1);
+    let mut blocked = waiter(&second);
+    assert_waiting(&pool, &mut blocked).await;
+    assert_eq!(independent.size(), 0);
+    drop(guard);
+    drop(blocked.await.unwrap().unwrap());
+}
+
+#[tokio::test]
 async fn owned_run_lock_serializes_publication_without_consuming_pool_capacity() {
     let (_pg, pool, independent) = fixture().await;
     let first = GameFactsStore::new(pool.clone());

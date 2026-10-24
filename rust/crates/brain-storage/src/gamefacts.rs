@@ -238,7 +238,10 @@ impl GameFactsStore {
     }
 
     pub async fn lock_run(&self) -> Result<PgConnection, sqlx::Error> {
-        let mut connection = PgConnection::connect_with(&self.pool.connect_options()).await?;
+        let mut connection = match self.pool.try_acquire() {
+            Some(idle) => idle.detach(),
+            None => PgConnection::connect_with(&self.pool.connect_options()).await?,
+        };
         sqlx::query("SELECT pg_advisory_lock(742110026114::bigint)")
             .execute(&mut connection)
             .await?;

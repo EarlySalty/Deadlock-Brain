@@ -115,7 +115,7 @@ impl Config {
             .application_name("brain-job")
             .disable_statement_logging();
         PgPoolOptions::new()
-            .max_connections(2)
+            .max_connections(1)
             .acquire_timeout(Duration::from_secs(5))
             .connect_with(options)
             .await
