@@ -51,7 +51,7 @@ pub(super) async fn changes(connection: &mut PgConnection, key: &str) -> Result<
                     .try_get::<Option<String>, _>("patch_label")?
                     .unwrap_or_default(),
                 date: row.try_get("released")?,
-                text: line.trim().trim_start_matches("- ").trim().to_owned(),
+                text: strip_bullet(&line).to_owned(),
                 citation: json!({
                     "citation": row.try_get::<String, _>("citation")?,
                     "source_revision": row.try_get::<String, _>("source_revision")?,
@@ -80,6 +80,45 @@ pub(super) fn anchor(key: &str) -> String {
         .collect()
 }
 
+fn tag_name(tag: &str) -> String {
+    tag.trim_start_matches('/')
+        .split(|c: char| c.is_whitespace() || c == '/')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+}
+
+fn decode(text: &str) -> String {
+    text.replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+}
+
+fn image_alt<'a>(tag: &'a str, after: &str) -> &'a str {
+    if labelled_next(after) {
+        return "";
+    }
+    attribute(tag, "alt")
+        .filter(|alt| !alt.starts_with('_'))
+        .unwrap_or("")
+}
+
+fn labelled_next(after: &str) -> bool {
+    let after = after.trim_start();
+    after.starts_with('<')
+        && after[1..].split('>').next().is_some_and(|tag| {
+            tag_name(tag) == "span"
+                && attribute(tag, "class").is_some_and(|class| {
+                    class
+                        .split_whitespace()
+                        .any(|name| name == "inline-attribute-label")
+                })
+        })
+}
+
 pub(super) fn plain(text: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
@@ -91,35 +130,113 @@ pub(super) fn plain(text: &str) -> String {
             break;
         };
         let tag = &rest[start + 1..start + end];
-        let name = tag
-            .trim_start_matches('/')
-            .split(|c: char| c.is_whitespace() || c == '/')
-            .next()
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        if name == "br" {
-            out.push('\n');
-        } else if name == "img" {
-            if let Some(alt) = attribute(tag, "alt").filter(|alt| !alt.starts_with('_')) {
-                out.push_str(alt);
-            }
+        match tag_name(tag).as_str() {
+            "br" => out.push('\n'),
+            "img" => out.push_str(image_alt(tag, &rest[start + end + 1..])),
+            _ => {}
         }
         rest = &rest[start + end + 1..];
     }
     out.push_str(rest);
-    let decoded = out
-        .replace("&nbsp;", " ")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&amp;", "&");
-    decoded
+    decode(&out)
         .lines()
         .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn emphasised(tag: &str) -> bool {
+    attribute(tag, "class").is_some_and(|class| {
+        class
+            .split_whitespace()
+            .any(|name| name == "highlight" || name == "inline-attribute-label")
+    })
+}
+
+pub(super) fn markup(text: &str) -> String {
+    let mut out = String::new();
+    let mut open = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find('<') {
+        out.push_str(&escape(&decode(&rest[..start])));
+        let Some(end) = rest[start..].find('>') else {
+            out.push_str(&escape(&decode(&rest[start..])));
+            rest = "";
+            break;
+        };
+        let tag = &rest[start + 1..start + end];
+        match (tag_name(tag).as_str(), tag.starts_with('/')) {
+            ("br", _) => out.push_str("<br>"),
+            ("img", _) => out.push_str(&escape(image_alt(tag, &rest[start + end + 1..]))),
+            ("span", true) => {
+                if open.pop() == Some(true) {
+                    out.push_str("</strong>");
+                }
+            }
+            ("span", false) if !tag.ends_with('/') => {
+                let strong = emphasised(tag);
+                if strong {
+                    out.push_str("<strong>");
+                }
+                open.push(strong);
+            }
+            _ => {}
+        }
+        rest = &rest[start + end + 1..];
+    }
+    out.push_str(&escape(&decode(rest)));
+    for strong in open.into_iter().rev() {
+        if strong {
+            out.push_str("</strong>");
+        }
+    }
+    tidy(&out)
+}
+
+fn tidy(html: &str) -> String {
+    let mut out = html.split_whitespace().collect::<Vec<_>>().join(" ");
+    loop {
+        let before = out.clone();
+        for (from, to) in [
+            (" <br>", "<br>"),
+            ("<br> ", "<br>"),
+            ("<strong> ", " <strong>"),
+            (" </strong>", "</strong> "),
+            ("<strong></strong>", ""),
+            (" ,", ","),
+            (" .", "."),
+            ("  ", " "),
+        ] {
+            out = out.replace(from, to);
+        }
+        if out == before {
+            break;
+        }
+    }
+    let mut out = out.trim();
+    while let Some(rest) = out.strip_prefix("<br>") {
+        out = rest.trim_start();
+    }
+    while let Some(rest) = out.strip_suffix("<br>") {
+        out = rest.trim_end();
+    }
+    out.to_owned()
+}
+
+const BULLETS: [char; 9] = [
+    '-', '*', '\u{2022}', '\u{2013}', '\u{2014}', '\u{b7}', '\u{2023}', '\u{25aa}', '\u{25e6}',
+];
+
+pub(super) fn strip_bullet(line: &str) -> &str {
+    let mut line = line.trim();
+    while let Some(rest) = line
+        .strip_prefix(BULLETS)
+        .filter(|rest| rest.starts_with(char::is_whitespace))
+    {
+        line = rest.trim_start();
+    }
+    line
 }
 
 fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
@@ -178,7 +295,7 @@ fn label(fact: &Value) -> Option<&str> {
     Some(german_label(chosen).unwrap_or(chosen))
 }
 
-fn german_label(english: &str) -> Option<&'static str> {
+pub(super) fn german_label(english: &str) -> Option<&'static str> {
     Some(match english {
         "Burst Damage" => "Salvenschaden",
         "Grab Range" => "Greifreichweite",
@@ -198,6 +315,29 @@ fn german_label(english: &str) -> Option<&'static str> {
         "Bullet Resist" => "Kugelresistenz",
         "Spirit Resist" => "Magieresistenz",
         "Max Stacks" => "Max. Stapel",
+        "Bonus Health" => "Bonus-Lebenspunkte",
+        "Health Regen" => "Lebensregeneration",
+        "Out of Combat Regen" => "Regeneration außerhalb des Kampfes",
+        "Sprint Speed" => "Sprinttempo",
+        "Stamina" => "Ausdauer",
+        "Ammo" => "Munition",
+        "Max Ammo" => "Max. Munition",
+        "Reload Time" => "Nachladezeit",
+        "Bullet Velocity" => "Kugelgeschwindigkeit",
+        "Bullet Lifesteal" => "Kugel-Lebensraub",
+        "Spirit Lifesteal" => "Magie-Lebensraub",
+        "Spirit Power" => "Magiekraft",
+        "Spirit Damage" => "Magieschaden",
+        "Ability Duration" => "Fähigkeitsdauer",
+        "Ability Cooldown Reduction" => "Reduzierung der Fähigkeitsabklingzeit",
+        "Bonus Ability Charges" => "Zusätzliche Fähigkeitsaufladungen",
+        "Barrier" => "Barriere",
+        "Slow Duration" => "Verlangsamungsdauer",
+        "Debuff Resist" => "Schwächungsresistenz",
+        "Incoming Healing" => "Erhaltene Heilung",
+        "Outgoing Healing" => "Ausgehende Heilung",
+        "Damage Reduction" => "Schadensreduzierung",
+        "Heal Amount" => "Heilmenge",
         _ => return None,
     })
 }
@@ -368,12 +508,7 @@ fn ability_names(ability: &Ability) -> Vec<String> {
 }
 
 fn note_line(line: &str) -> bool {
-    let line = line.trim();
-    let body = ["- ", "* ", "• "]
-        .into_iter()
-        .find_map(|prefix| line.strip_prefix(prefix))
-        .unwrap_or(line);
-    body.split_once(':').is_some_and(|(name, _)| {
+    strip_bullet(line).split_once(':').is_some_and(|(name, _)| {
         let name = name.trim_matches(|ch: char| ch.is_whitespace() || "#*:[]`".contains(ch));
         name.eq_ignore_ascii_case("note") || name.eq_ignore_ascii_case("notes")
     })
@@ -390,10 +525,7 @@ fn statement_text(text: &str) -> String {
 
 fn change_text(text: &str) -> String {
     text.lines()
-        .map(|line| {
-            let line = line.trim();
-            escape(line.strip_prefix("- ").unwrap_or(line).trim())
-        })
+        .map(|line| escape(strip_bullet(line)))
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("<br>")
@@ -531,6 +663,12 @@ mod tests {
             plain("<span class=\"highlight\">+1 s</span> Schlafdauer<br>Fügt <img src=\"x\" alt=\"_icon:' slow\"><img alt=\"Geist\"/> &amp; mehr <svg><g></g></svg>"),
             "+1 s Schlafdauer\nFügt Geist & mehr"
         );
+        let doubled = "Reduziert die <img class=\"inline-attribute SpiritResist\" alt=\"Magieresistenz\"/><span class=\"inline-attribute-label SpiritResist\">Magieresistenz</span> von Gegnern";
+        assert_eq!(plain(doubled), "Reduziert die Magieresistenz von Gegnern");
+        assert_eq!(
+            markup(doubled),
+            "Reduziert die <strong>Magieresistenz</strong> von Gegnern"
+        );
         assert_eq!(paragraph("a<br><script>x</script>"), "a<br>x");
         assert_eq!(paragraph("&lt;b&gt;"), "&lt;b&gt;");
         assert_eq!(
@@ -568,5 +706,11 @@ mod tests {
             "Baba: Damage increased from 1 to 2<br>Note: Rat Swarm unchanged"
         );
         assert_eq!(statement_text("A\n  when x"), "A\n  when x");
+        assert_eq!(
+            change_text("* Haze: A\n\u{2022} B\n - - C\n\u{2013}\tD\n-5 Schaden\n*kursiv*"),
+            "Haze: A<br>B<br>C<br>D<br>-5 Schaden<br>*kursiv*"
+        );
+        assert!(note_line("\u{2022} Note: x"));
+        assert!(note_line("* Notes: x"));
     }
 }

@@ -7,7 +7,7 @@ use axum::{
 use brain_contracts::canonical_receipt::{format_receipt, CanonicalReceipt};
 use serde_json::Value;
 use sqlx::{PgConnection, Row};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{hero, Site};
 
@@ -101,17 +101,161 @@ pub(super) fn citation_ids(value: &Value, ids: &mut BTreeSet<i64>) -> Result<()>
     Ok(())
 }
 
+struct Source {
+    title: String,
+    url: Option<String>,
+}
+
+fn language_name(code: &str) -> Option<(&'static str, &'static str)> {
+    match code {
+        "de" => Some(("deutsch", "german")),
+        "en" => Some(("englisch", "english")),
+        _ => None,
+    }
+}
+
+fn commit(revision: &str) -> Option<&str> {
+    (revision.len() == 40 && revision.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then_some(revision)
+}
+
+fn github(repository: &str, revision: &str, path: &str) -> String {
+    match commit(revision) {
+        Some(commit) if !path.is_empty() => {
+            format!("https://github.com/{repository}/blob/{commit}/{path}")
+        }
+        _ => format!("https://github.com/{repository}"),
+    }
+}
+
+fn asset_source(path: &str) -> Source {
+    let mut parts = path.split('/');
+    let (kind, language) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    let subject = match kind {
+        "items" => "Item-Daten",
+        "heroes" => "Helden-Daten",
+        _ => "Spieldaten",
+    };
+    let endpoint = match kind {
+        "items" | "heroes" => format!("{}/v1/assets/{kind}", dbrain_sources::assets_api::BASE_URL),
+        _ => dbrain_sources::assets_api::BASE_URL.to_owned(),
+    };
+    match language_name(language) {
+        Some((german, query)) => Source {
+            title: format!("{subject} der Deadlock-API ({german})"),
+            url: Some(format!("{endpoint}?language={query}")),
+        },
+        None => Source {
+            title: format!("{subject} der Deadlock-API"),
+            url: Some(endpoint),
+        },
+    }
+}
+
+fn describe(source: &str, revision: &str, path: &str, patch: Option<&Patch>) -> Source {
+    match source {
+        "assets" => asset_source(path),
+        "deadlock-data" => Source {
+            title: "Spieldaten-Export des Deadlock-Wikis".into(),
+            url: Some(github("deadlock-wiki/deadlock-data", revision, path)),
+        },
+        "gametracking" => Source {
+            title: "Spieldateien aus GameTracking-Deadlock".into(),
+            url: Some(github(
+                "SteamTracking/GameTracking-Deadlock",
+                revision,
+                path,
+            )),
+        },
+        "deadlock-api-meta" => Source {
+            title: "Spielstatistiken der Deadlock-API".into(),
+            url: Some("https://deadlock-api.com".into()),
+        },
+        "deadlock_patchnotes_db" => Source {
+            title: match patch.map(|patch| patch.label.as_str()) {
+                Some(label) if !label.is_empty() => format!("Offizielle Patchnotes: {label}"),
+                _ => "Offizielle Patchnotes".into(),
+            },
+            url: patch.and_then(|patch| patch.url.clone()),
+        },
+        "deadlock-docs" => Source {
+            title: "Deadlock-Dokumentation".into(),
+            url: None,
+        },
+        _ => Source {
+            title: "Weitere Quelldaten".into(),
+            url: None,
+        },
+    }
+}
+
+fn revision_label(revision: &str) -> String {
+    let short = |hash: &str| hash.chars().take(12).collect::<String>();
+    match revision.strip_prefix("sha256:") {
+        Some(hash) => format!("Prüfsumme {}", short(hash)),
+        None if commit(revision).is_some() => format!("Version {}", short(revision)),
+        None => format!("Stand {revision}"),
+    }
+}
+
+fn web_link(url: &str) -> Option<&str> {
+    (url.starts_with("https://") && !url.contains(char::is_whitespace)).then_some(url)
+}
+
+fn receipt_line(id: i64, evidence_id: &str, revision: &str, source: &Source) -> String {
+    let title = escape(&source.title);
+    let named = match source.url.as_deref().and_then(web_link) {
+        Some(url) => format!("<a href=\"{}\">{title}</a>", escape(url)),
+        None => title,
+    };
+    format!(
+        "<li id=\"beleg-{id}\" data-beleg=\"{}\">Beleg {id}: {named}, <span title=\"{}\">{}</span></li>",
+        escape(evidence_id),
+        escape(revision),
+        escape(&revision_label(revision))
+    )
+}
+
+struct Patch {
+    label: String,
+    url: Option<String>,
+}
+
+async fn patches(connection: &mut PgConnection, objects: &[i64]) -> Result<BTreeMap<i64, Patch>> {
+    let mut found = BTreeMap::new();
+    if objects.is_empty() {
+        return Ok(found);
+    }
+    let rows = sqlx::query("SELECT raw_object_id,max(value_text::text) FILTER (WHERE stat_key::text='label') AS label,max(value_text::text) FILTER (WHERE stat_key::text='official_url') AS url FROM serve.current_fact WHERE source='deadlock_patchnotes_db' AND stat_key::text IN ('label','official_url') AND raw_object_id=ANY($1::bigint[]) GROUP BY raw_object_id LIMIT 512")
+        .bind(objects)
+        .fetch_all(connection)
+        .await?;
+    for row in rows {
+        let label: Option<String> = row.try_get("label")?;
+        found.insert(
+            row.try_get("raw_object_id")?,
+            Patch {
+                label: label
+                    .map(|label| label.trim().to_owned())
+                    .unwrap_or_default(),
+                url: row.try_get("url")?,
+            },
+        );
+    }
+    Ok(found)
+}
+
 pub(super) async fn receipts(connection: &mut PgConnection, value: &Value) -> Result<String> {
     let mut ids = BTreeSet::new();
     citation_ids(value, &mut ids)?;
     ensure!(!ids.is_empty(), "citations_missing");
     let rows = sqlx::query("SELECT id,raw_object_id,ingest_run_id,source,source_revision,path,locator_kind,locator,encode(value_sha256,'hex') AS value_sha256,extractor FROM serve.published_receipt WHERE id=ANY($1::bigint[]) ORDER BY id LIMIT 512")
-        .bind(ids.iter().copied().collect::<Vec<_>>()).fetch_all(connection).await?;
+        .bind(ids.iter().copied().collect::<Vec<_>>()).fetch_all(&mut *connection).await?;
     ensure!(rows.len() == ids.len(), "unpublished_citation");
-    let mut html = String::from("<h2 id=\"quellen\">Quellen</h2><ol>");
+    let mut receipts = Vec::new();
     for row in rows {
         let id: i64 = row.try_get("id")?;
-        let receipt = CanonicalReceipt {
+        receipts.push(CanonicalReceipt {
             raw_receipt_id: id,
             raw_object_id: row.try_get("raw_object_id")?,
             ingest_run_id: row.try_get("ingest_run_id")?,
@@ -123,12 +267,30 @@ pub(super) async fn receipts(connection: &mut PgConnection, value: &Value) -> Re
             value_sha256: row.try_get("value_sha256")?,
             extractor: row.try_get("extractor")?,
             patch: None,
-        };
-        let evidence = format_receipt(&receipt)?;
-        html.push_str(&format!(
-            "<li id=\"beleg-{id}\"><code>{}</code><p>{}</p></li>",
-            escape(&evidence.evidence_id),
-            escape(&evidence.content)
+        });
+    }
+    let objects = receipts
+        .iter()
+        .filter(|receipt| receipt.source == "deadlock_patchnotes_db")
+        .map(|receipt| receipt.raw_object_id)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let patches = patches(connection, &objects).await?;
+    let mut html = String::from("<h2 id=\"quellen\">Quellen</h2><ol class=\"quellen\">");
+    for receipt in &receipts {
+        let evidence = format_receipt(receipt)?;
+        let source = describe(
+            &receipt.source,
+            &receipt.source_revision,
+            &receipt.path,
+            patches.get(&receipt.raw_object_id),
+        );
+        html.push_str(&receipt_line(
+            receipt.raw_receipt_id,
+            &evidence.evidence_id,
+            &receipt.source_revision,
+            &source,
         ));
     }
     html.push_str("</ol>");
@@ -165,6 +327,11 @@ fn stat_label(stat_key: &str) -> Option<&'static str> {
         "weapon_rounds_per_second" => "Schüsse pro Sekunde",
         "weapon_clip_size" => "Max. Munition",
         "weapon_reload_time" => "Nachladezeit",
+        "item_cost" => "Kosten",
+        "item_description_desc" => "Beschreibung",
+        "item_description_desc2" => "Weitere Beschreibung",
+        "item_description_active" => "Aktive Wirkung",
+        "item_description_passive" => "Passive Wirkung",
         _ => return None,
     })
 }
@@ -188,6 +355,7 @@ fn scale_name(scale_type: &str) -> Option<&'static str> {
         "EBaseWeaponDamageIncrease" | "EWeaponDamageScale" => "Waffenschaden",
         "EWeaponPower" => "Waffenkraft",
         "EBulletDamage" => "Kugelschaden",
+        "EChannelDuration" => "Kanalisierungsdauer",
         _ => return None,
     })
 }
@@ -213,7 +381,7 @@ fn condition_note(key: &str, value: &Value, condition: &Value) -> Option<String>
             "en" => "Englischer Spieltext".into(),
             _ => return None,
         },
-        "usage_flag_0" => match text? {
+        _ if numbered(key, "usage_flag_") => match text? {
             "ConditionallyApplied" => "Gilt nur unter Bedingungen".into(),
             "ConditionallyEnemyApplied" => "Wirkt unter Bedingungen auf Gegner".into(),
             "IntrinsicallyProvidedInAbility" => "Fester Teil der Fähigkeit".into(),
@@ -242,59 +410,24 @@ fn numbered(key: &str, prefix: &str) -> bool {
         .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
-fn key_label(key: &str) -> &str {
-    match key {
-        "scale_class" => "Skalierungsart",
-        "scale_subclass" => "Skalierungsfunktion",
-        "scale_type" => "Skalierungsgröße",
-        "scale_value" => "Skalierungsfaktor",
-        "scale_stat_filter" => "Skalierungsfilter",
-        "display_units" => "Anzeigeeinheit",
-        "upgrade_type" => "Upgrade-Art",
-        "upgrade_entry" => "Upgrade-Eintrag",
-        "upgrade_tier" => "Upgrade-Stufe",
-        "operation" => "Rechenart",
-        "lang" => "Sprache",
-        "conditional" => "Bedingung",
-        _ if numbered(key, "scale_stat_") => "Weitere Skalierungsgröße",
-        _ if numbered(key, "usage_flag_") => "Verwendung",
-        _ if numbered(key, "required_upgrade_bit_") => "Benötigtes Upgrade",
-        other => other,
-    }
+fn display_unit(text: &str) -> Option<&'static str> {
+    Some(match text {
+        "EDisplayUnit_Meters" => "Meter",
+        "EDisplayUnit_MetersPerSecond" => "Meter pro Sekunde",
+        "EDisplayUnit_Normal" => "ohne Einheit",
+        _ => return None,
+    })
 }
 
-fn value_text(key: &str, value: &Value) -> String {
-    match value {
-        Value::String(text) => {
-            let text = text.trim();
-            let scale = key == "scale_type" || numbered(key, "scale_stat_");
-            match text {
-                "" => "leer".into(),
-                "EDisplayUnit_Meters" => "Meter".into(),
-                "EDisplayUnit_MetersPerSecond" => "Meter pro Sekunde".into(),
-                "EDisplayUnit_Normal" => "ohne Einheit".into(),
-                _ => scale
-                    .then(|| scale_name(text))
-                    .flatten()
-                    .unwrap_or(text)
-                    .into(),
-            }
+fn detail(key: &str, value: &Value) -> Option<String> {
+    let text = value.as_str().map(str::trim)?;
+    Some(match key {
+        "display_units" => format!("Anzeigeeinheit: {}", display_unit(text)?),
+        _ if numbered(key, "scale_stat_") => {
+            format!("Weitere Skalierungsgröße: {}", scale_name(text)?)
         }
-        Value::Bool(true) => "ja".into(),
-        Value::Bool(false) => "nein".into(),
-        Value::Null => "leer".into(),
-        Value::Number(number) => number.to_string(),
-        Value::Array(values) => values
-            .iter()
-            .map(|value| value_text(key, value))
-            .collect::<Vec<_>>()
-            .join(", "),
-        Value::Object(fields) => fields
-            .iter()
-            .map(|(name, value)| format!("{} {}", key_label(name), value_text(name, value)))
-            .collect::<Vec<_>>()
-            .join(", "),
-    }
+        _ => return None,
+    })
 }
 
 fn qualifier_citation<'a>(fact: &'a Value, key: &str) -> Option<&'a str> {
@@ -316,30 +449,22 @@ fn condition_notes(fact: &Value) -> String {
     let Some(fields) = condition.as_object() else {
         return String::new();
     };
-    let scaled = condition_note("scale_type", &condition["scale_type"], condition).is_some();
     let mut notes = Vec::new();
     let mut details = Vec::new();
     for (key, value) in fields {
-        match condition_note(key, value, condition) {
-            Some(note) => {
-                let extra = if key == "scale_type" {
-                    beleg_link(fact, "scale_value")
-                } else {
-                    String::new()
-                };
-                notes.push(format!(
-                    "<p>{}{}{extra}</p>",
-                    escape(&note),
-                    beleg_link(fact, key)
-                ));
-            }
-            None if key == "scale_value" && scaled => {}
-            None => details.push(format!(
-                "{}: {}{}",
-                escape(key_label(key)),
-                escape(&value_text(key, value)),
+        if let Some(note) = condition_note(key, value, condition) {
+            let extra = if key == "scale_type" {
+                beleg_link(fact, "scale_value")
+            } else {
+                String::new()
+            };
+            notes.push(format!(
+                "<p>{}{}{extra}</p>",
+                escape(&note),
                 beleg_link(fact, key)
-            )),
+            ));
+        } else if let Some(text) = detail(key, value) {
+            details.push(format!("{}{}", escape(&text), beleg_link(fact, key)));
         }
     }
     if !details.is_empty() {
@@ -351,6 +476,38 @@ fn condition_notes(fact: &Value) -> String {
     notes.concat()
 }
 
+fn fact_label(fact: &Value) -> &str {
+    let stat_key = fact["stat_key"].as_str();
+    fact["label"]
+        .as_str()
+        .map(str::trim)
+        .filter(|label| !label.is_empty() && !key_shaped(label))
+        .map(|label| hero::german_label(label).unwrap_or(label))
+        .or_else(|| stat_key.and_then(stat_label))
+        .or_else(|| stat_key.filter(|key| !key_shaped(key)))
+        .unwrap_or("Wert")
+}
+
+fn unit_text(unit: &str) -> &str {
+    match unit.trim() {
+        "souls" => "Seelen",
+        other => other,
+    }
+}
+
+fn fact_value(fact: &Value) -> String {
+    let unit = fact["unit"]
+        .as_str()
+        .map(unit_text)
+        .filter(|unit| !unit.is_empty())
+        .map(|unit| format!(" {}", escape(unit)))
+        .unwrap_or_default();
+    match &fact["value"] {
+        Value::String(text) => format!("{}{unit}", hero::markup(text)),
+        other => format!("{}{unit}", escape(&other.to_string())),
+    }
+}
+
 pub(super) fn fact_rows(section: &Value) -> String {
     let mut html = String::from("<div class=\"scroll\"><table><thead><tr><th scope=\"col\">Wert</th><th scope=\"col\">Angabe</th><th scope=\"col\">Bedingung und Beleg</th></tr></thead><tbody>");
     let rows = section["facts"]
@@ -358,27 +515,11 @@ pub(super) fn fact_rows(section: &Value) -> String {
         .map(Vec::as_slice)
         .unwrap_or(&[]);
     for fact in rows {
-        let label = fact["label"]
-            .as_str()
-            .filter(|s| !s.is_empty())
-            .or_else(|| fact["stat_key"].as_str().and_then(stat_label))
-            .or_else(|| fact["stat_key"].as_str())
-            .unwrap_or("Wert");
-        let value = fact["value"]
-            .as_str()
-            .map(str::to_owned)
-            .unwrap_or_else(|| fact["value"].to_string());
         let citation = fact["citation"].as_str().unwrap_or("");
-        let unit = fact["unit"]
-            .as_str()
-            .filter(|unit| !unit.is_empty())
-            .map(|unit| format!(" {unit}"))
-            .unwrap_or_default();
         html.push_str(&format!(
-            "<tr><th scope=\"row\">{}</th><td>{}{}</td><td><a href=\"#beleg-{}\">Beleg {}</a>{}",
-            escape(label),
-            escape(&value),
-            escape(&unit),
+            "<tr><th scope=\"row\">{}</th><td>{}</td><td><a href=\"#beleg-{}\">Beleg {}</a>{}",
+            escape(fact_label(fact)),
+            fact_value(fact),
             escape(citation),
             escape(citation),
             condition_notes(fact)
@@ -642,11 +783,74 @@ mod tests {
             ]
         }));
         assert!(html.contains("Skaliert mit Magiekraft (×0.5) <a href=\"#beleg-7\">Beleg 7</a> <a href=\"#beleg-8\">Beleg 8</a>"));
-        assert!(html.contains("Skalierungsart: scale_function_tech_damage"));
         assert!(html.contains("Anzeigeeinheit: Meter"));
-        assert!(html.contains("Verwendung: Mystery <a href=\"#beleg-9\">Beleg 9</a>"));
-        assert!(html.contains("custom: a 1, ja"));
+        for hidden in [
+            "scale_function",
+            "Mystery",
+            "custom",
+            "usage_flag",
+            "Skalierungsfaktor",
+            "Beleg 9",
+        ] {
+            assert!(!html.contains(hidden), "{hidden}");
+        }
         assert!(!html.contains('{'));
-        assert!(!html.contains("Skalierungsfaktor"));
+    }
+
+    #[test]
+    fn item_values_render_game_markup_safely() {
+        let html = fact_rows(&json!({"facts": [
+            {"stat_key": "item_description_desc", "citation": "3", "value": "Gain <span class=\"highlight\">Barrier</span> on <svg width=\"128\"><path d=\"M6 7\" fill=\"white\"/></svg> <span class=\"inline-attribute-label SpiritDamage\" style=\"color: #EC9719;\">spirit damage</span>.<br><br>Then <script>x</script>&amp; more <span>plain</span>"},
+            {"stat_key": "item_cost", "citation": "4", "value": "800", "unit": "souls"},
+            {"stat_key": "item_secret_key", "citation": "5", "value": 1, "unit": " m"},
+            {"label": "Weapon Damage", "stat_key": "item_x", "citation": "6", "value": "7"}
+        ]}));
+        assert!(html.contains("<th scope=\"row\">Beschreibung</th><td>Gain <strong>Barrier</strong> on <strong>spirit damage</strong>.<br><br>Then x&amp; more plain</td>"), "{html}");
+        assert!(html.contains("<th scope=\"row\">Kosten</th><td>800 Seelen</td>"));
+        assert!(html.contains("<th scope=\"row\">Wert</th><td>1 m</td>"));
+        assert!(html.contains("<th scope=\"row\">Waffenschaden</th>"));
+        for hidden in ["svg", "span", "script", "item_", "souls", "#EC9719"] {
+            assert!(!html.contains(hidden), "{hidden}");
+        }
+    }
+
+    #[test]
+    fn receipts_render_as_readable_german_lines() {
+        let patch = Patch {
+            label: "10-24-2025 Update".into(),
+            url: Some("https://forums.playdeadlock.com/threads/x.1/".into()),
+        };
+        let line = receipt_line(
+            7,
+            "gamefacts.receipt.v1:sha256:ab",
+            "sha256:5646654812345678",
+            &describe(
+                "deadlock_patchnotes_db",
+                "sha256:5646654812345678",
+                "241",
+                Some(&patch),
+            ),
+        );
+        assert_eq!(line, "<li id=\"beleg-7\" data-beleg=\"gamefacts.receipt.v1:sha256:ab\">Beleg 7: <a href=\"https://forums.playdeadlock.com/threads/x.1/\">Offizielle Patchnotes: 10-24-2025 Update</a>, <span title=\"sha256:5646654812345678\">Prüfsumme 564665481234</span></li>");
+        let asset = describe("assets", "sha256:aa", "items/de/649.json", None);
+        assert_eq!(asset.title, "Item-Daten der Deadlock-API (deutsch)");
+        assert_eq!(
+            asset.url.as_deref(),
+            Some("https://api.deadlock-api.com/v1/assets/items?language=german")
+        );
+        let wiki = describe(
+            "deadlock-data",
+            "8d53e1a606e5e207258d534351c6296550bcc850",
+            "data/json/hero-data.json",
+            None,
+        );
+        assert_eq!(wiki.url.as_deref(), Some("https://github.com/deadlock-wiki/deadlock-data/blob/8d53e1a606e5e207258d534351c6296550bcc850/data/json/hero-data.json"));
+        let unknown = receipt_line(9, "e", "r", &describe("raw_source_name", "r", "p_q", None));
+        assert!(!unknown.contains("raw_source_name") && !unknown.contains("<a "));
+        let hostile = Source {
+            title: "x".into(),
+            url: Some("javascript:alert(1)".into()),
+        };
+        assert!(!receipt_line(1, "e", "r", &hostile).contains("javascript"));
     }
 }
