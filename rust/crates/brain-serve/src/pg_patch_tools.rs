@@ -415,7 +415,8 @@ async fn latest_changes(
         .await
         .map_err(database_error)?;
     let Some(head) = rows
-        .first()
+        .iter()
+        .find(|row| !row["released_at"].is_null())
         .map(|row| {
             row["head_citation"]
                 .as_str()
@@ -433,7 +434,7 @@ async fn latest_changes(
         .await
         .map_err(database_error)?;
     let PatchResolution::Found(current) = select_patch(patches) else {
-        return Err(invalid());
+        return Ok(None);
     };
     let rows = rows
         .into_iter()

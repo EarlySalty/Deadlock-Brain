@@ -286,8 +286,9 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                     return Err(PortError::BudgetExceeded);
                 }
                 provider_rounds += 1;
-                conversation.final_round =
-                    provider_rounds == context.budget.max_network_rounds.min(4) as usize;
+                conversation.final_round = provider_rounds
+                    == context.budget.max_network_rounds.min(4) as usize
+                    || next.budget.max_network_rounds == 1;
                 let input_bytes = grounded_turn_input_ceiling_with_quality(
                     query,
                     &evidence,

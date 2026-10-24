@@ -249,6 +249,33 @@ fn tool_result_evidence_ids(conversation: &ToolConversation) -> BTreeSet<&str> {
         .collect()
 }
 
+fn provider_question(
+    projected: &Query,
+) -> (
+    String,
+    Option<crate::discord_task::DiscordContextProjection>,
+) {
+    let text = if matches!(
+        projected.answer_context,
+        Some(crate::AnswerContext::Discord(_))
+    ) {
+        discord_display_text(&projected.text)
+    } else {
+        projected.text.clone()
+    };
+    if !crate::discord_task::is_private_context_query(projected) {
+        return (text, None);
+    }
+    text.rsplit_once(crate::discord_task::PUBLIC_CONTEXT_PREFIX)
+        .and_then(|(current, encoded)| {
+            serde_json::from_str::<crate::discord_task::DiscordContextProjection>(encoded)
+                .ok()
+                .filter(|projection| projection.valid())
+                .map(|projection| (current.to_owned(), Some(projection)))
+        })
+        .unwrap_or((text, None))
+}
+
 fn grounded_messages_referencing(
     query: &Query,
     evidence: &[Evidence],
@@ -305,27 +332,7 @@ fn grounded_messages_referencing(
             })
             .collect()
     };
-    let text = if matches!(
-        projected.answer_context,
-        Some(crate::AnswerContext::Discord(_))
-    ) {
-        discord_display_text(&projected.text)
-    } else {
-        projected.text.clone()
-    };
-    let (text, conversation_context) = if crate::discord_task::is_private_context_query(&projected)
-    {
-        text.rsplit_once(crate::discord_task::PUBLIC_CONTEXT_PREFIX)
-            .and_then(|(current, encoded)| {
-                serde_json::from_str::<crate::discord_task::DiscordContextProjection>(encoded)
-                    .ok()
-                    .filter(|projection| projection.valid())
-                    .map(|projection| (current.to_owned(), Some(projection)))
-            })
-            .unwrap_or((text, None))
-    } else {
-        (text, None)
-    };
+    let (text, conversation_context) = provider_question(&projected);
     let mut data = json!({"query": text, "evidence": evidence});
     if let Some(projection) = conversation_context {
         data["public_conversation_context"] = json!({
@@ -414,6 +421,7 @@ pub fn grounded_turn_payload_with_quality(
         .map(|message| json!(message))
         .collect();
     let last = conversation.messages.len().saturating_sub(1);
+    let question = provider_question(&crate::invite::project_query(query)).0;
     for (index, message) in conversation.messages.iter().enumerate() {
         match message {
             ToolMessage::Assistant { blocks } => {
@@ -449,7 +457,7 @@ pub fn grounded_turn_payload_with_quality(
                     } else {
                         follow_up_contract(results, definitions)
                     },
-                    json!(query.text),
+                    json!(question),
                     json!(evidence.iter().map(|item| &item.evidence_id).collect::<Vec<_>>())
                 );
                 if results.iter().any(|result| {
@@ -484,12 +492,17 @@ pub fn grounded_turn_payload_with_quality(
     let mut payload = json!({"messages":messages});
     if native {
         payload["system"] = json!(grounded[0].content);
-        payload["tool_choice"] = json!({"type":if tools.is_empty() {"none"} else {"auto"}});
+        payload["tool_choice"] =
+            json!({"type":if tools.is_empty() || conversation.final_round {"none"} else {"auto"}});
         payload["output_config"] = json!({"effort":"low"});
         payload["tools"] = json!(tools);
     } else if !tools.is_empty() {
         payload["tools"] = json!(tools);
-        payload["tool_choice"] = json!("auto");
+        payload["tool_choice"] = json!(if conversation.final_round {
+            "none"
+        } else {
+            "auto"
+        });
     }
     Ok(payload)
 }
@@ -973,9 +986,44 @@ mod tests {
                 true,
             )
             .unwrap();
+            let choice = if format == ToolWireFormat::Native {
+                json!({"type":"none"})
+            } else {
+                json!("none")
+            };
+            assert_eq!(payload["tool_choice"], choice);
             let reminder = assert_hero_tool_wire(&payload, &lookup, format);
             assert!(reminder.starts_with(TOOL_BUDGET_EXHAUSTED_CONTRACT));
             assert!(!reminder.contains(HERO_PROFILE_LOOKUP_CONTRACT));
+        }
+    }
+
+    #[test]
+    fn tool_follow_up_names_only_the_sanitised_discord_question() {
+        let item = canonical_tool_evidence();
+        let definitions = hero_profile_tool_definitions();
+        let lookup = hero_lookup_result(&item);
+        let history = canonical_tool_conversation(&lookup, json!({"text":"fixture hero"}));
+        let mut request = query();
+        request.text = "<@123456789012345678> wie viel Leben hat Haze 76561197960265839?".into();
+        request.answer_context = Some(crate::AnswerContext::Discord(
+            crate::DiscordAnswerContext::default(),
+        ));
+        for format in [ToolWireFormat::Native, ToolWireFormat::OpenAiCompatible] {
+            let payload = grounded_turn_payload_with_quality(
+                &request,
+                std::slice::from_ref(&item),
+                &definitions,
+                &history,
+                format,
+                true,
+            )
+            .unwrap();
+            let reminder = assert_hero_tool_wire(&payload, &lookup, format);
+            assert!(reminder.contains("wie viel Leben hat Haze"));
+            let raw = payload.to_string();
+            assert!(!raw.contains("123456789012345678"));
+            assert!(!raw.contains("76561197960265839"));
         }
     }
 
