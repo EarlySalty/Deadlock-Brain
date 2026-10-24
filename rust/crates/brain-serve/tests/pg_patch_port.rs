@@ -769,7 +769,8 @@ fn combined_input_budget(
             .unwrap()
     };
     let mut total = ceiling(&conversation, Vec::new());
-    for execution in executions {
+    for (round, execution) in (2..).zip(executions) {
+        conversation.final_round = round == 4;
         conversation.messages.push(ToolMessage::Assistant {
             blocks: vec![ModelBlock::ToolUse {
                 call: ToolCall {

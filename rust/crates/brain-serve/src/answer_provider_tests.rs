@@ -161,7 +161,10 @@ fn history() -> ToolConversation {
             }],
         });
     }
-    ToolConversation { messages }
+    ToolConversation {
+        messages,
+        final_round: false,
+    }
 }
 
 fn read_payload(stream: &mut TcpStream) -> (String, Value) {

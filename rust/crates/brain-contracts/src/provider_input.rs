@@ -413,7 +413,8 @@ pub fn grounded_turn_payload_with_quality(
         .skip(usize::from(native))
         .map(|message| json!(message))
         .collect();
-    for message in &conversation.messages {
+    let last = conversation.messages.len().saturating_sub(1);
+    for (index, message) in conversation.messages.iter().enumerate() {
         match message {
             ToolMessage::Assistant { blocks } => {
                 if native {
@@ -442,8 +443,13 @@ pub fn grounded_turn_payload_with_quality(
             }
             ToolMessage::ToolResults { results } => {
                 let mut format = format!(
-                    "{}die abschließende Antwort als genau ein JSON-Objekt mit text, cited_evidence_ids und claims aus. Schreibe text in der Sprache der ursprünglichen Frage. Keine Prosa davor oder danach, kein Markdown-Codeblock. Verwende für genutzte Werkzeugdaten deren Beleg-IDs, keine leeren oder erfundenen IDs. Verfügbare Beleg-IDs: {}",
-                    follow_up_contract(results, definitions),
+                    "{}die abschließende Antwort als genau ein JSON-Objekt mit text, cited_evidence_ids und claims aus. Schreibe text in der Sprache der ursprünglichen Frage {}: Deutsche Frage, deutsche Antwort. English question, English answer. Die Sprache der Werkzeugergebnisse und dieser Anweisungen bestimmt nicht die Antwortsprache. Keine Prosa davor oder danach, kein Markdown-Codeblock. Verwende für genutzte Werkzeugdaten deren Beleg-IDs, keine leeren oder erfundenen IDs. Verfügbare Beleg-IDs: {}",
+                    if conversation.final_round && index == last {
+                        TOOL_BUDGET_EXHAUSTED_CONTRACT
+                    } else {
+                        follow_up_contract(results, definitions)
+                    },
+                    json!(query.text),
                     json!(evidence.iter().map(|item| &item.evidence_id).collect::<Vec<_>>())
                 );
                 if results.iter().any(|result| {
@@ -951,6 +957,29 @@ mod tests {
     }
 
     #[test]
+    fn final_round_replaces_last_follow_up_with_budget_exhausted_contract() {
+        let item = canonical_tool_evidence();
+        let definitions = hero_profile_tool_definitions();
+        let lookup = hero_lookup_result(&item);
+        let mut history = canonical_tool_conversation(&lookup, json!({"text":"fixture hero"}));
+        history.final_round = true;
+        for format in [ToolWireFormat::Native, ToolWireFormat::OpenAiCompatible] {
+            let payload = grounded_turn_payload_with_quality(
+                &query(),
+                std::slice::from_ref(&item),
+                &definitions,
+                &history,
+                format,
+                true,
+            )
+            .unwrap();
+            let reminder = assert_hero_tool_wire(&payload, &lookup, format);
+            assert!(reminder.starts_with(TOOL_BUDGET_EXHAUSTED_CONTRACT));
+            assert!(!reminder.contains(HERO_PROFILE_LOOKUP_CONTRACT));
+        }
+    }
+
+    #[test]
     fn follow_up_contract_points_each_resolved_kind_to_its_detail_tool() {
         let definition = |name| ToolDefinition {
             name,
@@ -1114,6 +1143,7 @@ mod tests {
 
     fn canonical_tool_conversation(result: &ToolResult, arguments: Value) -> ToolConversation {
         ToolConversation {
+            final_round: false,
             messages: vec![
                 ToolMessage::Assistant {
                     blocks: vec![ModelBlock::ToolUse {
@@ -1569,6 +1599,7 @@ mod tests {
             is_error: false,
         };
         let conversation = ToolConversation {
+            final_round: false,
             messages: vec![
                 ToolMessage::Assistant {
                     blocks: vec![ModelBlock::ToolUse {

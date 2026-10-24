@@ -1044,6 +1044,8 @@ pub enum ToolMessage {
 #[serde(deny_unknown_fields)]
 pub struct ToolConversation {
     pub messages: Vec<ToolMessage>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub final_round: bool,
 }
 
 impl ToolConversation {
@@ -2599,6 +2601,7 @@ mod tests {
             is_error: false,
         };
         let conversation = ToolConversation {
+            final_round: false,
             messages: vec![
                 assistant.clone(),
                 ToolMessage::ToolResults {
@@ -2620,12 +2623,14 @@ mod tests {
             }],
         ] {
             assert!(ToolConversation {
+                final_round: false,
                 messages: vec![assistant.clone(), ToolMessage::ToolResults { results }]
             }
             .validate(&[definition()])
             .is_err());
         }
         assert!(ToolConversation {
+            final_round: false,
             messages: vec![assistant.clone()]
         }
         .validate(&[definition()])
@@ -2634,6 +2639,7 @@ mod tests {
         repeated.messages.extend(conversation.messages);
         assert!(repeated.validate(&[definition()]).is_err());
         assert!(ToolConversation {
+            final_round: false,
             messages: vec![ToolMessage::Assistant {
                 blocks: vec![
                     ModelBlock::ToolUse { call: call() },

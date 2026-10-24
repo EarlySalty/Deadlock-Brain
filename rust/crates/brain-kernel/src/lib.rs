@@ -2898,6 +2898,7 @@ mod tests {
             .cloned()
             .collect();
         let conversation = brain_contracts::ToolConversation {
+            final_round: false,
             messages: vec![
                 brain_contracts::ToolMessage::Assistant {
                     blocks: vec![brain_contracts::ModelBlock::ToolUse { call }],

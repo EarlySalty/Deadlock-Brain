@@ -150,6 +150,7 @@ fn query() -> Query {
 
 fn conversation(calls: &[ToolCall]) -> ToolConversation {
     ToolConversation {
+        final_round: false,
         messages: vec![
             ToolMessage::Assistant {
                 blocks: calls
