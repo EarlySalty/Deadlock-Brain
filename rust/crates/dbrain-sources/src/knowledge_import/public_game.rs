@@ -917,25 +917,14 @@ mod tests {
 
     #[tokio::test]
     async fn postgres_factual_reauthorization_is_atomic_optimistic_and_retryable() {
-        struct ScratchPg(tempfile::TempDir);
-        impl Drop for ScratchPg {
-            fn drop(&mut self) {
-                let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-                    .arg("-D")
-                    .arg(self.0.path().join("data"))
-                    .args(["-m", "immediate", "-w", "stop"])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-            }
-        }
-        let pg = ScratchPg(tempfile::tempdir_in("/dev/shm").unwrap());
-        let socket = pg.0.path().join("socket");
+        let pg = crate::test_postmaster::RamDir::new("brain-public-game");
+        let data = pg.path().join("data");
+        let socket = pg.path().join("socket");
         std::fs::create_dir(&socket).unwrap();
         assert!(
             std::process::Command::new("/usr/lib/postgresql/16/bin/initdb")
                 .arg("-D")
-                .arg(pg.0.path().join("data"))
+                .arg(&data)
                 .args(["-A", "trust", "-U", "brain_game_test", "--no-locale"])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -943,26 +932,11 @@ mod tests {
                 .unwrap()
                 .success()
         );
-        assert!(
-            std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-                .arg("-D")
-                .arg(pg.0.path().join("data"))
-                .arg("-l")
-                .arg(pg.0.path().join("postgres.log"))
-                .args([
-                    "-o",
-                    &format!(
-                        "-k {} -p 55445 -c listen_addresses='' -c dynamic_shared_memory_type=mmap",
-                        socket.display()
-                    ),
-                    "-w",
-                    "start"
-                ])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .unwrap()
-                .success()
+        let _postmaster = crate::test_postmaster::Postmaster::start(
+            &data,
+            &socket,
+            &["port=55445"],
+            Some(&pg.path().join("postgres.log")),
         );
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)

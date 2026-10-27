@@ -239,29 +239,19 @@ fn complete_relative_scope_rejects_truncation_and_caller_markers() {
     assert!(semantic_projection(&changed, "/Damage", &record, &identity).is_err());
 }
 
-struct ScratchPg {
-    directory: tempfile::TempDir,
-}
-impl Drop for ScratchPg {
-    fn drop(&mut self) {
-        let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-            .arg("-D")
-            .arg(self.directory.path().join("data"))
-            .args(["-m", "fast", "-w", "stop"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-    }
+mod postmaster {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../test-support/postmaster.rs"
+    ));
 }
 
 #[tokio::test]
 #[ignore = "Externe Datenprobe: benötigt private eingefrorene Git-JSONL und lokale PostgreSQL-16-Werkzeuge"]
 async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals() {
-    let pg = ScratchPg {
-        directory: tempfile::tempdir_in("/dev/shm").unwrap(),
-    };
-    let data = pg.directory.path().join("data");
-    let socket = pg.directory.path().join("socket");
+    let pg = postmaster::RamDir::new("brain-entity-semantic");
+    let data = pg.path().join("data");
+    let socket = pg.path().join("socket");
     std::fs::create_dir(&socket).unwrap();
     assert!(
         std::process::Command::new("/usr/lib/postgresql/16/bin/initdb")
@@ -273,25 +263,11 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
             .unwrap()
             .success()
     );
-    assert!(
-        std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-            .arg("-D")
-            .arg(&data)
-            .arg("-l")
-            .arg(pg.directory.path().join("postgres.log"))
-            .args([
-                "-o",
-                &format!(
-                    "-k {} -p 15449 -c listen_addresses='' -c dynamic_shared_memory_type=mmap",
-                    socket.display()
-                ),
-                "-w",
-                "start"
-            ])
-            .stdout(std::process::Stdio::null())
-            .status()
-            .unwrap()
-            .success()
+    let _postmaster = postmaster::Postmaster::start(
+        &data,
+        &socket,
+        &["port=15449"],
+        Some(&pg.path().join("postgres.log")),
     );
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(2)
@@ -536,7 +512,7 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
         serde_json::to_vec(&actual_profiles).unwrap(),
     )
     .unwrap();
-    let repository = pg.directory.path().join("repository");
+    let repository = pg.path().join("repository");
     std::fs::create_dir(&repository).unwrap();
     std::fs::write(
         repository.join("health.json"),

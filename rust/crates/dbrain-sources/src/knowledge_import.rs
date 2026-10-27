@@ -673,21 +673,9 @@ mod tests {
     #[tokio::test]
     async fn exact_numbers_survive_import_postgres_retry_and_canonical_projection() {
         use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-        struct ScratchPg(tempfile::TempDir);
-        impl Drop for ScratchPg {
-            fn drop(&mut self) {
-                let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-                    .arg("-D")
-                    .arg(self.0.path().join("data"))
-                    .args(["-m", "fast", "-w", "stop"])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
-            }
-        }
-        let pg = ScratchPg(tempfile::tempdir_in("/dev/shm").unwrap());
-        let data = pg.0.path().join("data");
-        let socket = pg.0.path().join(".core-test-pg");
+        let pg = crate::test_postmaster::RamDir::new("brain-knowledge-import-lib");
+        let data = pg.path().join("data");
+        let socket = pg.path().join(".core-test-pg");
         std::fs::create_dir(&socket).unwrap();
         assert!(
             std::process::Command::new("/usr/lib/postgresql/16/bin/initdb")
@@ -699,25 +687,11 @@ mod tests {
                 .unwrap()
                 .success()
         );
-        assert!(
-            std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-                .arg("-D")
-                .arg(&data)
-                .arg("-l")
-                .arg(pg.0.path().join("postgres.log"))
-                .args([
-                    "-o",
-                    &format!(
-                        "-k {} -p 55439 -c listen_addresses='' -c dynamic_shared_memory_type=mmap",
-                        socket.display()
-                    ),
-                    "-w",
-                    "start"
-                ])
-                .stdout(std::process::Stdio::null())
-                .status()
-                .unwrap()
-                .success()
+        let _postmaster = crate::test_postmaster::Postmaster::start(
+            &data,
+            &socket,
+            &["port=55439"],
+            Some(&pg.path().join("postgres.log")),
         );
         let socket = socket.to_str().unwrap();
         assert!(socket.ends_with("/.core-test-pg"));

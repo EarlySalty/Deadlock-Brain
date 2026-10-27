@@ -9,8 +9,16 @@ use std::{
 const FIXTURE_OWNER: &str = "brain_session_fixture";
 const FIXTURE_PORT: u16 = 55449;
 
+mod postmaster {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../test-support/postmaster.rs"
+    ));
+}
+
 struct PrivatePostgres {
-    scratch: Option<tempfile::TempDir>,
+    _postmaster: Option<postmaster::Postmaster>,
+    _scratch: postmaster::RamDir,
     bin: PathBuf,
     data: PathBuf,
     socket: PathBuf,
@@ -18,11 +26,7 @@ struct PrivatePostgres {
 
 impl PrivatePostgres {
     fn new() -> Self {
-        let scratch = tempfile::Builder::new()
-            .prefix("brain-session-pg-")
-            .tempdir_in("/dev/shm")
-            .unwrap();
-        fs::set_permissions(scratch.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let scratch = postmaster::RamDir::new("brain-session");
         let output = Command::new("/usr/lib/postgresql/16/bin/pg_config")
             .env_clear()
             .arg("--bindir")
@@ -35,8 +39,9 @@ impl PrivatePostgres {
         let socket = scratch.path().join("socket");
         fs::create_dir(&socket).unwrap();
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o700)).unwrap();
-        let fixture = Self {
-            scratch: Some(scratch),
+        let mut fixture = Self {
+            _postmaster: None,
+            _scratch: scratch,
             bin,
             data,
             socket,
@@ -86,21 +91,17 @@ impl PrivatePostgres {
             "local all all peer map=session_fixture\nhost all all all reject\n",
         )
         .unwrap();
-        let started = fixture
-            .command("pg_ctl")
-            .arg("-D")
-            .arg(&fixture.data)
-            .arg("-l")
-            .arg(fixture.data.join("server.log"))
-            .args(["-w", "-t", "10", "-o"])
-            .arg(format!(
-                "-c listen_addresses='' -k '{}' -p {FIXTURE_PORT} -c unix_socket_permissions=0700 -c max_connections=12 -c shared_buffers=16MB -c dynamic_shared_memory_type=mmap",
-                fixture.socket.display()
-            ))
-            .arg("start")
-            .output()
-            .unwrap();
-        Self::assert_success(started, "pg_ctl start");
+        fixture._postmaster = Some(postmaster::Postmaster::start(
+            &fixture.data,
+            &fixture.socket,
+            &[
+                &format!("port={FIXTURE_PORT}"),
+                "unix_socket_permissions=0700",
+                "max_connections=12",
+                "shared_buffers=16MB",
+            ],
+            Some(&fixture.data.join("server.log")),
+        ));
         fixture
     }
 
@@ -127,35 +128,6 @@ impl PrivatePostgres {
             .dbname("postgres")
             .connect_timeout(std::time::Duration::from_secs(10));
         options
-    }
-
-    fn stop(&self) -> bool {
-        if !self.data.join("postmaster.pid").exists() {
-            return true;
-        }
-        ["fast", "immediate"].into_iter().any(|mode| {
-            self.command("pg_ctl")
-                .arg("-D")
-                .arg(&self.data)
-                .args(["-m", mode, "-w", "-t", "10", "stop"])
-                .output()
-                .is_ok_and(|output| output.status.success())
-        })
-    }
-}
-
-impl Drop for PrivatePostgres {
-    fn drop(&mut self) {
-        if !self.stop() {
-            // Do not unlink a possibly live cluster or panic during unwinding.
-            // Retain only our private fixture so the failure can be investigated.
-            if let Some(scratch) = self.scratch.take() {
-                eprintln!(
-                    "private PostgreSQL cleanup failed: {}",
-                    scratch.keep().display()
-                );
-            }
-        }
     }
 }
 
@@ -253,5 +225,4 @@ fn encrypted_browser_state_roundtrip_concurrency_revocation_and_account_isolatio
         .batch_execute(&format!("DROP DATABASE {database}"))
         .unwrap();
     drop(admin);
-    assert!(fixture.stop(), "private PostgreSQL cleanup failed");
 }

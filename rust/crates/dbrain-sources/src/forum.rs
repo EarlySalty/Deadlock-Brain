@@ -1040,24 +1040,9 @@ mod scratch_regression_tests {
     use super::*;
     use crate::wiki_runtime::ScratchWikiStore;
     use std::process::{Command, Stdio};
-    struct ScratchServer {
-        data: std::path::PathBuf,
-        pg_ctl: std::path::PathBuf,
-    }
-    impl Drop for ScratchServer {
-        fn drop(&mut self) {
-            let _ = Command::new(&self.pg_ctl)
-                .args(["-D"])
-                .arg(&self.data)
-                .args(["-m", "fast", "-w", "stop"])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
-        }
-    }
     #[tokio::test]
     async fn observed_reversion_and_removed_post_update_real_canonical_release() {
-        let root = tempfile::tempdir_in("/dev/shm").unwrap();
+        let root = crate::test_postmaster::RamDir::new("brain-forum-c5");
         std::fs::write(root.path().join("C5_SCRATCH_ONLY"), "C5_SCRATCH_ONLY\n").unwrap();
         let bin = Command::new("pg_config").arg("--bindir").output().unwrap();
         let bin = std::path::PathBuf::from(String::from_utf8(bin.stdout).unwrap().trim());
@@ -1077,25 +1062,12 @@ mod scratch_regression_tests {
             .status()
             .unwrap()
             .success());
-        let server = ScratchServer {
-            data: data.clone(),
-            pg_ctl: bin.join("pg_ctl"),
-        };
-        assert!(Command::new(&server.pg_ctl)
-            .arg("-D")
-            .arg(&data)
-            .arg("-l")
-            .arg(root.path().join("server.log"))
-            .arg("-o")
-            .arg(format!(
-                "-c listen_addresses='' -k {} -p 55441 -c shared_buffers=16MB -c dynamic_shared_memory_type=mmap",
-                root.path().display()
-            ))
-            .args(["-w", "start"])
-            .stdout(Stdio::null())
-            .status()
-            .unwrap()
-            .success());
+        let server = crate::test_postmaster::Postmaster::start(
+            &data,
+            root.path(),
+            &["port=55441", "shared_buffers=16MB"],
+            Some(&root.path().join("server.log")),
+        );
         assert!(Command::new(bin.join("createdb"))
             .arg("-h")
             .arg(root.path())

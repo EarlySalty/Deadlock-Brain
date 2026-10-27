@@ -1604,17 +1604,23 @@ mod tests {
         assert_eq!(prepared.largest_content_bytes, head.content.len());
     }
 
+    mod postmaster {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../test-support/postmaster.rs"
+        ));
+    }
+
     struct ScratchPg {
-        directory: tempfile::TempDir,
+        _postmaster: postmaster::Postmaster,
+        directory: postmaster::RamDir,
     }
 
     impl ScratchPg {
         fn start() -> Self {
-            let instance = Self {
-                directory: tempfile::tempdir_in("/dev/shm").unwrap(),
-            };
-            let data = instance.directory.path().join("data");
-            let socket = instance.directory.path().join("socket");
+            let directory = postmaster::RamDir::new("brain-knowledge-import");
+            let data = directory.path().join("data");
+            let socket = directory.path().join("socket");
             std::fs::create_dir(&socket).unwrap();
             assert!(
                 std::process::Command::new("/usr/lib/postgresql/16/bin/initdb")
@@ -1627,36 +1633,16 @@ mod tests {
                     .unwrap()
                     .success()
             );
-            let options = format!(
-                "-k {} -p 55443 -c listen_addresses='' -c dynamic_shared_memory_type=mmap",
-                socket.display()
+            let postmaster = postmaster::Postmaster::start(
+                &data,
+                &socket,
+                &["port=55443"],
+                Some(&directory.path().join("postgres.log")),
             );
-            assert!(
-                std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-                    .arg("-D")
-                    .arg(data)
-                    .arg("-l")
-                    .arg(instance.directory.path().join("postgres.log"))
-                    .args(["-o", &options, "-w", "start"])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-            instance
-        }
-    }
-
-    impl Drop for ScratchPg {
-        fn drop(&mut self) {
-            let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-                .arg("-D")
-                .arg(self.directory.path().join("data"))
-                .args(["-m", "immediate", "-w", "stop"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
+            Self {
+                _postmaster: postmaster,
+                directory,
+            }
         }
     }
 

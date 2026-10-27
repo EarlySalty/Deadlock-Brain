@@ -34,6 +34,13 @@ pub mod wiki_corpus;
 pub mod wiki_runtime;
 
 mod store;
+#[cfg(test)]
+mod test_postmaster {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../test-support/postmaster.rs"
+    ));
+}
 mod util;
 
 pub use analytics_runtime::{

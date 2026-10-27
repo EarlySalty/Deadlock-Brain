@@ -449,27 +449,18 @@ fn ambiguous_missing_and_duplicate_fact_bindings_fail() {
     assert!(project_entity_facts(&record(), &["health".into(), "health".into()]).is_err());
 }
 
-struct ScratchPg {
-    directory: tempfile::TempDir,
+mod postmaster {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../test-support/postmaster.rs"
+    ));
 }
-impl Drop for ScratchPg {
-    fn drop(&mut self) {
-        let _ = std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-            .args(["-D"])
-            .arg(self.directory.path().join("data"))
-            .args(["-m", "fast", "-w", "stop"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-    }
-}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
-    let pg = ScratchPg {
-        directory: tempfile::tempdir_in("/dev/shm").unwrap(),
-    };
-    let data = pg.directory.path().join("data");
-    let socket = pg.directory.path().join("socket");
+    let pg = postmaster::RamDir::new("brain-entity-profiles");
+    let data = pg.path().join("data");
+    let socket = pg.path().join("socket");
     std::fs::create_dir(&socket).unwrap();
     assert!(
         std::process::Command::new("/usr/lib/postgresql/16/bin/initdb")
@@ -481,21 +472,11 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
             .unwrap()
             .success()
     );
-    let options = format!(
-        "-k {} -p 15446 -c listen_addresses='' -c dynamic_shared_memory_type=mmap",
-        socket.display()
-    );
-    assert!(
-        std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-            .args(["-D"])
-            .arg(&data)
-            .args(["-l"])
-            .arg(pg.directory.path().join("postgres.log"))
-            .args(["-o", &options, "-w", "start"])
-            .stdout(std::process::Stdio::null())
-            .status()
-            .unwrap()
-            .success()
+    let _postmaster = postmaster::Postmaster::start(
+        &data,
+        &socket,
+        &["port=15446"],
+        Some(&pg.path().join("postgres.log")),
     );
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(4)
