@@ -1611,7 +1611,7 @@ mod tests {
     impl ScratchPg {
         fn start() -> Self {
             let instance = Self {
-                directory: tempfile::tempdir().unwrap(),
+                directory: tempfile::tempdir_in("/dev/shm").unwrap(),
             };
             let data = instance.directory.path().join("data");
             let socket = instance.directory.path().join("socket");
@@ -1627,7 +1627,10 @@ mod tests {
                     .unwrap()
                     .success()
             );
-            let options = format!("-k {} -p 55443 -c listen_addresses=''", socket.display());
+            let options = format!(
+                "-k {} -p 55443 -c listen_addresses='' -c dynamic_shared_memory_type=mmap",
+                socket.display()
+            );
             assert!(
                 std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
                     .arg("-D")

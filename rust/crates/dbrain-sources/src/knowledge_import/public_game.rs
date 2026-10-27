@@ -929,7 +929,7 @@ mod tests {
                     .status();
             }
         }
-        let pg = ScratchPg(tempfile::tempdir().unwrap());
+        let pg = ScratchPg(tempfile::tempdir_in("/dev/shm").unwrap());
         let socket = pg.0.path().join("socket");
         std::fs::create_dir(&socket).unwrap();
         assert!(
@@ -951,7 +951,10 @@ mod tests {
                 .arg(pg.0.path().join("postgres.log"))
                 .args([
                     "-o",
-                    &format!("-k {} -p 55445 -c listen_addresses=''", socket.display()),
+                    &format!(
+                        "-k {} -p 55445 -c listen_addresses='' -c dynamic_shared_memory_type=mmap",
+                        socket.display()
+                    ),
                     "-w",
                     "start"
                 ])

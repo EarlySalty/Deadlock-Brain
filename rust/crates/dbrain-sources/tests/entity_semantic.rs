@@ -258,7 +258,7 @@ impl Drop for ScratchPg {
 #[ignore = "Externe Datenprobe: benötigt private eingefrorene Git-JSONL und lokale PostgreSQL-16-Werkzeuge"]
 async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals() {
     let pg = ScratchPg {
-        directory: tempfile::tempdir().unwrap(),
+        directory: tempfile::tempdir_in("/dev/shm").unwrap(),
     };
     let data = pg.directory.path().join("data");
     let socket = pg.directory.path().join("socket");
@@ -281,7 +281,10 @@ async fn actual_git_documents_bind_all_kinds_idempotently_to_immutable_originals
             .arg(pg.directory.path().join("postgres.log"))
             .args([
                 "-o",
-                &format!("-k {} -p 15449 -c listen_addresses=''", socket.display()),
+                &format!(
+                    "-k {} -p 15449 -c listen_addresses='' -c dynamic_shared_memory_type=mmap",
+                    socket.display()
+                ),
                 "-w",
                 "start"
             ])

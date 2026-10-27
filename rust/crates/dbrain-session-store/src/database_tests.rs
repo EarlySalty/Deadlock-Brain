@@ -20,7 +20,7 @@ impl PrivatePostgres {
     fn new() -> Self {
         let scratch = tempfile::Builder::new()
             .prefix("brain-session-pg-")
-            .tempdir_in("/tmp")
+            .tempdir_in("/dev/shm")
             .unwrap();
         fs::set_permissions(scratch.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let output = Command::new("/usr/lib/postgresql/16/bin/pg_config")
@@ -94,7 +94,7 @@ impl PrivatePostgres {
             .arg(fixture.data.join("server.log"))
             .args(["-w", "-t", "10", "-o"])
             .arg(format!(
-                "-c listen_addresses='' -k '{}' -p {FIXTURE_PORT} -c unix_socket_permissions=0700 -c max_connections=12 -c shared_buffers=16MB",
+                "-c listen_addresses='' -k '{}' -p {FIXTURE_PORT} -c unix_socket_permissions=0700 -c max_connections=12 -c shared_buffers=16MB -c dynamic_shared_memory_type=mmap",
                 fixture.socket.display()
             ))
             .arg("start")

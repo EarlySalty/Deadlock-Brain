@@ -1057,7 +1057,7 @@ mod scratch_regression_tests {
     }
     #[tokio::test]
     async fn observed_reversion_and_removed_post_update_real_canonical_release() {
-        let root = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir_in("/dev/shm").unwrap();
         std::fs::write(root.path().join("C5_SCRATCH_ONLY"), "C5_SCRATCH_ONLY\n").unwrap();
         let bin = Command::new("pg_config").arg("--bindir").output().unwrap();
         let bin = std::path::PathBuf::from(String::from_utf8(bin.stdout).unwrap().trim());
@@ -1088,7 +1088,7 @@ mod scratch_regression_tests {
             .arg(root.path().join("server.log"))
             .arg("-o")
             .arg(format!(
-                "-c listen_addresses='' -k {} -p 55441 -c shared_buffers=16MB",
+                "-c listen_addresses='' -k {} -p 55441 -c shared_buffers=16MB -c dynamic_shared_memory_type=mmap",
                 root.path().display()
             ))
             .args(["-w", "start"])

@@ -1,14 +1,22 @@
 use std::{
     io::{BufRead, BufReader, Read, Write},
-    os::unix::{fs::DirBuilderExt, process::ExitStatusExt},
+    os::unix::process::ExitStatusExt,
     path::PathBuf,
     process::{Child, ChildStdin, Command, Stdio},
 };
+
+mod postmaster {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../test-support/postmaster.rs"
+    ));
+}
 
 pub struct ScratchPg {
     pub directory: PathBuf,
     supervisor: Child,
     lifetime: Option<ChildStdin>,
+    _ram: postmaster::RamDir,
 }
 
 fn test_name(name: &str) -> String {
@@ -22,11 +30,8 @@ impl ScratchPg {
     }
 
     pub fn start_at(name: &str, port: u16) -> Self {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let directory = std::env::temp_dir().join(format!("{name}-{}-{nonce}", std::process::id()));
+        let ram = postmaster::RamDir::new(name);
+        let directory = ram.path().to_owned();
         let mut supervisor = Command::new(std::env::current_exe().unwrap())
             .args([
                 "--ignored",
@@ -45,6 +50,7 @@ impl ScratchPg {
             directory,
             supervisor,
             lifetime,
+            _ram: ram,
         };
         let started = std::time::Instant::now();
         while !instance.directory.join("ready").exists() {
@@ -73,20 +79,6 @@ struct ClusterDirectory(PathBuf);
 
 impl Drop for ClusterDirectory {
     fn drop(&mut self) {
-        if self.0.join("data/postmaster.pid").exists() {
-            let stopped = Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-                .arg("-D")
-                .arg(self.0.join("data"))
-                .args(["-m", "immediate", "-t", "5", "-w", "stop"])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .status()
-                .is_ok_and(|status| status.success());
-            if !stopped {
-                eprintln!("scratch postgres shutdown failed: {}", self.0.display());
-                return;
-            }
-        }
         if let Err(error) = std::fs::remove_dir_all(&self.0) {
             eprintln!("scratch postgres cleanup failed: {error}");
         }
@@ -100,10 +92,6 @@ fn supervise_cluster() {
     let port: u16 = std::env::var("BRAIN_SCRATCH_PG_PORT")
         .unwrap()
         .parse()
-        .unwrap();
-    std::fs::DirBuilder::new()
-        .mode(0o700)
-        .create(&directory)
         .unwrap();
     let cluster = ClusterDirectory(directory);
     let data = cluster.0.join("data");
@@ -126,22 +114,13 @@ fn supervise_cluster() {
         .status()
         .unwrap()
         .success());
-    let options = format!(
-        "-k {} -p {port} -c listen_addresses='' -c shared_buffers=16MB",
-        socket.display()
+    let port = format!("port={port}");
+    let _postmaster = postmaster::Postmaster::start(
+        &data,
+        &socket,
+        &[&port, "shared_buffers=16MB"],
+        Some(&cluster.0.join("postgres.log")),
     );
-    assert!(Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
-        .arg("-D")
-        .arg(&data)
-        .arg("-l")
-        .arg(cluster.0.join("postgres.log"))
-        .args(["-o", &options, "-t", "5", "-w", "start"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .unwrap()
-        .success());
     std::fs::write(cluster.0.join("ready"), []).unwrap();
     let mut byte = [0];
     let _ = std::io::stdin().read(&mut byte);

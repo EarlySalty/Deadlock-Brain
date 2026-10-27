@@ -466,7 +466,7 @@ impl Drop for ScratchPg {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
     let pg = ScratchPg {
-        directory: tempfile::tempdir().unwrap(),
+        directory: tempfile::tempdir_in("/dev/shm").unwrap(),
     };
     let data = pg.directory.path().join("data");
     let socket = pg.directory.path().join("socket");
@@ -481,7 +481,10 @@ async fn isolated_import_is_idempotent_and_preserves_revision_binding() {
             .unwrap()
             .success()
     );
-    let options = format!("-k {} -p 15446 -c listen_addresses=''", socket.display());
+    let options = format!(
+        "-k {} -p 15446 -c listen_addresses='' -c dynamic_shared_memory_type=mmap",
+        socket.display()
+    );
     assert!(
         std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
             .args(["-D"])

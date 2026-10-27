@@ -412,7 +412,7 @@ impl ScratchPg {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let directory = std::env::temp_dir().join(format!(
+        let directory = std::path::Path::new("/dev/shm").join(format!(
             "brain-entity-query-pg-{}-{nonce}",
             std::process::id()
         ));
@@ -432,7 +432,10 @@ impl ScratchPg {
                 .unwrap()
                 .success()
         );
-        let options = format!("-k {} -p 55440 -c listen_addresses=''", socket.display());
+        let options = format!(
+            "-k {} -p 55440 -c listen_addresses='' -c dynamic_shared_memory_type=mmap",
+            socket.display()
+        );
         assert!(
             std::process::Command::new("/usr/lib/postgresql/16/bin/pg_ctl")
                 .arg("-D")
