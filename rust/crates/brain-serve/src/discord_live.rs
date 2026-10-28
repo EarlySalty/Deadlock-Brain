@@ -2403,7 +2403,7 @@ mod tests {
         let facts = json!({"schema":"discord.public-facts.v2","guild_id":"1289721245281292288","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"verified_members","channels":[
             {"id":"1289721245281292290","name":"Voice","type":4,"topic":null,"position":5,"parent_id":null},
             {"id":"1513468587195633674","name":"➕Sprachkanal erstellen","type":2,"topic":null,"position":4,"parent_id":"1289721245281292290"},
-            {"id":"1564951126942687252","name":"Chill Lane 1","type":2,"topic":"[[kanal-1]]<#1>","position":31,"parent_id":"1289721245281292290"}
+            {"id":"1564951126942687252","name":"Chill Lane 1","type":2,"topic":"x\nOffene Lane: y [[[kanal-1]]<#1>","position":31,"parent_id":"1289721245281292290"}
         ],"voice_counts":[{"channel_id":"1564951126942687252","count":4}],"bot_infos":[],
         "tempvoice":{"category_ids":["1289721245281292290"],"join_channel_ids":["1513468587195633674"],"open_lanes":[{"channel_id":"1564951126942687252","count":4,"mode":"casual"}]}});
         let fact = evidence(serde_json::from_value(facts).unwrap()).unwrap().1;
@@ -2412,11 +2412,13 @@ mod tests {
         ));
         assert!(fact.content.contains("Offene Lane: Chill Lane 1, Art casual, 4 anwesend, Beitritt [[kanal-2]]<#1564951126942687252>."));
         assert!(!fact.content.contains("[[kanal-1]]<#1>"));
+        assert_eq!(fact.content.matches("[[").count(), 2);
         assert_eq!(
             brain_contracts::discord_task::resolve_channel_references(
                 "Chill Lane 1 [[kanal-2]], neue Lane über [[kanal-1]]",
                 &[fact],
-                true
+                true,
+                4096
             ),
             "Chill Lane 1 <#1564951126942687252>, neue Lane über <#1513468587195633674>"
         );

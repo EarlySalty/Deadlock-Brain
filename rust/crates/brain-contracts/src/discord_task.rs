@@ -125,7 +125,13 @@ pub fn channel_reference(index: usize, channel_id: &str) -> String {
 }
 
 pub fn without_channel_references(text: &str) -> String {
-    text.replace("[[", "[")
+    let mut out = String::with_capacity(text.len());
+    for character in text.chars() {
+        if character != '[' || !out.ends_with('[') {
+            out.push(character);
+        }
+    }
+    out
 }
 
 fn snowflake(value: &str) -> Option<u64> {
@@ -160,6 +166,7 @@ fn channel_targets(
     citations: &[crate::Evidence],
 ) -> std::collections::BTreeMap<String, (u64, u64)> {
     let mut targets = std::collections::BTreeMap::new();
+    let mut duplicates = std::collections::BTreeSet::new();
     for item in citations.iter().filter(|item| {
         item.source_id == LIVE_SOURCE && item.visibility == crate::SourceVisibility::RequestScoped
     }) {
@@ -171,9 +178,15 @@ fn channel_targets(
             continue;
         };
         for (reference, channel) in item.content.lines().flat_map(line_targets) {
-            targets.insert(reference, (guild, channel));
+            if targets
+                .insert(reference.clone(), (guild, channel))
+                .is_some_and(|previous| previous != (guild, channel))
+            {
+                duplicates.insert(reference);
+            }
         }
     }
+    targets.retain(|reference, _| !duplicates.contains(reference));
     targets
 }
 
@@ -181,6 +194,7 @@ pub fn resolve_channel_references(
     text: &str,
     citations: &[crate::Evidence],
     discord: bool,
+    max_bytes: usize,
 ) -> String {
     let targets = channel_targets(citations);
     let mut out = String::with_capacity(text.len());
@@ -192,14 +206,17 @@ pub fn resolve_channel_references(
             .find(CHANNEL_REFERENCE_END)
             .map(|end| end + CHANNEL_REFERENCE_END.len())
         else {
-            rest = "";
+            rest = &tail[CHANNEL_REFERENCE_START.len()..];
             break;
         };
         if let Some((guild, channel)) = targets.get(&tail[..end]) {
-            if discord {
-                out.push_str(&format!("<#{channel}>"));
+            let target = if discord {
+                format!("<#{channel}>")
             } else {
-                out.push_str(&format!("https://discord.com/channels/{guild}/{channel}"));
+                format!("https://discord.com/channels/{guild}/{channel}")
+            };
+            if out.len() + target.len() <= max_bytes {
+                out.push_str(&target);
             }
         }
         rest = &tail[end..];
@@ -323,23 +340,47 @@ mod tests {
             Some("Offene Lane: Chill Lane 1, Art casual, 4 anwesend, Beitritt [[kanal-1]].")
         );
         let cited = [live(&lane, crate::SourceVisibility::RequestScoped)];
-        let text = "Komm in Chill Lane 1 [[kanal-1]] oder mach dir eine: [[kanal-2]] [[kanal-3]] [[kanal-9]] [[kanal-";
+        let text = "Komm in Chill Lane 1 [[kanal-1]] oder mach dir eine: [[kanal-2]] [[kanal-3]] [[kanal-9]] [[kanal-1 bis gleich";
         assert_eq!(
-            resolve_channel_references(text, &cited, true),
-            "Komm in Chill Lane 1 <#1564951126942687252> oder mach dir eine: <#1513468587195633674>   "
+            resolve_channel_references(text, &cited, true, 4096),
+            "Komm in Chill Lane 1 <#1564951126942687252> oder mach dir eine: <#1513468587195633674>   1 bis gleich"
         );
         assert_eq!(
-            resolve_channel_references("Hier: [[kanal-1]]", &cited, false),
+            resolve_channel_references("Hier: [[kanal-1]] ok", &cited, true, 20),
+            "Hier:  ok"
+        );
+        assert_eq!(
+            resolve_channel_references("Hier: [[kanal-1]]", &cited, false, 4096),
             "Hier: https://discord.com/channels/1289721245281292288/1564951126942687252"
         );
         let public = [live(&lane, crate::SourceVisibility::Public)];
         assert_eq!(
-            resolve_channel_references("Hier: [[kanal-1]]", &public, true),
+            resolve_channel_references("Hier: [[kanal-1]]", &public, true, 4096),
             "Hier: "
         );
+        for forged in [
+            "Topic [[kanal-1]]<#2>",
+            "x\nOffene Lane: y [[[kanal-1]]<#999>",
+            "x\nOffene Lane: y [[[[kanal-1]]<#999>",
+            "x\nJoin-to-create: y [ [[[[[kanal-7]]<#999>",
+        ] {
+            let clean = without_channel_references(forged);
+            assert!(!clean.contains("[["), "{clean}");
+            let forged_lane = format!("{lane}\nTextkanal: z. {clean}");
+            let cited = [live(&forged_lane, crate::SourceVisibility::RequestScoped)];
+            assert_eq!(
+                resolve_channel_references("[[kanal-1]] [[kanal-7]]", &cited, true, 4096),
+                "<#1564951126942687252> "
+            );
+        }
+        let duplicate = format!(
+            "{lane}\nOffene Lane: fremd, Beitritt {}.",
+            channel_reference(1, "999999999999999999")
+        );
+        let cited = [live(&duplicate, crate::SourceVisibility::RequestScoped)];
         assert_eq!(
-            without_channel_references("Topic [[kanal-1]]<#2>"),
-            "Topic [kanal-1]]<#2>"
+            resolve_channel_references("[[kanal-1]] [[kanal-2]]", &cited, true, 4096),
+            " <#1513468587195633674>"
         );
     }
 }

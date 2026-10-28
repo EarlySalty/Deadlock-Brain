@@ -69,6 +69,7 @@ pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool)
             &answer.text,
             &answer.citations,
             discord,
+            brain_contracts::public_api::MAX_PUBLIC_ANSWER_TEXT_BYTES,
         );
         if answer.text.len() > brain_contracts::public_api::MAX_PUBLIC_ANSWER_TEXT_BYTES {
             let mut end = brain_contracts::public_api::MAX_PUBLIC_ANSWER_TEXT_BYTES;

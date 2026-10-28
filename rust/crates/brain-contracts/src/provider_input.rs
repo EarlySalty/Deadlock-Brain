@@ -131,7 +131,7 @@ fn display_context(value: &mut Value) {
 }
 
 fn is_discord_live(item: &Evidence) -> bool {
-    item.source_id == "discord.public-live.v1"
+    item.source_id == crate::discord_task::LIVE_SOURCE
         && item.visibility == crate::SourceVisibility::RequestScoped
 }
 
