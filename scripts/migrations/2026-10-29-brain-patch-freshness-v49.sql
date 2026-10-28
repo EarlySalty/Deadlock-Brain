@@ -32,7 +32,7 @@ CREATE TABLE ops.ingest_run_revision (
 );
 
 CREATE TABLE ops.patch_detection_legacy (
-    url text PRIMARY KEY,
+    published_at timestamptz PRIMARY KEY,
     detected_at timestamptz NOT NULL
 );
 
@@ -47,10 +47,10 @@ BEGIN
     IF to_regclass('brain.patch_events') IS NOT NULL
         AND has_table_privilege('brain.patch_events','SELECT') THEN
         EXECUTE $copy$
-            INSERT INTO ops.patch_detection_legacy (url,detected_at)
-            SELECT patch_external_id,min(created_at) FROM brain.patch_events
-            WHERE posted_at>='2026-08-01' AND patch_external_id ~ '^https://'
-            GROUP BY patch_external_id
+            INSERT INTO ops.patch_detection_legacy (published_at,detected_at)
+            SELECT posted_at,min(created_at) FROM brain.patch_events
+            WHERE posted_at>='2026-08-01' AND created_at IS NOT NULL
+            GROUP BY posted_at
         $copy$;
     END IF;
 END
@@ -62,7 +62,7 @@ WITH listing AS (
         least(
             (SELECT min(r.fetched_at) FROM raw.object r
                 WHERE r.source=o.source AND r.path=o.path),
-            (SELECT l.detected_at FROM ops.patch_detection_legacy l WHERE l.url=c.official_url)
+            (SELECT l.detected_at FROM ops.patch_detection_legacy l WHERE l.published_at=c.released_at)
         ) AS detected_at
     FROM serve.p4_patch_catalog c
     JOIN raw.object o ON o.id=c.raw_object_id AND o.source='deadlock_patchnotes_db'
@@ -87,7 +87,8 @@ WITH listing AS (
     FROM upstream u
     LEFT JOIN LATERAL (
         SELECT r.id AS run_id,r.finished,v.inferred FROM ops.ingest_run_revision v
-        JOIN ops.ingest_run r ON r.id=v.run_id AND r.status='succeeded'
+        JOIN ops.ingest_run r ON r.id=v.run_id AND r.status='succeeded' AND r.rejected=0
+            AND r.accepted+r.ignored>0
         JOIN ops.upstream_commit c ON c.source=v.source AND c.revision=v.revision
         WHERE v.source='deadlock-data' AND c.committed_at>=u.upstream_committed_at
         ORDER BY r.finished,r.id
@@ -117,7 +118,8 @@ LEFT JOIN LATERAL (
 ) p ON true
 LEFT JOIN LATERAL (
     SELECT r.id AS run_id,r.finished,v.inferred FROM ops.ingest_run_revision v
-    JOIN ops.ingest_run r ON r.id=v.run_id AND r.status='succeeded'
+    JOIN ops.ingest_run r ON r.id=v.run_id AND r.status='succeeded' AND r.rejected=0
+        AND r.accepted+r.ignored>0
     JOIN ops.upstream_commit n ON n.source=v.source AND n.revision=v.revision
     WHERE v.source=c.source AND n.committed_at>=c.committed_at
     ORDER BY r.finished,r.id

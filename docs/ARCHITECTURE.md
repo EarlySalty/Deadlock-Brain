@@ -38,14 +38,14 @@ System units (`systemctl`):
 | `deadlock-brain-site.service` | Site backend | loopback 8087, MemoryMax 256M, peer config for Postgres |
 | `deadlock-brain-postgresql.service` | Brain database instance | Own instance, Unix socket only; `ops/brain-postgres/postgresql.conf` |
 | `deadlock-brain-postgresql-backup.timer` | Daily Postgres backup | `ops/brain-postgres/backup.sh` |
-| `brain-job@deadlock-data.timer` | deadlock-data game files (heroes, items, mechanics) | every 5 minutes at minute 2/5; own unit file installed by `brain-release`, which re-enables it on every release |
+| `brain-job@deadlock-data.timer` | deadlock-data game files (hero data and mechanics) | every 5 minutes at minute 2/5; own unit file installed by `brain-release`, which re-enables it on every release |
 | `brain-job@assets.timer` | Asset source | hourly |
 | `brain-job@deadlock-api-meta.timer` | Deadlock API meta statistics | hourly |
 | `brain-job@deadlock_patchnotes_db.timer` | Patch notes database | every 5 minutes; drop-in `item-lineage.conf` runs the item-lineage ingest after success |
 | `brain-job@deadlock-docs.timer` | Deadlock-Docs pages (`public/` and `internal/`) | hourly |
 | `brain-job@audit-receipts.timer` | Receipt audit | daily 03:17 |
 
-Patch freshness: every `deadlock-data` ingest records its upstream revision in `ops.ingest_run_revision` and the recent upstream commits in `ops.upstream_commit`. The view `ops.patch_freshness` joins each published patch with its Brain detection time, the first Deadbot commit after publication and the first ingest run that carries that revision; `ops.game_data_freshness` lists every Deadbot client update and marks the ones without a patch as `silent`. `brain-job --config /etc/deadlock-brain/brain-job.json freshness [--since <date>]` prints both with median and maximum per stage. `brain-job ... freshness-history <git-repository>` backfills commits from a full clone and infers revisions of older runs (marked `*`).
+Patch freshness: every `deadlock-data` ingest records its upstream revision in `ops.ingest_run_revision` and the recent upstream commits in `ops.upstream_commit`. The view `ops.patch_freshness` joins each published patch with its Brain detection time, the first Deadbot commit after publication and the first ingest run that carries that revision; `ops.game_data_freshness` lists every Deadbot client update and marks the ones without a patch as `silent`. A run counts as live only when it succeeded without rejections. The source cache keeps the last 16 upstream commits, so updates between two polls are recorded too. Legacy detection times come from `brain.patch_events`, matched on the publication time. `brain-job --config /etc/deadlock-brain/brain-job.json freshness [--since <date>]` prints the patch table, every client update and the median and maximum per stage. `brain-job ... freshness-history <git-repository>` backfills commits from a full clone and infers revisions of older runs (marked `*`).
 
 The template `brain-job@.service` runs `brain-job --config /etc/deadlock-brain/brain-job.json ingest %i` with MemoryMax 512M. The template `brain-job@.timer` is hourly with a 2 minute random delay. `brain-serve.service` has a drop-in `item-lineage.conf`.
 

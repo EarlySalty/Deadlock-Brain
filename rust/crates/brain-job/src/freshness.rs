@@ -161,6 +161,17 @@ type Row = (
 );
 
 type Summary = (Option<String>, Option<i64>, Option<String>, Option<String>);
+type Update = (
+    Option<i32>,
+    Option<String>,
+    Option<bool>,
+    Option<i64>,
+    Option<String>,
+);
+
+const UPDATES: &str = "SELECT client_build,to_char(committed_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI'),
+        silent,patch_id,round((extract(epoch FROM ingest_lag)/60)::numeric,1)::text
+    FROM ops.game_data_freshness WHERE committed_at>=$1::timestamptz ORDER BY committed_at,revision";
 
 const PATCH_REPORT: &str = "SELECT patch_id,
         to_char(published_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI'),
@@ -218,6 +229,22 @@ pub async fn report(pool: &PgPool, since: &str) -> anyhow::Result<()> {
             cell(revision),
             client.map(|c| c.to_string()).unwrap_or_else(|| "-".into()),
             cell(label)
+        );
+    }
+    let updates: Vec<Update> = sqlx::query_as(UPDATES).bind(since).fetch_all(pool).await?;
+    println!();
+    println!(
+        "{:>6}  {:<16}  {:<6}  {:>6}  {:>9}",
+        "client", "committed_utc", "silent", "patch", "ingest_m"
+    );
+    for (client, committed, silent, patch, ingest) in &updates {
+        println!(
+            "{:>6}  {:<16}  {:<6}  {:>6}  {:>9}",
+            client.map(|c| c.to_string()).unwrap_or_else(|| "-".into()),
+            cell(committed),
+            silent.map(|s| s.to_string()).unwrap_or_else(|| "-".into()),
+            patch.map(|p| p.to_string()).unwrap_or_else(|| "-".into()),
+            cell(ingest)
         );
     }
     let summary: Vec<Summary> = sqlx::query_as(SUMMARY).bind(since).fetch_all(pool).await?;

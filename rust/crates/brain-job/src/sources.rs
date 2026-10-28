@@ -17,6 +17,7 @@ pub const SOURCES: &[(&str, Source)] = &[
     (crate::item_lineage::SOURCE, crate::item_lineage::load),
 ];
 pub const DEADLOCK_DATA_URL: &str = "https://github.com/deadlock-wiki/deadlock-data.git";
+const CACHE_DEPTH: &str = "--depth=16";
 
 pub(crate) fn git(repository: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
     let result = Command::new("git")
@@ -90,7 +91,7 @@ fn refresh(repository: &Path) -> anyhow::Result<Vec<InputObject>> {
             &[
                 "clone",
                 "--no-checkout",
-                "--depth=1",
+                CACHE_DEPTH,
                 "--no-tags",
                 DEADLOCK_DATA_URL,
                 destination,
@@ -104,7 +105,7 @@ fn refresh(repository: &Path) -> anyhow::Result<Vec<InputObject>> {
     );
     git(
         repository,
-        &["fetch", "--no-tags", "--depth=1", DEADLOCK_DATA_URL, "HEAD"],
+        &["fetch", "--no-tags", CACHE_DEPTH, DEADLOCK_DATA_URL, "HEAD"],
     )?;
     read_revision(repository, "FETCH_HEAD^{commit}")
 }
