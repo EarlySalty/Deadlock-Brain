@@ -40,7 +40,7 @@ Der 2nd-Brain-Adapter verwendet ausschließlich diesen internen Typ und `second_
 
 ## Daten und Import
 
-`brain-maintain import-c9-release` übernimmt hashgebundene CoreDocuments über den vorhandenen DocumentSet-/PgStore-Vertrag. Es schreibt ein eigenes unveränderliches Release atomar, ohne Serverkonfiguration oder aktiven Standardrelease zu ändern. Quellenidentität, Rohhash, Gitrevision und exakte Policy werden vor jeder Wirkung geprüft. Wiederholung prüft dasselbe veröffentlichte Paket; ein fremder bestehender Quellcheckpoint wird nicht überschrieben.
+Der frühere Importbefehl `brain-maintain import-c9-release` ist mit P8 (2026-10-28) entfernt. Die folgenden Regeln beschreiben den damaligen Vertrag und gelten nur, soweit der aktuelle Importweg sie umsetzt; der aktuelle Weg steht in [ARCHITECTURE.md](ARCHITECTURE.md). Der Vertrag übernimmt hashgebundene CoreDocuments über den vorhandenen DocumentSet-/PgStore-Vertrag. Es schreibt ein eigenes unveränderliches Release atomar, ohne Serverkonfiguration oder aktiven Standardrelease zu ändern. Quellenidentität, Rohhash, Gitrevision und exakte Policy werden vor jeder Wirkung geprüft. Wiederholung prüft dasselbe veröffentlichte Paket; ein fremder bestehender Quellcheckpoint wird nicht überschrieben.
 
 Docs veröffentlicht ausschließlich `docs.public` mit Public-Visibility und expliziter Veröffentlichung/Egress-Freigabe. Das interne Paket umfasst genau `systeme/deadlock-bots.md` und `projekte/brain-feeder.md` aus dem belegten 2nd-Brain-Gitstand, ohne Textänderungen. Publication, Provider-Egress und Raw-Retention sind dort false. Datierte Betriebsseiten belegen gespeichertes Wissen und keinen heutigen Livezustand.
 

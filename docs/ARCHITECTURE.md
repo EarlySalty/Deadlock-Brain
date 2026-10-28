@@ -110,7 +110,7 @@ Layout:
 ## 8. Operator checks
 
 - Schema state: `brain-migrate check --config <json>`.
-- Service health: `deadlock-brain status`.
+- API readiness: `curl -s http://127.0.0.1:8788/readyz`. Local database and source counts: `deadlock-brain status`.
 - Answer quality: `brain-eval` against 127.0.0.1:8788.
 
 ## 9. Open items

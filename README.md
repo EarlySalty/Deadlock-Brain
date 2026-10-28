@@ -37,9 +37,10 @@ Run the answer API locally (secrets come from Infisical, not from files):
 brain-serve --config ~/.config/deadlock-brain/brain-serve.json --infisical-config /etc/deadlock-brain/infisical-serve.json
 ```
 
-Check the live service and score answers against the gold set:
+Check that the answer API is ready, show local database and source counts, and score answers against the gold set:
 
 ```sh
+curl -s http://127.0.0.1:8788/readyz
 deadlock-brain status
 brain-eval --help
 ```
