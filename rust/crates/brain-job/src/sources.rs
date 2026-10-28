@@ -18,7 +18,7 @@ pub const SOURCES: &[(&str, Source)] = &[
 ];
 pub const DEADLOCK_DATA_URL: &str = "https://github.com/deadlock-wiki/deadlock-data.git";
 
-fn git(repository: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
+pub(crate) fn git(repository: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
     let result = Command::new("git")
         .args([
             "-c",

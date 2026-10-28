@@ -3,6 +3,7 @@
 pub mod assets;
 pub mod config;
 pub mod docs;
+pub mod freshness;
 pub mod hero;
 pub mod item_lineage;
 pub mod mechanics;

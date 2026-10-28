@@ -56,7 +56,7 @@ After the real-execution proof passes, enable the timer under the same lock:
 sudo -n flock --exclusive /opt/deadlock-brain/.deploy.lock /usr/bin/systemctl enable --now brain-job@ingest-gamefiles.timer
 ```
 
-If matching user units already exist, disable and stop those instances before installation. The explicit privileged install uses the independently reviewed package files; the root-owned P0b helper does not accept arbitrary unit text or invoke arbitrary caller-selected commands. Its future releases preserve P1's additional system units because it installs only its three named services.
+If matching user units already exist, disable and stop those instances before installation. The explicit privileged install uses the independently reviewed package files; the root-owned P0b helper does not accept arbitrary unit text or invoke arbitrary caller-selected commands. Its future releases preserve P1's additional system units because it installs only its three named services, the two job templates and `brain-job@deadlock-data.timer`.
 
 ## Item lineage refresh triggers
 

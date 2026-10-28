@@ -24,13 +24,19 @@ const UNITS: [(&str, &str, u64); 3] = [
     ),
 ];
 
-const JOB_TEMPLATES: [(&str, &str); 2] = [
+const JOB_TEMPLATES: [(&str, &str); 3] = [
     (
         "brain-job@.service",
         include_str!("../../brain-job@.service"),
     ),
     ("brain-job@.timer", include_str!("../../brain-job@.timer")),
+    (
+        GAME_DATA_TIMER,
+        include_str!("../../brain-job@deadlock-data.timer"),
+    ),
 ];
+
+const GAME_DATA_TIMER: &str = "brain-job@deadlock-data.timer";
 
 fn install_templates(mut write: impl FnMut(&Path, &str) -> Result<()>) -> Result<()> {
     for (name, template) in UNITS
@@ -85,6 +91,15 @@ fn restart_units(mut run: impl FnMut(Command) -> Result<()>) -> Result<()> {
         let mut restart = systemctl();
         restart.args(["restart", name]);
         run(restart)?;
+    }
+    Ok(())
+}
+
+fn activate_game_data_timer(mut run: impl FnMut(Command) -> Result<()>) -> Result<()> {
+    for action in ["reenable", "restart"] {
+        let mut command = systemctl();
+        command.args([action, GAME_DATA_TIMER]);
+        run(command)?;
     }
     Ok(())
 }
@@ -162,6 +177,7 @@ pub fn install() -> Result<()> {
     enable.arg("enable").args(&names);
     checked_status(enable)?;
     restart_units(checked_status)?;
+    activate_game_data_timer(checked_status)?;
     for (name, _, cap) in UNITS {
         let mut active = systemctl();
         active.args(["is-active", "--quiet", name]);
@@ -358,6 +374,7 @@ mod tests {
                 "/etc/systemd/system/brain-browser-consent.service",
                 "/etc/systemd/system/brain-job@.service",
                 "/etc/systemd/system/brain-job@.timer",
+                "/etc/systemd/system/brain-job@deadlock-data.timer",
             ]
         );
         assert_eq!(
@@ -372,6 +389,29 @@ mod tests {
         assert_eq!(installed[4].1, include_str!("../../brain-job@.timer"));
         assert!(installed[3].1.contains("MemoryMax=512M\n"));
         assert!(installed[4].1.contains("Unit=brain-job@%i.service\n"));
+        assert!(installed[5].1.contains("OnCalendar=*-*-* *:2/5:00\n"));
+        assert!(installed[5]
+            .1
+            .contains("Unit=brain-job@deadlock-data.service\n"));
+        let mut activation = Vec::new();
+        activate_game_data_timer(|command| {
+            activation.push(
+                command
+                    .get_args()
+                    .map(|arg| arg.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            activation,
+            [
+                "-n -- /usr/bin/systemctl --system reenable brain-job@deadlock-data.timer",
+                "-n -- /usr/bin/systemctl --system restart brain-job@deadlock-data.timer",
+            ]
+        );
         let mut attempted = Vec::new();
         assert!(install_templates(|path, _| {
             attempted.push(path.to_path_buf());
@@ -398,7 +438,9 @@ mod tests {
                     | "brain-browser-consent.service",
                 ) => assert_eq!(types, ["Type=exec"]),
                 Some("brain-job@.service") => assert_eq!(types, ["Type=oneshot"]),
-                Some("brain-job@.timer") => assert!(types.is_empty()),
+                Some("brain-job@.timer" | "brain-job@deadlock-data.timer") => {
+                    assert!(types.is_empty())
+                }
                 _ => anyhow::bail!("Unerwartetes Diensttemplate: {}", path.display()),
             }
             Ok(())

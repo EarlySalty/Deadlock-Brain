@@ -1,0 +1,11 @@
+[Unit]
+Description=Deadlock Brain Spieldaten-Import alle fünf Minuten
+
+[Timer]
+OnCalendar=*-*-* *:2/5:00
+RandomizedDelaySec=20s
+Persistent=true
+Unit=brain-job@deadlock-data.service
+
+[Install]
+WantedBy=timers.target
