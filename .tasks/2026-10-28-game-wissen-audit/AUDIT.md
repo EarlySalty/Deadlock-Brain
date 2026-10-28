@@ -128,3 +128,75 @@ Result after: **30 of 50 correct**, 8 partial, 12 failed (was 9 / 4 / 37).
 | 48 | Breakables / crates | answered | partial | C | spawn times, no reward data |
 | 49 | Mid boss respawn | answered | correct | | 420 s |
 | 50 | Urn cash-in bonus | answered | fail | E | idol_cashin_buff_count 4 not explained |
+
+## Round 2, release daa885b4
+
+Changes: get_mechanic derives reference minutes 0/10/20/30 when no minute is given (lane_troopers only minute 0 to stay inside one tool result), hero kill bounty over game time, urn first spawn and respawn in minutes, wave instant/orb split per trooper and per whole wave, condition.meaning for urn, idol and deny rows, card ordering keeps English description and tier texts, hero extractor v4 serves LevelScaling as boon_* facts (340 facts, 67 heroes), tool pool sized from postgres.max_connections (brain_readonly limit 17). Method: all 50 questions one at a time through `ask.sh` after deploy and one `brain-job@deadlock-data` ingest. Raw answers in `round2.jsonl`.
+
+Result: **38 of 50 correct**, 7 partial, 5 failed (round 1: 30 / 8 / 12).
+
+| # | Question | Status | Verdict | Class | Note |
+|---|---|---|---|---|---|
+| 1 | Souls Trooper wave min 16 | answered | correct | | 132 per trooper, 528 per wave, 264 instant / 264 orb per wave |
+| 2 | Souls einzelner Trooper Anfang | answered | correct | | 100, 50 instant / 50 orb |
+| 3 | Trooper pro Welle | answered | correct | | 4 |
+| 4 | Prozent ohne Orb | answered | correct | | 0.5 |
+| 5 | Denien | answered | correct | | denier 100 %, denied 0, 50 per trooper at minute 0 |
+| 6 | Zu dritt auf Lane | answered | correct | | 36 % |
+| 7 | Jungle camp souls | answered | correct | | 41/68/181 plus values at 10/20/30 |
+| 8 | Jungle spawn | answered | correct | | |
+| 9 | Souls Walker | answered | correct | | 3675 |
+| 10 | HP Walker | answered | correct | | 6000 |
+| 11 | Guardian vs Walker | answered | correct | | |
+| 12 | Souls Guardian | answered | correct | | 1375 |
+| 13 | Base guardians fallen | answered | partial | C | 4000 HP, 1000 souls; game effect not in data |
+| 14 | Shrines | answered | partial | C | 2000 souls; count not in data |
+| 15 | HP Patron | answered | correct | | 12000 |
+| 16 | Mid boss spawn | answered | correct | | |
+| 17 | Rejuvenator gives | answered | correct | | |
+| 18 | Rejuvenator duration | answered | correct | | 180 s |
+| 19 | Urn | answered | correct | | 10 min first spawn, every 5 min, 250 + 70/min |
+| 20 | Urn first spawn | answered | correct | | 600 s |
+| 21 | Respawn min 20 | answered | correct | | 38 s |
+| 22 | Respawn Anfang | answered | partial | B | "zwischen 8 und 38": min and max ramps are derived as two curves; source has no semantics for min/max ramp |
+| 23 | Souls Level 10 | answered | correct | | 4600 |
+| 24 | Ability points when | answered | correct | | |
+| 25 | AP Upgrade cost | answered | fail | C | 1/2/5 wiki only, declines correctly |
+| 26 | Tier 3 cost | answered | correct | | 3200 |
+| 27 | Item tiers | answered | correct | | |
+| 28 | Headshot Booster | answered | correct | | |
+| 29 | High Velocity Mag | answered | correct | | |
+| 30 | Extra Stamina | answered | correct | | |
+| 31 | Improved Cooldown | answered | correct | | |
+| 32 | Boundless Spirit cost | answered | correct | | 6400 |
+| 33 | Haze HP start | answered | correct | | 730, +33 per boon |
+| 34 | Lady Geist ult | answered | correct | | |
+| 35 | Infernus afterburn dmg | answered | correct | | 14 DPS, 0.66 spirit scaling |
+| 36 | Seven ult upgrades | answered | correct | | all three upgrades |
+| 37 | Power increase | answered | partial | E | boon_* facts exist per hero, model does not connect Power Increase to them |
+| 38 | Bullet dmg per level | answered | partial | E | real boon value, but picks Violet instead of asking for the hero |
+| 39 | Zipline speed | answered | fail | E | ZipSpeedInner/Outer exist on citadel_ability_zip_line, not found |
+| 40 | Teleporter | answered | fail | C | locations wiki only, declines correctly |
+| 41 | Lanes | answered | fail | C | LaneInfo in generic-data not served |
+| 42 | Game modes | answered | fail | C | mode list wiki only, mixes Discord LFG modes |
+| 43 | Street brawl | answered | correct | | |
+| 44 | Last patch | answered | correct | | |
+| 45 | Haze nerf last patch | answered | correct | | |
+| 46 | Sinners sacrifice | answered | correct | | 155 + 1.08 %/min |
+| 47 | Souls per kill | answered | correct | | 200, 700, 1200, 1700 at 0/10/20/30 |
+| 48 | Breakables / crates | answered | partial | C | spawn times, no reward data |
+| 49 | Mid boss respawn | answered | correct | | 420 s |
+| 50 | Urn cash-in bonus | answered | partial | E | reward right; calls delivery_overtime_bonus 50 the cash-in bonus, idol_cashin_buff_count 4 unused |
+
+Tool pool: no "not safely readable" error in this run or in a 4-parallel live check (4 of 4 answered); the single-connection pool was the cause (tool_pool had max_connections(1) while brain-serve runs up to max_connections parallel tool rounds).
+
+### Class C sources
+
+| Item | Needed source | Upstream deadlock-data | Wiki only |
+|---|---|---|---|
+| Zipline speed | `ability-data` citadel_ability_zip_line ZipSpeedInner 700, ZipSpeedOuter 830, ZipAcc, LatchSpeed | yes, already in PG | no; findability (class E) |
+| Map: lanes | `generic-data` LaneInfo (lane names, colors, 4 used lanes) | yes, not projected | no |
+| Map: teleporters | positions | no (TeleporterParams has only effects and sounds) | yes |
+| Map: districts | `generic-data` MapDistrictLocalization, MiniMapOffsets | yes, not projected | no |
+| Game modes | `generic-data` StreetBrawl, KothParams; `street-brawl-data`; a mode list | parameters yes, list no | list yes |
+| AP upgrade cost | per-tier cost 1/2/5 | no (`soul-unlock-data` has only when AP are granted) | yes |
