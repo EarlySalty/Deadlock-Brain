@@ -241,7 +241,7 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
         sqlx::raw_sql(OLDER_HISTORY).execute(&admin).await.unwrap();
         assets_hero(&admin, "hero_meta_first", 1, playable_flags()).await;
         let entity = assets_hero(&admin, "hero_meta_fixture", 2, playable_flags()).await;
-        let pool = tool_pool(options.clone().username("brain_readonly"), Duration::from_secs(2));
+        let pool = tool_pool(options.clone().username("brain_readonly"), Duration::from_secs(2), 1);
         (admin, pool, entity)
     });
     let tools = PgTools::new(Delegate, pool.clone(), runtime.handle().clone());
@@ -412,7 +412,7 @@ fn meta_stats_treat_hidden_heroes_as_unknown() {
         }
         let identity_facts: i64 = sqlx::query_scalar("SELECT count(*) FROM canon.fact WHERE stat_key='identity_game_id'").fetch_one(&admin).await.unwrap();
         assert_eq!(identity_facts, 0);
-        let pool = tool_pool(options.clone().username("brain_readonly"), Duration::from_secs(2));
+        let pool = tool_pool(options.clone().username("brain_readonly"), Duration::from_secs(2), 1);
         (admin, pool, visible, hidden)
     });
     let tools = PgTools::new(Delegate, pool.clone(), runtime.handle().clone());

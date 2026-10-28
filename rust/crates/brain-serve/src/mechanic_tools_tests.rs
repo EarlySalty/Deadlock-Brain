@@ -52,12 +52,20 @@ fn trooper_wave_souls_scale_with_minute_and_cite_inputs() {
     );
     assert_eq!(facts[0]["citation"], "1");
     assert_eq!(facts[0]["condition"]["minute"], 16);
-    assert_eq!(facts.len(), 14);
+    assert_eq!(
+        value_of(&facts, "derived_wave_souls_instant_at_minute"),
+        Some("132")
+    );
+    assert_eq!(
+        value_of(&facts, "derived_wave_souls_orb_at_minute"),
+        Some("396")
+    );
+    assert_eq!(facts.len(), 16);
     let unused = [
         "citadel_trooper_instant_gold_ratio_laning",
         "citadel_trooper_spawn_interval_early",
     ];
-    assert!(facts[..12]
+    assert!(facts[..14]
         .iter()
         .all(|row| !unused.contains(&row["stat_key"].as_str().unwrap_or(""))));
 }
@@ -148,4 +156,48 @@ fn raw_rows_are_capped_and_lower_bound_is_reported() {
             .map(Vec::len),
         Some(MechanicKind::ALL.len())
     );
+}
+
+#[test]
+fn missing_minute_derives_reference_minutes_and_explains_concepts() {
+    let kills = present(
+        &request(MechanicKind::HeroKills, None),
+        vec![
+            fact("citadel_player_gold_reward_min", "200", "1"),
+            fact("citadel_player_gold_reward_max", "2200", "2"),
+            fact("citadel_player_gold_reward_time", "2400", "3"),
+        ],
+    );
+    let facts = kills["facts"].as_array().cloned().unwrap_or_default();
+    let bounties: Vec<(u64, &str)> = facts
+        .iter()
+        .filter(|row| row["stat_key"] == "derived_hero_kill_bounty_at_minute")
+        .filter_map(|row| Some((row["condition"]["minute"].as_u64()?, row["value"].as_str()?)))
+        .collect();
+    assert_eq!(
+        bounties,
+        vec![(0, "200"), (10, "700"), (20, "1200"), (30, "1700")]
+    );
+    assert_eq!(kills["reference_minutes"], json!([0, 10, 20, 30]));
+    let urn = present(
+        &request(MechanicKind::Urn, Some(10)),
+        vec![
+            fact("citadel_crate_spawn_initial_delay", "600", "1"),
+            fact("citadel_crate_respawn_interval", "300", "2"),
+            fact("citadel_idol_orbs_to_spawn", "10", "3"),
+        ],
+    );
+    let facts = urn["facts"].as_array().cloned().unwrap_or_default();
+    assert_eq!(
+        value_of(&facts, "derived_urn_first_spawn_minute"),
+        Some("10")
+    );
+    assert_eq!(
+        value_of(&facts, "derived_urn_respawn_interval_minutes"),
+        Some("5")
+    );
+    assert!(facts
+        .iter()
+        .all(|row| row["condition"]["meaning"].is_string()));
+    assert!(urn["reference_minutes"].is_null());
 }

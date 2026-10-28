@@ -76,6 +76,20 @@ fn exact_source_and_supported_fields_only() {
     rejected(br#"{"hero_other":{"Name":null}}"#, "malformed_hero");
     let unknown_type = accepted(&raw(br#"{"hero_a":{"Name":"A","Type":null}}"#));
     assert_eq!(unknown_type.facts.len(), 1);
+    let boon = accepted(&raw(
+        br#"{"hero_a":{"Name":"A","LevelScaling":{"BulletDamage":0.55,"MaxHealth":34.0,"DPS":0.8}}}"#,
+    ));
+    assert_eq!(
+        boon.facts
+            .iter()
+            .map(|f| (f.stat_key.as_str(), f.receipt.locator.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("name_en", "/hero_a/Name"),
+            ("boon_bullet_damage", "/hero_a/LevelScaling/BulletDamage"),
+            ("boon_max_health", "/hero_a/LevelScaling/MaxHealth"),
+        ]
+    );
 }
 
 #[test]

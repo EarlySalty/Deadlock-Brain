@@ -443,6 +443,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         let gamefacts_pool = pg_tools::tool_pool(
             options.clone(),
             Duration::from_millis(prepared.config.timeouts.postgres_pool_wait_ms),
+            pg.max_connections,
         );
         let docs = crate::pg_docs::DocsReader::new(
             gamefacts_pool.clone(),

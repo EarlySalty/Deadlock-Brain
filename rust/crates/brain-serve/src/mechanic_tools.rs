@@ -9,11 +9,29 @@ use std::collections::BTreeSet;
 pub(super) const QUERY: &str = include_str!("mechanic_query.sql");
 const MAX_ROWS: usize = 120;
 const QUERY_LIMIT: usize = 401;
+const REFERENCE_MINUTES: [u16; 4] = [0, 10, 20, 30];
+const MEANINGS: &[(&str, &str)] = &[
+    ("citadel_deny_denier_percentage", "Denien (deny): Anteil des Seelenorb-Werts für den Spieler, der einen gegnerischen Seelenorb zuerst abschießt (1 = 100 %)"),
+    ("citadel_deny_denied_percentage", "Denien (deny): Anteil des Seelenorb-Werts für den Gegner, dessen Orb gedeniet wurde (0 = nichts)"),
+    ("citadel_deny_", "Denien (deny): gegnerischen Seelenorb zuerst abschießen"),
+    ("citadel_crate_spawn_initial_delay", "Urne (Urn, Soul Urn, Seelenurne): erster Spawn in Sekunden Spielzeit"),
+    ("citadel_crate_respawn_interval", "Urne (Urn, Soul Urn, Seelenurne): Sekunden bis zum nächsten Spawn"),
+    ("citadel_crate_reward_base", "Urne (Urn, Soul Urn, Seelenurne): Grundwert der Belohnung beim Abgeben"),
+    ("citadel_crate_reward_time_multiplier", "Urne (Urn, Soul Urn, Seelenurne): Zuwachs der Belohnung je Spielminute"),
+    ("citadel_crate_delivery_overtime_bonus", "Urne (Urn, Soul Urn, Seelenurne): Bonus beim Abgeben"),
+    ("citadel_crate_", "Urne (Urn, Soul Urn, Seelenurne)"),
+    ("citadel_idol_", "Idol: interner Name der Urne, solange sie getragen und zum Abgabepunkt gebracht wird"),
+    ("derived_urn_", "Urne (Urn, Soul Urn, Seelenurne)"),
+    ("derived_trooper_", "Wert je einzelnem Trooper"),
+    ("derived_wave_souls_", "Wert je ganzer Welle, also alle Trooper eines Trupps zusammen"),
+    ("derived_squad_", "Wert je ganzer Welle, also alle Trooper eines Trupps zusammen"),
+    ("derived_hero_kill_", "Kopfgeld für einen Heldenkill"),
+];
 
 pub(super) fn definition() -> ToolDefinition {
     ToolDefinition {
         name: ToolName::GetMechanic,
-        description: "Liest belegte Spielmechanik-Werte aus den Spieldateien und rechnet sie bei Angabe von minute auf eine Spielminute hoch. Für allgemeine Spielfragen ohne Held oder Item zuerst get_mechanic verwenden, nicht find_entity oder search_docs. Mechaniken: lane_troopers (Lane-Trooper, Wellen, Creeps: Seelen je Trooper und Welle, Seelen pro Minute, Truppgröße, Wellenabstand, Anteil sofort vs. Seelenorb, Denien, Trooper-Leben), soul_sharing (Seelenteilung mit Mitspielern auf der Lane, Anteil je Spieleranzahl), denizens (Jungle-Camps, Neutrals: Seelen, Spawn, Respawn, Leben je Camp-Stufe weak/normal/strong), objectives (Guardian = npc_boss_tier1, Walker = npc_boss_tier2, Patron = npc_boss_tier3, Base Guardians = npc_barrack_boss, Shrines: Leben, Schaden, Seelen beim Zerstören), mid_boss (Midboss: Seelen, Leben, Spawn, Respawn), rejuvenator (Rejuvenator: Buffdauer, Trooper-Lebensbonus und Respawn-Faktor je erstem/zweitem/drittem Rejuvenator), hero_kills (Startseelen, Kopfgeld für Heldenkills, Assist-Anteil, Comeback), respawn (Respawnzeit nach Spielzeit), urn (Urne: erster Spawn, Respawn, Belohnung), breakables (Kisten und zerstörbare Objekte: Spawnzeiten), sinners_sacrifice (Sinner's Sacrifice), item_tiers (Itemkosten je Stufe 1 bis 4, Index 1 = Stufe 1), levels (Seelen pro Level, Ability Points, Ability-Freischaltungen, Power Increase), street_brawl (Spielmodus Street Brawl: Runden, Seelen je Runde, Respawn, Punkte zum Sieg). Zeilen mit derived_ sind aus den belegten Rohwerten berechnet; condition.formula nennt die Rechnung und condition.inputs die Rohwerte. Diese Werte darfst du unverändert nennen und mit der Formel erklären. Einheiten: Zeiten in Sekunden, *_time-Grenzen der Trooper-Wellen in Minuten, Spieldauer-Grenzen der Respawn-Rampen in Sekunden. Index 0 in Listen ist der erste Eintrag. Fehlender Patch oder current bedeutet aktueller beobachteter Quellenstand. Fehlende Werte nicht ergänzen.".into(),
+        description: "Liest belegte Spielmechanik-Werte aus den Spieldateien und rechnet sie auf eine Spielminute hoch. Fragt der Nutzer nach einer Spielzeit, minute angeben; Anfang, Spielbeginn oder Start = Minute 0. Ohne minute kommen berechnete Werte für die Referenzminuten 0, 10, 20 und 30 (condition.minute). Für allgemeine Spielfragen ohne Held oder Item zuerst get_mechanic verwenden, nicht find_entity oder search_docs. Mechaniken: lane_troopers (Lane-Trooper, Wellen, Creeps: Seelen je Trooper und je Welle, Seelen pro Minute, Truppgröße, Wellenabstand, Anteil sofort vs. Seelenorb je Trooper und je Welle, Denien bzw. deny = gegnerischen Seelenorb zuerst abschießen, Trooper-Leben), soul_sharing (Seelenteilung mit Mitspielern auf der Lane, Anteil je Spieleranzahl), denizens (Jungle-Camps, Neutrals: Seelen, Spawn, Respawn, Leben je Camp-Stufe weak/normal/strong), objectives (Guardian = npc_boss_tier1, Walker = npc_boss_tier2, Patron = npc_boss_tier3, Base Guardians = npc_barrack_boss, Shrines: Leben, Schaden, Seelen beim Zerstören), mid_boss (Midboss: Seelen, Leben, Spawn, Respawn), rejuvenator (Rejuvenator: Buffdauer, Trooper-Lebensbonus und Respawn-Faktor je erstem/zweitem/drittem Rejuvenator), hero_kills (Startseelen, Kopfgeld für Heldenkills nach Spielzeit, Assist-Anteil, Comeback, Erstkill-Bonus), respawn (Respawnzeit nach Spielzeit), urn (Urne, Urn, Soul Urn, Seelenurne, Idol: erster Spawn, Respawn, Belohnung und Bonus beim Abgeben), breakables (Kisten und zerstörbare Objekte: Spawnzeiten), sinners_sacrifice (Sinner's Sacrifice), item_tiers (Itemkosten je Stufe 1 bis 4, Index 1 = Stufe 1), levels (Seelen pro Level, Ability Points, Ability-Freischaltungen, Power Increase), street_brawl (Spielmodus Street Brawl: Runden, Seelen je Runde, Respawn, Punkte zum Sieg). Zeilen mit derived_ sind aus den belegten Rohwerten berechnet; derived_trooper_* gilt je einzelnem Trooper, derived_wave_* und derived_squad_* je ganzer Welle; condition.meaning erklärt den Spielbegriff; condition.formula nennt die Rechnung und condition.inputs die Rohwerte. Diese Werte darfst du unverändert nennen und mit der Formel erklären. Einheiten: Zeiten in Sekunden, *_time-Grenzen der Trooper-Wellen in Minuten, Spieldauer-Grenzen der Respawn-Rampen in Sekunden. Index 0 in Listen ist der erste Eintrag. Fehlender Patch oder current bedeutet aktueller beobachteter Quellenstand. Fehlende Werte nicht ergänzen.".into(),
         input_schema: json!({
             "type":"object", "additionalProperties":false, "required":["mechanic"],
             "properties":{
@@ -42,7 +60,10 @@ pub(super) async fn read(
 }
 
 fn present(request: &GetMechanicRequest, rows: Vec<Value>) -> Value {
-    let derived = derive(request.mechanic, request.minute, &rows);
+    let minutes = request
+        .minute
+        .map_or_else(|| REFERENCE_MINUTES.to_vec(), |minute| vec![minute]);
+    let derived = derive(request.mechanic, &minutes, &rows);
     let omitted = rows.len().saturating_sub(MAX_ROWS);
     let lower_bound = rows.len() >= QUERY_LIMIT;
     let inputs: BTreeSet<&str> = derived
@@ -60,15 +81,30 @@ fn present(request: &GetMechanicRequest, rows: Vec<Value>) -> Value {
         .iter()
         .cloned()
         .chain(used.into_iter().chain(rest).take(MAX_ROWS))
+        .map(explain)
         .collect();
     json!({
         "mechanic":request.mechanic.as_str(),
         "minute":request.minute,
+        "reference_minutes":request.minute.is_none().then_some(REFERENCE_MINUTES),
         "facts":facts,
         "truncated":omitted>0,
         "omitted_count":omitted,
         "omitted_count_is_lower_bound":lower_bound
     })
+}
+
+fn explain(mut row: Value) -> Value {
+    let meaning = row["stat_key"].as_str().and_then(|stat| {
+        MEANINGS
+            .iter()
+            .find(|(prefix, _)| stat.starts_with(prefix))
+            .map(|(_, meaning)| *meaning)
+    });
+    if let (Some(meaning), Some(condition)) = (meaning, row["condition"].as_object_mut()) {
+        condition.insert("meaning".into(), meaning.into());
+    }
+    row
 }
 
 struct Rows<'a>(&'a [Value]);
@@ -119,28 +155,39 @@ fn row(
     })
 }
 
-fn derive(mechanic: MechanicKind, minute: Option<u16>, rows: &[Value]) -> Vec<Value> {
+fn derive(mechanic: MechanicKind, minutes: &[u16], rows: &[Value]) -> Vec<Value> {
     let rows = Rows(rows);
-    match (mechanic, minute) {
-        (MechanicKind::LaneTroopers, Some(minute)) => lane_troopers(&rows, minute),
-        (MechanicKind::Denizens, Some(minute)) => [
+    match mechanic {
+        MechanicKind::SoulSharing => soul_sharing(&rows),
+        MechanicKind::Levels => levels(&rows),
+        MechanicKind::Urn => urn_timing(&rows)
+            .into_iter()
+            .chain(minutes.iter().flat_map(|minute| urn(&rows, *minute)))
+            .collect(),
+        _ => minutes
+            .iter()
+            .flat_map(|minute| at_minute(mechanic, &rows, *minute))
+            .collect(),
+    }
+}
+
+fn at_minute(mechanic: MechanicKind, rows: &Rows, minute: u16) -> Vec<Value> {
+    match mechanic {
+        MechanicKind::LaneTroopers => lane_troopers(rows, minute),
+        MechanicKind::Denizens => [
             "neutral_trooper_weak",
             "neutral_trooper_normal",
             "neutral_trooper_strong",
         ]
         .into_iter()
-        .filter_map(|camp| camp_souls(&rows, camp, minute))
+        .filter_map(|camp| camp_souls(rows, camp, minute))
         .collect(),
-        (MechanicKind::SinnersSacrifice, Some(minute)) => {
-            camp_souls(&rows, "neutral_sinners_sacrifice", minute)
-                .into_iter()
-                .collect()
-        }
-        (MechanicKind::MidBoss, Some(minute)) => mid_boss(&rows, minute),
-        (MechanicKind::Respawn, Some(minute)) => respawn(&rows, minute),
-        (MechanicKind::Urn, Some(minute)) => urn(&rows, minute),
-        (MechanicKind::SoulSharing, _) => soul_sharing(&rows),
-        (MechanicKind::Levels, _) => levels(&rows),
+        MechanicKind::SinnersSacrifice => camp_souls(rows, "neutral_sinners_sacrifice", minute)
+            .into_iter()
+            .collect(),
+        MechanicKind::MidBoss => mid_boss(rows, minute),
+        MechanicKind::Respawn => respawn(rows, minute),
+        MechanicKind::HeroKills => hero_kill_bounty(rows, minute).into_iter().collect(),
         _ => Vec::new(),
     }
 }
@@ -182,12 +229,13 @@ fn lane_troopers(rows: &Rows, minute: u16) -> Vec<Value> {
         return output;
     };
     output.push(trooper);
-    if let Some((source, size)) = rows.get("citadel_trooper_squad_size") {
+    let size = rows.get("citadel_trooper_squad_size");
+    if let Some((source, size)) = size {
         output.push(row(
             "derived_squad_souls_at_minute".into(),
             souls * size,
             source,
-            "Seelen eines Trooper-Trupps je Lane = Seelen je Trooper × Truppgröße",
+            "Seelen einer ganzen Welle je Lane = Seelen je Trooper × Truppgröße",
             &[
                 "derived_trooper_souls_at_minute",
                 "citadel_trooper_squad_size",
@@ -202,26 +250,50 @@ fn lane_troopers(rows: &Rows, minute: u16) -> Vec<Value> {
         _ => "citadel_trooper_instant_gold_ratio_laning",
     };
     if let Some((source, ratio)) = rows.get(instant_key) {
+        let inputs = [
+            "derived_trooper_souls_at_minute",
+            instant_key,
+            "citadel_trooper_laning_gold_rules_end_time",
+        ];
         output.push(row(
             "derived_trooper_souls_instant_at_minute".into(),
             souls * ratio,
             source,
-            "Sofort beim letzten Treffer = Seelen je Trooper × Sofortanteil; der Rest fällt als Seelenorb",
-            &[
-                "derived_trooper_souls_at_minute",
-                instant_key,
-                "citadel_trooper_laning_gold_rules_end_time",
-            ],
+            "Je Trooper sofort beim letzten Treffer = Seelen je Trooper × Sofortanteil",
+            &inputs,
             json!({"minute":minute}),
         ));
         output.push(row(
             "derived_trooper_souls_orb_at_minute".into(),
             souls * (1.0 - ratio),
             source,
-            "Seelenorb = Seelen je Trooper × (1 - Sofortanteil)",
-            &["derived_trooper_souls_at_minute", instant_key],
+            "Je Trooper als Seelenorb = Seelen je Trooper × (1 - Sofortanteil)",
+            &inputs,
             json!({"minute":minute}),
         ));
+        if let Some((_, size)) = size {
+            let inputs = [
+                "derived_trooper_souls_at_minute",
+                instant_key,
+                "citadel_trooper_squad_size",
+            ];
+            output.push(row(
+                "derived_wave_souls_instant_at_minute".into(),
+                souls * ratio * size,
+                source,
+                "Je ganzer Welle sofort = Seelen je Trooper × Sofortanteil × Truppgröße",
+                &inputs,
+                json!({"minute":minute}),
+            ));
+            output.push(row(
+                "derived_wave_souls_orb_at_minute".into(),
+                souls * (1.0 - ratio) * size,
+                source,
+                "Je ganzer Welle als Seelenorbs = Seelen je Trooper × (1 - Sofortanteil) × Truppgröße",
+                &inputs,
+                json!({"minute":minute}),
+            ));
+        }
     }
     let interval = [
         (
@@ -316,6 +388,56 @@ fn urn(rows: &Rows, minute: u16) -> Vec<Value> {
     .map(|(value, _)| value)
     .into_iter()
     .collect()
+}
+
+fn urn_timing(rows: &Rows) -> Vec<Value> {
+    [
+        (
+            "citadel_crate_spawn_initial_delay",
+            "derived_urn_first_spawn_minute",
+            "Erster Urnen-Spawn in Spielminuten = Verzögerung in Sekunden / 60",
+        ),
+        (
+            "citadel_crate_respawn_interval",
+            "derived_urn_respawn_interval_minutes",
+            "Abstand bis zum nächsten Urnen-Spawn in Minuten = Sekunden / 60",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(input, stat, formula)| {
+        let (source, seconds) = rows.get(input)?;
+        Some(row(
+            stat.into(),
+            seconds / 60.0,
+            source,
+            formula,
+            &[input],
+            json!({}),
+        ))
+    })
+    .collect()
+}
+
+fn hero_kill_bounty(rows: &Rows, minute: u16) -> Option<Value> {
+    let (source, low) = rows.get("citadel_player_gold_reward_min")?;
+    let (_, high) = rows.get("citadel_player_gold_reward_max")?;
+    let (_, time) = rows.get("citadel_player_gold_reward_time")?;
+    if time <= 0.0 {
+        return None;
+    }
+    let seconds = f64::from(minute) * 60.0;
+    Some(row(
+        "derived_hero_kill_bounty_at_minute".into(),
+        low + (high - low) * (seconds / time).min(1.0),
+        source,
+        "Grundkopfgeld eines Heldenkills ohne Comeback- und Erstkill-Bonus = Minimum + (Maximum - Minimum) × min(Spielzeit in Sekunden / citadel_player_gold_reward_time, 1); linearer Verlauf zwischen Minimum und Maximum angenommen",
+        &[
+            "citadel_player_gold_reward_min",
+            "citadel_player_gold_reward_max",
+            "citadel_player_gold_reward_time",
+        ],
+        json!({"minute":minute,"game_seconds":seconds}),
+    ))
 }
 
 fn respawn(rows: &Rows, minute: u16) -> Vec<Value> {

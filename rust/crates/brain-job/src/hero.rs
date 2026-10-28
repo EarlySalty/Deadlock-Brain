@@ -25,13 +25,23 @@ const WEAPON: &[(&str, &str)] = &[
     ("ClipSize", "weapon_clip_size"),
     ("ReloadTime", "weapon_reload_time"),
 ];
+const BOON: &[(&str, &str)] = &[
+    ("BulletDamage", "boon_bullet_damage"),
+    ("BulletDamageAltFire", "boon_alt_fire_bullet_damage"),
+    ("MaxHealth", "boon_max_health"),
+    ("TechPower", "boon_spirit_power"),
+    ("LightMeleeDamage", "boon_light_melee_damage"),
+    ("HeavyMeleeDamage", "boon_heavy_melee_damage"),
+    ("BulletResist", "boon_bullet_resist"),
+    ("TechResist", "boon_spirit_resist"),
+];
 
 impl Extractor for Hero {
     fn name(&self) -> &'static str {
         "hero"
     }
     fn version(&self) -> &'static str {
-        "3"
+        "4"
     }
     fn accepts(&self, source: &str, path: &str) -> bool {
         source == "deadlock-data" && path == "data/json/hero-data.json"
@@ -184,6 +194,11 @@ fn extract(raw: &RawObject) -> Result<FactSet, Rejection> {
         let fields = object(hero)?;
         let parent = pointer("", upstream_key);
         let weapon = fields.get("Weapon").map(object).transpose()?;
+        let boon = fields
+            .get("LevelScaling")
+            .filter(|value| !value.is_null())
+            .map(object)
+            .transpose()?;
         let name = fields.get("Name").ok_or_else(malformed)?;
         if name.is_null() && upstream_key == "hero_testhero" {
             continue;
@@ -244,6 +259,16 @@ fn extract(raw: &RawObject) -> Result<FactSet, Rejection> {
                 &pointer(&parent, "Weapon"),
                 weapon,
                 WEAPON,
+                &mut set,
+            )?;
+        }
+        if let Some(boon) = boon {
+            scalars(
+                raw,
+                &key,
+                &pointer(&parent, "LevelScaling"),
+                boon,
+                BOON,
                 &mut set,
             )?;
         }

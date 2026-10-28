@@ -820,7 +820,7 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
         .database("postgres")
         .password("")
         .ssl_mode(PgSslMode::Disable);
-    let pool = pg_tools::tool_pool(options.clone(), std::time::Duration::from_secs(2));
+    let pool = pg_tools::tool_pool(options.clone(), std::time::Duration::from_secs(2), 1);
     let tools = PgPatchToolPort::new(
         pg_tools::PgTools::new(
             EmptyDelegate,

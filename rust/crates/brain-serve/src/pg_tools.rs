@@ -122,9 +122,9 @@ async fn assert_session(connection: &mut PgConnection) -> Result<(), sqlx::Error
     Ok(())
 }
 
-pub(super) fn tool_pool(options: PgConnectOptions, wait: Duration) -> PgPool {
+pub(super) fn tool_pool(options: PgConnectOptions, wait: Duration, connections: u32) -> PgPool {
     sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
+        .max_connections(connections)
         .acquire_timeout(wait)
         .after_connect(|connection, _| Box::pin(async move {
             sqlx::query("SET SESSION ROLE brain_tool").execute(&mut *connection).await?;

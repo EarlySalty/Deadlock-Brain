@@ -85,7 +85,7 @@ fn timer_pg_executor_preserves_values_receipts_bounds_and_revalidation() {
         sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate").execute(&admin).await.unwrap();
         brain_storage::PgStore::new(admin.clone()).migrate_gamefacts().await.unwrap();
         publish_timer(&admin, "timer-r1", false).await;
-        let pool = tool_pool(options.username("brain_readonly"), Duration::from_secs(2));
+        let pool = tool_pool(options.username("brain_readonly"), Duration::from_secs(2), 1);
         let mut connection = pool.acquire().await.unwrap();
         assert_session(&mut connection).await.unwrap();
         let timeout = sqlx::query("SELECT pg_sleep(1)").execute(&mut *connection).await.unwrap_err();

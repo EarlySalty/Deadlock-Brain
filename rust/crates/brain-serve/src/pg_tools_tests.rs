@@ -601,7 +601,7 @@ fn superseded_hero_objects_hide_their_aliases_and_profile_values() {
             entities.push((entity,retired,active));
         }
         brain_storage::PgStore::new(writer.clone()).check_gamefacts_schema().await.unwrap();
-        let pool = tool_pool(options.username("brain_readonly"),Duration::from_secs(2));
+        let pool = tool_pool(options.username("brain_readonly"),Duration::from_secs(2), 1);
         (admin,writer,pool,entities)
     });
     let tools = PgTools::new(Delegate, pool.clone(), runtime.handle().clone());
@@ -770,7 +770,7 @@ fn item_aliases_from_the_current_english_file_resolve_to_the_german_identity() {
         let receipts: (i64,i64) = sqlx::query_as("SELECT i.raw_object_id,a.raw_object_id FROM serve.current_entity i JOIN serve.current_alias a ON a.entity_id=i.id AND a.lang='en' WHERE i.id=$1")
             .bind(entity).fetch_one(&admin).await.unwrap();
         assert_eq!(receipts,(german.id,english.id));
-        let pool = tool_pool(options.username("brain_readonly"),Duration::from_secs(2));
+        let pool = tool_pool(options.username("brain_readonly"),Duration::from_secs(2), 1);
         (admin,writer,pool,entity)
     });
     let tools = PgTools::new(Delegate, pool.clone(), runtime.handle().clone());
@@ -836,7 +836,7 @@ fn pg_executor_proves_receipts_bounds_authorization_revalidation_and_runtime_wir
         let large = publish(&admin,"Large","hero_large","r1",true).await;
         publish(&admin,"DocsOnly","docs_only","r1",false).await;
         sqlx::query("UPDATE canon.entity SET kind='doc_page' WHERE key='docs_only'").execute(&admin).await.unwrap();
-        let pool = tool_pool(options.clone().username("brain_readonly"),Duration::from_secs(2));
+        let pool = tool_pool(options.clone().username("brain_readonly"),Duration::from_secs(2), 1);
         let mut connection = pool.acquire().await.unwrap();
         assert_session(&mut connection).await.unwrap();
         for sql in ["SELECT * FROM canon.fact","SELECT * FROM raw.object","SELECT * FROM ops.ingest_run","DELETE FROM serve.current_fact"] {
@@ -1306,7 +1306,7 @@ fn hero_lookups_follow_published_assets_playability() {
                 relate(&admin, hero, target).await;
             }
         }
-        let pool = tool_pool(options.clone().username("brain_readonly"), Duration::from_secs(2));
+        let pool = tool_pool(options.clone().username("brain_readonly"), Duration::from_secs(2), 1);
         (admin, pool, [baba, disabled, dummy, item, ability])
     });
     let [baba, disabled, dummy, item, ability] = ids;
@@ -1512,7 +1512,7 @@ fn audited_publication_keeps_gamefacts_lookups_within_statement_budget() {
             .fetch_one(&admin).await.unwrap();
         assert!(boundary.0 >= 5000 && boundary.1 >= 1000 && boundary.2 >= 1000 && boundary.3 >= 1, "{boundary:?}");
         sqlx::raw_sql("ANALYZE").execute(&admin).await.unwrap();
-        let pool = tool_pool(options.username("brain_readonly"), Duration::from_secs(2));
+        let pool = tool_pool(options.username("brain_readonly"), Duration::from_secs(2), 1);
         for sql in [EXACT, FUZZY] {
             assert!(lookup_entities(&pool, sql, "auditsichtbar").await.contains(&(visible, "auditsichtbar".into())));
             assert!(lookup_entities(&pool, sql, "auditneu").await.contains(&(superseded, "auditneu".into())));
@@ -1579,7 +1579,7 @@ fn tool_queries_run_under_production_public_schema_revoke() {
         let created = sqlx::query("CREATE TABLE public.brain_tool_probe(id int)").execute(&mut *writer).await;
         assert!(created.unwrap_err().to_string().contains("permission denied for schema public"));
         writer.rollback().await.unwrap();
-        let pool = tool_pool(options.username("brain_readonly"), Duration::from_secs(2));
+        let pool = tool_pool(options.username("brain_readonly"), Duration::from_secs(2), 1);
         for sql in [EXACT, FUZZY] {
             assert_eq!(lookup_entities(&pool, sql, "baba").await, vec![(baba, "baba".into())]);
         }

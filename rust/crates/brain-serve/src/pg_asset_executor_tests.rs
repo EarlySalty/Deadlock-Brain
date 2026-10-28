@@ -84,6 +84,7 @@ async fn database(options: &PgConnectOptions) -> (PgPool, PgPool) {
     let pool = tool_pool(
         options.clone().username("brain_readonly"),
         Duration::from_secs(2),
+        1,
     );
     let mut connection = pool.acquire().await.expect("real tool connection");
     assert_session(&mut connection)

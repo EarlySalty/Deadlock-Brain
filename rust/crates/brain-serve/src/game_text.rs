@@ -269,6 +269,20 @@ fn stat_key_label(key: &str) -> Option<&'static str> {
         "weapon_clip_size" => "Magazingröße",
         "weapon_reload_time" => "Nachladezeit",
         "weapon_rounds_per_second" => "Schüsse pro Sekunde",
+        "boon_bullet_damage" => "Zusätzlicher Schaden pro Kugel je Power Increase (Boon)",
+        "boon_alt_fire_bullet_damage" => {
+            "Zusätzlicher Alt-Fire-Kugelschaden je Power Increase (Boon)"
+        }
+        "boon_max_health" => "Zusätzliche maximale Lebenspunkte je Power Increase (Boon)",
+        "boon_spirit_power" => "Zusätzliche Spirit Power je Power Increase (Boon)",
+        "boon_light_melee_damage" => {
+            "Zusätzlicher leichter Nahkampfschaden je Power Increase (Boon)"
+        }
+        "boon_heavy_melee_damage" => {
+            "Zusätzlicher schwerer Nahkampfschaden je Power Increase (Boon)"
+        }
+        "boon_bullet_resist" => "Zusätzliche Kugelresistenz je Power Increase (Boon)",
+        "boon_spirit_resist" => "Zusätzliche Spirit-Resistenz je Power Increase (Boon)",
         _ => return None,
     })
 }

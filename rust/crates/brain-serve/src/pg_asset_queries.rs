@@ -19,18 +19,24 @@ FROM (
                 ORDER BY CASE
                     WHEN c.stat_key='item_cost' THEN 0
                     WHEN c.stat_key LIKE '%\_description\_%' ESCAPE '\'
-                        AND c.fact->>'value'<>'' THEN 1
-                    WHEN c.stat_key LIKE 'identity\_%' ESCAPE '\' THEN 5
+                        AND c.fact->>'value'<>'' THEN
+                        CASE WHEN c.stat_key NOT LIKE '%\_quip' ESCAPE '\'
+                            AND (c.lang='en' OR NOT c.has_en) THEN 1 ELSE 4 END
+                    WHEN c.stat_key LIKE 'identity\_%' ESCAPE '\' THEN 6
                     WHEN NULLIF(c.fact->>'label','') IS NOT NULL
                         AND c.fact->'value' NOT IN('0'::jsonb,'-1'::jsonb,'""'::jsonb,'false'::jsonb,'null'::jsonb) THEN
                         CASE WHEN c.fact->'condition'->>'usage_flag_0'='ConditionallyApplied'
                             OR c.fact->'condition'->>'scale_class' LIKE '%damage%' THEN 2 ELSE 3 END
-                    ELSE 4 END,c.stat_key,c.fact::text
+                    ELSE 5 END,c.stat_key,c.fact::text
             ) AS ord,
             c.fact,octet_length(regexp_replace(c.fact::text,'<[^>]*>','','g'))+187-octet_length(c.fact->>'citation')
                 +COALESCE((SELECT sum(187-octet_length(q->>'citation'))
                     FROM jsonb_array_elements(c.fact->'qualifiers') q),0) AS result_bytes
-        FROM serve.p2_fact c WHERE c.entity_id=$1
+        FROM (
+            SELECT f.stat_key,f.fact,f.fact->'condition'->>'lang' AS lang,
+                COALESCE(bool_or(f.fact->'condition'->>'lang'='en') OVER(PARTITION BY f.stat_key),false) AS has_en
+            FROM serve.p2_fact f WHERE f.entity_id=$1
+        ) c
     ) q
 ) r
 "#;
