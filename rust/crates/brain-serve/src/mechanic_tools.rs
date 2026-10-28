@@ -10,6 +10,7 @@ pub(super) const QUERY: &str = include_str!("mechanic_query.sql");
 const MAX_ROWS: usize = 120;
 const QUERY_LIMIT: usize = 401;
 const REFERENCE_MINUTES: [u16; 4] = [0, 10, 20, 30];
+const LANE_REFERENCE_MINUTES: [u16; 1] = [0];
 const MEANINGS: &[(&str, &str)] = &[
     ("citadel_deny_denier_percentage", "Denien (deny): Anteil des Seelenorb-Werts für den Spieler, der einen gegnerischen Seelenorb zuerst abschießt (1 = 100 %)"),
     ("citadel_deny_denied_percentage", "Denien (deny): Anteil des Seelenorb-Werts für den Gegner, dessen Orb gedeniet wurde (0 = nichts)"),
@@ -31,7 +32,7 @@ const MEANINGS: &[(&str, &str)] = &[
 pub(super) fn definition() -> ToolDefinition {
     ToolDefinition {
         name: ToolName::GetMechanic,
-        description: "Liest belegte Spielmechanik-Werte aus den Spieldateien und rechnet sie auf eine Spielminute hoch. Fragt der Nutzer nach einer Spielzeit, minute angeben; Anfang, Spielbeginn oder Start = Minute 0. Ohne minute kommen berechnete Werte für die Referenzminuten 0, 10, 20 und 30 (condition.minute). Für allgemeine Spielfragen ohne Held oder Item zuerst get_mechanic verwenden, nicht find_entity oder search_docs. Mechaniken: lane_troopers (Lane-Trooper, Wellen, Creeps: Seelen je Trooper und je Welle, Seelen pro Minute, Truppgröße, Wellenabstand, Anteil sofort vs. Seelenorb je Trooper und je Welle, Denien bzw. deny = gegnerischen Seelenorb zuerst abschießen, Trooper-Leben), soul_sharing (Seelenteilung mit Mitspielern auf der Lane, Anteil je Spieleranzahl), denizens (Jungle-Camps, Neutrals: Seelen, Spawn, Respawn, Leben je Camp-Stufe weak/normal/strong), objectives (Guardian = npc_boss_tier1, Walker = npc_boss_tier2, Patron = npc_boss_tier3, Base Guardians = npc_barrack_boss, Shrines: Leben, Schaden, Seelen beim Zerstören), mid_boss (Midboss: Seelen, Leben, Spawn, Respawn), rejuvenator (Rejuvenator: Buffdauer, Trooper-Lebensbonus und Respawn-Faktor je erstem/zweitem/drittem Rejuvenator), hero_kills (Startseelen, Kopfgeld für Heldenkills nach Spielzeit, Assist-Anteil, Comeback, Erstkill-Bonus), respawn (Respawnzeit nach Spielzeit), urn (Urne, Urn, Soul Urn, Seelenurne, Idol: erster Spawn, Respawn, Belohnung und Bonus beim Abgeben), breakables (Kisten und zerstörbare Objekte: Spawnzeiten), sinners_sacrifice (Sinner's Sacrifice), item_tiers (Itemkosten je Stufe 1 bis 4, Index 1 = Stufe 1), levels (Seelen pro Level, Ability Points, Ability-Freischaltungen, Power Increase), street_brawl (Spielmodus Street Brawl: Runden, Seelen je Runde, Respawn, Punkte zum Sieg). Zeilen mit derived_ sind aus den belegten Rohwerten berechnet; derived_trooper_* gilt je einzelnem Trooper, derived_wave_* und derived_squad_* je ganzer Welle; condition.meaning erklärt den Spielbegriff; condition.formula nennt die Rechnung und condition.inputs die Rohwerte. Diese Werte darfst du unverändert nennen und mit der Formel erklären. Einheiten: Zeiten in Sekunden, *_time-Grenzen der Trooper-Wellen in Minuten, Spieldauer-Grenzen der Respawn-Rampen in Sekunden. Index 0 in Listen ist der erste Eintrag. Fehlender Patch oder current bedeutet aktueller beobachteter Quellenstand. Fehlende Werte nicht ergänzen.".into(),
+        description: "Liest belegte Spielmechanik-Werte aus den Spieldateien und rechnet sie auf eine Spielminute hoch. Fragt der Nutzer nach einer Spielzeit, minute angeben; Anfang, Spielbeginn oder Start = Minute 0. Ohne minute kommen berechnete Werte für die Referenzminuten 0, 10, 20 und 30 (condition.minute), bei lane_troopers nur für Minute 0; für eine andere Spielzeit minute angeben. Für allgemeine Spielfragen ohne Held oder Item zuerst get_mechanic verwenden, nicht find_entity oder search_docs. Mechaniken: lane_troopers (Lane-Trooper, Wellen, Creeps: Seelen je Trooper und je Welle, Seelen pro Minute, Truppgröße, Wellenabstand, Anteil sofort vs. Seelenorb je Trooper und je Welle, Denien bzw. deny = gegnerischen Seelenorb zuerst abschießen, Trooper-Leben), soul_sharing (Seelenteilung mit Mitspielern auf der Lane, Anteil je Spieleranzahl), denizens (Jungle-Camps, Neutrals: Seelen, Spawn, Respawn, Leben je Camp-Stufe weak/normal/strong), objectives (Guardian = npc_boss_tier1, Walker = npc_boss_tier2, Patron = npc_boss_tier3, Base Guardians = npc_barrack_boss, Shrines: Leben, Schaden, Seelen beim Zerstören), mid_boss (Midboss: Seelen, Leben, Spawn, Respawn), rejuvenator (Rejuvenator: Buffdauer, Trooper-Lebensbonus und Respawn-Faktor je erstem/zweitem/drittem Rejuvenator), hero_kills (Startseelen, Kopfgeld für Heldenkills nach Spielzeit, Assist-Anteil, Comeback, Erstkill-Bonus), respawn (Respawnzeit nach Spielzeit), urn (Urne, Urn, Soul Urn, Seelenurne, Idol: erster Spawn, Respawn, Belohnung und Bonus beim Abgeben), breakables (Kisten und zerstörbare Objekte: Spawnzeiten), sinners_sacrifice (Sinner's Sacrifice), item_tiers (Itemkosten je Stufe 1 bis 4, Index 1 = Stufe 1), levels (Seelen pro Level, Ability Points, Ability-Freischaltungen, Power Increase), street_brawl (Spielmodus Street Brawl: Runden, Seelen je Runde, Respawn, Punkte zum Sieg). Zeilen mit derived_ sind aus den belegten Rohwerten berechnet; derived_trooper_* gilt je einzelnem Trooper, derived_wave_* und derived_squad_* je ganzer Welle; condition.meaning erklärt den Spielbegriff; condition.formula nennt die Rechnung und condition.inputs die Rohwerte. Diese Werte darfst du unverändert nennen und mit der Formel erklären. Einheiten: Zeiten in Sekunden, *_time-Grenzen der Trooper-Wellen in Minuten, Spieldauer-Grenzen der Respawn-Rampen in Sekunden. Index 0 in Listen ist der erste Eintrag. Fehlender Patch oder current bedeutet aktueller beobachteter Quellenstand. Fehlende Werte nicht ergänzen.".into(),
         input_schema: json!({
             "type":"object", "additionalProperties":false, "required":["mechanic"],
             "properties":{
@@ -60,9 +61,10 @@ pub(super) async fn read(
 }
 
 fn present(request: &GetMechanicRequest, rows: Vec<Value>) -> Value {
+    let reference = reference_minutes(request.mechanic);
     let minutes = request
         .minute
-        .map_or_else(|| REFERENCE_MINUTES.to_vec(), |minute| vec![minute]);
+        .map_or_else(|| reference.to_vec(), |minute| vec![minute]);
     let derived = derive(request.mechanic, &minutes, &rows);
     let omitted = rows.len().saturating_sub(MAX_ROWS);
     let lower_bound = rows.len() >= QUERY_LIMIT;
@@ -77,16 +79,18 @@ fn present(request: &GetMechanicRequest, rows: Vec<Value>) -> Value {
             .as_str()
             .is_some_and(|stat| inputs.contains(stat))
     });
+    let (concepts, rest): (Vec<Value>, Vec<Value>) =
+        rest.into_iter().partition(|row| meaning(row).is_some());
     let facts: Vec<Value> = derived
         .iter()
         .cloned()
-        .chain(used.into_iter().chain(rest).take(MAX_ROWS))
+        .chain(used.into_iter().chain(concepts).chain(rest).take(MAX_ROWS))
         .map(explain)
         .collect();
     json!({
         "mechanic":request.mechanic.as_str(),
         "minute":request.minute,
-        "reference_minutes":request.minute.is_none().then_some(REFERENCE_MINUTES),
+        "reference_minutes":request.minute.is_none().then_some(reference),
         "facts":facts,
         "truncated":omitted>0,
         "omitted_count":omitted,
@@ -94,14 +98,24 @@ fn present(request: &GetMechanicRequest, rows: Vec<Value>) -> Value {
     })
 }
 
-fn explain(mut row: Value) -> Value {
-    let meaning = row["stat_key"].as_str().and_then(|stat| {
+fn reference_minutes(mechanic: MechanicKind) -> &'static [u16] {
+    match mechanic {
+        MechanicKind::LaneTroopers => &LANE_REFERENCE_MINUTES,
+        _ => &REFERENCE_MINUTES,
+    }
+}
+
+fn meaning(row: &Value) -> Option<&'static str> {
+    row["stat_key"].as_str().and_then(|stat| {
         MEANINGS
             .iter()
             .find(|(prefix, _)| stat.starts_with(prefix))
             .map(|(_, meaning)| *meaning)
-    });
-    if let (Some(meaning), Some(condition)) = (meaning, row["condition"].as_object_mut()) {
+    })
+}
+
+fn explain(mut row: Value) -> Value {
+    if let (Some(meaning), Some(condition)) = (meaning(&row), row["condition"].as_object_mut()) {
         condition.insert("meaning".into(), meaning.into());
     }
     row

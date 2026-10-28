@@ -1,0 +1,321 @@
+[
+  {
+    "patch": null,
+    "value": "0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_deny_denied_percentage",
+    "condition": {
+      "field": "/citadel_deny_denied_percentage",
+      "source_entity": "citadel_deny_denied_percentage"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "1",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_deny_denier_percentage",
+    "condition": {
+      "field": "/citadel_deny_denier_percentage",
+      "source_entity": "citadel_deny_denier_percentage"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "25",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_minion_gold_reward",
+    "condition": {
+      "field": "/citadel_minion_gold_reward",
+      "source_entity": "citadel_minion_gold_reward"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "1",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_minion_gold_reward_bonus_per_minute",
+    "condition": {
+      "field": "/citadel_minion_gold_reward_bonus_per_minute",
+      "source_entity": "citadel_minion_gold_reward_bonus_per_minute"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0.85",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_super_trooper_gold_mult",
+    "condition": {
+      "field": "/citadel_super_trooper_gold_mult/value",
+      "source_entity": "citadel_super_trooper_gold_mult"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "100",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_gold_reward",
+    "condition": {
+      "field": "/citadel_trooper_gold_reward",
+      "source_entity": "citadel_trooper_gold_reward"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "2",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_gold_reward_bonus_per_minute",
+    "condition": {
+      "field": "/citadel_trooper_gold_reward_bonus_per_minute",
+      "source_entity": "citadel_trooper_gold_reward_bonus_per_minute"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "1.5",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_health_mult",
+    "condition": {
+      "field": "/citadel_trooper_health_mult",
+      "source_entity": "citadel_trooper_health_mult"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "35",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_health_mult_gametime",
+    "condition": {
+      "field": "/citadel_trooper_health_mult_gametime",
+      "source_entity": "citadel_trooper_health_mult_gametime"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0.5",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_instant_gold_ratio_laning",
+    "condition": {
+      "field": "/citadel_trooper_instant_gold_ratio_laning",
+      "source_entity": "citadel_trooper_instant_gold_ratio_laning"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0.5",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_instant_gold_ratio_postlaning",
+    "condition": {
+      "field": "/citadel_trooper_instant_gold_ratio_postlaning",
+      "source_entity": "citadel_trooper_instant_gold_ratio_postlaning"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "8",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_laning_gold_rules_end_time",
+    "condition": {
+      "field": "/citadel_trooper_laning_gold_rules_end_time",
+      "source_entity": "citadel_trooper_laning_gold_rules_end_time"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0.5",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_siege_instant_gold_ratio",
+    "condition": {
+      "field": "/citadel_trooper_siege_instant_gold_ratio",
+      "source_entity": "citadel_trooper_siege_instant_gold_ratio"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "16",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_spawn_initial",
+    "condition": {
+      "field": "/citadel_trooper_spawn_initial/value",
+      "source_entity": "citadel_trooper_spawn_initial"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "30",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_spawn_interval_early",
+    "condition": {
+      "field": "/citadel_trooper_spawn_interval_early/value",
+      "source_entity": "citadel_trooper_spawn_interval_early"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "25",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_spawn_interval_late",
+    "condition": {
+      "field": "/citadel_trooper_spawn_interval_late/value",
+      "source_entity": "citadel_trooper_spawn_interval_late"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "20",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_spawn_interval_late_time",
+    "condition": {
+      "field": "/citadel_trooper_spawn_interval_late_time/value",
+      "source_entity": "citadel_trooper_spawn_interval_late_time"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "20",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_spawn_interval_very_late",
+    "condition": {
+      "field": "/citadel_trooper_spawn_interval_very_late/value",
+      "source_entity": "citadel_trooper_spawn_interval_very_late"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "35",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_spawn_interval_very_late_time",
+    "condition": {
+      "field": "/citadel_trooper_spawn_interval_very_late_time/value",
+      "source_entity": "citadel_trooper_spawn_interval_very_late_time"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "4",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_trooper_squad_size",
+    "condition": {
+      "field": "/citadel_trooper_squad_size/value",
+      "source_entity": "citadel_trooper_squad_size"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "3.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_medic_dpspctgrowthperminute",
+    "condition": {
+      "field": "/trooper_medic/DPSPctGrowthPerMinute",
+      "source_entity": "trooper_medic"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "350",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_medic_maxhealth",
+    "condition": {
+      "field": "/trooper_medic/MaxHealth",
+      "source_entity": "trooper_medic"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "25",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_medic_meleedamage",
+    "condition": {
+      "field": "/trooper_medic/MeleeDamage",
+      "source_entity": "trooper_medic"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_melee_dpspctgrowthperminute",
+    "condition": {
+      "field": "/trooper_melee/DPSPctGrowthPerMinute",
+      "source_entity": "trooper_melee"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "400",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_melee_maxhealth",
+    "condition": {
+      "field": "/trooper_melee/MaxHealth",
+      "source_entity": "trooper_melee"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "80.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_melee_meleedamage",
+    "condition": {
+      "field": "/trooper_melee/MeleeDamage",
+      "source_entity": "trooper_melee"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_normal_dpspctgrowthperminute",
+    "condition": {
+      "field": "/trooper_normal/DPSPctGrowthPerMinute",
+      "source_entity": "trooper_normal"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "300",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_normal_maxhealth",
+    "condition": {
+      "field": "/trooper_normal/MaxHealth",
+      "source_entity": "trooper_normal"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "50",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_normal_meleedamage",
+    "condition": {
+      "field": "/trooper_normal/MeleeDamage",
+      "source_entity": "trooper_normal"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  }
+]

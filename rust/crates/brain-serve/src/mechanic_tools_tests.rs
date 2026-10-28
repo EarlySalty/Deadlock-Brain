@@ -201,3 +201,35 @@ fn missing_minute_derives_reference_minutes_and_explains_concepts() {
         .all(|row| row["condition"]["meaning"].is_string()));
     assert!(urn["reference_minutes"].is_null());
 }
+
+#[test]
+fn live_lane_trooper_rows_fit_one_tool_result_with_concept_rows() {
+    let rows: Vec<Value> = serde_json::from_str(include_str!(
+        "../tests/fixtures/mechanic_lane_troopers.json"
+    ))
+    .unwrap_or_default();
+    assert_eq!(rows.len(), 29);
+    let evidence = rows.len() * 96 + 1100;
+    for minute in [None, Some(16)] {
+        let mut result = present(&request(MechanicKind::LaneTroopers, minute), rows.clone());
+        let facts = result["facts"].as_array().cloned().unwrap_or_default();
+        let needed = facts
+            .iter()
+            .rposition(|row| {
+                row["stat_key"]
+                    .as_str()
+                    .is_some_and(|stat| stat.starts_with("derived_"))
+                    || row["condition"]["meaning"].is_string()
+            })
+            .map_or(0, |last| last + 1);
+        assert!(facts[..needed]
+            .iter()
+            .any(|row| row["stat_key"] == "derived_wave_souls_orb_at_minute"));
+        assert!(facts[..needed]
+            .iter()
+            .any(|row| row["stat_key"] == "citadel_deny_denied_percentage"));
+        result["facts"] = Value::Array(facts[..needed].to_vec());
+        let bytes = serde_json::to_vec(&result).map_or(usize::MAX, |v| v.len());
+        assert!(bytes + evidence < 16_384, "{bytes}");
+    }
+}

@@ -274,7 +274,7 @@ fn stat_key_label(key: &str) -> Option<&'static str> {
             "Zusätzlicher Alt-Fire-Kugelschaden je Power Increase (Boon)"
         }
         "boon_max_health" => "Zusätzliche maximale Lebenspunkte je Power Increase (Boon)",
-        "boon_spirit_power" => "Zusätzliche Spirit Power je Power Increase (Boon)",
+        "boon_spirit_power" => "Zusätzliche Magiekraft je Power Increase (Boon)",
         "boon_light_melee_damage" => {
             "Zusätzlicher leichter Nahkampfschaden je Power Increase (Boon)"
         }
@@ -282,7 +282,7 @@ fn stat_key_label(key: &str) -> Option<&'static str> {
             "Zusätzlicher schwerer Nahkampfschaden je Power Increase (Boon)"
         }
         "boon_bullet_resist" => "Zusätzliche Kugelresistenz je Power Increase (Boon)",
-        "boon_spirit_resist" => "Zusätzliche Spirit-Resistenz je Power Increase (Boon)",
+        "boon_spirit_resist" => "Zusätzliche Magieresistenz je Power Increase (Boon)",
         _ => return None,
     })
 }
