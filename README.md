@@ -16,7 +16,7 @@ Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): components, binaries, u
 Type-check the workspace (production binaries are built only by the release helper, see Operations):
 
 ```sh
-cargo check --workspace
+cargo check --manifest-path rust/Cargo.toml --workspace
 ```
 
 Check the database schema against the expected state:

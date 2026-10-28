@@ -51,7 +51,7 @@ User units (`systemctl --user`):
 | --- | --- | --- |
 | `deadlock-brain-luna-proxy.service` | GPT-Luna proxy on 127.0.0.1:18769 | Active. Not on the `brain-serve` answer path. |
 | `public-corpus-refresh.timer` | Refreshes the public Deadlock-Docs corpus every 15 minutes | Runs `dl-corpus-refresh` with `/opt/deadlock-docs/current/tools/deploy_corpus.sh` and `ops/public-corpus-refresh.json`. Website corpus, not the Brain import. Relation to `brain-job` not confirmed. |
-| `dl-brain-feeder.timer` | Legacy weekly feeder | Enabled, but its service is inactive and points to a Python script in the old Deadlock-Bots tree. Not part of the Brain; see open items. |
+| `dl-brain-feeder.timer` | Legacy weekly feeder | Timer enabled. Its service is inactive and its last run failed. It points to a Python script in the old Deadlock-Bots tree. Not part of the Brain; see open items. |
 
 Ports seen listening: 8788 (brain-serve), 8087 (site), 18790 (dl-ai gateway). Ports 18767, 18768 and 8787 are not documented here because their owners were not verified.
 
@@ -65,6 +65,7 @@ The Brain database runs in `deadlock-brain-postgresql.service`. The config sets 
 | `canon` | `canon.entity`, `canon.fact`, `canon.alias`, `canon.relation`, `canon.entity_identity`, `canon.doc_search`, `canon.receipt`, `canon.receipt_quarantine`, `canon.test_quarantine` |
 | `serve` | Read model for the API. Views such as `serve.current_fact`, `serve.current_entity`, `serve.current_alias`, `serve.entity_card`, `serve.hero_profile`, `serve.item_card`, `serve.ability_card`, `serve.doc_page`, `serve.doc_section`, `serve.doc_search_hit`, `serve.meta_stat`, `serve.item_lineage_entry`, `serve.published_receipt`. Table `serve.current_relation`. |
 | `ops` | `ops.ingest_run`, `ops.receipt_audit`, `ops.receipt_audit_run`, `ops.receipt_audit_rejection` |
+| `brain` | Core schema kept from the pre-Rust store (for example `brain.core_schema_version`, `brain.source_record_revisions`). The backup fingerprint in `ops/brain-postgres/backup.sh` reads it. New objects go to `canon`, `serve` or `ops`. |
 
 `brain_legacy` no longer exists (migration `scripts/migrations/2026-10-28-brain-legacy-drop-v47.sql`). Applied migrations are never edited; new ones are added and applied with `brain-migrate up`.
 
