@@ -1,211 +1,120 @@
-# Architektur
+# Deadlock Brain architecture
 
-Deadlock Brain ist als Daten-Fundament fuer einen spaeteren Discord-/Website-/Coaching-Bot gedacht.
+Status: describes origin/main after P8 (merged 2026-10-28, c7e12e1e). Units, binaries, schemas and paths were checked against `systemctl` (system and `--user`), `/opt/deadlock-brain/current/bin` and the source tree on the same day. Anything not verified is marked as such.
 
-## Prinzip
+## 1. What the Brain is
 
-Die KI ist nicht die Datenbank. Die Datenbank ist das Gedaechtnis, die KI ist der Analyst.
+The Deadlock Brain answers questions about Deadlock (heroes, items, patches, game facts), the Deadlock-Docs knowledge base and the community. It is a Rust service set with one Postgres database of its own. Python and SQLite components are gone; the legacy `brain_legacy` schema was dropped by migration v47.
 
-## Source-Prioritaet
+## 2. Binaries
 
-1. Patchnotes: hoechste Prioritaet fuer Veraenderungen ueber Zeit.
-2. Deadlock Assets API: aktueller strukturierter Ist-Zustand.
-3. Google Sheet: Community-Stats, Scaling, DPS/DPM, Boon-/Ratio-Kontext.
-4. Wiki: Interaktionen und Edge Cases, aber schonend und versioniert.
-5. Discord/Community spaeter: Hypothesen, nicht Fakt.
+All binaries of the live release are in `/opt/deadlock-brain/current/bin`.
 
-## Aktuelle Tabellen
+| Binary | Source crate | Role | How it runs |
+| --- | --- | --- | --- |
+| `brain-serve` | `rust/crates/brain-serve` | HTTP API: `/v1/answer`, `/v1/retrieve`, `/v1/operator/query`, `/v1/task`, `/v1/analytics/observation`, `/healthz`, `/readyz` | System unit `brain-serve.service`, 127.0.0.1:8788 |
+| `brain-job` | `rust/crates/brain-job` | Ingests source data into the Brain DB (`brain-job --config <json> ingest <source>`), receipt audit (`audit-receipts`) | Templated system units `brain-job@<name>` |
+| `brain-migrate` | `rust/crates/brain-storage` (`src/bin`) | Schema checks and migrations: `check`, `up`, `check-response-audit`, `up-response-audit`, `check-gamefacts`, `up-gamefacts` | Run by hand with a non-secret JSON config |
+| `brain-mcp` | `rust/crates/deadlock-brain` (`bin/brain-mcp.rs`) | MCP adapter that forwards to `brain-serve`; scopes come from its config (for example `docs.public`); no token in the config, the secret is referenced in Infisical | Started by the MCP client; no systemd unit |
+| `deadlock-brain-secret-exec` | `rust/crates/deadlock-brain` | Loads runtime secrets through the Infisical transport and execs one command | Wrapper, used by units and tools |
+| `deadlock-brain-site` | `rust/crates/deadlock-brain` (`bin/deadlock-brain-site.rs`) | Site backend on loopback 127.0.0.1:8087 | System unit `deadlock-brain-site.service` |
+| `brain-browser-consent` | `rust/crates/dbrain-sources` (`bin/brain-browser-consent.rs`) | Browser consent helper (`--config <json> [--once]`) | System unit `brain-browser-consent.service` |
+| `deadlock-brain` | `rust/crates/deadlock-brain` | Operator CLI: `status`, `answer`, `context`, `reason`, `quality`, `site`, `ai-model`, `pg` and others | Run by hand |
+| `brain-patchnotes-ingest` | `rust/crates/brain-feeds` (`bin/brain-patchnotes-ingest.rs`) | Patch-note import: `preview`, `validate`, `stage-candidate`; apply is locked | Run by hand |
+| `brain-knowledge-import` | `rust/crates/dbrain-sources` (`bin/brain-knowledge-import.rs`) | Game knowledge import: `extract-game`, `export-legacy-game`, `inspect-game`, `reauthorize-game`, `register-asset-mirror`, `partition`, `validate`, `import`, `publish` (runtime config `/etc/deadlock-brain/maintenance-runtime.json`) | Run by hand |
+| `brain-match-ingest` | `rust/crates/brain-feeds` (`bin/brain-match-ingest.rs`) | Match ingest with a private JSON config: `ingest`, `revoke` | Run by hand |
+| `brain-eval` | `rust/crates/brain-eval` | Scores a `brain-serve` endpoint against the E1 gold set (default 127.0.0.1:8788, scope `bot.public`) | Run by hand |
 
-- `source_documents`: jedes gezogene Rohdokument mit Hash und Pfad.
-- `entity_snapshots`: strukturierte Snapshots aus Quellen, z.B. Hero, Item, Patchnote.
-- `forum_claims`: historische Claims aus oeffentlichen Forum-Posts, inklusive
-  Post-Link, Datum, Autorrolle, Vertrauensart, Gültigkeitsstatus und
-  Quarantäne-Status; diese Claims überschreiben keine aktuellen Spieldaten.
-- `entities`: kanonische Entities aus Snapshots, aktuell Hero, Hero/Internal,
-  Item, Item/Special, Ability, Ability/Internal, Weapon/Internal und Rank.
-- `entity_aliases`: Aliase je Entity, z.B. Anzeigename, API-ID und Classname.
-- `source_runs`: Ingestion-Laeufe mit Summary.
-- `patch_events`: einzelne Patchzeilen mit Source-Art, Patch-URL, Section, Entity,
-  Change-Type, alter/neuer Wert soweit deterministisch erkennbar.
-- `patch_event_enrichments`: deterministische Details pro Patch-Event, z.B.
-  Stat-Name, alte/neue Werte, Einheit, Ability-Name, sekundaere Entity,
-  Confidence und Parser-Flags.
-- `entity_lineage`: Rename-/Rework-/Replacement-Beziehungen aus Patchnotes,
-  inklusive alter und neuer Namen sowie Quellenzeile.
-- `legacy_entities`: alte/entfernte Entity-Namen aus Patchnotes, die nicht in
-  der aktuellen API und nicht schon ueber Lineage modelliert sind.
-- `hero_stat_profiles`: normalisierte Google-Sheet-Zeilen je Hero-Snapshot.
-- `hero_stat_values`: einzelne Sheet-Stats als Key/Value-Daten mit optionalem
-  numerischem Wert.
-- `analysis_notes`: persistierte Review-Kontexte und spaetere KI-Ergebnisse mit
-  Kontext-Hash, Prompt-Version, Modellname, Confidence und Quellen.
+Removed in P8 (2026-10-28): `brain-maintenance`, the Python `src/` tree, `dbrain-learn`, `dbrain-wiki`, `dbrain-replay`, `brain-legacy-import`, `deadlock-brain-yt`, `dbrain-population`, `dbrain-enrich`, `brain-jev`, `dbrain-session-store`. The inventory is in `.tasks/2026-10-28-p8-legacy-delete/INVENTAR.md`.
 
-## Naechste Ausbaustufe
+## 3. Units and timers
 
-- Echter Modellaufruf auf Basis von `review_context` und Speicherung des
-  Ergebnisses in `analysis_notes`.
-- Build-Module mit Patch-/Meta-Kontext.
+System units (`systemctl`):
 
-## Entity-Normalisierung
+| Unit | Purpose | Notes |
+| --- | --- | --- |
+| `brain-serve.service` | Answer and retrieval API | MemoryMax 512M; config `~/.config/deadlock-brain/brain-serve.json`, secrets via `/etc/deadlock-brain/infisical-serve.json` |
+| `brain-browser-consent.service` | Browser consent helper | MemoryMax 64M |
+| `deadlock-brain-site.service` | Site backend | loopback 8087, MemoryMax 256M, peer config for Postgres |
+| `deadlock-brain-postgresql.service` | Brain database instance | Own instance, Unix socket only; `ops/brain-postgres/postgresql.conf` |
+| `deadlock-brain-postgresql-backup.timer` | Daily Postgres backup | `ops/brain-postgres/backup.sh` |
+| `brain-job@assets.timer` | Asset source | hourly |
+| `brain-job@deadlock-api-meta.timer` | Deadlock API meta statistics | hourly |
+| `brain-job@deadlock_patchnotes_db.timer` | Patch notes database | every 5 minutes; drop-in `item-lineage.conf` runs the item-lineage ingest after success |
+| `brain-job@audit-receipts.timer` | Receipt audit | daily 03:17 |
 
-`deadlock-brain normalize entities --rebuild` baut `entities` und
-`entity_aliases` aus bestehenden `entity_snapshots`. Die erste Version nutzt
-`deadlock_assets_api`: Heroes aus `/v2/heroes`, Items und Abilities aus
-`/v2/items` plus Raw-Snapshots. Nur aktive, spielbare Heroes werden als `hero`
-markiert; disabled/in-development/test Heroes werden `hero_internal`. `/v2/items`
-enthaelt viele interne Eintraege; darum werden nur shopbare, nicht deaktivierte
-Upgrades mit Item-Slot als `item` markiert. T5-/Sonder-/Modus-Items werden
-`item_special`. `type=ability` wird nur dann `ability`, wenn es eine aktive
-Hero-Faehigkeit mit lesbarem Namen ist; Future-/Test-/interne Faehigkeiten werden
-`ability_internal`. Alles uebrige aus diesem Bereich bleibt konservativ
-`weapon_or_internal`.
+The template `brain-job@.service` runs `brain-job --config /etc/deadlock-brain/brain-job.json ingest %i` with MemoryMax 512M. The template `brain-job@.timer` is hourly with a 2 minute random delay. `brain-serve.service` has a drop-in `item-lineage.conf`.
 
-## Patchnotes-Parsing
+User units (`systemctl --user`):
 
-Der Parser arbeitet bewusst quellenneutral. Steam-Announcements und Forum-Posts
-werden aus derselben `patchnote`-Snapshot-Tabelle gelesen. `source_kind` wird aus
-der URL abgeleitet:
+| Unit | Purpose | Notes |
+| --- | --- | --- |
+| `deadlock-brain-luna-proxy.service` | GPT-Luna proxy on 127.0.0.1:18769 | Active. Not on the `brain-serve` answer path. |
+| `public-corpus-refresh.timer` | Refreshes the public Deadlock-Docs corpus every 15 minutes | Runs `dl-corpus-refresh` with `/opt/deadlock-docs/current/tools/deploy_corpus.sh` and `ops/public-corpus-refresh.json`. Website corpus, not the Brain import. Relation to `brain-job` not confirmed. |
+| `dl-brain-feeder.timer` | Legacy weekly feeder | Enabled, but its service is inactive and points to a Python script in the old Deadlock-Bots tree. Not part of the Brain; see open items. |
 
-- `steam`: Steam Community, Steam Store oder Akamai Steam-News-URLs
-- `forum`: `forums.playdeadlock.com`
-- `other`: alles andere
+Ports seen listening: 8788 (brain-serve), 8087 (site), 18790 (dl-ai gateway). Ports 18767, 18768 and 8787 are not documented here because their owners were not verified.
 
-Alte Forum-Posts, die als eine lange Zeile mit vielen ` - `-Bullets gespeichert
-wurden, werden vor dem Parsing in einzelne Bullet-Zeilen aufgeteilt.
+## 4. Databases and schemas
 
-Wenn `entities` vorhanden sind, nutzt der Parser die normalisierten Alias-Tabellen
-zur Entity-Aufloesung. Dadurch werden Patch-Events nach `hero`, `item`,
-`ability` oder `weapon_or_internal` klassifiziert, statt Item-/Ability-Zeilen nur
-grob zusammenzufassen.
+The Brain database runs in `deadlock-brain-postgresql.service`. The config sets port 5446; clients connect through the Unix socket.
 
-## Forum-Claims
+| Schema | Contents |
+| --- | --- |
+| `raw` | `raw.object`: stored source payloads |
+| `canon` | `canon.entity`, `canon.fact`, `canon.alias`, `canon.relation`, `canon.entity_identity`, `canon.doc_search`, `canon.receipt`, `canon.receipt_quarantine`, `canon.test_quarantine` |
+| `serve` | Read model for the API. Views such as `serve.current_fact`, `serve.current_entity`, `serve.current_alias`, `serve.entity_card`, `serve.hero_profile`, `serve.item_card`, `serve.ability_card`, `serve.doc_page`, `serve.doc_section`, `serve.doc_search_hit`, `serve.meta_stat`, `serve.item_lineage_entry`, `serve.published_receipt`. Table `serve.current_relation`. |
+| `ops` | `ops.ingest_run`, `ops.receipt_audit`, `ops.receipt_audit_run`, `ops.receipt_audit_rejection` |
 
-`deadlock-brain pull forum` speichert öffentliche Thread-Seiten als Rohquellen
-und Post-Snapshots. `deadlock-brain parse forum-claims` baut daraus eine
-separate historische Claim-Schicht. Diese Claims sind absichtlich nicht Teil der
-aktuellen Grundwahrheit: `currentness` steht auf `historical_quarantine`, alte
-Community-Reports bleiben `historical_unverified`, und Entwicklerantworten wie
-`fixed internally` werden als `fixed_or_obsolete` markiert. Jeder Claim enthält
-einen konkreten Thread-/Post-Link in `source_url` und `source_references_json`,
-damit die Originalstelle nachlesbar bleibt.
+`brain_legacy` no longer exists (migration `scripts/migrations/2026-10-28-brain-legacy-drop-v47.sql`). Applied migrations are never edited; new ones are added and applied with `brain-migrate up`.
 
-Aktuelle API-, Patch- und Sheet-Daten haben Vorrang. Forum-Claims dürfen nur als
-historischer Kontext, Regressionssignal, Dev-Beleg oder explizit angeforderte
-Altfall-Recherche in Antworten einfließen.
+The central database `deadlock` with schema `brain` is a separate database. It is not part of this architecture and is read by the patchnotes bot, the Bots and the `dl-brain` MCP.
 
-## Deterministische Anreicherung
+## 5. Data flow: sources to answers
 
-`deadlock-brain enrich patch-events --rebuild` baut `patch_event_enrichments`.
-Der Schritt ist bewusst nicht KI-basiert. Er extrahiert robuste Standardmuster
-wie `Cooldown increased from 24s to 28s`, Ability-Prefixe, Item-Upgrade-Bezuege
-und Removed-/Added-Grant-Zeilen. Unbekannte Formen bekommen trotzdem eine Zeile
-mit niedriger Confidence, damit spaetere Auswertung zwischen "nicht verarbeitet"
-und "keine Daten vorhanden" unterscheiden kann.
+1. **Sources.** `brain-job` reads the sources listed in `rust/crates/brain-job/src/sources.rs`: `deadlock-data` (git clone of deadlock-wiki/deadlock-data, `data/json/hero-data.json`), `gametracking`, `assets`, `deadlock_patchnotes_db`, `deadlock-api-meta`, `deadlock-docs`, `item-lineage`.
+2. **Ingest.** `brain-job ... ingest <source>` stores source payloads in `raw.object`, records the run in `ops.ingest_run`, and writes entities, facts, aliases, relations and receipts to the `canon` schema.
+3. **Read model.** The `serve` views expose the current state for the API.
+4. **Answer.** `brain-serve` `/v1/answer` retrieves from `serve`, builds the context and calls the answer provider. The provider is `kind dl_ai_gateway` at `http://127.0.0.1:18790/v1` with slot `brain_answer` (header `x-dl-ai-slot`). AI calls go through this central gateway, not through custom connectors.
+5. **Callers.** Consumers listed in `brain-serve.json` (bot task and Discord consumers) and `brain-mcp` (scope `docs.public`) call `brain-serve`. `brain-eval` checks answer quality against the gold set.
 
-`deadlock-brain normalize sheet-stats --rebuild` baut `hero_stat_profiles` und
-`hero_stat_values` aus dem Google Sheet. Gematcht wird konservativ gegen echte
-Hero-Anzeigenamen, nicht gegen interne Classname-Kuerzel. Wenn eine Sheet-Zeile
-nicht eindeutig zur aktuellen API passt, bleibt `entity_id` leer und wird in der
-Summary als `unmatched_heroes` sichtbar.
+### How Deadlock-Docs reaches the Brain
 
-`deadlock-brain context <Name>` ist der erste Retrieval-Baustein. Er sucht die
-beste Entity per Alias, zieht Patch-Historie, Enrichment-Zeilen und Sheet-Stats
-zusammen und liefert JSON oder mit `--pretty` einen kompakten Menschen-Output.
+- The `deadlock-docs` source of `brain-job` clones `EarlySalty/Deadlock-Docs` and takes the `.html` pages under `public/` and `internal/`. It writes them through the same raw and canon path, and the `serve.doc_page`, `serve.doc_section` and `serve.doc_search_hit` views expose them.
+- No live `brain-job@deadlock-docs` timer exists. The import is run by hand with `brain-job --config /etc/deadlock-brain/brain-job.json ingest deadlock-docs`. Whether a schedule should exist is an open item.
+- The public website corpus (`/docs`) is a separate path: `public-corpus-refresh.timer` deploys the Deadlock-Docs corpus through `deploy_corpus.sh`. It is not the Brain import.
 
-## Rename- und Rework-Lineage
+## 6. Deploy
 
-`deadlock-brain enrich lineage --rebuild` baut `entity_lineage` aus Patchnotes.
-Das ist wichtig, weil die aktuelle Deadlock API alte Namen nicht zwingend noch
-enthaelt. Beispiele aus den importierten Patchnotes:
+Deploys use the root-owned helper `/usr/local/libexec/brain-release`. Run it with `sudo -n` where needed.
 
-- `Backstabber -> Stalker`
-- `Debuff Remover -> Dispel Magic`
-- `Curse -> Cursed Relic`
-- Hero-Ability-Renames wie `Kudzu Bomb -> Entangling Thorns`
+1. `brain-release plan <source>`: checks that the source is at the remote `main`, prints the current and maintenance-current targets and the build plan.
+2. `brain-release build <source> <new-bundle>`: builds all workspace binaries with `cargo-slot` (`CARGO_SLOT_DEPLOY=1`, shared sccache, fresh target dir that is removed afterwards). Per `ops/brain-release/src/main.rs` the build is run through the trusted helper.
+3. `brain-release verify <source> <bundle>`: checks the bundle against the source and writes its manifest (format 3).
+4. `brain-release install <source> <bundle>`: stages the release under `/opt/deadlock-brain/releases/<SHA>/` and `maintenance-releases/<SHA>/`, activates the gamefacts state, installs the units and moves the `current` pointer. Services are restarted separately, for example `systemctl restart brain-serve.service`.
 
-`context`, `timeline` und `review` verwenden diese Lineage als zusaetzliche
-Lookup-Namen. Eine Timeline fuer `Stalker` zieht dadurch auch alte
-`Backstabber`-Events, und eine Suche nach `Backstabber` bleibt historisch
-nutzbar, obwohl der aktuelle API-Name anders ist.
+Layout:
 
-`deadlock-brain enrich legacy-entities --rebuild` baut zusaetzlich
-`legacy_entities`. Diese Tabelle sammelt alte/entfernte Namen, die in Patchnotes
-auftauchen, aber in der aktuellen API fehlen und nicht bereits durch Rename-
-Lineage erklaert sind. Offensichtlich kaputte Parser-Subjekte werden mit
-`suspect_parser_subject` markiert.
+- `/opt/deadlock-brain/releases/<SHA>/` and `/opt/deadlock-brain/maintenance-releases/<SHA>/` with `manifest.json`.
+- `/opt/deadlock-brain/current` is a symlink to the live release (`c7e12e1e50d1a24a630e997f77fcb13e3e002573` on 2026-10-28).
+- `/opt/deadlock-brain/maintenance-current` is a compatibility alias for `/opt/deadlock-brain/current/bin`.
+- Lock: `/opt/deadlock-brain/.deploy.lock`.
 
-## Timeline und Review-Kontext
+## 7. Rollback and recovery
 
-`deadlock-brain timeline <Name>` baut eine chronologische Entity-Timeline aus
-`patch_events` und optional `patch_event_enrichments`. Die Ausgabe ist nach
-Patch gruppiert. Jedes Event bekommt eine deterministische Einschaetzung:
-`numeric_buff`, `numeric_nerf`, `functional_change`, `rework`, `bugfix`,
-`added`, `removed` oder `unknown`, plus Level `high`, `medium`, `low` oder
-`unknown`.
+- Roll back to a release that is still on disk: `sudo -n /usr/local/libexec/brain-release rollback <SHA>`. The previous release is `7a0c990b0a0ff50811827a5a7ab662594abc0c56`. Rollback re-points `current` and reinstalls the units, then restart the affected services.
+- After an interrupted install: `sudo -n /usr/local/libexec/brain-release recover`. It reverts the partial install and does not restart services.
+- Check the result with `systemctl status brain-serve.service` and `curl -s http://127.0.0.1:8788/readyz`.
 
-`deadlock-brain review <Name>` ist die Schicht fuer spaetere KI-Antworten. Sie
-ruft kein Modell auf, sondern baut einen kompakten Kontext mit Entity-Summary,
-aktuellen Sheet-Hints, Timeline-Signalen, offenen Fragen, Quellen und einem
-deutschen Prompt-Entwurf. Der Prompt schreibt vor, Namen von Items, Heroes und
-Abilities auf Englisch zu behalten und Unsicherheiten klar zu markieren.
+## 8. Operator checks
 
-`deadlock-brain analysis save-review <Name>` persistiert den Review-Kontext in
-`analysis_notes`. Dadurch kann spaeter nachvollzogen werden, welcher Kontext und
-welche Prompt-Version zu einer KI-Antwort gehoert haben. Ein echter Modellaufruf
-ist bewusst noch nicht Teil dieses Schritts.
+- Schema state: `brain-migrate check --config <json>`.
+- Service health: `deadlock-brain status`.
+- Answer quality: `brain-eval` against 127.0.0.1:8788.
 
-## Qualitaetssicherung
+## 9. Open items
 
-`deadlock-brain quality` prueft die lokalen Daten gegen die normalisierten
-Deadlock-API-Snapshots und abgeleiteten Tabellen. Aktuelle Checks:
-
-- Pflicht-Tabellen vorhanden.
-- Entity-Counts plausibel gegen lokale API-Snapshots.
-- Alias-Kollisionen.
-- Patch-Events mit unbekannten Entities.
-- Fehlende oder low-confidence Enrichments.
-- Fehlende oder leere Lineage.
-- Fehlende oder leere Legacy-Entity-Ableitung.
-- Sheet-Profile ohne Entity.
-- `general`-Patchzeilen, die bekannte API-Entities nennen.
-
-## Wiki-Policy
-
-Kein Bulk-Crawl. Nur gezielte Seiten, Cache-TTL, Mindestabstand zwischen Requests.
-Wenn spaeter viele Seiten benoetigt werden, erst nach Dumps, Spiegeln oder expliziten
-Rate-Limit-Regeln suchen.
-
-Der Forumimport liest alle Antwortseiten eines Threads und hält Kategorie,
-Beitragsdatum, Autor und Originalquelle fest. Mit `--browser` nutzt er einen
-vorhandenen lokalen Brave-Browser über dessen ausdrücklich freigegebene
-DevTools-Verbindung. Browserprüfungen, private Bereiche und leere Antworten
-führen zu einem Fehler statt zu einem erfolgreichen leeren Import. Die
-Anhangdateien werden nicht heruntergeladen; ihre Verweise bleiben gespeichert.
-
-```sh
-deadlock-brain pull forum --browser --limit 0 --delay-seconds 1 \
-  --data-dir /home/nathanael/.local/share/deadlock-brain \
-  --archive-infisical-config /etc/deadlock-brain/infisical.json \
-  --base-release BESTEHENDER_WISSENSSTAND --publish-release NEUER_WISSENSSTAND \
-  --kernel-config /etc/deadlock-brain/maintenance-runtime.json
-```
-
-`--limit 0` bearbeitet alle in der öffentlichen Sitemap entdeckten Threads.
-Der Forumaufruf verwendet feste absolute Daten- und Konfigurationspfade und
-lädt keine Legacy-Settings aus `.env` oder Umgebungsvariablen. Sein Archiv
-bleibt nach dem Entfernen des Bau-Worktrees erhalten.
-Nach einer Unterbrechung werden nur vollständig gespeicherte Threads mit
-unverändertem Sitemap-Änderungsdatum übersprungen. Fehlt dieses Datum, wird der
-Thread erneut gelesen. Der Abschlussbericht nennt Entdeckungen, tatsächlich
-archivierte Threads, Fehler und verbleibende Threads. Private Bereiche zählen
-nicht zur öffentlichen Abdeckung.
-
-Die beiden Release-Argumente überführen vorhandene Beiträge aus vollständig
-archivierten Threads in `SourceRecordV2`. Pins anderer Quellen und lokal nicht beobachteter Forumthreads bleiben
-erhalten. Nur vollständig erneut gelesene Threads bestimmen, welche ihrer
-Beiträge im neuen Wissensstand noch enthalten sind. Der neue Stand kann auch ein Teilarchiv enthalten; erst `complete`
-im Importbericht belegt die vollständige Sitemap-Abdeckung. Der Dienst nutzt
-einen ausdrücklich gesetzten Release-Pin in seiner normalen Konfiguration.
-Jeder Forumbeleg nennt Quelle und Beitragsdatum und bleibt ein unbestätigter
-Bericht mit unbekannter aktueller Gültigkeit. Eine Entwickleraussage über einen
-internen Fix belegt weiterhin keinen bereits veröffentlichten Patch.
+- `dl-brain-feeder.timer` (user) is enabled but failed and references a Python script in the old Deadlock-Bots tree. Owner decides whether to remove it.
+- `brain-job@deadlock-docs` has no timer; the Deadlock-Docs import is manual.
+- The relation between `public-corpus-refresh` and the Brain import is not confirmed.
+- Historical plans under `architecture/` are marked as historical and kept for reference.

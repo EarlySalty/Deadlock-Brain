@@ -57,23 +57,7 @@ Vor dem regulären Einsatz muss die Migration
 benötigt für die vier Reasoner-Tabellen Lese- und Schreibrechte sowie die nötigen
 Sequenzrechte. Für Zugänge ohne Schreibrechte ist `--no-persist` erforderlich.
 
-Der Build-Data-Timer läuft als Nutzer `nathanael`; Service und Timer aus
-`service/systemd/deadlock-brain-build-data.*` gehören nach
-`~/.config/systemd/user/`. Das Checkout liegt unter
-`/home/nathanael/repos/Deadlock-Brain`; die Unit verwendet dafür
-`%h/repos/Deadlock-Brain`. Bei einem anderen Checkout-Pfad müssen
-`WorkingDirectory` und `ExecStart` per User-Drop-in angepasst werden.
-
-Wie der Sheet-Sync lädt der Wrapper die Infisical-Konfiguration aus
-`~/.config/deadlock-bots/infisical.conf` und das Service-Token zuerst aus
-`LoadCredential`, sonst aus `~/.config/infisical-tokens/infisical-token-bots`.
-`INFISICAL_CONFIG_FILE`, `INFISICAL_TOKEN_FILE`, `DEADLOCK_BRAIN_ROOT`,
-`DEADLOCK_BRAIN_BIN` und `DEADLOCK_BRAIN_PYTHON` erlauben explizite Pfade.
-Ohne Python-Vorgabe wird wie beim Sheet-Sync die Repo-venv bevorzugt.
-Fehlende Konfiguration oder Binary beenden den Lauf mit einer Fehlermeldung.
-Die Units lassen sich vor der Installation mit `systemd-analyze --user verify
-service/systemd/deadlock-brain-build-data.service
-service/systemd/deadlock-brain-build-data.timer` prüfen.
+Es gibt keinen periodischen Build-Data-Timer mehr; `deadlock-brain-build-data` ist mit P8 (2026-10-28) entfernt. Reasoner-Läufe werden manuell über die `deadlock-brain reason`-Befehle gestartet.
 
 ## Backtest-Lesart
 

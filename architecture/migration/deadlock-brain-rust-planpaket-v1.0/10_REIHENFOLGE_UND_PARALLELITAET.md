@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # Welche Prompts in welcher Reihenfolge?
 
 **Nicht alle gleichzeitig implementieren. Parallelität ist nach Abhängigkeiten erlaubt, nicht nach Chatnummer.** Ein Chat darf vorher zur Vorbereitung geöffnet werden, bekommt dann aber ausdrücklich nur einen Lese-/Entwurfsauftrag. Kein fehlender Vertrag wird durch eine private Ersatzarchitektur überbrückt.

@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../../docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
+
 # S12-Prüfbericht — Offline-Vorbereitung
 
 Stand: 24.09.2026. Getesteter Code-Commit: `b93002f744ecb86cb3d0decee4067a6331c984c3`.

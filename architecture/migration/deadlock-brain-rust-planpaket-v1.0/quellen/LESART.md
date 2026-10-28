@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../../docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
+
 # Lesart und Nachweise
 
 U1, U3 und U4 sind die drei bereitgestellten Originalrecherchen; U2 sind ausdrückliche Nutzeranforderungen. Ihre Aufnahme in einen Plan ist kein neuer Live-Faktencheck. Quelldetails und Hashes stehen im Quellenmanifest; identische Uploads werden einmal geführt.

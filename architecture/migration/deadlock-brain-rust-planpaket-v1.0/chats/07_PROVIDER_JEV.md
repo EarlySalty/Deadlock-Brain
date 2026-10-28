@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../../docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
+
 # Chat 07 · Rust-Provider und Jev
 
 **Startbedingung:** Vertragsprüfung früh möglich; Implementierung nach G1, Integration bis G2/G3; Aktivierung je Funktion an G4.

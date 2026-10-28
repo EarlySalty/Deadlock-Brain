@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../../docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
+
 # Chat 05 · Domainlogik erhalten, nach Rust portieren und ausbauen
 
 **Startbedingung:** Nach G1 parallel; strukturierter Pilot für G2, vollständige Parität vor G3.

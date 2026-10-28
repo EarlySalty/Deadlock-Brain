@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
+
 # Eigene PostgreSQL-Instanz für Deadlock Brain
 
 Stand: 29.09.2026. Die Angaben zur dedizierten Staging-Instanz und zu früheren Prüfständen bleiben an ihren jeweiligen Messzeitpunkt gebunden. Die finale Verifikation auf `022f8a981c2164f6d8d4302bae2194e100c4f65c` lief separat mit isolierten Wegwerf-Clustern und belegt keine Produktionsfreigabe.

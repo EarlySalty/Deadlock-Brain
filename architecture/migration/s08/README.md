@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # S08: Answer Kernel und API, Vorbereitung
 
 Stand: 24. September 2026. Auftrag: ausschließlich S08 aus Planpaket 1.0.

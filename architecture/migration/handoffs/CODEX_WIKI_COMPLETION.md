@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # Wiki-/Knowledge-Abschluss: remote implementierter Pfad
 
 Stand: 25.09.2026. Branch: `codex/wiki-completion-20260925`. Ziel: Review gegen `main`, **kein Merge, kein Deploy, kein Wiki-Mirror**.

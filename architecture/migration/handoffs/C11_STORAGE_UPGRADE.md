@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # C11 – Storage-Upgrade und belastbarer Rückweg
 
 Stand: 26.09.2026. Branch: `codex/fix-c11-storage-upgrade`.

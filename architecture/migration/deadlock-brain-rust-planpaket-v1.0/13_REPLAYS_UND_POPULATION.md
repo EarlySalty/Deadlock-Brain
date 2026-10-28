@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # Rust-Replays, Beobachtungen und Population
 
 **Grundlage:** U4, insbesondere Replayintegration, zweistufige Speicherung und zeitliche Holdouts. Die vorgeschlagenen Decoder/Felder müssen an vorhandenen erlaubten Replays tatsächlich verifiziert werden. Dies ist ein Pflicht-Ausbaustrang mit klar begrenztem Pilot, kein Leistungsversprechen für jeden historischen Patch.

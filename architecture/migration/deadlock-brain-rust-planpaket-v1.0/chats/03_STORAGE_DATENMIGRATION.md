@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../../docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
+
 # Chat 03 · Storage, kanonisches Modell und Datenmigration
 
 **Startbedingung:** Schemaentwurf mit Chat 02 vor G1; Pilot bis G2; Gesamtdaten nach G2; Abgleich bis G3 und Cutover mit 11.

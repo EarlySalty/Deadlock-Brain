@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
+
 # Brain-Datenmigration aus DL-Main: Bericht
 
 Stand des Daten-Snapshots: 26.09.2026. Die folgende Kopie ist ein stichtagsbezogener Migrationsnachweis, kein Cutover und keine Testabnahme des Codeheads `022f8a981c2164f6d8d4302bae2194e100c4f65c`. In DL-Main wurde nichts gelöscht, geändert oder umgestellt.

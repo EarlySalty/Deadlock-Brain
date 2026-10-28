@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../../docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
+
 # S10 Messbedingungen und G0–G4-Protokoll
 
 Basis: `30326512568b7370524956839100462ba71bdb92`. Arbeitsmodus: `prepare_only` mit ausführbaren Offline-Werkzeugen. Produktionsdienste und Datenbanken bleiben unverändert.

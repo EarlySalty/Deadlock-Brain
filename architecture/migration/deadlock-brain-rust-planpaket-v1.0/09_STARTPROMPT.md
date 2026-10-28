@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # Startprompt für Chat 00
 
 Das Paket im neuen Chat bereitstellen oder unter `architecture/migration/` in einem zugänglichen Checkout ablegen. Bei vorhandenem STATUS diesen behalten.

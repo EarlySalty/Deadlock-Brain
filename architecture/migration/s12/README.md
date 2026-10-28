@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # S12 — Wiki-/Knowledge-Pfad
 
 > C4-Pfadwechsel: Aktiver Parser und Tests liegen jetzt unter `rust/crates/dbrain-wiki` im Hauptworkspace. Die historische Darstellung unten und die gespeicherten Fixtures/Berichte bleiben erhalten. `Cargo.toml.historical` und `Cargo.lock` sind Nachweise, keine aktive Crate. Siehe [aktuellen Parser](../../../rust/crates/dbrain-wiki/README.md).

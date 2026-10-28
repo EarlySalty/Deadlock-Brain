@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # S08: erster E2E-Prüfplan
 
 Status: `designed`, Ergebnis: `not_run`, Start der ausführbaren Umsetzung: nach integriertem G1 und S08-Pfadfreigabe. Dies ist ein lesbares Szenario, kein Ersatz-Wireformat, keine Mockimplementation und kein erfolgter API-Test.

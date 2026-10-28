@@ -4,8 +4,8 @@ Diese Wiki-Schicht folgt dem LLM-Wiki-Muster fuer Deadlock-Brain.
 
 ## Schichten
 
-- Raw Sources: `brain.source_documents` und `brain.entity_snapshots`. Diese Daten sind die Quelle der Wahrheit und werden hier nicht editiert.
-- Wiki: Markdown unter `game-wiki/pages/`. Diese Corpus-Shards werden durch `deadlock-brain wiki rebuild` erzeugt und duerfen vom Agenten gepflegt werden.
+- Raw Sources: Die Quelldaten liegen in der Brain-DB (Schema `raw`, siehe `docs/ARCHITECTURE.md`). Diese Daten sind die Quelle der Wahrheit und werden hier nicht editiert.
+- Wiki: Markdown unter `game-wiki/pages/`. Der Befehl `deadlock-brain wiki rebuild` ist mit P8 (2026-10-28) entfernt. Die Seiten sind eingefrorener Bestand ohne automatischen Rebuild und duerfen vom Agenten gepflegt werden.
 - Schema: diese Datei. Aendere sie nur, wenn sich Struktur oder Arbeitsweise bewusst aendern.
 
 ## Regeln

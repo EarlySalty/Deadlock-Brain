@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # Externe Repositories, Datenfeeds und Schemaüberwachung
 
 **Grundlage:** U4 „Priorisierte Repository-Landschaft“, „Integrationsarchitektur“, „Risiken“, „Nächste Schritte“. Die folgende Matrix ist ein Integrationsplan aus dieser Quelle, kein erneut erhobener aktueller Repo-/Lizenzstatus. Bestehende Adapter zuerst prüfen und härten, nicht blind neu schreiben.

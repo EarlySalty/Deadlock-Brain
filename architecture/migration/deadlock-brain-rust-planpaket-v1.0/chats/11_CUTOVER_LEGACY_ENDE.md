@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../../docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
+
 # Chat 11 · Produktivumstellung, Betrieb und Legacy-Abbau
 
 **Startbedingung:** Betriebsentwurf früh; Probe vor G4; Ausführung G5/G6 nur mit ausdrücklicher Freigabe.

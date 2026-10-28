@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # Übergabe: S11 / Produktivumstellung, Betrieb und Legacy-Ende
 
 Status: Vorbereitung getestet; vollständiges S11 **blockiert**, nicht integriert.

@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../../docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
+
 > Historischer PR-29-Stand vom 24.09.2026. Die aktuelle Runtime und ihre Nachweise stehen in `architecture/migration/handoffs/CODEX_REPLAY_DECODER_COMPLETION.md`. Frühere Aussagen über eine fehlende Runtime beziehen sich nur auf diesen historischen Stand.
 
 # S14: tatsächliche Prüfungen und offene Nachweise

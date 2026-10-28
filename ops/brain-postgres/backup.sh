@@ -86,10 +86,10 @@ SELECT 'schema|' || nspname || '|' || pg_get_userbyid(nspowner) || '|' || coales
 FROM pg_namespace WHERE nspname !~ '^(pg_|information_schema)' ORDER BY nspname COLLATE "C";
 SELECT 'acl|' || n.nspname || '.' || c.relname || '|' || c.relkind::text || '|' || pg_get_userbyid(c.relowner) || '|' || coalesce(c.relacl::text, '')
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname IN ('brain', 'brain_legacy') ORDER BY n.nspname COLLATE "C", c.relname COLLATE "C";
+WHERE n.nspname = 'brain' ORDER BY n.nspname COLLATE "C", c.relname COLLATE "C";
 SELECT format('SELECT %L || ''|'' || count(*) || ''|'' || md5(coalesce(string_agg(t::text, E''\n'' ORDER BY t::text COLLATE "C"), '''')) FROM %I.%I t;', 'rows|' || n.nspname || '.' || c.relname, n.nspname, c.relname)
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname IN ('brain', 'brain_legacy') AND c.relkind IN ('r', 'p') ORDER BY n.nspname COLLATE "C", c.relname COLLATE "C" \gexec
+WHERE n.nspname = 'brain' AND c.relkind IN ('r', 'p') ORDER BY n.nspname COLLATE "C", c.relname COLLATE "C" \gexec
 SELECT 'core|schema_version|' || schema_version || '|' || store_contract FROM brain.core_schema_version;
 SELECT 'core|tombstone_revisions|' || count(*) FILTER (WHERE tombstone) || '|' || count(*) FROM brain.source_record_revisions;
 SELECT 'core|tombstone_heads|' || count(*) FILTER (WHERE tombstone) || '|' || count(*) FROM brain.source_record_heads;

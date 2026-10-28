@@ -26,7 +26,7 @@ und Veröffentlichungsfreigabe. Bei einer Standard-Aktivierung folgen freigegebe
 Spielconsumer dem neuen Release, wenn ihre bisherige Bindung derselben Basis
 entspricht. Eigenständig gebundene Releases und andere Consumer bleiben erhalten.
 
-[`discord-credential.example.json`](../ops/brain-maintenance/discord-credential.example.json) zeigt den Eintrag für die bestehende `credentials`-Liste. Die Releasewerte müssen dem bereits veröffentlichten Wissensstand entsprechen. Der Dienst benötigt außerdem den vorhandenen `entity_profile_maintenance_config`-Pfad. Die Konfiguration wird über `brain-maintain write-serve-config` mit dem bisherigen SHA und dem gemeinsamen ConfigWriter geändert; anschließend wird `brain-serve.service` neu gestartet. Eine lokale Probe mit `deadlock-brain answer`, `bot.public` und derselben Discord-Secretreferenz prüft den öffentlichen Antwortpfad, ohne eine Discord-Nachricht zu senden. Tokens bleiben dabei im Infisical-Client und im Prozessspeicher.
+Die Releasewerte müssen dem bereits veröffentlichten Wissensstand entsprechen. Änderungen an der Serve-Konfiguration werden mit einem Neustart von `brain-serve.service` wirksam. Eine lokale Probe mit `deadlock-brain answer`, `bot.public` und derselben Discord-Secretreferenz prüft den öffentlichen Antwortpfad, ohne eine Discord-Nachricht zu senden. Tokens bleiben dabei im Infisical-Client und im Prozessspeicher.
 
 ## Interner Operatorweg
 

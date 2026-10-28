@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # Vertragsentwurf und Architekturgrenzen
 
 Dies sind verpflichtende semantische Anforderungen an die in Chat 02 zu implementierenden Rust-/JSON-Verträge. Es ist noch keine veröffentlichte OpenAPI-Spezifikation. Unabhängige Chats dürfen daraus keine abweichenden privaten Typen ableiten; der erste integrierte Contract legt Namen und Wireformat verbindlich fest.

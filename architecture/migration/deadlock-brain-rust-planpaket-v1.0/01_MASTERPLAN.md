@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # Masterplan: ein Brain, eine Datenstrategie, Rust als Kern
 
 > Planversion 1.0: Konsolidierung/Jev (U1), Wiki (U3), Ökosystem/Replays (U4) und alle Nutzeranforderungen (U2) gemeinsam eingeplant. Ausführung und reale Abnahme stehen noch aus.

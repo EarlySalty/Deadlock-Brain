@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../../docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
+
 # S13: Befunde an vorhandenen Quellenadaptern
 
 Prüfbasis: `30326512568b7370524956839100462ba71bdb92` auf `origin/main`. Stand der Quellenbeobachtung: 24. September 2026. Dies ist eine Startprüfung, keine Implementierung oder Betriebsabnahme. Fremde Worktrees und uncommittete Änderungen wurden nicht übernommen.

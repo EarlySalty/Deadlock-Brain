@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../../docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
+
 # Chat 06 · Hybrid Retrieval und Suchindexentscheidung
 
 **Startbedingung:** Pilotentwurf in Welle B, Entscheidung bis G2, Umsetzung nach G1 und Qualität bis G4.

@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../../docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
+
 # Chat 09 · Rust-Adapter, Consumer und Docs
 
 **Startbedingung:** Vorbereitung nach G1 gegen Contract-API; echte Integration mit den jeweils bereits integrierten echten APIpfaden aus 08; Cutover ausschließlich mit 11.

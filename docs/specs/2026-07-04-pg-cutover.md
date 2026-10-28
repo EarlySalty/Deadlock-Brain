@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../ARCHITECTURE.md](../ARCHITECTURE.md).
+
 # Deadlock-Brain: Voll-Cutover SQLite → zentrale Postgres (2026-07-04)
 
 Status: Design freigegeben (Owner). Umsetzung phasenweise, native Agents, jede Phase von Claude reviewt.

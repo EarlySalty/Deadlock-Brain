@@ -1,3 +1,5 @@
+> **Historical record (updated 2026-10-28).** This document describes the state when it was written. Crates, units, tables and paths it names may have been removed in P8 (2026-10-28). For the current architecture see [../../../docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md).
+
 # Übergabe · S03 / Storage und Datenmigration
 
 Status: **blockiert vor Implementierung**. Geliefert ist ausschließlich eine belegte Startprüfung mit Schnittstellenanforderung und Abnahmematrix. Kein abgeschlossenes S03, kein Schemaentwurf mit Freigabe, kein erfolgreicher Pilot.
