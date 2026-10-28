@@ -2,7 +2,7 @@
 
 # Roadmap: Vom Daten-Sammler zum Fragen-Beantworter
 
-Stand 2026-06-25. Grundlage: `docs/_work/brain-capability-inventory.md` (vollständige Code-/Daten-Inventur).
+Stand 2026-06-25. Grundlage war eine Code-/Daten-Inventur, die mit P8 (2026-10-28) entfernt wurde.
 
 ## Ist-Zustand — wo das Brain stark ist
 
