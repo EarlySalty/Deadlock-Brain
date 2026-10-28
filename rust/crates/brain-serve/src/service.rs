@@ -486,6 +486,10 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
                 },
             )
             .map_err(|_| Error::ReaderConfig)?;
+        let tools = crate::discord_live_tools::DiscordLiveTools::new(
+            Arc::new(tools),
+            prepared.discord_live.clone(),
+        );
         answer_kernel = answer_kernel
             .with_tools(
                 answer_trace::TracedTools(tools),

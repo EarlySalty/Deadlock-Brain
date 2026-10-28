@@ -8,6 +8,7 @@ mod answer_artifacts;
 mod assets_fixture;
 pub mod config;
 mod discord_live;
+mod discord_live_tools;
 mod docs_tools;
 pub mod game_text;
 pub mod game_tools;

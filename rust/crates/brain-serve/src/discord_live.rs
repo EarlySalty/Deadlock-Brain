@@ -19,7 +19,7 @@ const ENDPOINT: &str = "http://127.0.0.1:8890/mcp/public";
 fn unavailable() -> PortError {
     PortError::Unavailable("Öffentliche Discord-Live-Fakten sind derzeit nicht verfügbar.".into())
 }
-fn denied() -> PortError {
+pub(crate) fn denied() -> PortError {
     PortError::PermissionDenied("Öffentliche Discord-Live-Fakten sind nicht freigegeben.".into())
 }
 
@@ -305,7 +305,7 @@ impl DiscordLive {
         self.read_channel(context, None)
     }
 
-    fn read_channel(
+    pub(crate) fn read_channel(
         &self,
         context: &AuthorizedContext,
         channel_id: Option<u64>,
@@ -387,7 +387,7 @@ impl DiscordLive {
     }
 }
 
-fn allowed(query: &Query, context: &AuthorizedContext, provider: bool) -> bool {
+pub(crate) fn allowed(query: &Query, context: &AuthorizedContext, provider: bool) -> bool {
     query.requested_scopes.contains("bot.public")
         && context.principal.scopes.contains("bot.public")
         && context
@@ -405,7 +405,10 @@ pub(crate) struct DiscordRetriever<R> {
     observations: Mutex<BTreeMap<String, (Instant, Vec<Evidence>)>>,
 }
 
-fn observation_key(query: &Query, context: &AuthorizedContext) -> Result<String, PortError> {
+pub(crate) fn observation_key(
+    query: &Query,
+    context: &AuthorizedContext,
+) -> Result<String, PortError> {
     let bytes = serde_json::to_vec(&(
         &query.request_id,
         &query.conversation_id,
@@ -2421,6 +2424,166 @@ mod tests {
                 4096
             ),
             "Chill Lane 1 <#1564951126942687252>, neue Lane über <#1513468587195633674>"
+        );
+    }
+
+    #[test]
+    fn antwortwerkzeug_liefert_offene_lanes_mit_beitrittsreferenzen() {
+        use brain_contracts::{ToolCall, ToolExecutionPort, ToolName, ToolValidationPurpose};
+        use std::{
+            io::{BufRead, BufReader, Write},
+            net::TcpListener,
+        };
+        let filler: Vec<_> = (0..400)
+            .map(|i| json!({"id":format!("{}", 9000 + i),"name":format!("Textkanal {i} {}", "x".repeat(40)),"type":0,"topic":null,"position":100 + i,"parent_id":null}))
+            .collect();
+        let mut channels = vec![
+            json!({"id":"1289721245281292290","name":"Voice","type":4,"topic":null,"position":5,"parent_id":null}),
+            json!({"id":"1513468587195633674","name":"➕Sprachkanal erstellen","type":2,"topic":null,"position":4,"parent_id":"1289721245281292290"}),
+        ];
+        channels.extend(filler);
+        channels.push(json!({"id":"1564951126942687252","name":"Chill Lane 1","type":2,"topic":null,"position":999,"parent_id":"1289721245281292290"}));
+        let facts = json!({"schema":"discord.public-facts.v2","guild_id":"1289721245281292288","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"verified_members","channels":channels,"voice_counts":[{"channel_id":"1564951126942687252","count":4}],"bot_infos":[],
+            "tempvoice":{"category_ids":["1289721245281292290"],"join_channel_ids":["1513468587195633674"],"open_lanes":[{"channel_id":"1564951126942687252","count":4,"mode":"casual"}]}});
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut live = DiscordLive::new("test".into()).unwrap();
+        live.endpoint = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse::<usize>().unwrap();
+                }
+            }
+            let mut bytes = vec![0; length];
+            reader.read_exact(&mut bytes).unwrap();
+            let payload: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(payload["params"]["name"], "public_server_facts");
+            let body = json!({"jsonrpc":"2.0","id":1,"result":{"isError":false,"content":[{"type":"text","text":facts.to_string()}]}}).to_string();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let query: Query = serde_json::from_value(json!({"request_id":"r","conversation_id":"c","text":"Sucht gerade jemand Mitspieler?","requested_scopes":["bot.public"]})).unwrap();
+        let context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: Some(42),
+                request_id: "r".into(),
+                scope: "discord.request:fixture".into(),
+                allow_discord_reads: true,
+            }),
+            principal: brain_contracts::Principal {
+                actor_id: "bot".into(),
+                channel: "discord".into(),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:fixture".into()]),
+                provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "release".into(),
+            deadline_ms: 10000,
+            budget: brain_contracts::Budget::default(),
+            request_deadline: None,
+        };
+        let tools = crate::discord_live_tools::DiscordLiveTools::new(
+            Arc::new(crate::tool_base::ToolBase),
+            Some(Arc::new(live)),
+        );
+        let mut closed = context.clone();
+        closed.discord.as_mut().unwrap().allow_discord_reads = false;
+        assert!(tools
+            .definitions(&query, &closed, None)
+            .unwrap()
+            .iter()
+            .all(|definition| definition.name != ToolName::ServerKnowledge));
+        let definitions = tools.definitions(&query, &context, None).unwrap();
+        let request = ToolCall {
+            id: "call-1".into(),
+            name: ToolName::ServerKnowledge,
+            arguments: json!({"question":"Mitspieler gesucht"}),
+        }
+        .validate(&definitions)
+        .unwrap();
+        assert!(tools
+            .execute(&query, &closed, None, "call-1", &request)
+            .is_err());
+        let execution = tools
+            .execute(&query, &context, None, "call-1", &request)
+            .unwrap();
+        worker.join().unwrap();
+        assert!(serde_json::to_vec(&execution.result).unwrap().len() < 16_384);
+        let content = execution.result.result["matches"][0]["content"]
+            .as_str()
+            .unwrap();
+        let lines: Vec<_> = content.lines().collect();
+        assert!(
+            brain_contracts::provider_input::discord_display_text(content).contains(
+                "Offene Lane: Chill Lane 1, Art casual, 4 anwesend, Beitritt [[kanal-2]]."
+            )
+        );
+        assert!(lines.contains(
+            &"Offene Lane: Chill Lane 1, Art casual, 4 anwesend, Beitritt [[kanal-2]]<#1564951126942687252>."
+        ));
+        assert!(lines.contains(
+            &"Join-to-create: ➕Sprachkanal erstellen, Beitritt [[kanal-1]]<#1513468587195633674>."
+        ));
+        let evidence = &execution.dependencies[0].evidence;
+        assert_eq!(
+            execution.result.result["matches"][0]["evidence_id"],
+            evidence[0].evidence_id.as_str()
+        );
+        assert_eq!(
+            evidence[0].allowed_scopes,
+            BTreeSet::from(["discord.request:fixture".into()])
+        );
+        for purpose in [
+            ToolValidationPurpose::Provider,
+            ToolValidationPurpose::Cache,
+        ] {
+            tools
+                .validate_dependencies(&query, &context, None, &execution.dependencies, purpose)
+                .unwrap();
+        }
+        let mut forged = execution.dependencies.clone();
+        forged[0].evidence[0].content = "Offene Lane: Fake, Beitritt [[kanal-1]]<#7>.".into();
+        assert!(tools
+            .validate_dependencies(
+                &query,
+                &context,
+                None,
+                &forged,
+                ToolValidationPurpose::Provider
+            )
+            .is_err());
+        let mut other = context.clone();
+        other.discord.as_mut().unwrap().user_id = Some(43);
+        assert!(tools
+            .validate_dependencies(
+                &query,
+                &other,
+                None,
+                &execution.dependencies,
+                ToolValidationPurpose::Provider
+            )
+            .is_err());
+        assert_eq!(
+            brain_contracts::discord_task::resolve_channel_references(
+                "Geh in Chill Lane 1 [[kanal-2]] oder öffne eine über [[kanal-1]]",
+                evidence,
+                true,
+                4096
+            ),
+            "Geh in Chill Lane 1 <#1564951126942687252> oder öffne eine über <#1513468587195633674>"
         );
     }
 }
