@@ -2514,13 +2514,20 @@ mod tests {
         }
         .validate(&definitions)
         .unwrap();
-        assert!(tools
-            .execute(&query, &closed, None, "call-1", &request)
-            .is_err());
-        let execution = tools
-            .execute(&query, &context, None, "call-1", &request)
+        let refused = tools
+            .execute_accounted(&query, &closed, None, "call-1", &request)
+            .unwrap_err();
+        assert_eq!(refused.accounting.unwrap().charged().network_rounds, 0);
+        let accounted = tools
+            .execute_accounted(&query, &context, None, "call-1", &request)
             .unwrap();
         worker.join().unwrap();
+        assert_eq!(accounted.accounting.charged().network_rounds, 1);
+        let execution = accounted.value;
+        let failed = tools
+            .execute_accounted(&query, &context, None, "call-2", &request)
+            .unwrap_err();
+        assert_eq!(failed.accounting.unwrap().charged().network_rounds, 1);
         assert!(serde_json::to_vec(&execution.result).unwrap().len() < 16_384);
         let content = execution.result.result["matches"][0]["content"]
             .as_str()

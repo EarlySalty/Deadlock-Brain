@@ -1,8 +1,8 @@
 use crate::discord_live::{allowed, denied, observation_key, DiscordLive};
 use brain_contracts::{
-    AuthorizedContext, Evidence, PinnedGameContext, PortError, Query, ToolCall, ToolDefinition,
-    ToolEvidenceDependency, ToolExecution, ToolExecutionPort, ToolName, ToolRequest, ToolResult,
-    ToolValidationPurpose, Usage,
+    Accounted, AuthorizedContext, Evidence, PinnedGameContext, PortError, PortFailure, Query,
+    ToolCall, ToolDefinition, ToolEvidenceDependency, ToolExecution, ToolExecutionPort, ToolName,
+    ToolRequest, ToolResult, ToolValidationPurpose, Usage, UsageAccounting,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -103,10 +103,14 @@ fn execution(
             game_context: None,
             evidence: vec![item],
         }],
-        usage: Usage {
-            network_rounds: 1,
-            ..Usage::default()
-        },
+        usage: network_round(),
+    }
+}
+
+fn network_round() -> Usage {
+    Usage {
+        network_rounds: 1,
+        ..Usage::default()
     }
 }
 
@@ -135,13 +139,17 @@ impl DiscordLiveTools {
         Ok(())
     }
 
-    fn run(
+    fn prepare(
         &self,
         query: &Query,
         context: &AuthorizedContext,
         id: &str,
         request: &ToolRequest,
-    ) -> Result<ToolExecution, PortError> {
+    ) -> Result<(ToolCall, &DiscordLive), PortError> {
+        context.check_deadline()?;
+        if context.budget.max_network_rounds == 0 {
+            return Err(PortError::BudgetExceeded);
+        }
         if !allowed(query, context, true) {
             return Err(denied());
         }
@@ -153,17 +161,49 @@ impl DiscordLiveTools {
         if call.validate(&[definition()])? != *request {
             return Err(denied());
         }
-        let live = self.live.as_ref().ok_or_else(denied)?;
+        let live = self.live.as_deref().ok_or_else(denied)?;
+        Ok((call, live))
+    }
+
+    fn fetch(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        request: &ToolRequest,
+        call: &ToolCall,
+        live: &DiscordLive,
+    ) -> Result<ToolExecution, PortError> {
         let (expires, item) = live.read_channel(context, None)?;
         let lines = selected_lines(&item.content, query);
-        let execution = execution(id, request, item, lines);
-        execution.validate_for(&call, request, None)?;
+        let execution = execution(&call.id, request, item, lines);
+        execution.validate_for(call, request, None)?;
+        let key = observation_key(query, context)?;
         for dependency in &execution.dependencies {
             for item in &dependency.evidence {
-                self.remember(observation_key(query, context)?, expires, item)?;
+                self.remember(key.clone(), expires, item)?;
             }
         }
         Ok(execution)
+    }
+
+    fn run(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+        id: &str,
+        request: &ToolRequest,
+    ) -> Result<Accounted<ToolExecution>, PortFailure> {
+        let (call, live) = self
+            .prepare(query, context, id, request)
+            .map_err(PortFailure::before_call)?;
+        let dispatched = UsageAccounting::observed(network_round());
+        let value = self
+            .fetch(query, context, request, &call, live)
+            .map_err(|error| PortFailure::accounted(error, dispatched.clone()))?;
+        Ok(Accounted {
+            accounting: UsageAccounting::observed(value.usage.clone()),
+            value,
+        })
     }
 
     fn validate_own(
@@ -235,7 +275,10 @@ impl ToolExecutionPort for DiscordLiveTools {
         request: &ToolRequest,
     ) -> Result<ToolExecution, PortError> {
         if request.name() == ToolName::ServerKnowledge {
-            return self.run(query, context, id, request);
+            return self
+                .run(query, context, id, request)
+                .map(|accounted| accounted.value)
+                .map_err(|failure| failure.error);
         }
         self.delegate.execute(query, context, pin, id, request)
     }
@@ -247,23 +290,13 @@ impl ToolExecutionPort for DiscordLiveTools {
         pin: Option<&PinnedGameContext>,
         id: &str,
         request: &ToolRequest,
-    ) -> Result<brain_contracts::Accounted<ToolExecution>, brain_contracts::PortFailure> {
+    ) -> Result<Accounted<ToolExecution>, PortFailure> {
         if request.name() != ToolName::ServerKnowledge {
             return self
                 .delegate
                 .execute_accounted(query, context, pin, id, request);
         }
         self.run(query, context, id, request)
-            .map(|value| brain_contracts::Accounted {
-                value,
-                accounting: brain_contracts::UsageAccounting::default(),
-            })
-            .map_err(|error| {
-                brain_contracts::PortFailure::accounted(
-                    error,
-                    brain_contracts::UsageAccounting::default(),
-                )
-            })
     }
 
     fn validate_build_plan(
