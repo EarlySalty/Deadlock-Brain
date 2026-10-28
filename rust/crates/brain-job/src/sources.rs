@@ -50,8 +50,15 @@ fn read_revision(repository: &Path, reference: &str) -> anyhow::Result<Vec<Input
     if ![40, 64].contains(&revision.len()) || !revision.bytes().all(|b| b.is_ascii_hexdigit()) {
         bail!("Ungültige Git-Revision");
     }
+    let present = |path: &&str| {
+        git(
+            repository,
+            &["cat-file", "-e", &format!("{revision}:{path}")],
+        )
+        .is_ok()
+    };
     std::iter::once("data/json/hero-data.json")
-        .chain(crate::mechanics::PATHS.iter().copied())
+        .chain(crate::mechanics::PATHS.iter().copied().filter(present))
         .map(|path| {
             Ok(InputObject {
                 revision: revision.clone(),

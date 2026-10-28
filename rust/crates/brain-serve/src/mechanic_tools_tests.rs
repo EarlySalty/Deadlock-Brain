@@ -53,6 +53,13 @@ fn trooper_wave_souls_scale_with_minute_and_cite_inputs() {
     assert_eq!(facts[0]["citation"], "1");
     assert_eq!(facts[0]["condition"]["minute"], 16);
     assert_eq!(facts.len(), 14);
+    let unused = [
+        "citadel_trooper_instant_gold_ratio_laning",
+        "citadel_trooper_spawn_interval_early",
+    ];
+    assert!(facts[..12]
+        .iter()
+        .all(|row| !unused.contains(&row["stat_key"].as_str().unwrap_or(""))));
 }
 
 #[test]

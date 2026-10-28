@@ -8,7 +8,7 @@ Result before: **9 of 50 correct**, 4 partial, 37 failed (21 insufficient_eviden
 
 ## Root cause classes
 
-- **A, data in PG raw store, not projected to canon, no tool**: troopers, denizens, objectives (guardian, walker, base guardians, shrines, patron), mid boss, kill bounty, respawn ramps, share fractions, deny split, item tier prices, urn, crates, level and ability point table, street brawl. `canon.entity` only has hero, item, ability, timer, patch, doc_page, meta_stats, lineage.
+- **A, data in PG raw store, not projected to canon, no tool**: troopers, denizens, objectives (guardian, walker, base guardians, shrines, patron), mid boss, kill bounty, respawn ramps, share fractions, deny split, item tier prices, urn (crate_* convars), breakables, level and ability point table, street brawl. `canon.entity` only has hero, item, ability, timer, patch, doc_page, meta_stats, lineage.
 - **B, value gate rejects derived numbers**: per-minute scaling, wave totals, split per player, respawn at minute X. Every number must appear in a cited tool row; nothing computes them.
 - **C, data not in PG**: wave composition beyond squad size, map layout (lanes, teleporters), game mode list.
 - **D, ability stat missing or not named**: afterburn DPS.
@@ -66,6 +66,6 @@ Result before: **9 of 50 correct**, 4 partial, 37 failed (21 insufficient_eviden
 | 45 | Haze nerf last patch | answered | correct | | |
 | 46 | Sinners sacrifice | answered | partial | A | neutral_sinners_sacrifice 155 |
 | 47 | Souls per kill | answered | fail | A+B | gold_reward_min 200 / max 2200 over 2400 s |
-| 48 | Breakables / crates | insufficient | fail | A | crate_reward_base 250 +70/min |
+| 48 | Breakables / crates | insufficient | fail | A | BreakableSpawnTimeDesc and breakable reward data; crate_* convars are the Urn, not breakables |
 | 49 | Mid boss respawn | answered | correct | | 420 s |
 | 50 | Urn cash-in bonus | insufficient | fail | A | citadel_idol_* |

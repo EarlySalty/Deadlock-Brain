@@ -10,13 +10,6 @@ $owner$;
 
 SET LOCAL lock_timeout='5000ms';
 
-CREATE INDEX game_rule_key_idx ON canon.alias(alias_norm,entity_id)
-WHERE lang='und' AND alias_norm IN (
-    'mechanic_lane_troopers', 'mechanic_soul_sharing', 'mechanic_denizens', 'mechanic_objectives',
-    'mechanic_mid_boss', 'mechanic_rejuvenator', 'mechanic_hero_kills', 'mechanic_respawn',
-    'mechanic_urn', 'mechanic_breakables', 'mechanic_sinners_sacrifice', 'mechanic_item_tiers',
-    'mechanic_levels', 'mechanic_street_brawl');
-
 CREATE VIEW serve.game_rule AS
 SELECT a.alias_norm AS key,e.id AS entity_id,f.stat_key,
     f.value_text::jsonb->'value' AS value,

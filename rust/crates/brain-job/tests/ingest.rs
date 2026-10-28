@@ -479,5 +479,6 @@ fn cached_hero_source_yields_one_unchanged_original_blob() {
     assert_eq!(raw.path, "data/json/hero-data.json");
     assert_eq!(raw.bytes.len(), 226_182);
     assert_eq!(raw.bytes, expected);
-    assert!(objects.next().is_none());
+    assert!(objects.all(|object| object
+        .is_ok_and(|object| brain_job::mechanics::PATHS.contains(&object.path.as_str()))));
 }

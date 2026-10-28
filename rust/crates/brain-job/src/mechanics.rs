@@ -271,9 +271,15 @@ impl Extractor for MechanicsExtractor {
         if !self.accepts(&raw.source, &raw.path) {
             return Outcome::Ignored;
         }
-        match timer_facts(raw).and_then(|timers| combined(facts(&raw.path, &raw.bytes)?, timers)) {
-            Ok(set) => Outcome::Accepted(set),
-            Err(rejection) => Outcome::Rejected(rejection),
+        let timers = match timer_facts(raw) {
+            Ok(timers) => timers,
+            Err(rejection) => return Outcome::Rejected(rejection),
+        };
+        let rules = facts(&raw.path, &raw.bytes).and_then(|rules| combined(rules, timers.clone()));
+        match (rules, timers) {
+            (Ok(set), _) => Outcome::Accepted(set),
+            (Err(_), Some(timers)) => Outcome::Accepted(timers),
+            (Err(rejection), None) => Outcome::Rejected(rejection),
         }
     }
 }
@@ -517,6 +523,38 @@ mod tests {
             ),
             "true"
         );
+    }
+
+    #[test]
+    fn rule_rejections_keep_the_timer_facts_of_shared_files() {
+        let raw = |bytes: &[u8]| RawObject {
+            id: 1,
+            source: SOURCE.into(),
+            revision: "fixture".into(),
+            path: GENERIC_DATA.into(),
+            content_sha256: Sha256::digest(bytes).into(),
+            bytes: bytes.to_vec(),
+        };
+        let shared = format!(
+            r#"{{"RejuvParams":{{"RejuvinatorBuffDuration":120}},"ItemPricePerTier":[1.{}]}}"#,
+            "1".repeat(limits::TEXT_BYTES + 1)
+        );
+        assert!(facts(GENERIC_DATA, shared.as_bytes()).is_err());
+        let Outcome::Accepted(set) = MechanicsExtractor.extract(&raw(shared.as_bytes())) else {
+            panic!("timer facts must survive a rule rejection");
+        };
+        assert!(set.entities.iter().all(|entity| entity.kind == "timer"));
+        assert!(!set.facts.is_empty());
+        let both = br#"{"RejuvParams":{"RejuvinatorBuffDuration":120}}"#;
+        let Outcome::Accepted(set) = MechanicsExtractor.extract(&raw(both)) else {
+            panic!("shared file must be accepted");
+        };
+        let kinds: BTreeSet<&str> = set
+            .entities
+            .iter()
+            .map(|entity| entity.kind.as_str())
+            .collect();
+        assert_eq!(kinds, BTreeSet::from(["rule", "timer"]));
     }
 
     #[test]

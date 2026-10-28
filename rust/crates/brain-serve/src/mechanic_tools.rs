@@ -4,6 +4,7 @@ use brain_contracts::{
 };
 use serde_json::{json, Value};
 use sqlx::PgConnection;
+use std::collections::BTreeSet;
 
 pub(super) const QUERY: &str = include_str!("mechanic_query.sql");
 const MAX_ROWS: usize = 120;
@@ -28,15 +29,6 @@ pub(super) async fn read(
     connection: &mut PgConnection,
     request: &GetMechanicRequest,
 ) -> Result<Option<Value>, PortError> {
-    if request
-        .patch
-        .as_deref()
-        .is_some_and(|patch| patch != "current")
-    {
-        return Err(PortError::Unavailable(
-            "Für diesen Patch liegen keine belegten Spielregeln vor".into(),
-        ));
-    }
     let key = format!("mechanic_{}", request.mechanic.as_str());
     let rows = sqlx::query_scalar::<_, Value>(QUERY)
         .bind(key)
@@ -53,9 +45,21 @@ fn present(request: &GetMechanicRequest, rows: Vec<Value>) -> Value {
     let derived = derive(request.mechanic, request.minute, &rows);
     let omitted = rows.len().saturating_sub(MAX_ROWS);
     let lower_bound = rows.len() >= QUERY_LIMIT;
+    let inputs: BTreeSet<&str> = derived
+        .iter()
+        .filter_map(|row| row["condition"]["inputs"].as_array())
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    let (used, rest): (Vec<Value>, Vec<Value>) = rows.iter().cloned().partition(|row| {
+        row["stat_key"]
+            .as_str()
+            .is_some_and(|stat| inputs.contains(stat))
+    });
     let facts: Vec<Value> = derived
-        .into_iter()
-        .chain(rows.into_iter().take(MAX_ROWS))
+        .iter()
+        .cloned()
+        .chain(used.into_iter().chain(rest).take(MAX_ROWS))
         .collect();
     json!({
         "mechanic":request.mechanic.as_str(),
@@ -203,7 +207,11 @@ fn lane_troopers(rows: &Rows, minute: u16) -> Vec<Value> {
             souls * ratio,
             source,
             "Sofort beim letzten Treffer = Seelen je Trooper × Sofortanteil; der Rest fällt als Seelenorb",
-            &["derived_trooper_souls_at_minute", instant_key],
+            &[
+                "derived_trooper_souls_at_minute",
+                instant_key,
+                "citadel_trooper_laning_gold_rules_end_time",
+            ],
             json!({"minute":minute}),
         ));
         output.push(row(
@@ -237,7 +245,11 @@ fn lane_troopers(rows: &Rows, minute: u16) -> Vec<Value> {
             seconds,
             source,
             "Abstand zwischen Trooper-Wellen ab der jeweiligen Minutengrenze",
-            &[interval],
+            &[
+                interval,
+                "citadel_trooper_spawn_interval_late_time",
+                "citadel_trooper_spawn_interval_very_late_time",
+            ],
             json!({"minute":minute}),
         ));
     }
