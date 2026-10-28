@@ -12,21 +12,29 @@ SET LOCAL lock_timeout='5000ms';
 
 CREATE VIEW ops.patch_listing AS
 WITH object AS (
-    SELECT o.id,o.path,o.fetched_at,convert_from(o.bytes,'UTF8')::jsonb AS body
+    SELECT o.id,o.path,o.fetched_at,convert_from(o.bytes,'UTF8')::jsonb AS body,
+        r.applied_run IS NOT NULL AS applied,coalesce(r.applied_run,o.ingest_run_id) AS observed_run
     FROM raw.object o
+    LEFT JOIN LATERAL (
+        SELECT max(x.ingest_run_id) AS applied_run FROM canon.receipt x WHERE x.raw_object_id=o.id
+    ) r ON true
     WHERE o.source='deadlock_patchnotes_db' AND o.path ~ '^[1-9][0-9]{0,17}$'
 ), latest AS (
-    SELECT DISTINCT ON (path) path,body FROM object ORDER BY path,fetched_at DESC,id DESC
+    SELECT DISTINCT ON (path) path,body,
+        CASE WHEN pg_input_is_valid(body->>'posted_at','timestamptz')
+            THEN (body->>'posted_at')::timestamptz END AS published_at
+    FROM object
+    WHERE jsonb_typeof(body)='object'
+    ORDER BY path,applied DESC,observed_run DESC,id DESC
 ), first AS (
     SELECT path,min(fetched_at) AS fetched_at FROM object GROUP BY path
 )
 SELECT l.path::bigint AS patch_id,btrim(l.body->>'title') AS label,l.body->>'url' AS url,
-    (l.body->>'posted_at')::timestamptz AS published_at,f.fetched_at AS detected_at
+    l.published_at,f.fetched_at AS detected_at
 FROM latest l
 JOIN first f ON f.path=l.path
-WHERE jsonb_typeof(l.body)='object'
-    AND nullif(btrim(l.body->>'title'),'') IS NOT NULL
-    AND pg_input_is_valid(l.body->>'posted_at','timestamptz');
+WHERE nullif(btrim(l.body->>'title'),'') IS NOT NULL
+    AND isfinite(l.published_at);
 
 CREATE OR REPLACE VIEW ops.patch_freshness AS
 WITH listing AS (

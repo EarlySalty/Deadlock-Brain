@@ -1200,16 +1200,51 @@ async fn mutation_preflight_rejects_table_and_column_grants_without_restricting_
     admin.close().await;
 }
 
+async fn patch_object(
+    store: &crate::gamefacts::GameFactsStore,
+    pool: &sqlx::PgPool,
+    path: &str,
+    title: &str,
+    posted_at: &str,
+    applied: bool,
+) {
+    let run = store.begin_run("deadlock_patchnotes_db").await.unwrap();
+    let body = serde_json::json!({"id": path, "title": title, "url": "u", "posted_at": posted_at});
+    let raw = store
+        .capture(
+            run,
+            "deadlock_patchnotes_db",
+            "r",
+            path,
+            body.to_string().into_bytes(),
+        )
+        .await
+        .unwrap();
+    if applied {
+        receipt_application(pool, raw.id, run, 1).await.unwrap();
+    }
+}
+
 #[tokio::test]
 async fn freshness_views_are_readable_by_ingest() {
     let (_pg, _admin, writer) = preflight_fixture().await;
-    for view in [
-        "ops.patch_listing",
-        "ops.patch_freshness",
-        "ops.game_data_freshness",
-    ] {
+    let store = crate::gamefacts::GameFactsStore::new(writer.pool.clone());
+    let pool = &writer.pool;
+    patch_object(&store, pool, "1", "A", "2026-10-01T00:00:00Z", true).await;
+    patch_object(&store, pool, "1", "B", "2026-10-02T00:00:00Z", true).await;
+    patch_object(&store, pool, "1", "A", "2026-10-01T00:00:00Z", true).await;
+    patch_object(&store, pool, "2", "I", "infinity", true).await;
+    patch_object(&store, pool, "3", "C", "2026-10-03T00:00:00Z", true).await;
+    patch_object(&store, pool, "3", "D", "2026-10-04T00:00:00Z", false).await;
+    let listing: Vec<(i64, String)> =
+        sqlx::query_as("SELECT patch_id,label FROM ops.patch_listing ORDER BY patch_id")
+            .fetch_all(pool)
+            .await
+            .unwrap();
+    assert_eq!(listing, vec![(1, "A".into()), (3, "C".into())]);
+    for view in ["ops.patch_freshness", "ops.game_data_freshness"] {
         sqlx::query(&format!("SELECT * FROM {view}"))
-            .fetch_all(&writer.pool)
+            .fetch_all(pool)
             .await
             .unwrap();
     }
