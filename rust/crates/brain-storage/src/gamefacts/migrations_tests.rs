@@ -21,7 +21,7 @@ fn registry_is_positive_unique_and_ordered_with_gaps() {
         MIGRATIONS.iter().map(|(v, _)| *v).collect::<Vec<_>>(),
         [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 30, 31, 32, 33, 34, 35, 36, 37,
-            38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49
+            38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50
         ]
     );
     assert_eq!(
@@ -1198,6 +1198,21 @@ async fn mutation_preflight_rejects_table_and_column_grants_without_restricting_
     writer.check_gamefacts_schema().await.unwrap();
     writer.pool.close().await;
     admin.close().await;
+}
+
+#[tokio::test]
+async fn freshness_views_are_readable_by_ingest() {
+    let (_pg, _admin, writer) = preflight_fixture().await;
+    for view in [
+        "ops.patch_listing",
+        "ops.patch_freshness",
+        "ops.game_data_freshness",
+    ] {
+        sqlx::query(&format!("SELECT * FROM {view}"))
+            .fetch_all(&writer.pool)
+            .await
+            .unwrap();
+    }
 }
 
 #[tokio::test]
