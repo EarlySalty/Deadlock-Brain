@@ -83,6 +83,7 @@ The central database `deadlock` with schema `brain` is a separate database. It i
 ### How Deadlock-Docs reaches the Brain
 
 - The `deadlock-docs` source of `brain-job` clones `EarlySalty/Deadlock-Docs` and takes the `.html` pages under `public/` and `internal/`. It writes them through the same raw and canon path, and the `serve.doc_page`, `serve.doc_section` and `serve.doc_search_hit` views expose them.
+- Member answers (`bot.public`, `docs.public`) only search pages under `public/`. Pages under `internal/` get scope `internal` and are only returned to the internal second-brain operator identity (`second_brain.internal`, no provider egress); see `scopes()` in `rust/crates/brain-serve/src/docs_tools.rs`.
 - `brain-job@deadlock-docs.timer` runs the import hourly. After a docs merge it can be started at once with `sudo -n systemctl start brain-job@deadlock-docs.service`.
 - The public website corpus (`/docs`) is a separate path: `public-corpus-refresh.timer` deploys the Deadlock-Docs corpus through `deploy_corpus.sh`. It is not the Brain import.
 
