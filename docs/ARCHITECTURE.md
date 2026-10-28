@@ -41,6 +41,7 @@ System units (`systemctl`):
 | `brain-job@assets.timer` | Asset source | hourly |
 | `brain-job@deadlock-api-meta.timer` | Deadlock API meta statistics | hourly |
 | `brain-job@deadlock_patchnotes_db.timer` | Patch notes database | every 5 minutes; drop-in `item-lineage.conf` runs the item-lineage ingest after success |
+| `brain-job@deadlock-docs.timer` | Deadlock-Docs pages (`public/` and `internal/`) | hourly |
 | `brain-job@audit-receipts.timer` | Receipt audit | daily 03:17 |
 
 The template `brain-job@.service` runs `brain-job --config /etc/deadlock-brain/brain-job.json ingest %i` with MemoryMax 512M. The template `brain-job@.timer` is hourly with a 2 minute random delay. `brain-serve.service` has a drop-in `item-lineage.conf`.
@@ -82,7 +83,7 @@ The central database `deadlock` with schema `brain` is a separate database. It i
 ### How Deadlock-Docs reaches the Brain
 
 - The `deadlock-docs` source of `brain-job` clones `EarlySalty/Deadlock-Docs` and takes the `.html` pages under `public/` and `internal/`. It writes them through the same raw and canon path, and the `serve.doc_page`, `serve.doc_section` and `serve.doc_search_hit` views expose them.
-- No live `brain-job@deadlock-docs` timer exists. The import is run by hand with `brain-job --config /etc/deadlock-brain/brain-job.json ingest deadlock-docs`. Whether a schedule should exist is an open item.
+- `brain-job@deadlock-docs.timer` runs the import hourly. After a docs merge it can be started at once with `sudo -n systemctl start brain-job@deadlock-docs.service`.
 - The public website corpus (`/docs`) is a separate path: `public-corpus-refresh.timer` deploys the Deadlock-Docs corpus through `deploy_corpus.sh`. It is not the Brain import.
 
 ## 6. Deploy
@@ -116,6 +117,5 @@ Layout:
 ## 9. Open items
 
 - `dl-brain-feeder.timer` (user) is enabled but failed and references a Python script in the old Deadlock-Bots tree. Owner decides whether to remove it.
-- `brain-job@deadlock-docs` has no timer; the Deadlock-Docs import is manual.
 - The relation between `public-corpus-refresh` and the Brain import is not confirmed.
 - Historical plans under `architecture/` are marked as historical and kept for reference.
