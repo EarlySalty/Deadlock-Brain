@@ -5,6 +5,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::entity_profile::EntityKind;
+#[path = "mechanic.rs"]
+mod mechanic;
 #[path = "meta_stats.rs"]
 mod meta_stats;
 #[path = "timer.rs"]
@@ -13,6 +15,7 @@ use crate::{
     Accounted, AuthorizedContext, Evidence, PortError, PortFailure, ProviderAnswer, Query, Usage,
     UsageAccounting,
 };
+pub use mechanic::{GetMechanicRequest, MechanicKind, MECHANIC_MAX_MINUTE};
 pub use timer::{GetTimerRequest, TimerKind};
 
 #[path = "asset_tools.rs"]
@@ -40,6 +43,7 @@ pub enum ToolName {
     FindEntity,
     GetHero,
     GetMetaStats,
+    GetMechanic,
 }
 
 impl ToolName {
@@ -62,6 +66,7 @@ impl ToolName {
             Self::FindEntity => "find_entity",
             Self::GetHero => "get_hero",
             Self::GetMetaStats => "get_meta_stats",
+            Self::GetMechanic => "get_mechanic",
         }
     }
 }
@@ -544,6 +549,7 @@ pub enum ToolSubrequest {
     FindEntity(FindEntityRequest),
     GetHero(GetHeroRequest),
     GetMetaStats(GetMetaStatsRequest),
+    GetMechanic(GetMechanicRequest),
 }
 
 impl ToolSubrequest {
@@ -575,6 +581,9 @@ impl ToolSubrequest {
                 serde_json::from_value(arguments.clone()).map(Self::ServerKnowledge)
             }
             ToolName::GetTimer => serde_json::from_value(arguments.clone()).map(Self::GetTimer),
+            ToolName::GetMechanic => {
+                serde_json::from_value(arguments.clone()).map(Self::GetMechanic)
+            }
             ToolName::GetItem => serde_json::from_value(arguments.clone()).map(Self::GetItem),
             ToolName::GetAbility => serde_json::from_value(arguments.clone()).map(Self::GetAbility),
             ToolName::Compare => serde_json::from_value(arguments.clone()).map(Self::Compare),
@@ -591,6 +600,7 @@ impl ToolSubrequest {
         match self {
             Self::EntityFind(request) => validate_text(&request.query),
             Self::GetTimer(request) => request.validate(),
+            Self::GetMechanic(request) => request.validate(),
             Self::EntityProfile(request) => {
                 validate_entity(&request.entity)?;
                 validate_fields(&request.fields, true)?;
@@ -1188,6 +1198,7 @@ impl ToolExecution {
             request.name(),
             ToolName::ServerKnowledge
                 | ToolName::GetTimer
+                | ToolName::GetMechanic
                 | ToolName::FindEntity
                 | ToolName::GetHero
                 | ToolName::GetItem
@@ -1230,6 +1241,7 @@ impl ToolExecution {
                 | ToolName::FindEntity
                 | ToolName::GetHero
                 | ToolName::GetTimer
+                | ToolName::GetMechanic
                 | ToolName::GetItem
                 | ToolName::GetAbility
                 | ToolName::Compare
@@ -2521,6 +2533,7 @@ mod tests {
             ToolName::FindEntity,
             ToolName::GetHero,
             ToolName::GetMetaStats,
+            ToolName::GetMechanic,
         ];
         for name in names {
             let encoded = serde_json::to_value(name).unwrap();

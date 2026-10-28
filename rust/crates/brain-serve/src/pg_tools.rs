@@ -1,3 +1,5 @@
+#[path = "mechanic_tools.rs"]
+mod mechanic_tools;
 #[path = "meta_stats_tools.rs"]
 mod meta_stats_tools;
 #[path = "timer_tools.rs"]
@@ -213,6 +215,8 @@ impl<T> PgTools<T> {
                 if hero.patch.as_deref().is_some_and(|patch| patch != "current"))
             || matches!(request.subrequest(), ToolSubrequest::GetTimer(timer)
                 if timer.patch.as_deref().is_some_and(|patch| patch != "current"))
+            || matches!(request.subrequest(), ToolSubrequest::GetMechanic(mechanic)
+                if mechanic.patch.as_deref().is_some_and(|patch| patch != "current"))
         {
             return Ok(error_execution(
                 call_id,
@@ -281,6 +285,13 @@ impl<T> PgTools<T> {
                     let Some(value) = timer_tools::read(&mut connection, timer).await? else {
                         return Ok(error_execution(call_id, request.name(), "timer_not_found",
                             "Für diesen Timer sind keine belegten Werte veröffentlicht."));
+                    };
+                    value
+                }
+                ToolSubrequest::GetMechanic(mechanic) => {
+                    let Some(value) = mechanic_tools::read(&mut connection, mechanic).await? else {
+                        return Ok(error_execution(call_id, request.name(), "mechanic_not_found",
+                            "Für diese Spielmechanik sind keine belegten Werte veröffentlicht."));
                     };
                     value
                 }
@@ -419,7 +430,11 @@ impl<T: ToolExecutionPort> ToolExecutionPort for PgTools<T> {
 pub(super) fn canonical(name: ToolName) -> bool {
     matches!(
         name,
-        ToolName::FindEntity | ToolName::GetHero | ToolName::GetTimer | ToolName::GetMetaStats
+        ToolName::FindEntity
+            | ToolName::GetHero
+            | ToolName::GetTimer
+            | ToolName::GetMechanic
+            | ToolName::GetMetaStats
     ) || crate::pg_asset_tools::canonical(name)
 }
 
@@ -449,6 +464,7 @@ fn definitions() -> Vec<ToolDefinition> {
                 "patch":{"type":"string","minLength":1,"maxLength":128},
                 "sections":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"string","enum":["stats","abilities","weapon"]}}}})},
         timer_tools::definition(),
+        mechanic_tools::definition(),
         meta_stats_tools::definition(),
     ].into_iter().chain(crate::pg_asset_tools::definitions()).collect()
 }

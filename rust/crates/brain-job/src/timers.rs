@@ -33,7 +33,7 @@ impl Extractor for TimerExtractor {
     }
 }
 
-fn facts(raw: &RawObject) -> Result<FactSet, Rejection> {
+pub(crate) fn facts(raw: &RawObject) -> Result<FactSet, Rejection> {
     let values = values::parse(
         &raw.source,
         &raw.path,

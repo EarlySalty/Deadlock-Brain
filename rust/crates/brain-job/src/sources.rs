@@ -44,22 +44,25 @@ fn git(repository: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
     Ok(result.stdout)
 }
 
-fn read_revision(repository: &Path, reference: &str) -> anyhow::Result<InputObject> {
+fn read_revision(repository: &Path, reference: &str) -> anyhow::Result<Vec<InputObject>> {
     let revision = String::from_utf8(git(repository, &["rev-parse", "--verify", reference])?)?;
     let revision = revision.trim().to_owned();
     if ![40, 64].contains(&revision.len()) || !revision.bytes().all(|b| b.is_ascii_hexdigit()) {
         bail!("Ungültige Git-Revision");
     }
-    let path = "data/json/hero-data.json";
-    let bytes = git(repository, &["show", &format!("{revision}:{path}")])?;
-    Ok(InputObject {
-        revision,
-        path: path.to_owned(),
-        bytes,
-    })
+    std::iter::once("data/json/hero-data.json")
+        .chain(crate::mechanics::PATHS.iter().copied())
+        .map(|path| {
+            Ok(InputObject {
+                revision: revision.clone(),
+                path: path.to_owned(),
+                bytes: git(repository, &["show", &format!("{revision}:{path}")])?,
+            })
+        })
+        .collect()
 }
 
-fn refresh(repository: &Path) -> anyhow::Result<InputObject> {
+fn refresh(repository: &Path) -> anyhow::Result<Vec<InputObject>> {
     let parent = repository.parent().context("Quellen-Cache fehlt")?;
     std::fs::create_dir_all(parent)?;
     let lock = OpenOptions::new()
@@ -101,13 +104,15 @@ fn refresh(repository: &Path) -> anyhow::Result<InputObject> {
 
 fn deadlock_data(repository: &Path, fetch: bool) -> InputObjects {
     let repository = repository.to_path_buf();
-    Box::new(std::iter::once_with(move || {
-        if fetch {
-            refresh(&repository)
-        } else {
-            read_revision(&repository, "HEAD^{commit}")
-        }
-    }))
+    let objects = if fetch {
+        refresh(&repository)
+    } else {
+        read_revision(&repository, "HEAD^{commit}")
+    };
+    match objects {
+        Ok(objects) => Box::new(objects.into_iter().map(Ok)),
+        Err(error) => Box::new(std::iter::once(Err(error))),
+    }
 }
 
 pub fn fetch(source: &str, cache: &Path) -> InputObjects {

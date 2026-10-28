@@ -523,7 +523,10 @@ pub fn grounded_turn_payload_with_quality(
                     !result.is_error
                         && matches!(
                             result.name,
-                            ToolName::FindEntity | ToolName::GetHero | ToolName::GetTimer
+                            ToolName::FindEntity
+                                | ToolName::GetHero
+                                | ToolName::GetTimer
+                                | ToolName::GetMechanic
                         )
                 }) {
                     format.push_str(CANONICAL_CITATION_CONTRACT);

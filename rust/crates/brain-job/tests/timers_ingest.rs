@@ -190,7 +190,10 @@ async fn timer_poison_objects_reject_atomically_and_the_real_run_succeeds() {
     assert_eq!(status, "succeeded");
     let stored_counts: (i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM raw.object),(SELECT count(*) FROM canon.fact),(SELECT count(*) FROM canon.receipt)")
         .fetch_one(&admin).await.unwrap();
-    assert_eq!(stored_counts, (3, 2, 4));
+    assert_eq!(stored_counts, (3, 4, 8));
+    let kinds: Vec<(String, i64)> = sqlx::query_as("SELECT e.kind,count(*) FROM canon.fact f JOIN canon.entity e ON e.id=f.entity_id GROUP BY e.kind ORDER BY e.kind")
+        .fetch_all(&admin).await.unwrap();
+    assert_eq!(kinds, [("rule".to_owned(), 2), ("timer".to_owned(), 2)]);
     let repeat = InputObject {
         revision: "unchanged-content-new-revision".into(),
         path: PATH.into(),
@@ -235,6 +238,18 @@ async fn timer_poison_objects_reject_atomically_and_the_real_run_succeeds() {
         .await
         .unwrap();
     assert!(urn.is_empty());
+    let rules: Vec<Value> =
+        sqlx::query_scalar(include_str!("../../brain-serve/src/mechanic_query.sql"))
+            .bind("mechanic_rejuvenator")
+            .fetch_all(&mut *reader)
+            .await
+            .unwrap();
+    assert_eq!(rules.len(), 1);
+    assert_eq!(rules[0]["stat_key"], "rejuvparams_rejuvinatorbuffduration");
+    assert_eq!(rules[0]["value"], "125");
+    assert_eq!(rules[0]["condition"]["source_entity"], "RejuvParams");
+    assert!(rules[0]["citation"].as_str().is_some());
+    assert_eq!(rules[0]["patch"], Value::Null);
     for (wood, expected) in [
         (
             r#", "citadel_breakable_prop_wooden_crate":{"RespawnTime":90}"#,
