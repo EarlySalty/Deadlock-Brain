@@ -65,6 +65,11 @@ pub(super) fn prepare(answer: &mut AnswerResponse, query: &Query, discord: bool)
             format!("Discord ({COACHING_URL})")
         };
         answer.text = answer.text.replace(COACHING_REFERENCE, &destination);
+        answer.text = brain_contracts::discord_task::resolve_channel_references(
+            &answer.text,
+            &answer.citations,
+            discord,
+        );
         if answer.text.len() > brain_contracts::public_api::MAX_PUBLIC_ANSWER_TEXT_BYTES {
             let mut end = brain_contracts::public_api::MAX_PUBLIC_ANSWER_TEXT_BYTES;
             while !answer.text.is_char_boundary(end) {

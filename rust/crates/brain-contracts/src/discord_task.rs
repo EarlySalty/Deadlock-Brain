@@ -115,6 +115,99 @@ impl DiscordContextProjection {
     }
 }
 
+pub const LIVE_SOURCE: &str = "discord.public-live.v1";
+const CHANNEL_REFERENCE_START: &str = "[[kanal-";
+const CHANNEL_REFERENCE_END: &str = "]]";
+const CHANNEL_TARGET_LINE_PREFIXES: [&str; 2] = ["Offene Lane: ", "Join-to-create: "];
+
+pub fn channel_reference(index: usize, channel_id: &str) -> String {
+    format!("{CHANNEL_REFERENCE_START}{index}{CHANNEL_REFERENCE_END}<#{channel_id}>")
+}
+
+pub fn without_channel_references(text: &str) -> String {
+    text.replace("[[", "[")
+}
+
+fn snowflake(value: &str) -> Option<u64> {
+    (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| value.parse::<u64>().ok())
+        .flatten()
+        .filter(|id| *id != 0)
+}
+
+fn line_targets(line: &str) -> Vec<(String, u64)> {
+    if !CHANNEL_TARGET_LINE_PREFIXES
+        .iter()
+        .any(|prefix| line.starts_with(prefix))
+    {
+        return Vec::new();
+    }
+    line.split(CHANNEL_REFERENCE_START)
+        .skip(1)
+        .filter_map(|part| {
+            let (index, rest) = part.split_once(CHANNEL_REFERENCE_END)?;
+            let index = index.parse::<usize>().ok()?;
+            let (channel, _) = rest.strip_prefix("<#")?.split_once('>')?;
+            Some((
+                format!("{CHANNEL_REFERENCE_START}{index}{CHANNEL_REFERENCE_END}"),
+                snowflake(channel)?,
+            ))
+        })
+        .collect()
+}
+
+fn channel_targets(
+    citations: &[crate::Evidence],
+) -> std::collections::BTreeMap<String, (u64, u64)> {
+    let mut targets = std::collections::BTreeMap::new();
+    for item in citations.iter().filter(|item| {
+        item.source_id == LIVE_SOURCE && item.visibility == crate::SourceVisibility::RequestScoped
+    }) {
+        let Some(guild) = item
+            .logical_id
+            .strip_prefix("discord-guild:")
+            .and_then(snowflake)
+        else {
+            continue;
+        };
+        for (reference, channel) in item.content.lines().flat_map(line_targets) {
+            targets.insert(reference, (guild, channel));
+        }
+    }
+    targets
+}
+
+pub fn resolve_channel_references(
+    text: &str,
+    citations: &[crate::Evidence],
+    discord: bool,
+) -> String {
+    let targets = channel_targets(citations);
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(CHANNEL_REFERENCE_START) {
+        out.push_str(&rest[..start]);
+        let tail = &rest[start..];
+        let Some(end) = tail
+            .find(CHANNEL_REFERENCE_END)
+            .map(|end| end + CHANNEL_REFERENCE_END.len())
+        else {
+            rest = "";
+            break;
+        };
+        if let Some((guild, channel)) = targets.get(&tail[..end]) {
+            if discord {
+                out.push_str(&format!("<#{channel}>"));
+            } else {
+                out.push_str(&format!("https://discord.com/channels/{guild}/{channel}"));
+            }
+        }
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 pub trait DiscordContextResolver: Send + Sync {
     fn resolve(
         &self,
@@ -199,5 +292,54 @@ mod tests {
             " hat 500 HP, ID "
         );
         assert_eq!(without_platform_ids("123456789012345"), "");
+    }
+
+    fn live(content: &str, visibility: crate::SourceVisibility) -> crate::Evidence {
+        crate::Evidence {
+            evidence_id: "discord-live-fixture".into(),
+            source_id: LIVE_SOURCE.into(),
+            logical_id: "discord-guild:1289721245281292288".into(),
+            revision: 1,
+            kind: crate::EvidenceKind::Prose,
+            content: content.into(),
+            citation: "https://discord.com/channels/1289721245281292288".into(),
+            visibility,
+            allowed_scopes: std::collections::BTreeSet::from(["discord.request:unbound".into()]),
+            score: 1.0,
+            provenance: None,
+            patch: None,
+        }
+    }
+
+    #[test]
+    fn lane_references_resolve_only_from_cited_live_lane_lines() {
+        let lane = format!(
+            "Offene Lane: Chill Lane 1, Art casual, 4 anwesend, Beitritt {}.\nJoin-to-create: Sprachkanal erstellen, Beitritt {}.\nNachricht in allgemein: [kanal-3]]<#1>",
+            channel_reference(1, "1564951126942687252"),
+            channel_reference(2, "1513468587195633674")
+        );
+        assert_eq!(
+            without_platform_ids(&lane).lines().next(),
+            Some("Offene Lane: Chill Lane 1, Art casual, 4 anwesend, Beitritt [[kanal-1]].")
+        );
+        let cited = [live(&lane, crate::SourceVisibility::RequestScoped)];
+        let text = "Komm in Chill Lane 1 [[kanal-1]] oder mach dir eine: [[kanal-2]] [[kanal-3]] [[kanal-9]] [[kanal-";
+        assert_eq!(
+            resolve_channel_references(text, &cited, true),
+            "Komm in Chill Lane 1 <#1564951126942687252> oder mach dir eine: <#1513468587195633674>   "
+        );
+        assert_eq!(
+            resolve_channel_references("Hier: [[kanal-1]]", &cited, false),
+            "Hier: https://discord.com/channels/1289721245281292288/1564951126942687252"
+        );
+        let public = [live(&lane, crate::SourceVisibility::Public)];
+        assert_eq!(
+            resolve_channel_references("Hier: [[kanal-1]]", &public, true),
+            "Hier: "
+        );
+        assert_eq!(
+            without_channel_references("Topic [[kanal-1]]<#2>"),
+            "Topic [kanal-1]]<#2>"
+        );
     }
 }

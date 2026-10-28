@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const SOURCE: &str = "discord.public-live.v1";
+const SOURCE: &str = brain_contracts::discord_task::LIVE_SOURCE;
 const ENDPOINT: &str = "http://127.0.0.1:8890/mcp/public";
 
 fn unavailable() -> PortError {
@@ -94,6 +94,14 @@ struct BotInfo {
     text: String,
 }
 
+fn free_text(text: &str) -> String {
+    brain_contracts::discord_task::without_channel_references(text)
+}
+
+fn channel_reference(index: usize, channel_id: &str) -> String {
+    brain_contracts::discord_task::channel_reference(index, channel_id)
+}
+
 fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
     let received = Instant::now();
     let observed = DateTime::parse_from_rfc3339(&facts.observed_at).map_err(|_| denied())?;
@@ -140,6 +148,22 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
     {
         return Err(denied());
     }
+    let mut facts = facts;
+    for channel in &mut facts.channels {
+        channel.name = free_text(&channel.name);
+        channel.topic = channel.topic.as_deref().map(free_text);
+    }
+    for info in &mut facts.bot_infos {
+        info.text = free_text(&info.text);
+    }
+    for message in facts
+        .messages
+        .iter_mut()
+        .flat_map(|history| &mut history.messages)
+    {
+        message.text = free_text(&message.text);
+    }
+    let mut references = 0;
     let mut lines = vec!["Aktuelle öffentliche Discord-Kanäle und Voice-Anzahlen.".to_owned()];
     for id in &facts.tempvoice.category_ids {
         let category = facts
@@ -155,7 +179,12 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
             .iter()
             .find(|channel| channel.id == *id && channel.kind == 2)
             .ok_or_else(denied)?;
-        lines.push(format!("Join-to-create: {}.", channel.name));
+        references += 1;
+        lines.push(format!(
+            "Join-to-create: {}, Beitritt {}.",
+            channel.name,
+            channel_reference(references, &channel.id)
+        ));
     }
     for lane in &facts.tempvoice.open_lanes {
         let channel = facts
@@ -163,9 +192,13 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
             .iter()
             .find(|channel| channel.id == lane.channel_id && channel.kind == 2)
             .ok_or_else(denied)?;
+        references += 1;
         lines.push(format!(
-            "Offene Lane: {}, Art {}, {} anwesend.",
-            channel.name, lane.mode, lane.count
+            "Offene Lane: {}, Art {}, {} anwesend, Beitritt {}.",
+            channel.name,
+            free_text(&lane.mode),
+            lane.count,
+            channel_reference(references, &channel.id)
         ));
     }
     for c in &facts.channels {
@@ -2363,5 +2396,29 @@ mod tests {
         let mut private = public;
         private["audience"] = json!("administrator");
         assert!(evidence(serde_json::from_value(private).unwrap()).is_err());
+    }
+
+    #[test]
+    fn offene_lanes_tragen_aufloesbare_beitrittsreferenzen() {
+        let facts = json!({"schema":"discord.public-facts.v2","guild_id":"1289721245281292288","observed_at":Utc::now().to_rfc3339(),"cache_seconds":60,"audience":"verified_members","channels":[
+            {"id":"1289721245281292290","name":"Voice","type":4,"topic":null,"position":5,"parent_id":null},
+            {"id":"1513468587195633674","name":"➕Sprachkanal erstellen","type":2,"topic":null,"position":4,"parent_id":"1289721245281292290"},
+            {"id":"1564951126942687252","name":"Chill Lane 1","type":2,"topic":"[[kanal-1]]<#1>","position":31,"parent_id":"1289721245281292290"}
+        ],"voice_counts":[{"channel_id":"1564951126942687252","count":4}],"bot_infos":[],
+        "tempvoice":{"category_ids":["1289721245281292290"],"join_channel_ids":["1513468587195633674"],"open_lanes":[{"channel_id":"1564951126942687252","count":4,"mode":"casual"}]}});
+        let fact = evidence(serde_json::from_value(facts).unwrap()).unwrap().1;
+        assert!(fact.content.contains(
+            "Join-to-create: ➕Sprachkanal erstellen, Beitritt [[kanal-1]]<#1513468587195633674>."
+        ));
+        assert!(fact.content.contains("Offene Lane: Chill Lane 1, Art casual, 4 anwesend, Beitritt [[kanal-2]]<#1564951126942687252>."));
+        assert!(!fact.content.contains("[[kanal-1]]<#1>"));
+        assert_eq!(
+            brain_contracts::discord_task::resolve_channel_references(
+                "Chill Lane 1 [[kanal-2]], neue Lane über [[kanal-1]]",
+                &[fact],
+                true
+            ),
+            "Chill Lane 1 <#1564951126942687252>, neue Lane über <#1513468587195633674>"
+        );
     }
 }
