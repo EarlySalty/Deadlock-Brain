@@ -133,12 +133,12 @@ Result after: **30 of 50 correct**, 8 partial, 12 failed (was 9 / 4 / 37).
 
 Changes: get_mechanic derives reference minutes 0/10/20/30 when no minute is given (lane_troopers only minute 0 to stay inside one tool result), hero kill bounty over game time, urn first spawn and respawn in minutes, wave instant/orb split per trooper and per whole wave, condition.meaning for urn, idol and deny rows, card ordering keeps English description and tier texts, hero extractor v4 serves LevelScaling as boon_* facts (340 facts, 67 heroes), tool pool sized from postgres.max_connections (brain_readonly limit 17). Method: all 50 questions one at a time through `ask.sh` after deploy and one `brain-job@deadlock-data` ingest. Raw answers in `round2.jsonl`.
 
-Result: **38 of 50 correct**, 7 partial, 5 failed (round 1: 30 / 8 / 12).
+Result: **36 of 50 correct**, 9 partial, 5 failed (round 1: 30 / 8 / 12).
 
 | # | Question | Status | Verdict | Class | Note |
 |---|---|---|---|---|---|
 | 1 | Souls Trooper wave min 16 | answered | correct | | 132 per trooper, 528 per wave, 264 instant / 264 orb per wave |
-| 2 | Souls einzelner Trooper Anfang | answered | correct | | 100, 50 instant / 50 orb |
+| 2 | Souls einzelner Trooper Anfang | answered | partial | E | 100, 50 instant / 50 orb right; claims +2/min starts after minute 8 (laning_gold_rules_end_time), formula applies it from minute 0 |
 | 3 | Trooper pro Welle | answered | correct | | 4 |
 | 4 | Prozent ohne Orb | answered | correct | | 0.5 |
 | 5 | Denien | answered | correct | | denier 100 %, denied 0, 50 per trooper at minute 0 |
@@ -155,7 +155,7 @@ Result: **38 of 50 correct**, 7 partial, 5 failed (round 1: 30 / 8 / 12).
 | 16 | Mid boss spawn | answered | correct | | |
 | 17 | Rejuvenator gives | answered | correct | | |
 | 18 | Rejuvenator duration | answered | correct | | 180 s |
-| 19 | Urn | answered | correct | | 10 min first spawn, every 5 min, 250 + 70/min |
+| 19 | Urn | answered | partial | E | 10 min first spawn, every 5 min, 250 + 70/min right; calls delivery_overtime_bonus 50 an unconditional bonus |
 | 20 | Urn first spawn | answered | correct | | 600 s |
 | 21 | Respawn min 20 | answered | correct | | 38 s |
 | 22 | Respawn Anfang | answered | partial | B | "zwischen 8 und 38": min and max ramps are derived as two curves; source has no semantics for min/max ramp |
