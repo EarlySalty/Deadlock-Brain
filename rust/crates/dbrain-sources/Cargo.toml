@@ -16,7 +16,6 @@ tokio-tungstenite = "0.28"
 brain-contracts = { path = "../brain-contracts" }
 brain-storage = { path = "../brain-storage" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }
-dbrain-s12-wiki-probe = { path = "../dbrain-wiki" }
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 regex.workspace = true
 reqwest.workspace = true

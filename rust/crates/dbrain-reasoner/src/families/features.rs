@@ -293,7 +293,7 @@ pub(super) fn core_centroid(members: &[usize], values: &[Features]) -> Features 
         }
     }
     center.roots.retain(|id, _| {
-        counts[id] as f64 / members.len() as f64 >= dbrain_population::STAPLE_THRESHOLD
+        counts[id] as f64 / members.len() as f64 >= crate::population_index::STAPLE_THRESHOLD
     });
     center
 }

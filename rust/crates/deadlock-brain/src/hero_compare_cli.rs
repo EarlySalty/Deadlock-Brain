@@ -1,11 +1,11 @@
 use anyhow::{ensure, Context, Result};
+use brain_compare::{
+    compare_artifact::publish_compare_artifact,
+    hero_curve_release::{prepare_release_hero_curve, ReleaseCurveVerifier},
+};
 use brain_contracts::{
     postgres::Postgres, CorpusSnapshot, DocumentHead, DocumentRevision, PortError, Principal,
     SnapshotReadPort,
-};
-use brain_maintenance::{
-    compare_artifact::publish_compare_artifact,
-    hero_curve_release::{prepare_release_hero_curve, ReleaseCurveVerifier},
 };
 use brain_storage::{
     compare_artifact::{ComparePublication, CompareStage},

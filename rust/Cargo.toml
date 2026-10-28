@@ -6,11 +6,8 @@ members = [
   "crates/brain-storage",
   "crates/brain-ingestion",
   "crates/brain-job",
-  "crates/brain-legacy-import",
   "crates/brain-feeds",
   "crates/brain-providers",
-  "crates/brain-jev",
-  "crates/brain-maintenance",
   "crates/brain-compare",
   "crates/brain-kernel",
   "crates/brain-api",
@@ -18,20 +15,13 @@ members = [
   "crates/brain-client",
   "crates/deadlock-brain",
   "crates/deadlock-brain-core",
-  "crates/deadlock-brain-yt",
-  "crates/dbrain-enrich",
   "crates/dbrain-builds",
-  "crates/dbrain-learn",
   "crates/dbrain-normalize",
-  "crates/dbrain-population",
   "crates/dbrain-retrieval",
   "crates/dbrain-reasoner",
   "crates/dbrain-sources",
-  "crates/dbrain-wiki",
-  "crates/dbrain-session-store",
   "crates/brain-eval",
 ]
-exclude = ["crates/dbrain-replay"]
 
 [workspace.package]
 version = "0.1.0"

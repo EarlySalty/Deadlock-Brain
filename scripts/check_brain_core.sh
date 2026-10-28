@@ -89,7 +89,7 @@ case "$MODE" in
     ;;
   core)
     run_check core "$CARGO" +1.97.1 test --locked --offline --jobs 1 --target-dir "$TARGET_DIR" -p brain-contracts -p brain-policy -p brain-storage -p brain-ingestion \
-      -p brain-providers -p brain-jev -p brain-kernel -p brain-api -p brain-client -p dbrain-retrieval -p dbrain-reasoner
+      -p brain-providers -p brain-kernel -p brain-api -p brain-client -p dbrain-retrieval -p dbrain-reasoner
     ;;
   release)
     run_check release "$CARGO" +1.97.1 build --workspace --release --locked --offline --jobs 1 --target-dir "$TARGET_DIR"

@@ -65,7 +65,7 @@ impl fmt::Debug for Settings {
 pub fn repo_root() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     for ancestor in manifest_dir.ancestors() {
-        if ancestor.join("data").is_dir() && ancestor.join("src/deadlock_brain").is_dir() {
+        if ancestor.join("data").is_dir() && ancestor.join("rust/Cargo.toml").is_file() {
             return ancestor.to_path_buf();
         }
     }

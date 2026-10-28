@@ -135,7 +135,7 @@ pub(super) fn summarize(
                     .count();
                 (observed > 0).then(|| *sales.get(id).unwrap_or(&0) as f64 / observed as f64)
             },
-            staple: *count as f64 / n as f64 >= dbrain_population::STAPLE_THRESHOLD,
+            staple: *count as f64 / n as f64 >= crate::population_index::STAPLE_THRESHOLD,
         })
         .collect::<Vec<_>>();
     let mut pair_evidence = pairs

@@ -8,7 +8,6 @@ pub use deadlock_brain_core as core;
 pub mod analytics_runtime;
 pub mod assets_api;
 pub mod deadlock_api;
-pub mod deadlock_data;
 pub mod entity_binding;
 pub mod error;
 pub mod external;
@@ -24,14 +23,10 @@ pub mod patchnotes_db;
 pub mod reddit;
 pub mod schema_signal;
 pub mod schema_watch;
-pub mod source_pins;
 pub mod statlocker;
-pub mod wiki_inventory;
-pub use dbrain_s12_wiki_probe::{capture as wiki_capture, knowledge as wiki_knowledge};
 pub mod wiki;
-pub mod wiki_capture_io;
 pub mod wiki_corpus;
-pub mod wiki_runtime;
+pub mod wiki_inventory;
 
 mod store;
 #[cfg(test)]
@@ -53,7 +48,6 @@ pub use deadlock_api::{
     DemoJobStatus, DemoQuery, PullDemoEvidenceOptions, PullMatchMetadataOptions,
     PullPlayerMatchHistoryOptions, DEMO_QUERY_VERSION,
 };
-pub use deadlock_data::{pull_deadlock_data, PullDeadlockDataOptions};
 pub use error::{Result, SourcesError};
 pub use forum::{pull_forum, PullForumOptions};
 pub use google_sheet::{

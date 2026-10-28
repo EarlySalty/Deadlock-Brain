@@ -30,8 +30,6 @@ mod pg_steam_news;
 #[path = "bin/site/mod.rs"]
 mod site;
 mod steam_web_api;
-mod wiki_refresh;
-
 #[derive(Debug, Args)]
 struct SiteMigrationArgs {
     #[command(flatten)]
@@ -87,18 +85,11 @@ enum Commands {
     PublishBuildQuery(ReviewBuildArgs),
     #[command(about = "Fuehrt lokale Datenqualitaetschecks aus.")]
     Quality(PrettyArgs),
-    #[command(about = "Erzeugt und pflegt die lokale Game-Wiki-Wissensschicht.")]
-    Wiki {
-        #[command(subcommand)]
-        target: WikiCommands,
-    },
     #[command(about = "Erzeugt mechanisch begründete Reasoner-Builds und Backtests.")]
     Reason {
         #[command(subcommand)]
         target: ReasonCommands,
     },
-    #[command(about = "Lädt Populationsdaten, baut Aggregate und zeigt Held-Baselines.")]
-    Population(dbrain_population::PopulationArgs),
     #[command(about = "Zeigt Rename-/Rework-Beziehungen aus Patchnotes.")]
     Lineage(LineageArgs),
     #[command(about = "Zeigt alte/entfernte Entities aus Patchnotes.")]
@@ -107,10 +98,6 @@ enum Commands {
         about = "Sucht Entities nach Typ/Name in der zentralen Postgres (brain.entities + brain.entity_aliases)."
     )]
     Entities(EntitiesArgs),
-    #[command(
-        about = "Erzeugt einen erklaerbaren Hero-Build-Vorschlag aus API-/Sheet-/Patchdaten."
-    )]
-    Build(BuildArgs),
     #[command(name = "build-context")]
     BuildContext(BuildContextArgs),
     #[command(name = "build-eval")]
@@ -122,16 +109,6 @@ enum Commands {
     BuildSpec(BuildSpecArgs),
     #[command(about = "Zeigt strukturierte Item-Daten aus der Deadlock Assets API.")]
     Item(ItemArgs),
-    #[command(about = "Importiert und analysiert Build-Trainingsdaten.")]
-    Learn {
-        #[command(subcommand)]
-        target: LearnCommands,
-    },
-    #[command(about = "Importiert und analysiert Player-Matches als Entscheidungs-Training.")]
-    Player {
-        #[command(subcommand)]
-        target: PlayerCommands,
-    },
     #[command(about = "Speichert oder listet persistente Analyse-Kontexte.")]
     Analysis {
         #[command(subcommand)]
@@ -155,11 +132,6 @@ enum Commands {
     Parse {
         #[command(subcommand)]
         target: ParseCommands,
-    },
-    #[command(about = "Reichert strukturierte Daten an.")]
-    Enrich {
-        #[command(subcommand)]
-        target: EnrichCommands,
     },
     #[command(
         name = "pg",
@@ -304,17 +276,6 @@ struct PublishConnectionArgs {
 }
 
 #[derive(Debug, Subcommand)]
-enum WikiCommands {
-    #[command(
-        name = "rebuild",
-        about = "Erzeugt game-wiki/ aus Deadlock-Data-Snapshots neu."
-    )]
-    Rebuild(WikiRebuildArgs),
-    #[command(about = "Aktualisiert Quellen und veröffentlicht einen geprüften Wiki-Snapshot.")]
-    Refresh(wiki_refresh::RefreshArgs),
-}
-
-#[derive(Debug, Subcommand)]
 enum ReasonCommands {
     #[command(name = "build", about = "Baut einen Reasoner-Build für einen Helden.")]
     Build(ReasonBuildArgs),
@@ -409,16 +370,6 @@ struct ReasonBacktestArgs {
 }
 
 #[derive(Debug, Args)]
-struct WikiRebuildArgs {
-    #[arg(
-        long,
-        value_name = "PATH",
-        help = "Zielverzeichnis, default repo-root/game-wiki."
-    )]
-    dir: Option<PathBuf>,
-}
-
-#[derive(Debug, Args)]
 struct LineageArgs {
     #[arg(help = "Optionaler Hero, Item, Ability oder alter Name.")]
     query: Option<String>,
@@ -436,16 +387,6 @@ struct LegacyArgs {
     pretty: bool,
     #[arg(long, default_value_t = 50)]
     limit: usize,
-}
-
-#[derive(Debug, Args)]
-struct BuildArgs {
-    #[arg(help = "Hero-Name.")]
-    query: String,
-    #[arg(long = "limit-events", default_value_t = 80)]
-    limit_events: usize,
-    #[arg(long, help = "Kompakter menschenlesbarer Output statt JSON.")]
-    pretty: bool,
 }
 
 #[derive(Debug, Args)]
@@ -478,261 +419,6 @@ struct ItemArgs {
     #[arg(help = "Item-Name.")]
     query: String,
     #[arg(long, help = "Kompakter menschenlesbarer Output statt JSON.")]
-    pretty: bool,
-}
-
-#[derive(Debug, Subcommand)]
-enum LearnCommands {
-    #[command(
-        name = "import-steam-builds",
-        about = "Importiert GC/Steam Hero-Builds aus der Steam-Bot-DB."
-    )]
-    ImportSteamBuilds(ImportSteamBuildsArgs),
-    #[command(name = "list-builds", about = "Listet importierte Trainings-Builds.")]
-    ListBuilds(ListBuildsArgs),
-    #[command(
-        name = "analyze-build",
-        about = "Laesst Fireworks/DeepSeek einen importierten Build als Trainingsbeispiel analysieren."
-    )]
-    AnalyzeBuild(AnalyzeBuildArgs),
-    #[command(
-        name = "analyze-next",
-        about = "Analysiert automatisch die naechsten noch offenen Trainings-Builds."
-    )]
-    AnalyzeNext(AnalyzeNextBuildsArgs),
-}
-
-#[derive(Debug, Args)]
-struct ImportSteamBuildsArgs {
-    #[arg(long, help = "Optional nur ein Hero.")]
-    hero: Option<String>,
-    #[arg(
-        long,
-        default_value_t = 0,
-        help = "Steam Build-Sprache, default Englisch=0."
-    )]
-    language: i64,
-    #[arg(long = "limit-per-hero", default_value_t = 10)]
-    limit_per_hero: usize,
-    #[arg(long)]
-    pretty: bool,
-}
-
-#[derive(Debug, Args)]
-struct ListBuildsArgs {
-    #[arg(long)]
-    hero: Option<String>,
-    #[arg(long, default_value_t = 25)]
-    limit: usize,
-    #[arg(long)]
-    pretty: bool,
-}
-
-#[derive(Debug, Args)]
-struct AnalyzeBuildArgs {
-    #[arg(help = "ID aus learned_builds.")]
-    build_id: i64,
-    #[arg(long)]
-    model: Option<String>,
-    #[arg(long = "max-completion-tokens")]
-    max_completion_tokens: Option<u64>,
-    #[arg(long)]
-    temperature: Option<f64>,
-    #[arg(long = "top-p")]
-    top_p: Option<f64>,
-    #[arg(long = "dry-run")]
-    dry_run: bool,
-    #[arg(long)]
-    pretty: bool,
-}
-
-#[derive(Debug, Args)]
-struct AnalyzeNextBuildsArgs {
-    #[arg(long, help = "Optional nur ein Hero.")]
-    hero: Option<String>,
-    #[arg(long, default_value_t = 5)]
-    limit: usize,
-    #[arg(long)]
-    model: Option<String>,
-    #[arg(long = "max-completion-tokens")]
-    max_completion_tokens: Option<u64>,
-    #[arg(long)]
-    temperature: Option<f64>,
-    #[arg(long = "top-p")]
-    top_p: Option<f64>,
-    #[arg(long = "dry-run")]
-    dry_run: bool,
-    #[arg(long = "delay-seconds", default_value_t = 2.0)]
-    delay_seconds: f64,
-    #[arg(long)]
-    pretty: bool,
-}
-
-#[derive(Debug, Subcommand)]
-enum PlayerCommands {
-    #[command(
-        name = "list-matches",
-        about = "Listet importierte Statlocker Player-Matches."
-    )]
-    ListMatches(PlayerListMatchesArgs),
-    #[command(
-        name = "match-context",
-        about = "Baut einen modell-tauglichen Player-Match-Kontext ohne Aufruf."
-    )]
-    MatchContext(PlayerMatchContextArgs),
-    #[command(
-        name = "analyze-match",
-        about = "Laesst Fireworks/DeepSeek ein Player-Match als Entscheidungsbeispiel analysieren."
-    )]
-    AnalyzeMatch(PlayerAnalyzeMatchArgs),
-    #[command(
-        name = "analyze-demo-match",
-        about = "Erstellt einen evidenzgebundenen Vollreport aus gespeicherter Demo-Evidenz."
-    )]
-    AnalyzeDemoMatch(PlayerAnalyzeDemoMatchArgs),
-    #[command(
-        name = "review-demo-report",
-        about = "Speichert ein menschliches Review fuer einen Demo-Vollreport."
-    )]
-    ReviewDemoReport(PlayerReviewDemoReportArgs),
-    #[command(
-        name = "demo-calibration-status",
-        about = "Zeigt den Review- und Kalibrierungsstand eines Spielers."
-    )]
-    DemoCalibrationStatus(PlayerDemoCalibrationStatusArgs),
-    #[command(
-        name = "analyze-next",
-        about = "Analysiert automatisch die naechsten offenen Player-Matches."
-    )]
-    AnalyzeNext(PlayerAnalyzeNextArgs),
-    #[command(
-        name = "sync-matches",
-        about = "Synchronisiert die Match-History eines Spielers aus der Deadlock API."
-    )]
-    SyncMatches(PlayerSyncMatchesArgs),
-    #[command(
-        name = "fetch-demo",
-        about = "Laedt versionierte Match-Evidenz aus einer Deadlock-Demo."
-    )]
-    FetchDemo(PlayerFetchDemoArgs),
-}
-
-#[derive(Debug, Args)]
-struct PlayerListMatchesArgs {
-    #[arg(long = "account-id")]
-    account_id: Option<String>,
-    #[arg(long, default_value_t = 25)]
-    limit: usize,
-    #[arg(long)]
-    pretty: bool,
-}
-
-#[derive(Debug, Args)]
-struct PlayerMatchContextArgs {
-    account_id: String,
-    match_id: String,
-    #[arg(long)]
-    pretty: bool,
-}
-
-#[derive(Debug, Args)]
-struct PlayerAnalyzeMatchArgs {
-    account_id: String,
-    match_id: String,
-    #[arg(long)]
-    model: Option<String>,
-    #[arg(long = "max-completion-tokens")]
-    max_completion_tokens: Option<u64>,
-    #[arg(long)]
-    temperature: Option<f64>,
-    #[arg(long = "top-p")]
-    top_p: Option<f64>,
-    #[arg(long = "dry-run")]
-    dry_run: bool,
-    #[arg(long)]
-    pretty: bool,
-}
-
-#[derive(Debug, Args)]
-struct PlayerAnalyzeDemoMatchArgs {
-    account_id: String,
-    match_id: String,
-    #[arg(long)]
-    model: Option<String>,
-    #[arg(long = "max-completion-tokens")]
-    max_completion_tokens: Option<u64>,
-    #[arg(long)]
-    temperature: Option<f64>,
-    #[arg(long = "top-p")]
-    top_p: Option<f64>,
-    #[arg(long = "dry-run")]
-    dry_run: bool,
-    #[arg(long)]
-    pretty: bool,
-}
-
-#[derive(Debug, Args)]
-struct PlayerReviewDemoReportArgs {
-    note_id: i64,
-    #[arg(long)]
-    file: PathBuf,
-    #[arg(long)]
-    pretty: bool,
-}
-
-#[derive(Debug, Args)]
-struct PlayerDemoCalibrationStatusArgs {
-    account_id: String,
-    #[arg(long)]
-    pretty: bool,
-}
-
-#[derive(Debug, Args)]
-struct PlayerAnalyzeNextArgs {
-    #[arg(long = "account-id")]
-    account_id: Option<String>,
-    #[arg(long, default_value_t = 5)]
-    limit: usize,
-    #[arg(long)]
-    model: Option<String>,
-    #[arg(long = "max-completion-tokens")]
-    max_completion_tokens: Option<u64>,
-    #[arg(long)]
-    temperature: Option<f64>,
-    #[arg(long = "top-p")]
-    top_p: Option<f64>,
-    #[arg(long = "dry-run")]
-    dry_run: bool,
-    #[arg(long = "delay-seconds", default_value_t = 2.0)]
-    delay_seconds: f64,
-    #[arg(long)]
-    pretty: bool,
-}
-
-#[derive(Debug, Args)]
-struct PlayerSyncMatchesArgs {
-    account_id: String,
-    #[arg(long = "hero-id", default_value_t = 18)]
-    hero_id: u32,
-    #[arg(long = "cache-ttl-seconds", default_value_t = 21_600)]
-    cache_ttl_seconds: u64,
-    #[arg(long)]
-    pretty: bool,
-}
-
-#[derive(Debug, Args)]
-struct PlayerFetchDemoArgs {
-    account_id: String,
-    match_id: String,
-    #[arg(long = "hero-id", default_value_t = 18)]
-    hero_id: u32,
-    #[arg(long = "steam-id64", default_value_t = 76561198242034120)]
-    steam_id64: u64,
-    #[arg(long = "poll-interval-seconds", default_value_t = 5)]
-    poll_interval_seconds: u64,
-    #[arg(long = "timeout-seconds", default_value_t = 900)]
-    timeout_seconds: u64,
-    #[arg(long)]
     pretty: bool,
 }
 
@@ -806,11 +492,6 @@ struct AnalysisListArgs {
 enum PullCommands {
     #[command(about = "Zieht Deadlock Assets API Daten.")]
     Assets(PullAssetsArgs),
-    #[command(
-        name = "deadlock-data",
-        about = "Zieht trusted deadlock-data aus GitHub."
-    )]
-    DeadlockData(PullDeadlockDataArgs),
     #[command(name = "build-data")]
     BuildData(PullBuildDataArgs),
     #[command(about = "Importiert bestehende Patchnotes aus der zentralen Bot-DB.")]
@@ -849,81 +530,6 @@ struct PullAssetsArgs {
         help = "Datenverzeichnis; sonst gemeinsame Konfiguration, standardmäßig /home/nathanael/.local/share/deadlock-brain."
     )]
     data_dir: Option<PathBuf>,
-}
-
-#[derive(Debug, Args)]
-struct PullDeadlockDataArgs {
-    #[arg(
-        long = "repo-dir",
-        help = "Lokaler Cache. Standard: data/external/deadlock-data."
-    )]
-    repo_dir: Option<PathBuf>,
-    #[arg(long, help = "Vollständiger Commitpin. Benötigt Parserrevision.")]
-    commit: Option<String>,
-    #[arg(
-        long = "no-git-update",
-        help = "Kompatibilitätsflag; Gitimporte lesen grundsätzlich nur lokal gepinnte Objekte."
-    )]
-    no_git_update: bool,
-    #[arg(
-        long,
-        help = "Versionierte JSON-Quellenpins. Keine Pin-Overrides bei Configdatei."
-    )]
-    source_config: Option<PathBuf>,
-    #[arg(
-        long,
-        help = "Nur lokale Pin-Konfiguration prüfen; keine Datenbank und keine Writes."
-    )]
-    check_config: bool,
-    #[arg(long, help = "Explizite Parserrevision.")]
-    parser_revision: Option<String>,
-    #[arg(skip)]
-    resolved: Option<Box<dbrain_sources::PullDeadlockDataOptions>>,
-}
-
-impl PullDeadlockDataArgs {
-    fn resolve(&self, settings: &Settings) -> Result<dbrain_sources::PullDeadlockDataOptions> {
-        if [
-            "DBRAIN_SOURCE_PINS_CONFIG",
-            "DBRAIN_DEADLOCK_DATA_COMMIT",
-            "DBRAIN_DEADLOCK_DATA_PARSER_REVISION",
-        ]
-        .iter()
-        .any(|name| std::env::var_os(name).is_some())
-        {
-            anyhow::bail!("environment pin overrides are unsupported; use explicit --source-config or CLI pins");
-        }
-        let source_config = self.source_config.clone();
-        let pin = if let Some(path) = source_config {
-            if self.commit.is_some() || self.parser_revision.is_some() {
-                anyhow::bail!("source-config cannot be combined with CLI pin overrides; edit the explicit configuration instead");
-            }
-            dbrain_sources::source_pins::SourcePins::read(&path)?.deadlock_data
-        } else {
-            dbrain_sources::source_pins::DeadlockDataPin {
-                commit: self.commit.clone().context(
-                    "deadlock-data requires --source-config or --commit; never implicit HEAD",
-                )?,
-                parser_revision: self
-                    .parser_revision
-                    .clone()
-                    .context("deadlock-data requires --parser-revision")?,
-                schema_version: None,
-                data_version: None,
-            }
-        };
-        let options = dbrain_sources::PullDeadlockDataOptions {
-            repo_dir: self
-                .repo_dir
-                .clone()
-                .unwrap_or_else(|| settings.data_dir.join("external/deadlock-data")),
-            pin,
-            update_repo: false,
-        };
-        let _legacy_no_git_update = self.no_git_update;
-        dbrain_sources::deadlock_data::preflight(&options)?;
-        Ok(options)
-    }
 }
 
 #[derive(Debug, Args)]
@@ -1166,61 +772,6 @@ struct ParseRedditClaimsArgs {
         help = "Löscht nur Reddit-Claims (ingest_source=reddit) vorher neu."
     )]
     rebuild: bool,
-}
-
-#[derive(Debug, Subcommand)]
-enum EnrichCommands {
-    #[command(name = "patch-events", about = "Baut Details aus patch_events.")]
-    PatchEvents(EnrichPatchEventsArgs),
-    #[command(about = "Baut Rename-/Rework-Lineage aus patch_events.")]
-    Lineage(EnrichLineageArgs),
-    #[command(
-        name = "legacy-entities",
-        about = "Baut alte/entfernte Entities aus patch_events."
-    )]
-    LegacyEntities(EnrichLegacyEntitiesArgs),
-    #[command(
-        name = "patch-impact",
-        about = "Analysiert die Patch-Entwicklung von Entities."
-    )]
-    PatchImpact(PatchImpactArgs),
-    #[command(name = "meta-trends", about = "Analysiert aktuelle Meta-Trends.")]
-    MetaTrends,
-}
-
-#[derive(Debug, Args)]
-struct EnrichPatchEventsArgs {
-    #[arg(long, help = "Loescht Enrichments vorher.")]
-    rebuild: bool,
-}
-
-#[derive(Debug, Args)]
-struct EnrichLineageArgs {
-    #[arg(long, help = "Loescht Lineage vorher.")]
-    rebuild: bool,
-}
-
-#[derive(Debug, Args)]
-struct EnrichLegacyEntitiesArgs {
-    #[arg(long, help = "Loescht Legacy-Entities vorher.")]
-    rebuild: bool,
-}
-
-#[derive(Debug, Args)]
-struct PatchImpactArgs {
-    #[arg(long, help = "Optional: Beschraenken auf diesen Hero.")]
-    hero: Option<String>,
-    #[arg(
-        long,
-        default_value_t = 10,
-        help = "Anzahl der abzuarbeitenden Entities."
-    )]
-    limit: usize,
-    #[arg(
-        long = "dry-run",
-        help = "Nur Prompt/Request bauen (benoetigt --hero), kein Modellaufruf."
-    )]
-    dry_run: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1601,7 +1152,6 @@ fn run_from_cli() -> Result<()> {
             "provider": "fireworks",
             "model": deadlock_brain_core::model_resolver::model_for_request()?,
         })),
-        Commands::Population(args) => dbrain_population::run_population(args),
         command => {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -1641,9 +1191,7 @@ fn assets_storage_path(path: &std::path::Path) -> Result<PathBuf> {
 async fn run_site_migrate(args: SiteMigrationArgs) -> Result<()> {
     let pool = args.database.pool("brain_migrate").await?;
     let store = brain_storage::PgStore::new(pool);
-    store.migrate_site_comments().await?;
     store.migrate_compare_artifacts().await?;
-    store.migrate_site_profiles().await?;
     Ok(())
 }
 
@@ -1666,12 +1214,6 @@ async fn run(cli: Cli) -> Result<()> {
     } = &command
     {
         return run_publish_resume(args).await;
-    }
-    if let Commands::Wiki {
-        target: WikiCommands::Refresh(args),
-    } = &command
-    {
-        return print_json(&wiki_refresh::run(args).await?);
     }
     let mut settings = config::load_settings()?;
     if let Commands::Pull {
@@ -1702,7 +1244,7 @@ async fn run(cli: Cli) -> Result<()> {
         let pool = pg_pool_for_command(&command).await?;
         return pg_entities::run(args, &pool).await;
     }
-    let mut command = match command {
+    let command = match command {
         Commands::Pg { target } => {
             let ledger = ledger_for_pg(&target).await?;
             // Alle `pg`-Befehle nutzen synchrone Crates (`postgres` bzw. der
@@ -1726,17 +1268,6 @@ async fn run(cli: Cli) -> Result<()> {
         }
         other => other,
     };
-    // Resolve once before side effects; the same immutable options reach the importer.
-    if let Commands::Pull {
-        source: PullCommands::DeadlockData(args),
-    } = &mut command
-    {
-        let options = args.resolve(&settings)?;
-        if args.check_config {
-            return print_json(&json!({"valid":true,"source_pin":options.pin,"writes":false}));
-        }
-        args.resolved = Some(Box::new(options));
-    }
     prepare_dirs(&settings)?;
     // Wissensabfragen und ausdrücklich persistenzfreie Reasoner-Läufe erzwingen
     // Read-only bereits beim Verbindungsaufbau.
@@ -1827,16 +1358,6 @@ async fn run(cli: Cli) -> Result<()> {
                 print_json(&result)
             }
         }
-        Commands::Wiki { target } => match target {
-            WikiCommands::Refresh(args) => print_json(&wiki_refresh::run(&args).await?),
-            WikiCommands::Rebuild(args) => {
-                let dir = args
-                    .dir
-                    .unwrap_or_else(dbrain_retrieval::default_game_wiki_dir);
-                let result = dbrain_retrieval::rebuild_game_wiki(&pool, &dir).await?;
-                print_json(&result)
-            }
-        },
         Commands::Reason { target } => run_reason(&pool, &settings, target).await,
         Commands::Lineage(args) => {
             let rows = load_lineage(&pool, args.query.as_deref(), args.limit).await?;
@@ -1856,17 +1377,6 @@ async fn run(cli: Cli) -> Result<()> {
                 print_json(&json!({"query": args.query, "legacy_entities": rows}))
             }
         }
-        Commands::Build(args) => {
-            let result =
-                dbrain_learn::build_hero_build_context(&pool, &args.query, &[], args.limit_events)
-                    .await?;
-            if args.pretty {
-                print_build_context(&result);
-                Ok(())
-            } else {
-                print_json(&result)
-            }
-        }
         Commands::BuildContext(args) => {
             let playstyle = args.playstyle.map(BuildPlaystyle::as_str);
             let result = dbrain_builds::build_context(&pool, &args.hero, playstyle).await?;
@@ -1883,16 +1393,13 @@ async fn run(cli: Cli) -> Result<()> {
                 print_json(&result)
             }
         }
-        Commands::Learn { target } => run_learn(&settings, target).await,
-        Commands::Player { target } => run_player(&settings, target).await,
         Commands::Analysis { target } => run_analysis(&pool, &settings, target).await,
         Commands::Pull { source } => run_pull(&pool, &settings, source).await,
         Commands::RefreshSheet => run_refresh_sheet(&pool, &settings).await,
         Commands::Normalize { target } => run_normalize(&pool, target).await,
         Commands::Parse { target } => run_parse(&pool, target).await,
-        Commands::Enrich { target } => run_enrich(&pool, &settings, target).await,
-        Commands::AiModel | Commands::Population(_) => {
-            unreachable!("Population wird vor allgemeiner Pool-Ausfuehrung ausgefuehrt.")
+        Commands::AiModel => {
+            unreachable!("AiModel wird vor allgemeiner Pool-Ausfuehrung ausgefuehrt.")
         }
         Commands::Entities(_) => {
             unreachable!("PG-Entities werden vor allgemeiner Pool-Ausfuehrung ausgefuehrt.")
@@ -1991,42 +1498,6 @@ mod ingest_tests {
     }
 
     #[test]
-    fn scheduled_assets_ingest_preserves_the_shared_configured_directory() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
-        let result = std::process::Command::new("bash")
-            .arg(root.join("scripts/run_build_data_with_infisical.sh"))
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("HOME", "/nonexistent")
-            .env("LOAD_INFISICAL", "0")
-            .env("DEADLOCK_CENTRAL_DSN", "unused-test-value")
-            .env("DEADLOCK_BRAIN_DATA_DIR", "/configured/brain-data")
-            .env("DEADLOCK_BRAIN_BIN", "/bin/echo")
-            .env("DEADLOCK_BRAIN_ROOT", root)
-            .output()
-            .unwrap();
-        assert!(result.status.success());
-        let output = String::from_utf8(result.stdout).unwrap();
-        let calls: Vec<_> = output.lines().collect();
-        assert_eq!(calls.len(), 3);
-        let assets_call: Vec<_> = calls[0].split_whitespace().collect();
-        assert_eq!(assets_call, ["pull", "assets"]);
-        let parsed = Cli::try_parse_from(
-            std::iter::once("deadlock-brain").chain(assets_call.iter().copied()),
-        )
-        .unwrap();
-        let Commands::Pull {
-            source: PullCommands::Assets(args),
-        } = parsed.command
-        else {
-            panic!("wrong dispatch")
-        };
-        assert_eq!(args.data_dir, None);
-        assert_eq!(calls[1], "pull build-data --hero all");
-        assert_eq!(calls[2], "pg sync-patchnotes");
-    }
-
-    #[test]
     fn patch_sync_cli_uses_existing_ledger_and_dry_run() {
         let parsed =
             Cli::try_parse_from(["deadlock-brain", "pg", "sync-patchnotes", "--dry-run"]).unwrap();
@@ -2057,24 +1528,6 @@ mod ingest_tests {
             panic!("wrong dispatch")
         };
         assert!(ledger_for_pg(&target).await.unwrap().is_none());
-    }
-
-    #[test]
-    fn scheduled_ingest_stops_on_failure_without_importing_matches() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
-        let script = root.join("scripts/run_build_data_with_infisical.sh");
-        let text = fs::read_to_string(&script).unwrap();
-        assert!(!text.contains("population sync"));
-        assert!(!text.contains("population stats"));
-        let result = std::process::Command::new("bash")
-            .arg(script)
-            .env("LOAD_INFISICAL", "0")
-            .env("DEADLOCK_CENTRAL_DSN", "unused-test-value")
-            .env("DEADLOCK_BRAIN_BIN", "/bin/false")
-            .env("DEADLOCK_BRAIN_ROOT", root)
-            .output()
-            .unwrap();
-        assert_eq!(result.status.code(), Some(1));
     }
 }
 
@@ -2241,98 +1694,6 @@ async fn load_known_item_names(
         .filter(|name| !name.is_empty())
         .map(str::to_owned)
         .collect())
-}
-
-async fn run_learn(settings: &Settings, target: LearnCommands) -> Result<()> {
-    let pool = deadlock_brain_core::pg::pg_pool().await?;
-    match target {
-        LearnCommands::ImportSteamBuilds(args) => {
-            let result = dbrain_learn::learn_import_steam_builds(
-                &pool,
-                dbrain_learn::LearnImportSteamBuildsOptions {
-                    hero: args.hero,
-                    language: args.language,
-                    limit_per_hero: usize_to_i64(args.limit_per_hero),
-                },
-            )
-            .await?;
-            if args.pretty {
-                print_learn_result("import-steam-builds", &result);
-                Ok(())
-            } else {
-                print_json(&result)
-            }
-        }
-        LearnCommands::ListBuilds(args) => {
-            let result = Value::Array(
-                dbrain_learn::learn_list_builds(
-                    &pool,
-                    args.hero.as_deref(),
-                    usize_to_i64(args.limit),
-                )
-                .await?,
-            );
-            if args.pretty {
-                print_learn_result("list-builds", &result);
-                Ok(())
-            } else {
-                print_json(&result)
-            }
-        }
-        LearnCommands::AnalyzeBuild(args) => {
-            let config = ai_config(
-                settings,
-                args.model,
-                args.max_completion_tokens,
-                args.temperature,
-                args.top_p,
-            );
-            let result = dbrain_learn::learn_analyze_build(
-                &pool,
-                dbrain_learn::LearnAnalyzeBuildOptions {
-                    build_id: args.build_id,
-                    config,
-                    dry_run: args.dry_run,
-                    include_request: true,
-                },
-            )
-            .await?;
-            if args.pretty {
-                print_learn_result("analyze-build", &result);
-                Ok(())
-            } else {
-                print_json(&result)
-            }
-        }
-        LearnCommands::AnalyzeNext(args) => {
-            let config = ai_config(
-                settings,
-                args.model,
-                args.max_completion_tokens,
-                args.temperature,
-                args.top_p,
-            );
-            let result = dbrain_learn::learn_analyze_next(
-                &pool,
-                dbrain_learn::LearnAnalyzeNextOptions {
-                    hero: args.hero,
-                    limit: usize_to_i64(args.limit),
-                    config,
-                    dry_run: args.dry_run,
-                    delay_seconds: args.delay_seconds,
-                },
-            )
-            .await?;
-            finish_batch_result(&result, |result| {
-                if args.pretty {
-                    print_learn_result("analyze-next", result);
-                    Ok(())
-                } else {
-                    print_json(result)
-                }
-            })
-        }
-    }
 }
 
 #[cfg(test)]
@@ -3880,259 +3241,6 @@ fn print_reason_patch_impact(report: &dbrain_reasoner::PatchImpactReport) {
     }
 }
 
-async fn run_player(settings: &Settings, target: PlayerCommands) -> Result<()> {
-    let pool = deadlock_brain_core::pg::pg_pool().await?;
-    match target {
-        PlayerCommands::ListMatches(args) => {
-            let result = Value::Array(
-                dbrain_learn::player_list_matches(
-                    &pool,
-                    args.account_id.as_deref(),
-                    usize_to_i64(args.limit),
-                )
-                .await?,
-            );
-            if args.pretty {
-                print_player_result("list-matches", &result);
-                Ok(())
-            } else {
-                print_json(&result)
-            }
-        }
-        PlayerCommands::MatchContext(args) => {
-            let result =
-                dbrain_learn::player_match_context(&pool, &args.account_id, &args.match_id).await?;
-            if args.pretty {
-                print_player_result("match-context", &result);
-                Ok(())
-            } else {
-                print_json(&result)
-            }
-        }
-        PlayerCommands::AnalyzeMatch(args) => {
-            let config = ai_config(
-                settings,
-                args.model,
-                args.max_completion_tokens,
-                args.temperature,
-                args.top_p,
-            );
-            let result = dbrain_learn::player_analyze_match(
-                &pool,
-                dbrain_learn::PlayerAnalyzeMatchOptions {
-                    account_id: args.account_id,
-                    match_id: args.match_id,
-                    config,
-                    dry_run: args.dry_run,
-                    include_request: true,
-                },
-            )
-            .await?;
-            if args.pretty {
-                print_player_result("analyze-match", &result);
-                Ok(())
-            } else {
-                print_json(&result)
-            }
-        }
-        PlayerCommands::AnalyzeDemoMatch(args) => {
-            let config = ai_config(
-                settings,
-                args.model,
-                args.max_completion_tokens,
-                args.temperature,
-                args.top_p,
-            );
-            let result = dbrain_learn::demo_analyze_match(
-                &pool,
-                dbrain_learn::DemoAnalyzeMatchOptions {
-                    account_id: args.account_id,
-                    match_id: args.match_id,
-                    config,
-                    dry_run: args.dry_run,
-                    include_request: false,
-                },
-            )
-            .await?;
-            if args.pretty {
-                if let Some(report) = get(&result, "rendered_report").and_then(Value::as_str) {
-                    println!("{report}");
-                } else {
-                    println!(
-                        "Demo-Report-Kontext bereit: {} Evidenzbelege, kein Modellaufruf.",
-                        display_or(get(&result, "evidence_count"), "0")
-                    );
-                }
-                Ok(())
-            } else {
-                print_json(&result)
-            }
-        }
-        PlayerCommands::ReviewDemoReport(args) => {
-            let review_text = fs::read_to_string(&args.file).map_err(|error| {
-                anyhow!(
-                    "Review-Datei {} konnte nicht gelesen werden: {error}",
-                    args.file.display()
-                )
-            })?;
-            let review: Value = serde_json::from_str(&review_text).map_err(|error| {
-                anyhow!(
-                    "Review-Datei {} enthaelt kein gueltiges JSON: {error}",
-                    args.file.display()
-                )
-            })?;
-            let result =
-                dbrain_learn::save_demo_report_review(&pool, args.note_id, &review).await?;
-            if args.pretty {
-                println!(
-                    "Demo-Review gespeichert: Snapshot {}, {} Korrekturen bei {} geprueften Entscheidungen, kritisch: {}.",
-                    display_value(get(&result, "snapshot_id")),
-                    display_or(get(&result["payload"], "correction_count"), "0"),
-                    display_or(get(&result["payload"], "reviewed_decision_count"), "0"),
-                    display_or(get(&result["payload"], "critical_error"), "false")
-                );
-                Ok(())
-            } else {
-                print_json(&result)
-            }
-        }
-        PlayerCommands::DemoCalibrationStatus(args) => {
-            let result = dbrain_learn::demo_calibration_status(&pool, &args.account_id).await?;
-            if args.pretty {
-                println!(
-                    "Demo-Kalibrierung: bestanden: {}, Reports: {}/{}, saubere letzte Reports: {}/{}.",
-                    display_or(get(&result, "passed"), "false"),
-                    display_or(get(&result, "reviewed_report_count"), "0"),
-                    display_or(get(&result, "minimum_reviewed_reports"), "5"),
-                    display_or(get(&result, "qualifying_recent_reports"), "0"),
-                    display_or(get(&result, "required_clean_recent_reports"), "3")
-                );
-                Ok(())
-            } else {
-                print_json(&result)
-            }
-        }
-        PlayerCommands::AnalyzeNext(args) => {
-            let config = ai_config(
-                settings,
-                args.model,
-                args.max_completion_tokens,
-                args.temperature,
-                args.top_p,
-            );
-            let result = dbrain_learn::player_analyze_next(
-                &pool,
-                dbrain_learn::PlayerAnalyzeNextOptions {
-                    account_id: args.account_id,
-                    limit: usize_to_i64(args.limit),
-                    config,
-                    dry_run: args.dry_run,
-                    delay_seconds: args.delay_seconds,
-                },
-            )
-            .await?;
-            finish_batch_result(&result, |result| {
-                if args.pretty {
-                    print_player_result("analyze-next", result);
-                    Ok(())
-                } else {
-                    print_json(result)
-                }
-            })
-        }
-        PlayerCommands::FetchDemo(args) => {
-            let http =
-                http_client_async(settings.user_agent.clone(), settings.cache_dir.clone()).await?;
-            let metadata = dbrain_sources::pull_match_metadata(
-                &settings.raw_dir,
-                &http,
-                fetch_demo_match_metadata_options(&args),
-            )
-            .await?;
-            let evidence = dbrain_sources::pull_demo_evidence(
-                &settings.raw_dir,
-                &http,
-                fetch_demo_evidence_options(&args, &metadata)?,
-            )
-            .await?;
-            let result = json!({
-                "metadata": metadata,
-                "demo_evidence": evidence,
-            });
-            if args.pretty {
-                println!(
-                    "Demo-Evidenz geladen: Match {}, {} Zeilen aus {} Queries.",
-                    display_value(get(&evidence, "match_id")),
-                    display_or(get(&evidence, "rows"), "0"),
-                    array_len(get(&evidence, "queries"))
-                );
-                Ok(())
-            } else {
-                print_json(&result)
-            }
-        }
-        PlayerCommands::SyncMatches(args) => {
-            let http =
-                http_client_async(settings.user_agent.clone(), settings.cache_dir.clone()).await?;
-            let result = dbrain_sources::pull_player_match_history(
-                &settings.raw_dir,
-                &http,
-                dbrain_sources::PullPlayerMatchHistoryOptions {
-                    account_id: args.account_id,
-                    hero_id: Some(args.hero_id),
-                    cache_ttl_seconds: args.cache_ttl_seconds,
-                },
-            )
-            .await?;
-            if args.pretty {
-                println!(
-                    "Deadlock-API-Matches synchronisiert: {} gefunden, {} fuer den Hero gespeichert.",
-                    display_or(get(&result, "api_rows"), "0"),
-                    display_or(get(&result, "stored_rows"), "0")
-                );
-                Ok(())
-            } else {
-                print_json(&result)
-            }
-        }
-    }
-}
-
-fn fetch_demo_match_metadata_options(
-    args: &PlayerFetchDemoArgs,
-) -> dbrain_sources::PullMatchMetadataOptions {
-    dbrain_sources::PullMatchMetadataOptions {
-        match_ids: vec![args.match_id.clone()],
-        account_ids: vec![args.account_id.clone()],
-        hero_ids: vec![args.hero_id.to_string()],
-        include_player_items: true,
-        include_player_info: true,
-        include_player_stats: true,
-        include_player_death_details: true,
-        include_objectives: true,
-        cache_ttl_seconds: 0,
-    }
-}
-
-fn fetch_demo_evidence_options(
-    args: &PlayerFetchDemoArgs,
-    metadata: &Value,
-) -> Result<dbrain_sources::PullDemoEvidenceOptions> {
-    let player_slot = get(metadata, "target_player_slot")
-        .and_then(Value::as_u64)
-        .and_then(|value| u32::try_from(value).ok())
-        .ok_or_else(|| anyhow!("Match-Metadaten enthalten keinen gueltigen Zielspieler-Slot."))?;
-    Ok(dbrain_sources::PullDemoEvidenceOptions {
-        account_id: args.account_id.clone(),
-        match_id: args.match_id.clone(),
-        hero_id: args.hero_id,
-        steam_id64: args.steam_id64,
-        player_slot,
-        poll_interval_seconds: args.poll_interval_seconds,
-        timeout_seconds: args.timeout_seconds,
-    })
-}
-
 async fn run_analysis(pool: &PgPool, settings: &Settings, target: AnalysisCommands) -> Result<()> {
     match target {
         AnalysisCommands::SaveReview(args) => {
@@ -4250,22 +3358,6 @@ async fn run_pull(pool: &PgPool, settings: &Settings, source: PullCommands) -> R
             .await?;
             print_json(&result)
         }
-        PullCommands::DeadlockData(args) => {
-            let options = args
-                .resolved
-                .context("deadlock-data source pin preflight was not performed")?;
-            let pull = dbrain_sources::deadlock_data::pull_deadlock_data_with_pool(
-                pool,
-                &settings.raw_dir,
-                *options,
-            )
-            .await?;
-            let patch_events = dbrain_normalize::parse_patchnotes(pool, false).await?;
-            print_json(&json!({
-                "pull": pull,
-                "patch_events": patch_events,
-            }))
-        }
         PullCommands::BuildData(args) => {
             let result = dbrain_builds::sync_build_data(
                 pool,
@@ -4381,74 +3473,6 @@ async fn run_parse(pool: &PgPool, target: ParseCommands) -> Result<()> {
         ParseCommands::RedditClaims(args) => {
             print_json(&dbrain_normalize::parse_reddit_claims(pool, args.rebuild).await?)
         }
-    }
-}
-
-async fn run_enrich(pool: &PgPool, settings: &Settings, target: EnrichCommands) -> Result<()> {
-    match target {
-        EnrichCommands::PatchEvents(args) => {
-            print_json(&dbrain_enrich::build_patch_event_enrichments(pool, args.rebuild).await?)
-        }
-        EnrichCommands::Lineage(args) => {
-            print_json(&dbrain_normalize::enrich_lineage(pool, args.rebuild).await?)
-        }
-        EnrichCommands::LegacyEntities(args) => {
-            print_json(&dbrain_normalize::enrich_legacy_entities(pool, args.rebuild).await?)
-        }
-        EnrichCommands::PatchImpact(args) => {
-            let result = run_patch_impact(pool, settings, args).await?;
-            finish_batch_result(&result, print_json)
-        }
-        EnrichCommands::MetaTrends => {
-            let config = ai_config(settings, None, None, None, None);
-            let result =
-                serde_json::to_value(dbrain_enrich::run_meta_trend_analysis(pool, &config).await?)?;
-            finish_batch_result(&result, print_json)
-        }
-    }
-}
-
-async fn run_patch_impact(
-    pool: &PgPool,
-    settings: &Settings,
-    args: PatchImpactArgs,
-) -> Result<Value> {
-    let config = ai_config(settings, None, None, None, None);
-    if args.dry_run {
-        let Some(hero) = args.hero.as_deref() else {
-            return Err(anyhow!("Fuer --dry-run muss --hero angegeben werden."));
-        };
-        let entity_type = entity_type_for_name(pool, hero).await?;
-        let context = dbrain_enrich::build_patch_impact_context(pool, hero, &entity_type).await?;
-        let request_info = dbrain_enrich::build_patch_impact_request(&context, &config)?;
-        return Ok(json!({
-            "dry_run": true,
-            "prompt": request_info.prompt_text,
-            "request": serde_json::to_value(&request_info.request)?,
-        }));
-    }
-    if let Some(hero) = args.hero.as_deref() {
-        let entity_type = entity_type_for_name(pool, hero).await?;
-        let context = dbrain_enrich::build_patch_impact_context(pool, hero, &entity_type).await?;
-        let request_info = dbrain_enrich::build_patch_impact_request(&context, &config)?;
-        let client = AiClient::new(config.clone())?;
-        let response = client.chat(&request_info.request)?;
-        let result_text = extract_ai_text(&response);
-        let note = dbrain_enrich::save_patch_impact_note(
-            pool,
-            &context,
-            &request_info.prompt_text,
-            Some(&result_text),
-            &config.model,
-            "analysis_ready",
-        )
-        .await?;
-        let success = usize::from(note.status == "analysis_ready");
-        Ok(json!({"processed": 1, "success": success, "failed": 1 - success, "hero": hero}))
-    } else {
-        Ok(serde_json::to_value(
-            dbrain_enrich::run_patch_impact_batch(pool, &config, args.limit).await?,
-        )?)
     }
 }
 
@@ -4939,214 +3963,6 @@ fn print_legacy(rows: &[Value], query: Option<&str>) {
     }
 }
 
-fn print_build_context(ctx: &Value) {
-    let hero = get(ctx, "hero").unwrap_or(&Value::Null);
-    let economy = get(ctx, "economy").unwrap_or(&Value::Null);
-    let build = get(ctx, "build").unwrap_or(&Value::Null);
-    println!(
-        "Build: {} / {}",
-        display_value(get(hero, "name")),
-        display_value(get(hero, "hero_type"))
-    );
-    if let Some(role) = str_value(get(hero, "role")).filter(|value| !value.is_empty()) {
-        println!("Role: {role}");
-    }
-    if let Some(playstyle) = str_value(get(hero, "playstyle")).filter(|value| !value.is_empty()) {
-        println!("Playstyle: {playstyle}");
-    }
-    let gameplan = get(hero, "inferred_gameplan").unwrap_or(&Value::Null);
-    if gameplan
-        .as_object()
-        .map(|object| !object.is_empty())
-        .unwrap_or(false)
-    {
-        println!(
-            "Understood gameplan: {}",
-            display_value(get(gameplan, "summary"))
-        );
-        let needs = join_array(get(gameplan, "needs"), usize::MAX);
-        if !needs.is_empty() {
-            println!("Needs: {needs}");
-        }
-        let damage_profile = get(gameplan, "damage_profile").unwrap_or(&Value::Null);
-        if damage_profile
-            .as_object()
-            .map(|object| !object.is_empty())
-            .unwrap_or(false)
-        {
-            println!(
-                "Damage profile: {} (ability_damage={}, spirit_scaling={}, weapon_hooks={})",
-                display_value(get(damage_profile, "damage_plan")),
-                display_value(get(damage_profile, "ability_damage_sources")),
-                display_value(get(damage_profile, "spirit_scaling_damage_sources")),
-                display_value(get(damage_profile, "weapon_stat_sources"))
-            );
-        }
-        let priority_stats = join_array(get(gameplan, "priority_scaling_stats"), usize::MAX);
-        if !priority_stats.is_empty() {
-            println!("Priority scaling: {priority_stats}");
-        }
-        if let Some(abilities) = get(hero, "abilities").and_then(Value::as_array) {
-            if !abilities.is_empty() {
-                println!("Abilities:");
-                for ability in abilities {
-                    let tags = join_array(get(ability, "role_tags"), usize::MAX);
-                    let key_props = get(ability, "key_properties")
-                        .and_then(Value::as_array)
-                        .map(|properties| {
-                            properties
-                                .iter()
-                                .take(4)
-                                .map(|prop| {
-                                    format!(
-                                        "{}: {}",
-                                        display_value(get(prop, "label")),
-                                        format_prop_value(prop)
-                                    )
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default();
-                    println!("- {}: {}", display_value(get(ability, "name")), tags);
-                    if !key_props.is_empty() {
-                        println!("  {}", key_props.join("; "));
-                    }
-                }
-            }
-        }
-        if let Some(lane_priorities) = get(gameplan, "lane_priorities").and_then(Value::as_array) {
-            if !lane_priorities.is_empty() {
-                println!("Lane priorities:");
-                for priority in lane_priorities {
-                    println!("- {}", display_value(Some(priority)));
-                }
-            }
-        }
-    }
-    println!(
-        "Shop spike: {} souls per category",
-        display_value(get(economy, "important_shop_spike"))
-    );
-    let wiki_rules = get(economy, "wiki_rules").unwrap_or(&Value::Null);
-    if wiki_rules
-        .as_object()
-        .map(|object| !object.is_empty())
-        .unwrap_or(false)
-    {
-        let tiers = join_array(get(wiki_rules, "item_tiers"), usize::MAX);
-        println!(
-            "Shop rules: tiers={}; active limit={}; bonus cap={}",
-            tiers,
-            display_value(get(wiki_rules, "active_item_limit")),
-            display_value(get(wiki_rules, "shop_bonus_cap"))
-        );
-    }
-    println!("Plan: {}", display_value(get(build, "plan")));
-    if let Some(lane_model) = get(build, "lane_decision_model").and_then(Value::as_array) {
-        if !lane_model.is_empty() {
-            println!("Lane decision model:");
-            for line in lane_model {
-                println!("- {}", display_value(Some(line)));
-            }
-        }
-    }
-    if let Some(signals) = get(ctx, "statlocker_signals").and_then(Value::as_array) {
-        if !signals.is_empty() {
-            println!("Statlocker WPA signals:");
-            for signal in signals.iter().take(8) {
-                let wpa = get(signal, "cost_relative_wpa")
-                    .filter(|value| !value.is_null())
-                    .or_else(|| get(signal, "wpa"));
-                println!(
-                    "- {}: wpa={} n={} time={}",
-                    display_value(get(signal, "item")),
-                    display_value(wpa),
-                    display_value(get(signal, "sample_size")),
-                    display_value(get(signal, "mean_purchase_time_min"))
-                );
-            }
-        }
-    }
-    println!();
-    for section in ["early", "core", "late", "situational"] {
-        let Some(rows) = get(build, section).and_then(Value::as_array) else {
-            continue;
-        };
-        if rows.is_empty() {
-            continue;
-        }
-        println!("{}:", capitalize(section));
-        for row in rows {
-            println!(
-                "- {} [{} T{} / {}] score={}",
-                display_value(get(row, "name")),
-                display_value(get(row, "slot")),
-                display_value(get(row, "tier")),
-                display_value(get(row, "cost")),
-                display_value(get(row, "score"))
-            );
-            let archetypes = join_array(get(row, "archetypes"), usize::MAX);
-            if !archetypes.is_empty() {
-                println!("  archetypes: {archetypes}");
-            }
-            let why = join_array(get(row, "why"), usize::MAX).replace(", ", "; ");
-            if !why.is_empty() {
-                println!("  why: {why}");
-            }
-            let warnings = join_array(get(row, "warnings"), usize::MAX).replace(", ", "; ");
-            if !warnings.is_empty() {
-                println!("  warn: {warnings}");
-            }
-        }
-        println!();
-    }
-    let targets = get(build, "shop_routes_to_4800").and_then(Value::as_object);
-    if let Some(targets) = targets.filter(|value| !value.is_empty()) {
-        println!("Shop routes to 4800:");
-        for (slot, target) in targets {
-            let route_names = get(target, "items")
-                .and_then(Value::as_array)
-                .map(|items| {
-                    items
-                        .iter()
-                        .take(5)
-                        .map(|row| display_value(get(row, "name")))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_default();
-            println!(
-                "- {}: spend={} / reached={} / {}",
-                str_value(get(target, "label")).unwrap_or(slot),
-                display_value(get(target, "spend")),
-                if bool_value(get(target, "target_reached")) {
-                    "yes"
-                } else {
-                    "no"
-                },
-                route_names
-            );
-        }
-    }
-    if let Some(rejected) = get(ctx, "rejected_expensive_items").and_then(Value::as_array) {
-        if !rejected.is_empty() {
-            println!();
-            println!("Expensive items to justify:");
-            for row in rejected.iter().take(6) {
-                let warnings = join_array(get(row, "warnings"), usize::MAX).replace(", ", "; ");
-                println!(
-                    "- {} cost={} score={} bucket={} {}",
-                    display_value(get(row, "name")),
-                    display_value(get(row, "cost")),
-                    display_value(get(row, "score")),
-                    display_value(get(row, "bucket")),
-                    warnings
-                );
-            }
-        }
-    }
-}
-
 fn print_item_context(ctx: &Value) {
     println!(
         "Item: {} [{} T{} / {}]",
@@ -5257,306 +4073,6 @@ fn print_analysis_result(target: &str, result: &Value) {
                 );
             }
         }
-    }
-}
-
-fn print_learn_result(target: &str, result: &Value) {
-    match target {
-        "import-steam-builds" => {
-            println!(
-                "Steam build import: {}",
-                display_value(get(result, "source"))
-            );
-            println!(
-                "rows={} imported={} updated={} skipped={}",
-                display_or(get(result, "rows_seen"), "0"),
-                display_or(get(result, "imported"), "0"),
-                display_or(get(result, "updated"), "0"),
-                display_or(get(result, "skipped"), "0")
-            );
-            if get(result, "error").is_some_and(|value| !value.is_null()) {
-                println!("error={}", display_value(get(result, "error")));
-            }
-        }
-        "list-builds" => {
-            let rows = result.as_array().map(Vec::as_slice).unwrap_or(&[]);
-            println!("Learned builds: rows={}", rows.len());
-            for row in rows {
-                let items = join_array(get(row, "item_names"), 8);
-                println!(
-                    "- {}: {} rank={} quality={} score={} / {}",
-                    display_value(get(row, "id")),
-                    display_value(get(row, "hero_name")),
-                    display_value(get(row, "source_rank")),
-                    display_value(get(row, "quality_tier")),
-                    display_value(get(row, "quality_score")),
-                    display_value(get(row, "name"))
-                );
-                if !items.is_empty() {
-                    println!("  items: {items}");
-                }
-            }
-        }
-        "analyze-build" => {
-            if bool_value(get(result, "dry_run")) {
-                let messages = request_message_count(result);
-                println!(
-                    "Build learning dry-run: build={} model={}",
-                    display_value(get(result, "build_id")),
-                    display_value(get(result, "model"))
-                );
-                println!("Endpoint: {}", display_value(get(result, "endpoint")));
-                println!(
-                    "API key present: {}",
-                    if bool_value(get(result, "api_key_present")) {
-                        "yes"
-                    } else {
-                        "no"
-                    }
-                );
-                println!("Messages: {messages}");
-                let note = get(result, "note").unwrap_or(&Value::Null);
-                if note
-                    .as_object()
-                    .map(|object| !object.is_empty())
-                    .unwrap_or(false)
-                {
-                    println!(
-                        "Stored context note: {} / {}",
-                        display_value(get(note, "id")),
-                        display_value(get(note, "status"))
-                    );
-                }
-                return;
-            }
-            println!(
-                "Build learning analysis: build={} model={}",
-                display_value(get(result, "build_id")),
-                display_value(get(result, "model"))
-            );
-            println!("{}", display_value(get(result, "result_text")));
-        }
-        "analyze-next" => {
-            println!(
-                "Build learning batch: selected={} model={}",
-                display_or(get(result, "pending_selected"), "0"),
-                display_value(get(result, "model"))
-            );
-            println!(
-                "Dry run: {}",
-                if bool_value(get(result, "dry_run")) {
-                    "yes"
-                } else {
-                    "no"
-                }
-            );
-            println!(
-                "API key present: {}",
-                if bool_value(get(result, "api_key_present")) {
-                    "yes"
-                } else {
-                    "no"
-                }
-            );
-            if let Some(rows) = get(result, "results").and_then(Value::as_array) {
-                for row in rows {
-                    println!(
-                        "- {}: {} rank={} {} note={} / {}",
-                        display_value(get(row, "build_id")),
-                        display_value(get(row, "hero_name")),
-                        display_value(get(row, "source_rank")),
-                        display_value(get(row, "status")),
-                        str_value(get(row, "note_id")).unwrap_or("-"),
-                        display_value(get(row, "name"))
-                    );
-                    if let Some(error) =
-                        str_value(get(row, "error")).filter(|value| !value.is_empty())
-                    {
-                        println!("  error: {error}");
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn print_player_result(target: &str, result: &Value) {
-    match target {
-        "list-matches" => {
-            let rows = result.as_array().map(Vec::as_slice).unwrap_or(&[]);
-            println!("Player matches: rows={}", rows.len());
-            for row in rows {
-                let summary = get(row, "summary").unwrap_or(&Value::Null);
-                let hero_id = get(row, "hero_id")
-                    .filter(|value| !value.is_null())
-                    .or_else(|| get(summary, "heroId"))
-                    .or_else(|| get(summary, "hero_id"));
-                let won = get(summary, "won").and_then(Value::as_bool);
-                let result_text = match won {
-                    Some(true) => "win",
-                    Some(false) => "loss",
-                    None => "unknown",
-                };
-                println!(
-                    "- account={} match={} hero_id={} result={}",
-                    display_value(get(row, "account_id")),
-                    display_value(get(row, "match_id")),
-                    display_or(hero_id, "-"),
-                    result_text
-                );
-            }
-        }
-        "match-context" => {
-            println!(
-                "Player match context: account={} match={}",
-                display_value(get(result, "account_id")),
-                display_value(get(result, "match_id"))
-            );
-            println!(
-                "Hero: {} ({})",
-                display_or(get(result, "hero_name"), "-"),
-                display_or(get(result, "hero_id"), "-")
-            );
-            let player_match = get(result, "player_match").and_then(Value::as_object);
-            let keys = player_match
-                .map(|object| object.keys().cloned().collect::<Vec<_>>().join(", "))
-                .unwrap_or_else(|| "-".to_string());
-            println!("Match row keys: {keys}");
-            let detail = get(result, "match_detail").and_then(Value::as_object);
-            println!(
-                "Match detail: {}",
-                if detail.is_some_and(|object| !object.is_empty()) {
-                    "yes"
-                } else {
-                    "no"
-                }
-            );
-            let api_match = get(result, "deadlock_api_match").unwrap_or(&Value::Null);
-            let actual_items = get(api_match, "player")
-                .and_then(|player| get(player, "actual_item_timeline"))
-                .and_then(Value::as_array)
-                .map(Vec::len)
-                .unwrap_or(0);
-            println!(
-                "Deadlock API match: {}",
-                if api_match
-                    .as_object()
-                    .map(|object| !object.is_empty())
-                    .unwrap_or(false)
-                {
-                    "yes"
-                } else {
-                    "no"
-                }
-            );
-            if actual_items > 0 {
-                println!("Actual item events: {actual_items}");
-            }
-            let build_analysis = get(result, "player_build_analysis").and_then(Value::as_object);
-            println!(
-                "Player build analysis: {}",
-                if build_analysis.is_some_and(|object| !object.is_empty()) {
-                    "yes"
-                } else {
-                    "no"
-                }
-            );
-        }
-        "analyze-match" => {
-            if bool_value(get(result, "dry_run")) {
-                println!(
-                    "Player match dry-run: account={} match={} model={}",
-                    display_value(get(result, "account_id")),
-                    display_value(get(result, "match_id")),
-                    display_value(get(result, "model"))
-                );
-                println!(
-                    "Hero: {} ({})",
-                    display_or(get(result, "hero_name"), "-"),
-                    display_or(get(result, "hero_id"), "-")
-                );
-                println!("Endpoint: {}", display_value(get(result, "endpoint")));
-                println!(
-                    "API key present: {}",
-                    if bool_value(get(result, "api_key_present")) {
-                        "yes"
-                    } else {
-                        "no"
-                    }
-                );
-                println!("Messages: {}", request_message_count(result));
-                let note = get(result, "note").unwrap_or(&Value::Null);
-                if note
-                    .as_object()
-                    .map(|object| !object.is_empty())
-                    .unwrap_or(false)
-                {
-                    println!(
-                        "Stored context note: {} / {}",
-                        display_value(get(note, "id")),
-                        display_value(get(note, "status"))
-                    );
-                }
-                return;
-            }
-            println!(
-                "Player match analysis: account={} match={} model={}",
-                display_value(get(result, "account_id")),
-                display_value(get(result, "match_id")),
-                display_value(get(result, "model"))
-            );
-            println!(
-                "Hero: {} ({})",
-                display_or(get(result, "hero_name"), "-"),
-                display_or(get(result, "hero_id"), "-")
-            );
-            println!("{}", display_value(get(result, "result_text")));
-        }
-        "analyze-next" => {
-            println!(
-                "Player match batch: selected={} model={}",
-                display_or(get(result, "pending_selected"), "0"),
-                display_value(get(result, "model"))
-            );
-            println!(
-                "Dry run: {}",
-                if bool_value(get(result, "dry_run")) {
-                    "yes"
-                } else {
-                    "no"
-                }
-            );
-            println!(
-                "API key present: {}",
-                if bool_value(get(result, "api_key_present")) {
-                    "yes"
-                } else {
-                    "no"
-                }
-            );
-            if let Some(rows) = get(result, "results").and_then(Value::as_array) {
-                for row in rows {
-                    let hero = get(row, "hero_name")
-                        .filter(|value| !value.is_null())
-                        .or_else(|| get(row, "hero_id"));
-                    println!(
-                        "- account={} match={} hero={} {} note={}",
-                        display_value(get(row, "account_id")),
-                        display_value(get(row, "match_id")),
-                        display_or(hero, "-"),
-                        display_value(get(row, "status")),
-                        display_or(get(row, "note_id"), "-")
-                    );
-                    if let Some(error) =
-                        str_value(get(row, "error")).filter(|value| !value.is_empty())
-                    {
-                        println!("  error: {error}");
-                    }
-                }
-            }
-        }
-        _ => {}
     }
 }
 
@@ -5899,170 +4415,6 @@ mod tests {
             panic!("expected parse reddit-claims");
         };
         assert!(args.rebuild);
-    }
-
-    #[test]
-    fn parses_player_sync_matches_defaults_hero_to_mo() {
-        let cli = Cli::try_parse_from([
-            "deadlock-brain",
-            "player",
-            "sync-matches",
-            "123",
-            "--cache-ttl-seconds",
-            "9",
-            "--pretty",
-        ])
-        .expect("parse cli");
-
-        let Commands::Player {
-            target: PlayerCommands::SyncMatches(args),
-        } = cli.command
-        else {
-            panic!("expected player sync-matches");
-        };
-        assert_eq!(args.account_id, "123");
-        assert_eq!(args.hero_id, 18);
-        assert_eq!(args.cache_ttl_seconds, 9);
-        assert!(args.pretty);
-    }
-
-    #[test]
-    fn parses_player_fetch_demo_defaults_to_mo_evidence_options() {
-        let cli = Cli::try_parse_from([
-            "deadlock-brain",
-            "player",
-            "fetch-demo",
-            "123",
-            "92685682",
-            "--pretty",
-        ])
-        .expect("parse cli");
-
-        let Commands::Player {
-            target: PlayerCommands::FetchDemo(args),
-        } = cli.command
-        else {
-            panic!("expected player fetch-demo");
-        };
-        assert_eq!(args.account_id, "123");
-        assert_eq!(args.match_id, "92685682");
-        assert_eq!(args.hero_id, 18);
-        assert_eq!(args.steam_id64, 76561198242034120);
-        assert_eq!(args.poll_interval_seconds, 5);
-        assert_eq!(args.timeout_seconds, 900);
-        assert!(args.pretty);
-    }
-
-    #[test]
-    fn parses_player_analyze_demo_match_flags() {
-        let cli = Cli::try_parse_from([
-            "deadlock-brain",
-            "player",
-            "analyze-demo-match",
-            "281768392",
-            "92685682",
-            "--dry-run",
-            "--pretty",
-        ])
-        .expect("parse cli");
-
-        let Commands::Player {
-            target: PlayerCommands::AnalyzeDemoMatch(args),
-        } = cli.command
-        else {
-            panic!("expected player analyze-demo-match");
-        };
-        assert_eq!(args.account_id, "281768392");
-        assert_eq!(args.match_id, "92685682");
-        assert!(args.dry_run);
-        assert!(args.pretty);
-    }
-
-    #[test]
-    fn parses_player_review_demo_report_file() {
-        let cli = Cli::try_parse_from([
-            "deadlock-brain",
-            "player",
-            "review-demo-report",
-            "5",
-            "--file",
-            "/tmp/mo-review.json",
-            "--pretty",
-        ])
-        .expect("parse cli");
-
-        let Commands::Player {
-            target: PlayerCommands::ReviewDemoReport(args),
-        } = cli.command
-        else {
-            panic!("expected player review-demo-report");
-        };
-        assert_eq!(args.note_id, 5);
-        assert_eq!(args.file, PathBuf::from("/tmp/mo-review.json"));
-        assert!(args.pretty);
-    }
-
-    #[test]
-    fn parses_player_demo_calibration_status() {
-        let cli = Cli::try_parse_from([
-            "deadlock-brain",
-            "player",
-            "demo-calibration-status",
-            "281768392",
-            "--pretty",
-        ])
-        .expect("parse cli");
-
-        let Commands::Player {
-            target: PlayerCommands::DemoCalibrationStatus(args),
-        } = cli.command
-        else {
-            panic!("expected player demo-calibration-status");
-        };
-        assert_eq!(args.account_id, "281768392");
-        assert!(args.pretty);
-    }
-
-    #[test]
-    fn player_fetch_demo_metadata_options_are_exact_and_detailed() {
-        let args = PlayerFetchDemoArgs {
-            account_id: "123".to_string(),
-            match_id: "92685682".to_string(),
-            hero_id: 18,
-            steam_id64: 76561198242034120,
-            poll_interval_seconds: 5,
-            timeout_seconds: 900,
-            pretty: false,
-        };
-
-        let options = fetch_demo_match_metadata_options(&args);
-
-        assert_eq!(options.match_ids, ["92685682"]);
-        assert_eq!(options.account_ids, ["123"]);
-        assert_eq!(options.hero_ids, ["18"]);
-        assert!(options.include_player_items);
-        assert!(options.include_player_info);
-        assert!(options.include_player_stats);
-        assert!(options.include_player_death_details);
-        assert!(options.include_objectives);
-    }
-
-    #[test]
-    fn player_fetch_demo_passes_the_metadata_player_slot_to_demo_queries() {
-        let args = PlayerFetchDemoArgs {
-            account_id: "281768392".to_string(),
-            match_id: "92685682".to_string(),
-            hero_id: 18,
-            steam_id64: 76561198242034120,
-            poll_interval_seconds: 5,
-            timeout_seconds: 900,
-            pretty: false,
-        };
-
-        let options =
-            fetch_demo_evidence_options(&args, &json!({ "target_player_slot": 8 })).unwrap();
-
-        assert_eq!(options.player_slot, 8);
     }
 
     #[test]

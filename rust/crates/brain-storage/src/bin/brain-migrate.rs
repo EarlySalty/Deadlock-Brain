@@ -4,7 +4,7 @@ use serde::Deserialize;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use std::{path::PathBuf, process::ExitCode, time::Duration};
 
-const USAGE: &str = "Aufruf: brain-migrate <check|up|check-entity-profiles|up-entity-profiles|check-response-audit|up-response-audit|check-gamefacts|up-gamefacts> --config <non-secret-local-postgres.json>";
+const USAGE: &str = "Aufruf: brain-migrate <check|up|check-response-audit|up-response-audit|check-gamefacts|up-gamefacts> --config <non-secret-local-postgres.json>";
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
@@ -39,8 +39,6 @@ async fn main() -> ExitCode {
         || ![
             "check",
             "up",
-            "check-entity-profiles",
-            "up-entity-profiles",
             "check-response-audit",
             "up-response-audit",
             "check-gamefacts",
@@ -53,11 +51,7 @@ async fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     match run(
-        args[0] == "up"
-            || args[0] == "up-entity-profiles"
-            || args[0] == "up-response-audit"
-            || args[0] == "up-gamefacts",
-        args[0] == "check-entity-profiles" || args[0] == "up-entity-profiles",
+        args[0] == "up" || args[0] == "up-response-audit" || args[0] == "up-gamefacts",
         args[0] == "check-response-audit" || args[0] == "up-response-audit",
         args[0] == "check-gamefacts" || args[0] == "up-gamefacts",
         PathBuf::from(&args[2]),
@@ -74,7 +68,6 @@ async fn main() -> ExitCode {
 
 async fn run(
     upgrade: bool,
-    entity_profiles: bool,
     response_audit: bool,
     gamefacts: bool,
     path: PathBuf,
@@ -113,13 +106,10 @@ async fn run(
         } else {
             store.check_response_audit_schema().await
         }
+    } else if upgrade {
+        store.migrate_core().await
     } else {
-        match (entity_profiles, upgrade) {
-            (true, true) => store.migrate_entity_profiles().await,
-            (true, false) => store.check_entity_profile_schema().await,
-            (false, true) => store.migrate_core().await,
-            (false, false) => store.check_core_schema().await,
-        }
+        store.check_core_schema().await
     };
     pool.close().await;
     result.map_err(|e| e.to_string())?;
@@ -129,17 +119,6 @@ async fn run(
     }
     if response_audit {
         println!("Lokale Antwortdiagnostik: Prüfung bestanden");
-        return Ok(());
-    }
-    if entity_profiles {
-        println!(
-            "Spielprofilschema: {}",
-            if upgrade {
-                "Migration geprüft"
-            } else {
-                "Lesende Prüfung bestanden"
-            }
-        );
         return Ok(());
     }
     println!(

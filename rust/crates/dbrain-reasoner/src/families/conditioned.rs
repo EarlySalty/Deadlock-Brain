@@ -109,8 +109,8 @@ impl BuildFamily {
         self.imbues
             .iter()
             .filter(|e| {
-                e.observations >= dbrain_population::IMBUE_THIN_OBSERVATIONS as usize
-                    && e.share >= dbrain_population::STAPLE_THRESHOLD
+                e.observations >= crate::population_index::IMBUE_THIN_OBSERVATIONS as usize
+                    && e.share >= crate::population_index::STAPLE_THRESHOLD
             })
             .map(|e| (e.item_id, e.ability_id))
             .collect()

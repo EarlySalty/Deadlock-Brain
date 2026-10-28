@@ -42,6 +42,7 @@ pub mod patch;
 pub mod planner;
 pub mod playstyle;
 pub use playstyle::Playstyle;
+mod population_index;
 pub mod population_prior;
 pub mod progression;
 pub mod publish;
@@ -751,15 +752,15 @@ pub async fn load_population_prior(pool: &sqlx::PgPool, hero_id: i64) -> Result<
     if present != Some(true) {
         return Ok(PopulationPrior::default());
     }
-    let index = dbrain_population::PopulationIndex::load(pool, hero_id)
+    let index = population_index::PopulationIndex::load(pool, hero_id)
         .await
         .map_err(|error| ReasonerError::Data(format!("Populationsdaten: {error}")))?;
     let staples = index
-        .staples(dbrain_population::BUCKET_ALL)
+        .staples()
         .into_iter()
         .collect::<std::collections::BTreeSet<_>>();
     let items = index
-        .population_positions(dbrain_population::BUCKET_ALL)
+        .population_positions()
         .into_iter()
         .map(|(item_id, median)| PopulationItem {
             item_id,

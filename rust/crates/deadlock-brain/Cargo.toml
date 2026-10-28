@@ -14,17 +14,14 @@ urlencoding.workspace = true
 brain-client = { path = "../brain-client" }
 brain-contracts = { path = "../brain-contracts" }
 brain-feeds = { path = "../brain-feeds" }
-brain-maintenance = { path = "../brain-maintenance" }
+brain-compare = { path = "../brain-compare" }
 brain-storage = { path = "../brain-storage" }
 brain-serve = { path = "../brain-serve" }
 chrono.workspace = true
 clap.workspace = true
 deadlock-brain-core = { path = "../deadlock-brain-core" }
 dbrain-builds = { path = "../dbrain-builds" }
-dbrain-enrich = { path = "../dbrain-enrich" }
-dbrain-learn = { path = "../dbrain-learn" }
 dbrain-normalize = { path = "../dbrain-normalize" }
-dbrain-population = { path = "../dbrain-population" }
 dbrain-retrieval = { path = "../dbrain-retrieval" }
 dbrain-reasoner = { path = "../dbrain-reasoner" }
 dbrain-sources = { path = "../dbrain-sources" }
@@ -44,3 +41,4 @@ rustix = { version = "1", features = ["fs"] }
 [dev-dependencies]
 reqwest.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, features = ["process"] }

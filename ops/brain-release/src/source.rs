@@ -8,13 +8,14 @@ use std::process::Command;
 
 pub const OPERATOR: u32 = 1000;
 pub const ORIGIN: &str = "git@github.com:EarlySalty/Deadlock-Brain.git";
-pub const BINS: [&str; 7] = [
+pub const BINS: [&str; 8] = [
     "deadlock-brain",
     "brain-serve",
-    "brain-maintain",
-    "brain-legacy-import",
-    "deadlock-brain-yt",
-    "brain-candidate-activate",
+    "brain-job",
+    "brain-mcp",
+    "deadlock-brain-secret-exec",
+    "deadlock-brain-site",
+    "brain-browser-consent",
     "brain-patchnotes-ingest",
 ];
 pub const BUILD_ARGS: [&str; 7] = [

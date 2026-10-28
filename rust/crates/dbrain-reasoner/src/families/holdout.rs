@@ -131,7 +131,7 @@ pub fn observed_population(rows: &[BuildObservation]) -> PopulationPrior {
             item_id,
             prevalence,
             median_position: Some(median),
-            is_staple: prevalence >= dbrain_population::STAPLE_THRESHOLD,
+            is_staple: prevalence >= crate::population_index::STAPLE_THRESHOLD,
         }
     }))
 }

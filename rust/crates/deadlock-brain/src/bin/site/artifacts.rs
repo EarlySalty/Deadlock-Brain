@@ -3,8 +3,8 @@ use axum::{
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::{IntoResponse, Response},
 };
+use brain_compare::compare_artifact::render_stored_compare;
 use brain_contracts::Principal;
-use brain_maintenance::compare_artifact::render_stored_compare;
 use brain_storage::{compare_artifact::CompareStage, PgStore};
 use std::collections::BTreeSet;
 

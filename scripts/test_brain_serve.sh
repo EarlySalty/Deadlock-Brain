@@ -81,12 +81,6 @@ run_test() {
   fi
   SUMMARY+=("$label passed=$passed")
 }
-run_test legacy-cli socket -p brain-legacy-import --test cli_scratch \
-  cli_reads_archive_and_replays_tombstones_and_revokes -- --ignored --exact --nocapture
-run_test legacy-lib socket -p brain-legacy-import --lib \
-  scratch_import_release_tombstone_and_revoke -- --ignored --nocapture
-run_test legacy-bin socket -p brain-legacy-import --bin brain-legacy-import \
-  tests::same_database_archive_to_core_requires_bound_private_snapshot -- --ignored --exact --nocapture
 run_test serve-process-e2e socket -p brain-serve --test process_e2e \
   tools_only_process_needs_no_corpus_release_and_refuses_unknown_heroes -- --exact --nocapture
 run_test serve-scram socket -p brain-serve --test process \
