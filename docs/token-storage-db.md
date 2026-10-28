@@ -1,6 +1,6 @@
 # Datenbankgebundene Tokenablage
 
-Die produktive Gemini-Strecke läuft vollständig in Rust und spricht Chromium über eine private CDP-Pipe an, ohne offenen Debug-Port. dbrain-session-store ist ihre gemeinsam verwendete Speicherbibliothek und hält Cookies, LocalStorage und IndexedDB verschlüsselt in core.browser_credentials. Der Browserkontext ist nichtpersistent; temporäre leere Chromium-Startdaten enthalten keine Kontositzung. Python bleibt ausschließlich Legacy-Referenz. Konto-ID und Revision sind zwingend; ein Widerruf ist ein Fehler und kein leerer Standardzustand.
+Die produktive Gemini-Strecke läuft vollständig in Rust und spricht Chromium über eine private CDP-Pipe an, ohne offenen Debug-Port. Die frühere Speicherbibliothek dbrain-session-store für Cookies, LocalStorage und IndexedDB in core.browser_credentials ist seit P8 (2026-10-28) aus dem Repository entfernt. Der Browserkontext ist nichtpersistent; temporäre leere Chromium-Startdaten enthalten keine Kontositzung. Python bleibt ausschließlich Legacy-Referenz. Konto-ID und Revision sind zwingend; ein Widerruf ist ein Fehler und kein leerer Standardzustand.
 
 ## Verbindliche Speichergrenze
 

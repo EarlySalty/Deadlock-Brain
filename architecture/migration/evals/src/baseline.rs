@@ -3,12 +3,10 @@ use std::{
     hint::black_box,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
-// Reuse the real, dependency-free population metric implementation unchanged.
-// rustfmt must not recurse into a module owned by S05.
 #[rustfmt::skip]
-#[path="../../../../rust/crates/dbrain-population/src/metrics.rs"]
+#[path = "population_metrics.rs"]
 mod population_metrics;
-const SOURCE: &[u8] = include_bytes!("../../../../rust/crates/dbrain-population/src/metrics.rs");
+const SOURCE: &[u8] = include_bytes!("population_metrics.rs");
 const REPETITIONS: usize = 5;
 const ITERATIONS: usize = 5000;
 fn cpu_model() -> Option<String> {
@@ -54,14 +52,12 @@ pub fn measure() -> Result<Value, String> {
             "--porcelain",
             "--",
             "architecture/migration/evals",
-            "rust/crates/dbrain-population/src/metrics.rs",
         ],
     )?
     .is_empty();
     let build = [1, 2, 3, 4, 5, 6];
     let player = [1, 2, 3, 7, 8, 9];
     let population = [(1, 0.0), (2, 1.0), (3, 2.0)];
-    // One explicit unmeasured process warmup. No claim about database/cache coldness.
     for _ in 0..ITERATIONS {
         black_box(population_metrics::jaccard_at(
             6,
@@ -96,7 +92,7 @@ pub fn measure() -> Result<Value, String> {
         "measured_at_unix_seconds":SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"clock before epoch")?.as_secs(),
         "candidate_commit":candidate,"measurement_tool_dirty":dirty,"tool_version":env!("CARGO_PKG_VERSION"),
         "toolchain":env!("S10_RUSTC_VERSION"),"binary_sha256":digest(&fs::read(binary).map_err(|_|"binary read failed")?),
-        "source_path":"rust/crates/dbrain-population/src/metrics.rs","source_sha256":digest(SOURCE),
+        "source_path":"architecture/migration/evals/src/population_metrics.rs","source_sha256":digest(SOURCE),
         "dataset":"fixed integer ordering/overlap fixtures v1","seed":null,"warmup_batches":1,"cache_state":"process_warm",
         "hardware_fingerprint":digest(&serde_json::to_vec(&hardware).map_err(|_|"hardware serialization failed")?),"hardware":hardware,
         "raw_samples":samples,"batch_mean_pair_latency_ms":distribution(&per_pair_ms)?,
