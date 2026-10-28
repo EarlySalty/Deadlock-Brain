@@ -27,9 +27,6 @@ cargo build --release --manifest-path rust/Cargo.toml --workspace
 ./rust/target/release/deadlock-brain parse forum-claims --rebuild
 ./rust/target/release/deadlock-brain pull statlocker --kind wpa-items --patch patch_129989 --hero "Mo & Krill" --min-sample-size 50
 ./rust/target/release/deadlock-brain parse patchnotes --rebuild
-./rust/target/release/deadlock-brain enrich patch-events --rebuild
-./rust/target/release/deadlock-brain enrich lineage --rebuild
-./rust/target/release/deadlock-brain enrich legacy-entities --rebuild
 ./rust/target/release/deadlock-brain context Shiv --pretty
 ./rust/target/release/deadlock-brain timeline Indomitable --descending --pretty
 ./rust/target/release/deadlock-brain review Indomitable --pretty
@@ -37,7 +34,6 @@ cargo build --release --manifest-path rust/Cargo.toml --workspace
 ./rust/target/release/deadlock-brain lineage Stalker --pretty
 ./rust/target/release/deadlock-brain legacy --pretty
 ./rust/target/release/deadlock-brain item Refresher --pretty
-./rust/target/release/deadlock-brain build "Mo & Krill" --pretty
 ./rust/target/release/deadlock-brain analysis save-review Stalker --pretty
 ./rust/target/release/deadlock-brain analysis run-fireworks Indomitable --dry-run --pretty
 ./rust/target/release/deadlock-brain entities --type item --query Indomitable
@@ -161,28 +157,7 @@ bewusst limitiert, damit kein Bulk-Crawl entsteht:
 
 ```bash
 ./rust/target/release/deadlock-brain pull statlocker --kind leaderboard-player-matches --players-from-leaderboard 2 --matches-per-player 3 --include-match-details --include-build-analysis
-./rust/target/release/deadlock-brain player list-matches --pretty --limit 10
-./rust/target/release/deadlock-brain player analyze-match <account_id> <match_id> --dry-run --pretty
-./rust/target/release/deadlock-brain player analyze-next --dry-run --pretty --limit 3
-DRY_RUN=1 PLAYERS_FROM_LEADERBOARD=2 MATCHES_PER_PLAYER=2 ./scripts/run_player_match_learning.sh
-infisical run -- ./rust/target/release/deadlock-brain player analyze-match <account_id> <match_id> --pretty
-infisical run -- ./scripts/run_player_match_learning.sh
 ```
-
-`player analyze-match` baut einen Modell-Kontext fuer ein konkretes
-Player-Match: Hero-Aufgabe, Item-Timing, Standard-Core vs. Adaptation,
-Game-State-Hinweise, Risiken und wiederverwendbare Coaching-Regeln.
-`player analyze-next` arbeitet die naechsten importierten Player-Matches als
-Queue ab. `scripts/run_player_match_learning.sh` zieht vorher vorsichtig neue
-Statlocker-Samples und startet danach diese Queue.
-Das Script nutzt denselben Infisical-Zugriff wie `Deadlock-Bots`: Config aus
-`/home/naniadm/.config/deadlock-bots/infisical.env` sourcen, Secrets per
-Infisical-HTTP-API exportieren und dann Fireworks mit `FIREWORKS_API_KEY`
-ausfuehren. Ein lokales `infisical` Binary ist
-dafuer nicht noetig.
-Das Script setzt keine niedrige Output-Grenze; `FIREWORKS_MAX_TOKENS`
-ist nur der technische API-Ceiling. Als Haenge-Schutz gibt es
-`ANALYSIS_TIMEOUT_SECONDS` (Default 600 Sekunden pro Aufgabe, `0` deaktiviert).
 
 ## Datenablage
 
@@ -212,31 +187,16 @@ genauere Event-Typen wie `item` und `ability`.
 ## Enrichment, Sheet-Stats und Kontext
 
 ```bash
-./rust/target/release/deadlock-brain enrich patch-events --rebuild
-./rust/target/release/deadlock-brain enrich lineage --rebuild
-./rust/target/release/deadlock-brain enrich legacy-entities --rebuild
 ./rust/target/release/deadlock-brain normalize sheet-stats --rebuild
 ./rust/target/release/deadlock-brain context Indomitable --pretty
 ./rust/target/release/deadlock-brain context Shiv --limit-events 8
 ./rust/target/release/deadlock-brain lineage Stalker --pretty
 ```
 
-`enrich patch-events` zerlegt Patchzeilen weiter in Stat-Namen, alte/neue Werte,
-Einheiten, Ability-Kontext und einfache Confidence-/Flag-Daten. `normalize
-sheet-stats` nimmt die Google-Sheet-Snapshots und legt Hero-Stats als einzelne
-Key/Value-Zeilen ab. `context` fuehrt Entity, Aliase, Patch-Historie,
+`normalize sheet-stats` nimmt die Google-Sheet-Snapshots und legt Hero-Stats
+als einzelne Key/Value-Zeilen ab. `context` fuehrt Entity, Aliase, Patch-Historie,
 Enrichments und Sheet-Stats zu einem kompakten Datenpaket zusammen, das spaeter
 direkt in Review-, Coaching- oder Build-Antworten gehen kann.
-
-`enrich lineage` extrahiert Rename-/Rework-Beziehungen aus Patchnotes, z.B.
-`Backstabber -> Stalker`, `Curse -> Cursed Relic` oder Ability-Renames wie
-`Kudzu Bomb -> Entangling Thorns`. `context`, `timeline` und `review` nutzen
-diese alten und neuen Namen als gemeinsame Lookup-Kette.
-
-`enrich legacy-entities` modelliert alte oder entfernte Namen, die nicht mehr in
-der aktuellen API vorkommen und nicht zwingend ein Rename sind, z.B. alte
-Sonderitems oder Tippfehler aus historischen Patchnotes. Fragwuerdige Parser-
-Subjekte werden markiert statt blind als echte Entity behandelt.
 
 ## Timelines, Reviews und Qualitaet
 
@@ -245,17 +205,9 @@ Subjekte werden markiert statt blind als echte Entity behandelt.
 ./rust/target/release/deadlock-brain review Indomitable --limit-events 80
 ./rust/target/release/deadlock-brain review Indomitable --prompt-only
 ./rust/target/release/deadlock-brain item Refresher --pretty
-./rust/target/release/deadlock-brain build "Mo & Krill" --pretty
 ./rust/target/release/deadlock-brain analysis save-review Indomitable --pretty
 ./rust/target/release/deadlock-brain analysis run-fireworks Indomitable --dry-run --pretty
 ./rust/target/release/deadlock-brain analysis list --pretty
-./rust/target/release/deadlock-brain learn import-steam-builds --pretty
-./rust/target/release/deadlock-brain learn list-builds --hero Haze --pretty
-./rust/target/release/deadlock-brain learn analyze-build 28 --dry-run --pretty
-./rust/target/release/deadlock-brain learn analyze-next --dry-run --pretty --limit 3
-./rust/target/release/deadlock-brain player list-matches --pretty --limit 10
-./rust/target/release/deadlock-brain player analyze-match <account_id> <match_id> --dry-run --pretty
-./rust/target/release/deadlock-brain player analyze-next --dry-run --pretty --limit 3
 ./rust/target/release/deadlock-brain quality --pretty
 ```
 
@@ -272,16 +224,6 @@ Shop-Slot, Aktiv/Passiv, Beschreibung, relevante Properties und erkannte
 Item-Archetypen wie `lane_farm`, `kill_setup`, `core_scaling`, `support` oder
 `luxury`.
 
-`build` erzeugt einen ersten deterministischen Build-Vorschlag fuer Heroes. Der
-Scorer nutzt Deadlock-API-Itemdaten, Hero-`item_draft_bucketing`,
-Shop-Bonus-Kurven bis zum wichtigen 4800-Souls-Fenster, Sheet-Hints,
-Patchsignale und optional gecachte Wiki-Zusammenfassungen. Die Ausgabe zeigt
-den erkannten Damage-Plan (`weapon`, `spirit`, `hybrid`, `utility`),
-priorisierte Scaling-Stats, fruehe Economy-Kaeufe, Core-Impact, Situational
-Counter und Late/Luxury, damit ein Item wie `Refresher` nicht ohne harte
-Begruendung im Core landet. Die Build-Ausgabe ist aktuell ein erklaerbarer
-Kandidaten-Plan, keine finale Copy-Paste-Buyorder.
-
 `analysis save-review` speichert diesen Review-Kontext persistiert in
 `analysis_notes`, inklusive Kontext-Hash, Prompt-Version, Quellen und optionalem
 fertigem Analyse-Text.
@@ -291,40 +233,6 @@ ruft das OpenAI-kompatible Chat-Completions-Endpoint auf und speichert die
 Antwort wieder in `analysis_notes`. `--dry-run` zeigt nur den Request-Aufbau
 ohne Netzwerkaufruf. Der Token wird aus `FIREWORK_API_KEY` oder
 `FIREWORKS_API_KEY` gelesen und nie ausgegeben.
-
-`learn import-steam-builds` importiert vorhandene Steam/GC-Hero-Builds aus der
-zentralen Bot-DB in `learned_builds`. Top-Rank-Builds werden als schwache
-positive Trainingslabels gespeichert. `learn analyze-build` baut daraus einen
-Fireworks-Analyseauftrag, damit das Brain lernt, warum ein Build gut,
-situativ oder fragwuerdig ist. `learn analyze-next` nimmt automatisch die
-naechsten noch nicht mit Fireworks analysierten Builds.
-
-`player analyze-match` ist die Match-Entscheidungs-Schicht dazu. Es nutzt
-Statlocker-Player-Matches als beobachtete Samples und speichert Fireworks-Notizen
-in `player_match_decision_notes`, damit das Brain nicht nur Build-Listen lernt,
-sondern auch Timing, Adaption und Match-Kontext.
-
-```bash
-DRY_RUN=1 PLAYERS_FROM_LEADERBOARD=2 MATCHES_PER_PLAYER=2 ./scripts/run_player_match_learning.sh
-infisical run -- ./scripts/run_player_match_learning.sh
-```
-
-```bash
-DRY_RUN=1 LIMIT=3 ./scripts/run_build_learning.sh
-infisical run -- ./scripts/run_build_learning.sh
-HERO=Haze LIMIT=2 infisical run -- ./scripts/run_build_learning.sh
-```
-
-`scripts/run_build_learning.sh` synchronisiert zuerst Steam/GC-Builds aus der
-Bot-DB und startet danach den Analyse-Queue-Lauf. `DRY_RUN=1` speichert nur den
-Kontext ohne Fireworks-Aufruf.
-
-Automatisch geht es z.B. per cron in der Umgebung, die
-`FIREWORKS_API_KEY` aus Infisical bereitstellt:
-
-```cron
-0 */2 * * * cd /home/naniadm/Documents/Deadlock-Brain && infisical run -- ./scripts/run_build_learning.sh >> /home/naniadm/Documents/Deadlock-Brain/data/build_learning.log 2>&1
-```
 
 ```bash
 ./rust/target/release/deadlock-brain analysis run-fireworks Indomitable --dry-run --pretty
@@ -341,9 +249,8 @@ general-Patchzeilen, die bekannte API-Entities erwaehnen.
 ./scripts/smoke_check.sh
 ```
 
-Der Smoke-Check kompiliert die Python-Module und prueft die wichtigsten JSON-
-Ausgaben fuer `context`, `timeline`, `review`, `lineage`, `legacy`, `item`,
-`build` und `quality`.
+Der Smoke-Check prueft die wichtigsten JSON-Ausgaben fuer `context`, `timeline`,
+`review`, `lineage`, `legacy`, `item`, `analysis` und `quality`.
 
 ## Entity-Normalisierung
 

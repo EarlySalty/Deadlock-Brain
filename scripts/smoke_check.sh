@@ -20,11 +20,9 @@ fi
 "$BRAIN_BIN" lineage Stalker >"$TMP_DIR/lineage.json"
 "$BRAIN_BIN" legacy --limit 20 >"$TMP_DIR/legacy.json"
 "$BRAIN_BIN" item Refresher >"$TMP_DIR/item_refresher.json"
-"$BRAIN_BIN" build "Mo & Krill" >"$TMP_DIR/build_mo_krill.json"
 "$BRAIN_BIN" analysis save-review Stalker >"$TMP_DIR/analysis_save.json"
 "$BRAIN_BIN" analysis run-fireworks Stalker --dry-run >"$TMP_DIR/fireworks_dry_run.json"
 "$BRAIN_BIN" analysis list --limit 5 >"$TMP_DIR/analysis_list.json"
-"$BRAIN_BIN" player list-matches --limit 5 >"$TMP_DIR/player_matches.json"
 "$BRAIN_BIN" quality >"$TMP_DIR/quality.json"
 
 python3 -m json.tool "$TMP_DIR/context.json" >/dev/null
@@ -33,11 +31,9 @@ python3 -m json.tool "$TMP_DIR/review.json" >/dev/null
 python3 -m json.tool "$TMP_DIR/lineage.json" >/dev/null
 python3 -m json.tool "$TMP_DIR/legacy.json" >/dev/null
 python3 -m json.tool "$TMP_DIR/item_refresher.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/build_mo_krill.json" >/dev/null
 python3 -m json.tool "$TMP_DIR/analysis_save.json" >/dev/null
 python3 -m json.tool "$TMP_DIR/fireworks_dry_run.json" >/dev/null
 python3 -m json.tool "$TMP_DIR/analysis_list.json" >/dev/null
-python3 -m json.tool "$TMP_DIR/player_matches.json" >/dev/null
 python3 -m json.tool "$TMP_DIR/quality.json" >/dev/null
 
 echo "Smoke check ok"

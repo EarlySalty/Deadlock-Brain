@@ -11,23 +11,9 @@ BEGIN
     LOOP
         EXECUTE statement;
     END LOOP;
-    IF EXISTS (
-        SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname='brain' AND c.relname='patch_changes' AND c.relkind='v'
-    ) THEN
-        EXECUTE 'DROP VIEW brain.patch_changes';
-    END IF;
-    SELECT 'DROP TABLE ' || string_agg(format('%I.%I', n.nspname, c.relname), ', ')
-    INTO statement
-    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE n.nspname='brain' AND c.relkind IN ('r','p') AND c.relname IN (
-        'entity_derived_receipts_v1','entity_patch_intervals_v1','entity_semantic_projections_v1',
-        'entity_profile_facts_v1','entity_profile_entities_v1','entity_snapshots','entity_aliases',
-        'entities','patch_event_enrichments','patch_events','source_documents','source_runs',
-        'maintenance_jobs_v1','maintenance_sources_v1','site_comments_v1'
-    );
-    IF statement IS NOT NULL THEN
-        EXECUTE statement;
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='brain' AND c.relname='site_comments_v1' AND c.relkind IN ('r','p')) THEN
+        EXECUTE 'DROP TABLE brain.site_comments_v1';
     END IF;
     IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname='brain_legacy') THEN
         EXECUTE 'DROP SCHEMA brain_legacy CASCADE';
