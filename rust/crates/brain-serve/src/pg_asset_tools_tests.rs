@@ -577,7 +577,8 @@ fn ability_patch_history_is_receipted_and_trimmed_oldest_first_before_values() {
                 "citation":(100 + index).to_string(),"source_revision":"patch-a","patch":null})
         })
         .collect();
-    value["history"] = json!({"meaning":"m","changes":changes,"truncated":false,"omitted_count":0});
+    value["history"] = json!({"meaning":"m","available":true,"changes":changes,"truncated":false,
+        "omitted_count":0,"omitted_count_is_lower_bound":false});
     let bounded = result(value.clone()).expect("card with history");
     let history = &bounded.result["history"];
     let kept = history["changes"].as_array().expect("changes");
@@ -590,6 +591,9 @@ fn ability_patch_history_is_receipted_and_trimmed_oldest_first_before_values() {
         Some(1)
     );
     assert!(bounded.evidence_ids.contains(&"100".to_string()));
+    let mut unavailable = value.clone();
+    unavailable["history"]["available"] = json!(false);
+    assert!(result(unavailable).is_none());
     value["history"]["changes"][0]["source_revision"] = json!("");
     assert!(result(value).is_none());
 }

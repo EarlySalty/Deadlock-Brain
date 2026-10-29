@@ -1,5 +1,7 @@
 WITH ability_names AS MATERIALIZED (
-    SELECT DISTINCT lower(btrim(a.alias_norm::text)) AS name FROM serve.current_alias a
+    SELECT DISTINCT '(^|[^[:alnum:]_])'||regexp_replace(lower(btrim(a.alias_norm::text)),
+        '([.^$*+?()\[\]{}|\\-])','\\\1','g')||'($|[^[:alnum:]_])' AS pattern
+    FROM serve.current_alias a
     WHERE a.entity_id=$1 AND a.lang='en' AND length(btrim(a.alias_norm::text))>=3
     ORDER BY 1 LIMIT 8
 ), hero_names AS MATERIALIZED (
@@ -12,23 +14,25 @@ WITH ability_names AS MATERIALIZED (
     ORDER BY 1 LIMIT 8
 ), candidates AS MATERIALIZED (
     SELECT h.name AS hero,kind.prefix,f.entity_id,f.raw_object_id,f.valid_from_run,f.receipt_id,
-        f.stat_key::text AS stat_key,CASE WHEN pg_input_is_valid(f.value_text::text,'jsonb')
+        f.stat_key::text AS stat_key,f.position,CASE WHEN pg_input_is_valid(f.value_text::text,'jsonb')
             THEN f.value_text::text::jsonb END AS payload
     FROM hero_names h
     CROSS JOIN (VALUES ('patch_change_r'),('patch_line_r')) AS kind(prefix)
     CROSS JOIN LATERAL (
-        SELECT f.* FROM serve.current_fact f
-        WHERE f.stat_key COLLATE "C" >=
-                (kind.prefix||encode(sha256(convert_to(h.name,'UTF8')),'hex')||'_') COLLATE "C"
-            AND f.stat_key COLLATE "C" <
-                (kind.prefix||encode(sha256(convert_to(h.name,'UTF8')),'hex')||'`') COLLATE "C"
-            AND f.value_text IS NOT NULL
-        ORDER BY f.entity_id DESC,f.stat_key COLLATE "C",f.receipt_id
-        LIMIT 2000
+        SELECT f.*,row_number() OVER (ORDER BY f.entity_id DESC,f.stat_key COLLATE "C",f.receipt_id) AS position FROM (
+            SELECT f.* FROM serve.current_fact f
+            WHERE f.stat_key COLLATE "C" >=
+                    (kind.prefix||encode(sha256(convert_to(h.name,'UTF8')),'hex')||'_') COLLATE "C"
+                AND f.stat_key COLLATE "C" <
+                    (kind.prefix||encode(sha256(convert_to(h.name,'UTF8')),'hex')||'`') COLLATE "C"
+                AND f.value_text IS NOT NULL
+            ORDER BY f.entity_id DESC,f.stat_key COLLATE "C",f.receipt_id
+            LIMIT $3+1
+        ) f
     ) f
 ), lines AS (
     SELECT c.entity_id AS patch_id,p.label,p.released_at,c.receipt_id,receipt.source_revision,
-        btrim(x.seg,E' \t\r\n*-​') AS seg,x.ord,c.stat_key
+        btrim(c.payload->>'line_text',E' \t\r\n*-​') AS line,c.stat_key
     FROM candidates c
     CROSS JOIN LATERAL (
         SELECT p.label,p.released_at,p.extractor,p.ingest_run_id FROM serve.p4_patch_catalog p
@@ -43,24 +47,28 @@ WITH ability_names AS MATERIALIZED (
             AND r.locator_kind='json_pointer' AND r.locator='/raw_content'
         OFFSET 0
     ) receipt
-    CROSS JOIN LATERAL unnest(regexp_split_to_array(c.payload->>'line_text','(\s+-\s+|\s+\*\s+)'))
-        WITH ORDINALITY x(seg,ord)
-    WHERE jsonb_typeof(c.payload)='object'
+    WHERE c.position<=$3
+        AND jsonb_typeof(c.payload)='object'
         AND jsonb_typeof(c.payload->'line_text')='string'
         AND lower(btrim(c.payload->>'reference'))=c.hero
-        AND EXISTS(SELECT 1 FROM ability_names n WHERE strpos(lower(x.seg),n.name)>0)
+        AND EXISTS(SELECT 1 FROM ability_names n WHERE lower(c.payload->>'line_text') ~ n.pattern)
 ), distinct_lines AS (
-    SELECT DISTINCT ON (lower(seg)) * FROM lines
-    WHERE length(seg) BETWEEN 8 AND 400
-    ORDER BY lower(seg),released_at,patch_id,stat_key,ord
+    SELECT DISTINCT ON (lower(line)) * FROM lines
+    WHERE length(line)>=8
+    ORDER BY lower(line),released_at DESC,patch_id DESC,stat_key
+), ranked AS (
+    SELECT d.*,row_number() OVER (ORDER BY released_at DESC,patch_id DESC,stat_key) AS position,
+        count(*) OVER () AS total
+    FROM distinct_lines d
 )
 SELECT jsonb_build_object(
-    'patch',label,'released_at',released_at,'line_text',seg,
-    'citation',receipt_id::text,'source_revision',source_revision
+    'lines',COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'patch',label,'released_at',released_at,'line_text',line,
+            'citation',receipt_id::text,'source_revision',source_revision
+        ) ORDER BY position)
+        FROM ranked WHERE position<=$2
+    ),'[]'::jsonb),
+    'total',COALESCE((SELECT max(total) FROM ranked),0),
+    'lower_bound',EXISTS(SELECT 1 FROM candidates WHERE position>$3)
 )
-FROM (
-    SELECT * FROM distinct_lines
-    ORDER BY released_at DESC,patch_id DESC,stat_key,ord
-    LIMIT $2
-) picked
-ORDER BY released_at DESC,patch_id DESC,stat_key,ord

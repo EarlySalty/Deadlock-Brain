@@ -37,7 +37,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: ToolName::GetAbility,
-            description: "Liest eine veröffentlichte Fähigkeitskarte. Genau eine Auswahl verwenden: ability als kanonische Datenbank-ID aus find_entity oder hero als kanonische Helden-ID zusammen mit slot eins bis vier, wobei vier die ultimative Fähigkeit ist. Keine öffentlichen Spiel-IDs verwenden. Mehrdeutige Slots werden nicht geraten. Werte, Upgrades, Bedingungen und Quellenbelege unverändert beachten. Fehlender Patch oder current bedeutet beobachteter Quellenstand; historische Patches sind nicht verfügbar. history.changes enthält datierte Patchnotiz-Zeilen zu dieser Fähigkeit, neueste zuerst. Nennt der Nutzer einen früheren Wert oder fragt nach einer Regel wie Heilanteil oder Ausdehnzeit, die nicht in den Werten steht, diese Zeilen mit Datum nennen: bei from X to Y galt X bis released_at und Y gilt seitdem, solange keine neuere Zeile es ändert. Fehlende oder ausgelassene Fakten nicht ergänzen.".into(),
+            description: "Liest eine veröffentlichte Fähigkeitskarte. Genau eine Auswahl verwenden: ability als kanonische Datenbank-ID aus find_entity oder hero als kanonische Helden-ID zusammen mit slot eins bis vier, wobei vier die ultimative Fähigkeit ist. Keine öffentlichen Spiel-IDs verwenden. Mehrdeutige Slots werden nicht geraten. Werte, Upgrades, Bedingungen und Quellenbelege unverändert beachten. Fehlender Patch oder current bedeutet beobachteter Quellenstand; historische Patches sind nicht verfügbar. history.changes enthält datierte Patchnotiz-Zeilen zu dieser Fähigkeit, neueste zuerst; bei history.truncated fehlen ältere Zeilen, omitted_count_is_lower_bound heißt mindestens so viele, und bei history.available false war die Historie nicht abrufbar. Nennt der Nutzer einen früheren Wert oder fragt nach einer Regel wie Heilanteil oder Ausdehnzeit, die nicht in den Werten steht, diese Zeilen mit Datum nennen: bei from X to Y galt X bis released_at und Y gilt seitdem, solange keine neuere Zeile es ändert. Fehlende oder ausgelassene Fakten nicht ergänzen.".into(),
             input_schema: json!({"type":"object","additionalProperties":false,"properties":{
                 "ability":{"type":"integer","minimum":1,"maximum":i64::MAX},
                 "hero":{"type":"integer","minimum":1,"maximum":i64::MAX},
@@ -216,10 +216,17 @@ fn ability_history_receipts(value: &Value, ids: &mut BTreeSet<String>) -> Result
         return Ok(());
     };
     let omitted = history["omitted_count"].as_u64().ok_or_else(invalid)?;
-    if history["truncated"].as_bool() != Some(omitted > 0) {
+    let available = history["available"].as_bool().ok_or_else(invalid)?;
+    let lower_bound = history["omitted_count_is_lower_bound"]
+        .as_bool()
+        .ok_or_else(invalid)?;
+    let changes = history["changes"].as_array().ok_or_else(invalid)?;
+    if history["truncated"].as_bool() != Some(omitted > 0)
+        || (!available && (!changes.is_empty() || omitted > 0 || lower_bound))
+    {
         return Err(invalid());
     }
-    for change in history["changes"].as_array().ok_or_else(invalid)? {
+    for change in changes {
         row_receipt(change, ids)?;
         if !change["line_text"].is_string() || !change["released_at"].is_string() {
             return Err(invalid());
