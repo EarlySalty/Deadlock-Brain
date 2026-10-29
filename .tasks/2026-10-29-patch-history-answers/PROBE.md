@@ -7,16 +7,16 @@
 ```
 cd .tasks/2026-10-29-patch-history-answers
 eval "$(/home/nathanael/Documents/Infisical/export_claude_secret.py --secret DISCORD_BRAIN_CLIENT_TOKEN)" && python3 -I run_probes.py probes.json /tmp/run2.jsonl; unset DISCORD_BRAIN_CLIENT_TOKEN
-python3 -I enrich.py /tmp/run2.jsonl "-2h" > results-run2.jsonl
+python3 -I enrich.py /tmp/run2.jsonl "-3h" > results-run2.jsonl
 ```
 
-Pass a comma list of IDs as a third argument to run only some probes. `auto_value_hit` is a substring heuristic and gives false positives (O06, O12), so read every answer before grading it. `enrich.py` adds the journal `reasons` and the `ops.answer_trace` tool calls for each turn.
+Pass a comma list of IDs as a third argument to run only some probes. `auto_value_hit` is a substring heuristic and gives false positives (O06, O12), so read every answer before grading it. `enrich.py` adds the journal `reasons` and the `ops.answer_trace` tool calls for each turn. `ops.answer_trace` has no request id, and follow-up turns hash the text with the appended context, so each trace row is matched by the request's journal time window, status and latency (`trace_match`: `hash_and_window` or `window`). `tools: null` means no unique trace was found, which is different from an empty list. If journalctl or psql fails, the script exits non-zero instead of reporting empty telemetry.
 
 ## Headline findings
 
-- `patch_history` was called **0 times in 49 turns**. Item answers carry the history in `get_item`, so they pass. Mechanics, objectives, timers and abilities have no history path.
+- `patch_history` was called **once in 49 turns** (F04 turn 2, which still lost the topic). Item answers carry the history in `get_item`, so they pass. Mechanics, objectives, timers and abilities effectively have no history path.
 - `value_gate_rejected` fired in 26 turns. It turns "was it X before?" questions into silence (G16, O07, H02, H04), or into hedges like "den Wert finde ich nicht" even when the current value is correct.
-- Follow-up turns call **no tools at all** and lose the topic in 5 of 5 cases.
+- Follow-up turns lose the topic in 5 of 5 cases. They do call tools (except F05, which failed with invalid_envelope), but they look up the wrong entity or drop the prior subject.
 - Mechanic/timer data is stale in places: the urn timer still says 10 min + 5 min, but the 2026-05-28 patch changed it to 12/18/24/30.
 
 ## Counts
@@ -43,11 +43,11 @@ Latency over all 49 turns: median 25.0 s, p90 50.7 s, max 58.3 s.
 
 | ID | Status | ms | Verdict | Category | Note |
 |---|---|---|---|---|---|
-| F01 | answered | 45252 | FAIL | follow-up topic lost | Reference case. Turn 1 correctly says 50/50. Turn 2 made no tool call, hit the value gate, talked about lane split shares and said "ob das früher anders war, kann ich nicht sagen". It never mentioned 40% (2025-11-21) or the return to 50% (2026-06-30). |
+| F01 | answered | 45252 | FAIL | follow-up topic lost | Reference case. Turn 1 correctly says 50/50. Turn 2 called only `get_mechanic`, hit the value gate 4 times, talked about lane split shares and said "ob das früher anders war, kann ich nicht sagen". It never mentioned 40% (2025-11-21) or the return to 50% (2026-06-30). |
 | F02 | answered | 22866 | FAIL | follow-up topic lost | Turn 2 "Hatten die nicht mal 5500?" was answered with item cost tiers. |
 | F03 | answered | 57884 | FAIL | follow-up topic lost | Turn 1 is stale: "ab Minute 10, alle 5 Minuten". Turn 2 drifted to the mid boss respawn. |
-| F04 | answered | 31307 | FAIL | follow-up topic lost | Turn 1 already named the fire rate removal. Turn 2 picked `upgrade_fire_rate_aura` and said it had no history. |
-| F05 | insufficient_evidence | 20120 | FAIL | follow-up topic lost | Turn 2 "war das früher mehr?" returned invalid_envelope and no tools. Expected 116+1.16/min before 2026-06-30. |
+| F04 | answered | 31307 | FAIL | follow-up topic lost | Turn 1 already named the fire rate removal. Turn 2 called `patch_history` but resolved `upgrade_fire_rate_aura` and said it had no history. |
+| F05 | insufficient_evidence | 20120 | FAIL | follow-up topic lost | Turn 2 "war das früher mehr?" returned invalid_envelope with an empty tool list. Expected 116+1.16/min before 2026-06-30. |
 | G01 | answered | 32353 | PASS | | 50% correct, no history given. |
 | G02 | answered | 27959 | PASS | | |
 | G03 | answered | 14788 | PASS | | |
