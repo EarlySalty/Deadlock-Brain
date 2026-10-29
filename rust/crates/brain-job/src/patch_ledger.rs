@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 const WINDOW_MICROS: i64 = 36 * 3_600_000_000;
 const CONTENT_WINDOW_MICROS: i64 = 7 * 24 * 3_600_000_000;
 const CONTENT_MIN_LINES: usize = 3;
+const MIRROR_MIN_LINES: usize = 2;
 const SAME_TITLE_MICROS: i64 = 3_600_000_000;
 const MAJOR_CHARS: usize = 15_000;
 const GAMEPLAY_CHARS: usize = 1_500;
@@ -119,7 +120,10 @@ fn same_notes(a: &Prepared, b: &Prepared, min_lines: usize) -> bool {
     } else {
         (&b.lines, &a.lines)
     };
-    small.len() >= min_lines.max(1) && small.intersection(large).count() * 5 >= small.len() * 4
+    let shared = small.intersection(large).count();
+    small.len() >= min_lines.max(MIRROR_MIN_LINES)
+        && shared * 5 >= small.len() * 4
+        && shared * 2 >= large.len()
 }
 
 fn duplicate(a: &Prepared, b: &Prepared) -> bool {
@@ -138,7 +142,7 @@ fn duplicate(a: &Prepared, b: &Prepared) -> bool {
     if !a.post.raw_content.is_empty() && a.post.raw_content.trim() == b.post.raw_content.trim() {
         return true;
     }
-    same_notes(a, b, 1)
+    same_notes(a, b, MIRROR_MIN_LINES)
 }
 
 fn root(parent: &mut [usize], mut node: usize) -> usize {
@@ -216,23 +220,8 @@ fn prepare(post: &Post) -> Prepared<'_> {
 }
 
 pub fn classify(posts: &[Post]) -> Ledger {
-    let prepared: Vec<Prepared> = posts
-        .iter()
-        .filter(|post| post.url.starts_with("https://"))
-        .map(prepare)
-        .collect();
+    let prepared: Vec<Prepared> = posts.iter().map(prepare).collect();
     let mut ledger = Ledger::default();
-    for post in posts
-        .iter()
-        .filter(|post| !post.url.starts_with("https://"))
-    {
-        ledger.posts.push(LedgerPost {
-            post_id: post.id,
-            ledger_id: None,
-            disposition: "excluded".into(),
-            reason: "no https source url".into(),
-        });
-    }
     let mut entries = Vec::new();
     for group in groups(&prepared) {
         let Some(&primary) = group.iter().min_by_key(|&&index| rank(&prepared[index])) else {
@@ -302,7 +291,7 @@ type MemberRow = (i64, Option<i64>, String, String);
 async fn load_posts(transaction: &mut sqlx::PgConnection) -> anyhow::Result<Vec<Post>> {
     let rows: Vec<PostRow> = sqlx::query_as(
         "SELECT post_id,title,url,(extract(epoch FROM published_at)*1000000)::bigint,raw_content
-         FROM ops.patch_ledger_source ORDER BY post_id",
+         FROM ops.patch_ledger_source() ORDER BY post_id",
     )
     .fetch_all(&mut *transaction)
     .await?;

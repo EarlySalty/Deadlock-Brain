@@ -10,18 +10,21 @@ $owner$;
 
 SET LOCAL lock_timeout='5000ms';
 
-CREATE VIEW ops.patch_ledger_source AS
-SELECT o.path::bigint AS post_id,
-    coalesce(nullif(btrim(b.body->>'title'),''),btrim(c.label)) AS title,
-    c.label,c.official_url AS url,c.released_at AS published_at,
-    coalesce(b.body->>'raw_content','') AS raw_content
-FROM serve.p4_patch_catalog c
-JOIN raw.object o ON o.id=c.raw_object_id AND o.source='deadlock_patchnotes_db' AND ops.is_patch_id(o.path)
-JOIN canon.entity e ON e.id=c.patch_id AND e.key='patch_'||o.path
-CROSS JOIN LATERAL (SELECT ops.patch_body(o.bytes) AS body) b
-WHERE nullif(btrim(c.label),'') IS NOT NULL
-    AND isfinite(c.released_at)
-    AND c.official_url ~ '^https://';
+CREATE FUNCTION ops.patch_ledger_source()
+RETURNS TABLE(post_id bigint,title text,label text,url text,published_at timestamptz,raw_content text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $source$
+    SELECT o.path::bigint,
+        coalesce(nullif(btrim(b.body->>'title'),''),btrim(c.label)),
+        c.label,c.official_url,c.released_at,
+        coalesce(b.body->>'raw_content','')
+    FROM serve.p4_patch_catalog c
+    JOIN raw.object o ON o.id=c.raw_object_id AND o.source='deadlock_patchnotes_db' AND ops.is_patch_id(o.path)
+    JOIN canon.entity e ON e.id=c.patch_id AND e.key='patch_'||o.path
+    CROSS JOIN LATERAL (SELECT ops.patch_body(o.bytes) AS body) b
+    WHERE nullif(btrim(c.label),'') IS NOT NULL
+        AND isfinite(c.released_at)
+        AND c.official_url ~ '^https://'
+$source$;
 
 CREATE TABLE ops.patch_ledger (
     ledger_id bigint PRIMARY KEY CHECK (ledger_id>0),
@@ -98,8 +101,9 @@ BEGIN
 END
 $generation$;
 
-REVOKE ALL ON ops.patch_ledger_source,ops.patch_ledger,ops.patch_ledger_post,serve.patch_ledger,serve.patch_ledger_member FROM PUBLIC;
-GRANT SELECT ON ops.patch_ledger_source TO brain_ingest;
+REVOKE ALL ON FUNCTION ops.patch_ledger_source() FROM PUBLIC;
+REVOKE ALL ON ops.patch_ledger,ops.patch_ledger_post,serve.patch_ledger,serve.patch_ledger_member FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ops.patch_ledger_source() TO brain_ingest;
 GRANT SELECT,INSERT,UPDATE,DELETE ON ops.patch_ledger,ops.patch_ledger_post TO brain_ingest;
 GRANT SELECT ON serve.patch_ledger,serve.patch_ledger_member TO brain_tool;
 

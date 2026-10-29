@@ -1,7 +1,7 @@
 WITH catalog AS MATERIALIZED (
         SELECT c.* FROM serve.p4_patch_catalog c
         LEFT JOIN serve.patch_ledger_member l ON l.patch_id=c.patch_id
-        WHERE l.disposition IS DISTINCT FROM 'duplicate'
+        WHERE (l.disposition IS NULL OR l.disposition='primary')
             AND ($1::text IS NULL OR coalesce(l.ledger_released_at,c.released_at) >= $1::timestamptz)
             AND ($2::text IS NULL OR coalesce(l.ledger_released_at,c.released_at) <= $2::timestamptz)
     ), lines AS MATERIALIZED (

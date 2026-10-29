@@ -583,3 +583,89 @@ async fn real_postgres_bounds_role_failure_and_drop_cancel_workers() {
     assert!(!error.contains("patchnotes_feed_reader"));
     assert!(stream(config(), reader.port(1)).next().unwrap().is_err());
 }
+
+#[tokio::test]
+async fn ledger_refresh_runs_as_ingest_role_and_merges_mirrors() {
+    let (pg, admin, reader) = setup().await;
+    let notes: String = (0..25)
+        .map(|index| format!("- Haze bullet damage reduced from {index} to 1\n"))
+        .collect();
+    sqlx::query(
+        "INSERT INTO patchnotes.changelog_posts (id,title,url,posted_at,raw_content) VALUES
+         (1,'10-01-2026 Update','https://forums.playdeadlock.com/threads/10-01-2026-update.1/','2026-10-01 20:00+00',$2),
+         (2,'10-14-2026 Update','https://forums.playdeadlock.com/threads/10-14-2026-update.2/','2026-10-14 20:00+00',$1),
+         (3,'Minor Update - 10-14-2026','https://store.steampowered.com/news/app/1422450/view/3','2026-10-15 03:00+00',$1),
+         (4,'Mind the Birds!','https://store.steampowered.com/news/app/1422450/view/4','2026-10-16 18:00+00','teaser')",
+    )
+    .bind(&notes)
+    .bind("- Fixed a crash\n- Fixed a sound bug\n")
+    .execute(&admin)
+    .await
+    .unwrap();
+    let store = store(&admin).await;
+    let report = ingest(
+        &store,
+        "deadlock_patchnotes_db",
+        stream(config(), reader),
+        &[&PatchExtractor],
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.counts.accepted, 4);
+    sqlx::raw_sql("ALTER ROLE brain_ingest LOGIN")
+        .execute(&admin)
+        .await
+        .unwrap();
+    let ingest_role = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            PgConnectOptions::new_without_pgpass()
+                .host(&pg.directory.join("socket").to_string_lossy())
+                .port(55439)
+                .username("brain_ingest")
+                .database("postgres")
+                .password(""),
+        )
+        .await
+        .unwrap();
+    let changed = crate::patch_ledger::refresh(&ingest_role, report.run_id)
+        .await
+        .unwrap();
+    assert!(changed);
+    assert!(!crate::patch_ledger::refresh(&ingest_role, report.run_id)
+        .await
+        .unwrap());
+    let posts: Vec<(i64, Option<i64>, String)> = sqlx::query_as(
+        "SELECT post_id,ledger_id,disposition FROM ops.patch_ledger_post ORDER BY post_id",
+    )
+    .fetch_all(&admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        posts,
+        [
+            (1, Some(1), "primary".into()),
+            (2, Some(3), "duplicate".into()),
+            (3, Some(3), "primary".into()),
+            (4, None, "excluded".into()),
+        ]
+    );
+    let served: Vec<(i64, String, String)> = sqlx::query_as(
+        "SELECT ledger_id,label,to_char(released_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI')
+         FROM serve.patch_ledger ORDER BY released_at,ledger_id",
+    )
+    .fetch_all(&admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        served,
+        [
+            (1, "10-01-2026 Update".into(), "2026-10-01 20:00".into()),
+            (
+                3,
+                "Minor Update - 10-14-2026".into(),
+                "2026-10-14 20:00".into()
+            ),
+        ]
+    );
+}
