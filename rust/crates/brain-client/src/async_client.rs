@@ -83,11 +83,32 @@ impl AsyncBrainClient {
         discord_user_id: u64,
         user_questions: &[String],
     ) -> Result<PublicAnswerResponse> {
+        self.answer_for_discord_with_history_and_read_access(
+            query,
+            discord_user_id,
+            user_questions,
+            false,
+        )
+        .await
+    }
+
+    pub async fn answer_for_discord_with_history_and_read_access(
+        &self,
+        query: &Query,
+        discord_user_id: u64,
+        user_questions: &[String],
+        allow_discord_reads: bool,
+    ) -> Result<PublicAnswerResponse> {
         if discord_user_id == 0 {
             return Err(ClientError::InvalidResponse);
         }
-        self.answer_with_identity(query, Some(discord_user_id), false, Some(user_questions))
-            .await
+        self.answer_with_identity(
+            query,
+            Some(discord_user_id),
+            allow_discord_reads,
+            Some(user_questions),
+        )
+        .await
     }
 
     pub async fn answer_discord_task(
