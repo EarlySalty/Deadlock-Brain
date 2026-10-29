@@ -252,7 +252,7 @@ impl<T> PgTools<T> {
                             Vec::new()
                         };
                         if !mechanics.is_empty() && !strong_suggestion(&rows) {
-                            matched = mechanic_match(&mut connection, &mechanics).await?;
+                            matched = mechanic_match(&mut connection, &mechanics, limit).await?;
                         }
                     }
                     if let Some(value) = matched {
@@ -563,9 +563,11 @@ fn strong_suggestion(rows: &[sqlx::postgres::PgRow]) -> bool {
 async fn mechanic_match(
     connection: &mut PgConnection,
     mechanics: &[MechanicKind],
+    limit: usize,
 ) -> Result<Option<Value>, PortError> {
     let mut entities = Vec::new();
     let mut found = Vec::new();
+    let mut capped = false;
     for mechanic in mechanics {
         let alias = format!("mechanic_{}", mechanic.as_str());
         let rows = sqlx::query(EXACT)
@@ -579,6 +581,7 @@ async fn mechanic_match(
             continue;
         }
         found.push(mechanic.as_str());
+        capped |= rows.len() as i64 >= MAX_MECHANIC_ENTITIES;
         for row in rows {
             let mut entity = entity_json(row)?;
             entity["mechanic"] = mechanic.as_str().into();
@@ -588,11 +591,13 @@ async fn mechanic_match(
     if found.is_empty() {
         return Ok(None);
     }
+    let omitted = entities.len().saturating_sub(limit);
+    entities.truncate(limit);
     Ok(Some(
         json!({"entities":entities,"match":"mechanic","mechanics":found,
         "ambiguous":found.len()>1,"resolved":found.len()==1,
         "next":"get_mechanic mit mechanic aus mechanics aufrufen",
-        "truncated":false,"omitted_count":0,"omitted_count_is_lower_bound":false}),
+        "truncated":omitted>0 || capped,"omitted_count":omitted,"omitted_count_is_lower_bound":capped}),
     ))
 }
 

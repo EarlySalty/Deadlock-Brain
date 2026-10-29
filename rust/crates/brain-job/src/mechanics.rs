@@ -279,6 +279,10 @@ impl Extractor for MechanicsExtractor {
         "mechanics_v1"
     }
 
+    fn version(&self) -> &'static str {
+        "2"
+    }
+
     fn accepts(&self, source: &str, path: &str) -> bool {
         source == SOURCE && PATHS.contains(&path)
     }
