@@ -284,12 +284,25 @@ async fn run_patch_history(
         json!({
             "event": "brain_patch_history",
             "request_id": query.request_id,
-            "arguments": request.arguments(),
+            "shape": call_shape(request),
             "ok": execution.is_ok(),
             "elapsed_ms": started.elapsed().as_millis(),
         })
     );
     execution
+}
+
+fn call_shape(request: &ToolRequest) -> Value {
+    match request.subrequest() {
+        ToolSubrequest::CanonicalPatchHistory(history) => json!({
+            "entity": history.entity,
+            "since": history.since.is_some(),
+            "until": history.until.is_some(),
+            "offset": history.offset,
+            "text_terms": history.text.as_deref().map(|text| search_terms(text).len()),
+        }),
+        _ => Value::Null,
+    }
 }
 
 async fn patch_history_execution(
@@ -655,11 +668,8 @@ fn search_terms(text: &str) -> Vec<String> {
 }
 
 fn is_number(word: &str) -> bool {
-    word.chars().count() >= 2
-        && word
-            .trim_end_matches('%')
-            .chars()
-            .all(|ch| ch.is_ascii_digit())
+    let digits = word.trim_end_matches('%');
+    digits.chars().count() >= 2 && digits.chars().all(|ch| ch.is_ascii_digit())
 }
 
 fn singular(word: String) -> String {
