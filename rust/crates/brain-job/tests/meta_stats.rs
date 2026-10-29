@@ -75,11 +75,25 @@ fn snapshot_hour_is_utc_and_truncated() {
 }
 
 #[test]
-fn window_starts_thirty_days_before_the_capture_day() {
-    assert_eq!(meta_source::window_start(1_791_919_000), 1_789_257_600);
-    assert_eq!(meta_source::window_start(1_791_849_600), 1_789_257_600);
-    assert_eq!(meta_source::window_start(1_791_849_599), 1_789_171_200);
-    assert_eq!(meta_source::window_start(0), 0);
+fn window_starts_the_window_days_before_the_capture_day() {
+    let days = meta_source::PRIMARY_DAYS;
+    assert_eq!(
+        meta_source::window_start(1_791_919_000, days),
+        1_789_257_600
+    );
+    assert_eq!(
+        meta_source::window_start(1_791_849_600, days),
+        1_789_257_600
+    );
+    assert_eq!(
+        meta_source::window_start(1_791_849_599, days),
+        1_789_171_200
+    );
+    assert_eq!(meta_source::window_start(0, days), 0);
+    assert_eq!(
+        meta_source::window_start(1_791_919_000, meta_source::FALLBACK_DAYS),
+        1_790_640_000
+    );
 }
 
 #[test]
@@ -97,6 +111,8 @@ fn replay_is_refused_so_snapshot_time_is_capture_time() {
 fn real_captures_become_one_cited_row_per_hero_and_item() {
     assert!(MetaStats.accepts(meta_source::SOURCE, HERO));
     assert!(MetaStats.accepts(meta_source::SOURCE, ITEM));
+    assert!(MetaStats.accepts(meta_source::SOURCE, "item-stats-14d.json"));
+    assert!(MetaStats.accepts(meta_source::SOURCE, "hero-stats-14d.json"));
     assert!(!MetaStats.accepts("deadlock-data", HERO));
     assert!(!MetaStats.accepts(meta_source::SOURCE, "other.json"));
     for (path, entity, prefix, rows) in [

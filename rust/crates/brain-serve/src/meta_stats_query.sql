@@ -1,8 +1,8 @@
 WITH stat_set AS MATERIALIZED (
-    SELECT s.entity_id,s.path FROM serve.meta_stat_set s WHERE s.stat_set=$1
+    SELECT s.entity_id,s.path,s.fallback_path FROM serve.meta_stat_set s WHERE s.stat_set=$1
 ), captures AS MATERIALIZED (
     SELECT c.raw_object_id,c.run_id FROM serve.meta_stat_capture c
-    WHERE c.path=(SELECT s.path FROM stat_set s)
+    WHERE c.path IN ((SELECT s.path FROM stat_set s),(SELECT s.fallback_path FROM stat_set s))
     ORDER BY c.capture_key DESC,c.raw_object_id DESC LIMIT 1000
 ), applications AS MATERIALIZED (
     SELECT s.entity_id,a.run_id,a.snapshot_at FROM stat_set s
@@ -41,8 +41,9 @@ SELECT jsonb_build_object(
     'snapshot_at',to_char(m.snapshot_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
     'value',m.value,
     'condition',jsonb_build_object('matches_since',to_char(
-            date_trunc('day',m.snapshot_at AT TIME ZONE 'UTC')-interval '30 days',
+            date_trunc('day',m.snapshot_at AT TIME ZONE 'UTC')-make_interval(days=>m.window_days),
             'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+        'window_days',m.window_days,
         'matches_until',to_char(m.snapshot_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
         'game_mode','normal','match_mode','source_default','bucket','no_bucket')
         ||CASE WHEN $1='meta_item_stats' THEN jsonb_build_object('min_matches',20)

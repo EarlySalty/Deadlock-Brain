@@ -40,7 +40,7 @@ System units (`systemctl`):
 | `deadlock-brain-postgresql-backup.timer` | Daily Postgres backup | `ops/brain-postgres/backup.sh` |
 | `brain-job@deadlock-data.timer` | deadlock-data game files (hero data and mechanics) | every 5 minutes at minute 2/5; own unit file installed by `brain-release`, which re-enables it on every release |
 | `brain-job@assets.timer` | Asset source | hourly |
-| `brain-job@deadlock-api-meta.timer` | Deadlock API meta statistics | hourly |
+| `brain-job@deadlock-api-meta.timer` | Deadlock API meta statistics, 30-day window; on upstream 504 or timeout one retry with 14 days, stored as `*-14d.json` and served as `condition.window_days` | hourly |
 | `brain-job@deadlock_patchnotes_db.timer` | Patch notes database | every 5 minutes; drop-in `item-lineage.conf` runs the item-lineage ingest after success |
 | `brain-job@deadlock-docs.timer` | Deadlock-Docs pages (`public/` and `internal/`) | hourly |
 | `brain-job@audit-receipts.timer` | Receipt audit | daily 03:17 |

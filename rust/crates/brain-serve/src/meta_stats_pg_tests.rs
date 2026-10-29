@@ -143,6 +143,53 @@ fn repeated_capture_ranks_by_its_own_capture_hour(
     );
     assert_eq!(facts[0]["condition"]["matches_until"], repeated_hour);
     assert_eq!(facts[0]["condition"]["min_matches"], 20);
+    assert!(facts
+        .iter()
+        .all(|fact| fact["condition"]["window_days"] == 30));
+}
+
+fn fallback_capture_reports_its_own_window(
+    runtime: &tokio::runtime::Runtime,
+    admin: &PgPool,
+    tools: &PgTools<Delegate>,
+) {
+    let fallback = ("item-stats-14d.json", "meta_item_stats", "item");
+    let (hour, since) = runtime.block_on(async {
+        let hour = hour_before(admin, "0 hours").await;
+        let run = publish_capture(
+            admin,
+            fallback,
+            &hour,
+            br#"[{"item_id":1,"wins":70,"matches":100}]"#.to_vec(),
+        )
+        .await;
+        let since: String = sqlx::query_scalar(
+            "SELECT to_char(date_trunc('day',date_trunc('hour',started,'UTC') AT TIME ZONE 'UTC')-interval '14 days','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM ops.ingest_run WHERE id=$1",
+        )
+        .bind(run)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+        (hour, since)
+    });
+    let execution = tools
+        .execute(
+            &query(),
+            &context(),
+            None,
+            "meta",
+            &request(ToolName::GetMetaStats, json!({"kind":"item","game_id":1})),
+        )
+        .unwrap();
+    assert!(!execution.result.is_error, "{}", execution.result.result);
+    let facts = execution.result.result["facts"].as_array().unwrap();
+    assert_eq!(facts[0]["value"]["wins"], 70);
+    assert_eq!(facts[0]["source_revision"], hour);
+    assert_eq!(facts[0]["condition"]["window_days"], 14);
+    assert_eq!(facts[0]["condition"]["matches_since"], since);
+    assert!(facts[1..]
+        .iter()
+        .all(|fact| fact["condition"]["window_days"] == 30));
 }
 
 const OLDER_HISTORY: &str = r#"DO $history$
@@ -340,6 +387,7 @@ fn meta_stats_tool_reads_cited_snapshots_without_live_calls() {
     }
 
     repeated_capture_ranks_by_its_own_capture_hour(&runtime, &admin, &tools);
+    fallback_capture_reports_its_own_window(&runtime, &admin, &tools);
 
     let plan: Vec<String> = runtime.block_on(async {
         let mut connection = admin.acquire().await.unwrap();

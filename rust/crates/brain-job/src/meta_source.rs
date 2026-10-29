@@ -1,6 +1,9 @@
 use crate::{sources::InputObjects, InputObject};
 use anyhow::{ensure, Context};
-use deadlock_brain_core::http::{HttpClient, SourceHttpOptions};
+use deadlock_brain_core::{
+    http::{HttpClient, SourceHttpOptions},
+    CoreError,
+};
 use std::{
     fs::OpenOptions,
     io::{Read, Write},
@@ -9,13 +12,15 @@ use std::{
 };
 
 pub const SOURCE: &str = "deadlock-api-meta";
-pub const STAT_SETS: [(&str, &str); 2] = [
+pub const STAT_SETS: [(&str, &str, &str); 2] = [
     (
         "hero-stats.json",
+        "hero-stats-14d.json",
         "https://api.deadlock-api.com/v1/analytics/hero-stats?game_mode=normal&bucket=no_bucket",
     ),
     (
         "item-stats.json",
+        "item-stats-14d.json",
         "https://api.deadlock-api.com/v1/analytics/item-stats?game_mode=normal&bucket=no_bucket&min_matches=20",
     ),
 ];
@@ -23,9 +28,12 @@ pub const MAX_BYTES: usize = 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 const TOTAL_TIMEOUT: Duration = Duration::from_secs(270);
 const BACKOFF: Duration = Duration::from_secs(5);
+pub const PRIMARY_DAYS: u64 = 30;
+pub const FALLBACK_DAYS: u64 = 14;
+const GATEWAY_TIMEOUT: u16 = 504;
 
-pub fn window_start(unix_seconds: u64) -> u64 {
-    (unix_seconds / 86_400 * 86_400).saturating_sub(30 * 86_400)
+pub fn window_start(unix_seconds: u64, days: u64) -> u64 {
+    (unix_seconds / 86_400 * 86_400).saturating_sub(days * 86_400)
 }
 
 pub fn window_end(unix_seconds: u64) -> u64 {
@@ -77,23 +85,44 @@ fn read_bounded(path: &Path) -> anyhow::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+fn stored(directory: &Path, primary: &'static str, fallback: &'static str) -> Option<&'static str> {
+    [primary, fallback]
+        .into_iter()
+        .find(|path| directory.join(path).exists())
+}
+
 fn objects(directory: &Path, revision: &str) -> anyhow::Result<Vec<InputObject>> {
     ensure!(valid_hour(revision), "Ungültige Snapshot-Stunde");
     STAT_SETS
         .iter()
-        .map(|(path, _)| {
+        .map(|(primary, fallback, _)| {
+            let path =
+                stored(directory, primary, fallback).context("Metastatistik fehlt im Snapshot")?;
             Ok(InputObject {
                 revision: revision.to_owned(),
-                path: (*path).to_owned(),
+                path: path.to_owned(),
                 bytes: read_bounded(&directory.join(path))?,
             })
         })
         .collect()
 }
 
-fn download(url: &str, cache: &Path) -> anyhow::Result<Vec<u8>> {
+enum Fetched {
+    Body(Vec<u8>),
+    Overloaded,
+}
+
+fn overloaded(error: &CoreError) -> bool {
+    match error {
+        CoreError::Reqwest(error) => error.is_timeout(),
+        CoreError::Io(error) => error.to_string() == "source HTTP total timeout",
+        _ => false,
+    }
+}
+
+fn download(url: &str, cache: &Path) -> anyhow::Result<Fetched> {
     let client = HttpClient::new("deadlock-brain-meta-stats/1", cache)?;
-    let response = client.get_bounded(
+    let response = match client.get_bounded(
         url,
         SourceHttpOptions {
             max_bytes: MAX_BYTES,
@@ -102,13 +131,52 @@ fn download(url: &str, cache: &Path) -> anyhow::Result<Vec<u8>> {
             backoff: BACKOFF,
             ..SourceHttpOptions::default()
         },
-    )?;
+    ) {
+        Ok(response) => response,
+        Err(error) if overloaded(&error) => return Ok(Fetched::Overloaded),
+        Err(error) => return Err(error.into()),
+    };
+    if response.status == GATEWAY_TIMEOUT {
+        return Ok(Fetched::Overloaded);
+    }
     response.ensure_success()?;
     ensure!(
         response.content_type().starts_with("application/json"),
         "Metastatistik liefert kein JSON"
     );
-    Ok(response.content)
+    Ok(Fetched::Body(response.content))
+}
+
+fn fetch(url: &str, cache: &Path, unix_seconds: u64, days: u64) -> anyhow::Result<Fetched> {
+    let since = window_start(unix_seconds, days);
+    let until = window_end(unix_seconds);
+    let url = format!("{url}&min_unix_timestamp={since}&max_unix_timestamp={until}");
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| download(&url, &cache.join(".http")))
+            .join()
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("Abruf abgebrochen")))
+    })
+}
+
+fn capture_set(
+    directory: &Path,
+    cache: &Path,
+    unix_seconds: u64,
+    (primary, fallback, url): (&'static str, &'static str, &str),
+) -> anyhow::Result<()> {
+    if stored(directory, primary, fallback).is_some() {
+        return Ok(());
+    }
+    if let Fetched::Body(bytes) = fetch(url, cache, unix_seconds, PRIMARY_DAYS)? {
+        return store(&directory.join(primary), &bytes);
+    }
+    match fetch(url, cache, unix_seconds, FALLBACK_DAYS)? {
+        Fetched::Body(bytes) => store(&directory.join(fallback), &bytes),
+        Fetched::Overloaded => Err(anyhow::anyhow!(
+            "Metastatistik überlastet: {PRIMARY_DAYS}- und {FALLBACK_DAYS}-Tage-Fenster liefen in Zeitüberschreitung"
+        )),
+    }
 }
 
 fn store(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
@@ -156,20 +224,8 @@ pub fn capture(cache: &Path, unix_seconds: u64) -> anyhow::Result<Vec<InputObjec
         .context("Quellen-Cache konnte nicht gesperrt werden")?;
     let directory = cache.join(&revision);
     std::fs::create_dir_all(&directory)?;
-    let since = window_start(unix_seconds);
-    let until = window_end(unix_seconds);
-    for (path, url) in STAT_SETS {
-        let target = directory.join(path);
-        if !target.exists() {
-            let url = format!("{url}&min_unix_timestamp={since}&max_unix_timestamp={until}");
-            let bytes = std::thread::scope(|scope| {
-                scope
-                    .spawn(|| download(&url, &cache.join(".http")))
-                    .join()
-                    .unwrap_or_else(|_| Err(anyhow::anyhow!("Abruf abgebrochen")))
-            })?;
-            store(&target, &bytes)?;
-        }
+    for set in STAT_SETS {
+        capture_set(&directory, cache, unix_seconds, set)?;
     }
     prune(cache, &revision)?;
     objects(&directory, &revision)

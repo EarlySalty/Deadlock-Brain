@@ -9,9 +9,11 @@ use sha2::{Digest, Sha256};
 pub struct MetaStats;
 
 pub const ENTITY_KIND: &str = "meta_stats";
-pub const STAT_SETS: [(&str, &str, &str, &str); 2] = [
+pub const STAT_SETS: [(&str, &str, &str, &str); 4] = [
     ("hero-stats.json", "meta_hero_stats", "hero_id", "hero"),
     ("item-stats.json", "meta_item_stats", "item_id", "item"),
+    ("hero-stats-14d.json", "meta_hero_stats", "hero_id", "hero"),
+    ("item-stats-14d.json", "meta_item_stats", "item_id", "item"),
 ];
 const FIELD_BYTES: usize = 64;
 
