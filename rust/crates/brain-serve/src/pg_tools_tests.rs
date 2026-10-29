@@ -1328,6 +1328,10 @@ fn hero_lookups_follow_published_assets_playability() {
     let found = execute(ToolName::FindEntity, json!({"text":"Baba","kind":"hero"}));
     assert_eq!(found.result["resolved"], true);
     assert_eq!(found.result["entities"][0]["entity_id"], baba);
+    let wrong_kind = execute(ToolName::FindEntity, json!({"text":"Baba","kind":"item"}));
+    assert_eq!(wrong_kind.result["match"], "exact");
+    assert_eq!(wrong_kind.result["entities"][0]["entity_id"], baba);
+    assert_eq!(wrong_kind.result["entities"][0]["kind"], "hero");
     let profile = execute(ToolName::GetHero, json!({"hero":baba}));
     assert!(!profile.is_error);
     assert_eq!(profile.result["identity"]["name_en"], "Baba");

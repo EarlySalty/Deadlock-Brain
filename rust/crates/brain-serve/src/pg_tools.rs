@@ -241,6 +241,10 @@ impl<T> PgTools<T> {
                     let limit = find.limit.unwrap_or(5);
                     let mut rows = sqlx::query(EXACT).bind(&text).bind(kind).bind((limit + 1) as i64)
                         .fetch_all(&mut *connection).await.map_err(database_error)?;
+                    if rows.is_empty() && kind.is_some() {
+                        rows = sqlx::query(EXACT).bind(&text).bind(None::<&str>).bind((limit + 1) as i64)
+                            .fetch_all(&mut *connection).await.map_err(database_error)?;
+                    }
                     let exact = !rows.is_empty();
                     let mut matched = None;
                     if !exact {

@@ -1,5 +1,7 @@
 #[path = "answer_trace.rs"]
 mod answer_trace;
+#[path = "entity_names.rs"]
+mod entity_names;
 #[path = "pg_tools.rs"]
 mod pg_tools;
 
@@ -417,6 +419,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         )
         .with_input_bytes_per_token(prepared.config.kernel.input_bytes_per_token);
     let mut docs_reader = None;
+    let mut entity_names = None;
     if let Some(config) = &prepared.config.deadlock_api {
         let pg = &prepared.config.postgres;
         let options = sqlx::postgres::PgConnectOptions::new_without_pgpass()
@@ -460,6 +463,10 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
             pool.clone(),
             tokio::runtime::Handle::current(),
         ));
+        entity_names = Some(Box::new(entity_names::EntityNames::new(
+            gamefacts_pool.clone(),
+            tokio::runtime::Handle::current(),
+        )) as Box<dyn crate::tool_base::EntityNames>);
         let tools = crate::pg_patch_port::PgPatchToolPort::new(
             pg_tools::PgTools::new(
                 crate::tool_base::ToolBase,
@@ -534,7 +541,7 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         (&prepared.config.budgets).into(),
     )
     .with_retrieval(public_retrieval)
-    .with_discord_context_resolver(crate::tool_base::ToolBase)
+    .with_discord_context_resolver(crate::tool_base::ConversationSubjects::new(entity_names))
     .with_discord_consumers(
         prepared
             .config
