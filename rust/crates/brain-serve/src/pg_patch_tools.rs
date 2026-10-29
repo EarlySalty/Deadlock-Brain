@@ -210,7 +210,7 @@ const SEARCH: &str = "WITH catalog AS MATERIALIZED (
         SELECT d.*,sc.score FROM distinct_lines d CROSS JOIN LATERAL (
             SELECT COALESCE(max(power(g.hits,1.75)*(CASE WHEN g.changed THEN 1.75 ELSE 1 END)
                 /(1+ln(1+g.words::float8/20))),0) AS score
-            FROM (SELECT (SELECT sum(CASE WHEN t ~ '^[0-9]' THEN (CASE WHEN lower(x.seg) ~ ('(^|[^0-9.,])'||t||'([^0-9a-z]|$)') THEN 1.0 ELSE 0 END)
+            FROM (SELECT (SELECT sum(CASE WHEN t ~ '^[0-9]' THEN (CASE WHEN lower(x.seg) ~ ('(^|[^0-9.,])'||t||'(?![.,]?[0-9])') THEN 1.0 ELSE 0 END)
                         WHEN lower(x.seg) ~ ('\\m'||t) THEN 1.0
                         WHEN strpos(lower(x.seg),t)>0 THEN 0.5 ELSE 0 END)::float8
                     FROM unnest($1::text[]) t) AS hits,
