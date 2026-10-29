@@ -121,7 +121,7 @@ fn unavailable_execution(id: &str, request: &ToolRequest) -> ToolExecution {
         result: ToolResult {
             call_id: id.into(),
             name: request.name(),
-            result: json!({"error":"discord_live_unavailable","message":"Für diese Anfrage liegen keine freigegebenen Discord-Inhalte vor."}),
+            result: json!({"error":"discord_live_unavailable","message":"Discord-Live-Daten sind derzeit nicht erreichbar."}),
             evidence_ids: Vec::new(),
             is_error: true,
         },
@@ -206,8 +206,12 @@ impl DiscordLiveTools {
         let terms: Vec<String> = request_channel(request).into_iter().collect();
         let (expires, item) = match live.read_channel(context, None, &terms) {
             Ok(read) => read,
-            Err(PortError::Unavailable(_)) => {
+            Err(error @ PortError::Unavailable(_)) => {
                 context.check_deadline()?;
+                eprintln!(
+                    "{}",
+                    json!({"event":"brain_discord_live_tool_unavailable","request_id":query.request_id,"error":error.to_string()})
+                );
                 return Ok(unavailable_execution(&call.id, request));
             }
             Err(error) => return Err(error),
