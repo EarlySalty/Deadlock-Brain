@@ -441,9 +441,11 @@ fn note_lines(content: &str) -> Vec<NoteLine<'_>> {
                     for part in pieces(body) {
                         let continues = open
                             && piece == 0
-                            && subject_line(part, line, piece).is_none()
                             && output.last().is_some_and(|note| {
-                                bullet(part).is_none() || indent(part) > note.indent
+                                indent(part) > note.indent
+                                    || annotation(bullet(part).unwrap_or(part.trim()))
+                                    || (bullet(part).is_none()
+                                        && subject_line(part, line, piece).is_none())
                             });
                         if continues {
                             open = output.last_mut().is_some_and(|note| note.extend(part));

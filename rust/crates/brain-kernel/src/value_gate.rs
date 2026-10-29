@@ -153,6 +153,43 @@ fn percents(text: &str) -> Vec<String> {
         .collect()
 }
 
+fn split_separator(text: &str) -> Option<&str> {
+    let text = text.trim_start();
+    let text = text.strip_prefix('%').unwrap_or(text).trim_start();
+    text.strip_prefix('/')
+        .or_else(|| text.strip_prefix(':'))
+        .or_else(|| text.strip_prefix("zu "))
+        .map(str::trim_start)
+}
+
+fn split_separator_before(text: &str) -> Option<&str> {
+    let text = text.trim_end();
+    let text = text
+        .strip_suffix('/')
+        .or_else(|| text.strip_suffix(':'))
+        .or_else(|| text.strip_suffix(" zu"))?
+        .trim_end();
+    Some(text.strip_suffix('%').unwrap_or(text).trim_end())
+}
+
+fn split_partners(text: &str, start: usize, end: usize) -> Vec<String> {
+    let after = split_separator(&text[end..]).and_then(|rest| {
+        number_spans(rest)
+            .into_iter()
+            .next()
+            .filter(|(raw, _)| rest.starts_with(raw))
+            .map(|(_, value)| value)
+    });
+    let before = split_separator_before(&text[..start]).and_then(|rest| {
+        number_spans(rest)
+            .into_iter()
+            .last()
+            .filter(|(raw, _)| rest.ends_with(raw))
+            .map(|(_, value)| value)
+    });
+    after.into_iter().chain(before).collect()
+}
+
 pub(super) fn normalized_set(values: &[String]) -> BTreeSet<String> {
     values
         .iter()
@@ -304,15 +341,14 @@ impl ValueLedger {
             .filter_map(|id| self.values.get(id))
             .flatten()
             .collect();
-        let complements: BTreeSet<String> = answer
+        let partners: BTreeSet<&String> = answer
             .cited_evidence_ids
             .iter()
             .filter_map(|id| self.percents.get(id))
             .flatten()
             .filter(|value| stated.contains(value.as_str()))
-            .filter_map(|value| complement(value))
             .collect();
-        let covered: BTreeSet<&String> = cited.into_iter().chain(&complements).collect();
+        let covered: BTreeSet<&String> = cited;
         let mut labels: Vec<_> = answer
             .cited_evidence_ids
             .iter()
@@ -340,7 +376,13 @@ impl ValueLedger {
             });
         let mut missing: Vec<String> = Vec::new();
         for (raw, value) in number_spans(&text) {
-            if !covered.contains(&value) && !missing.iter().any(|seen| seen == raw) {
+            let start = raw.as_ptr() as usize - text.as_ptr() as usize;
+            let split = split_partners(&text, start, start + raw.len())
+                .into_iter()
+                .any(|partner| {
+                    partners.contains(&partner) && complement(&partner).as_ref() == Some(&value)
+                });
+            if !covered.contains(&value) && !split && !missing.iter().any(|seen| seen == raw) {
                 missing.push(raw.to_string());
             }
         }
@@ -350,15 +392,10 @@ impl ValueLedger {
     fn claim_holds(&self, answer: &ProviderAnswer, claim: &NumericClaim) -> bool {
         normalize(&claim.value.to_string()).is_some_and(|value| {
             answer.cited_evidence_ids.contains(&claim.citation_id)
-                && (self
+                && self
                     .values
                     .get(&claim.citation_id)
                     .is_some_and(|values| values.contains(&value))
-                    || self.percents.get(&claim.citation_id).is_some_and(|values| {
-                        values
-                            .iter()
-                            .any(|known| complement(known).as_ref() == Some(&value))
-                    }))
         })
     }
 }
@@ -552,8 +589,12 @@ mod tests {
             usage: Usage::default(),
         };
         assert!(ledger.accepts(&cited(
-            "Seit dem 21.11.2025 sind 40% im fliegenden Orb und 60% fallen auf den Boden, vorher 50/50."
+            "Seit dem 21.11.2025 ist die Aufteilung 40/60 (Orb/Boden), vorher 50/50."
         )));
+        assert!(!ledger.accepts(&cited(
+            "Seit dem 21.11.2025 sind 40% im Orb und 60% am Boden."
+        )));
+        assert!(ledger.accepts(&cited("Seit 21.11.2025 gilt 40 % : 60 %.")));
         assert!(ledger.accepts(&cited("Ja, 60/40 stimmt: seit 21.11. sind es 40 zu 60.")));
         assert!(!ledger.accepts(&cited("Seit dem 21.11.2025 sind es 45% im Orb.")));
         assert!(!ledger.accepts(&cited("Seit dem 22.11.2025 sind es 40% im Orb.")));
@@ -564,6 +605,13 @@ mod tests {
             evidence_ids: vec!["orb".into()], is_error: false });
         assert!(damage.accepts(&cited("Der Schaden stieg von 10 auf 12.")));
         assert!(!damage.accepts(&cited("12 Schaden und 88 Leben.")));
+        assert!(!damage.accepts(&cited("Der Schaden stieg auf 12/88.")));
+        let mut percent = ValueLedger::default();
+        percent.insert(&ToolResult { call_id: "pct".into(), name: ToolName::PatchHistory,
+            result: json!({"changes":[{"citation":"orb","line_text":"Bullet damage increased by 12%"}]}),
+            evidence_ids: vec!["orb".into()], is_error: false });
+        assert!(!percent.accepts(&cited("12% Schaden und 88 HP.")));
+        assert!(!percent.accepts(&cited("12% Schaden und 88% Leben.")));
         assert!(!damage.accepts(&cited("Baba hat 999 Leben.")));
         assert_eq!(
             normalized_set(&["45".into(), "40".into()]),
