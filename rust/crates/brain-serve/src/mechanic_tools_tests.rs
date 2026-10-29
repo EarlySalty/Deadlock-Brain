@@ -393,3 +393,92 @@ fn every_live_objective_fits_one_tool_result_with_all_its_rows() {
     }
     assert!(value_of(&facts, "npc_boss_tier1_maxhealth").is_none());
 }
+
+fn orb_line(patch: &str, released_at: &str, text: &str, citation: &str) -> Value {
+    json!({"patch":patch,"released_at":released_at,"line_text":text,"citation":citation,"source_revision":"rev"})
+}
+
+#[test]
+fn orb_share_history_lists_dated_kill_orb_changes_after_derived_rows() {
+    let rows: Vec<Value> = serde_json::from_str(include_str!(
+        "../tests/fixtures/mechanic_lane_troopers.json"
+    ))
+    .unwrap_or_default();
+    let history = [
+        orb_line(
+            "11-21-2024 Update",
+            "2024-11-21T23:21:49+00:00",
+            "Trooper soul changed from 60/40% in the kill/orb to 65/35%",
+            "11",
+        ),
+        orb_line(
+            "11-21-2025 Update",
+            "2025-11-21T22:53:12+00:00",
+            "Amount of souls in the flying orb that can be secured/denied reduced from 50% to 40%",
+            "12",
+        ),
+        orb_line(
+            " Minor Update - 06-30-2026",
+            "2026-06-30T17:22:14+00:00",
+            "Trooper bounty ratio in the deniable flying orb increased from 40% to 50%",
+            "13",
+        ),
+        orb_line(
+            "x",
+            "2026-01-01T00:00:00+00:00",
+            "Flying orb now glows brighter",
+            "14",
+        ),
+        json!({"patch":"y","released_at":"2026-01-02T00:00:00+00:00","line_text":"Amount in the flying orb reduced from 50% to 40%","citation":"15","source_revision":""}),
+    ];
+    let mut result = present(&request(MechanicKind::LaneTroopers, None), rows);
+    insert_orb_history(&mut result, &history);
+    let facts = result["facts"].as_array().cloned().unwrap_or_default();
+    let changes: Vec<(usize, &Value)> = facts
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row["stat_key"] == "patch_orb_share_change")
+        .collect();
+    let shares: Vec<(&str, &str, &str)> = changes
+        .iter()
+        .map(|(_, row)| {
+            (
+                row["condition"]["released_at"].as_str().unwrap_or_default(),
+                row["condition"]["old_orb_share_percent"]
+                    .as_str()
+                    .unwrap_or_default(),
+                row["condition"]["new_orb_share_percent"]
+                    .as_str()
+                    .unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        shares,
+        [
+            ("2024-11-21T23:21:49+00:00", "40", "35"),
+            ("2025-11-21T22:53:12+00:00", "50", "40"),
+            ("2026-06-30T17:22:14+00:00", "40", "50"),
+        ]
+    );
+    let first = changes.first().map_or(usize::MAX, |(index, _)| *index);
+    assert!(facts[..first].iter().all(|row| row["stat_key"]
+        .as_str()
+        .is_some_and(|stat| stat.starts_with("derived_"))));
+    assert!(changes.iter().all(|(_, row)| row["patch"].is_null()
+        && row["citation"].is_string()
+        && row["condition"]["meaning"].is_string()));
+    let needed = facts
+        .iter()
+        .rposition(|row| {
+            row["stat_key"]
+                .as_str()
+                .is_some_and(|stat| stat.starts_with("derived_"))
+                || row["condition"]["meaning"].is_string()
+        })
+        .map_or(0, |last| last + 1);
+    result["facts"] = Value::Array(facts[..needed].to_vec());
+    let evidence = (29 + changes.len()) * 96 + 1100;
+    let bytes = serde_json::to_vec(&result).map_or(usize::MAX, |v| v.len());
+    assert!(bytes + evidence < 16_384, "{bytes}");
+}

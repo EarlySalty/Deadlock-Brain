@@ -202,6 +202,11 @@ const SEARCH: &str = "WITH catalog AS MATERIALIZED (
         ) payload
         WHERE jsonb_typeof(payload.value)='object'
             AND jsonb_typeof(payload.value->'line_text')='string' AND btrim(payload.value->>'line_text')<>''
+    ), rarity AS MATERIALIZED (
+        SELECT t.term,ln((n.lines+2)/(1+count(m.id) FILTER (WHERE strpos(lower(m.value->>'line_text'),t.term)>0)))
+            /ln(n.lines+2) AS weight
+        FROM unnest($1::text[]) t(term) CROSS JOIN (SELECT count(*)::float8 AS lines FROM matched) n
+        LEFT JOIN matched m ON true GROUP BY t.term,n.lines
     ), distinct_lines AS (
         SELECT DISTINCT ON (m.patch_id,regexp_replace(btrim(m.value->>'line_text'),'^[-*•][[:space:]]*',''))
             m.* FROM matched m WHERE m.hits>0
@@ -210,10 +215,10 @@ const SEARCH: &str = "WITH catalog AS MATERIALIZED (
         SELECT d.*,sc.score FROM distinct_lines d CROSS JOIN LATERAL (
             SELECT COALESCE(max(power(g.hits,1.75)*(CASE WHEN g.changed THEN 1.75 ELSE 1 END)
                 /(1+ln(1+g.words::float8/20))),0) AS score
-            FROM (SELECT (SELECT sum(CASE WHEN t ~ '^[0-9]' THEN (CASE WHEN lower(x.seg) ~ ('(^|[^0-9.,])'||t||'(?![.,]?[0-9])') THEN 1.0 ELSE 0 END)
-                        WHEN lower(x.seg) ~ ('\\m'||t) THEN 1.0
-                        WHEN strpos(lower(x.seg),t)>0 THEN 0.5 ELSE 0 END)::float8
-                    FROM unnest($1::text[]) t) AS hits,
+            FROM (SELECT (SELECT sum(CASE WHEN t ~ '^[0-9]' THEN (CASE WHEN lower(x.seg) ~ ('(^|[^0-9.,])'||t||'(?![.,]?[0-9])') THEN w.weight ELSE 0 END)
+                        WHEN lower(x.seg) ~ ('\\m'||t) THEN w.weight
+                        WHEN strpos(lower(x.seg),t)>0 THEN 0.5*w.weight ELSE 0 END)::float8
+                    FROM unnest($1::text[]) t JOIN rarity w ON w.term=t) AS hits,
                 cardinality(regexp_split_to_array(btrim(x.seg),'\\s+')) AS words,
                 (jsonb_typeof(d.value->'new') IN ('number','string')
                     OR x.seg ~* '\\mfrom\\s+[-+]?[0-9.][^;]{0,48}?\\mto\\s+[-+]?[0-9.]') AS changed
