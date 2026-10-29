@@ -330,7 +330,7 @@ async fn database(pg: &scratch_pg::ScratchPg) -> (PgPool, PgPool, PgPool) {
         versions,
         [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 30, 31, 32, 33, 34, 35, 36, 37,
-            38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50
+            38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51
         ]
     );
     let reader = PgPoolOptions::new()
@@ -938,7 +938,13 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
         std::time::Duration::from_secs(2),
     );
     let kernel = answer_trace::TracedKernel::new(kernel, Some(Arc::new(trace_writer)));
-    let accounted = kernel.answer_for_publication_accounted(&query, &context);
+    let accounted = brain_contracts::answer_trace::with_request(
+        brain_contracts::answer_trace::TraceRequest {
+            question: "Welche Patches betreffen Abrams?".into(),
+            history: vec!["Vorherige Frage".into()],
+        },
+        || kernel.answer_for_publication_accounted(&query, &context),
+    );
     let answer = accounted.value;
     assert_eq!(
         accounted.accounting.charged().input_tokens,
@@ -969,6 +975,22 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
         json!(["find_entity", "get_hero", "patch_history"])
     );
     assert_eq!(traces[1].0, json!([]));
+    let texts: Vec<TraceText> = sqlx::query_as(
+        "SELECT status,source,question,history,answer_text IS NOT NULL,provider_rounds FROM ops.answer_trace ORDER BY id",
+    )
+    .fetch_all(&admin)
+    .await
+    .unwrap();
+    assert_eq!(texts[0].0, "answered");
+    assert!(!texts[0].1.is_empty());
+    assert_eq!(
+        texts[0].2.as_deref(),
+        Some("Welche Patches betreffen Abrams?")
+    );
+    assert_eq!(texts[0].3, json!(["Vorherige Frage"]));
+    assert!(texts[0].4);
+    assert!(texts[0].5.is_some_and(|rounds| rounds > 0));
+    assert_eq!(texts[1].3, json!([]));
     for (_, citations) in traces {
         let numeric_ids = citations
             .as_array()
@@ -987,6 +1009,8 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
     writer.close().await;
     admin.close().await;
 }
+
+type TraceText = (String, String, Option<String>, Value, bool, Option<i32>);
 
 fn request_for_knowledge() -> ToolRequest {
     request(

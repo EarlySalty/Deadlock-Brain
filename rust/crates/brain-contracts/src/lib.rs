@@ -7,6 +7,7 @@ use thiserror::Error;
 
 pub const CONTRACT_VERSION: &str = "brain.v1";
 pub mod answer_contract;
+pub mod answer_trace;
 mod deadline;
 pub use deadline::RequestDeadline;
 pub mod bot_tasks;

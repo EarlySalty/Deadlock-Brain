@@ -1,6 +1,6 @@
 use brain_job::{
     config::Config,
-    freshness, ingest_then,
+    freshness, ingest_then, questions,
     registry::EXTRACTORS,
     sources::{self, SOURCES},
     GameFactsStore,
@@ -13,8 +13,10 @@ use std::{
 };
 
 const USAGE: &str =
-    "Aufruf: brain-job --config <brain-job.json> ingest <source> [--input <git-repository>] | brain-job --config <brain-job.json> audit-receipts | brain-job --config <brain-job.json> freshness [--since <date>] | brain-job --config <brain-job.json> freshness-history <git-repository>";
+    "Aufruf: brain-job --config <brain-job.json> ingest <source> [--input <git-repository>] | brain-job --config <brain-job.json> audit-receipts | brain-job --config <brain-job.json> freshness [--since <date>] | brain-job --config <brain-job.json> freshness-history <git-repository> | brain-job --config <brain-job.json> questions [--since <7d|24h|date>] [--status <not_answered|status>] [--limit <n>]";
 const FRESHNESS_SINCE: &str = "2026-08-01";
+const QUESTIONS_SINCE: &str = "7d";
+const QUESTIONS_LIMIT: i64 = 50;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -47,6 +49,11 @@ async fn run() -> anyhow::Result<()> {
     }
     if let Some(result) = freshness_command(&args).await {
         return result;
+    }
+    if let [flag, config, command, rest @ ..] = args.as_slice() {
+        if flag == "--config" && command == "questions" {
+            return questions_command(Path::new(config), rest).await;
+        }
     }
     let (config_path, source, input) = match args.as_slice() {
         [flag, config, command, source] if flag == "--config" && command == "ingest" => {
@@ -140,6 +147,10 @@ async fn audit(path: &Path) -> anyhow::Result<()> {
     let pool = Config::load(path)?.pool().await?;
     let result = async {
         PgStore::new(pool.clone()).check_gamefacts_schema().await?;
+        let purged = questions::purge(&pool).await;
+        if let Ok(count) = &purged {
+            println!("answer_trace_purged={count}");
+        }
         let report = brain_job::receipt_audit::run(&pool).await?;
         println!(
             "run={} sampled={} verified_receipts={} rejected_receipts={} rejected_objects={}",
@@ -149,6 +160,7 @@ async fn audit(path: &Path) -> anyhow::Result<()> {
             report.rejected_receipts,
             report.rejected_objects
         );
+        purged?;
         anyhow::Ok(())
     }
     .await;
@@ -213,6 +225,39 @@ async fn freshness(path: &Path, action: Freshness) -> anyhow::Result<()> {
         }
     }
     .await;
+    pool.close().await;
+    result
+}
+
+fn questions_filter(rest: &[OsString]) -> anyhow::Result<questions::Filter> {
+    let mut since = QUESTIONS_SINCE.to_owned();
+    let mut status = None;
+    let mut limit = QUESTIONS_LIMIT;
+    for pair in rest.chunks(2) {
+        let [flag, value] = pair else {
+            anyhow::bail!("Ungültiger Aufruf");
+        };
+        let value = value
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Ungültiger Wert"))?;
+        match flag.to_str() {
+            Some("--since") => since = value.to_owned(),
+            Some("--status") => status = Some(value.to_owned()),
+            Some("--limit") => limit = value.parse::<i64>()?.clamp(1, 1000),
+            _ => anyhow::bail!("Ungültiger Aufruf"),
+        }
+    }
+    Ok(questions::Filter {
+        since: questions::parse_since(&since, chrono::Utc::now())?,
+        status,
+        limit,
+    })
+}
+
+async fn questions_command(path: &Path, rest: &[OsString]) -> anyhow::Result<()> {
+    let filter = questions_filter(rest)?;
+    let pool = Config::load(path)?.pool().await?;
+    let result = questions::report(&pool, &filter).await;
     pool.close().await;
     result
 }

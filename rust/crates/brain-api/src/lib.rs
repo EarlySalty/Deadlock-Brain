@@ -338,6 +338,7 @@ where
                 },
             ));
         }
+        let asked = brain_contracts::discord_task::without_platform_ids(&query.text);
         let knowledge_release = match self.release_for_token(token) {
             Ok(release) => release,
             Err(response) => return response,
@@ -437,12 +438,21 @@ where
                 .text
                 .push_str(&serde_json::to_string(&projection).expect("Geprüfte Kontextprojektion"));
         }
+        let trace = brain_contracts::answer_trace::TraceRequest {
+            question: asked,
+            history: user_questions
+                .iter()
+                .map(|text| brain_contracts::discord_task::without_platform_ids(text))
+                .collect(),
+        };
         drop(user_questions);
         let query = brain_contracts::invite::project_query(&query);
         if query.validate().is_err() {
             return json_error(400, "invalid_request", "Query Contract ist ungültig");
         }
-        let mut answer = self.kernel.answer_for_publication(&query, &context);
+        let mut answer = brain_contracts::answer_trace::with_request(trace, || {
+            self.kernel.answer_for_publication(&query, &context)
+        });
         if deadline.check().is_err() {
             return deadline_response();
         }

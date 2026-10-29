@@ -255,6 +255,7 @@ pub(super) fn log_not_answered(
     provider_rounds: usize,
     tool_calls: usize,
 ) {
+    brain_contracts::answer_trace::note_not_answered(stage, reason);
     eprintln!(
         "{}",
         serde_json::json!({"event":"brain_answer_not_answered","request_id":query.request_id,"status":status,"stage":stage,"reason":reason,"provider_rounds":provider_rounds,"tool_calls":tool_calls})

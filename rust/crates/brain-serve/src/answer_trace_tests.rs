@@ -241,7 +241,7 @@ fn all_four_kernel_methods_forward_once_preserving_publication_and_accounting() 
         assert!(!record.tokens.to_string().contains(&query.text));
     }
     assert_eq!(records[0].status, "answered");
-    assert_eq!(records[1].status, "failed");
+    assert_eq!(records[1].status, "unauthorized_evidence");
     assert_eq!(records[0].tokens["input_tokens"], 9);
     assert_eq!(records[2].tokens["input_tokens"], 12);
     assert_eq!(records[2].tokens["reserved_input_tokens"], 13);

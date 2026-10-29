@@ -1,9 +1,9 @@
 use super::pg_tools::blocking;
 use brain_contracts::{
-    canonical_receipt::CanonicalReceipt, tools::BuildPlanRequest, Accounted, AnswerResponse,
-    AnswerStatus, AuthorizedContext, Evidence, PinnedGameContext, PortError, PortFailure, Query,
-    ToolCall, ToolDefinition, ToolEvidenceDependency, ToolExecution, ToolExecutionPort,
-    ToolRequest, ToolValidationPurpose, Usage, UsageAccounting,
+    canonical_receipt::CanonicalReceipt, tools::BuildPlanRequest, Accounted, AnswerContext,
+    AnswerResponse, AnswerStatus, AuthorizedContext, Evidence, PinnedGameContext, PortError,
+    PortFailure, Query, ToolCall, ToolDefinition, ToolEvidenceDependency, ToolExecution,
+    ToolExecutionPort, ToolRequest, ToolValidationPurpose, Usage, UsageAccounting,
 };
 use brain_kernel::AnswerKernelPort;
 use serde_json::{json, Value};
@@ -172,6 +172,66 @@ pub(super) struct TraceRecord {
     pub(super) status: &'static str,
     pub(super) tokens: Value,
     pub(super) latency_ms: i32,
+    pub(super) source: String,
+    pub(super) route: Option<String>,
+    pub(super) question: String,
+    pub(super) history: Vec<String>,
+    pub(super) answer_text: Option<String>,
+    pub(super) not_answered_stage: Option<String>,
+    pub(super) not_answered_reason: Option<String>,
+    pub(super) provider_rounds: i32,
+}
+
+const QUESTION_CHARS: usize = 4000;
+const HISTORY_TURNS: usize = 4;
+const ANSWER_CHARS: usize = 8000;
+const SOURCE_CHARS: usize = 128;
+
+fn bounded(text: &str, limit: usize) -> String {
+    text.chars().take(limit).collect()
+}
+
+fn slug(value: &str) -> Option<String> {
+    let slug: String = value
+        .chars()
+        .map(|c| c.to_ascii_lowercase())
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(64)
+        .collect();
+    slug.starts_with(|c: char| c.is_ascii_lowercase())
+        .then_some(slug)
+}
+
+fn route(query: &Query) -> Option<String> {
+    let purpose = match query.answer_context.as_ref()? {
+        AnswerContext::Discord(context) => context.purpose.as_deref().unwrap_or("discord"),
+        AnswerContext::Twitch(_) => "twitch",
+    };
+    let valid = purpose.len() <= 64
+        && purpose.starts_with(|c: char| c.is_ascii_lowercase())
+        && purpose
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_:.-".contains(c));
+    valid.then(|| purpose.to_owned())
+}
+
+fn status_name(status: AnswerStatus) -> &'static str {
+    match status {
+        AnswerStatus::Answered => "answered",
+        AnswerStatus::Unverified => "unverified",
+        AnswerStatus::BuildRejected => "build_rejected",
+        AnswerStatus::InsufficientEvidence => "insufficient_evidence",
+        AnswerStatus::UnauthorizedEvidence => "unauthorized_evidence",
+        AnswerStatus::Unavailable => "unavailable",
+        AnswerStatus::ProviderError => "provider_error",
+        AnswerStatus::BudgetExceeded => "budget_exceeded",
+    }
 }
 
 pub(super) trait TraceSink: Send + Sync {
@@ -235,11 +295,15 @@ impl TraceSink for PgTraceWriter {
         }
         blocking(&self.runtime, async {
             tokio::time::timeout(self.timeout,sqlx::query(
-                "INSERT INTO ops.answer_trace(question_sha256,tool_calls,citation_ids,status,tokens,latency_ms)
-                VALUES ($1,$2,$3,$4,$5,$6)")
+                "INSERT INTO ops.answer_trace(question_sha256,tool_calls,citation_ids,status,tokens,latency_ms,
+                source,route,question,history,answer_text,not_answered_stage,not_answered_reason,provider_rounds)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")
                 .bind(record.question_sha256.to_vec()).bind(json!(record.tool_calls))
                 .bind(json!(record.citation_ids)).bind(record.status).bind(record.tokens)
-                .bind(record.latency_ms).execute(&self.pool)).await
+                .bind(record.latency_ms).bind(record.source).bind(record.route)
+                .bind(record.question).bind(json!(record.history)).bind(record.answer_text)
+                .bind(record.not_answered_stage).bind(record.not_answered_reason)
+                .bind(record.provider_rounds).execute(&self.pool)).await
                 .map_err(|_| PortError::Unavailable("Zeitgrenze für Antwortnachweis erreicht.".into()))?
                 .map(|_| ()).map_err(|error| {
                     if error.as_database_error().and_then(|error| error.code()).as_deref() == Some("23514") {
@@ -265,6 +329,7 @@ impl<K> TracedKernel<K> {
     fn invoke<R>(
         &self,
         query: &Query,
+        context: &AuthorizedContext,
         action: impl FnOnce() -> R,
         response: impl FnOnce(&R) -> (&AnswerResponse, Option<&UsageAccounting>),
     ) -> R {
@@ -273,24 +338,47 @@ impl<K> TracedKernel<K> {
         };
         let started = Instant::now();
         let scope = CaptureScope::begin();
-        let result = action();
+        let (result, not_answered) = brain_contracts::answer_trace::observe_not_answered(action);
         let mut capture = scope.take();
         let (answer, accounting) = response(&result);
         for evidence in &answer.citations {
             record_evidence(&mut capture, evidence);
         }
         let usage = accounting.map_or(&answer.usage, |value| &value.observed);
+        let request = brain_contracts::answer_trace::current_request().unwrap_or_else(|| {
+            brain_contracts::answer_trace::TraceRequest {
+                question: brain_contracts::discord_task::without_platform_ids(&query.text),
+                history: Vec::new(),
+            }
+        });
+        let answered = answer.status == AnswerStatus::Answered;
+        let not_answered = not_answered.filter(|_| !answered);
         let record = TraceRecord {
             question_sha256: Sha256::digest(query.text.as_bytes()).into(),
             tool_calls: capture.calls,
             citation_ids: capture.citations,
-            status: match answer.status {
-                AnswerStatus::Answered => "answered",
-                AnswerStatus::InsufficientEvidence => "insufficient_evidence",
-                _ => "failed",
-            },
+            status: status_name(answer.status),
             tokens: token_counts(usage, accounting),
             latency_ms: started.elapsed().as_millis().min(i32::MAX as u128) as i32,
+            source: bounded(
+                &format!(
+                    "{}-{}",
+                    context.principal.actor_id, context.principal.channel
+                ),
+                SOURCE_CHARS,
+            ),
+            route: route(query),
+            question: bounded(&request.question, QUESTION_CHARS),
+            history: request
+                .history
+                .iter()
+                .skip(request.history.len().saturating_sub(HISTORY_TURNS))
+                .map(|text| bounded(text, QUESTION_CHARS))
+                .collect(),
+            answer_text: answered.then(|| bounded(&answer.text, ANSWER_CHARS)),
+            not_answered_stage: not_answered.as_ref().and_then(|note| slug(&note.stage)),
+            not_answered_reason: not_answered.as_ref().and_then(|note| slug(&note.reason)),
+            provider_rounds: i32::try_from(usage.network_rounds).unwrap_or(i32::MAX),
         };
         let tool_count = record.tool_calls.len();
         let citation_count = record.citation_ids.len();
@@ -321,6 +409,7 @@ impl<K: AnswerKernelPort> AnswerKernelPort for TracedKernel<K> {
     fn answer(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
         self.invoke(
             query,
+            context,
             || self.inner.answer(query, context),
             |answer| (answer, None),
         )
@@ -329,6 +418,7 @@ impl<K: AnswerKernelPort> AnswerKernelPort for TracedKernel<K> {
     fn answer_for_publication(&self, query: &Query, context: &AuthorizedContext) -> AnswerResponse {
         self.invoke(
             query,
+            context,
             || self.inner.answer_for_publication(query, context),
             |answer| (answer, None),
         )
@@ -341,6 +431,7 @@ impl<K: AnswerKernelPort> AnswerKernelPort for TracedKernel<K> {
     ) -> Accounted<AnswerResponse> {
         self.invoke(
             query,
+            context,
             || self.inner.answer_accounted(query, context),
             |answer| (&answer.value, Some(&answer.accounting)),
         )
@@ -353,6 +444,7 @@ impl<K: AnswerKernelPort> AnswerKernelPort for TracedKernel<K> {
     ) -> Accounted<AnswerResponse> {
         self.invoke(
             query,
+            context,
             || self.inner.answer_for_publication_accounted(query, context),
             |answer| (&answer.value, Some(&answer.accounting)),
         )
