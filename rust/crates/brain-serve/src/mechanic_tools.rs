@@ -151,6 +151,15 @@ pub(super) async fn read(
 }
 
 async fn orb_history(connection: &mut PgConnection) -> Option<Vec<Value>> {
+    for _ in 0..2 {
+        if let Some(rows) = attempt_orb_history(connection).await {
+            return Some(rows);
+        }
+    }
+    None
+}
+
+async fn attempt_orb_history(connection: &mut PgConnection) -> Option<Vec<Value>> {
     let mut savepoint = sqlx::Connection::begin(&mut *connection).await.ok()?;
     let started = std::time::Instant::now();
     let history = match sqlx::query_scalar::<_, Value>(ORB_HISTORY)

@@ -4,6 +4,7 @@ use sqlx::PgConnection;
 
 const QUERY: &str = include_str!("mechanic_patch_history.sql");
 const LIMIT: i64 = 12;
+const ATTEMPTS: u8 = 2;
 pub(super) const MEANING: &str = "patch_note_change-Zeilen sind Patchnotiz-Zeilen zu dieser Mechanik mit Datum, neueste zuerst. Steht in line_text from X to Y, galt old_text bis released_at und new_text gilt ab released_at. Nennt der Nutzer einen früheren Wert, mit diesen Zeilen sagen, wann er galt und seit wann der aktuelle Wert gilt. Regeln, die nur in diesen Zeilen stehen, gelten ab released_at, solange keine neuere Zeile sie ändert. Aktuelle Zahlenwerte stehen in den übrigen Zeilen.";
 
 pub(super) fn scope(request: &GetMechanicRequest) -> Option<(&'static str, &'static str)> {
@@ -53,7 +54,20 @@ fn objective(kind: Option<ObjectiveKind>) -> (&'static str, &'static str) {
 
 pub(super) async fn lines(
     connection: &mut PgConnection,
+    scope: (&str, &str),
+) -> Option<Vec<Value>> {
+    for attempt in 1..=ATTEMPTS {
+        if let Some(rows) = attempt_lines(connection, scope, attempt).await {
+            return Some(rows);
+        }
+    }
+    None
+}
+
+async fn attempt_lines(
+    connection: &mut PgConnection,
     (pattern, exclude): (&str, &str),
+    attempt: u8,
 ) -> Option<Vec<Value>> {
     let mut savepoint = sqlx::Connection::begin(&mut *connection).await.ok()?;
     let started = std::time::Instant::now();
@@ -75,6 +89,7 @@ pub(super) async fn lines(
         json!({
             "event": "brain_mechanic_patch_history",
             "ok": history.is_ok(),
+            "attempt": attempt,
             "rows": history.as_ref().map_or(0, Vec::len),
             "elapsed_ms": started.elapsed().as_millis(),
         })
