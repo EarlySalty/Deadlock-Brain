@@ -41,7 +41,7 @@ Rule applied to every field: a value reaches answers only when its meaning is co
 
 ## Tool result cap
 
-- Unfiltered `get_mechanic objectives` returned 56 verified rows, about 21.6 KB, above the 16 KB tool result cap. `trim_row` dropped the last rows, which were the Walker and Guardian field rows, so W01 failed live on 0b3914bc although the data was correct. Fix: optional `objective` filter (guardian, walker, patron, base_guardian, shrine); each objective now fits with all of its rows (guard test `every_live_objective_fits_one_tool_result_with_all_its_rows`). An unfiltered call is still trimmed; the result stays marked `truncated` only for MAX_ROWS, not for byte trimming.
+- Unfiltered `get_mechanic objectives` returned 56 verified rows, about 21.6 KB, above the 16 KB tool result cap. `trim_row` dropped the last rows, which were the Walker and Guardian field rows, so W01 failed live on 0b3914bc although the data was correct. Fix: optional `objective` filter (guardian, walker, patron, base_guardian, shrine); each objective now fits with all of its rows (guard test `every_live_objective_fits_one_tool_result_with_all_its_rows`). An unfiltered call is still byte-trimmed and marked `truncated`.
 
 ## Open review NITs
 
