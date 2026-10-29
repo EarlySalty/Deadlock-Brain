@@ -897,5 +897,31 @@
     "Objective"
    ]
   ]
+ },
+ {
+  "id": "F06",
+  "kind": "followup",
+  "topic": "Trooper flying orb 60/40 follow-up",
+  "turns": [
+   "Wie viele Seelen gibt ein Trooper in Minute 0/1?",
+   "Und wie viel davon landet im Orb?",
+   "War das nicht mal 60/40?"
+  ],
+  "expected": "Orb share 50% now; 40% from 2025-11-21 (50->40) until 2026-06-30 (40->50)",
+  "expect": [
+   [
+    "40"
+   ],
+   [
+    "21.11.2025",
+    "2025-11-21",
+    "21. November 2025"
+   ],
+   [
+    "30.06.2026",
+    "2026-06-30",
+    "30. Juni 2026"
+   ]
+  ]
  }
 ]
