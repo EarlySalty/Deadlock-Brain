@@ -233,3 +233,35 @@ fn live_lane_trooper_rows_fit_one_tool_result_with_concept_rows() {
         assert!(bytes + evidence < 16_384, "{bytes}");
     }
 }
+
+#[test]
+fn objective_reward_rows_precede_boss_stat_rows() {
+    let mut rows: Vec<Value> = (0..20)
+        .map(|index| fact(&format!("npc_boss_tier3_stat{index}"), "1", "c"))
+        .collect();
+    rows.extend([
+        fact(
+            "trooper_normal_shrinesdownbuffmodifier_damagescale",
+            "60.0",
+            "c",
+        ),
+        fact("objectiveparams_patronphase1goldkill", "0", "c"),
+        fact("objectiveparams_shrinesgoldkill", "2000", "c"),
+    ]);
+    let output = present(&request(MechanicKind::Objectives, None), rows);
+    let stats: Vec<&str> = output["facts"]
+        .as_array()
+        .map(|facts| {
+            facts
+                .iter()
+                .filter_map(|row| row["stat_key"].as_str())
+                .collect()
+        })
+        .unwrap_or_default();
+    let first_boss = stats.iter().position(|stat| stat.starts_with("npc_boss_"));
+    let last_reward = stats
+        .iter()
+        .rposition(|stat| stat.starts_with("objectiveparams_"));
+    assert!(last_reward < first_boss, "{stats:?}");
+    assert_eq!(stats.first(), Some(&"objectiveparams_shrinesgoldkill"));
+}

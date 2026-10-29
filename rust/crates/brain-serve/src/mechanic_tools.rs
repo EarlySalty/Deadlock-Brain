@@ -94,8 +94,9 @@ fn present(request: &GetMechanicRequest, rows: Vec<Value>) -> Value {
             .as_str()
             .is_some_and(|stat| inputs.contains(stat))
     });
-    let (concepts, rest): (Vec<Value>, Vec<Value>) =
+    let (mut concepts, rest): (Vec<Value>, Vec<Value>) =
         rest.into_iter().partition(|row| meaning(row).is_some());
+    concepts.sort_by_key(meaning_rank);
     let facts: Vec<Value> = derived
         .iter()
         .cloned()
@@ -121,11 +122,16 @@ fn reference_minutes(mechanic: MechanicKind) -> &'static [u16] {
 }
 
 fn meaning(row: &Value) -> Option<&'static str> {
+    meaning_rank(row)
+        .and_then(|rank| MEANINGS.get(rank))
+        .map(|(_, meaning)| *meaning)
+}
+
+fn meaning_rank(row: &Value) -> Option<usize> {
     row["stat_key"].as_str().and_then(|stat| {
         MEANINGS
             .iter()
-            .find(|(pattern, _)| stat.contains(pattern))
-            .map(|(_, meaning)| *meaning)
+            .position(|(pattern, _)| stat.contains(pattern))
     })
 }
 
