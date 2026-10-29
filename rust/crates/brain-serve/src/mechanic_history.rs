@@ -7,7 +7,20 @@ const LIMIT: i64 = 12;
 const ATTEMPTS: u8 = 2;
 pub(super) const MEANING: &str = "patch_note_change-Zeilen sind Patchnotiz-Zeilen zu dieser Mechanik mit Datum, neueste zuerst. Steht in line_text from X to Y, galt old_text bis released_at und new_text gilt ab released_at. Nennt der Nutzer einen früheren Wert, mit diesen Zeilen sagen, wann er galt und seit wann der aktuelle Wert gilt. Regeln, die nur in diesen Zeilen stehen, gelten ab released_at, solange keine neuere Zeile sie ändert. Aktuelle Zahlenwerte stehen in den übrigen Zeilen.";
 
-pub(super) fn scope(request: &GetMechanicRequest) -> Option<(&'static str, &'static str)> {
+pub(super) type Scope = (&'static str, &'static str, &'static str);
+
+const STREET_BRAWL: &str = r"street brawl";
+
+pub(super) fn scope(request: &GetMechanicRequest) -> Option<Scope> {
+    let (pattern, exclude) = scope_terms(request)?;
+    let section_exclude = match request.mechanic {
+        MechanicKind::StreetBrawl => "",
+        _ => STREET_BRAWL,
+    };
+    Some((pattern, exclude, section_exclude))
+}
+
+fn scope_terms(request: &GetMechanicRequest) -> Option<(&'static str, &'static str)> {
     let troopers = r"\mtroopers?\M.*(bounty|souls?|gold|health|\mhp\M|damage|resist|interval|spawn)|wave interval|\mwaves?\M.*(every|interval)";
     Some(match request.mechanic {
         MechanicKind::LaneTroopers => (troopers, r"kill/orb|flying orb|neutral|\murn\M|\mrift\M"),
@@ -31,7 +44,7 @@ pub(super) fn scope(request: &GetMechanicRequest) -> Option<(&'static str, &'sta
         MechanicKind::CoreAbilities => {
             (r"\mparry|\mparried|\mdash|wall jump|wall slide|stamina", "")
         }
-        MechanicKind::StreetBrawl => (r"street brawl", ""),
+        MechanicKind::StreetBrawl => (STREET_BRAWL, ""),
         MechanicKind::ItemTiers => return None,
     })
 }
@@ -52,10 +65,7 @@ fn objective(kind: Option<ObjectiveKind>) -> (&'static str, &'static str) {
     }
 }
 
-pub(super) async fn lines(
-    connection: &mut PgConnection,
-    scope: (&str, &str),
-) -> Option<Vec<Value>> {
+pub(super) async fn lines(connection: &mut PgConnection, scope: Scope) -> Option<Vec<Value>> {
     for attempt in 1..=ATTEMPTS {
         if let Some(rows) = attempt_lines(connection, scope, attempt).await {
             return Some(rows);
@@ -66,7 +76,7 @@ pub(super) async fn lines(
 
 async fn attempt_lines(
     connection: &mut PgConnection,
-    (pattern, exclude): (&str, &str),
+    (pattern, exclude, section_exclude): Scope,
     attempt: u8,
 ) -> Option<Vec<Value>> {
     let mut savepoint = sqlx::Connection::begin(&mut *connection).await.ok()?;
@@ -75,6 +85,7 @@ async fn attempt_lines(
         .bind(pattern)
         .bind(exclude)
         .bind(LIMIT)
+        .bind(section_exclude)
         .fetch_all(&mut *savepoint)
         .await
     {
@@ -132,6 +143,7 @@ fn change(line: &Value) -> Option<Value> {
         "value":new,
         "condition":{
             "patch_label":line["patch"],
+            "section":line["section"],
             "line_text":text,
             "old_text":old,
             "new_text":new

@@ -138,16 +138,22 @@ pub(super) async fn read(
     }
     let mut value = present(request, rows);
     if request.mechanic == MechanicKind::LaneTroopers {
-        if let Some(history) = orb_history(connection).await {
-            insert_orb_history(&mut value, &history);
-        }
+        let history = orb_history(connection)
+            .await
+            .ok_or_else(history_unavailable)?;
+        insert_orb_history(&mut value, &history);
     }
     if let Some(scope) = history::scope(request) {
-        if let Some(lines) = history::lines(connection, scope).await {
-            history::insert(&mut value, &lines);
-        }
+        let lines = history::lines(connection, scope)
+            .await
+            .ok_or_else(history_unavailable)?;
+        history::insert(&mut value, &lines);
     }
     Ok(Some(value))
+}
+
+fn history_unavailable() -> PortError {
+    PortError::Unavailable("Patchwerte können derzeit nicht sicher gelesen werden.".into())
 }
 
 async fn orb_history(connection: &mut PgConnection) -> Option<Vec<Value>> {

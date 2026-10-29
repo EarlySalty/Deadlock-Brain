@@ -14,7 +14,11 @@ WITH hits AS MATERIALIZED (
     ) c
     WHERE cf.id=h.id AND cf.raw_object_id=c.raw_object_id AND cf.valid_from_run=c.ingest_run_id
 ), lines AS (
-    SELECT f.*,r.source_revision,btrim(x.seg,E' \t\r\n*-​') AS seg,x.ord FROM facts f
+    SELECT f.*,r.source_revision,
+        btrim(payload.value->>'line_text',E' \t\r\n*-​') AS line,
+        coalesce(payload.value->>'section','') AS section,
+        coalesce(payload.value->>'subject','') AS subject
+    FROM facts f
     JOIN serve.published_receipt r ON r.id=f.receipt_id
         AND r.extractor=f.extractor AND r.raw_object_id=f.raw_object_id
         AND r.ingest_run_id=f.ingest_run_id
@@ -23,25 +27,26 @@ WITH hits AS MATERIALIZED (
         SELECT CASE WHEN pg_input_is_valid(f.body,'jsonb')
             THEN f.body::jsonb ELSE '{}'::jsonb END AS value OFFSET 0
     ) payload
-    CROSS JOIN LATERAL unnest(regexp_split_to_array(payload.value->>'line_text','(\s+-\s+|\s+\*\s+)'))
-        WITH ORDINALITY x(seg,ord)
     WHERE jsonb_typeof(payload.value->'line_text')='string'
-        AND x.seg ~* $1
-        AND ($2='' OR x.seg !~* $2)
-        AND coalesce(payload.value->>'subject','') ~* ('^$|'||$1)
-        AND ($2='' OR coalesce(payload.value->>'subject','') !~* $2)
+), scoped AS (
+    SELECT * FROM lines
+    WHERE (line ~* $1 OR section ~* $1)
+        AND ($2='' OR line !~* $2)
+        AND ($4='' OR section !~* $4)
+        AND subject ~* ('^$|'||$1)
+        AND ($2='' OR subject !~* $2)
+        AND length(line) BETWEEN 8 AND 600
 ), distinct_lines AS (
-    SELECT DISTINCT ON (lower(seg)) * FROM lines
-    WHERE length(seg) BETWEEN 8 AND 400
-    ORDER BY lower(seg),released_at,patch_id,id,ord
+    SELECT DISTINCT ON (released_at,lower(line)) * FROM scoped
+    ORDER BY released_at,lower(line),patch_id,id
 )
 SELECT jsonb_build_object(
-    'patch',label,'released_at',released_at,'line_text',seg,
+    'patch',label,'released_at',released_at,'section',nullif(section,''),'line_text',line,
     'citation',receipt_id::text,'source_revision',source_revision
 )
 FROM (
     SELECT * FROM distinct_lines
-    ORDER BY seg ~ '[0-9]' DESC,released_at DESC,patch_id DESC,id,ord
+    ORDER BY line ~ '[0-9]' DESC,released_at DESC,patch_id DESC,id
     LIMIT $3
 ) picked
-ORDER BY released_at DESC,patch_id DESC,id,ord
+ORDER BY released_at DESC,patch_id DESC,id
