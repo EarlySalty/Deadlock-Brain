@@ -33,7 +33,7 @@ fn trooper_wave_souls_scale_with_minute_and_cite_inputs() {
         fact("citadel_trooper_spawn_interval_late", "25", "8"),
         fact("citadel_trooper_spawn_interval_late_time", "15", "9"),
     ];
-    let output = present(&request(MechanicKind::LaneTroopers, Some(16)), rows);
+    let output = present(&request(MechanicKind::LaneTroopers, Some(16)), rows.clone());
     let facts = output["facts"].as_array().cloned().unwrap_or_default();
     assert_eq!(
         value_of(&facts, "derived_trooper_souls_at_minute"),
@@ -53,6 +53,14 @@ fn trooper_wave_souls_scale_with_minute_and_cite_inputs() {
     );
     assert_eq!(facts[0]["citation"], "1");
     assert_eq!(facts[0]["condition"]["minute"], 16);
+    assert!(value_of(&facts, "derived_wave_interval_schedule").is_none());
+    let overview = present(&request(MechanicKind::LaneTroopers, None), rows);
+    let overview = overview["facts"].as_array().cloned().unwrap_or_default();
+    assert_eq!(
+        value_of(&overview, "derived_wave_interval_schedule"),
+        Some("30 s ab Minute 0; 25 s ab Minute 15")
+    );
+    assert!(value_of(&overview, "derived_wave_interval_seconds_at_minute").is_none());
     assert_eq!(
         value_of(&facts, "derived_wave_souls_instant_at_minute"),
         Some("132")
@@ -576,7 +584,7 @@ fn patch_note_changes_expose_old_and_new_values() {
 }
 
 #[test]
-fn patch_note_changes_follow_explained_rows_and_precede_raw_rows() {
+fn patch_note_changes_follow_derived_rows_and_precede_config_rows() {
     let rows = vec![
         fact("citadel_respawn_time_min", "8", "1"),
         fact("citadel_unexplained_raw", "3", "2"),
@@ -599,12 +607,16 @@ fn patch_note_changes_follow_explained_rows_and_precede_raw_rows() {
     assert_eq!(change["condition"]["old_text"], "35s");
     assert_eq!(change["condition"]["new_text"], "38s");
     assert_eq!(change["released_at"], "2026-09-16T20:00:00+00:00");
+    let derived = |row: &Value| {
+        row["stat_key"]
+            .as_str()
+            .is_some_and(|stat| stat.starts_with("derived_"))
+    };
+    assert!(facts[..changes[0]].iter().all(derived));
+    assert!(facts[changes[0] + 1..].iter().all(|row| !derived(row)));
     assert!(facts[changes[0] + 1..]
         .iter()
-        .all(|row| row["condition"]["meaning"].is_null()
-            && !row["stat_key"]
-                .as_str()
-                .is_some_and(|stat| stat.starts_with("derived_"))));
+        .any(|row| row["stat_key"] == "citadel_respawn_time_min"));
     assert_eq!(result["patch_history_meaning"], history::MEANING);
 }
 

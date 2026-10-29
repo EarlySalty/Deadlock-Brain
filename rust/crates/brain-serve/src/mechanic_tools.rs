@@ -251,7 +251,7 @@ fn present(request: &GetMechanicRequest, rows: Vec<Value>) -> Value {
         .into_iter()
         .filter(|row| belongs_to(row, request.objective))
         .collect();
-    let derived = derive(request.mechanic, &minutes, &rows);
+    let derived = derive(request.mechanic, request.minute, &minutes, &rows);
     let lower_bound = rows.len() >= QUERY_LIMIT;
     let inputs: BTreeSet<&str> = derived
         .iter()
@@ -405,7 +405,12 @@ fn row(
     })
 }
 
-fn derive(mechanic: MechanicKind, minutes: &[u16], rows: &[Value]) -> Vec<Value> {
+fn derive(
+    mechanic: MechanicKind,
+    asked: Option<u16>,
+    minutes: &[u16],
+    rows: &[Value],
+) -> Vec<Value> {
     let rows = Rows(rows);
     match mechanic {
         MechanicKind::SoulSharing => soul_sharing(&rows),
@@ -414,6 +419,17 @@ fn derive(mechanic: MechanicKind, minutes: &[u16], rows: &[Value]) -> Vec<Value>
             .into_iter()
             .chain(minutes.iter().flat_map(|minute| urn(&rows, *minute)))
             .collect(),
+        MechanicKind::LaneTroopers => {
+            let schedule = asked.is_none().then(|| wave_schedule(&rows)).flatten();
+            let scheduled = schedule.is_some();
+            let per_minute = minutes
+                .iter()
+                .flat_map(|minute| lane_troopers(&rows, *minute))
+                .filter(|row| {
+                    !scheduled || row["stat_key"] != "derived_wave_interval_seconds_at_minute"
+                });
+            schedule.into_iter().chain(per_minute).collect()
+        }
         _ => minutes
             .iter()
             .flat_map(|minute| at_minute(mechanic, &rows, *minute))
@@ -423,7 +439,6 @@ fn derive(mechanic: MechanicKind, minutes: &[u16], rows: &[Value]) -> Vec<Value>
 
 fn at_minute(mechanic: MechanicKind, rows: &Rows, minute: u16) -> Vec<Value> {
     match mechanic {
-        MechanicKind::LaneTroopers => lane_troopers(rows, minute),
         MechanicKind::Denizens => [
             "neutral_trooper_weak",
             "neutral_trooper_normal",
@@ -587,6 +602,46 @@ fn lane_troopers(rows: &Rows, minute: u16) -> Vec<Value> {
         .map(|(value, _)| value),
     );
     output
+}
+
+fn wave_schedule(rows: &Rows) -> Option<Value> {
+    let (source, early) = rows.get("citadel_trooper_spawn_interval_early")?;
+    let later = [
+        (
+            "citadel_trooper_spawn_interval_late_time",
+            "citadel_trooper_spawn_interval_late",
+        ),
+        (
+            "citadel_trooper_spawn_interval_very_late_time",
+            "citadel_trooper_spawn_interval_very_late",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(time, value)| {
+        let (_, start) = rows.get(time)?;
+        let (_, seconds) = rows.get(value)?;
+        Some(format!("{} s ab Minute {}", format(seconds), format(start)))
+    });
+    let steps: Vec<String> = std::iter::once(format!("{} s ab Minute 0", format(early)))
+        .chain(later)
+        .collect();
+    Some(json!({
+        "stat_key":"derived_wave_interval_schedule",
+        "value":steps.join("; "),
+        "condition":{
+            "formula":"Abstand der Trooper-Wellen, je Stufe gültig ab der Minute",
+            "inputs":[
+                "citadel_trooper_spawn_interval_early",
+                "citadel_trooper_spawn_interval_late",
+                "citadel_trooper_spawn_interval_late_time",
+                "citadel_trooper_spawn_interval_very_late",
+                "citadel_trooper_spawn_interval_very_late_time"
+            ]
+        },
+        "citation":source["citation"],
+        "source_revision":source["source_revision"],
+        "patch":null
+    }))
 }
 
 fn camp_souls(rows: &Rows, camp: &str, minute: u16) -> Option<Value> {

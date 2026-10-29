@@ -39,6 +39,9 @@ SELECT jsonb_build_object(
     'patch',label,'released_at',released_at,'line_text',seg,
     'citation',receipt_id::text,'source_revision',source_revision
 )
-FROM distinct_lines
+FROM (
+    SELECT * FROM distinct_lines
+    ORDER BY seg ~ '[0-9]' DESC,released_at DESC,patch_id DESC,id,ord
+    LIMIT $3
+) picked
 ORDER BY released_at DESC,patch_id DESC,id,ord
-LIMIT $3

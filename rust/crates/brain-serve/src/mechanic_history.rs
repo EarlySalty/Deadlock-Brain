@@ -9,7 +9,7 @@ pub(super) const MEANING: &str = "patch_note_change-Zeilen sind Patchnotiz-Zeile
 pub(super) fn scope(request: &GetMechanicRequest) -> Option<(&'static str, &'static str)> {
     let troopers = r"\mtroopers?\M.*(bounty|souls?|gold|health|\mhp\M|damage|resist|interval|spawn)|wave interval|\mwaves?\M.*(every|interval)";
     Some(match request.mechanic {
-        MechanicKind::LaneTroopers => (troopers, r"kill/orb|flying orb|neutral|\murn\M"),
+        MechanicKind::LaneTroopers => (troopers, r"kill/orb|flying orb|neutral|\murn\M|\mrift\M"),
         MechanicKind::SoulSharing => (r"soul shar|split efficiency|bounty split", ""),
         MechanicKind::HeroKills => (
             r"hero kill|kill bounty|kill value|kill souls|kill gold|starting souls|first blood|comeback|assister|unsecured",
@@ -96,7 +96,6 @@ pub(super) fn insert(value: &mut Value, history: &[Value]) {
             row["stat_key"]
                 .as_str()
                 .is_some_and(|stat| stat.starts_with("derived_") || stat.starts_with("patch_"))
-                || row["condition"]["meaning"].is_string()
         })
         .map_or(0, |last| last + 1);
     facts.splice(at..at, rows);
