@@ -524,8 +524,11 @@ fn orb_history_failure_keeps_the_core_transaction_usable() {
             .expect("block history source");
         let mut connection = pool.begin().await.expect("tool transaction");
         assert_eq!(orb_history(&mut connection).await, None);
+        let scope = history::scope(&request(MechanicKind::Respawn, None)).expect("respawn scope");
+        assert_eq!(history::lines(&mut connection, scope).await, None);
         blocker.rollback().await.expect("release history source");
         assert_eq!(orb_history(&mut connection).await, Some(Vec::new()));
+        assert_eq!(history::lines(&mut connection, scope).await, Some(Vec::new()));
         let alive: i32 = sqlx::query_scalar("SELECT 1")
             .fetch_one(&mut *connection)
             .await
@@ -533,4 +536,86 @@ fn orb_history_failure_keeps_the_core_transaction_usable() {
         assert_eq!(alive, 1);
         connection.commit().await.expect("core commit");
     });
+}
+
+#[test]
+fn patch_note_changes_expose_old_and_new_values() {
+    let cases = [
+        (
+            "Respawn time at 30 minutes reduced from 75s to 70s",
+            Some(("75s", "70s")),
+        ),
+        (
+            "Mid Walkers HP increased from 8,000 to 9,000.",
+            Some(("8,000", "9,000")),
+        ),
+        (
+            "Mystic Burst: Cooldown increased from 12s to 14s",
+            Some(("12s", "14s")),
+        ),
+        (
+            "Base kill bounty reduced from 250 to 200 (max is still 2200 at 40m)",
+            Some(("250", "200")),
+        ),
+        ("Urn no longer requires a drop off channel time", None),
+        (
+            "Flex Slot changed from \"Two Guardians\" to \"Three Guardians\"",
+            None,
+        ),
+    ];
+    for (text, expected) in cases {
+        let parsed = history::from_to(text);
+        assert_eq!(
+            parsed
+                .as_ref()
+                .map(|(old, new)| (old.as_str(), new.as_str())),
+            expected,
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn patch_note_changes_follow_explained_rows_and_precede_raw_rows() {
+    let rows = vec![
+        fact("citadel_respawn_time_min", "8", "1"),
+        fact("citadel_unexplained_raw", "3", "2"),
+    ];
+    let mut result = present(&request(MechanicKind::Respawn, Some(20)), rows);
+    let lines = [
+        json!({"patch":"Minor Update - 09-16-2026","released_at":"2026-09-16T20:00:00+00:00","line_text":"Respawn Time at 20 minutes increased from 35s to 38s","citation":"7","source_revision":"rev"}),
+        json!({"patch":"x","released_at":"","line_text":"Respawn time at 30 minutes reduced from 75s to 70s","citation":"8","source_revision":"rev"}),
+    ];
+    history::insert(&mut result, &lines);
+    let facts = result["facts"].as_array().cloned().unwrap_or_default();
+    let changes: Vec<usize> = facts
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row["stat_key"] == "patch_note_change")
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(changes.len(), 1);
+    let change = &facts[changes[0]];
+    assert_eq!(change["condition"]["old_text"], "35s");
+    assert_eq!(change["condition"]["new_text"], "38s");
+    assert_eq!(change["released_at"], "2026-09-16T20:00:00+00:00");
+    assert!(facts[changes[0] + 1..]
+        .iter()
+        .all(|row| row["condition"]["meaning"].is_null()
+            && !row["stat_key"]
+                .as_str()
+                .is_some_and(|stat| stat.starts_with("derived_"))));
+    assert_eq!(result["patch_history_meaning"], history::MEANING);
+}
+
+#[test]
+fn every_mechanic_except_item_tiers_has_a_patch_scope() {
+    for mechanic in MechanicKind::ALL {
+        let scope = history::scope(&request(mechanic, None));
+        assert_eq!(
+            scope.is_none(),
+            mechanic == MechanicKind::ItemTiers,
+            "{mechanic:?}"
+        );
+    }
 }
