@@ -41,10 +41,10 @@ const PRE_FACTOR_CHANGES: &str = "SELECT jsonb_build_object('id',c.change_id,'en
     FROM serve.p4_patch_change c JOIN serve.p4_patch_catalog p ON p.patch_id=c.patch_id
     LEFT JOIN serve.patch_ledger_member l ON l.patch_id=c.patch_id
     WHERE c.entity_id=$1 AND ($2::bigint IS NULL OR c.patch_id=$2)
-        AND NOT EXISTS(SELECT 1 FROM serve.patch_ledger_member d WHERE d.patch_id=c.patch_id AND d.disposition='duplicate')
+        AND NOT EXISTS(SELECT 1 FROM serve.patch_ledger_member d WHERE d.patch_id=c.patch_id AND d.disposition IN('duplicate','excluded'))
         AND ($3::text IS NULL OR coalesce(l.ledger_released_at,p.released_at) >= $3::timestamptz)
         AND ($4::text IS NULL OR coalesce(l.ledger_released_at,p.released_at) <= $4::timestamptz)
-    ORDER BY p.released_at DESC,p.patch_id DESC,c.change_id DESC LIMIT 20";
+    ORDER BY coalesce(l.ledger_released_at,p.released_at) DESC,p.patch_id DESC,c.change_id DESC LIMIT 20";
 
 struct Database {
     admin: PgPool,
@@ -1752,6 +1752,123 @@ async fn entityless_history_lists_playable_hero_changes_of_newest_changed_patch(
     assert_eq!(
         rows(&ranged).len() as u64 + ranged.result.result["omitted_count"].as_u64().unwrap(),
         2
+    );
+    db.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ledger_hides_mirrors_and_teasers_and_bounds_by_ledger_date() {
+    let pg = scratch_pg::ScratchPg::start();
+    let db = Database::start(&pg).await;
+    db.publish(
+        "heroes",
+        "hero_baba",
+        "hero_baba",
+        json!({"key":"hero_baba","aliases":["Baba"],"health":500}),
+        true,
+    )
+    .await;
+    let baba = db.playable_hero_id("hero_baba").await;
+    let mirrored = "Baba: health changed from 400 to 500";
+    for (id, label, date, statement) in [
+        (
+            20,
+            "05-20-2026 Update",
+            "2026-05-20T12:00:00Z",
+            "Baba: health changed from 300 to 400",
+        ),
+        (21, "05-22-2026 Update", "2026-05-26T00:53:00Z", mirrored),
+        (
+            22,
+            "Minor Update - 05-25-2026",
+            "2026-05-28T16:28:00Z",
+            mirrored,
+        ),
+        (
+            23,
+            "Mind the Birds!",
+            "2026-05-29T12:00:00Z",
+            "Baba: health changed from 500 to 999",
+        ),
+    ] {
+        db.publish(
+            "deadlock_patchnotes_db",
+            &id.to_string(),
+            label,
+            patch(
+                id,
+                label,
+                date,
+                vec![change(1, "baba", "health", statement)],
+            ),
+            false,
+        )
+        .await;
+    }
+    sqlx::raw_sql(
+        "INSERT INTO ops.patch_ledger(ledger_id,dated_post_id,released_at,kind,label,source_url,run_id)
+            SELECT v.*,(SELECT max(id) FROM ops.ingest_run) FROM (VALUES
+            (20::bigint,20::bigint,'2026-05-20T12:00:00Z'::timestamptz,'hotfix','05-20-2026 Update','https://store.steampowered.com/news/app/1422450/view/20'),
+            (22,21,'2026-05-26T00:53:00Z','hotfix','Minor Update - 05-25-2026','https://store.steampowered.com/news/app/1422450/view/22')) v;
+        INSERT INTO ops.patch_ledger_post(post_id,ledger_id,disposition,reason,run_id)
+            SELECT v.*,(SELECT max(id) FROM ops.ingest_run) FROM (VALUES
+            (20::bigint,20::bigint,'primary','own'),(21,22,'duplicate','mirror'),
+            (22,22,'primary','own'),(23,NULL,'excluded','teaser')) v;",
+    )
+    .execute(&db.admin)
+    .await
+    .unwrap();
+    let ledger: Vec<(i64, String, i64)> = sqlx::query_as(
+        "SELECT ledger_id,to_char(released_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI'),posts
+            FROM serve.patch_ledger ORDER BY released_at,ledger_id",
+    )
+    .fetch_all(&db.reader)
+    .await
+    .unwrap();
+    assert_eq!(
+        ledger,
+        [
+            (20, "2026-05-20 12:00".into(), 1),
+            (22, "2026-05-26 00:53".into(), 2)
+        ]
+    );
+    let newest = db.execute(json!({"entity":baba})).await;
+    let newest: Vec<&str> = rows(&newest)
+        .iter()
+        .map(|row| row["patch"].as_str().unwrap())
+        .collect();
+    assert_eq!(newest, ["Minor Update - 05-25-2026"]);
+    let history = db
+        .execute(json!({"entity":baba,"since":"05-20-2026 Update"}))
+        .await;
+    let shown: Vec<(i64, String)> = rows(&history)
+        .iter()
+        .map(|row| {
+            (
+                row["ledger_id"].as_i64().unwrap(),
+                row["patch"].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            (20, "05-20-2026 Update".into()),
+            (22, "Minor Update - 05-25-2026".into())
+        ]
+    );
+    let since = db
+        .execute(json!({"entity":baba,"since":"Minor Update - 05-25-2026"}))
+        .await;
+    let labels: Vec<&str> = rows(&since)
+        .iter()
+        .map(|row| row["patch"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["Minor Update - 05-25-2026"]);
+    let latest = db.execute_unchecked(json!({})).await;
+    assert_eq!(
+        latest.result.result["current_official_patch"]["label"],
+        "Minor Update - 05-25-2026"
     );
     db.close().await;
 }

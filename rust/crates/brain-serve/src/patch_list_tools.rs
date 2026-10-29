@@ -47,7 +47,7 @@ fn page(rows: Vec<Value>, request: &ListPatchesRequest) -> Value {
     let patches: Vec<Value> = rows.into_iter().skip(start).take(end - start).collect();
     let next = (end < total).then_some(end);
     json!({
-        "order":"oldest_first","total":total,"offset":start,
+        "order":"oldest_first","total":total,"offset":start,"latest":request.latest,
         "next_offset":next,"truncated":next.is_some(),"omitted_count":total - patches.len(),
         "patches":patches
     })
@@ -70,17 +70,26 @@ pub(super) async fn read(
 }
 
 pub(super) fn trim(object: &mut serde_json::Map<String, Value>) -> bool {
+    let newest_first = object.get("latest").is_some_and(Value::is_u64);
     let Some(patches) = object.get_mut("patches").and_then(Value::as_array_mut) else {
         return false;
     };
     if patches.len() <= 1 {
         return false;
     }
-    patches.pop();
+    if newest_first {
+        patches.remove(0);
+    } else {
+        patches.pop();
+    }
     let shown = patches.len() as u64;
     let offset = object.get("offset").and_then(Value::as_u64).unwrap_or(0);
     let total = object.get("total").and_then(Value::as_u64).unwrap_or(0);
-    object.insert("next_offset".into(), json!(offset + shown));
+    if newest_first {
+        object.insert("offset".into(), json!(offset + 1));
+    } else {
+        object.insert("next_offset".into(), json!(offset + shown));
+    }
     object.insert("omitted_count".into(), json!(total.saturating_sub(shown)));
     object.insert("truncated".into(), json!(true));
     true
@@ -135,6 +144,17 @@ mod tests {
         assert_eq!(object, Some(true));
         assert_eq!(value["next_offset"], 34);
         assert_eq!(ids(&value).last(), Some(&34));
+    }
+
+    #[test]
+    fn latest_trimming_keeps_the_newest_patch() {
+        let mut value = page(rows(50), &request(Some(3), None));
+        let object = value.as_object_mut().map(trim);
+        assert_eq!(object, Some(true));
+        assert_eq!(ids(&value), [49, 50]);
+        assert_eq!(value["offset"], 48);
+        assert_eq!(value["next_offset"], Value::Null);
+        assert_eq!(value["omitted_count"], 48);
     }
 
     #[test]

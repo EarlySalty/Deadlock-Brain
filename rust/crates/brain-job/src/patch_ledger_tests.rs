@@ -112,11 +112,39 @@ fn short_shared_notes_need_the_short_window() {
 fn non_patch_groups_are_excluded() {
     let ledger = classify(&[
         post(1, "Community event", "https://forums.example/1", 0, "hello"),
-        post(2, "Update", "http://forums.example/2", 100, &notes("x", 3)),
+        post(
+            2,
+            "Mind the Birds!",
+            "https://forums.example/2",
+            100,
+            "teaser",
+        ),
     ]);
     assert!(ledger.patches.is_empty());
     assert_eq!(member(&ledger, 1).disposition, "excluded");
-    assert_eq!(member(&ledger, 2).reason, "no https source url");
+    assert_eq!(member(&ledger, 2).disposition, "excluded");
+}
+
+#[test]
+fn hotfixes_sharing_one_generic_line_stay_separate() {
+    let shared = "- Fixed various crashes\n";
+    let ledger = classify(&[
+        post(
+            1,
+            "10-14-2026 Update",
+            "https://forums.example/1",
+            0,
+            shared,
+        ),
+        post(
+            2,
+            "10-15-2026 Update",
+            "https://forums.example/2",
+            20,
+            &format!("{shared}{}", notes("item", 4)),
+        ),
+    ]);
+    assert_eq!(ledger.patches.len(), 2);
 }
 
 #[test]
