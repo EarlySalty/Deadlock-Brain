@@ -19,12 +19,14 @@ const CURRENT: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
     'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
     'url_citation',url_receipt_id::text)
     FROM serve.p4_patch_catalog c
-    WHERE EXISTS(SELECT 1 FROM serve.current_fact f WHERE f.entity_id=c.patch_id
+    WHERE NOT EXISTS(SELECT 1 FROM serve.patch_ledger_member d WHERE d.patch_id=c.patch_id AND d.disposition='duplicate')
+        AND EXISTS(SELECT 1 FROM serve.current_fact f WHERE f.entity_id=c.patch_id
         AND f.raw_object_id=c.raw_object_id AND f.valid_from_run=c.ingest_run_id
         AND f.stat_key COLLATE \"C\" >= 'patch_change_r' AND f.stat_key COLLATE \"C\" < 'patch_change_s')
     ORDER BY released_at DESC,patch_id DESC LIMIT 1";
 const CURRENT_ALL: &str = "WITH changed AS MATERIALIZED (
-        SELECT DISTINCT patch_id,entity_id FROM serve.p4_patch_change
+        SELECT DISTINCT patch_id,entity_id FROM serve.p4_patch_change p
+        WHERE NOT EXISTS(SELECT 1 FROM serve.patch_ledger_member d WHERE d.patch_id=p.patch_id AND d.disposition='duplicate')
     ), playable AS MATERIALIZED (
         SELECT e.entity_id FROM (SELECT DISTINCT entity_id FROM changed) e
         WHERE NOT EXISTS(SELECT 1 FROM serve.current_entity h WHERE h.id=e.entity_id AND h.kind='hero')
@@ -40,7 +42,8 @@ const CURRENT_CATALOG: &str = "SELECT jsonb_build_object('id',patch_id,'label',l
     'released_at',released_at,'official_url',official_url,'head_citation',official_receipt_id::text,
     'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
     'url_citation',url_receipt_id::text)
-    FROM serve.p4_patch_catalog ORDER BY released_at DESC,patch_id DESC LIMIT 1";
+    FROM serve.p4_patch_catalog c WHERE NOT EXISTS(SELECT 1 FROM serve.patch_ledger_member d WHERE d.patch_id=c.patch_id AND d.disposition='duplicate')
+    ORDER BY released_at DESC,patch_id DESC LIMIT 1";
 const RESOLVE: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
     'released_at',released_at,'official_url',official_url,'head_citation',official_receipt_id::text,
     'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
@@ -51,8 +54,9 @@ const RESOLVE: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
         THEN released_at=$1::timestamptz ELSE false END
     ORDER BY released_at DESC,patch_id DESC LIMIT 2";
 const CHANGES: &str = "WITH selected AS MATERIALIZED (
-        SELECT * FROM serve.p4_patch_change
+        SELECT * FROM serve.p4_patch_change p
         WHERE entity_id=$1 AND ($2::bigint IS NULL OR patch_id=$2)
+            AND NOT EXISTS(SELECT 1 FROM serve.patch_ledger_member d WHERE d.patch_id=p.patch_id AND d.disposition='duplicate')
             AND (NOT EXISTS(SELECT 1 FROM serve.current_entity h WHERE h.id=$1 AND h.kind='hero')
                 OR serve.hero_is_playable($1))
     ) SELECT jsonb_build_object('id',c.change_id,'entity_id',c.entity_id,
@@ -63,8 +67,9 @@ const CHANGES: &str = "WITH selected AS MATERIALIZED (
     'label_citation',p.label_receipt_id::text,'released_at_citation',p.released_at_receipt_id::text,
     'url_citation',p.url_receipt_id::text,
     'binding_citation',c.binding_receipt_id::text,'entity_citation',c.entity_receipt_id::text,
-    'stat_citation',c.stat_receipt_id::text,'source_revision',c.source_revision)
-    FROM selected c JOIN LATERAL (
+    'stat_citation',c.stat_receipt_id::text,'source_revision',c.source_revision,
+    'ledger_id',l.ledger_id,'ledger_released_at',l.ledger_released_at)
+    FROM selected c LEFT JOIN serve.patch_ledger_member l ON l.patch_id=c.patch_id JOIN LATERAL (
         SELECT e.id AS patch_id,e.receipt_id AS official_receipt_id,m.label,
             CASE WHEN pg_input_is_valid(m.released_at,'timestamp with time zone')
                 THEN m.released_at::timestamptz END AS released_at,
@@ -87,7 +92,8 @@ const CHANGES: &str = "WITH selected AS MATERIALIZED (
         AND ($4::text IS NULL OR p.released_at <= $4::timestamptz)
     ORDER BY p.released_at DESC,p.patch_id DESC,c.change_id DESC LIMIT 20";
 const CHANGES_ALL: &str = "WITH base AS MATERIALIZED (
-        SELECT * FROM serve.p4_patch_change WHERE $1::bigint IS NULL AND ($2::bigint IS NULL OR patch_id=$2)
+        SELECT * FROM serve.p4_patch_change p WHERE $1::bigint IS NULL AND ($2::bigint IS NULL OR patch_id=$2)
+            AND NOT EXISTS(SELECT 1 FROM serve.patch_ledger_member d WHERE d.patch_id=p.patch_id AND d.disposition='duplicate')
     ), playable AS MATERIALIZED (
         SELECT e.entity_id FROM (SELECT DISTINCT entity_id FROM base) e
         WHERE NOT EXISTS(SELECT 1 FROM serve.current_entity h WHERE h.id=e.entity_id AND h.kind='hero')
@@ -102,8 +108,9 @@ const CHANGES_ALL: &str = "WITH base AS MATERIALIZED (
     'label_citation',p.label_receipt_id::text,'released_at_citation',p.released_at_receipt_id::text,
     'url_citation',p.url_receipt_id::text,
     'binding_citation',c.binding_receipt_id::text,'entity_citation',c.entity_receipt_id::text,
-    'stat_citation',c.stat_receipt_id::text,'source_revision',c.source_revision)
-    FROM selected c JOIN LATERAL (
+    'stat_citation',c.stat_receipt_id::text,'source_revision',c.source_revision,
+    'ledger_id',l.ledger_id,'ledger_released_at',l.ledger_released_at)
+    FROM selected c LEFT JOIN serve.patch_ledger_member l ON l.patch_id=c.patch_id JOIN LATERAL (
         SELECT e.id AS patch_id,e.receipt_id AS official_receipt_id,m.label,
             CASE WHEN pg_input_is_valid(m.released_at,'timestamp with time zone')
                 THEN m.released_at::timestamptz END AS released_at,
@@ -126,7 +133,7 @@ const CHANGES_ALL: &str = "WITH base AS MATERIALIZED (
         AND ($4::text IS NULL OR p.released_at <= $4::timestamptz)
     ORDER BY p.released_at DESC,p.patch_id DESC,c.change_id DESC LIMIT 20";
 const LATEST: &str = "WITH base AS MATERIALIZED (
-        SELECT * FROM serve.p4_patch_change
+        SELECT * FROM serve.p4_patch_change p WHERE NOT EXISTS(SELECT 1 FROM serve.patch_ledger_member d WHERE d.patch_id=p.patch_id AND d.disposition='duplicate')
     ), playable AS MATERIALIZED (
         SELECT e.entity_id FROM (SELECT DISTINCT entity_id FROM base) e
         WHERE NOT EXISTS(SELECT 1 FROM serve.current_entity h WHERE h.id=e.entity_id AND h.kind='hero')
@@ -1245,6 +1252,7 @@ fn bound_execution(
             .map(|id| receipts.get(id).cloned().ok_or_else(invalid))
             .collect::<Result<Vec<_>, _>>()?;
         let mut result = value.clone();
+        chronological(&mut result);
         remap_citations(&mut result, &receipts)?;
         if let Some(execution) = sealed(id, request, result, selected)? {
             return Ok(execution);
@@ -1253,6 +1261,20 @@ fn bound_execution(
         let omitted = value["omitted_count"].as_u64().unwrap_or(0);
         value["omitted_count"] = json!(omitted.saturating_add(1));
         value["truncated"] = json!(true);
+    }
+}
+
+fn chronological(value: &mut Value) {
+    if let Some(changes) = value["changes"].as_array_mut() {
+        changes.sort_by(|left, right| {
+            let key = |row: &Value| {
+                (
+                    row["released_at"].as_str().map(str::to_owned),
+                    row["id"].as_i64(),
+                )
+            };
+            key(left).cmp(&key(right))
+        });
     }
 }
 

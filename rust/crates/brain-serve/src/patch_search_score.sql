@@ -36,6 +36,6 @@ WITH matched AS MATERIALIZED (
         'citation',s.receipt_id::text,'head_citation',s.official_receipt_id::text,
         'label_citation',s.label_receipt_id::text,'released_at_citation',s.released_at_receipt_id::text,
         'url_citation',s.url_receipt_id::text,'binding_citation',NULL::text,'entity_citation',NULL::text,
-        'stat_citation',NULL::text)
-    FROM scored s
+        'stat_citation',NULL::text,'ledger_id',l.ledger_id,'ledger_released_at',l.ledger_released_at)
+    FROM scored s LEFT JOIN serve.patch_ledger_member l ON l.patch_id=s.patch_id
     ORDER BY s.score DESC,s.released_at DESC,s.patch_id DESC,s.id DESC LIMIT 20

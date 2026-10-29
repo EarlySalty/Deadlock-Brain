@@ -36,9 +36,12 @@ const PRE_FACTOR_CHANGES: &str = "SELECT jsonb_build_object('id',c.change_id,'en
     'label_citation',p.label_receipt_id::text,'released_at_citation',p.released_at_receipt_id::text,
     'url_citation',p.url_receipt_id::text,
     'binding_citation',c.binding_receipt_id::text,'entity_citation',c.entity_receipt_id::text,
-    'stat_citation',c.stat_receipt_id::text,'source_revision',c.source_revision)
+    'stat_citation',c.stat_receipt_id::text,'source_revision',c.source_revision,
+    'ledger_id',l.ledger_id,'ledger_released_at',l.ledger_released_at)
     FROM serve.p4_patch_change c JOIN serve.p4_patch_catalog p ON p.patch_id=c.patch_id
+    LEFT JOIN serve.patch_ledger_member l ON l.patch_id=c.patch_id
     WHERE c.entity_id=$1 AND ($2::bigint IS NULL OR c.patch_id=$2)
+        AND NOT EXISTS(SELECT 1 FROM serve.patch_ledger_member d WHERE d.patch_id=c.patch_id AND d.disposition='duplicate')
         AND ($3::text IS NULL OR p.released_at >= $3::timestamptz)
         AND ($4::text IS NULL OR p.released_at <= $4::timestamptz)
     ORDER BY p.released_at DESC,p.patch_id DESC,c.change_id DESC LIMIT 20";
@@ -83,7 +86,7 @@ impl Database {
             versions,
             [
                 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 30, 31, 32, 33, 34, 35, 36,
-                37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54
+                37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55
             ]
         );
         let reader = PgPoolOptions::new()
@@ -775,10 +778,10 @@ async fn real_current_projection_and_composed_patch_history() {
     );
     let execution = db.execute(json!({"entity":id})).await;
     assert_eq!(rows(&execution).len(), 2);
-    assert_eq!(rows(&execution)[0]["stat_key"], "health");
-    assert_eq!(rows(&execution)[0]["old"], "123");
-    assert_eq!(rows(&execution)[1]["stat_key"], Value::Null);
-    assert_eq!(rows(&execution)[1]["line_text"], line);
+    assert_eq!(rows(&execution)[1]["stat_key"], "health");
+    assert_eq!(rows(&execution)[1]["old"], "123");
+    assert_eq!(rows(&execution)[0]["stat_key"], Value::Null);
+    assert_eq!(rows(&execution)[0]["line_text"], line);
     verify_receipts(&execution, &[baba.clone(), infernus.clone(), first.clone()]);
     let plan: Value = sqlx::query_scalar(&format!(
         "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {}",
@@ -804,7 +807,7 @@ async fn real_current_projection_and_composed_patch_history() {
             .await
             .unwrap();
     let first_rows = rows(&execution);
-    let lexical_id = raw_receipt_id(&execution, &first_rows[0]["citation"]);
+    let lexical_id = raw_receipt_id(&execution, &first_rows[1]["citation"]);
     db.quarantine(&published_definition, &[lexical_id]).await;
     let narrowed = db.execute(json!({"entity":id})).await;
     assert_eq!(rows(&narrowed).len(), 1);
@@ -812,7 +815,7 @@ async fn real_current_projection_and_composed_patch_history() {
     assert!(!narrowed
         .result
         .evidence_ids
-        .contains(&first_rows[0]["citation"].as_str().unwrap().to_owned()));
+        .contains(&first_rows[1]["citation"].as_str().unwrap().to_owned()));
     for field in [
         "binding_citation",
         "entity_citation",
@@ -821,7 +824,7 @@ async fn real_current_projection_and_composed_patch_history() {
         "released_at_citation",
         "url_citation",
     ] {
-        let hidden = raw_receipt_id(&execution, &first_rows[0][field]);
+        let hidden = raw_receipt_id(&execution, &first_rows[1][field]);
         db.quarantine(&published_definition, &[hidden]).await;
         let count: i64 =
             sqlx::query_scalar("SELECT count(*) FROM serve.p4_patch_receipt WHERE receipt_id=$1")
@@ -839,7 +842,7 @@ async fn real_current_projection_and_composed_patch_history() {
             },
         );
     }
-    let hidden_stat = raw_receipt_id(&execution, &first_rows[0]["stat_citation"]);
+    let hidden_stat = raw_receipt_id(&execution, &first_rows[1]["stat_citation"]);
     db.quarantine(&published_definition, &[hidden_stat]).await;
     let no_stat = db.execute(json!({"entity":id})).await;
     assert_eq!(rows(&no_stat).len(), 2);
@@ -849,7 +852,7 @@ async fn real_current_projection_and_composed_patch_history() {
     assert!(!no_stat
         .result
         .evidence_ids
-        .contains(&first_rows[0]["stat_citation"].as_str().unwrap().to_owned()));
+        .contains(&first_rows[1]["stat_citation"].as_str().unwrap().to_owned()));
     db.quarantine(&published_definition, &[]).await;
     assert_eq!(db.execute(json!({"entity":id})).await, execution);
     let (query, context) = query_context();
@@ -1475,7 +1478,7 @@ async fn quarantined_omitted_middle_post_invalidates_every_validation_purpose() 
     let all = db
         .execute(json!({"entity":entity,"since":"p1","until":"p3"}))
         .await;
-    let complete = projected_execution(&all, &[&parts[0], &parts[1], &parts[2]], 3);
+    let complete = projected_execution(&all, &[&parts[2], &parts[1], &parts[0]], 3);
     assert_eq!(rows(&complete).len(), 3);
     verify_receipt_integrity(&complete, &objects);
     assert_eq!(rows(&all), rows(&complete));
