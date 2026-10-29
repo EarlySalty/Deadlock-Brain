@@ -1,10 +1,13 @@
 use brain_contracts::{AuthorizedContext, PortError};
 use sqlx::PgPool;
 use std::collections::BTreeSet;
+use std::time::Duration;
+
+const LOOKUP_LIMIT: Duration = Duration::from_millis(300);
 
 const ENTITY_NAMES: &str = "SELECT DISTINCT a.alias_norm FROM serve.current_alias a
     JOIN serve.entity_identity i ON i.entity_id=a.entity_id
-    WHERE a.alias_norm=ANY($1::text[]) AND i.kind IN ('hero','item','ability')
+    WHERE a.alias_norm=ANY($1::text[]) AND a.lang='en' AND i.kind IN ('hero','item','ability')
         AND (i.kind<>'hero' OR serve.hero_is_playable(i.entity_id))";
 
 pub(super) struct EntityNames {
@@ -24,7 +27,7 @@ impl crate::tool_base::EntityNames for EntityNames {
         phrases: &[String],
         context: &AuthorizedContext,
     ) -> Result<BTreeSet<String>, PortError> {
-        let budget = context.remaining_time()?;
+        let budget = context.remaining_time()?.min(LOOKUP_LIMIT);
         let names = super::pg_tools::blocking(&self.runtime, async {
             tokio::time::timeout(
                 budget,

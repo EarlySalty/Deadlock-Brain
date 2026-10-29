@@ -161,7 +161,8 @@ impl brain_contracts::discord_task::DiscordContextResolver for ConversationSubje
     ) -> Result<brain_contracts::discord_task::DiscordContextProjection, PortError> {
         context.check_deadline()?;
         let questions = &questions[..questions.len().min(4)];
-        let known = self.known(questions, context)?;
+        let known = self.known(questions, context).unwrap_or_default();
+        context.check_deadline()?;
         let turns = questions
             .iter()
             .map(|question| subjects(question, &known))
