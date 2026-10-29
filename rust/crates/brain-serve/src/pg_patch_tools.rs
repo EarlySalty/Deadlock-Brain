@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use sqlx::{Connection, PgConnection, PgPool};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const MAX_BYTES: usize = 16_384;
@@ -270,6 +270,29 @@ pub async fn execute_cached_patch_history(
 }
 
 async fn run_patch_history(
+    pool: &PgPool,
+    cache: Option<&LatestPatchCache>,
+    query: &Query,
+    context: &AuthorizedContext,
+    id: &str,
+    request: &ToolRequest,
+) -> Result<ToolExecution, PortError> {
+    let started = Instant::now();
+    let execution = patch_history_execution(pool, cache, query, context, id, request).await;
+    eprintln!(
+        "{}",
+        json!({
+            "event": "brain_patch_history",
+            "request_id": query.request_id,
+            "arguments": request.arguments(),
+            "ok": execution.is_ok(),
+            "elapsed_ms": started.elapsed().as_millis(),
+        })
+    );
+    execution
+}
+
+async fn patch_history_execution(
     pool: &PgPool,
     cache: Option<&LatestPatchCache>,
     query: &Query,
@@ -621,13 +644,29 @@ fn search_terms(text: &str) -> Vec<String> {
     for word in text
         .split(|ch: char| !ch.is_alphanumeric() && ch != '%')
         .map(str::to_lowercase)
-        .filter(|word| word.chars().count() >= 3)
+        .filter(|word| word.chars().count() >= 3 || is_number(word))
+        .map(singular)
     {
         if terms.len() < SEARCH_TERMS && !terms.contains(&word) {
             terms.push(word);
         }
     }
     terms
+}
+
+fn is_number(word: &str) -> bool {
+    word.chars().count() >= 2
+        && word
+            .trim_end_matches('%')
+            .chars()
+            .all(|ch| ch.is_ascii_digit())
+}
+
+fn singular(word: String) -> String {
+    match word.strip_suffix('s') {
+        Some(stem) if stem.chars().count() >= 3 && !stem.ends_with('s') => stem.to_owned(),
+        _ => word,
+    }
 }
 
 async fn latest_execution(

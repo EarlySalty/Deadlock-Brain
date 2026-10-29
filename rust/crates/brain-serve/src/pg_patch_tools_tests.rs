@@ -411,3 +411,12 @@ async fn invalid_requests_and_dependencies_stop_before_database_access() {
         Err(PortError::PermissionDenied(_))
     ));
 }
+
+#[test]
+fn search_terms_keep_split_numbers_and_match_plurals() {
+    assert_eq!(
+        search_terms("Trooper souls orbs 60/40 50% in as"),
+        vec!["trooper", "soul", "orb", "60", "40", "50%"]
+    );
+    assert_eq!(search_terms("loss bonus 5"), vec!["loss", "bonu"]);
+}
