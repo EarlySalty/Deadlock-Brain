@@ -167,6 +167,8 @@ async fn run() -> anyhow::Result<()> {
                 "patch_observations={}",
                 recorded.load(std::sync::atomic::Ordering::Relaxed)
             );
+            let changed = brain_job::patch_ledger::refresh(&pool, report.run_id).await?;
+            println!("patch_ledger_changed={changed}");
         }
         if source == brain_job::item_lineage::SOURCE {
             match brain_job::item_lineage::log_alias_conflicts(&pool).await {

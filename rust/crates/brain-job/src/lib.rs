@@ -10,6 +10,7 @@ pub mod mechanics;
 pub mod meta_source;
 pub mod meta_stats;
 pub mod patch_extract;
+pub mod patch_ledger;
 pub mod questions;
 pub mod registry;
 pub mod sources;
