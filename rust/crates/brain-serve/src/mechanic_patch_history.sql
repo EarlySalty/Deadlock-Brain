@@ -39,14 +39,26 @@ WITH hits AS MATERIALIZED (
 ), distinct_lines AS (
     SELECT DISTINCT ON (released_at,lower(line)) * FROM scoped
     ORDER BY released_at,lower(line),patch_id,id
+), bucketed AS (
+    SELECT d.*,b.bucket,b.keep FROM distinct_lines d
+    LEFT JOIN LATERAL (
+        SELECT u.bucket,u.keep FROM unnest($5::text[],$6::int[]) WITH ORDINALITY u(pattern,keep,bucket)
+        WHERE d.line ~* u.pattern ORDER BY u.bucket LIMIT 1
+    ) b ON true
+), ranked AS (
+    SELECT *,row_number() OVER (
+        PARTITION BY bucket
+        ORDER BY line ~* '^fix(ed|es)?\M',released_at DESC,line ~ '[0-9]' DESC,patch_id DESC,id
+    ) AS bucket_rank FROM bucketed
 )
 SELECT jsonb_build_object(
     'patch',label,'released_at',released_at,'section',nullif(section,''),'line_text',line,
     'citation',receipt_id::text,'source_revision',source_revision
 )
 FROM (
-    SELECT * FROM distinct_lines
-    ORDER BY line ~ '[0-9]' DESC,released_at DESC,patch_id DESC,id
+    SELECT * FROM ranked
+    ORDER BY CASE WHEN bucket_rank<=keep THEN bucket_rank END NULLS LAST,
+        line ~ '[0-9]' DESC,released_at DESC,patch_id DESC,id
     LIMIT $3
 ) picked
 ORDER BY released_at DESC,patch_id DESC,id

@@ -4,12 +4,43 @@ use sqlx::PgConnection;
 
 const QUERY: &str = include_str!("mechanic_patch_history.sql");
 const LIMIT: i64 = 12;
+const CORE_ABILITY_LIMIT: i64 = 16;
 const ATTEMPTS: u8 = 2;
 pub(super) const MEANING: &str = "patch_note_change-Zeilen sind Patchnotiz-Zeilen zu dieser Mechanik mit Datum, neueste zuerst. Steht in line_text from X to Y, galt old_text bis released_at und new_text gilt ab released_at. Nennt der Nutzer einen früheren Wert, mit diesen Zeilen sagen, wann er galt und seit wann der aktuelle Wert gilt. Regeln, die nur in diesen Zeilen stehen, gelten ab released_at, solange keine neuere Zeile sie ändert. Aktuelle Zahlenwerte stehen in den übrigen Zeilen.";
 
-pub(super) type Scope = (&'static str, &'static str, &'static str);
+#[derive(Clone, Copy)]
+pub(super) struct Scope {
+    pattern: &'static str,
+    exclude: &'static str,
+    section_exclude: &'static str,
+    buckets: &'static [(&'static str, i32)],
+    limit: i64,
+}
 
 const STREET_BRAWL: &str = r"street brawl";
+const URN_BUCKETS: &[(&str, i32)] = &[
+    (
+        r"deposit.*(timer|phase|immediately)|drop ?off channel|capture point|king of the hill",
+        5,
+    ),
+    (r"\mparr", 1),
+    (r"spawn", 1),
+    (r"bounty|reward|\msouls\M|buffs?\M", 2),
+    (r"runner|carrier", 1),
+    (r"pick ?up|dropped|\mdrops?\M|fumble", 1),
+    (r"decay|damage|held timer|give up", 1),
+];
+const CORE_ABILITY_BUCKETS: &[(&str, i32)] = &[
+    (r"parr.*troopers?|troopers?.*parr", 3),
+    (r"parr.*(objective|guardian|boss)", 1),
+    (r"parr.*reload", 1),
+    (r"\murn\M.*parr|parr.*\murn\M", 2),
+    (r"parr.*dash|dash.*parr", 2),
+    (r"\mparr", 1),
+    (r"wall (jump|slide)", 2),
+    (r"\mdash", 2),
+    (r"stamina", 2),
+];
 
 pub(super) fn scope(request: &GetMechanicRequest) -> Option<Scope> {
     let (pattern, exclude) = scope_terms(request)?;
@@ -17,7 +48,18 @@ pub(super) fn scope(request: &GetMechanicRequest) -> Option<Scope> {
         MechanicKind::StreetBrawl => "",
         _ => STREET_BRAWL,
     };
-    Some((pattern, exclude, section_exclude))
+    let (buckets, limit) = match request.mechanic {
+        MechanicKind::Urn => (URN_BUCKETS, LIMIT),
+        MechanicKind::CoreAbilities => (CORE_ABILITY_BUCKETS, CORE_ABILITY_LIMIT),
+        _ => (&[][..], LIMIT),
+    };
+    Some(Scope {
+        pattern,
+        exclude,
+        section_exclude,
+        buckets,
+        limit,
+    })
 }
 
 fn scope_terms(request: &GetMechanicRequest) -> Option<(&'static str, &'static str)> {
@@ -36,7 +78,7 @@ fn scope_terms(request: &GetMechanicRequest) -> Option<(&'static str, &'static s
         MechanicKind::Objectives => objective(request.objective),
         MechanicKind::MidBoss => (r"mid ?boss", ""),
         MechanicKind::Rejuvenator => (r"rejuv|crystal", r"rejuvenating"),
-        MechanicKind::Urn => (r"\murn\M|\midol\M", ""),
+        MechanicKind::Urn => (r"\murn\M|\midol\M", r"^unstable rift"),
         MechanicKind::Denizens => (r"neutrals?\M|denizen|\mcamps?\M", r"neutral shop"),
         MechanicKind::Breakables => (r"breakable|\mcrates?\M", ""),
         MechanicKind::SinnersSacrifice => (r"sinner", ""),
@@ -76,16 +118,19 @@ pub(super) async fn lines(connection: &mut PgConnection, scope: Scope) -> Option
 
 async fn attempt_lines(
     connection: &mut PgConnection,
-    (pattern, exclude, section_exclude): Scope,
+    scope: Scope,
     attempt: u8,
 ) -> Option<Vec<Value>> {
     let mut savepoint = sqlx::Connection::begin(&mut *connection).await.ok()?;
     let started = std::time::Instant::now();
+    let (patterns, keeps): (Vec<&str>, Vec<i32>) = scope.buckets.iter().copied().unzip();
     let history = match sqlx::query_scalar::<_, Value>(QUERY)
-        .bind(pattern)
-        .bind(exclude)
-        .bind(LIMIT)
-        .bind(section_exclude)
+        .bind(scope.pattern)
+        .bind(scope.exclude)
+        .bind(scope.limit)
+        .bind(scope.section_exclude)
+        .bind(patterns)
+        .bind(keeps)
         .fetch_all(&mut *savepoint)
         .await
     {

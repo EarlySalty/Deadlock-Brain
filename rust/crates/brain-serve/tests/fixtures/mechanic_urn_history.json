@@ -1,0 +1,98 @@
+[
+  {
+    "patch": " Minor Update - 07-09-2026",
+    "released_at": "2026-07-09T19:26:55+00:00",
+    "section": null,
+    "line_text": "Urn Runner sprint bonus reduced from +2m to 0 (trailing bonus reduced from +7m to +5m)",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521945",
+    "source_revision": "sha256:de6769e5724101e8c3ae362c76001a41892586f2d20ddc486f19abbaef6d1bf7"
+  },
+  {
+    "patch": " Minor Update - 06-30-2026",
+    "released_at": "2026-06-30T17:22:14+00:00",
+    "section": null,
+    "line_text": "Urn running is now its own objective. Spawns on either end of the map (where the previous neutral pickup locations were), and gets delivered to the opposite end. Spawns at 10/15/20/25/etc.",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521818",
+    "source_revision": "sha256:56bfdc3cdf69f231d719bb6644a71a986e392e490845adda8d3647e4ba36ca4f"
+  },
+  {
+    "patch": " Minor Update - 06-30-2026",
+    "released_at": "2026-06-30T17:22:14+00:00",
+    "section": null,
+    "line_text": "Urn cannot be manually dropped. It gets dropped when you get hit with a light or heavy melee, are stunned or are killed. It stays where it drops and does not walk back home.",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521820",
+    "source_revision": "sha256:56bfdc3cdf69f231d719bb6644a71a986e392e490845adda8d3647e4ba36ca4f"
+  },
+  {
+    "patch": " Minor Update - 06-30-2026",
+    "released_at": "2026-06-30T17:22:14+00:00",
+    "section": null,
+    "line_text": "Urn runner can no longer parry",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521821",
+    "source_revision": "sha256:56bfdc3cdf69f231d719bb6644a71a986e392e490845adda8d3647e4ba36ca4f"
+  },
+  {
+    "patch": " Minor Update - 06-30-2026",
+    "released_at": "2026-06-30T17:22:14+00:00",
+    "section": null,
+    "line_text": "Urn bounty value starts decaying after 45s from being picked up. It drains gradually over another 45s and then the urn is removed when the bounty is empty.",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521822",
+    "source_revision": "sha256:56bfdc3cdf69f231d719bb6644a71a986e392e490845adda8d3647e4ba36ca4f"
+  },
+  {
+    "patch": " Minor Update - 06-30-2026",
+    "released_at": "2026-06-30T17:22:14+00:00",
+    "section": null,
+    "line_text": "Urn is deposited immediately at the drop off point.",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521823",
+    "source_revision": "sha256:56bfdc3cdf69f231d719bb6644a71a986e392e490845adda8d3647e4ba36ca4f"
+  },
+  {
+    "patch": " Minor Update - 06-30-2026",
+    "released_at": "2026-06-30T17:22:14+00:00",
+    "section": null,
+    "line_text": "Urn bounty when deposited is worth 250 + 70/min for just the urn runner. Still has the comeback bounty component. Upon deposit all of the souls are released as orbs into the air (if another ally secures the orbs, they share the bounty with the urn runner).",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521824",
+    "source_revision": "sha256:56bfdc3cdf69f231d719bb6644a71a986e392e490845adda8d3647e4ba36ca4f"
+  },
+  {
+    "patch": " Minor Update - 06-11-2026",
+    "released_at": "2026-06-12T00:59:18+00:00",
+    "section": null,
+    "line_text": "Urn give up time reduced from 75s to 60s",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521697",
+    "source_revision": "sha256:6631cbe7260178e8e0dc872198ba94be73709af8e82e45db2f4f6d793a88f118"
+  },
+  {
+    "patch": " Minor Update - 06-04-2026",
+    "released_at": "2026-06-04T17:30:11+00:00",
+    "section": null,
+    "line_text": "Delivering the urn now starts a king of the hill style capture point, rather than using melee to flip the urn back and forth.",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521530",
+    "source_revision": "sha256:11f43c7205e9985bdec30e7e1aa6d497aa548fa84f592d877f8937c7960a4bff"
+  },
+  {
+    "patch": "Minor Update - 05-25-2026",
+    "released_at": "2026-05-28T16:28:44+00:00",
+    "section": null,
+    "line_text": "Urn deposit timers for favored/neutral/unfavored increased from 3/5/10s to 5/10/15s",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee526681",
+    "source_revision": "sha256:4a23940dbeadae71a60d719d3fd18fb7203294d8156fb5974f281cb9248f5921"
+  },
+  {
+    "patch": "05-22-2026 Update (Post 259788, 2026-05-26)",
+    "released_at": "2026-05-26T00:53:00+00:00",
+    "section": null,
+    "line_text": "Urn deposit timers for favored/neutral/unfavored increased from 3/5/10s to 5/10/15s",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521454",
+    "source_revision": "sha256:01406b5139ba33b2c744e6caf03fc10b8d517d91db3bdad2a8dbd086a1301bba"
+  },
+  {
+    "patch": " Gameplay Update - 05-22-2026",
+    "released_at": "2026-05-22T21:51:02+00:00",
+    "section": "Soul Urn",
+    "line_text": "Once dropped off, the Urn will go into a \"Depositing\" phase for a set amount of time, depending on which team the urn favors (3s/5s/10s for Favored/Neutral/Unfavored).",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521434",
+    "source_revision": "sha256:2a3fb475683ea27715351c99eaee467b74959f41b20b84f0f620e3545f64f6d4"
+  }
+]

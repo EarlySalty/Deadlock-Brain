@@ -1,0 +1,101 @@
+[
+  {
+    "patch": null,
+    "value": "50",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523348",
+    "stat_key": "citadel_crate_delivery_overtime_bonus",
+    "condition": {
+      "field": "/citadel_crate_delivery_overtime_bonus",
+      "source_entity": "citadel_crate_delivery_overtime_bonus"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "300",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523349",
+    "stat_key": "citadel_crate_respawn_interval",
+    "condition": {
+      "field": "/citadel_crate_respawn_interval",
+      "source_entity": "citadel_crate_respawn_interval"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "250",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523350",
+    "stat_key": "citadel_crate_reward_base",
+    "condition": {
+      "field": "/citadel_crate_reward_base",
+      "source_entity": "citadel_crate_reward_base"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "70",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523351",
+    "stat_key": "citadel_crate_reward_time_multiplier",
+    "condition": {
+      "field": "/citadel_crate_reward_time_multiplier",
+      "source_entity": "citadel_crate_reward_time_multiplier"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "600",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523352",
+    "stat_key": "citadel_crate_spawn_initial_delay",
+    "condition": {
+      "field": "/citadel_crate_spawn_initial_delay",
+      "source_entity": "citadel_crate_spawn_initial_delay"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "4",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523355",
+    "stat_key": "citadel_idol_cashin_buff_count",
+    "condition": {
+      "field": "/citadel_idol_cashin_buff_count",
+      "source_entity": "citadel_idol_cashin_buff_count"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "45",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523356",
+    "stat_key": "citadel_idol_decay_duration",
+    "condition": {
+      "field": "/citadel_idol_decay_duration",
+      "source_entity": "citadel_idol_decay_duration"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "45",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523357",
+    "stat_key": "citadel_idol_duration_until_decay",
+    "condition": {
+      "field": "/citadel_idol_duration_until_decay",
+      "source_entity": "citadel_idol_duration_until_decay"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "10",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523358",
+    "stat_key": "citadel_idol_orbs_to_spawn",
+    "condition": {
+      "field": "/citadel_idol_orbs_to_spawn",
+      "source_entity": "citadel_idol_orbs_to_spawn"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  }
+]

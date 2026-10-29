@@ -631,3 +631,46 @@ fn every_mechanic_except_item_tiers_has_a_patch_scope() {
         );
     }
 }
+
+#[test]
+fn live_urn_and_core_ability_histories_fit_before_raw_rows() {
+    let cases = [
+        (
+            MechanicKind::Urn,
+            include_str!("../tests/fixtures/mechanic_urn.json"),
+            include_str!("../tests/fixtures/mechanic_urn_history.json"),
+        ),
+        (
+            MechanicKind::CoreAbilities,
+            include_str!("../tests/fixtures/mechanic_core_abilities.json"),
+            include_str!("../tests/fixtures/mechanic_core_abilities_history.json"),
+        ),
+    ];
+    for (mechanic, rows, lines) in cases {
+        let rows: Vec<Value> = serde_json::from_str(rows).unwrap_or_default();
+        let lines: Vec<Value> = serde_json::from_str(lines).unwrap_or_default();
+        let mut result = present(&request(mechanic, None), rows);
+        history::insert(&mut result, &lines);
+        let facts = result["facts"].as_array().cloned().unwrap_or_default();
+        let needed = facts
+            .iter()
+            .rposition(|row| row["stat_key"] == "patch_note_change")
+            .map_or(0, |last| last + 1);
+        assert_eq!(
+            facts[..needed]
+                .iter()
+                .filter(|row| row["stat_key"] == "patch_note_change")
+                .count(),
+            lines.len(),
+            "{mechanic:?}"
+        );
+        result["facts"] = Value::Array(facts[..needed].to_vec());
+        let citations: BTreeSet<&str> = facts[..needed]
+            .iter()
+            .filter_map(|row| row["citation"].as_str())
+            .collect();
+        let evidence = citations.len() * 96 + 1100;
+        let bytes = serde_json::to_vec(&result).map_or(usize::MAX, |v| v.len());
+        assert!(bytes + evidence < 16_384, "{mechanic:?} {bytes}");
+    }
+}

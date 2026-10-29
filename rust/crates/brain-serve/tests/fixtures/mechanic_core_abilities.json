@@ -1,0 +1,101 @@
+[
+  {
+    "patch": null,
+    "value": "0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523359",
+    "stat_key": "citadel_initial_wall_jump_stamina_cost",
+    "condition": {
+      "field": "/citadel_initial_wall_jump_stamina_cost/value",
+      "source_entity": "citadel_initial_wall_jump_stamina_cost"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0.5",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523364",
+    "stat_key": "citadel_player_dash_down_stamina_cost",
+    "condition": {
+      "field": "/citadel_player_dash_down_stamina_cost",
+      "source_entity": "citadel_player_dash_down_stamina_cost"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "1",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523365",
+    "stat_key": "citadel_player_dash_stamina_cost",
+    "condition": {
+      "field": "/citadel_player_dash_stamina_cost",
+      "source_entity": "citadel_player_dash_stamina_cost"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "1",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523409",
+    "stat_key": "citadel_wall_jump_num_free_wall_jumps",
+    "condition": {
+      "field": "/citadel_wall_jump_num_free_wall_jumps/value",
+      "source_entity": "citadel_wall_jump_num_free_wall_jumps"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0.5",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523410",
+    "stat_key": "citadel_wall_jump_stamina_cost",
+    "condition": {
+      "field": "/citadel_wall_jump_stamina_cost/value",
+      "source_entity": "citadel_wall_jump_stamina_cost"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "600",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523411",
+    "stat_key": "citadel_wall_slide_terminal_velocity",
+    "condition": {
+      "field": "/citadel_wall_slide_terminal_velocity/value",
+      "source_entity": "citadel_wall_slide_terminal_velocity"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "4.5",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523722",
+    "stat_key": "citadel_ability_melee_parry_abilitycooldown_value",
+    "condition": {
+      "field": "/citadel_ability_melee_parry/AbilityCooldown/Value",
+      "source_entity": "citadel_ability_melee_parry"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "2.75",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523723",
+    "stat_key": "citadel_ability_melee_parry_parriedstuntime",
+    "condition": {
+      "field": "/citadel_ability_melee_parry/ParriedStunTime",
+      "source_entity": "citadel_ability_melee_parry"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "25",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee523724",
+    "stat_key": "citadel_ability_melee_parry_victimdamagetakenscale",
+    "condition": {
+      "field": "/citadel_ability_melee_parry/VictimDamageTakenScale",
+      "source_entity": "citadel_ability_melee_parry"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  }
+]

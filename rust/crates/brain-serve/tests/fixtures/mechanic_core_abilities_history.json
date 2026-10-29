@@ -1,0 +1,130 @@
+[
+  {
+    "patch": "09-30-2026 Update (Post 316496, 2026-09-30)",
+    "released_at": "2026-09-30T22:31:50+00:00",
+    "section": null,
+    "line_text": "Added the ability to rebind Down Dash",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee526703",
+    "source_revision": "sha256:e445c8095e2742eaef2f8e30bcf66fadcc7df51989124711ef04cfc1bf8b0ae5"
+  },
+  {
+    "patch": "City Never Sleeps",
+    "released_at": "2026-09-29T20:25:11+00:00",
+    "section": null,
+    "line_text": "Stamina Tracking:** When it seems like they never stop dodging, you’ll know when it’s time.",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee522299",
+    "source_revision": "sha256:cf4681ff4222fb26783485a678dd317ec7170d8fd9e1e059fca6eaf320b243d2"
+  },
+  {
+    "patch": "City Never Sleeps",
+    "released_at": "2026-09-29T20:25:11+00:00",
+    "section": null,
+    "line_text": "Parry Cooldown:** While your parry is on cooldown, it is now displayed near your reticle.",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee522333",
+    "source_revision": "sha256:cf4681ff4222fb26783485a678dd317ec7170d8fd9e1e059fca6eaf320b243d2"
+  },
+  {
+    "patch": "City Never Sleeps",
+    "released_at": "2026-09-29T20:25:11+00:00",
+    "section": "Additional Update Notes",
+    "line_text": "Successfully parrying objectives no longer resets your Parry cooldown",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee522455",
+    "source_revision": "sha256:cf4681ff4222fb26783485a678dd317ec7170d8fd9e1e059fca6eaf320b243d2"
+  },
+  {
+    "patch": " Minor Update - 09-16-2026",
+    "released_at": "2026-09-16T20:16:43+00:00",
+    "section": "General",
+    "line_text": "Using parry now pauses reloading",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee522258",
+    "source_revision": "sha256:adb35b929397efb9844f9fb4a91b36d6c69ac952d7bd61fb334c01de6e61d98e"
+  },
+  {
+    "patch": " Minor Update - 09-16-2026",
+    "released_at": "2026-09-16T20:16:43+00:00",
+    "section": "General",
+    "line_text": "Parrying while doing a regular dash will now cancel the dash (and momentum) and parry on the spot",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee522259",
+    "source_revision": "sha256:adb35b929397efb9844f9fb4a91b36d6c69ac952d7bd61fb334c01de6e61d98e"
+  },
+  {
+    "patch": " Minor Update - 09-16-2026",
+    "released_at": "2026-09-16T20:16:43+00:00",
+    "section": "General",
+    "line_text": "All ground dash slows reduced by ~10% globally",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee522264",
+    "source_revision": "sha256:adb35b929397efb9844f9fb4a91b36d6c69ac952d7bd61fb334c01de6e61d98e"
+  },
+  {
+    "patch": " Minor Update - 07-09-2026",
+    "released_at": "2026-07-09T19:26:55+00:00",
+    "section": null,
+    "line_text": "Urn Runner Stamina Recovery increased from +15% to +25%",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521947",
+    "source_revision": "sha256:de6769e5724101e8c3ae362c76001a41892586f2d20ddc486f19abbaef6d1bf7"
+  },
+  {
+    "patch": " Minor Update - 06-30-2026",
+    "released_at": "2026-06-30T17:22:14+00:00",
+    "section": null,
+    "line_text": "Urn runner can no longer parry",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521821",
+    "source_revision": "sha256:56bfdc3cdf69f231d719bb6644a71a986e392e490845adda8d3647e4ba36ca4f"
+  },
+  {
+    "patch": " Minor Update - 05-28-2026",
+    "released_at": "2026-05-28T17:14:59+00:00",
+    "section": null,
+    "line_text": "Parrying a trooper no longer resets your parry cooldown (however it won't end your parry early like a hero hit does)",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521477",
+    "source_revision": "sha256:a70ca1a9935d2b066df6ce14d3a5f28c993319677e96f01e345dc0f1453b0575"
+  },
+  {
+    "patch": " Minor Update - 05-28-2026",
+    "released_at": "2026-05-28T17:14:59+00:00",
+    "section": null,
+    "line_text": "Parrying a trooper now stuns the trooper",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521478",
+    "source_revision": "sha256:a70ca1a9935d2b066df6ce14d3a5f28c993319677e96f01e345dc0f1453b0575"
+  },
+  {
+    "patch": " Gameplay Update - 05-22-2026",
+    "released_at": "2026-05-22T21:51:02+00:00",
+    "section": "General",
+    "line_text": "Stamina Regeneration is reduced by 25% for 5s after using a Wall Jump. This does not trigger when out of combat or when mantling soon after.",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee521408",
+    "source_revision": "sha256:2a3fb475683ea27715351c99eaee467b74959f41b20b84f0f620e3545f64f6d4"
+  },
+  {
+    "patch": "04-10-2026 Update (Post 237803, 2026-04-11)",
+    "released_at": "2026-04-11T04:03:53+00:00",
+    "section": "General",
+    "line_text": "Parrying is now allowed while ground dashing in order to bring it in-line with air dashing",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee520979",
+    "source_revision": "sha256:2a42ca8a0ffc0cbe28f19a21acefb533853d4f44cebaa4b60dda828960d8ea2d"
+  },
+  {
+    "patch": "12-29-2025 Update (Post 185824, 2026-01-20)",
+    "released_at": "2026-01-20T21:58:55+00:00",
+    "section": null,
+    "line_text": "Can no longer parry while channeling to pickup the urn",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee518898",
+    "source_revision": "sha256:c457c83b7718bc1f3dc73de878be5a8cf709185ede1c34198c180afad0f7d05f"
+  },
+  {
+    "patch": "12-16-2025 Update (Post 178389, 2025-12-17)",
+    "released_at": "2025-12-17T20:33:46+00:00",
+    "section": null,
+    "line_text": "Initial wall jump no longer costs stamina",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee518764",
+    "source_revision": "sha256:9c380532ff0a59c6259cc3c6f47918d7f1da18868b29d1b0c11dff94dd3d3d55"
+  },
+  {
+    "patch": "04-17-2025 Update",
+    "released_at": "2025-04-18T01:40:16+00:00",
+    "section": "General",
+    "line_text": "Soul Orbs no longer have special duplication rules before 8 minutes. Soul splitting rules are now the same before 8 minutes as afterwards. Adjusted trooper economy to compensate. There is also no longer a bounty bump that occurs at 8 minutes. - Wave interval increased from 25s to 30s (bounty values adjusted by the same ratio) - Guardians attack range reduced from 38.1m to 35m - Guardians melee attempt range reduced from 6.1m to 5m - Guardians melee damage range reduced from 8m to 7m - Players can no longer Parry troopers",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee516128",
+    "source_revision": "sha256:8608e6c5669a6d6dff8e300e7cfd5fb3d979a338d90c2f0522752318bfa1e009"
+  }
+]
