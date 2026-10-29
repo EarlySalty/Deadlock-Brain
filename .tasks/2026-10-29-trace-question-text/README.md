@@ -16,8 +16,15 @@ Goal: operators can see what users asked the Brain and why a question was not an
 
 ## Privacy
 
-- Question and history pass through `without_platform_ids` (mentions, channel refs and digit runs of
-  15+ removed) before storage. No user IDs or usernames are written.
+- Question and history pass through `without_platform_ids` (Discord mentions, channel refs and digit
+  runs of 15+ removed). Before storage brain-serve additionally replaces every `@handle` with `@user`,
+  every digit run of 6+ with `[id]` and every control character (including NUL) with a space, for
+  question, history and answer text alike. Platform IDs and `@` handles are therefore not stored.
+- Not covered: a name typed as plain free text without `@` stays in the question, because it is part
+  of what the user asked. Digit runs of 6+ that are not IDs (for example dates written as 20261029)
+  are also replaced.
+- The operator command escapes control characters in every printed field, so stored text cannot
+  drive the terminal.
 - Retention 90 days: `ops.purge_answer_trace()` (SECURITY DEFINER, fixed bound, EXECUTE only for
   `brain_ingest`) runs inside the daily `brain-job audit-receipts` job
   (`brain-job@audit-receipts.timer`) and prints `answer_trace_purged=N`.

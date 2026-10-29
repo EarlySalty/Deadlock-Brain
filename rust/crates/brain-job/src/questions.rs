@@ -66,8 +66,20 @@ pub fn parse_since(
         .ok_or_else(|| anyhow::anyhow!("Ungültiges Datum"))
 }
 
+fn printable(text: &str) -> String {
+    text.chars()
+        .flat_map(|c| {
+            if c.is_control() {
+                c.escape_default().collect::<Vec<_>>()
+            } else {
+                vec![c]
+            }
+        })
+        .collect()
+}
+
 fn short(text: &str, limit: usize) -> String {
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let flat = printable(&text.split_whitespace().collect::<Vec<_>>().join(" "));
     if flat.chars().count() <= limit {
         return flat;
     }
@@ -85,6 +97,8 @@ pub async fn report(pool: &PgPool, filter: &Filter) -> anyhow::Result<()> {
         .await?;
     for (time, source, route, status, reason, latency, rounds, question, history, answer) in &rows {
         let rounds = rounds.map_or_else(|| "-".into(), |value| value.to_string());
+        let [source, route, status, reason] =
+            [source, route, status, reason].map(|text| printable(text));
         println!("{time}  {source}  {route}  {status}  reason={reason}  latency_ms={latency}  rounds={rounds}");
         println!("  question: {}", short(question, 4000));
         if !history.is_empty() {
@@ -107,4 +121,19 @@ pub async fn purge(pool: &PgPool) -> anyhow::Result<i64> {
     Ok(sqlx::query_scalar("SELECT ops.purge_answer_trace()")
         .fetch_one(pool)
         .await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn printed_fields_escape_terminal_controls() {
+        assert_eq!(
+            short("a\x1b[2J\x1b[H  b\n\0c", 100),
+            "a\\u{1b}[2J\\u{1b}[H b \\u{0}c"
+        );
+        assert_eq!(short("abcdef", 3), "abc…");
+        assert_eq!(printable("ok"), "ok");
+    }
 }

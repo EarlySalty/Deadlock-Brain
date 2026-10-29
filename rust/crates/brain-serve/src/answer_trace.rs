@@ -187,8 +187,50 @@ const HISTORY_TURNS: usize = 4;
 const ANSWER_CHARS: usize = 8000;
 const SOURCE_CHARS: usize = 128;
 
+const ID_DIGITS: usize = 6;
+
 fn bounded(text: &str, limit: usize) -> String {
     text.chars().take(limit).collect()
+}
+
+fn handle_char(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '_' | '.' | '-')
+}
+
+fn redacted(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '@' && chars.peek().is_some_and(|next| handle_char(*next)) {
+            while chars.next_if(|next| handle_char(*next)).is_some() {}
+            out.push_str("@user");
+        } else if c.is_ascii_digit() {
+            let mut digits = String::from(c);
+            while let Some(next) = chars.next_if(char::is_ascii_digit) {
+                digits.push(next);
+            }
+            if digits.len() >= ID_DIGITS {
+                out.push_str("[id]");
+            } else {
+                out.push_str(&digits);
+            }
+        } else if c.is_control() {
+            out.push(' ');
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn stored(text: &str, limit: usize) -> String {
+    bounded(&redacted(text), limit)
+}
+
+fn printable(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
 }
 
 fn slug(value: &str) -> Option<String> {
@@ -361,21 +403,21 @@ impl<K> TracedKernel<K> {
             tokens: token_counts(usage, accounting),
             latency_ms: started.elapsed().as_millis().min(i32::MAX as u128) as i32,
             source: bounded(
-                &format!(
+                &printable(&format!(
                     "{}-{}",
                     context.principal.actor_id, context.principal.channel
-                ),
+                )),
                 SOURCE_CHARS,
             ),
             route: route(query),
-            question: bounded(&request.question, QUESTION_CHARS),
+            question: stored(&request.question, QUESTION_CHARS),
             history: request
                 .history
                 .iter()
                 .skip(request.history.len().saturating_sub(HISTORY_TURNS))
-                .map(|text| bounded(text, QUESTION_CHARS))
+                .map(|text| stored(text, QUESTION_CHARS))
                 .collect(),
-            answer_text: answered.then(|| bounded(&answer.text, ANSWER_CHARS)),
+            answer_text: answered.then(|| stored(&answer.text, ANSWER_CHARS)),
             not_answered_stage: not_answered.as_ref().and_then(|note| slug(&note.stage)),
             not_answered_reason: not_answered.as_ref().and_then(|note| slug(&note.reason)),
             provider_rounds: i32::try_from(usage.network_rounds).unwrap_or(i32::MAX),

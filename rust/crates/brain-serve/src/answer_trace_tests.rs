@@ -337,3 +337,17 @@ fn diagnostic_failure_does_not_change_the_answer_or_accounting() {
     assert_eq!(kernel.inner.methods.lock().unwrap().len(), 1);
     assert!(ACTIVE.with(|active| active.borrow().is_none()));
 }
+
+#[test]
+fn stored_text_drops_nul_controls_handles_and_numeric_ids() {
+    assert_eq!(
+        stored(
+            "a\0b\x1b[2J @alice_1 fragt 12345678 zu Patch 5.12 und 99999",
+            4000
+        ),
+        "a b [2J @user fragt [id] zu Patch 5.12 und 99999"
+    );
+    assert_eq!(stored("E-Mail a@b.de @", 4000), "E-Mail a@user @");
+    assert_eq!(stored("äöü@x", 3), "äöü");
+    assert_eq!(printable("dl-bot\0-discord\n"), "dl-bot -discord ");
+}
