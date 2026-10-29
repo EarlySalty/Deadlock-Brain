@@ -71,11 +71,39 @@ fn steam_news_stub_joins_the_post_it_announces() {
 }
 
 #[test]
+fn late_mirror_with_same_notes_joins_within_a_week() {
+    let body = notes("same", 10);
+    let ledger = classify(&[
+        post(1, "05-22-2026 Update", "https://forums.example/1", 0, &body),
+        post(
+            2,
+            "Minor Update - 05-25-2026",
+            "https://store.steampowered.com/2",
+            64,
+            &body,
+        ),
+    ]);
+    assert_eq!(ledger.patches.len(), 1);
+    assert_eq!(ledger.patches[0].ledger_id, 2);
+    assert_eq!(ledger.patches[0].dated_post_id, 1);
+}
+
+#[test]
 fn distant_posts_with_same_notes_stay_separate() {
     let body = notes("same", 10);
     let ledger = classify(&[
         post(1, "Update A", "https://forums.example/1", 0, &body),
-        post(2, "Update B", "https://forums.example/2", 37, &body),
+        post(2, "Update B", "https://forums.example/2", 8 * 24, &body),
+    ]);
+    assert_eq!(ledger.patches.len(), 2);
+}
+
+#[test]
+fn short_shared_notes_need_the_short_window() {
+    let body = notes("same", 2);
+    let ledger = classify(&[
+        post(1, "Update A", "https://forums.example/1", 0, &body),
+        post(2, "Update B", "https://forums.example/2", 40, &body),
     ]);
     assert_eq!(ledger.patches.len(), 2);
 }
