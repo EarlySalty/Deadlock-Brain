@@ -86,7 +86,7 @@ async fn run() -> anyhow::Result<()> {
                 (sources::fetch(source, cache), cache.join(source))
             }
         };
-        let (objects, revision) = tracked(source, objects);
+        let (objects, revision, observed) = tracked(source, objects);
         let report = ingest(
             &GameFactsStore::new(pool.clone()),
             source,
@@ -101,6 +101,12 @@ async fn run() -> anyhow::Result<()> {
         if let Some(revision) = revision {
             freshness::record_ingest(&pool, report.run_id, &repository, &revision).await?;
             println!("revision={revision}");
+        }
+        if let Some((paths, digests)) = observed {
+            let changed =
+                freshness::record_patch_observations(&pool, report.run_id, &paths, &digests)
+                    .await?;
+            println!("patch_observations={changed}");
         }
         if source == brain_job::item_lineage::SOURCE {
             match brain_job::item_lineage::log_alias_conflicts(&pool).await {
@@ -138,18 +144,25 @@ async fn audit(path: &Path) -> anyhow::Result<()> {
     result
 }
 
+type Observed = (Vec<String>, Vec<Vec<u8>>);
+
 fn tracked(
     source: &str,
     objects: brain_job::InputObjects,
-) -> (brain_job::InputObjects, Option<String>) {
+) -> (brain_job::InputObjects, Option<String>, Option<Observed>) {
+    if source == brain_job::patch_extract::SOURCE {
+        let objects: Vec<_> = objects.collect();
+        let observed = freshness::observed(&objects);
+        return (Box::new(objects.into_iter()), None, Some(observed));
+    }
     if source != freshness::SOURCE {
-        return (objects, None);
+        return (objects, None, None);
     }
     let objects: Vec<_> = objects.collect();
     let revision = objects
         .iter()
         .find_map(|object| object.as_ref().ok().map(|object| object.revision.clone()));
-    (Box::new(objects.into_iter()), revision)
+    (Box::new(objects.into_iter()), revision, None)
 }
 
 async fn freshness_command(args: &[OsString]) -> Option<anyhow::Result<()>> {

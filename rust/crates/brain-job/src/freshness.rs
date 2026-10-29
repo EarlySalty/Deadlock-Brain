@@ -1,4 +1,5 @@
 use crate::sources;
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::path::Path;
 
@@ -146,6 +147,41 @@ pub async fn backfill(pool: &PgPool, repository: &Path) -> anyhow::Result<(u64, 
     .await?
     .rows_affected();
     Ok((commits, runs))
+}
+
+pub fn observed(objects: &[anyhow::Result<crate::InputObject>]) -> (Vec<String>, Vec<Vec<u8>>) {
+    objects
+        .iter()
+        .filter_map(|object| object.as_ref().ok())
+        .map(|object| (object.path.clone(), Sha256::digest(&object.bytes).to_vec()))
+        .unzip()
+}
+
+pub async fn record_patch_observations(
+    pool: &PgPool,
+    run_id: i64,
+    paths: &[String],
+    digests: &[Vec<u8>],
+) -> anyhow::Result<u64> {
+    Ok(sqlx::query(
+        "INSERT INTO ops.patch_observation (path,raw_object_id,run_id)
+         SELECT o.path,o.id,$1
+         FROM unnest($2::text[],$3::bytea[]) AS s(path,digest)
+         JOIN raw.object o ON o.source=$4 AND o.path=s.path AND o.content_sha256=s.digest
+         WHERE o.path ~ '^[1-9][0-9]{0,17}$'
+             AND o.id IS DISTINCT FROM (
+                 SELECT p.raw_object_id FROM ops.patch_observation p
+                 WHERE p.path=o.path ORDER BY p.run_id DESC LIMIT 1
+             )
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(run_id)
+    .bind(paths)
+    .bind(digests)
+    .bind(crate::patch_extract::SOURCE)
+    .execute(pool)
+    .await?
+    .rows_affected())
 }
 
 type Row = (

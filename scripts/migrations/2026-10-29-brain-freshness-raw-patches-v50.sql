@@ -10,6 +10,14 @@ $owner$;
 
 SET LOCAL lock_timeout='5000ms';
 
+CREATE TABLE ops.patch_observation (
+    path text NOT NULL CHECK (path ~ '^[1-9][0-9]{0,17}$'),
+    raw_object_id bigint NOT NULL REFERENCES raw.object(id),
+    run_id bigint NOT NULL REFERENCES ops.ingest_run(id),
+    recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY (path,run_id)
+);
+
 CREATE VIEW ops.patch_listing AS
 WITH object AS (
     SELECT o.id,o.path,o.fetched_at,convert_from(o.bytes,'UTF8')::jsonb AS body,
@@ -19,13 +27,18 @@ WITH object AS (
         SELECT max(x.ingest_run_id) AS applied_run FROM canon.receipt x WHERE x.raw_object_id=o.id
     ) r ON true
     WHERE o.source='deadlock_patchnotes_db' AND o.path ~ '^[1-9][0-9]{0,17}$'
+), observed AS (
+    SELECT DISTINCT ON (p.path) p.path,p.raw_object_id FROM ops.patch_observation p
+    ORDER BY p.path,p.run_id DESC
 ), latest AS (
     SELECT DISTINCT ON (path) path,body,
         CASE WHEN pg_input_is_valid(body->>'posted_at','timestamptz')
             THEN (body->>'posted_at')::timestamptz END AS published_at
     FROM object
     WHERE jsonb_typeof(body)='object'
-    ORDER BY path,applied DESC,observed_run DESC,id DESC
+    ORDER BY path,
+        EXISTS(SELECT 1 FROM observed v WHERE v.path=object.path AND v.raw_object_id=object.id) DESC,
+        applied DESC,observed_run DESC,id DESC
 ), first AS (
     SELECT path,min(fetched_at) AS fetched_at FROM object GROUP BY path
 )
@@ -104,7 +117,8 @@ LEFT JOIN LATERAL (
 ) i ON true
 WHERE c.source='deadlock-data' AND c.client_build IS NOT NULL;
 
-REVOKE ALL ON ops.patch_listing FROM PUBLIC;
+REVOKE ALL ON ops.patch_observation,ops.patch_listing FROM PUBLIC;
+GRANT SELECT,INSERT ON ops.patch_observation TO brain_ingest;
 GRANT SELECT ON ops.patch_listing TO brain_ingest;
 
 COMMIT;

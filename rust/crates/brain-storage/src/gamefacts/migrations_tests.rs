@@ -1223,6 +1223,13 @@ async fn patch_object(
     if applied {
         receipt_application(pool, raw.id, run, 1).await.unwrap();
     }
+    sqlx::query("INSERT INTO ops.patch_observation(path,raw_object_id,run_id) VALUES($1,$2,$3)")
+        .bind(path)
+        .bind(raw.id)
+        .bind(run)
+        .execute(pool)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -1236,12 +1243,18 @@ async fn freshness_views_are_readable_by_ingest() {
     patch_object(&store, pool, "2", "I", "infinity", true).await;
     patch_object(&store, pool, "3", "C", "2026-10-03T00:00:00Z", true).await;
     patch_object(&store, pool, "3", "D", "2026-10-04T00:00:00Z", false).await;
+    patch_object(&store, pool, "4", "E", "2026-10-05T00:00:00Z", false).await;
+    patch_object(&store, pool, "4", "F", "", false).await;
+    patch_object(&store, pool, "4", "E", "2026-10-05T00:00:00Z", false).await;
     let listing: Vec<(i64, String)> =
         sqlx::query_as("SELECT patch_id,label FROM ops.patch_listing ORDER BY patch_id")
             .fetch_all(pool)
             .await
             .unwrap();
-    assert_eq!(listing, vec![(1, "A".into()), (3, "C".into())]);
+    assert_eq!(
+        listing,
+        vec![(1, "A".into()), (3, "D".into()), (4, "E".into())]
+    );
     for view in ["ops.patch_freshness", "ops.game_data_freshness"] {
         sqlx::query(&format!("SELECT * FROM {view}"))
             .fetch_all(pool)
