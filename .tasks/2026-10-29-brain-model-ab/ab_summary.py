@@ -10,8 +10,7 @@ def load_rows(paths):
     for path in paths:
         for line in open(path):
             row = json.loads(line)
-            if row["results"]["haiku"]["status"] != "unavailable":
-                rows[row["id"]] = row
+            rows[row["id"]] = row
     return rows
 
 
