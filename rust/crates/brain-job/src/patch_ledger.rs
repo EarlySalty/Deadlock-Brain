@@ -299,13 +299,12 @@ type PostRow = (i64, String, String, i64, String);
 type PatchRow = (i64, i64, i64, String, String, String);
 type MemberRow = (i64, Option<i64>, String, String);
 
-async fn load_posts(pool: &PgPool) -> anyhow::Result<Vec<Post>> {
+async fn load_posts(transaction: &mut sqlx::PgConnection) -> anyhow::Result<Vec<Post>> {
     let rows: Vec<PostRow> = sqlx::query_as(
-        "SELECT patch_id,label,coalesce(url,''),
-            (extract(epoch FROM published_at)*1000000)::bigint,raw_content
-         FROM ops.patch_listing ORDER BY patch_id",
+        "SELECT post_id,title,url,(extract(epoch FROM published_at)*1000000)::bigint,raw_content
+         FROM ops.patch_ledger_source ORDER BY post_id",
     )
-    .fetch_all(pool)
+    .fetch_all(&mut *transaction)
     .await?;
     Ok(rows
         .into_iter()
@@ -414,8 +413,11 @@ async fn replace(
 }
 
 pub async fn refresh(pool: &PgPool, run_id: i64) -> anyhow::Result<bool> {
-    let ledger = classify(&load_posts(pool).await?);
     let mut transaction = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('ops.patch_ledger'))")
+        .execute(&mut *transaction)
+        .await?;
+    let ledger = classify(&load_posts(&mut transaction).await?);
     if load_ledger(&mut transaction).await? == ledger {
         transaction.rollback().await?;
         return Ok(false);

@@ -42,8 +42,8 @@ const PRE_FACTOR_CHANGES: &str = "SELECT jsonb_build_object('id',c.change_id,'en
     LEFT JOIN serve.patch_ledger_member l ON l.patch_id=c.patch_id
     WHERE c.entity_id=$1 AND ($2::bigint IS NULL OR c.patch_id=$2)
         AND NOT EXISTS(SELECT 1 FROM serve.patch_ledger_member d WHERE d.patch_id=c.patch_id AND d.disposition='duplicate')
-        AND ($3::text IS NULL OR p.released_at >= $3::timestamptz)
-        AND ($4::text IS NULL OR p.released_at <= $4::timestamptz)
+        AND ($3::text IS NULL OR coalesce(l.ledger_released_at,p.released_at) >= $3::timestamptz)
+        AND ($4::text IS NULL OR coalesce(l.ledger_released_at,p.released_at) <= $4::timestamptz)
     ORDER BY p.released_at DESC,p.patch_id DESC,c.change_id DESC LIMIT 20";
 
 struct Database {
