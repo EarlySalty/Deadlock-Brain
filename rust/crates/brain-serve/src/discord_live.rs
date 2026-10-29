@@ -2560,8 +2560,11 @@ mod tests {
         let execution = accounted.value;
         let failed = tools
             .execute_accounted(&query, &context, None, "call-2", &request)
-            .unwrap_err();
-        assert_eq!(failed.accounting.unwrap().charged().network_rounds, 1);
+            .unwrap();
+        assert_eq!(failed.accounting.charged().network_rounds, 1);
+        assert!(failed.value.result.is_error);
+        assert!(failed.value.result.evidence_ids.is_empty());
+        assert!(failed.value.dependencies.is_empty());
         assert!(serde_json::to_vec(&execution.result).unwrap().len() < 16_384);
         let content = execution.result.result["matches"][0]["content"]
             .as_str()

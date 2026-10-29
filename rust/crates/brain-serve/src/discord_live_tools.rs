@@ -116,6 +116,20 @@ fn execution(
     }
 }
 
+fn unavailable_execution(id: &str, request: &ToolRequest) -> ToolExecution {
+    ToolExecution {
+        result: ToolResult {
+            call_id: id.into(),
+            name: request.name(),
+            result: json!({"error":"discord_live_unavailable","message":"Für diese Anfrage liegen keine freigegebenen Discord-Inhalte vor."}),
+            evidence_ids: Vec::new(),
+            is_error: true,
+        },
+        dependencies: Vec::new(),
+        usage: network_round(),
+    }
+}
+
 fn request_channel(request: &ToolRequest) -> Option<String> {
     match request.subrequest() {
         brain_contracts::tools::ToolSubrequest::ServerKnowledge(request) => request.channel.clone(),
@@ -190,7 +204,14 @@ impl DiscordLiveTools {
         live: &DiscordLive,
     ) -> Result<ToolExecution, PortError> {
         let terms: Vec<String> = request_channel(request).into_iter().collect();
-        let (expires, item) = live.read_channel(context, None, &terms)?;
+        let (expires, item) = match live.read_channel(context, None, &terms) {
+            Ok(read) => read,
+            Err(PortError::Unavailable(_)) => {
+                context.check_deadline()?;
+                return Ok(unavailable_execution(&call.id, request));
+            }
+            Err(error) => return Err(error),
+        };
         let lines = selected_lines(&item.content, query);
         let execution = execution(&call.id, request, item, lines);
         execution.validate_for(call, request, None)?;
