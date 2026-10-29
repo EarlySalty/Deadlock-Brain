@@ -113,6 +113,24 @@ fn item_subject_lines_skip_hero_sections_and_record_renames() {
     assert!(subject_lines(content, "patch_line_r", "abrams").is_empty());
 }
 
+#[test]
+fn general_section_lines_become_patch_notes_outside_hero_sections() {
+    let content = "[ General ]\n- Amount of souls in the flying orb that can be secured/denied reduced from 50% to 40%\n- Debuff Remover: Cooldown increased from 45s to 50s\n\n[ Heroes ]\n- Trooper bounty ratio changed from 40 to 50";
+    let notes: Vec<Value> = accepted("42", &envelope(content))
+        .facts
+        .iter()
+        .filter(|fact| fact.stat_key.starts_with("patch_note_"))
+        .map(|fact| serde_json::from_str(text(&fact.value)).unwrap())
+        .collect();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0]["section"], "General");
+    assert_eq!(notes[0]["line_index"], 1);
+    assert_eq!(
+        notes[0]["line_text"],
+        "Amount of souls in the flying orb that can be secured/denied reduced from 50% to 40%"
+    );
+}
+
 fn parse(content: &str) -> Vec<Value> {
     changes(&accepted("42", &envelope(content)))
 }
@@ -153,7 +171,7 @@ fn complete_statements_emit_patch_owned_alias_text_and_source_stat_labels() {
         let fingerprint = Sha256::digest(reference.as_bytes());
         assert_eq!(*key, format!("patch_change_r{fingerprint:x}_{index}"));
     }
-    assert_eq!(PatchExtractor.version(), "5");
+    assert_eq!(PatchExtractor.version(), "6");
     let rows = parse("- Baba: Damage increased from 1 to 2");
     assert_eq!(rows[0]["stat_label"], "Damage");
 }
@@ -502,7 +520,10 @@ fn original_public_baba_roster_and_release_are_not_balance_changes() {
         assert!(changes(&set).is_empty(), "{id}");
         assert_eq!(set.entities[0].key, format!("patch_{id}"));
         assert_eq!(
-            set.facts.iter().filter(|fact| !subject_line(fact)).count(),
+            set.facts
+                .iter()
+                .filter(|fact| !subject_line(fact) && !fact.stat_key.starts_with("patch_note_"))
+                .count(),
             3
         );
     }

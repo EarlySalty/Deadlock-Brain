@@ -166,6 +166,43 @@ const LATEST: &str = "WITH base AS MATERIALIZED (
             ORDER BY (c.statement_index)::numeric,c.change_id)
             FROM (SELECT * FROM bound UNION ALL SELECT * FROM unbound) c),'[]'::jsonb))
     FROM head h";
+const SEARCH: &str = "WITH facts AS MATERIALIZED (
+        SELECT c.patch_id,c.label,c.released_at,c.official_receipt_id,c.label_receipt_id,
+            c.released_at_receipt_id,c.url_receipt_id,f.id,f.receipt_id,payload.value
+        FROM serve.p4_patch_catalog c CROSS JOIN LATERAL (
+            SELECT * FROM serve.current_fact f WHERE f.entity_id=c.patch_id
+                AND ((f.stat_key COLLATE \"C\" >= 'patch_change_r' AND f.stat_key COLLATE \"C\" < 'patch_change_s')
+                    OR (f.stat_key COLLATE \"C\" >= 'patch_note_' AND f.stat_key COLLATE \"C\" < 'patch_note`'))
+            OFFSET 0
+        ) f
+        CROSS JOIN LATERAL (
+            SELECT CASE WHEN pg_input_is_valid(f.value_text::text,'jsonb')
+                THEN f.value_text::jsonb ELSE '{}'::jsonb END AS value OFFSET 0
+        ) payload
+        WHERE f.raw_object_id=c.raw_object_id AND f.valid_from_run=c.ingest_run_id
+            AND (f.stat_key ~ '^patch_note_[0-9]+_[0-9]+$' OR f.stat_key ~ '^patch_change_r[0-9a-f]{64}_[0-9]+$')
+            AND ($2::text IS NULL OR c.released_at >= $2::timestamptz)
+            AND ($3::text IS NULL OR c.released_at <= $3::timestamptz)
+            AND jsonb_typeof(payload.value)='object'
+            AND jsonb_typeof(payload.value->'line_text')='string' AND btrim(payload.value->>'line_text')<>''
+            AND EXISTS(SELECT 1 FROM serve.published_receipt r WHERE r.id=f.receipt_id
+                AND r.extractor=c.extractor AND r.raw_object_id=c.raw_object_id
+                AND r.ingest_run_id=c.ingest_run_id
+                AND r.locator_kind='json_pointer' AND r.locator='/raw_content')
+    ), scored AS (
+        SELECT f.*,(SELECT count(*) FROM unnest($1::text[]) t
+            WHERE strpos(lower(f.value->>'line_text'),t)>0) AS hits
+        FROM facts f
+    ) SELECT jsonb_build_object('id',s.id,'entity_id',NULL::bigint,'section',s.value->'section',
+        'subject',s.value->'subject','line_text',s.value->>'line_text','stat_label',s.value->'stat_label',
+        'old',s.value->'old','new',s.value->'new','patch',s.label,'released_at',s.released_at,
+        'citation',s.receipt_id::text,'head_citation',s.official_receipt_id::text,
+        'label_citation',s.label_receipt_id::text,'released_at_citation',s.released_at_receipt_id::text,
+        'url_citation',s.url_receipt_id::text,'binding_citation',NULL::text,'entity_citation',NULL::text,
+        'stat_citation',NULL::text)
+    FROM scored s WHERE s.hits>0
+    ORDER BY s.hits DESC,s.released_at DESC,s.patch_id DESC,s.id DESC LIMIT 20";
+const SEARCH_TERMS: usize = 8;
 const LATEST_WINDOW: usize = 56;
 const PATCH_CITATIONS: [&str; 4] = [
     "head_citation",
@@ -230,7 +267,10 @@ async fn run_patch_history(
     let ToolSubrequest::CanonicalPatchHistory(history) = request.subrequest() else {
         return Err(invalid());
     };
-    let latest = history.entity.is_none() && history.since.is_none() && history.until.is_none();
+    let latest = history.entity.is_none()
+        && history.since.is_none()
+        && history.until.is_none()
+        && history.text.is_none();
     let (budget, statement_timeout) = if history.entity.is_some() {
         (
             Duration::from_millis(500),
@@ -438,7 +478,7 @@ async fn history_execution(
     history: &CanonicalPatchHistoryRequest,
 ) -> Result<ToolExecution, PortError> {
     let ranged = history.since.is_some() || history.until.is_some();
-    if history.entity.is_none() && !ranged {
+    if history.entity.is_none() && !ranged && history.text.is_none() {
         return latest_execution(connection, id, request, history).await;
     }
     if history.offset.is_some() {
@@ -492,6 +532,26 @@ async fn history_execution(
             return Ok(error_execution(id, request.name(), "patch_range_reversed"));
         }
     }
+    if let Some(text) = &history.text {
+        let rows = sqlx::query_scalar::<_, Value>(SEARCH)
+            .bind(search_terms(text))
+            .bind(timestamps[0])
+            .bind(timestamps[1])
+            .fetch_all(&mut *connection)
+            .await
+            .map_err(database_error)?;
+        let [since, until]: [Option<Value>; 2] = bounds.try_into().map_err(|_| invalid())?;
+        return finish_history(
+            connection,
+            id,
+            request,
+            history,
+            current,
+            [since, until],
+            rows,
+        )
+        .await;
+    }
     let entity = history
         .entity
         .map(|entity| i64::try_from(entity).map_err(|_| invalid()))
@@ -530,6 +590,20 @@ async fn history_execution(
         rows,
     )
     .await
+}
+
+fn search_terms(text: &str) -> Vec<String> {
+    let mut terms: Vec<String> = Vec::new();
+    for word in text
+        .split(|ch: char| !ch.is_alphanumeric() && ch != '%')
+        .map(str::to_lowercase)
+        .filter(|word| word.chars().count() >= 3)
+    {
+        if terms.len() < SEARCH_TERMS && !terms.contains(&word) {
+            terms.push(word);
+        }
+    }
+    terms
 }
 
 async fn latest_execution(
@@ -838,8 +912,11 @@ fn receipt_ids(value: &Value) -> Result<BTreeSet<String>, PortError> {
     for change in value["changes"].as_array().ok_or_else(invalid)? {
         citation(&change["citation"], &mut ids)?;
         patch_citations(change, &mut ids)?;
+        let bound = !change["entity_id"].is_null();
         for field in ["binding_citation", "entity_citation"] {
-            citation(&change[field], &mut ids)?;
+            if bound || !change[field].is_null() {
+                citation(&change[field], &mut ids)?;
+            }
         }
         if !change["stat_citation"].is_null() {
             citation(&change["stat_citation"], &mut ids)?;
@@ -945,8 +1022,11 @@ fn remap_citations(
     for change in value["changes"].as_array_mut().ok_or_else(invalid)? {
         citation(&mut change["citation"], receipts)?;
         patch_citations(change, receipts)?;
+        let bound = !change["entity_id"].is_null();
         for field in ["binding_citation", "entity_citation"] {
-            citation(&mut change[field], receipts)?;
+            if bound || !change[field].is_null() {
+                citation(&mut change[field], receipts)?;
+            }
         }
         if !change["stat_citation"].is_null() {
             citation(&mut change["stat_citation"], receipts)?;

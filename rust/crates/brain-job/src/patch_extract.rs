@@ -179,6 +179,15 @@ impl PatchExtractor {
                 });
             }
         }
+        let room = limits::ROWS.saturating_sub(set.entities.len() + set.facts.len());
+        for note in note_lines(&content).into_iter().take(room.min(NOTE_LINES)) {
+            set.facts.push(Fact {
+                entity_key: key.clone(),
+                stat_key: format!("patch_note_{}_{}", note.line, note.piece),
+                value: FactValue::Text(note.json().to_string()),
+                receipt: raw_content.clone(),
+            });
+        }
         Ok(Some(set))
     }
 
@@ -292,7 +301,7 @@ impl Extractor for PatchExtractor {
         "patchnotes"
     }
     fn version(&self) -> &'static str {
-        "5"
+        "6"
     }
     fn accepts(&self, source: &str, path: &str) -> bool {
         source == SOURCE
@@ -367,6 +376,68 @@ fn subject_lines(content: &str) -> Vec<SubjectLine<'_>> {
         }
     }
     output
+}
+
+const NOTE_LINES: usize = 1024;
+
+struct NoteLine<'a> {
+    section: Option<&'a str>,
+    line: usize,
+    piece: usize,
+    text: &'a str,
+}
+
+impl NoteLine<'_> {
+    fn json(&self) -> serde_json::Value {
+        let values = explicit_values(self.text);
+        serde_json::json!({
+            "section": self.section, "line_index": self.line, "piece_index": self.piece,
+            "line_text": self.text, "stat_label": values.map(|v| v.2),
+            "old": values.map(|v| v.0), "new": values.map(|v| v.1),
+        })
+    }
+}
+
+fn hero_section(section: Option<&str>) -> bool {
+    section.is_some_and(|name| name.to_ascii_lowercase().contains("hero"))
+}
+
+fn note_lines(content: &str) -> Vec<NoteLine<'_>> {
+    let mut output = Vec::new();
+    let mut section = None;
+    for (line, text) in content.lines().enumerate() {
+        let mut piece = 0;
+        for chunk in chunks(text) {
+            match chunk {
+                Chunk::Section(name) => section = Some(name),
+                Chunk::Text(body) => {
+                    for part in pieces(body) {
+                        if !hero_section(section) && subject_line(part, line, piece).is_none() {
+                            output.extend(note_line(part, section, line, piece));
+                        }
+                        piece += 1;
+                    }
+                }
+            }
+        }
+    }
+    output
+}
+
+fn note_line<'a>(
+    piece: &'a str,
+    section: Option<&'a str>,
+    line: usize,
+    index: usize,
+) -> Option<NoteLine<'a>> {
+    let text = bullet(piece)?.trim();
+    let words = text.chars().filter(|ch| ch.is_alphabetic()).count();
+    (text.len() <= LINE_BYTES && words >= 3).then_some(NoteLine {
+        section,
+        line,
+        piece: index,
+        text,
+    })
 }
 
 enum Chunk<'a> {

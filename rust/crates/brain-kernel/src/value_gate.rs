@@ -7,6 +7,7 @@ pub(super) struct ValueLedger {
     values: BTreeMap<String, BTreeSet<String>>,
     labels: BTreeMap<String, BTreeSet<String>>,
     names: BTreeMap<String, BTreeSet<String>>,
+    question: BTreeSet<String>,
 }
 
 fn patch_labels(key: &str, value: &Value) -> Vec<String> {
@@ -18,13 +19,46 @@ fn patch_labels(key: &str, value: &Value) -> Vec<String> {
         "released_at" => text.get(..10),
         _ => None,
     };
+    let dates = (key == "released_at")
+        .then(|| german_dates(text))
+        .into_iter()
+        .flatten();
     label
         .map(|label| [text, label])
         .into_iter()
         .flatten()
         .filter(|label| label.len() >= 8 && label.bytes().any(|byte| !byte.is_ascii_digit()))
         .map(str::to_owned)
+        .chain(dates)
         .collect()
+}
+
+fn german_dates(text: &str) -> Vec<String> {
+    let parts: Option<Vec<u32>> = text
+        .get(..10)
+        .and_then(|day| day.split('-').map(|part| part.parse().ok()).collect());
+    let Some([year, month, day]) = parts.and_then(|parts| <[u32; 3]>::try_from(parts).ok()) else {
+        return Vec::new();
+    };
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return Vec::new();
+    }
+    let short = year % 100;
+    vec![
+        format!("{day:02}.{month:02}.{year}"),
+        format!("{day}.{month}.{year}"),
+        format!("{day:02}.{month:02}.{short:02}"),
+        format!("{day}.{month}.{short:02}"),
+        format!("{day:02}.{month:02}."),
+        format!("{day}.{month}."),
+    ]
+}
+
+fn complement(value: &str) -> Option<String> {
+    let number = value.parse::<f64>().ok()?;
+    (number > 0.0 && number < 100.0 && number.fract() == 0.0)
+        .then(|| normalize(&format!("{}", 100.0 - number)))
+        .flatten()
 }
 
 const NAME_FIELDS: [&str; 5] = ["line_text", "name", "label", "text", "title"];
@@ -156,6 +190,13 @@ fn number_spans(text: &str) -> Vec<(&str, String)> {
 }
 
 impl ValueLedger {
+    pub(super) fn with_question(question: &str) -> Self {
+        Self {
+            question: numbers(question).into_iter().collect(),
+            ..Self::default()
+        }
+    }
+
     pub(super) fn insert(&mut self, result: &ToolResult) {
         if !result.is_error {
             self.row(&result.result, None, &result.evidence_ids);
@@ -234,11 +275,22 @@ impl ValueLedger {
     }
 
     pub(super) fn unsupported(&self, answer: &ProviderAnswer) -> Vec<String> {
-        let covered: BTreeSet<&String> = answer
+        let stated: BTreeSet<String> = numbers(&answer.text).into_iter().collect();
+        let cited: BTreeSet<&String> = answer
             .cited_evidence_ids
             .iter()
             .filter_map(|id| self.values.get(id))
             .flatten()
+            .collect();
+        let complements: BTreeSet<String> = cited
+            .iter()
+            .filter(|value| stated.contains(value.as_str()))
+            .filter_map(|value| complement(value))
+            .collect();
+        let covered: BTreeSet<&String> = cited
+            .into_iter()
+            .chain(&complements)
+            .chain(&self.question)
             .collect();
         let mut labels: Vec<_> = answer
             .cited_evidence_ids
@@ -277,10 +329,12 @@ impl ValueLedger {
     fn claim_holds(&self, answer: &ProviderAnswer, claim: &NumericClaim) -> bool {
         normalize(&claim.value.to_string()).is_some_and(|value| {
             answer.cited_evidence_ids.contains(&claim.citation_id)
-                && self
-                    .values
-                    .get(&claim.citation_id)
-                    .is_some_and(|values| values.contains(&value))
+                && self.values.get(&claim.citation_id).is_some_and(|values| {
+                    values.contains(&value)
+                        || values
+                            .iter()
+                            .any(|known| complement(known).as_ref() == Some(&value))
+                })
         })
     }
 }
@@ -378,7 +432,8 @@ mod tests {
         assert!(ledger.accepts(&named("09-29-2026 (Post 330973, 2026-10-15): 50 auf 75")));
         assert!(!ledger.accepts(&named("Patch 09-29-2026: von 50 auf 76.")));
         assert!(!ledger.accepts(&named("Patch 10-01-2026: von 50 auf 75.")));
-        assert!(!ledger.accepts(&named("Am 15.10.2026: von 50 auf 75.")));
+        assert!(ledger.accepts(&named("Am 15.10.2026: von 50 auf 75.")));
+        assert!(!ledger.accepts(&named("Am 16.10.2026: von 50 auf 75.")));
         let mut uncited = named("Patch 09-29-2026: von 50 auf 75.");
         uncited.cited_evidence_ids = vec!["other".into()];
         uncited.claims.clear();
@@ -457,6 +512,28 @@ mod tests {
         assert!(ledger.accepts(&named("Scale x2,5", &[2.5])));
         assert!(ledger.accepts(&named("Lvl1-3", &[1.0, 3.0])));
         assert!(ledger.accepts(&named("Drain -50HP", &[-50.0])));
+    }
+
+    #[test]
+    fn patch_split_accepts_dates_complements_and_question_numbers_only() {
+        let mut ledger = ValueLedger::with_question("War das nicht mal 60/40?");
+        ledger.insert(&ToolResult { call_id: "patch".into(), name: ToolName::PatchHistory,
+            result: json!({"changes":[{"citation":"orb","patch":"11-21-2025 Update","released_at":"2025-11-21T22:53:12+00:00",
+                "line_text":"Amount of souls in the flying orb that can be secured/denied reduced from 50% to 40%"}]}),
+            evidence_ids: vec!["orb".into()], is_error: false });
+        let cited = |text: &str| ProviderAnswer {
+            text: text.into(),
+            cited_evidence_ids: vec!["orb".into()],
+            claims: Vec::new(),
+            usage: Usage::default(),
+        };
+        assert!(ledger.accepts(&cited(
+            "Seit dem 21.11.2025 sind 40% im fliegenden Orb und 60% fallen auf den Boden, vorher 50/50."
+        )));
+        assert!(ledger.accepts(&cited("Ja, 60/40 stimmt: seit 21.11. sind es 40 zu 60.")));
+        assert!(!ledger.accepts(&cited("Seit dem 21.11.2025 sind es 45% im Orb.")));
+        assert!(!ledger.accepts(&cited("Seit dem 22.11.2025 sind es 40% im Orb.")));
+        assert!(!ValueLedger::default().accepts(&cited("Es sind 60% im Orb.")));
     }
 
     #[test]
