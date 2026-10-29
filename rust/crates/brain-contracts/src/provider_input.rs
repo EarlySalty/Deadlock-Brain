@@ -558,6 +558,7 @@ pub fn grounded_turn_payload_with_quality(
                                 | ToolName::GetHero
                                 | ToolName::GetTimer
                                 | ToolName::GetMechanic
+                                | ToolName::ListPatches
                         )
                 }) {
                     format.push_str(CANONICAL_CITATION_CONTRACT);

@@ -84,9 +84,10 @@ CROSS JOIN LATERAL (
 ) r;
 
 CREATE VIEW serve.patch_ledger_member AS
-SELECT e.id AS patch_id,m.post_id,m.ledger_id,m.disposition
+SELECT e.id AS patch_id,m.post_id,m.ledger_id,m.disposition,l.released_at AS ledger_released_at
 FROM ops.patch_ledger_post m
-JOIN canon.entity e ON e.key='patch_'||m.post_id;
+JOIN canon.entity e ON e.key='patch_'||m.post_id
+LEFT JOIN ops.patch_ledger l ON l.ledger_id=m.ledger_id;
 
 REVOKE ALL ON ops.patch_ledger,ops.patch_ledger_post,serve.patch_ledger,serve.patch_ledger_member FROM PUBLIC;
 GRANT SELECT ON ops.patch_listing TO brain_ingest;

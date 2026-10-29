@@ -330,7 +330,7 @@ async fn database(pg: &scratch_pg::ScratchPg) -> (PgPool, PgPool, PgPool) {
         versions,
         [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 23, 24, 26, 28, 30, 31, 32, 33, 34, 35, 36, 37,
-            38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54
+            38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55
         ]
     );
     let reader = PgPoolOptions::new()
@@ -679,6 +679,7 @@ impl brain_contracts::AnswerProviderPort for CombinedProvider {
                 "get_mechanic",
                 "get_meta_stats",
                 "get_timer",
+                "list_patches",
                 "patch_history"
             ]
         );
