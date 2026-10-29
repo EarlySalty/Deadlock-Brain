@@ -26,6 +26,14 @@ const TERMS: &[(&str, MechanicKind)] = &[
     ("vaults", MechanicKind::SinnersSacrifice),
     ("rejuvenator", MechanicKind::Rejuvenator),
     ("rejuv", MechanicKind::Rejuvenator),
+    ("parry", MechanicKind::CoreAbilities),
+    ("parieren", MechanicKind::CoreAbilities),
+    ("dash", MechanicKind::CoreAbilities),
+    ("wall jump", MechanicKind::CoreAbilities),
+    ("walljump", MechanicKind::CoreAbilities),
+    ("wall slide", MechanicKind::CoreAbilities),
+    ("stamina", MechanicKind::CoreAbilities),
+    ("ausdauer", MechanicKind::CoreAbilities),
 ];
 
 pub(super) fn resolve(text: &str) -> Vec<MechanicKind> {
@@ -109,6 +117,8 @@ mod tests {
         );
         assert_eq!(resolve("Vaults"), vec![MechanicKind::SinnersSacrifice]);
         assert_eq!(resolve("Rejuvenator"), vec![MechanicKind::Rejuvenator]);
+        assert_eq!(resolve("Parry"), vec![MechanicKind::CoreAbilities]);
+        assert_eq!(resolve("parieren"), vec![MechanicKind::CoreAbilities]);
     }
 
     #[test]

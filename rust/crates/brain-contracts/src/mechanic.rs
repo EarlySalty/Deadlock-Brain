@@ -21,10 +21,11 @@ pub enum MechanicKind {
     ItemTiers,
     Levels,
     StreetBrawl,
+    CoreAbilities,
 }
 
 impl MechanicKind {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::LaneTroopers,
         Self::SoulSharing,
         Self::Denizens,
@@ -39,6 +40,7 @@ impl MechanicKind {
         Self::ItemTiers,
         Self::Levels,
         Self::StreetBrawl,
+        Self::CoreAbilities,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -57,6 +59,7 @@ impl MechanicKind {
             Self::ItemTiers => "item_tiers",
             Self::Levels => "levels",
             Self::StreetBrawl => "street_brawl",
+            Self::CoreAbilities => "core_abilities",
         }
     }
 }

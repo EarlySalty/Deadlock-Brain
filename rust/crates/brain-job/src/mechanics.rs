@@ -8,11 +8,18 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 pub const SOURCE: &str = "deadlock-data";
-pub const PATHS: &[&str] = &[CONVARS, NPC_DATA, GENERIC_DATA, SOUL_UNLOCK_DATA];
+pub const PATHS: &[&str] = &[
+    CONVARS,
+    NPC_DATA,
+    GENERIC_DATA,
+    SOUL_UNLOCK_DATA,
+    ABILITY_DATA,
+];
 const CONVARS: &str = "data/json/convars.json";
 const NPC_DATA: &str = "data/json/npc-data.json";
 const GENERIC_DATA: &str = "data/json/generic-data.json";
 const SOUL_UNLOCK_DATA: &str = "data/json/soul-unlock-data.json";
+const ABILITY_DATA: &str = "data/json/ability-data.json";
 
 struct Selector {
     mechanic: &'static str,
@@ -32,10 +39,22 @@ const NEUTRAL_FIELDS: &[&str] = &[
 const OBJECTIVE_FIELDS: &[&str] = &[
     "MaxHealth",
     "Phase2Health",
-    "PlayerDPS",
-    "TrooperDPS",
-    "PlayerDamageResistPct",
-    "TrooperDamageResistPct",
+    "MaxHealthGenerator",
+    "MaxHealthGeneratorSecond",
+    "IntrinsicModifiers/0/BULLET_ARMOR_DAMAGE_RESIST",
+    "NearbyEnemyResist",
+    "FriendlyAuraModifier/AuraRadius",
+    "FriendlyAuraModifier/modifierProvidedByAura/BULLET_ARMOR_DAMAGE_RESIST",
+    "FriendlyAuraModifier/modifierProvidedByAura/TECH_RESIST",
+    "EmpoweredModifierLevel1/MaxHealth",
+    "EmpoweredModifierLevel2/MaxHealth",
+    "BackdoorBulletResistModifier/BulletResist",
+    "BackdoorBulletResistModifier/BulletResistReductionPerHero",
+];
+const PARRY_FIELDS: &[&str] = &[
+    "AbilityCooldown/Value",
+    "ParriedStunTime",
+    "VictimDamageTakenScale",
 ];
 const STREET_BRAWL_FIELDS: &[&str] = &[
     "m_vecRespawnTimes",
@@ -120,6 +139,7 @@ const SELECTORS: &[Selector] = &[
             "npc_boss_tier2",
             "npc_boss_tier3",
             "npc_barrack_boss",
+            "destroyable_building",
         ],
         fields: Some(OBJECTIVE_FIELDS),
         stat_prefix: "",
@@ -264,6 +284,27 @@ const SELECTORS: &[Selector] = &[
         stat_prefix: "level_",
     },
     Selector {
+        mechanic: "core_abilities",
+        path: ABILITY_DATA,
+        roots: &["citadel_ability_melee_parry"],
+        fields: Some(PARRY_FIELDS),
+        stat_prefix: "",
+    },
+    Selector {
+        mechanic: "core_abilities",
+        path: CONVARS,
+        roots: &[
+            "citadel_player_dash_stamina_cost",
+            "citadel_player_dash_down_stamina_cost",
+            "citadel_wall_jump_stamina_cost",
+            "citadel_initial_wall_jump_stamina_cost",
+            "citadel_wall_jump_num_free_wall_jumps",
+            "citadel_wall_slide_terminal_velocity",
+        ],
+        fields: None,
+        stat_prefix: "",
+    },
+    Selector {
         mechanic: "street_brawl",
         path: GENERIC_DATA,
         roots: &["StreetBrawl"],
@@ -280,7 +321,7 @@ impl Extractor for MechanicsExtractor {
     }
 
     fn version(&self) -> &'static str {
-        "2"
+        "3"
     }
 
     fn accepts(&self, source: &str, path: &str) -> bool {
@@ -353,7 +394,9 @@ fn select(path: &str, pointer: &str) -> Option<Selected<'static>> {
                 });
             }
             if let Some(fields) = selector.fields {
-                rest.first().filter(|field| fields.contains(field))?;
+                fields
+                    .iter()
+                    .find(|field| within(&rest, field.split('/')))?;
             }
             Some(Selected {
                 selector,
@@ -361,6 +404,17 @@ fn select(path: &str, pointer: &str) -> Option<Selected<'static>> {
                 field: pointer.trim_start_matches('/').to_owned(),
             })
         })
+}
+
+fn within<'a>(rest: &[&str], field: impl Iterator<Item = &'a str>) -> bool {
+    let mut length = 0;
+    for (index, segment) in field.enumerate() {
+        if rest.get(index) != Some(&segment) {
+            return false;
+        }
+        length = index + 1;
+    }
+    length > 0
 }
 
 fn slug(value: &str) -> String {
@@ -621,6 +675,84 @@ mod tests {
             ),
             "true"
         );
+    }
+
+    #[test]
+    fn objective_fields_follow_nested_paths_and_skip_unverified_ones() {
+        let set = run(
+            NPC_DATA,
+            r#"{"npc_boss_tier2":{"MaxHealth":6000,"PlayerDamageResistPct":-25.0,
+                "IntrinsicModifiers":[{"BULLET_ARMOR_DAMAGE_RESIST":35}],
+                "NearbyEnemyResist":{"ResistValues":[0,0,0,20]},
+                "FriendlyAuraModifier":{"AuraRadius":28.0,"IsHidden":true,
+                    "modifierProvidedByAura":{"TECH_RESIST":15}},
+                "EmpoweredModifierLevel1":{"MaxHealth":9000,"TransitionDuration":1.0},
+                "RangedArmorModifier":{"RangeMin":30.48}}}"#,
+        );
+        let entity = "rule_objectives__npc_data";
+        assert_eq!(
+            value(
+                &set,
+                entity,
+                "npc_boss_tier2_intrinsicmodifiers_0_bullet_armor_damage_resist"
+            ),
+            "35"
+        );
+        assert_eq!(
+            value(
+                &set,
+                entity,
+                "npc_boss_tier2_nearbyenemyresist_resistvalues_3"
+            ),
+            "20"
+        );
+        assert_eq!(
+            value(
+                &set,
+                entity,
+                "npc_boss_tier2_empoweredmodifierlevel1_maxhealth"
+            ),
+            "9000"
+        );
+        let stats: BTreeSet<&str> = set.facts.iter().map(|f| f.stat_key.as_str()).collect();
+        assert!(stats
+            .contains("npc_boss_tier2_friendlyauramodifier_modifierprovidedbyaura_tech_resist"));
+        for absent in [
+            "npc_boss_tier2_playerdamageresistpct",
+            "npc_boss_tier2_friendlyauramodifier_ishidden",
+            "npc_boss_tier2_empoweredmodifierlevel1_transitionduration",
+            "npc_boss_tier2_rangedarmormodifier_rangemin",
+        ] {
+            assert!(!stats.contains(absent), "{absent}");
+        }
+    }
+
+    #[test]
+    fn parry_values_join_the_core_abilities_rule() {
+        let set = run(
+            ABILITY_DATA,
+            r#"{"citadel_ability_melee_parry":{"AbilityCooldown":{"Value":4.5,"Scale":{"Value":-1}},
+                "ParriedStunTime":2.75,"VictimDamageTakenScale":25,"ParryMoveSpeed":50},
+                "citadel_ability_dash":{"AbilityDuration":{"Value":0.6}}}"#,
+        );
+        let entity = "rule_core_abilities__ability_data";
+        assert_eq!(
+            value(&set, entity, "citadel_ability_melee_parry_parriedstuntime"),
+            "2.75"
+        );
+        assert_eq!(
+            value(
+                &set,
+                entity,
+                "citadel_ability_melee_parry_abilitycooldown_value"
+            ),
+            "4.5"
+        );
+        assert_eq!(set.facts.len(), 3);
+        assert!(set
+            .aliases
+            .iter()
+            .any(|alias| alias.alias == "mechanic_core_abilities"));
     }
 
     #[test]

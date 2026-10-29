@@ -236,9 +236,10 @@ fn live_lane_trooper_rows_fit_one_tool_result_with_concept_rows() {
 
 #[test]
 fn objective_reward_rows_precede_boss_stat_rows() {
-    let mut rows: Vec<Value> = (0..20)
-        .map(|index| fact(&format!("npc_boss_tier3_stat{index}"), "1", "c"))
-        .collect();
+    let mut rows = vec![
+        fact("npc_boss_tier3_maxhealth", "12000", "c"),
+        fact("npc_boss_tier3_phase2health", "12000", "c"),
+    ];
     rows.extend([
         fact(
             "trooper_normal_shrinesdownbuffmodifier_damagescale",
@@ -264,4 +265,85 @@ fn objective_reward_rows_precede_boss_stat_rows() {
         .rposition(|stat| stat.starts_with("objectiveparams_"));
     assert!(last_reward < first_boss, "{stats:?}");
     assert_eq!(stats.first(), Some(&"objectiveparams_shrinesgoldkill"));
+}
+
+#[test]
+fn objective_resists_carry_signed_meanings_and_unverified_rows_stay_out() {
+    let rows = vec![
+        fact(
+            "npc_boss_tier2_intrinsicmodifiers_0_bullet_armor_damage_resist",
+            "35",
+            "c",
+        ),
+        fact("npc_boss_tier2_nearbyenemyresist_resistvalues_3", "20", "c"),
+        fact(
+            "npc_boss_tier2_friendlyauramodifier_modifierprovidedbyaura_tech_resist",
+            "15",
+            "c",
+        ),
+        fact(
+            "npc_boss_tier2_empoweredmodifierlevel1_maxhealth",
+            "9000",
+            "c",
+        ),
+        fact("npc_barrack_boss_playerdamageresistpct", "-25.0", "c"),
+        fact("npc_boss_tier1_playerdps", "116.0", "c"),
+        fact(
+            "trooper_normal_shrinesdownbuffmodifier_healthscale",
+            "1.4",
+            "c",
+        ),
+    ];
+    let output = present(&request(MechanicKind::Objectives, None), rows);
+    let facts = output["facts"].as_array().cloned().unwrap_or_default();
+    let meaning = |stat: &str| {
+        facts
+            .iter()
+            .find(|row| row["stat_key"] == stat)
+            .and_then(|row| row["condition"]["meaning"].as_str())
+            .map(str::to_owned)
+    };
+    assert!(
+        meaning("npc_boss_tier2_intrinsicmodifiers_0_bullet_armor_damage_resist").is_some_and(
+            |text| text.starts_with("Walker") && text.contains("weniger Schaden durch Kugeln")
+        )
+    );
+    assert!(meaning("npc_boss_tier2_nearbyenemyresist_resistvalues_3")
+        .is_some_and(|text| text.contains("Zahl der Gegner")));
+    assert!(
+        meaning("npc_boss_tier2_friendlyauramodifier_modifierprovidedbyaura_tech_resist")
+            .is_some_and(|text| text.contains("verbündete Helden"))
+    );
+    assert!(meaning("npc_boss_tier2_empoweredmodifierlevel1_maxhealth").is_some());
+    assert_eq!(facts.len(), 4, "{facts:?}");
+}
+
+#[test]
+fn parry_rows_explain_stun_and_damage_bonus() {
+    let rows = vec![
+        fact("citadel_ability_melee_parry_parriedstuntime", "2.75", "c"),
+        fact(
+            "citadel_ability_melee_parry_victimdamagetakenscale",
+            "25",
+            "c",
+        ),
+        fact(
+            "citadel_ability_melee_parry_abilitycooldown_value",
+            "4.5",
+            "c",
+        ),
+        fact("citadel_player_dash_down_stamina_cost", "0.5", "c"),
+        fact("citadel_unexplained_value", "1", "c"),
+    ];
+    let output = present(&request(MechanicKind::CoreAbilities, None), rows);
+    let facts = output["facts"].as_array().cloned().unwrap_or_default();
+    assert_eq!(facts.len(), 4);
+    assert!(facts
+        .iter()
+        .all(|row| row["condition"]["meaning"].is_string()));
+    let down = facts
+        .iter()
+        .find(|row| row["stat_key"] == "citadel_player_dash_down_stamina_cost")
+        .and_then(|row| row["condition"]["meaning"].as_str());
+    assert!(down.is_some_and(|text| text.starts_with("Dash nach unten")));
 }

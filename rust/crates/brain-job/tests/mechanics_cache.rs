@@ -50,6 +50,7 @@ fn cached_deadlock_data_yields_every_mechanic_with_verified_receipts() {
         "item_tiers",
         "levels",
         "street_brawl",
+        "core_abilities",
     ]
     .into_iter()
     .map(mechanics::alias)

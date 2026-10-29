@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -10,6 +11,7 @@ BASE = os.environ.get("BRAIN_BASE_URL", "http://127.0.0.1:8788")
 TOKEN_ENV = "DISCORD_BRAIN_CLIENT_TOKEN"
 PROBE_USER_ID = os.environ.get("PROBE_DISCORD_USER_ID", "100000000000000001")
 PAUSE_S = float(os.environ.get("PROBE_PAUSE_S", "5"))
+PREFIX = os.environ.get("PROBE_PREFIX", "probe-ph-")
 CONTEXT = {
     "platform": "discord",
     "is_thread": False,
@@ -61,7 +63,7 @@ def run_turns(probe, token, run_id):
     history = []
     turns = []
     for index, text in enumerate(probe["turns"]):
-        request_id = f"probe-ph-{run_id}-{probe['id']}-{index + 1}"
+        request_id = f"{PREFIX}{run_id}-{probe['id']}-{index + 1}"
         if history:
             payload = {"query": query(request_id, text, False), "user_questions": history[-4:]}
         else:
@@ -81,6 +83,28 @@ def run_turns(probe, token, run_id):
     return turns
 
 
+def normalize(answer):
+    text = re.sub(r"(?<=\d)[\u00a0\u202f ](?=\d{3}\b)", "", answer)
+    text = re.sub(r"(?<=\d)\.(?=\d{3}(?!\d))", "", text)
+    return re.sub(r"(?<=\d),(?=\d)", ".", text)
+
+
+def hits(text, alternative):
+    if re.fullmatch(r"[\d.]+", alternative):
+        return re.search(rf"(?<![\d.]){re.escape(alternative)}(?![\d]|\.\d)", text) is not None
+    return alternative.lower() in text.lower()
+
+
+def grade(probe, final):
+    if final["status"] != "answered":
+        return "fail"
+    text = normalize(final["answer"])
+    hit = sum(any(hits(text, alt) for alt in group) for group in probe["expect"])
+    if hit == len(probe["expect"]):
+        return "pass"
+    return "partial" if hit else "fail"
+
+
 def verdict(probe, answer):
     text = answer.replace(" ", " ")
     hit = any(token in text for token in probe["must_any"])
@@ -97,6 +121,7 @@ def main():
     run_id = uuid.uuid4().hex[:8]
     with open(probes_path) as handle:
         probes = json.load(handle)
+    counts = {}
     with open(out_path, "a") as out:
         for probe in probes:
             if only and probe["id"] not in only:
@@ -110,11 +135,16 @@ def main():
                 "expected": probe["expected"],
                 "turns": turns,
                 "final_status": final["status"],
-                "auto_value_hit": final["status"] == "answered" and verdict(probe, final["answer"]),
+                "auto_value_hit": final["status"] == "answered" and "must_any" in probe and verdict(probe, final["answer"]),
             }
+            if "expect" in probe:
+                record["grade"] = grade(probe, final)
+                counts[record["grade"]] = counts.get(record["grade"], 0) + 1
             out.write(json.dumps(record, ensure_ascii=False) + "\n")
             out.flush()
-            print(probe["id"], final["status"], final["latency_ms"], record["auto_value_hit"], flush=True)
+            print(probe["id"], final["status"], final["latency_ms"], record.get("grade", record["auto_value_hit"]), flush=True)
+    if counts:
+        print("summary", run_id, json.dumps(counts, sort_keys=True), flush=True)
 
 
 if __name__ == "__main__":
