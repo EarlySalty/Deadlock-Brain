@@ -192,6 +192,10 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         55,
         include_str!("../../../../../scripts/migrations/2026-10-29-brain-answer-audit-v55.sql"),
     ),
+    (
+        56,
+        include_str!("../../../../../scripts/migrations/2026-10-29-brain-patch-ledger-v56.sql"),
+    ),
 ];
 
 fn invalid() -> PortError {
