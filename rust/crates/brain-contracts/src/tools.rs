@@ -9,6 +9,8 @@ use crate::entity_profile::EntityKind;
 mod mechanic;
 #[path = "meta_stats.rs"]
 mod meta_stats;
+#[path = "patch_list.rs"]
+mod patch_list;
 #[path = "timer.rs"]
 mod timer;
 use crate::{
@@ -16,6 +18,7 @@ use crate::{
     UsageAccounting,
 };
 pub use mechanic::{GetMechanicRequest, MechanicKind, ObjectiveKind, MECHANIC_MAX_MINUTE};
+pub use patch_list::{ListPatchesRequest, PatchKind, PATCH_LIST_MAX_OFFSET, PATCH_LIST_PAGE};
 pub use timer::{GetTimerRequest, TimerKind};
 
 #[path = "asset_tools.rs"]
@@ -44,6 +47,7 @@ pub enum ToolName {
     GetHero,
     GetMetaStats,
     GetMechanic,
+    ListPatches,
 }
 
 impl ToolName {
@@ -67,6 +71,7 @@ impl ToolName {
             Self::GetHero => "get_hero",
             Self::GetMetaStats => "get_meta_stats",
             Self::GetMechanic => "get_mechanic",
+            Self::ListPatches => "list_patches",
         }
     }
 }
@@ -354,7 +359,7 @@ pub struct CanonicalPatchHistoryRequest {
 pub fn canonical_patch_history_definition() -> ToolDefinition {
     ToolDefinition {
         name: ToolName::PatchHistory,
-        description: "Liest belegte offizielle Patchänderungen. entity ist optional und ist dann die positive kanonische entity_id aus find_entity, keine ältere Spiel-ID. Ohne entity und ohne Zeitraum liefert das Werkzeug alle belegten Änderungszeilen aus dem Heldenabschnitt des chronologisch neuesten offiziellen Patches mit belegten Heldenzeilen, gruppiert nach subject. entity_id ist bei Gruppen ohne eindeutig zugeordneten Helden null. Gib bei dieser Frage jede Zeile aus groups mit ihren Werten wieder. completeness all_extracted_hero_section_lines heißt, dass alle aus dem Heldenabschnitt gelesenen Zeilen enthalten sind; Zeilen aus anderen Abschnitten der Patchnotes, etwa Items oder allgemeine Änderungen, werden nicht gelesen. Ist truncated true, liefert ein weiterer Aufruf mit offset gleich next_offset die übrigen Zeilen. offset gilt nur ohne entity und ohne Zeitraum. Mit entity gilt ohne Zeitraum nur der chronologisch neueste offizielle Patch mit belegten Änderungszeilen, nicht der letzte Patch mit einer Änderung dieser Entität. since und until sind inklusive Patchlabels oder exakte Veröffentlichungszeitpunkte mit Zeitzone. Mehrdeutige Labels werden abgewiesen. Mit entity oder Zeitraum höchstens 20 vollständige Änderungszeilen. Eine leere Änderungsliste beweist keinen unveränderten Spielwert. Jede citation verweist auf den Beleg im offiziellen Rohobjekt. Fehlende oder abgeschnittene Zeilen nicht ergänzen. text sucht ohne entity in allen offiziellen Patches nach Zeilen aus jedem Abschnitt, auch Items, allgemeine Änderungen, Trooper, Seelen, Urne oder Karte. Gib text mit englischen Suchbegriffen im Wortlaut der Patchnotes an, etwa trooper orb souls, und nutze ihn bei Fragen, ob etwas früher anders war, seit wann etwas gilt oder wann es geändert wurde. Kurze Zeilen und Teiländerungen, die viele Begriffe enthalten und alte und neue Werte nennen, stehen vorn; jede Zeile trägt patch und released_at. Gib dann jede relevante Änderung mit Datum und alten und neuen Werten wieder und nenne den heute gültigen Stand aus der jüngsten passenden Zeile. Eine belegte Prozentaufteilung darf mit ihrem Rest zu 100 nur in Schrägstrichform genannt werden, etwa 40/60 (Orb/Boden).".into(),
+        description: "Liest belegte offizielle Patchänderungen. entity ist optional und ist dann die positive kanonische entity_id aus find_entity, keine ältere Spiel-ID. Ohne entity und ohne Zeitraum liefert das Werkzeug alle belegten Änderungszeilen aus dem Heldenabschnitt des chronologisch neuesten offiziellen Patches mit belegten Heldenzeilen, gruppiert nach subject. entity_id ist bei Gruppen ohne eindeutig zugeordneten Helden null. Gib bei dieser Frage jede Zeile aus groups mit ihren Werten wieder. completeness all_extracted_hero_section_lines heißt, dass alle aus dem Heldenabschnitt gelesenen Zeilen enthalten sind; Zeilen aus anderen Abschnitten der Patchnotes, etwa Items oder allgemeine Änderungen, werden nicht gelesen. Ist truncated true, liefert ein weiterer Aufruf mit offset gleich next_offset die übrigen Zeilen. offset gilt nur ohne entity und ohne Zeitraum. Mit entity gilt ohne Zeitraum nur der chronologisch neueste offizielle Patch mit belegten Änderungszeilen, nicht der letzte Patch mit einer Änderung dieser Entität. since und until sind inklusive Patchlabels oder exakte Veröffentlichungszeitpunkte mit Zeitzone. Mehrdeutige Labels werden abgewiesen. Mit entity oder Zeitraum höchstens 20 vollständige Änderungszeilen. Eine leere Änderungsliste beweist keinen unveränderten Spielwert. Jede citation verweist auf den Beleg im offiziellen Rohobjekt. Fehlende oder abgeschnittene Zeilen nicht ergänzen. text sucht ohne entity in allen offiziellen Patches nach Zeilen aus jedem Abschnitt, auch Items, allgemeine Änderungen, Trooper, Seelen, Urne oder Karte. Gib text mit englischen Suchbegriffen im Wortlaut der Patchnotes an, etwa trooper orb souls, und nutze ihn bei Fragen, ob etwas früher anders war, seit wann etwas gilt oder wann es geändert wurde. Ausgewählt werden zuerst kurze Zeilen und Teiländerungen, die viele Begriffe enthalten und alte und neue Werte nennen. Mit entity, Zeitraum oder text stehen die Zeilen chronologisch vom ältesten zum neuesten Patch; jede Zeile trägt patch, released_at, ledger_id und ledger_released_at (Patchdatum im Patch-Ledger von list_patches). Doppelte Quellenbeiträge eines Patches sind ausgeblendet. Gib dann jede relevante Änderung mit Datum und alten und neuen Werten wieder und nenne den heute gültigen Stand aus der jüngsten passenden Zeile. Eine belegte Prozentaufteilung darf mit ihrem Rest zu 100 nur in Schrägstrichform genannt werden, etwa 40/60 (Orb/Boden).".into(),
         input_schema: serde_json::json!({
             "type":"object","additionalProperties":false,
             "properties":{
@@ -555,6 +560,7 @@ pub enum ToolSubrequest {
     GetHero(GetHeroRequest),
     GetMetaStats(GetMetaStatsRequest),
     GetMechanic(GetMechanicRequest),
+    ListPatches(ListPatchesRequest),
 }
 
 impl ToolSubrequest {
@@ -589,6 +595,9 @@ impl ToolSubrequest {
             ToolName::GetMechanic => {
                 serde_json::from_value(arguments.clone()).map(Self::GetMechanic)
             }
+            ToolName::ListPatches => {
+                serde_json::from_value(arguments.clone()).map(Self::ListPatches)
+            }
             ToolName::GetItem => serde_json::from_value(arguments.clone()).map(Self::GetItem),
             ToolName::GetAbility => serde_json::from_value(arguments.clone()).map(Self::GetAbility),
             ToolName::Compare => serde_json::from_value(arguments.clone()).map(Self::Compare),
@@ -606,6 +615,7 @@ impl ToolSubrequest {
             Self::EntityFind(request) => validate_text(&request.query),
             Self::GetTimer(request) => request.validate(),
             Self::GetMechanic(request) => request.validate(),
+            Self::ListPatches(request) => request.validate(),
             Self::EntityProfile(request) => {
                 validate_entity(&request.entity)?;
                 validate_fields(&request.fields, true)?;
@@ -1220,6 +1230,7 @@ impl ToolExecution {
             ToolName::ServerKnowledge
                 | ToolName::GetTimer
                 | ToolName::GetMechanic
+                | ToolName::ListPatches
                 | ToolName::FindEntity
                 | ToolName::GetHero
                 | ToolName::GetItem
@@ -1263,6 +1274,7 @@ impl ToolExecution {
                 | ToolName::GetHero
                 | ToolName::GetTimer
                 | ToolName::GetMechanic
+                | ToolName::ListPatches
                 | ToolName::GetItem
                 | ToolName::GetAbility
                 | ToolName::Compare
@@ -2555,6 +2567,7 @@ mod tests {
             ToolName::GetHero,
             ToolName::GetMetaStats,
             ToolName::GetMechanic,
+            ToolName::ListPatches,
         ];
         for name in names {
             let encoded = serde_json::to_value(name).unwrap();

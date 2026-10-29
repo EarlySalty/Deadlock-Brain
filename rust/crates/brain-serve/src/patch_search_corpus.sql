@@ -1,7 +1,9 @@
 WITH catalog AS MATERIALIZED (
-        SELECT * FROM serve.p4_patch_catalog c
-        WHERE ($1::text IS NULL OR c.released_at >= $1::timestamptz)
-            AND ($2::text IS NULL OR c.released_at <= $2::timestamptz)
+        SELECT c.* FROM serve.p4_patch_catalog c
+        LEFT JOIN serve.patch_ledger_member l ON l.patch_id=c.patch_id
+        WHERE l.disposition IS DISTINCT FROM 'duplicate'
+            AND ($1::text IS NULL OR coalesce(l.ledger_released_at,c.released_at) >= $1::timestamptz)
+            AND ($2::text IS NULL OR coalesce(l.ledger_released_at,c.released_at) <= $2::timestamptz)
     ), lines AS MATERIALIZED (
         SELECT f.entity_id,f.raw_object_id,f.valid_from_run,f.id,f.receipt_id,f.value_text,
             CASE WHEN f.stat_key COLLATE "C" < 'patch_line_r'

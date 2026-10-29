@@ -4,6 +4,8 @@ mod mechanic_terms;
 mod mechanic_tools;
 #[path = "meta_stats_tools.rs"]
 mod meta_stats_tools;
+#[path = "patch_list_tools.rs"]
+mod patch_list_tools;
 #[path = "timer_tools.rs"]
 mod timer_tools;
 
@@ -298,6 +300,13 @@ impl<T> PgTools<T> {
                     };
                     value
                 }
+                ToolSubrequest::ListPatches(list) => {
+                    let Some(value) = patch_list_tools::read(&mut connection, list).await? else {
+                        return Ok(error_execution(call_id, request.name(), "patches_not_found",
+                            "Für diese Auswahl sind keine Patches im Patch-Ledger veröffentlicht."));
+                    };
+                    value
+                }
                 ToolSubrequest::GetItem(_) | ToolSubrequest::GetAbility(_) | ToolSubrequest::Compare(_) => {
                     let Some(value) = crate::pg_asset_tools::read(&mut connection, call_id, request).await? else {
                         return Ok(error_execution(call_id, request.name(), "asset_selection_unavailable",
@@ -437,6 +446,7 @@ pub(super) fn canonical(name: ToolName) -> bool {
             | ToolName::GetHero
             | ToolName::GetTimer
             | ToolName::GetMechanic
+            | ToolName::ListPatches
             | ToolName::GetMetaStats
     ) || crate::pg_asset_tools::canonical(name)
 }
@@ -468,6 +478,7 @@ fn definitions() -> Vec<ToolDefinition> {
                 "sections":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"string","enum":["stats","abilities","weapon"]}}}})},
         timer_tools::definition(),
         mechanic_tools::definition(),
+        patch_list_tools::definition(),
         meta_stats_tools::definition(),
     ].into_iter().chain(crate::pg_asset_tools::definitions()).collect()
 }
@@ -641,6 +652,7 @@ fn citations(value: &Value, ids: &mut BTreeMap<i64, String>) -> Result<(), PortE
                 "history",
                 "changes",
                 "successor_item",
+                "patches",
             ] {
                 if let Some(field) = object.get(key) {
                     citations(field, ids)?;
@@ -717,6 +729,9 @@ fn trim_row(value: &mut Value) -> bool {
     let Some(object) = value.as_object_mut() else {
         return false;
     };
+    if object.contains_key("patches") {
+        return patch_list_tools::trim(object);
+    }
     for key in ["weapon", "abilities", "stats"] {
         if object.get_mut(key).is_some_and(trim_row) {
             return true;
@@ -778,6 +793,7 @@ fn replace_citations(
                 "history",
                 "changes",
                 "successor_item",
+                "patches",
             ] {
                 if let Some(field) = object.get_mut(key) {
                     replace_citations(field, receipts)?;
