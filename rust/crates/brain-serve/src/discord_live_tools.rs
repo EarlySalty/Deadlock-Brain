@@ -13,8 +13,9 @@ use std::{
 };
 
 const RESULT_BYTES: usize = 12_000;
-const PRIORITY_PREFIXES: [&str; 4] = [
+const PRIORITY_PREFIXES: [&str; 5] = [
     "Aktuelle öffentliche Discord-Kanäle",
+    "Nachricht vom ",
     "TempVoice-Kategorie: ",
     "Join-to-create: ",
     "Offene Lane: ",
@@ -36,13 +37,21 @@ pub(crate) fn definition() -> ToolDefinition {
             Person: offene Voice-Lanes mit Art, Belegung und Beitritt-Platzhalter, den \
             Join-to-create-Kanal zum Öffnen einer eigenen Lane, sichtbare Kanäle und \
             Voice-Anzahlen. Bei Fragen nach Mitspielern, einer Lobby, offenen Lanes oder wer \
-            gerade im Voice ist, zuerst hier abfragen."
+            gerade im Voice ist, zuerst hier abfragen. Mit channel liefert es zusätzlich die \
+            neuesten Nachrichten mit Datum aus bis zu vier Text- oder Ankündigungskanälen, die \
+            die fragende Person lesen darf und deren Kanal- oder Kategoriename zu channel \
+            passt, neueste Kanäle zuerst. Für Fragen, was zuletzt in einem Bereich passiert \
+            ist, etwa bei Scrims, Turnieren oder Ankündigungen, channel mit dem Stichwort \
+            des Bereichs setzen, zum Beispiel scrims."
                 .into(),
         input_schema: json!({
             "type": "object",
             "additionalProperties": false,
             "required": ["question"],
-            "properties": {"question": {"type": "string", "minLength": 1}}
+            "properties": {
+                "question": {"type": "string", "minLength": 1},
+                "channel": {"type": "string", "minLength": 1, "maxLength": 64}
+            }
         }),
     }
 }
@@ -104,6 +113,13 @@ fn execution(
             evidence: vec![item],
         }],
         usage: network_round(),
+    }
+}
+
+fn request_channel(request: &ToolRequest) -> Option<String> {
+    match request.subrequest() {
+        brain_contracts::tools::ToolSubrequest::ServerKnowledge(request) => request.channel.clone(),
+        _ => None,
     }
 }
 
@@ -173,7 +189,8 @@ impl DiscordLiveTools {
         call: &ToolCall,
         live: &DiscordLive,
     ) -> Result<ToolExecution, PortError> {
-        let (expires, item) = live.read_channel(context, None)?;
+        let terms: Vec<String> = request_channel(request).into_iter().collect();
+        let (expires, item) = live.read_channel(context, None, &terms)?;
         let lines = selected_lines(&item.content, query);
         let execution = execution(&call.id, request, item, lines);
         execution.validate_for(call, request, None)?;

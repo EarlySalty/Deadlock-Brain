@@ -31,3 +31,11 @@ D. Fix the source: record schedules and results in `scrim.matches` (scrim join f
 Also needed for any option: how a staff member without a team role ("uns") should be treated (no own team vs. caster/organizer view of all teams).
 
 Recommendation: B now plus D as the lasting fix; treat staff without team role as having no own team.
+
+## Decision 2026-10-29 (operator): C, replaces K for DMs
+
+- In DMs the Brain may read every channel the asker can see, through the existing role-based bridge view (`/mcp/public` with the asker's Discord permissions). No team or staff special cases. No IDs, member lists or third-party personal data in answers.
+- dl-bot: `allow_discord_reads` is true for public guild channels and for DMs whose author resolves to a cached non-bot member of the guild. DMs from unresolved users keep reads off. Private guild channels and threads stay unchanged.
+- dl-bot bridge: `public_server_facts` accepts `channel_terms`. It reads the latest messages of up to four text or announcement channels the asker can read whose channel or category name matches, newest channel first. A term search needs a resolved asker. User and role mentions are removed from message text.
+- Brain: `ServerKnowledge` takes an optional `channel` keyword and passes it as `channel_terms`. Message evidence lines carry the post date and category: `Nachricht vom DD.MM.YYYY in #channel, Kategorie X: text`.
+- Option D (recording results in `scrim.*`) stays the lasting fix for structured answers; not part of this change.

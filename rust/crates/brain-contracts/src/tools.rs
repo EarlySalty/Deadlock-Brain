@@ -419,6 +419,8 @@ pub struct GameRulesRequest {
 pub struct ServerKnowledgeRequest {
     pub question: String,
     pub public_channel_id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -730,6 +732,9 @@ impl ToolSubrequest {
             Self::SearchDocs(request) => request.validate(),
             Self::ServerKnowledge(request) => {
                 validate_text(&request.question)?;
+                if let Some(channel) = &request.channel {
+                    validate_canonical_text(channel)?;
+                }
                 if let Some(id) = request.public_channel_id {
                     validate_numeric_id(id)?;
                 }

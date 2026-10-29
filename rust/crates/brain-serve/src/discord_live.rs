@@ -102,6 +102,38 @@ fn channel_reference(index: usize, channel_id: &str) -> String {
     brain_contracts::discord_task::channel_reference(index, channel_id)
 }
 
+const DISCORD_EPOCH_MS: u64 = 1_420_070_400_000;
+
+fn message_date(id: u64) -> Option<String> {
+    let millis = (id >> 22).checked_add(DISCORD_EPOCH_MS)?;
+    DateTime::<Utc>::from_timestamp_millis(i64::try_from(millis).ok()?)
+        .map(|time| time.format("%d.%m.%Y").to_string())
+}
+
+fn message_line(
+    channel: &Channel,
+    channels: &[Channel],
+    message: &Message,
+) -> Result<String, PortError> {
+    let id = message
+        .id
+        .parse::<u64>()
+        .ok()
+        .filter(|id| *id != 0)
+        .ok_or_else(denied)?;
+    let date = message_date(id).ok_or_else(denied)?;
+    let category = channel
+        .parent_id
+        .as_ref()
+        .and_then(|parent| channels.iter().find(|c| c.id == *parent))
+        .map(|parent| format!(", Kategorie {}", parent.name))
+        .unwrap_or_default();
+    Ok(format!(
+        "Nachricht vom {date} in #{}{category}: {}",
+        channel.name, message.text
+    ))
+}
+
 fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
     let received = Instant::now();
     let observed = DateTime::parse_from_rfc3339(&facts.observed_at).map_err(|_| denied())?;
@@ -253,7 +285,7 @@ fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
             if message.id.parse::<u64>().ok().is_none_or(|id| id == 0) {
                 return Err(denied());
             }
-            lines.push(format!("Nachricht in {}: {}", channel.name, message.text));
+            lines.push(message_line(channel, &facts.channels, message)?);
         }
     }
     let content = lines.join("\n");
@@ -302,25 +334,27 @@ impl DiscordLive {
     }
     #[cfg(test)]
     fn read(&self, context: &AuthorizedContext) -> Result<(Instant, Evidence), PortError> {
-        self.read_channel(context, None)
+        self.read_channel(context, None, &[])
     }
 
     pub(crate) fn read_channel(
         &self,
         context: &AuthorizedContext,
         channel_id: Option<u64>,
+        channel_terms: &[String],
     ) -> Result<(Instant, Evidence), PortError> {
         let request = context.discord.as_ref().ok_or_else(denied)?;
         if !request.allow_discord_reads {
             return Err(denied());
         }
-        let text = self.call(
-            context,
-            "public_server_facts",
-            channel_id
-                .map(|id| json!({"channel_id":id}))
-                .unwrap_or_else(|| json!({})),
-        )?;
+        let mut arguments = serde_json::Map::new();
+        if let Some(id) = channel_id {
+            arguments.insert("channel_id".into(), json!(id));
+        }
+        if !channel_terms.is_empty() {
+            arguments.insert("channel_terms".into(), json!(channel_terms));
+        }
+        let text = self.call(context, "public_server_facts", Value::Object(arguments))?;
         let (expires, mut item) = evidence(serde_json::from_str(&text).map_err(|_| denied())?)?;
         item.allowed_scopes = BTreeSet::from([request.scope.clone()]);
         Ok((expires, item))
@@ -623,7 +657,7 @@ impl<R: RetrievalPort> RetrievalPort for DiscordRetriever<R> {
                     .and_then(|id| id.parse::<u64>().ok())
                     .filter(|id| *id != 0);
                 usage.network_rounds += 1;
-                let (expires, current) = match live.read_channel(&live_context, channel_id) {
+                let (expires, current) = match live.read_channel(&live_context, channel_id, &[]) {
                     Ok(current) => current,
                     Err(error @ PortError::Unavailable(_)) if !items.is_empty() => {
                         context.check_deadline()?;
@@ -1157,7 +1191,7 @@ mod tests {
         };
         for channel in [None, Some(2)] {
             assert!(matches!(
-                live.read_channel(&context, channel),
+                live.read_channel(&context, channel, &[]),
                 Err(PortError::PermissionDenied(_))
             ));
         }

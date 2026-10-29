@@ -25,3 +25,7 @@ Worker gibt zunächst den engen geprüften SDK-/Servicekandidaten ab, kein eigen
 Native Hauptsession 47304059-5103-45b5-8e54-0fbb5f140555; Delegator 481426fe-b477-42b3-91c6-901811fcba1d. Keine neuen T3-Threads, Doppelwriter, eigenen Reviewer oder fremden Sessionkontakte. Keine Produktfrage wiederholen. Schutzablehnungen exakt melden, nicht umgehen; verweigertes mcp.rs und verweigerte Logs nicht anders lesen. Secrets NEVER lesen/ausgeben. Private Originale und Community-Rohdaten MUST NOT an Codiermodelle oder Git. Keine echten Testkonten oder produktiven DB-Schreibzugriffe. Moli statt Brave, persönlicher Browser und fremde Dienste unangetastet. Keine Modelle-/Timeoutwechsel, ai-coach oder Änderungen angewandter Migrationen.
 
 BRIEFING[WB-1]: Pflichtteile 5/5 | Timer 20 min | Worktree: /home/nathanael/.worktrees/brain-k-private-read-20261008
+
+## Nachtrag 2026-10-29
+
+Für DMs aufgehoben: Der Brain darf in DMs alle Kanäle lesen, die die fragende Person selbst sehen kann (rollenbasierte Bridge-Sicht, keine Team- oder Staff-Sonderfälle, keine IDs, Mitgliederlisten oder fremden Personendaten). Nicht auflösbare Personen bleiben ohne Reads. Private Serverkanäle und Threads bleiben bei K. Details: `.tasks/2026-10-29-scrim-activity-answers/DECISION.md`.
