@@ -2,7 +2,7 @@ WITH hits AS MATERIALIZED (
     SELECT t.id,t.entity_id,t.stat_key FROM serve.patch_line_text t
     WHERE t.text_lower ~ '(kill/orb|flying orb)'
 ), facts AS MATERIALIZED (
-    SELECT c.patch_id,c.label,c.released_at,c.extractor,c.raw_object_id,
+    SELECT c.patch_id,c.label,c.ledger_at AS released_at,c.extractor,c.raw_object_id,
         c.ingest_run_id,cf.id,cf.receipt_id,cf.value_text::text AS body
     FROM hits h
     CROSS JOIN LATERAL (
@@ -10,7 +10,11 @@ WITH hits AS MATERIALIZED (
         WHERE cf.entity_id=h.entity_id AND cf.stat_key=h.stat_key OFFSET 0
     ) cf
     CROSS JOIN LATERAL (
-        SELECT * FROM serve.p4_patch_catalog c WHERE c.patch_id=cf.entity_id OFFSET 0
+        SELECT c.*,coalesce(l.ledger_released_at,c.released_at) AS ledger_at
+        FROM serve.p4_patch_catalog c
+        LEFT JOIN serve.patch_ledger_member l ON l.patch_id=c.patch_id
+        WHERE c.patch_id=cf.entity_id AND (l.disposition IS NULL OR l.disposition='primary')
+        OFFSET 0
     ) c
     WHERE cf.id=h.id AND cf.raw_object_id=c.raw_object_id AND cf.valid_from_run=c.ingest_run_id
 ), lines AS (

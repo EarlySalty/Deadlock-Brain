@@ -69,7 +69,7 @@ fn context() -> AuthorizedContext {
         discord: None,
         budget: Budget {
             max_network_rounds: 8,
-            max_input_tokens: 32_000,
+            max_input_tokens: 40_000,
             max_output_tokens: 4_000,
             ..Budget::default()
         },
