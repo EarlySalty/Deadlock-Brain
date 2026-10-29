@@ -90,19 +90,17 @@ These six posts are event or hero teasers with no balance notes, and they have n
 
 | link method | rows |
 |---|---|
-| source URL | 14260 |
+| source URL or post id | 14422 |
 | exact title | 5368 |
-| title date or patch date | 682 |
-| total linked to a ledger patch | 20310 |
+| UTC patch date | 562 |
+| total linked to a ledger patch | 20352 |
 
-151 rows have no ledger parent, for these reasons:
+109 rows have no ledger parent (recounted on 2026-10-29 after the gate review):
 
 | rows | reason |
 |---|---|
-| 66 | Hero Lab sub-notes (11-08/11-24/11-26-2024, 02-20-2025). These are experimental-mode notes inside a patch thread, not separate patches. |
-| 23 | Hero reveal teasers ("Drifter Emerges…", "Old Gods, New Blood", "Rem Enters…", "Graves Prefers The Dead", "The Curse Beckons for Silver", "Introducing The Dazzling Celeste", "Apollo - A Cut Above", "The Doorman, at your Service"). These are announcements, not patches. |
-| 4 | Lines parsed from excluded teaser posts 290 and 292. |
-| 87 | "06-11-2026 Update", dated 06-11 in legacy. It is the same Steam post as ledger "Minor Update - 06-11-2026" (released 2026-06-12 UTC, same Steam id 1835236783562074), so it is a legacy duplicate and has a parent through the URL. |
+| 87 | "06-11-2026 Update", a legacy copy of ledger "Minor Update - 06-11-2026". Legacy dates it 06-11 and uses an akamai mirror URL, while the patch went out 2026-06-12 UTC, so neither the URL nor the date links it. It is a legacy duplicate, not a missing patch. |
+| 22 | Hero reveal teasers ("The Doorman, at your Service", "The Curse Beckons for Silver", "Graves Prefers The Dead", "Apollo - A Cut Above", "Rem Enters The City That Never Sleeps", "Introducing The Dazzling Celeste", "Old Gods, New Blood", "Drifter Emerges from the Shadows"). These are announcements, not patches. |
 
 The legacy view also double-counts six patches under two titles with the same URL: 05-08-2025/Shop Rework, 08-18-2025/Six New Heroes, 06-04, 06-11, 06-30 and 07-01-2026. It also holds a one-row junk entry titled "t". The legacy view is not used by brain-serve.
 

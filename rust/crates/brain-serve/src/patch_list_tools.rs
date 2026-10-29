@@ -64,19 +64,19 @@ pub(super) async fn read(
         .fetch_all(&mut *connection)
         .await
         .map_err(super::database_error)?;
-    if rows.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(page(rows, request)))
+    let value = page(rows, request);
+    let empty = value["patches"].as_array().is_none_or(Vec::is_empty);
+    Ok((!empty).then_some(value))
 }
 
 pub(super) fn trim(object: &mut serde_json::Map<String, Value>) -> bool {
     let Some(patches) = object.get_mut("patches").and_then(Value::as_array_mut) else {
         return false;
     };
-    if patches.pop().is_none() {
+    if patches.len() <= 1 {
         return false;
     }
+    patches.pop();
     let shown = patches.len() as u64;
     let offset = object.get("offset").and_then(Value::as_u64).unwrap_or(0);
     let total = object.get("total").and_then(Value::as_u64).unwrap_or(0);
@@ -135,5 +135,21 @@ mod tests {
         assert_eq!(object, Some(true));
         assert_eq!(value["next_offset"], 34);
         assert_eq!(ids(&value).last(), Some(&34));
+    }
+
+    #[test]
+    fn single_row_is_never_trimmed_to_empty() {
+        let mut value = page(rows(1), &request(None, None));
+        let object = value.as_object_mut().map(trim);
+        assert_eq!(object, Some(false));
+        assert_eq!(ids(&value), [1]);
+    }
+
+    #[test]
+    fn offset_beyond_total_gives_empty_page() {
+        let value = page(rows(5), &request(None, Some(40)));
+        assert!(ids(&value).is_empty());
+        assert_eq!(value["offset"], 5);
+        assert_eq!(value["next_offset"], Value::Null);
     }
 }

@@ -10,36 +10,18 @@ $owner$;
 
 SET LOCAL lock_timeout='5000ms';
 
-CREATE OR REPLACE VIEW ops.patch_listing AS
-WITH object AS (
-    SELECT o.id,o.path,o.fetched_at,ops.patch_body(o.bytes) AS body,
-        r.applied_run IS NOT NULL AS applied,coalesce(r.applied_run,o.ingest_run_id) AS observed_run
-    FROM raw.object o
-    LEFT JOIN LATERAL (
-        SELECT max(x.ingest_run_id) AS applied_run FROM canon.receipt x WHERE x.raw_object_id=o.id
-    ) r ON true
-    WHERE o.source='deadlock_patchnotes_db' AND ops.is_patch_id(o.path)
-), observed AS (
-    SELECT DISTINCT ON (p.path) p.path,p.raw_object_id FROM ops.patch_observation p
-    ORDER BY p.path,p.run_id DESC
-), latest AS (
-    SELECT DISTINCT ON (path) path,body,
-        CASE WHEN pg_input_is_valid(body->>'posted_at','timestamptz')
-            THEN (body->>'posted_at')::timestamptz END AS published_at
-    FROM object
-    WHERE jsonb_typeof(body)='object'
-    ORDER BY path,
-        EXISTS(SELECT 1 FROM observed v WHERE v.path=object.path AND v.raw_object_id=object.id) DESC,
-        applied DESC,observed_run DESC,id DESC
-), first AS (
-    SELECT path,min(fetched_at) AS fetched_at FROM object GROUP BY path
-)
-SELECT l.path::bigint AS patch_id,btrim(l.body->>'title') AS label,l.body->>'url' AS url,
-    l.published_at,f.fetched_at AS detected_at,coalesce(l.body->>'raw_content','') AS raw_content
-FROM latest l
-JOIN first f ON f.path=l.path
-WHERE nullif(btrim(l.body->>'title'),'') IS NOT NULL
-    AND isfinite(l.published_at);
+CREATE VIEW ops.patch_ledger_source AS
+SELECT o.path::bigint AS post_id,
+    coalesce(nullif(btrim(b.body->>'title'),''),btrim(c.label)) AS title,
+    c.label,c.official_url AS url,c.released_at AS published_at,
+    coalesce(b.body->>'raw_content','') AS raw_content
+FROM serve.p4_patch_catalog c
+JOIN raw.object o ON o.id=c.raw_object_id AND o.source='deadlock_patchnotes_db' AND ops.is_patch_id(o.path)
+JOIN canon.entity e ON e.id=c.patch_id AND e.key='patch_'||o.path
+CROSS JOIN LATERAL (SELECT ops.patch_body(o.bytes) AS body) b
+WHERE nullif(btrim(c.label),'') IS NOT NULL
+    AND isfinite(c.released_at)
+    AND c.official_url ~ '^https://';
 
 CREATE TABLE ops.patch_ledger (
     ledger_id bigint PRIMARY KEY CHECK (ledger_id>0),
@@ -74,7 +56,7 @@ SELECT l.ledger_id,l.kind,l.label,l.released_at,l.source_url,p.patch_id,
     (SELECT count(*) FROM ops.patch_ledger_post m WHERE m.ledger_id=l.ledger_id) AS posts
 FROM ops.patch_ledger l
 JOIN canon.entity pe ON pe.key='patch_'||l.ledger_id
-JOIN catalog p ON p.patch_id=pe.id
+JOIN catalog p ON p.patch_id=pe.id AND p.official_url=l.source_url
 JOIN canon.entity de ON de.key='patch_'||l.dated_post_id
 JOIN catalog d ON d.patch_id=de.id AND d.released_at=l.released_at
 CROSS JOIN LATERAL (
@@ -84,13 +66,40 @@ CROSS JOIN LATERAL (
 ) r;
 
 CREATE VIEW serve.patch_ledger_member AS
-SELECT e.id AS patch_id,m.post_id,m.ledger_id,m.disposition,l.released_at AS ledger_released_at
+SELECT e.id AS patch_id,m.post_id,m.ledger_id,m.disposition,l.released_at AS ledger_released_at,
+    l.label AS ledger_label
 FROM ops.patch_ledger_post m
 JOIN canon.entity e ON e.key='patch_'||m.post_id
 LEFT JOIN ops.patch_ledger l ON l.ledger_id=m.ledger_id;
 
-REVOKE ALL ON ops.patch_ledger,ops.patch_ledger_post,serve.patch_ledger,serve.patch_ledger_member FROM PUBLIC;
-GRANT SELECT ON ops.patch_listing TO brain_ingest;
+CREATE OR REPLACE FUNCTION serve.site_generation()
+RETURNS text
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $generation$
+BEGIN
+    RETURN md5(concat_ws('|',
+        (SELECT string_agg(r.id::text,',' ORDER BY r.id) FROM ops.ingest_run r
+            WHERE r.status='succeeded'
+                AND EXISTS(SELECT 1 FROM canon.receipt c WHERE c.ingest_run_id=r.id)),
+        (SELECT count(*)::text||':'||COALESCE(sum(q.receipt_id),0)::text||':'
+                ||count(*) FILTER (WHERE q.cause='audited')::text
+            FROM canon.receipt_quarantine q),
+        (SELECT count(*)::text||':'||COALESCE(sum(a.raw_object_id),0)::text||':'
+                ||COALESCE(sum(a.run_id),0)::text
+            FROM ops.receipt_audit_rejection a),
+        (SELECT md5(string_agg(e.id::text||':'||e.kind::text||':'||e.key::text,',' ORDER BY e.id))
+            FROM canon.entity e),
+        (SELECT 'ledger:'||md5(COALESCE(string_agg(concat_ws(':',l.ledger_id,l.dated_post_id,
+                extract(epoch FROM l.released_at),l.kind,l.label,l.source_url),',' ORDER BY l.ledger_id),''))
+            FROM ops.patch_ledger l),
+        (SELECT 'posts:'||md5(COALESCE(string_agg(concat_ws(':',m.post_id,m.ledger_id,m.disposition),
+                ',' ORDER BY m.post_id),''))
+            FROM ops.patch_ledger_post m)
+    ));
+END
+$generation$;
+
+REVOKE ALL ON ops.patch_ledger_source,ops.patch_ledger,ops.patch_ledger_post,serve.patch_ledger,serve.patch_ledger_member FROM PUBLIC;
+GRANT SELECT ON ops.patch_ledger_source TO brain_ingest;
 GRANT SELECT,INSERT,UPDATE,DELETE ON ops.patch_ledger,ops.patch_ledger_post TO brain_ingest;
 GRANT SELECT ON serve.patch_ledger,serve.patch_ledger_member TO brain_tool;
 

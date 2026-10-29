@@ -48,10 +48,14 @@ const RESOLVE: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
     'released_at',released_at,'official_url',official_url,'head_citation',official_receipt_id::text,
     'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
     'url_citation',url_receipt_id::text)
-    FROM serve.p4_patch_catalog
-    WHERE label=$1 OR CASE WHEN $1 ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$'
-        AND pg_input_is_valid($1,'timestamp with time zone')
-        THEN released_at=$1::timestamptz ELSE false END
+    FROM serve.p4_patch_catalog c
+    CROSS JOIN LATERAL (
+        SELECT CASE WHEN $1 ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$'
+            AND pg_input_is_valid($1,'timestamp with time zone') THEN $1::timestamptz END AS at
+    ) t
+    WHERE NOT EXISTS(SELECT 1 FROM serve.patch_ledger_member d WHERE d.patch_id=c.patch_id AND d.disposition='duplicate')
+        AND (c.label=$1 OR c.released_at=t.at OR EXISTS(SELECT 1 FROM serve.patch_ledger_member m
+            WHERE m.patch_id=c.patch_id AND m.disposition='primary' AND (m.ledger_label=$1 OR m.ledger_released_at=t.at)))
     ORDER BY released_at DESC,patch_id DESC LIMIT 2";
 const CHANGES: &str = "WITH selected AS MATERIALIZED (
         SELECT * FROM serve.p4_patch_change p
@@ -88,8 +92,8 @@ const CHANGES: &str = "WITH selected AS MATERIALIZED (
         WHERE e.id=c.patch_id
         OFFSET 0
     ) p ON true
-    WHERE ($3::text IS NULL OR p.released_at >= $3::timestamptz)
-        AND ($4::text IS NULL OR p.released_at <= $4::timestamptz)
+    WHERE ($3::text IS NULL OR coalesce(l.ledger_released_at,p.released_at) >= $3::timestamptz)
+        AND ($4::text IS NULL OR coalesce(l.ledger_released_at,p.released_at) <= $4::timestamptz)
     ORDER BY p.released_at DESC,p.patch_id DESC,c.change_id DESC LIMIT 20";
 const CHANGES_ALL: &str = "WITH base AS MATERIALIZED (
         SELECT * FROM serve.p4_patch_change p WHERE $1::bigint IS NULL AND ($2::bigint IS NULL OR patch_id=$2)
@@ -129,8 +133,8 @@ const CHANGES_ALL: &str = "WITH base AS MATERIALIZED (
         WHERE e.id=c.patch_id
         OFFSET 0
     ) p ON true
-    WHERE ($3::text IS NULL OR p.released_at >= $3::timestamptz)
-        AND ($4::text IS NULL OR p.released_at <= $4::timestamptz)
+    WHERE ($3::text IS NULL OR coalesce(l.ledger_released_at,p.released_at) >= $3::timestamptz)
+        AND ($4::text IS NULL OR coalesce(l.ledger_released_at,p.released_at) <= $4::timestamptz)
     ORDER BY p.released_at DESC,p.patch_id DESC,c.change_id DESC LIMIT 20";
 const LATEST: &str = "WITH base AS MATERIALIZED (
         SELECT * FROM serve.p4_patch_change p WHERE NOT EXISTS(SELECT 1 FROM serve.patch_ledger_member d WHERE d.patch_id=p.patch_id AND d.disposition='duplicate')
