@@ -1,0 +1,618 @@
+[
+  {
+    "patch": null,
+    "value": "116.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_barrack_boss_playerdps",
+    "condition": {
+      "field": "/npc_barrack_boss/PlayerDPS",
+      "source_entity": "npc_barrack_boss"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "-25.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_barrack_boss_playerdamageresistpct",
+    "condition": {
+      "field": "/npc_barrack_boss/PlayerDamageResistPct",
+      "source_entity": "npc_barrack_boss"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "35.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_barrack_boss_trooperdps",
+    "condition": {
+      "field": "/npc_barrack_boss/TrooperDPS",
+      "source_entity": "npc_barrack_boss"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "42.5",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_barrack_boss_trooperdamageresistpct",
+    "condition": {
+      "field": "/npc_barrack_boss/TrooperDamageResistPct",
+      "source_entity": "npc_barrack_boss"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "116.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier1_playerdps",
+    "condition": {
+      "field": "/npc_boss_tier1/PlayerDPS",
+      "source_entity": "npc_boss_tier1"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "-25.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier1_playerdamageresistpct",
+    "condition": {
+      "field": "/npc_boss_tier1/PlayerDamageResistPct",
+      "source_entity": "npc_boss_tier1"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "35.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier1_trooperdps",
+    "condition": {
+      "field": "/npc_boss_tier1/TrooperDPS",
+      "source_entity": "npc_boss_tier1"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "42.5",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier1_trooperdamageresistpct",
+    "condition": {
+      "field": "/npc_boss_tier1/TrooperDamageResistPct",
+      "source_entity": "npc_boss_tier1"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "60",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "destroyable_building_backdoorbulletresistmodifier_bulletresist",
+    "condition": {
+      "field": "/destroyable_building/BackdoorBulletResistModifier/BulletResist",
+      "source_entity": "destroyable_building"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "20",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "destroyable_building_backdoorbulletresistmodifier_bulletresistreductionperhero",
+    "condition": {
+      "field": "/destroyable_building/BackdoorBulletResistModifier/BulletResistReductionPerHero",
+      "source_entity": "destroyable_building"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "20",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "destroyable_building_intrinsicmodifiers_0_bullet_armor_damage_resist",
+    "condition": {
+      "field": "/destroyable_building/IntrinsicModifiers/0/BULLET_ARMOR_DAMAGE_RESIST",
+      "source_entity": "destroyable_building"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "5000",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "destroyable_building_maxhealthgenerator",
+    "condition": {
+      "field": "/destroyable_building/MaxHealthGenerator",
+      "source_entity": "destroyable_building"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "10000",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "destroyable_building_maxhealthgeneratorsecond",
+    "condition": {
+      "field": "/destroyable_building/MaxHealthGeneratorSecond",
+      "source_entity": "destroyable_building"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "40",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_barrack_boss_backdoorbulletresistmodifier_bulletresist",
+    "condition": {
+      "field": "/npc_barrack_boss/BackdoorBulletResistModifier/BulletResist",
+      "source_entity": "npc_barrack_boss"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "20",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_barrack_boss_backdoorbulletresistmodifier_bulletresistreductionperhero",
+    "condition": {
+      "field": "/npc_barrack_boss/BackdoorBulletResistModifier/BulletResistReductionPerHero",
+      "source_entity": "npc_barrack_boss"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "20",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_barrack_boss_intrinsicmodifiers_0_bullet_armor_damage_resist",
+    "condition": {
+      "field": "/npc_barrack_boss/IntrinsicModifiers/0/BULLET_ARMOR_DAMAGE_RESIST",
+      "source_entity": "npc_barrack_boss"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "4000",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_barrack_boss_maxhealth",
+    "condition": {
+      "field": "/npc_barrack_boss/MaxHealth",
+      "source_entity": "npc_barrack_boss"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "10",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier1_intrinsicmodifiers_0_bullet_armor_damage_resist",
+    "condition": {
+      "field": "/npc_boss_tier1/IntrinsicModifiers/0/BULLET_ARMOR_DAMAGE_RESIST",
+      "source_entity": "npc_boss_tier1"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "5500",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier1_maxhealth",
+    "condition": {
+      "field": "/npc_boss_tier1/MaxHealth",
+      "source_entity": "npc_boss_tier1"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "9000",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_empoweredmodifierlevel1_maxhealth",
+    "condition": {
+      "field": "/npc_boss_tier2/EmpoweredModifierLevel1/MaxHealth",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "12000",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_empoweredmodifierlevel2_maxhealth",
+    "condition": {
+      "field": "/npc_boss_tier2/EmpoweredModifierLevel2/MaxHealth",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "28.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_friendlyauramodifier_auraradius",
+    "condition": {
+      "field": "/npc_boss_tier2/FriendlyAuraModifier/AuraRadius",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "15",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_friendlyauramodifier_modifierprovidedbyaura_tech_resist",
+    "condition": {
+      "field": "/npc_boss_tier2/FriendlyAuraModifier/modifierProvidedByAura/TECH_RESIST",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "15",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_friendlyauramodifier_modifierprovidedbyaura_bullet_armor_damage_resist",
+    "condition": {
+      "field": "/npc_boss_tier2/FriendlyAuraModifier/modifierProvidedByAura/BULLET_ARMOR_DAMAGE_RESIST",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "35",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_intrinsicmodifiers_0_bullet_armor_damage_resist",
+    "condition": {
+      "field": "/npc_boss_tier2/IntrinsicModifiers/0/BULLET_ARMOR_DAMAGE_RESIST",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "6000",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_maxhealth",
+    "condition": {
+      "field": "/npc_boss_tier2/MaxHealth",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "50.8",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_nearbyenemyresist_nearbyenemyresistrange",
+    "condition": {
+      "field": "/npc_boss_tier2/NearbyEnemyResist/NearbyEnemyResistRange",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_nearbyenemyresist_resistvalues_0",
+    "condition": {
+      "field": "/npc_boss_tier2/NearbyEnemyResist/ResistValues/0",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_nearbyenemyresist_resistvalues_1",
+    "condition": {
+      "field": "/npc_boss_tier2/NearbyEnemyResist/ResistValues/1",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_nearbyenemyresist_resistvalues_2",
+    "condition": {
+      "field": "/npc_boss_tier2/NearbyEnemyResist/ResistValues/2",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "20",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_nearbyenemyresist_resistvalues_3",
+    "condition": {
+      "field": "/npc_boss_tier2/NearbyEnemyResist/ResistValues/3",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "30",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_nearbyenemyresist_resistvalues_4",
+    "condition": {
+      "field": "/npc_boss_tier2/NearbyEnemyResist/ResistValues/4",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "40",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_nearbyenemyresist_resistvalues_5",
+    "condition": {
+      "field": "/npc_boss_tier2/NearbyEnemyResist/ResistValues/5",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "50",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier2_nearbyenemyresist_resistvalues_6",
+    "condition": {
+      "field": "/npc_boss_tier2/NearbyEnemyResist/ResistValues/6",
+      "source_entity": "npc_boss_tier2"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "12000",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier3_maxhealth",
+    "condition": {
+      "field": "/npc_boss_tier3/MaxHealth",
+      "source_entity": "npc_boss_tier3"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "12000",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "npc_boss_tier3_phase2health",
+    "condition": {
+      "field": "/npc_boss_tier3/Phase2Health",
+      "source_entity": "npc_boss_tier3"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "1.4",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_medic_shrinesdownbuffmodifier_healthscale",
+    "condition": {
+      "field": "/trooper_medic/ShrinesDownBuffModifier/HealthScale",
+      "source_entity": "trooper_medic"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "60.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_medic_shrinesdownbuffmodifier_damagescale",
+    "condition": {
+      "field": "/trooper_medic/ShrinesDownBuffModifier/DamageScale",
+      "source_entity": "trooper_medic"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "1.4",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_melee_shrinesdownbuffmodifier_healthscale",
+    "condition": {
+      "field": "/trooper_melee/ShrinesDownBuffModifier/HealthScale",
+      "source_entity": "trooper_melee"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "60.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_melee_shrinesdownbuffmodifier_damagescale",
+    "condition": {
+      "field": "/trooper_melee/ShrinesDownBuffModifier/DamageScale",
+      "source_entity": "trooper_melee"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "1.4",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_normal_shrinesdownbuffmodifier_healthscale",
+    "condition": {
+      "field": "/trooper_normal/ShrinesDownBuffModifier/HealthScale",
+      "source_entity": "trooper_normal"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "60.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "trooper_normal_shrinesdownbuffmodifier_damagescale",
+    "condition": {
+      "field": "/trooper_normal/ShrinesDownBuffModifier/DamageScale",
+      "source_entity": "trooper_normal"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "objectiveparams_goldperorb",
+    "condition": {
+      "field": "/ObjectiveParams/GoldPerOrb",
+      "source_entity": "ObjectiveParams"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "25.0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "objectiveparams_nearplayersplitpct",
+    "condition": {
+      "field": "/ObjectiveParams/NearPlayerSplitPct",
+      "source_entity": "ObjectiveParams"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "1375",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "objectiveparams_tier1goldkill",
+    "condition": {
+      "field": "/ObjectiveParams/Tier1GoldKill",
+      "source_entity": "ObjectiveParams"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "objectiveparams_tier1goldorbs",
+    "condition": {
+      "field": "/ObjectiveParams/Tier1GoldOrbs",
+      "source_entity": "ObjectiveParams"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "3675",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "objectiveparams_tier2goldkill",
+    "condition": {
+      "field": "/ObjectiveParams/Tier2GoldKill",
+      "source_entity": "ObjectiveParams"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "objectiveparams_tier2goldorbs",
+    "condition": {
+      "field": "/ObjectiveParams/Tier2GoldOrbs",
+      "source_entity": "ObjectiveParams"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "1000",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "objectiveparams_baseguardiansgoldkill",
+    "condition": {
+      "field": "/ObjectiveParams/BaseGuardiansGoldKill",
+      "source_entity": "ObjectiveParams"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "objectiveparams_baseguardiansgoldorbs",
+    "condition": {
+      "field": "/ObjectiveParams/BaseGuardiansGoldOrbs",
+      "source_entity": "ObjectiveParams"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "2000",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "objectiveparams_shrinesgoldkill",
+    "condition": {
+      "field": "/ObjectiveParams/ShrinesGoldKill",
+      "source_entity": "ObjectiveParams"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "objectiveparams_shrinesgoldorbs",
+    "condition": {
+      "field": "/ObjectiveParams/ShrinesGoldOrbs",
+      "source_entity": "ObjectiveParams"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "objectiveparams_patronphase1goldkill",
+    "condition": {
+      "field": "/ObjectiveParams/PatronPhase1GoldKill",
+      "source_entity": "ObjectiveParams"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "objectiveparams_patronphase1goldorbs",
+    "condition": {
+      "field": "/ObjectiveParams/PatronPhase1GoldOrbs",
+      "source_entity": "ObjectiveParams"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "true",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_no_orbs_on_objective_kill",
+    "condition": {
+      "field": "/citadel_no_orbs_on_objective_kill",
+      "source_entity": "citadel_no_orbs_on_objective_kill"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  },
+  {
+    "patch": null,
+    "value": "0.85",
+    "citation": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "stat_key": "citadel_super_trooper_gold_mult",
+    "condition": {
+      "field": "/citadel_super_trooper_gold_mult/value",
+      "source_entity": "citadel_super_trooper_gold_mult"
+    },
+    "source_revision": "f0b45ce40d2ded822346ede1f7d86033ad4f13a0"
+  }
+]

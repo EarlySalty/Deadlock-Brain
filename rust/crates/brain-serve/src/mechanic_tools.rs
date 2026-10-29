@@ -1,5 +1,5 @@
 use brain_contracts::{
-    tools::{GetMechanicRequest, MechanicKind},
+    tools::{GetMechanicRequest, MechanicKind, ObjectiveKind},
     PortError, ToolDefinition, ToolName,
 };
 use serde_json::{json, Value};
@@ -58,6 +58,33 @@ const OBJECTIVE_NAMES: &[(&str, &str)] = &[
         "Shrine (Schrein, destroyable_building)",
     ),
 ];
+const OBJECTIVE_ROWS: &[(ObjectiveKind, &[&str])] = &[
+    (
+        ObjectiveKind::Guardian,
+        &["npc_boss_tier1_", "objectiveparams_tier1"],
+    ),
+    (
+        ObjectiveKind::Walker,
+        &["npc_boss_tier2_", "objectiveparams_tier2"],
+    ),
+    (
+        ObjectiveKind::Patron,
+        &["npc_boss_tier3_", "objectiveparams_patron"],
+    ),
+    (
+        ObjectiveKind::BaseGuardian,
+        &["npc_barrack_boss_", "objectiveparams_baseguardians"],
+    ),
+    (
+        ObjectiveKind::Shrine,
+        &[
+            "destroyable_building_",
+            "objectiveparams_shrines",
+            "shrinesdownbuffmodifier_",
+            "citadel_super_trooper_",
+        ],
+    ),
+];
 const OBJECTIVE_FIELDS: &[(&str, &str)] = &[
     ("maxhealth", "Leben"),
     ("phase2health", "Leben der zweiten Phase"),
@@ -78,13 +105,14 @@ const OBJECTIVE_FIELDS: &[(&str, &str)] = &[
 pub(super) fn definition() -> ToolDefinition {
     ToolDefinition {
         name: ToolName::GetMechanic,
-        description: "Liest belegte Spielmechanik-Werte aus den Spieldateien und rechnet sie auf eine Spielminute hoch. Fragt der Nutzer nach einer Spielzeit, minute angeben; Anfang, Spielbeginn oder Start = Minute 0. Ohne minute kommen berechnete Werte für die Referenzminuten 0, 10, 20 und 30 (condition.minute), bei lane_troopers nur für Minute 0; für eine andere Spielzeit minute angeben. Für allgemeine Spielfragen ohne Held oder Item zuerst get_mechanic verwenden, nicht find_entity oder search_docs. Mechaniken: lane_troopers (Lane-Trooper, Wellen, Creeps: Seelen je Trooper und je Welle, Seelen pro Minute, Truppgröße, Wellenabstand, Anteil sofort vs. Seelenorb je Trooper und je Welle, Denien bzw. deny = gegnerischen Seelenorb zuerst abschießen, Trooper-Leben), soul_sharing (Seelenteilung mit Mitspielern auf der Lane, Anteil je Spieleranzahl), denizens (Jungle-Camps, Neutrals: Seelen, Spawn, Respawn, Leben je Camp-Stufe weak/normal/strong), objectives (Guardian = npc_boss_tier1, Walker = npc_boss_tier2, Patron = npc_boss_tier3, Base Guardians = npc_barrack_boss, Shrines bzw. Schreine = destroyable_building: Leben, Kugel- und Spirit-Resistenz, Resistenz je Zahl naher gegnerischer Helden, Aura für verbündete Helden, zusätzliche Kugelresistenz je Zahl naher Helden, Seelen beim Zerstören, Seelenorbs, Anteil für Spieler in der Nähe, Super Trooper nach zerstörtem Shrine mit Schaden und Seelen; bei Belohnungsfragen alle Zeilen mit condition.meaning zum gefragten Objective nennen; Resistenzwerte sind Prozent weniger erlittener Schaden), core_abilities (Grundfähigkeiten aller Helden: Parry bzw. Parieren mit Betäubungsdauer, Schadensbonus auf den parierten Gegner aus allen Quellen und Abklingzeit; Dash und Down Dash mit Ausdauerkosten; Wall Jump und Wall Slide. Belegte Parry-Regeln aus den Patchnotes: auch Trooper werden durch Parry betäubt, ein parierter Trooper setzt die Abklingzeit aber nicht zurück; Parieren von Objectives setzt die Abklingzeit nicht zurück; der Guardian wird durch Parry nicht betäubt, er hört nach einem Parry mit wiederholten Nahkampfangriffen auf und schießt stattdessen; die Betäubung wird durch Debuff-Resistenz nicht verkürzt; ein Urnenträger kann nicht parieren. Was Parry bei anderen Bossen bewirkt, steht nicht in den belegten Daten), mid_boss (Midboss: Seelen, Leben, Spawn, Respawn), rejuvenator (Rejuvenator: Buffdauer, Trooper-Lebensbonus und Respawn-Faktor je erstem/zweitem/drittem Rejuvenator), hero_kills (Startseelen, Kopfgeld für Heldenkills nach Spielzeit, Assist-Anteil, Comeback, Erstkill-Bonus), respawn (Respawnzeit nach Spielzeit), urn (Urne, Urn, Soul Urn, Seelenurne, Idol: erster Spawn, Respawn, Belohnung und Bonus beim Abgeben), breakables (Kisten und zerstörbare Objekte: Spawnzeiten), sinners_sacrifice (Sinner's Sacrifice), item_tiers (Itemkosten je Stufe 1 bis 4, Index 1 = Stufe 1), levels (Seelen pro Level, Ability Points, Ability-Freischaltungen, Power Increase), street_brawl (Spielmodus Street Brawl: Runden, Seelen je Runde, Respawn, Punkte zum Sieg). Zeilen mit derived_ sind aus den belegten Rohwerten berechnet; derived_trooper_* gilt je einzelnem Trooper, derived_wave_* und derived_squad_* je ganzer Welle; condition.meaning erklärt den Spielbegriff; condition.formula nennt die Rechnung und condition.inputs die Rohwerte. Diese Werte darfst du unverändert nennen und mit der Formel erklären. Einheiten: Zeiten in Sekunden, *_time-Grenzen der Trooper-Wellen in Minuten, Spieldauer-Grenzen der Respawn-Rampen in Sekunden. Index 0 in Listen ist der erste Eintrag. Fehlender Patch oder current bedeutet aktueller beobachteter Quellenstand. Fehlende Werte nicht ergänzen.".into(),
+        description: "Liest belegte Spielmechanik-Werte aus den Spieldateien und rechnet sie auf eine Spielminute hoch. Fragt der Nutzer nach einer Spielzeit, minute angeben; Anfang, Spielbeginn oder Start = Minute 0. Ohne minute kommen berechnete Werte für die Referenzminuten 0, 10, 20 und 30 (condition.minute), bei lane_troopers nur für Minute 0; für eine andere Spielzeit minute angeben. Für allgemeine Spielfragen ohne Held oder Item zuerst get_mechanic verwenden, nicht find_entity oder search_docs. Mechaniken: lane_troopers (Lane-Trooper, Wellen, Creeps: Seelen je Trooper und je Welle, Seelen pro Minute, Truppgröße, Wellenabstand, Anteil sofort vs. Seelenorb je Trooper und je Welle, Denien bzw. deny = gegnerischen Seelenorb zuerst abschießen, Trooper-Leben), soul_sharing (Seelenteilung mit Mitspielern auf der Lane, Anteil je Spieleranzahl), denizens (Jungle-Camps, Neutrals: Seelen, Spawn, Respawn, Leben je Camp-Stufe weak/normal/strong), objectives (Guardian = npc_boss_tier1, Walker = npc_boss_tier2, Patron = npc_boss_tier3, Base Guardians = npc_barrack_boss, Shrines bzw. Schreine = destroyable_building: Leben, Kugel- und Spirit-Resistenz, Resistenz je Zahl naher gegnerischer Helden, Aura für verbündete Helden, zusätzliche Kugelresistenz je Zahl naher Helden, Seelen beim Zerstören, Seelenorbs, Anteil für Spieler in der Nähe, Super Trooper nach zerstörtem Shrine mit Schaden und Seelen; geht die Frage um ein einzelnes Objective, objective angeben (guardian, walker, patron, base_guardian, shrine), sonst werden nicht alle Werte geliefert; bei Belohnungsfragen alle Zeilen mit condition.meaning zum gefragten Objective nennen; Resistenzwerte sind Prozent weniger erlittener Schaden), core_abilities (Grundfähigkeiten aller Helden: Parry bzw. Parieren mit Betäubungsdauer, Schadensbonus auf den parierten Gegner aus allen Quellen und Abklingzeit; Dash und Down Dash mit Ausdauerkosten; Wall Jump und Wall Slide. Belegte Parry-Regeln aus den Patchnotes: auch Trooper werden durch Parry betäubt, ein parierter Trooper setzt die Abklingzeit aber nicht zurück; Parieren von Objectives setzt die Abklingzeit nicht zurück; der Guardian wird durch Parry nicht betäubt, er hört nach einem Parry mit wiederholten Nahkampfangriffen auf und schießt stattdessen; die Betäubung wird durch Debuff-Resistenz nicht verkürzt; ein Urnenträger kann nicht parieren. Was Parry bei anderen Bossen bewirkt, steht nicht in den belegten Daten), mid_boss (Midboss: Seelen, Leben, Spawn, Respawn), rejuvenator (Rejuvenator: Buffdauer, Trooper-Lebensbonus und Respawn-Faktor je erstem/zweitem/drittem Rejuvenator), hero_kills (Startseelen, Kopfgeld für Heldenkills nach Spielzeit, Assist-Anteil, Comeback, Erstkill-Bonus), respawn (Respawnzeit nach Spielzeit), urn (Urne, Urn, Soul Urn, Seelenurne, Idol: erster Spawn, Respawn, Belohnung und Bonus beim Abgeben), breakables (Kisten und zerstörbare Objekte: Spawnzeiten), sinners_sacrifice (Sinner's Sacrifice), item_tiers (Itemkosten je Stufe 1 bis 4, Index 1 = Stufe 1), levels (Seelen pro Level, Ability Points, Ability-Freischaltungen, Power Increase), street_brawl (Spielmodus Street Brawl: Runden, Seelen je Runde, Respawn, Punkte zum Sieg). Zeilen mit derived_ sind aus den belegten Rohwerten berechnet; derived_trooper_* gilt je einzelnem Trooper, derived_wave_* und derived_squad_* je ganzer Welle; condition.meaning erklärt den Spielbegriff; condition.formula nennt die Rechnung und condition.inputs die Rohwerte. Diese Werte darfst du unverändert nennen und mit der Formel erklären. Einheiten: Zeiten in Sekunden, *_time-Grenzen der Trooper-Wellen in Minuten, Spieldauer-Grenzen der Respawn-Rampen in Sekunden. Index 0 in Listen ist der erste Eintrag. Fehlender Patch oder current bedeutet aktueller beobachteter Quellenstand. Fehlende Werte nicht ergänzen.".into(),
         input_schema: json!({
             "type":"object", "additionalProperties":false, "required":["mechanic"],
             "properties":{
                 "mechanic":{"type":"string","enum":MechanicKind::ALL.map(MechanicKind::as_str)},
                 "minute":{"type":"integer","minimum":0,"maximum":120},
-                "patch":{"type":"string","minLength":1,"maxLength":128}
+                "patch":{"type":"string","minLength":1,"maxLength":128},
+                "objective":{"type":"string","enum":ObjectiveKind::ALL.map(ObjectiveKind::as_str)}
             }
         }),
     }
@@ -111,6 +139,10 @@ fn present(request: &GetMechanicRequest, rows: Vec<Value>) -> Value {
     let minutes = request
         .minute
         .map_or_else(|| reference.to_vec(), |minute| vec![minute]);
+    let rows: Vec<Value> = rows
+        .into_iter()
+        .filter(|row| belongs_to(row, request.objective))
+        .collect();
     let derived = derive(request.mechanic, &minutes, &rows);
     let lower_bound = rows.len() >= QUERY_LIMIT;
     let inputs: BTreeSet<&str> = derived
@@ -140,12 +172,26 @@ fn present(request: &GetMechanicRequest, rows: Vec<Value>) -> Value {
     json!({
         "mechanic":request.mechanic.as_str(),
         "minute":request.minute,
+        "objective":request.objective.map(ObjectiveKind::as_str),
         "reference_minutes":request.minute.is_none().then_some(reference),
         "facts":facts,
         "truncated":omitted>0,
         "omitted_count":omitted,
         "omitted_count_is_lower_bound":lower_bound
     })
+}
+
+fn belongs_to(row: &Value, objective: Option<ObjectiveKind>) -> bool {
+    let Some(objective) = objective else {
+        return true;
+    };
+    let Some(stat) = row["stat_key"].as_str() else {
+        return true;
+    };
+    OBJECTIVE_ROWS
+        .iter()
+        .find(|(_, prefixes)| prefixes.iter().any(|prefix| stat.contains(prefix)))
+        .is_none_or(|(owner, _)| *owner == objective)
 }
 
 fn reference_minutes(mechanic: MechanicKind) -> &'static [u16] {

@@ -15,7 +15,7 @@ use crate::{
     Accounted, AuthorizedContext, Evidence, PortError, PortFailure, ProviderAnswer, Query, Usage,
     UsageAccounting,
 };
-pub use mechanic::{GetMechanicRequest, MechanicKind, MECHANIC_MAX_MINUTE};
+pub use mechanic::{GetMechanicRequest, MechanicKind, ObjectiveKind, MECHANIC_MAX_MINUTE};
 pub use timer::{GetTimerRequest, TimerKind};
 
 #[path = "asset_tools.rs"]

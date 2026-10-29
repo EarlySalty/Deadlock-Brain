@@ -38,3 +38,14 @@ Rule applied to every field: a value reaches answers only when its meaning is co
 
 - D27 (dash cost "1") and D40 are weak because "1" appears in many answers; read the answer text.
 - M02 (Patron) expects the match-end explanation; Patron soul bounty was removed on 2024-10-24.
+
+## Tool result cap
+
+- Unfiltered `get_mechanic objectives` returned 56 verified rows, about 21.6 KB, above the 16 KB tool result cap. `trim_row` dropped the last rows, which were the Walker and Guardian field rows, so W01 failed live on 0b3914bc although the data was correct. Fix: optional `objective` filter (guardian, walker, patron, base_guardian, shrine); each objective now fits with all of its rows (guard test `every_live_objective_fits_one_tool_result_with_all_its_rows`). An unfiltered call is still trimmed; the result stays marked `truncated` only for MAX_ROWS, not for byte trimming.
+
+## Open review NITs
+
+- Parry rules from patch notes are hardcoded in the `get_mechanic` tool description instead of coming from the patch ledger.
+- "stamina" and "Ausdauer" collide with the item stat of the same name in search.
+- `compare.py` compares only probe ids present in both runs; dropped probes are not reported.
+- `verified_only` drops unverified rows without a count, so the model cannot see how many were filtered.

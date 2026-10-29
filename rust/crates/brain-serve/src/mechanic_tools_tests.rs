@@ -9,6 +9,7 @@ fn request(mechanic: MechanicKind, minute: Option<u16>) -> GetMechanicRequest {
         mechanic,
         minute,
         patch: None,
+        objective: None,
     }
 }
 
@@ -346,4 +347,49 @@ fn parry_rows_explain_stun_and_damage_bonus() {
         .find(|row| row["stat_key"] == "citadel_player_dash_down_stamina_cost")
         .and_then(|row| row["condition"]["meaning"].as_str());
     assert!(down.is_some_and(|text| text.starts_with("Dash nach unten")));
+}
+
+#[test]
+fn every_live_objective_fits_one_tool_result_with_all_its_rows() {
+    let rows: Vec<Value> =
+        serde_json::from_str(include_str!("../tests/fixtures/mechanic_objectives.json"))
+            .unwrap_or_default();
+    assert_eq!(rows.len(), 56);
+    for objective in ObjectiveKind::ALL {
+        let mut request = request(MechanicKind::Objectives, None);
+        request.objective = Some(objective);
+        let result = present(&request, rows.clone());
+        let facts = result["facts"].as_array().cloned().unwrap_or_default();
+        assert!(!facts.is_empty());
+        assert!(
+            facts
+                .iter()
+                .all(|row| belongs_to(row, Some(objective))
+                    && row["condition"]["meaning"].is_string())
+        );
+        let evidence = facts.len() * 96 + 1100;
+        let bytes = serde_json::to_vec(&result).map_or(usize::MAX, |v| v.len());
+        assert!(bytes + evidence < 16_384, "{objective:?} {bytes}");
+    }
+    let mut walker = request(MechanicKind::Objectives, None);
+    walker.objective = Some(ObjectiveKind::Walker);
+    let facts = present(&walker, rows)["facts"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for (stat, value) in [
+        (
+            "npc_boss_tier2_intrinsicmodifiers_0_bullet_armor_damage_resist",
+            "35",
+        ),
+        ("npc_boss_tier2_nearbyenemyresist_resistvalues_6", "50"),
+        (
+            "npc_boss_tier2_friendlyauramodifier_modifierprovidedbyaura_tech_resist",
+            "15",
+        ),
+        ("objectiveparams_tier2goldkill", "3675"),
+    ] {
+        assert_eq!(value_of(&facts, stat), Some(value), "{stat}");
+    }
+    assert!(value_of(&facts, "npc_boss_tier1_maxhealth").is_none());
 }
