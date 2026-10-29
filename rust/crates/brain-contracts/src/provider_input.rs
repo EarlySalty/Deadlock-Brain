@@ -184,14 +184,45 @@ fn drop_german_labels(value: &mut Value) {
     }
 }
 
-fn repair_contract(conversation: &ToolConversation) -> String {
+fn repair_contract(query: &Query, conversation: &ToolConversation) -> String {
     if conversation.unsupported_numbers.is_empty() {
         return String::new();
     }
-    format!(
+    let mut repair = format!(
         " Deine vorige Antwort wurde verworfen, weil diese Zahlen in keiner zitierten Werkzeugzeile wörtlich stehen: {}. Übernimm Zahlen nur wörtlich aus Werkzeugzeilen und zitiere deren Beleg-IDs. Lass eine Zahl weg, statt sie zu berechnen, umzurechnen oder aus dem Gedächtnis zu ergänzen.",
         conversation.unsupported_numbers.join(", ")
-    )
+    );
+    let question = current_question(query);
+    let asked: Vec<&str> = conversation
+        .unsupported_numbers
+        .iter()
+        .map(String::as_str)
+        .filter(|number| mentions_number(&question, number))
+        .collect();
+    if !asked.is_empty() {
+        repair.push_str(&format!(
+            " Die Zahlen {} stammen aus der Frage des Nutzers und sind nicht belegt. Wiederhole sie nicht, auch nicht zum Bestätigen oder Widerlegen; sprich vom genannten Wert ohne Zahl und nenne nur die belegten Werte aus den Werkzeugzeilen.",
+            asked.join(", ")
+        ));
+    }
+    repair
+}
+
+fn mentions_number(text: &str, number: &str) -> bool {
+    let wanted = number.replace(',', ".");
+    let text = text.replace(',', ".");
+    !wanted.is_empty()
+        && text.match_indices(&wanted).any(|(start, found)| {
+            let before = text[..start].chars().next_back();
+            let mut after = text[start + found.len()..].chars();
+            let glued_before = before.is_some_and(|ch| ch.is_ascii_digit() || ch == '.');
+            let glued_after = match after.next() {
+                Some(ch) if ch.is_ascii_digit() => true,
+                Some('.') => after.next().is_some_and(|ch| ch.is_ascii_digit()),
+                _ => false,
+            };
+            !glued_before && !glued_after
+        })
 }
 
 fn answer_language_contract(query: &Query) -> &'static str {
@@ -461,7 +492,7 @@ pub fn grounded_turn_payload_with_quality(
     }
     grounded[0].content.push_str(" Antwortvertrag brain.tools-only.v2: Jede Zahl im text steht wörtlich in einer zitierten Werkzeugzeile, ohne Berechnung, Umrechnung oder selbst gezählte Anzahlen. Schreibe Zahlen als Ziffern mit Dezimalkomma oder -punkt. Beleg-IDs gehören nicht in text. claims ist immer []. Ohne passende Belege {\"text\":\"\",\"cited_evidence_ids\":[],\"claims\":[]}.");
     grounded[0].content.push_str(language_contract);
-    let repair = repair_contract(conversation);
+    let repair = repair_contract(query, conversation);
     let repair_in_results = matches!(
         conversation.messages.last(),
         Some(ToolMessage::ToolResults { .. })
@@ -950,6 +981,25 @@ mod tests {
         assert!(crate::language::english(&german.text));
         assert_eq!(current_question(&german), "Was kostet das?");
         assert_eq!(tool_display_result(&german, &result, &[]), result.result);
+    }
+
+    #[test]
+    fn repair_names_rejected_numbers_the_asker_wrote() {
+        let mut asked = query();
+        asked.text =
+            "Gibt Return Fire noch 50% zurück und dehnt sich Storm Cloud in 1,5s aus?".into();
+        let conversation = ToolConversation {
+            final_round: false,
+            unsupported_numbers: vec!["50".into(), "1,5".into(), "5".into(), "30.04".into()],
+            messages: Vec::new(),
+        };
+        let repair = repair_contract(&asked, &conversation);
+        assert!(repair.contains("Die Zahlen 50, 1,5 stammen aus der Frage des Nutzers"));
+        assert!(repair_contract(&query(), &conversation).contains("verworfen"));
+        assert!(!repair_contract(&query(), &conversation).contains("aus der Frage"));
+        assert!(mentions_number("noch 1.5 Sekunden", "1,5"));
+        assert!(!mentions_number("15 oder 150", "5"));
+        assert!(!mentions_number("2.50 Seelen", "50"));
     }
 
     #[test]
