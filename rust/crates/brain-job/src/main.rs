@@ -22,11 +22,50 @@ const QUESTIONS_LIMIT: i64 = 50;
 async fn main() -> ExitCode {
     match run().await {
         Ok(()) => ExitCode::SUCCESS,
-        Err(_) => {
-            eprintln!("brain-job: Verarbeitung fehlgeschlagen. {USAGE}");
+        Err(error) => {
+            match error.downcast_ref::<Usage>() {
+                Some(usage) => eprintln!("brain-job: {usage}. {USAGE}"),
+                None => eprintln!(
+                    "brain-job: Verarbeitung fehlgeschlagen: {}",
+                    redact(&format!("{error:#}"))
+                ),
+            }
             ExitCode::FAILURE
         }
     }
+}
+
+#[derive(Debug)]
+struct Usage(&'static str);
+
+impl std::fmt::Display for Usage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.0)
+    }
+}
+
+impl std::error::Error for Usage {}
+
+fn usage(reason: &'static str) -> anyhow::Error {
+    Usage(reason).into()
+}
+
+fn redact(message: &str) -> String {
+    message
+        .split_inclusive(char::is_whitespace)
+        .map(|word| {
+            let lower = word.to_ascii_lowercase();
+            let credential = word.contains("://") && word.contains('@');
+            let secret = ["password=", "passwd=", "token=", "secret=", "dsn="]
+                .iter()
+                .any(|key| lower.contains(key));
+            match (credential || secret, word.ends_with(char::is_whitespace)) {
+                (false, _) => word.to_owned(),
+                (true, true) => "[redacted] ".to_owned(),
+                (true, false) => "[redacted]".to_owned(),
+            }
+        })
+        .collect()
 }
 
 async fn run() -> anyhow::Result<()> {
@@ -69,30 +108,32 @@ async fn run() -> anyhow::Result<()> {
         {
             (config, source, Some(input))
         }
-        _ => anyhow::bail!("Ungültiger Aufruf"),
+        _ => return Err(usage("Ungültiger Aufruf")),
     };
-    let source = source
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("Ungültige Quelle"))?;
+    let source = source.to_str().ok_or_else(|| usage("Ungültige Quelle"))?;
     let loader = SOURCES
         .iter()
         .find(|(name, _)| *name == source)
         .map(|(_, loader)| *loader)
-        .ok_or_else(|| anyhow::anyhow!("Unbekannte Quelle"))?;
+        .ok_or_else(|| usage("Unbekannte Quelle"))?;
     let config = Config::load(Path::new(config_path))?;
+    let (objects, repository) = match input {
+        Some(repository) => (
+            loader(Path::new(repository), false),
+            PathBuf::from(repository),
+        ),
+        None => {
+            let cache = config
+                .source_cache
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("Quellen-Cache fehlt"))?;
+            (sources::fetch(source, cache), cache.join(source))
+        }
+    };
+    let objects = prefetched(source, objects);
     let pool = config.pool().await?;
     let result = async {
         PgStore::new(pool.clone()).check_gamefacts_schema().await?;
-        let (objects, repository) = match input {
-            Some(repository) => (loader(Path::new(repository), false), PathBuf::from(repository)),
-            None => {
-                let cache = config
-                    .source_cache
-                    .as_deref()
-                    .ok_or_else(|| anyhow::anyhow!("Quellen-Cache fehlt"))?;
-                (sources::fetch(source, cache), cache.join(source))
-            }
-        };
         let (objects, revision, observed) = tracked(source, objects);
         let recorded = std::sync::atomic::AtomicU64::new(0);
         let (watched, writer, counter) = (&observed, &pool, &recorded);
@@ -168,6 +209,13 @@ async fn audit(path: &Path) -> anyhow::Result<()> {
     result
 }
 
+fn prefetched(source: &str, objects: brain_job::InputObjects) -> brain_job::InputObjects {
+    if source != brain_job::meta_source::SOURCE {
+        return objects;
+    }
+    Box::new(objects.collect::<Vec<_>>().into_iter())
+}
+
 fn tracked(
     source: &str,
     objects: brain_job::InputObjects,
@@ -235,16 +283,19 @@ fn questions_filter(rest: &[OsString]) -> anyhow::Result<questions::Filter> {
     let mut limit = QUESTIONS_LIMIT;
     for pair in rest.chunks(2) {
         let [flag, value] = pair else {
-            anyhow::bail!("Ungültiger Aufruf");
+            return Err(usage("Ungültiger Aufruf"));
         };
-        let value = value
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Ungültiger Wert"))?;
+        let value = value.to_str().ok_or_else(|| usage("Ungültiger Wert"))?;
         match flag.to_str() {
             Some("--since") => since = value.to_owned(),
             Some("--status") => status = Some(value.to_owned()),
-            Some("--limit") => limit = value.parse::<i64>()?.clamp(1, 1000),
-            _ => anyhow::bail!("Ungültiger Aufruf"),
+            Some("--limit") => {
+                limit = value
+                    .parse::<i64>()
+                    .map_err(|_| usage("Ungültiges Limit"))?
+                    .clamp(1, 1000)
+            }
+            _ => return Err(usage("Ungültiger Aufruf")),
         }
     }
     Ok(questions::Filter {

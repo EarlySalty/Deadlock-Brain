@@ -116,7 +116,7 @@ impl Config {
             .disable_statement_logging();
         PgPoolOptions::new()
             .max_connections(1)
-            .acquire_timeout(Duration::from_secs(5))
+            .acquire_timeout(Duration::from_secs(120))
             .connect_with(options)
             .await
             .map_err(|_| anyhow::anyhow!("Datenbankverbindung fehlgeschlagen"))

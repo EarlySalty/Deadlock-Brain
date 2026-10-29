@@ -5,7 +5,7 @@ use std::{
     fs::OpenOptions,
     io::{Read, Write},
     path::Path,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 pub const SOURCE: &str = "deadlock-api-meta";
@@ -20,6 +20,9 @@ pub const STAT_SETS: [(&str, &str); 2] = [
     ),
 ];
 pub const MAX_BYTES: usize = 1024 * 1024;
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
+const TOTAL_TIMEOUT: Duration = Duration::from_secs(270);
+const BACKOFF: Duration = Duration::from_secs(5);
 
 pub fn window_start(unix_seconds: u64) -> u64 {
     (unix_seconds / 86_400 * 86_400).saturating_sub(30 * 86_400)
@@ -94,6 +97,9 @@ fn download(url: &str, cache: &Path) -> anyhow::Result<Vec<u8>> {
         url,
         SourceHttpOptions {
             max_bytes: MAX_BYTES,
+            request_timeout: REQUEST_TIMEOUT,
+            total_timeout: TOTAL_TIMEOUT,
+            backoff: BACKOFF,
             ..SourceHttpOptions::default()
         },
     )?;
