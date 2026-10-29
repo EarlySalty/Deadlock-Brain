@@ -5,14 +5,15 @@ WITH catalog AS MATERIALIZED (
     ), lines AS MATERIALIZED (
         SELECT f.entity_id,f.raw_object_id,f.valid_from_run,f.id,f.receipt_id,f.value_text,
             CASE WHEN f.stat_key COLLATE "C" < 'patch_line_r'
-                    THEN f.stat_key ~ '^patch_change_r[0-9a-f]+_[0-9]+$' AND substr(f.stat_key,79,1)='_'
+                    THEN f.stat_key ~ '^patch_change_r[0-9a-f]+_[0-9]+$' AND strpos(substr(f.stat_key,15),'_')=65
                 WHEN f.stat_key COLLATE "C" < 'patch_note_'
-                    THEN f.stat_key ~ '^patch_line_r[0-9a-f]+_[0-9]+_[0-9]+$' AND substr(f.stat_key,77,1)='_'
+                    THEN f.stat_key ~ '^patch_line_r[0-9a-f]+_[0-9]+_[0-9]+$' AND strpos(substr(f.stat_key,13),'_')=65
                 ELSE f.stat_key ~ '^patch_note_[0-9]+_[0-9]+$' END AS shaped
         FROM serve.current_fact f
-        WHERE f.stat_key COLLATE "C" >= 'patch_change_r' AND f.stat_key COLLATE "C" < 'patch_change_s'
-            OR f.stat_key COLLATE "C" >= 'patch_line_r' AND f.stat_key COLLATE "C" < 'patch_line_s'
-            OR f.stat_key COLLATE "C" >= 'patch_note_' AND f.stat_key COLLATE "C" < 'patch_note`'
+        WHERE f.entity_id=ANY(ARRAY(SELECT c.patch_id FROM catalog c))
+            AND (f.stat_key COLLATE "C" >= 'patch_change_r' AND f.stat_key COLLATE "C" < 'patch_change_s'
+                OR f.stat_key COLLATE "C" >= 'patch_line_r' AND f.stat_key COLLATE "C" < 'patch_line_s'
+                OR f.stat_key COLLATE "C" >= 'patch_note_' AND f.stat_key COLLATE "C" < 'patch_note`')
     ), facts AS MATERIALIZED (
         SELECT c.patch_id,c.label,c.released_at,c.official_receipt_id,c.label_receipt_id,
             c.released_at_receipt_id,c.url_receipt_id,c.extractor,c.raw_object_id,c.ingest_run_id,
