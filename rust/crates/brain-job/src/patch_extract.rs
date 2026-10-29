@@ -403,12 +403,12 @@ impl NoteLine<'_> {
 
     fn extend(&mut self, text: &str) -> bool {
         let text = bullet(text).unwrap_or(text).trim();
+        self.qualified = true;
         if self.text.len() + text.len() >= LINE_BYTES {
             return false;
         }
         self.text.push(' ');
         self.text.push_str(text);
-        self.qualified = true;
         true
     }
 }
