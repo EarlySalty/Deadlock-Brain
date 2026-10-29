@@ -35,3 +35,38 @@ Each answer also re-runs the search during revalidation (up to 11 calls of about
 2. Alternatively, expose the orb-ratio history directly in get_mechanic lane_troopers, which the model always calls for this topic.
 3. Revalidation repeats the full SEARCH; caching per request would cut about 10 s.
 4. Gate NITs from round 3: short German date labels, schema allows text with entity, rejected_numbers reset after tool rounds, silent note drop on row limit, invented split notation for single percentages.
+
+## Round 3
+
+Commits on main: 5d708024 (segment ranking, per-answer text-search cache for provider revalidation, gate NITs), 3bab0075 (number terms as whole tokens, F06 probe), 909ff0f9 (F06 in the data-coverage release probes), 0b3914bc (unit suffixes like 28s, 40m, 40% keep numeric credit; stricter F06 expectations).
+Gate: ALLOW on 0b3914bc (gpt-6.1-sol). Release 0b3914bc installed by the data-coverage session, brain-serve active.
+
+### Replay on 0b3914bc, F06 five times
+
+| Run | Turn 3 latency | Dates cited | Grade |
+| --- | --- | --- | --- |
+| 1 | 31.7 s | 21.11.2024 (60/40 to 65/35) | partial |
+| 2 | 24.7 s | November 2024 | partial |
+| 3 | 23.4 s | 11-21-2024 | partial |
+| 4 | 27.7 s | 21.11.2024, 30.06.2026 (flying orb 40 % to 50 %) | partial |
+| 5 | 27.8 s | 21.11.2024 | partial |
+
+Pass: 0 of 5 name the 40 % orb period with both dates; 1 of 5 names the 30.06.2026 end. No misattribution: every run cites the real 2024 kill/orb line and the current 50/50 split.
+Turn 3 median 27.7 s (round 2: 28 to 55 s). Revalidation now hits the answer cache (6 to 10 ms instead of about 1.1 s per call).
+
+### Acceptance
+
+Not met for content; latency met.
+
+Cause, measured against live SEARCH:
+- Both orb lines carry no parsed old/new values, so they never get the change bonus. Neither line contains "trooper", "kill" or "60/40".
+- The 1670-character 2024-11-21 line contains "60/40" and "orb" literally and ranks first for every query with 60/40.
+- For {60,40,orb} the 2026-06-30 line is rank 20 and the 2025-11-21 line is outside the 20 rows, behind unrelated "from 40 to 60" item lines that do carry values.
+- For {soul,orb,40%} or {flying,orb} the 2025-11-21 line is rank 2, so the lines are reachable once the query names souls in the orb.
+- The model sends 3 text terms; the exact terms are not logged.
+
+### Open
+
+1. Parse "from X% to Y%" into old/new for these lines at extraction (brain-job patch_extract), so they get the change bonus. That is a data fix at the source, not a ranking tweak.
+2. Log the patch_history text terms in call_shape (they are game words, not user data; needs a privacy check) to tune against the real query.
+3. Alternatively expose the orb-ratio history in get_mechanic lane_troopers, which the model always calls for this topic.
