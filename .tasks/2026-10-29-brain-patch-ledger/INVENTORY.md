@@ -8,8 +8,8 @@ Sources checked: `patchnotes.changelog_posts` (central), canon patch entities in
 |---|---|---|
 | source posts (`patchnotes.changelog_posts`) | 137 (max id 297) | 149 (max id 309) |
 | canon patch entities | 137 | 149 (ingest run 4101 accepted 12) |
-| ledger patches | none | 134: 16 major, 50 gameplay, 68 hotfix |
-| duplicate posts | 9, unflagged, shown as separate patches | 9, flagged `duplicate`, hidden in patch tools |
+| ledger patches | none | 133: 16 major, 50 gameplay, 67 hotfix |
+| duplicate posts | 10, unflagged, shown as separate patches | 10, flagged `duplicate`, hidden in patch tools |
 | non-patch posts | 6, shown as patches | 6, flagged `excluded` |
 | `list_patches` | missing | ledger list, oldest to newest |
 | `patch_history` order | newest first | oldest to newest, rows carry `ledger_id` and `ledger_released_at` |
@@ -52,6 +52,11 @@ Each pair is one patch published twice (a forum post and its Steam mirror, or a 
 | 287 | City Never Sleeps | 286 |
 | 289 | Minor Update - 10-05-2026 | 291 |
 | 294 | Minor Update - 10-14-2026 | 295 |
+| 308 | Minor Update - 05-25-2026 | 273 |
+
+Pair 308/273 is the urn patch: forum "05-22-2026 Update" (post 273, 2026-05-26 00:53 UTC) and Steam "Minor Update - 05-25-2026" (2026-05-28 16:28 UTC), 11 of 11 lines identical. They are 64 hours apart, so the classifier now also joins posts up to seven days apart when they share at least three lines with 80% overlap. A scan of all 149 posts found no other pair between 36 hours and 30 days with that overlap. The ledger dates 308 at 2026-05-26 00:53 via post 273.
+
+"Minor Update - 05-28-2026" (ledger 274) appears once in the ledger. Its forum copy "05-28-2026 Update" exists only in legacy `brain.patch_events`, not in the source, so it is a legacy duplicate (see below).
 
 ## Excluded posts (not patches)
 
@@ -71,7 +76,7 @@ These six posts are event or hero teasers with no balance notes, and they have n
 - **Source dates.** All 136 pre-import source posts that have an independent timestamp matched the forum or Steam publish time to the second. No source date needed a fix.
 - **Duplicate pairs.** Here the date error was structural: the same patch appeared under two dates. The ledger now uses the earliest post. In some pairs a forum mirror was posted hours after the Steam announcement; in others the Steam post came after the forum post.
 - **Legacy `brain.patch_events`.** These rows carry midnight dates such as `2024-05-03 00:00`, title dates instead of publish times, and akamai mirror URLs. One case: legacy "06-11-2026 Update" is dated 06-11 while the patch went out 2026-06-12 UTC. That data is legacy only. The Brain patch tools read canon plus the ledger, never `brain.patch_events`.
-- **Post 308.** It is titled "Minor Update - 05-25-2026" but Steam published it 2026-05-28 16:28 UTC. The ledger uses the publish time, as for every other post.
+- **Post 308.** It is titled "Minor Update - 05-25-2026" and Steam published it 2026-05-28 16:28 UTC. Its notes went out first on the forum as post 273 on 2026-05-26 00:53 UTC, so the ledger uses that time.
 
 ## patch_changes parent linkage
 
@@ -100,6 +105,23 @@ These six posts are event or hero teasers with no balance notes, and they have n
 | 87 | "06-11-2026 Update", dated 06-11 in legacy. It is the same Steam post as ledger "Minor Update - 06-11-2026" (released 2026-06-12 UTC, same Steam id 1835236783562074), so it is a legacy duplicate and has a parent through the URL. |
 
 The legacy view also double-counts six patches under two titles with the same URL: 05-08-2025/Shop Rework, 08-18-2025/Six New Heroes, 06-04, 06-11, 06-30 and 07-01-2026. It also holds a one-row junk entry titled "t". The legacy view is not used by brain-serve.
+
+## Legacy extraction mislabels
+
+Measured over all 20461 legacy `brain.patch_changes` rows (15568 distinct source lines). A row can fall into several categories.
+
+| rows | category |
+|---|---|
+| 8651 | one source line fanned out to several entities (3989 lines) |
+| 6124 | the line names a different known entity than the stored one |
+| 4578 | stored entity not in the line: a section header carried over. Partly correct (hero header over stat lines), partly wrong |
+| 3319 | stored name is neither a known entity nor in the line (for example `store.steampowered.com`, section titles) |
+| 968 | "no longer ..." lines stored as change_type `removed` |
+| 247 | media file names as entity (`1722549138302.png`, `View attachment input_buffering.mp4`) |
+
+Examples: in "City Never Sleeps" (2026-09-29), "Successfully parrying objectives no longer resets your Parry cooldown" is stored three times, under Parry, "Custom Hideout Camera" and "Localization additions and improvements", all as `removed`. "Soul Urn" sits on an input-buffering line.
+
+The canonical change rows that `patch_history` serves (`serve.p4_patch_change`) do not contain these lines. The legacy rows are written by `dbrain-normalize/src/patch.rs` and `deadlock-brain/src/pg_patchnotes.rs`, the feeder has not run since 2026-10-04, and the dl-brain MCP still serves them. The root-cause fix and data repair run as a separate package (branch `brain-legacy-extract`).
 
 ## Date spot checks (22 patches)
 
