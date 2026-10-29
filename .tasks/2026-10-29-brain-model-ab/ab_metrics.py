@@ -27,6 +27,18 @@ def journal(model, since):
     return events
 
 
+def incomplete(status, evs, usage):
+    if status == "unavailable":
+        return False
+    if status == "answered":
+        return not usage
+    expected = next((e.get("provider_rounds") for e in evs if e.get("event") == "brain_answer_not_answered"), None)
+    if expected is None:
+        return True
+    failures = sum(1 for e in evs if e.get("event") == "provider_failure")
+    return len(usage) > expected or len(usage) + failures < expected
+
+
 def p90(values):
     ordered = sorted(values)
     return ordered[min(len(ordered) - 1, int(round(0.9 * (len(ordered) - 1))))]
@@ -59,10 +71,10 @@ def main():
             tokens_out += result["output_tokens"]
             gate += result["gate_rejections"]
             statuses[result["status"]] += 1
-            if not evs and result["status"] != "unavailable":
+            if incomplete(result["status"], evs, usage):
                 missing.append(result["request_id"])
         if missing:
-            sys.exit(f"{model}: no journal events for {len(missing)} requests, check since: {missing[:3]}")
+            sys.exit(f"{model}: incomplete journal for {len(missing)} requests, check since: {missing[:3]}")
         summary[model] = {
             "served_models": sorted(m for m in served if m),
             "statuses": dict(statuses),
