@@ -61,10 +61,28 @@ pub async fn ingest<I>(
 where
     I: IntoIterator<Item = anyhow::Result<InputObject>>,
 {
+    ingest_then(store, source, objects, extractors, |_| async { Ok(()) }).await
+}
+
+pub async fn ingest_then<I, F, Fut>(
+    store: &GameFactsStore,
+    source: &str,
+    objects: I,
+    extractors: &[&dyn Extractor],
+    locked: F,
+) -> anyhow::Result<RunReport>
+where
+    I: IntoIterator<Item = anyhow::Result<InputObject>>,
+    F: FnOnce(i64) -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<()>>,
+{
     let mut run_guard = store.lock_run().await?;
     let run_id = store.begin_run(source).await?;
     let mut counts = Counts::default();
-    let result = process(store, run_id, source, objects, extractors, &mut counts).await;
+    let result = match process(store, run_id, source, objects, extractors, &mut counts).await {
+        Ok(()) => locked(run_id).await,
+        failed => failed,
+    };
     store
         .finish_run_guarded(&mut run_guard, run_id, result.is_ok(), counts)
         .await?;

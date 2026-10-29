@@ -1,7 +1,10 @@
 use crate::sources;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 pub const SOURCE: &str = "deadlock-data";
 const INGEST_HISTORY: usize = 64;
@@ -149,12 +152,38 @@ pub async fn backfill(pool: &PgPool, repository: &Path) -> anyhow::Result<(u64, 
     Ok((commits, runs))
 }
 
-pub fn observed(objects: &[anyhow::Result<crate::InputObject>]) -> (Vec<String>, Vec<Vec<u8>>) {
-    objects
-        .iter()
-        .filter_map(|object| object.as_ref().ok())
-        .map(|object| (object.path.clone(), Sha256::digest(&object.bytes).to_vec()))
-        .unzip()
+pub fn is_patch_id(path: &str) -> bool {
+    path.parse::<i64>()
+        .is_ok_and(|id| id > 0 && id.to_string() == path)
+}
+
+type Seen = (Vec<String>, Vec<Vec<u8>>);
+
+#[derive(Clone, Default)]
+pub struct Observed(Arc<Mutex<Seen>>);
+
+impl Observed {
+    pub fn tap(&self, objects: crate::InputObjects) -> crate::InputObjects {
+        let observed = self.clone();
+        Box::new(objects.inspect(move |object| {
+            if let Ok(object) = object {
+                observed.note(object);
+            }
+        }))
+    }
+
+    fn note(&self, object: &crate::InputObject) {
+        if !is_patch_id(&object.path) {
+            return;
+        }
+        let mut seen = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        seen.0.push(object.path.clone());
+        seen.1.push(Sha256::digest(&object.bytes).to_vec());
+    }
+
+    pub fn take(&self) -> Seen {
+        std::mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
+    }
 }
 
 pub async fn record_patch_observations(
@@ -168,8 +197,7 @@ pub async fn record_patch_observations(
          SELECT o.path,o.id,$1
          FROM unnest($2::text[],$3::bytea[]) AS s(path,digest)
          JOIN raw.object o ON o.source=$4 AND o.path=s.path AND o.content_sha256=s.digest
-         WHERE o.path ~ '^[1-9][0-9]{0,17}$'
-             AND o.id IS DISTINCT FROM (
+         WHERE o.id IS DISTINCT FROM (
                  SELECT p.raw_object_id FROM ops.patch_observation p
                  WHERE p.path=o.path ORDER BY p.run_id DESC LIMIT 1
              )
@@ -315,6 +343,15 @@ mod tests {
             client_build("Merge pull request #250 from deadlock-wiki/chore/remove-stale-images"),
             None
         );
+    }
+
+    #[test]
+    fn patch_ids_are_canonical_positive_i64() {
+        assert!(is_patch_id("1"));
+        assert!(is_patch_id("9223372036854775807"));
+        for path in ["0", "01", "-1", "+1", "9223372036854775808", "", "1a"] {
+            assert!(!is_patch_id(path), "{path}");
+        }
     }
 
     #[test]

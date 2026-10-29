@@ -1208,16 +1208,20 @@ async fn patch_object(
     posted_at: &str,
     applied: bool,
 ) {
-    let run = store.begin_run("deadlock_patchnotes_db").await.unwrap();
     let body = serde_json::json!({"id": path, "title": title, "url": "u", "posted_at": posted_at});
+    patch_bytes(store, pool, path, body.to_string().into_bytes(), applied).await;
+}
+
+async fn patch_bytes(
+    store: &crate::gamefacts::GameFactsStore,
+    pool: &sqlx::PgPool,
+    path: &str,
+    bytes: Vec<u8>,
+    applied: bool,
+) {
+    let run = store.begin_run("deadlock_patchnotes_db").await.unwrap();
     let raw = store
-        .capture(
-            run,
-            "deadlock_patchnotes_db",
-            "r",
-            path,
-            body.to_string().into_bytes(),
-        )
+        .capture(run, "deadlock_patchnotes_db", "r", path, bytes)
         .await
         .unwrap();
     if applied {
@@ -1246,6 +1250,31 @@ async fn freshness_views_are_readable_by_ingest() {
     patch_object(&store, pool, "4", "E", "2026-10-05T00:00:00Z", false).await;
     patch_object(&store, pool, "4", "F", "", false).await;
     patch_object(&store, pool, "4", "E", "2026-10-05T00:00:00Z", false).await;
+    patch_object(&store, pool, "5", "G", "2026-10-06T00:00:00Z", true).await;
+    patch_bytes(&store, pool, "5", vec![0xff, 0xfe], false).await;
+    patch_bytes(&store, pool, "6", b"{".to_vec(), false).await;
+    patch_bytes(&store, pool, "7", br#"{"title":"N\u0000"}"#.to_vec(), false).await;
+    let max = i64::MAX.to_string();
+    patch_object(&store, pool, &max, "M", "2026-10-07T00:00:00Z", false).await;
+    let run = store.begin_run("deadlock_patchnotes_db").await.unwrap();
+    let body = serde_json::json!({"title": "O", "posted_at": "2026-10-08T00:00:00Z"});
+    store
+        .capture(
+            run,
+            "deadlock_patchnotes_db",
+            "r",
+            "9223372036854775808",
+            body.to_string().into_bytes(),
+        )
+        .await
+        .unwrap();
+    let rejected = sqlx::query(
+        "INSERT INTO ops.patch_observation(path,raw_object_id,run_id)
+         SELECT path,id,ingest_run_id FROM raw.object WHERE path='9223372036854775808'",
+    )
+    .execute(pool)
+    .await;
+    assert!(rejected.is_err());
     let listing: Vec<(i64, String)> =
         sqlx::query_as("SELECT patch_id,label FROM ops.patch_listing ORDER BY patch_id")
             .fetch_all(pool)
@@ -1253,7 +1282,13 @@ async fn freshness_views_are_readable_by_ingest() {
             .unwrap();
     assert_eq!(
         listing,
-        vec![(1, "A".into()), (3, "D".into()), (4, "E".into())]
+        vec![
+            (1, "A".into()),
+            (3, "D".into()),
+            (4, "E".into()),
+            (5, "G".into()),
+            (i64::MAX, "M".into())
+        ]
     );
     for view in ["ops.patch_freshness", "ops.game_data_freshness"] {
         sqlx::query(&format!("SELECT * FROM {view}"))

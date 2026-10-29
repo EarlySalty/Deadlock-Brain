@@ -10,8 +10,21 @@ $owner$;
 
 SET LOCAL lock_timeout='5000ms';
 
+CREATE FUNCTION ops.is_patch_id(path text) RETURNS boolean
+LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+RETURN CASE WHEN path ~ '^[1-9][0-9]{0,18}$' THEN path::numeric<=9223372036854775807 ELSE false END;
+
+CREATE FUNCTION ops.patch_body(bytes bytea) RETURNS jsonb
+LANGUAGE plpgsql IMMUTABLE STRICT AS $body$
+BEGIN
+    RETURN convert_from(bytes,'UTF8')::jsonb;
+EXCEPTION WHEN data_exception THEN
+    RETURN NULL;
+END
+$body$;
+
 CREATE TABLE ops.patch_observation (
-    path text NOT NULL CHECK (path ~ '^[1-9][0-9]{0,17}$'),
+    path text NOT NULL CHECK (ops.is_patch_id(path)),
     raw_object_id bigint NOT NULL REFERENCES raw.object(id),
     run_id bigint NOT NULL REFERENCES ops.ingest_run(id),
     recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -20,13 +33,13 @@ CREATE TABLE ops.patch_observation (
 
 CREATE VIEW ops.patch_listing AS
 WITH object AS (
-    SELECT o.id,o.path,o.fetched_at,convert_from(o.bytes,'UTF8')::jsonb AS body,
+    SELECT o.id,o.path,o.fetched_at,ops.patch_body(o.bytes) AS body,
         r.applied_run IS NOT NULL AS applied,coalesce(r.applied_run,o.ingest_run_id) AS observed_run
     FROM raw.object o
     LEFT JOIN LATERAL (
         SELECT max(x.ingest_run_id) AS applied_run FROM canon.receipt x WHERE x.raw_object_id=o.id
     ) r ON true
-    WHERE o.source='deadlock_patchnotes_db' AND o.path ~ '^[1-9][0-9]{0,17}$'
+    WHERE o.source='deadlock_patchnotes_db' AND ops.is_patch_id(o.path)
 ), observed AS (
     SELECT DISTINCT ON (p.path) p.path,p.raw_object_id FROM ops.patch_observation p
     ORDER BY p.path,p.run_id DESC
@@ -120,5 +133,6 @@ WHERE c.source='deadlock-data' AND c.client_build IS NOT NULL;
 REVOKE ALL ON ops.patch_observation,ops.patch_listing FROM PUBLIC;
 GRANT SELECT,INSERT ON ops.patch_observation TO brain_ingest;
 GRANT SELECT ON ops.patch_listing TO brain_ingest;
+GRANT EXECUTE ON FUNCTION ops.is_patch_id(text),ops.patch_body(bytea) TO brain_ingest;
 
 COMMIT;

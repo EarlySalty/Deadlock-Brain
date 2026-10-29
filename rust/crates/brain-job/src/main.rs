@@ -1,6 +1,6 @@
 use brain_job::{
     config::Config,
-    freshness, ingest,
+    freshness, ingest_then,
     registry::EXTRACTORS,
     sources::{self, SOURCES},
     GameFactsStore,
@@ -87,11 +87,23 @@ async fn run() -> anyhow::Result<()> {
             }
         };
         let (objects, revision, observed) = tracked(source, objects);
-        let report = ingest(
+        let recorded = std::sync::atomic::AtomicU64::new(0);
+        let (watched, writer, counter) = (&observed, &pool, &recorded);
+        let report = ingest_then(
             &GameFactsStore::new(pool.clone()),
             source,
             objects,
             EXTRACTORS,
+            |run_id| async move {
+                if let Some(observed) = watched {
+                    let (paths, digests) = observed.take();
+                    let changed =
+                        freshness::record_patch_observations(writer, run_id, &paths, &digests)
+                            .await?;
+                    counter.store(changed, std::sync::atomic::Ordering::Relaxed);
+                }
+                Ok(())
+            },
         )
         .await?;
         println!(
@@ -102,11 +114,11 @@ async fn run() -> anyhow::Result<()> {
             freshness::record_ingest(&pool, report.run_id, &repository, &revision).await?;
             println!("revision={revision}");
         }
-        if let Some((paths, digests)) = observed {
-            let changed =
-                freshness::record_patch_observations(&pool, report.run_id, &paths, &digests)
-                    .await?;
-            println!("patch_observations={changed}");
+        if observed.is_some() {
+            println!(
+                "patch_observations={}",
+                recorded.load(std::sync::atomic::Ordering::Relaxed)
+            );
         }
         if source == brain_job::item_lineage::SOURCE {
             match brain_job::item_lineage::log_alias_conflicts(&pool).await {
@@ -144,16 +156,17 @@ async fn audit(path: &Path) -> anyhow::Result<()> {
     result
 }
 
-type Observed = (Vec<String>, Vec<Vec<u8>>);
-
 fn tracked(
     source: &str,
     objects: brain_job::InputObjects,
-) -> (brain_job::InputObjects, Option<String>, Option<Observed>) {
+) -> (
+    brain_job::InputObjects,
+    Option<String>,
+    Option<freshness::Observed>,
+) {
     if source == brain_job::patch_extract::SOURCE {
-        let objects: Vec<_> = objects.collect();
-        let observed = freshness::observed(&objects);
-        return (Box::new(objects.into_iter()), None, Some(observed));
+        let observed = freshness::Observed::default();
+        return (observed.tap(objects), None, Some(observed));
     }
     if source != freshness::SOURCE {
         return (objects, None, None);
