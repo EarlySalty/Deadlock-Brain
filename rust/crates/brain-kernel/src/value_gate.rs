@@ -7,7 +7,7 @@ pub(super) struct ValueLedger {
     values: BTreeMap<String, BTreeSet<String>>,
     labels: BTreeMap<String, BTreeSet<String>>,
     names: BTreeMap<String, BTreeSet<String>>,
-    question: BTreeSet<String>,
+    percents: BTreeMap<String, BTreeSet<String>>,
 }
 
 fn patch_labels(key: &str, value: &Value) -> Vec<String> {
@@ -135,6 +135,31 @@ fn follows_word(bytes: &[u8], index: usize) -> bool {
     index > 0 && bytes[index - 1].is_ascii_alphanumeric()
 }
 
+fn percents(text: &str) -> Vec<String> {
+    let bytes = text.as_bytes();
+    let mut offset = 0;
+    number_spans(text)
+        .into_iter()
+        .filter_map(|(raw, value)| {
+            let end = offset + text[offset..].find(raw)? + raw.len();
+            offset = end;
+            let next = end
+                + bytes[end..]
+                    .iter()
+                    .take_while(|byte| **byte == b' ')
+                    .count();
+            (bytes.get(next) == Some(&b'%')).then_some(value)
+        })
+        .collect()
+}
+
+pub(super) fn normalized_set(values: &[String]) -> BTreeSet<String> {
+    values
+        .iter()
+        .map(|value| normalize(value).unwrap_or_else(|| value.clone()))
+        .collect()
+}
+
 fn numbers(text: &str) -> Vec<String> {
     number_spans(text)
         .into_iter()
@@ -190,13 +215,6 @@ fn number_spans(text: &str) -> Vec<(&str, String)> {
 }
 
 impl ValueLedger {
-    pub(super) fn with_question(question: &str) -> Self {
-        Self {
-            question: numbers(question).into_iter().collect(),
-            ..Self::default()
-        }
-    }
-
     pub(super) fn insert(&mut self, result: &ToolResult) {
         if !result.is_error {
             self.row(&result.result, None, &result.evidence_ids);
@@ -260,6 +278,10 @@ impl ValueLedger {
                         .entry(id.into())
                         .or_default()
                         .extend(numbers(text));
+                    self.percents
+                        .entry(id.into())
+                        .or_default()
+                        .extend(percents(text));
                 }
             }
             _ => {}
@@ -282,16 +304,15 @@ impl ValueLedger {
             .filter_map(|id| self.values.get(id))
             .flatten()
             .collect();
-        let complements: BTreeSet<String> = cited
+        let complements: BTreeSet<String> = answer
+            .cited_evidence_ids
             .iter()
+            .filter_map(|id| self.percents.get(id))
+            .flatten()
             .filter(|value| stated.contains(value.as_str()))
             .filter_map(|value| complement(value))
             .collect();
-        let covered: BTreeSet<&String> = cited
-            .into_iter()
-            .chain(&complements)
-            .chain(&self.question)
-            .collect();
+        let covered: BTreeSet<&String> = cited.into_iter().chain(&complements).collect();
         let mut labels: Vec<_> = answer
             .cited_evidence_ids
             .iter()
@@ -329,12 +350,15 @@ impl ValueLedger {
     fn claim_holds(&self, answer: &ProviderAnswer, claim: &NumericClaim) -> bool {
         normalize(&claim.value.to_string()).is_some_and(|value| {
             answer.cited_evidence_ids.contains(&claim.citation_id)
-                && self.values.get(&claim.citation_id).is_some_and(|values| {
-                    values.contains(&value)
-                        || values
+                && (self
+                    .values
+                    .get(&claim.citation_id)
+                    .is_some_and(|values| values.contains(&value))
+                    || self.percents.get(&claim.citation_id).is_some_and(|values| {
+                        values
                             .iter()
                             .any(|known| complement(known).as_ref() == Some(&value))
-                })
+                    }))
         })
     }
 }
@@ -515,8 +539,8 @@ mod tests {
     }
 
     #[test]
-    fn patch_split_accepts_dates_complements_and_question_numbers_only() {
-        let mut ledger = ValueLedger::with_question("War das nicht mal 60/40?");
+    fn patch_split_accepts_dates_and_percentage_complements_only() {
+        let mut ledger = ValueLedger::default();
         ledger.insert(&ToolResult { call_id: "patch".into(), name: ToolName::PatchHistory,
             result: json!({"changes":[{"citation":"orb","patch":"11-21-2025 Update","released_at":"2025-11-21T22:53:12+00:00",
                 "line_text":"Amount of souls in the flying orb that can be secured/denied reduced from 50% to 40%"}]}),
@@ -534,6 +558,17 @@ mod tests {
         assert!(!ledger.accepts(&cited("Seit dem 21.11.2025 sind es 45% im Orb.")));
         assert!(!ledger.accepts(&cited("Seit dem 22.11.2025 sind es 40% im Orb.")));
         assert!(!ValueLedger::default().accepts(&cited("Es sind 60% im Orb.")));
+        let mut damage = ValueLedger::default();
+        damage.insert(&ToolResult { call_id: "dmg".into(), name: ToolName::PatchHistory,
+            result: json!({"changes":[{"citation":"orb","line_text":"Bullet damage increased from 10 to 12"}]}),
+            evidence_ids: vec!["orb".into()], is_error: false });
+        assert!(damage.accepts(&cited("Der Schaden stieg von 10 auf 12.")));
+        assert!(!damage.accepts(&cited("12 Schaden und 88 Leben.")));
+        assert!(!damage.accepts(&cited("Baba hat 999 Leben.")));
+        assert_eq!(
+            normalized_set(&["45".into(), "40".into()]),
+            normalized_set(&["40.0".into(), "45".into()])
+        );
     }
 
     #[test]

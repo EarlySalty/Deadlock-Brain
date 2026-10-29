@@ -384,17 +384,32 @@ struct NoteLine<'a> {
     section: Option<&'a str>,
     line: usize,
     piece: usize,
-    text: &'a str,
+    indent: usize,
+    text: String,
+    qualified: bool,
 }
 
 impl NoteLine<'_> {
     fn json(&self) -> serde_json::Value {
-        let values = explicit_values(self.text);
+        let values = (!self.qualified)
+            .then(|| explicit_values(&self.text))
+            .flatten();
         serde_json::json!({
             "section": self.section, "line_index": self.line, "piece_index": self.piece,
             "line_text": self.text, "stat_label": values.map(|v| v.2),
             "old": values.map(|v| v.0), "new": values.map(|v| v.1),
         })
+    }
+
+    fn extend(&mut self, text: &str) -> bool {
+        let text = bullet(text).unwrap_or(text).trim();
+        if self.text.len() + text.len() >= LINE_BYTES {
+            return false;
+        }
+        self.text.push(' ');
+        self.text.push_str(text);
+        self.qualified = true;
+        true
     }
 }
 
@@ -402,18 +417,44 @@ fn hero_section(section: Option<&str>) -> bool {
     section.is_some_and(|name| name.to_ascii_lowercase().contains("hero"))
 }
 
+fn indent(text: &str) -> usize {
+    text.len() - text.trim_start().len()
+}
+
 fn note_lines(content: &str) -> Vec<NoteLine<'_>> {
-    let mut output = Vec::new();
+    let mut output: Vec<NoteLine<'_>> = Vec::new();
     let mut section = None;
+    let mut open = false;
     for (line, text) in content.lines().enumerate() {
+        if text.trim().is_empty() {
+            open = false;
+            continue;
+        }
         let mut piece = 0;
         for chunk in chunks(text) {
             match chunk {
-                Chunk::Section(name) => section = Some(name),
+                Chunk::Section(name) => {
+                    section = Some(name);
+                    open = false;
+                }
                 Chunk::Text(body) => {
                     for part in pieces(body) {
-                        if !hero_section(section) && subject_line(part, line, piece).is_none() {
-                            output.extend(note_line(part, section, line, piece));
+                        let continues = open
+                            && piece == 0
+                            && subject_line(part, line, piece).is_none()
+                            && output.last().is_some_and(|note| {
+                                bullet(part).is_none() || indent(part) > note.indent
+                            });
+                        if continues {
+                            open = output.last_mut().is_some_and(|note| note.extend(part));
+                        } else if !hero_section(section)
+                            && subject_line(part, line, piece).is_none()
+                        {
+                            let note = note_line(part, section, line, piece);
+                            open = note.is_some();
+                            output.extend(note);
+                        } else {
+                            open = false;
                         }
                         piece += 1;
                     }
@@ -432,11 +473,13 @@ fn note_line<'a>(
 ) -> Option<NoteLine<'a>> {
     let text = bullet(piece)?.trim();
     let words = text.chars().filter(|ch| ch.is_alphabetic()).count();
-    (text.len() <= LINE_BYTES && words >= 3).then_some(NoteLine {
+    (text.len() <= LINE_BYTES && words >= 3).then(|| NoteLine {
         section,
         line,
         piece: index,
-        text,
+        indent: indent(piece),
+        text: text.to_owned(),
+        qualified: false,
     })
 }
 

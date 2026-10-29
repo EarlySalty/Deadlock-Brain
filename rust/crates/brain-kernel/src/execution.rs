@@ -294,10 +294,8 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
     let mut build_executions = Vec::<brain_contracts::ToolExecution>::new();
     let mut conversation = ToolConversation::default();
     let mut evidence = Vec::<Evidence>::new();
-    let mut ledger = super::value_gate::ValueLedger::with_question(
-        &brain_contracts::provider_input::current_question(query),
-    );
-    let mut rejected_numbers: Option<Vec<String>> = None;
+    let mut ledger = super::value_gate::ValueLedger::default();
+    let mut rejected_numbers: Option<std::collections::BTreeSet<String>> = None;
     let mut provider_rounds = 0usize;
     let mut previous_round = None;
     let mut tool_calls = 0usize;
@@ -563,10 +561,11 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                         );
                     }
                     let soft = insufficient || retry;
+                    let rejected = super::value_gate::normalized_set(&unsupported);
                     let repeated =
-                        !unsupported.is_empty() && rejected_numbers.as_ref() == Some(&unsupported);
-                    if !unsupported.is_empty() {
-                        rejected_numbers = Some(unsupported.clone());
+                        !rejected.is_empty() && rejected_numbers.as_ref() == Some(&rejected);
+                    if !rejected.is_empty() {
+                        rejected_numbers = Some(rejected);
                     }
                     if (discarded || (soft && !soft_retried))
                         && !repeated

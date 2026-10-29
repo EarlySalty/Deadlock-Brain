@@ -35,6 +35,11 @@ const CURRENT_ALL: &str = "WITH changed AS MATERIALIZED (
     FROM serve.p4_patch_catalog c
     WHERE c.patch_id IN(SELECT patch_id FROM changed WHERE entity_id IN(SELECT entity_id FROM playable))
     ORDER BY released_at DESC,patch_id DESC LIMIT 1";
+const CURRENT_CATALOG: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
+    'released_at',released_at,'official_url',official_url,'head_citation',official_receipt_id::text,
+    'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
+    'url_citation',url_receipt_id::text)
+    FROM serve.p4_patch_catalog ORDER BY released_at DESC,patch_id DESC LIMIT 1";
 const RESOLVE: &str = "SELECT jsonb_build_object('id',patch_id,'label',label,
     'released_at',released_at,'official_url',official_url,'head_citation',official_receipt_id::text,
     'label_citation',label_receipt_id::text,'released_at_citation',released_at_receipt_id::text,
@@ -166,33 +171,50 @@ const LATEST: &str = "WITH base AS MATERIALIZED (
             ORDER BY (c.statement_index)::numeric,c.change_id)
             FROM (SELECT * FROM bound UNION ALL SELECT * FROM unbound) c),'[]'::jsonb))
     FROM head h";
-const SEARCH: &str = "WITH facts AS MATERIALIZED (
-        SELECT c.patch_id,c.label,c.released_at,c.official_receipt_id,c.label_receipt_id,
-            c.released_at_receipt_id,c.url_receipt_id,f.id,f.receipt_id,payload.value
-        FROM serve.p4_patch_catalog c CROSS JOIN LATERAL (
-            SELECT * FROM serve.current_fact f WHERE f.entity_id=c.patch_id
-                AND ((f.stat_key COLLATE \"C\" >= 'patch_change_r' AND f.stat_key COLLATE \"C\" < 'patch_change_s')
-                    OR (f.stat_key COLLATE \"C\" >= 'patch_note_' AND f.stat_key COLLATE \"C\" < 'patch_note`'))
-            OFFSET 0
-        ) f
-        CROSS JOIN LATERAL (
-            SELECT CASE WHEN pg_input_is_valid(f.value_text::text,'jsonb')
-                THEN f.value_text::jsonb ELSE '{}'::jsonb END AS value OFFSET 0
-        ) payload
-        WHERE f.raw_object_id=c.raw_object_id AND f.valid_from_run=c.ingest_run_id
-            AND (f.stat_key ~ '^patch_note_[0-9]+_[0-9]+$' OR f.stat_key ~ '^patch_change_r[0-9a-f]{64}_[0-9]+$')
-            AND ($2::text IS NULL OR c.released_at >= $2::timestamptz)
+const SEARCH: &str = "WITH catalog AS MATERIALIZED (
+        SELECT * FROM serve.p4_patch_catalog c
+        WHERE ($2::text IS NULL OR c.released_at >= $2::timestamptz)
             AND ($3::text IS NULL OR c.released_at <= $3::timestamptz)
-            AND jsonb_typeof(payload.value)='object'
+    ), facts AS MATERIALIZED (
+        SELECT c.patch_id,c.label,c.released_at,c.official_receipt_id,c.label_receipt_id,
+            c.released_at_receipt_id,c.url_receipt_id,c.extractor,c.raw_object_id,c.ingest_run_id,
+            f.id,f.receipt_id,f.value_text::text AS body
+        FROM catalog c CROSS JOIN LATERAL (
+            SELECT * FROM serve.current_fact f WHERE f.entity_id=c.patch_id
+                AND f.stat_key COLLATE \"C\" >= 'patch_change_r' AND f.stat_key COLLATE \"C\" < 'patch_change_s'
+                AND f.stat_key ~ '^patch_change_r[0-9a-f]{64}_[0-9]+$'
+            UNION ALL
+            SELECT * FROM serve.current_fact f WHERE f.entity_id=c.patch_id
+                AND f.stat_key COLLATE \"C\" >= 'patch_line_r' AND f.stat_key COLLATE \"C\" < 'patch_line_s'
+                AND f.stat_key ~ '^patch_line_r[0-9a-f]{64}_[0-9]+_[0-9]+$'
+            UNION ALL
+            SELECT * FROM serve.current_fact f WHERE f.entity_id=c.patch_id
+                AND f.stat_key COLLATE \"C\" >= 'patch_note_' AND f.stat_key COLLATE \"C\" < 'patch_note`'
+                AND f.stat_key ~ '^patch_note_[0-9]+_[0-9]+$'
+        ) f
+        WHERE f.raw_object_id=c.raw_object_id AND f.valid_from_run=c.ingest_run_id
+    ), matched AS MATERIALIZED (
+        SELECT f.*,payload.value,(SELECT count(*) FROM unnest($1::text[]) t
+            WHERE strpos(lower(payload.value->>'line_text'),t)>0) AS hits
+        FROM facts f CROSS JOIN LATERAL (
+            SELECT CASE WHEN pg_input_is_valid(f.body,'jsonb')
+                THEN f.body::jsonb ELSE '{}'::jsonb END AS value OFFSET 0
+        ) payload
+        WHERE jsonb_typeof(payload.value)='object'
             AND jsonb_typeof(payload.value->'line_text')='string' AND btrim(payload.value->>'line_text')<>''
-            AND EXISTS(SELECT 1 FROM serve.published_receipt r WHERE r.id=f.receipt_id
-                AND r.extractor=c.extractor AND r.raw_object_id=c.raw_object_id
-                AND r.ingest_run_id=c.ingest_run_id
-                AND r.locator_kind='json_pointer' AND r.locator='/raw_content')
+    ), distinct_lines AS (
+        SELECT DISTINCT ON (m.patch_id,regexp_replace(btrim(m.value->>'line_text'),'^[-*•][[:space:]]*',''))
+            m.* FROM matched m WHERE m.hits>0
+        ORDER BY m.patch_id,regexp_replace(btrim(m.value->>'line_text'),'^[-*•][[:space:]]*',''),m.id
+    ), ranked AS MATERIALIZED (
+        SELECT * FROM distinct_lines d
+        ORDER BY d.hits DESC,d.released_at DESC,d.patch_id DESC,d.id DESC LIMIT 60
     ), scored AS (
-        SELECT f.*,(SELECT count(*) FROM unnest($1::text[]) t
-            WHERE strpos(lower(f.value->>'line_text'),t)>0) AS hits
-        FROM facts f
+        SELECT * FROM ranked m
+        WHERE EXISTS(SELECT 1 FROM serve.published_receipt r WHERE r.id=m.receipt_id
+            AND r.extractor=m.extractor AND r.raw_object_id=m.raw_object_id
+            AND r.ingest_run_id=m.ingest_run_id
+            AND r.locator_kind='json_pointer' AND r.locator='/raw_content')
     ) SELECT jsonb_build_object('id',s.id,'entity_id',NULL::bigint,'section',s.value->'section',
         'subject',s.value->'subject','line_text',s.value->>'line_text','stat_label',s.value->'stat_label',
         'old',s.value->'old','new',s.value->'new','patch',s.label,'released_at',s.released_at,
@@ -200,7 +222,7 @@ const SEARCH: &str = "WITH facts AS MATERIALIZED (
         'label_citation',s.label_receipt_id::text,'released_at_citation',s.released_at_receipt_id::text,
         'url_citation',s.url_receipt_id::text,'binding_citation',NULL::text,'entity_citation',NULL::text,
         'stat_citation',NULL::text)
-    FROM scored s WHERE s.hits>0
+    FROM scored s
     ORDER BY s.hits DESC,s.released_at DESC,s.patch_id DESC,s.id DESC LIMIT 20";
 const SEARCH_TERMS: usize = 8;
 const LATEST_WINDOW: usize = 56;
@@ -488,7 +510,9 @@ async fn history_execution(
             "patch_offset_unsupported",
         ));
     }
-    let current_query = if history.entity.is_some() {
+    let current_query = if history.text.is_some() {
+        CURRENT_CATALOG
+    } else if history.entity.is_some() {
         CURRENT
     } else {
         CURRENT_ALL

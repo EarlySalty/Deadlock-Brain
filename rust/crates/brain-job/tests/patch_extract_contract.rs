@@ -131,6 +131,30 @@ fn general_section_lines_become_patch_notes_outside_hero_sections() {
     );
 }
 
+#[test]
+fn patch_note_continuations_stay_with_their_statement_and_drop_values() {
+    let content = "[ General ]\n- Trooper bounty increased from 40 to 50\n  only against objectives\n- Walker souls increased from 10 to 20\n  - when defended\n- Urn souls increased from 1 to 2\n\n  Guardian souls reduced from 3 to 2";
+    let notes: Vec<Value> = accepted("42", &envelope(content))
+        .facts
+        .iter()
+        .filter(|fact| fact.stat_key.starts_with("patch_note_"))
+        .map(|fact| serde_json::from_str(text(&fact.value)).unwrap())
+        .collect();
+    assert_eq!(notes.len(), 3);
+    assert_eq!(
+        notes[0]["line_text"],
+        "Trooper bounty increased from 40 to 50 only against objectives"
+    );
+    assert_eq!(notes[0]["old"], Value::Null);
+    assert_eq!(
+        notes[1]["line_text"],
+        "Walker souls increased from 10 to 20 when defended"
+    );
+    assert_eq!(notes[1]["new"], Value::Null);
+    assert_eq!(notes[2]["line_text"], "Urn souls increased from 1 to 2");
+    assert_eq!(notes[2]["old"], "1");
+}
+
 fn parse(content: &str) -> Vec<Value> {
     changes(&accepted("42", &envelope(content)))
 }
