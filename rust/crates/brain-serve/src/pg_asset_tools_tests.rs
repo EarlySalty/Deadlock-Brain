@@ -566,3 +566,30 @@ fn comparison_cannot_substitute_other_entities_stats_or_history() {
         .is_none());
     }
 }
+
+#[test]
+fn ability_patch_history_is_receipted_and_trimmed_oldest_first_before_values() {
+    let mut value = card(vec![fact(1, "ability_damage", 5)]);
+    let changes: Vec<Value> = (0..40)
+        .map(|index| {
+            json!({"patch_label":"Minor Update","released_at":"2026-07-28T20:24:35+00:00",
+                "line_text":format!("Lady Geist: Life Drain changed {index} {}", "x".repeat(400)),
+                "citation":(100 + index).to_string(),"source_revision":"patch-a","patch":null})
+        })
+        .collect();
+    value["history"] = json!({"meaning":"m","changes":changes,"truncated":false,"omitted_count":0});
+    let bounded = result(value.clone()).expect("card with history");
+    let history = &bounded.result["history"];
+    let kept = history["changes"].as_array().expect("changes");
+    assert!(!kept.is_empty() && kept.len() < 40);
+    assert_eq!(kept[0]["citation"], "100");
+    assert_eq!(history["omitted_count"], 40 - kept.len());
+    assert_eq!(history["truncated"], true);
+    assert_eq!(
+        bounded.result["facts"]["facts"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert!(bounded.evidence_ids.contains(&"100".to_string()));
+    value["history"]["changes"][0]["source_revision"] = json!("");
+    assert!(result(value).is_none());
+}

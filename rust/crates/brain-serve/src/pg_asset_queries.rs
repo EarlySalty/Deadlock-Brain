@@ -3,6 +3,9 @@ use brain_contracts::{PortError, ToolRequest, ToolSubrequest};
 use serde_json::{json, Value};
 use sqlx::PgConnection;
 
+#[path = "ability_history.rs"]
+mod ability_history;
+
 pub(super) const COMPARE: &str = include_str!("pg_asset_compare.sql");
 
 const CARD_FACTS: &str = r#"
@@ -189,6 +192,7 @@ async fn read_card(
     }
     if kind == "ability" {
         card["hero_selection"] = json!({"available":false,"reason":"hero_slot_not_published"});
+        ability_history::attach(connection, &mut card, id).await;
     }
     Ok(Some(card))
 }

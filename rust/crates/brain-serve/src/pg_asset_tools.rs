@@ -37,7 +37,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: ToolName::GetAbility,
-            description: "Liest eine veröffentlichte Fähigkeitskarte. Genau eine Auswahl verwenden: ability als kanonische Datenbank-ID aus find_entity oder hero als kanonische Helden-ID zusammen mit slot eins bis vier, wobei vier die ultimative Fähigkeit ist. Keine öffentlichen Spiel-IDs verwenden. Mehrdeutige Slots werden nicht geraten. Werte, Upgrades, Bedingungen und Quellenbelege unverändert beachten. Fehlender Patch oder current bedeutet beobachteter Quellenstand; historische Patches sind nicht verfügbar. Fehlende oder ausgelassene Fakten nicht ergänzen.".into(),
+            description: "Liest eine veröffentlichte Fähigkeitskarte. Genau eine Auswahl verwenden: ability als kanonische Datenbank-ID aus find_entity oder hero als kanonische Helden-ID zusammen mit slot eins bis vier, wobei vier die ultimative Fähigkeit ist. Keine öffentlichen Spiel-IDs verwenden. Mehrdeutige Slots werden nicht geraten. Werte, Upgrades, Bedingungen und Quellenbelege unverändert beachten. Fehlender Patch oder current bedeutet beobachteter Quellenstand; historische Patches sind nicht verfügbar. history.changes enthält datierte Patchnotiz-Zeilen zu dieser Fähigkeit, neueste zuerst. Nennt der Nutzer einen früheren Wert oder fragt nach einer Regel wie Heilanteil oder Ausdehnzeit, die nicht in den Werten steht, diese Zeilen mit Datum nennen: bei from X to Y galt X bis released_at und Y gilt seitdem, solange keine neuere Zeile es ändert. Fehlende oder ausgelassene Fakten nicht ergänzen.".into(),
             input_schema: json!({"type":"object","additionalProperties":false,"properties":{
                 "ability":{"type":"integer","minimum":1,"maximum":i64::MAX},
                 "hero":{"type":"integer","minimum":1,"maximum":i64::MAX},
@@ -211,6 +211,23 @@ fn lineage_receipts(value: &Value, ids: &mut BTreeSet<String>) -> Result<(), Por
     Ok(())
 }
 
+fn ability_history_receipts(value: &Value, ids: &mut BTreeSet<String>) -> Result<(), PortError> {
+    let Some(history) = value.get("history") else {
+        return Ok(());
+    };
+    let omitted = history["omitted_count"].as_u64().ok_or_else(invalid)?;
+    if history["truncated"].as_bool() != Some(omitted > 0) {
+        return Err(invalid());
+    }
+    for change in history["changes"].as_array().ok_or_else(invalid)? {
+        row_receipt(change, ids)?;
+        if !change["line_text"].is_string() || !change["released_at"].is_string() {
+            return Err(invalid());
+        }
+    }
+    Ok(())
+}
+
 fn successor_receipts(value: &Value, ids: &mut BTreeSet<String>) -> Result<(), PortError> {
     let Some(successor) = value.get("successor_item") else {
         return Ok(());
@@ -247,6 +264,7 @@ fn card_receipts(value: &Value) -> Result<BTreeSet<String>, PortError> {
     let mut ids = BTreeSet::new();
     entity_receipts(value, &mut ids)?;
     successor_receipts(value, &mut ids)?;
+    ability_history_receipts(value, &mut ids)?;
     if let Some(abilities) = value.get("abilities") {
         section_receipts(abilities, "links", &mut ids)?;
         if abilities["links"]
@@ -459,6 +477,11 @@ fn trim_card(value: &mut Value, request: &ToolRequest) -> Result<bool, PortError
     }
     if trim_history(value)? {
         return Ok(true);
+    }
+    if let Some(history) = value.get_mut("history") {
+        if trim_section(history, "changes", |_| false)? {
+            return Ok(true);
+        }
     }
     if trim_section(&mut value["facts"], "facts", |_| false)? {
         return Ok(true);
