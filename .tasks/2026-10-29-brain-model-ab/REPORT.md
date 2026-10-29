@@ -78,10 +78,10 @@ Suggested next step (needs approval, as it is a model and cost change): run Opus
 
 ## Files
 
-- `questions.json`, `ab_run.py`, `ab_metrics.py`, `ab_dump.py`, `ab_summary.py`
+- `questions.json`, `ab_run.py`, `ab_dump.py`; the analysis scripts `ab_summary.py` and `ab_metrics.py` are kept outside the repo in `~/.local/state/brain-model-ab/`
 - `run1.jsonl`/`run1.log` (rows 1 to 25 valid, also as `run1-valid.jsonl`), `run2.jsonl`/`run2.log`/`run2.ids`/`run2.start`
 - `run1-valid-enriched.jsonl`, `run2-enriched.jsonl` (rounds and tokens per row)
 - `grades.json`
-- Reproduce: `python3 -I ab_summary.py grades.json run1-valid.jsonl run2.jsonl`; `python3 -I ab_metrics.py run1-valid.jsonl "2026-10-29 09:30"` and `python3 -I ab_metrics.py run2.jsonl "2026-10-29 12:32"` (`requests_without_usage` lists requests with no usage event in the journal; empty for all 225 requests of both runs)
+- Reproduce (scripts from `~/.local/state/brain-model-ab/`): `python3 -I ab_summary.py grades.json run1-valid.jsonl run2.jsonl`; `python3 -I ab_metrics.py run1-valid.jsonl "2026-10-29 09:30"` and `python3 -I ab_metrics.py run2.jsonl "2026-10-29 12:32"` (`requests_without_usage` lists requests with no usage event in the journal; empty for all 225 requests of both runs)
 
 Temporary gateway slots and the provider were removed and dl-ai-gateway restarted (PID 322846 to 909974, 0 error lines, `brain_answer` model `claude-haiku-5-5`, live 8788 `/readyz` 200).
