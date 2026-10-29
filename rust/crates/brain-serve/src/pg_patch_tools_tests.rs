@@ -420,3 +420,25 @@ fn search_terms_keep_split_numbers_and_match_plurals() {
     );
     assert_eq!(search_terms("loss %% 5"), vec!["loss"]);
 }
+
+#[test]
+fn search_matches_count_hits_and_term_lines_like_strpos() {
+    let corpus = vec![
+        CorpusLine {
+            row: json!({"id":1}),
+            lower: "trooper orb souls 50%".into(),
+        },
+        CorpusLine {
+            row: json!({"id":2}),
+            lower: "bullet damage".into(),
+        },
+        CorpusLine {
+            row: json!({"id":3}),
+            lower: "soul orbs".into(),
+        },
+    ];
+    let terms = vec!["soul".to_string(), "orb".to_string(), "50%".to_string()];
+    let (matched, lines) = search_matches(&corpus, &terms);
+    assert_eq!(lines, vec![2, 2, 1]);
+    assert_eq!(matched, json!([{"id":1,"hits":3},{"id":3,"hits":2}]));
+}

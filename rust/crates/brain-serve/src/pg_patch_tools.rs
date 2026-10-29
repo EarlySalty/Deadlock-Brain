@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use sqlx::{Connection, PgConnection, PgPool};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -171,76 +172,8 @@ const LATEST: &str = "WITH base AS MATERIALIZED (
             ORDER BY (c.statement_index)::numeric,c.change_id)
             FROM (SELECT * FROM bound UNION ALL SELECT * FROM unbound) c),'[]'::jsonb))
     FROM head h";
-const SEARCH: &str = "WITH catalog AS MATERIALIZED (
-        SELECT * FROM serve.p4_patch_catalog c
-        WHERE ($2::text IS NULL OR c.released_at >= $2::timestamptz)
-            AND ($3::text IS NULL OR c.released_at <= $3::timestamptz)
-    ), facts AS MATERIALIZED (
-        SELECT c.patch_id,c.label,c.released_at,c.official_receipt_id,c.label_receipt_id,
-            c.released_at_receipt_id,c.url_receipt_id,c.extractor,c.raw_object_id,c.ingest_run_id,
-            f.id,f.receipt_id,f.value_text::text AS body
-        FROM catalog c CROSS JOIN LATERAL (
-            SELECT * FROM serve.current_fact f WHERE f.entity_id=c.patch_id
-                AND f.stat_key COLLATE \"C\" >= 'patch_change_r' AND f.stat_key COLLATE \"C\" < 'patch_change_s'
-                AND f.stat_key ~ '^patch_change_r[0-9a-f]{64}_[0-9]+$'
-            UNION ALL
-            SELECT * FROM serve.current_fact f WHERE f.entity_id=c.patch_id
-                AND f.stat_key COLLATE \"C\" >= 'patch_line_r' AND f.stat_key COLLATE \"C\" < 'patch_line_s'
-                AND f.stat_key ~ '^patch_line_r[0-9a-f]{64}_[0-9]+_[0-9]+$'
-            UNION ALL
-            SELECT * FROM serve.current_fact f WHERE f.entity_id=c.patch_id
-                AND f.stat_key COLLATE \"C\" >= 'patch_note_' AND f.stat_key COLLATE \"C\" < 'patch_note`'
-                AND f.stat_key ~ '^patch_note_[0-9]+_[0-9]+$'
-        ) f
-        WHERE f.raw_object_id=c.raw_object_id AND f.valid_from_run=c.ingest_run_id
-    ), matched AS MATERIALIZED (
-        SELECT f.*,payload.value,(SELECT count(*) FROM unnest($1::text[]) t
-            WHERE strpos(lower(payload.value->>'line_text'),t)>0) AS hits
-        FROM facts f CROSS JOIN LATERAL (
-            SELECT CASE WHEN pg_input_is_valid(f.body,'jsonb')
-                THEN f.body::jsonb ELSE '{}'::jsonb END AS value OFFSET 0
-        ) payload
-        WHERE jsonb_typeof(payload.value)='object'
-            AND jsonb_typeof(payload.value->'line_text')='string' AND btrim(payload.value->>'line_text')<>''
-    ), rarity AS MATERIALIZED (
-        SELECT t.term,ln((n.lines+2)/(1+count(m.id) FILTER (WHERE strpos(lower(m.value->>'line_text'),t.term)>0)))
-            /ln(n.lines+2) AS weight
-        FROM unnest($1::text[]) t(term) CROSS JOIN (SELECT count(*)::float8 AS lines FROM matched) n
-        LEFT JOIN matched m ON true GROUP BY t.term,n.lines
-    ), distinct_lines AS (
-        SELECT DISTINCT ON (m.patch_id,regexp_replace(btrim(m.value->>'line_text'),'^[-*•][[:space:]]*',''))
-            m.* FROM matched m WHERE m.hits>0
-        ORDER BY m.patch_id,regexp_replace(btrim(m.value->>'line_text'),'^[-*•][[:space:]]*',''),m.id
-    ), ranked AS MATERIALIZED (
-        SELECT d.*,sc.score FROM distinct_lines d CROSS JOIN LATERAL (
-            SELECT COALESCE(max(power(g.hits,1.75)*(CASE WHEN g.changed THEN 1.75 ELSE 1 END)
-                /(1+ln(1+g.words::float8/20))),0) AS score
-            FROM (SELECT (SELECT sum(CASE WHEN t ~ '^[0-9]' THEN (CASE WHEN lower(x.seg) ~ ('(^|[^0-9.,])'||t||'(?![.,]?[0-9])') THEN w.weight ELSE 0 END)
-                        WHEN lower(x.seg) ~ ('\\m'||t) THEN w.weight
-                        WHEN strpos(lower(x.seg),t)>0 THEN 0.5*w.weight ELSE 0 END)::float8
-                    FROM unnest($1::text[]) t JOIN rarity w ON w.term=t) AS hits,
-                cardinality(regexp_split_to_array(btrim(x.seg),'\\s+')) AS words,
-                (jsonb_typeof(d.value->'new') IN ('number','string')
-                    OR x.seg ~* '\\mfrom\\s+[-+]?[0-9.][^;]{0,48}?\\mto\\s+[-+]?[0-9.]') AS changed
-            FROM unnest(regexp_split_to_array(d.value->>'line_text','\\s+-\\s+')) x(seg)) g
-            WHERE g.hits>0
-        ) sc
-        ORDER BY sc.score DESC,d.released_at DESC,d.patch_id DESC,d.id DESC LIMIT 60
-    ), scored AS (
-        SELECT * FROM ranked m
-        WHERE EXISTS(SELECT 1 FROM serve.published_receipt r WHERE r.id=m.receipt_id
-            AND r.extractor=m.extractor AND r.raw_object_id=m.raw_object_id
-            AND r.ingest_run_id=m.ingest_run_id
-            AND r.locator_kind='json_pointer' AND r.locator='/raw_content')
-    ) SELECT jsonb_build_object('id',s.id,'entity_id',NULL::bigint,'section',s.value->'section',
-        'subject',s.value->'subject','line_text',s.value->>'line_text','stat_label',s.value->'stat_label',
-        'old',s.value->'old','new',s.value->'new','patch',s.label,'released_at',s.released_at,
-        'citation',s.receipt_id::text,'head_citation',s.official_receipt_id::text,
-        'label_citation',s.label_receipt_id::text,'released_at_citation',s.released_at_receipt_id::text,
-        'url_citation',s.url_receipt_id::text,'binding_citation',NULL::text,'entity_citation',NULL::text,
-        'stat_citation',NULL::text)
-    FROM scored s
-    ORDER BY s.score DESC,s.released_at DESC,s.patch_id DESC,s.id DESC LIMIT 20";
+const SEARCH_CORPUS: &str = include_str!("patch_search_corpus.sql");
+const SEARCH_SCORE: &str = include_str!("patch_search_score.sql");
 const SEARCH_TERMS: usize = 8;
 const LATEST_WINDOW: usize = 56;
 const PATCH_CITATIONS: [&str; 4] = [
@@ -250,6 +183,7 @@ const PATCH_CITATIONS: [&str; 4] = [
     "url_citation",
 ];
 const LATEST_CAPACITY: usize = 64;
+const CORPUS_WINDOWS: usize = 8;
 const ANSWER_CAPACITY: usize = 32;
 const RECEIPTS: &str = "SELECT jsonb_build_object('receipt_id',receipt_id,'source_id',source_id,
     'evidence_revision',evidence_revision,'receipt',receipt)
@@ -288,9 +222,21 @@ impl LatestState {
     }
 }
 
+struct CorpusLine {
+    row: Value,
+    lower: String,
+}
+
+#[derive(Default)]
+struct CorpusState {
+    generation: String,
+    windows: Vec<(String, Arc<Vec<CorpusLine>>)>,
+}
+
 #[derive(Default)]
 pub struct LatestPatchCache {
     state: tokio::sync::Mutex<LatestState>,
+    corpus: tokio::sync::Mutex<CorpusState>,
 }
 
 pub async fn execute_patch_history(
@@ -388,7 +334,7 @@ async fn patch_history_execution(
         )
     };
     let budget = context.remaining_time()?.min(budget);
-    let execution = tokio::time::timeout(budget, async {
+    let outcome = tokio::time::timeout(budget, async {
         let mut state = match cache.filter(|_| latest) {
             Some(cache) => Some(cache.state.lock().await),
             None => None,
@@ -429,13 +375,20 @@ async fn patch_history_execution(
                 )
                 .await?
             }
-            _ => history_execution(&mut transaction, id, request, history).await?,
+            _ => history_execution(&mut transaction, cache, id, request, history).await?,
         };
         transaction.commit().await.map_err(database_error)?;
         Ok::<_, PortError>(execution)
     })
     .await
-    .map_err(|_| PortError::Unavailable("Zeitgrenze für Patchwerte erreicht.".into()))??;
+    .map_err(|_| PortError::Unavailable("Zeitgrenze für Patchwerte erreicht.".into()))
+    .and_then(|execution| execution);
+    let execution = match outcome {
+        Err(PortError::Unavailable(_)) if history.text.is_some() => {
+            error_execution(id, request.name(), "patch_search_unavailable")
+        }
+        outcome => outcome?,
+    };
     context.check_deadline()?;
     execution.validate_for(&call, request, None)?;
     ensure_size(&execution)?;
@@ -457,7 +410,7 @@ async fn cached_execution(
         execution.result.call_id = id.into();
         return Ok(execution);
     }
-    let execution = history_execution(connection, id, request, history).await?;
+    let execution = history_execution(connection, None, id, request, history).await?;
     if state.entries.len() < LATEST_CAPACITY {
         state.entries.insert(key, execution.clone());
     }
@@ -478,7 +431,7 @@ async fn answer_execution(
         execution.result.call_id = id.into();
         return Ok(execution);
     }
-    let execution = history_execution(connection, id, request, history).await?;
+    let execution = history_execution(connection, Some(cache), id, request, history).await?;
     cache
         .state
         .lock()
@@ -629,6 +582,7 @@ fn patch_timestamp(patch: &Value) -> Result<&str, PortError> {
 
 async fn history_execution(
     connection: &mut PgConnection,
+    cache: Option<&LatestPatchCache>,
     id: &str,
     request: &ToolRequest,
     history: &CanonicalPatchHistoryRequest,
@@ -691,10 +645,14 @@ async fn history_execution(
         }
     }
     if let Some(text) = &history.text {
-        let rows = sqlx::query_scalar::<_, Value>(SEARCH)
-            .bind(search_terms(text))
-            .bind(timestamps[0])
-            .bind(timestamps[1])
+        let terms = search_terms(text);
+        let corpus = search_corpus(connection, cache, [timestamps[0], timestamps[1]]).await?;
+        let (matched, lines) = search_matches(&corpus, &terms);
+        let rows = sqlx::query_scalar::<_, Value>(SEARCH_SCORE)
+            .bind(&terms)
+            .bind(matched)
+            .bind(corpus.len() as f64)
+            .bind(lines)
             .fetch_all(&mut *connection)
             .await
             .map_err(database_error)?;
@@ -748,6 +706,70 @@ async fn history_execution(
         rows,
     )
     .await
+}
+
+async fn search_corpus(
+    connection: &mut PgConnection,
+    cache: Option<&LatestPatchCache>,
+    bounds: [Option<&str>; 2],
+) -> Result<Arc<Vec<CorpusLine>>, PortError> {
+    let Some(cache) = cache else {
+        return load_corpus(connection, bounds).await.map(Arc::new);
+    };
+    let generation = site_generation(connection).await?;
+    let key = format!("{bounds:?}");
+    let mut state = cache.corpus.lock().await;
+    if state.generation != generation {
+        state.generation = generation;
+        state.windows.clear();
+    }
+    if let Some((_, lines)) = state.windows.iter().find(|(window, _)| *window == key) {
+        return Ok(lines.clone());
+    }
+    let lines = Arc::new(load_corpus(connection, bounds).await?);
+    if state.windows.len() >= CORPUS_WINDOWS {
+        state.windows.remove(0);
+    }
+    state.windows.push((key, lines.clone()));
+    Ok(lines)
+}
+
+async fn load_corpus(
+    connection: &mut PgConnection,
+    bounds: [Option<&str>; 2],
+) -> Result<Vec<CorpusLine>, PortError> {
+    let rows = sqlx::query_as::<_, (Value, String)>(SEARCH_CORPUS)
+        .bind(bounds[0])
+        .bind(bounds[1])
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(database_error)?;
+    Ok(rows
+        .into_iter()
+        .map(|(row, lower)| CorpusLine { row, lower })
+        .collect())
+}
+
+fn search_matches(corpus: &[CorpusLine], terms: &[String]) -> (Value, Vec<i64>) {
+    let mut lines = vec![0_i64; terms.len()];
+    let mut matched = Vec::new();
+    for line in corpus {
+        let mut hits = 0_i64;
+        for (term, count) in terms.iter().zip(lines.iter_mut()) {
+            if line.lower.contains(term.as_str()) {
+                hits += 1;
+                *count += 1;
+            }
+        }
+        if hits > 0 {
+            let mut row = line.row.clone();
+            if let Value::Object(fields) = &mut row {
+                fields.insert("hits".into(), json!(hits));
+            }
+            matched.push(row);
+        }
+    }
+    (Value::Array(matched), lines)
 }
 
 fn search_terms(text: &str) -> Vec<String> {
