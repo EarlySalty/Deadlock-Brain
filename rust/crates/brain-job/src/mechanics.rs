@@ -68,7 +68,6 @@ const SELECTORS: &[Selector] = &[
             "citadel_trooper_spawn_interval_very_late_time",
             "citadel_trooper_health_mult",
             "citadel_trooper_health_mult_gametime",
-            "citadel_super_trooper_gold_mult",
             "citadel_trooper_instant_gold_ratio_laning",
             "citadel_trooper_instant_gold_ratio_postlaning",
             "citadel_trooper_laning_gold_rules_end_time",
@@ -123,6 +122,23 @@ const SELECTORS: &[Selector] = &[
             "npc_barrack_boss",
         ],
         fields: Some(OBJECTIVE_FIELDS),
+        stat_prefix: "",
+    },
+    Selector {
+        mechanic: "objectives",
+        path: NPC_DATA,
+        roots: &["trooper_normal", "trooper_melee", "trooper_medic"],
+        fields: Some(&["ShrinesDownBuffModifier"]),
+        stat_prefix: "",
+    },
+    Selector {
+        mechanic: "objectives",
+        path: CONVARS,
+        roots: &[
+            "citadel_super_trooper_gold_mult",
+            "citadel_no_orbs_on_objective_kill",
+        ],
+        fields: None,
         stat_prefix: "",
     },
     Selector {
@@ -555,6 +571,52 @@ mod tests {
             .map(|entity| entity.kind.as_str())
             .collect();
         assert_eq!(kinds, BTreeSet::from(["rule", "timer"]));
+    }
+
+    #[test]
+    fn shrine_buffs_and_objective_convars_join_the_objectives_rule() {
+        let set = run(
+            NPC_DATA,
+            r#"{"trooper_normal":{"MaxHealth":300,"ShrinesDownBuffModifier":{"HealthScale":1.4,
+                "DamageScale":60.0,"EnabledStateMask":"MODIFIER_STATE_SUPER_TROOPER"}}}"#,
+        );
+        assert_eq!(
+            value(
+                &set,
+                "rule_objectives__npc_data",
+                "trooper_normal_shrinesdownbuffmodifier_damagescale"
+            ),
+            "60.0"
+        );
+        assert_eq!(
+            value(
+                &set,
+                "rule_lane_troopers__npc_data",
+                "trooper_normal_maxhealth"
+            ),
+            "300"
+        );
+        let set = run(
+            CONVARS,
+            r#"{"citadel_super_trooper_gold_mult":{"value":0.85,"description":"x"},
+                "citadel_no_orbs_on_objective_kill":true}"#,
+        );
+        assert_eq!(
+            value(
+                &set,
+                "rule_objectives__convars",
+                "citadel_super_trooper_gold_mult"
+            ),
+            "0.85"
+        );
+        assert_eq!(
+            value(
+                &set,
+                "rule_objectives__convars",
+                "citadel_no_orbs_on_objective_kill"
+            ),
+            "true"
+        );
     }
 
     #[test]

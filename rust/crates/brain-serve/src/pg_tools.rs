@@ -1,3 +1,5 @@
+#[path = "mechanic_terms.rs"]
+mod mechanic_terms;
 #[path = "mechanic_tools.rs"]
 mod mechanic_tools;
 #[path = "meta_stats_tools.rs"]
@@ -7,7 +9,7 @@ mod timer_tools;
 
 use brain_contracts::{
     canonical_receipt::{format_receipt, CanonicalReceipt},
-    tools::{BuildPlanRequest, CanonicalEntityKind, GetHeroRequest, HeroSection},
+    tools::{BuildPlanRequest, CanonicalEntityKind, GetHeroRequest, HeroSection, MechanicKind},
     Accounted, AuthorizedContext, Evidence, PinnedGameContext, PortError, PortFailure, Query,
     ToolCall, ToolDefinition, ToolEvidenceDependency, ToolExecution, ToolExecutionPort, ToolName,
     ToolRequest, ToolResult, ToolSubrequest, ToolValidationPurpose, Usage, UsageAccounting,
@@ -18,6 +20,8 @@ use std::{collections::BTreeMap, future::Future, time::Duration};
 
 const MAX_BYTES: usize = 16_384;
 const MAX_EVIDENCE: usize = 100;
+const STRONG_SUGGESTION: f32 = 0.5;
+const MAX_MECHANIC_ENTITIES: i64 = 8;
 const EXACT: &str = "WITH alias_candidates AS MATERIALIZED (
     SELECT a.entity_id, a.alias_norm, a.lang, a.receipt_id, a.source_revision,
         1.0::real AS similarity
@@ -238,38 +242,37 @@ impl<T> PgTools<T> {
                     let mut rows = sqlx::query(EXACT).bind(&text).bind(kind).bind((limit + 1) as i64)
                         .fetch_all(&mut *connection).await.map_err(database_error)?;
                     let exact = !rows.is_empty();
+                    let mut matched = None;
                     if !exact {
                         rows = sqlx::query(FUZZY).bind(&text).bind(kind).bind((limit + 1) as i64)
                             .fetch_all(&mut *connection).await.map_err(database_error)?;
+                        let mechanics = if kind.is_none_or(|kind| kind == "rule") {
+                            mechanic_terms::resolve(&text)
+                        } else {
+                            Vec::new()
+                        };
+                        if !mechanics.is_empty() && !strong_suggestion(&rows) {
+                            matched = mechanic_match(&mut connection, &mechanics).await?;
+                        }
                     }
+                    if let Some(value) = matched {
+                        value
+                    } else {
                     if rows.is_empty() {
                         return Ok(error_execution(call_id, request.name(), "entity_not_found",
                             "Keine passende veröffentlichte Entität gefunden."));
                     }
                     let ambiguous = rows.len() > 1;
                     let omitted = rows.len().saturating_sub(limit);
-                    let mut entities = rows.into_iter().take(limit).map(|row| {
-                        let entity_id = row.try_get::<i64,_>("entity_id").map_err(database_error)?;
-                        let identity = row.try_get::<Value,_>("identity").map_err(database_error)?;
-                        let similarity = row.try_get::<f32,_>("similarity").map_err(database_error)?;
-                        if entity_id <= 0 || !similarity.is_finite() { return Err(invalid()); }
-                        Ok(json!({"entity_id":entity_id,
-                            "kind":row.try_get::<String,_>("kind").map_err(database_error)?,
-                            "key":row.try_get::<String,_>("key").map_err(database_error)?,
-                            "name_en":identity["name_en"], "name_de":identity["name_de"],
-                            "score":similarity,
-                            "alias":row.try_get::<String,_>("alias_norm").map_err(database_error)?,
-                            "language":row.try_get::<String,_>("lang").map_err(database_error)?,
-                            "citation":row.try_get::<String,_>("citation").map_err(database_error)?,
-                            "patch":null,"source_revision":row.try_get::<String,_>("source_revision").map_err(database_error)?,
-                            "identity":identity}))
-                    }).collect::<Result<Vec<Value>,PortError>>()?;
+                    let mut entities = rows.into_iter().take(limit).map(entity_json)
+                        .collect::<Result<Vec<Value>,PortError>>()?;
                     for entity in entities.iter_mut().filter(|entity| entity["kind"] == "item") {
                         attach_lineage(&mut connection, entity).await?;
                     }
                     json!({"entities":entities,"match":if exact {"exact"} else {"suggestion"},
                         "ambiguous":ambiguous,"resolved":exact && !ambiguous,
                         "truncated":omitted>0,"omitted_count":omitted,"omitted_count_is_lower_bound":omitted>0})
+                    }
                 }
                 ToolSubrequest::GetHero(hero) => {
                     let profile = sqlx::query_scalar::<_,Value>(hero_sql(hero))
@@ -452,7 +455,7 @@ fn kind_name(kind: CanonicalEntityKind) -> &'static str {
 fn definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {name:ToolName::FindEntity,
-            description:"Sucht veröffentlichte Spielentitäten nach Namen oder Alias. Für einen Heldensteckbrief zuerst find_entity mit kind hero verwenden und anschließend get_hero mit der zurückgegebenen entity_id. Diese positive Datenbank-ID ist keine ältere Spiel-ID. Exakte eindeutige Treffer sind aufgelöst; unscharfe Treffer sind nur Vorschläge, keine sichere Zuordnung. Bei Mehrdeutigkeit nachfragen. Items enthalten lineage: Antworte immer mit dem aktuellen Shopnamen aus name_en oder name_de und nenne einen gesuchten alten Namen aus former_names als früheren Namen. Bei status removed ist das Item nicht mehr im Shop; nenne dann den Patch und, falls vorhanden, den Nachfolger aus removed.successor. successor_item enthält dann die aktuelle Itemkarte des Nachfolgers mit Werten, Kosten, Stufe und Historie; beantworte Fragen zum alten Item mit den Werten des Nachfolgers und sage dabei, dass es die Werte des Nachfolgers sind. Ist successor_item.facts.truncated true, rufe get_item mit successor_item.identity.entity_id auf. Fragt jemand, ob das alte Item gut ist oder sich auf einem Helden lohnt, gib mit diesen Werten und den Heldendaten eine klare, begründete Einschätzung zum Nachfolger; fehlende Metastatistiken verhindern diese Einschätzung nicht, sie werden nur als fehlend benannt. history zeigt die letzten Patchnotiz-Zeilen zum Item. Belege enthalten den beobachteten Quellenstand, keinen bestätigten offiziellen Patch.".into(),
+            description:"Sucht veröffentlichte Spielentitäten nach Namen oder Alias. Für einen Heldensteckbrief zuerst find_entity mit kind hero verwenden und anschließend get_hero mit der zurückgegebenen entity_id. Diese positive Datenbank-ID ist keine ältere Spiel-ID. Exakte eindeutige Treffer sind aufgelöst; unscharfe Treffer sind nur Vorschläge, keine sichere Zuordnung. Bei Mehrdeutigkeit nachfragen. Items enthalten lineage: Antworte immer mit dem aktuellen Shopnamen aus name_en oder name_de und nenne einen gesuchten alten Namen aus former_names als früheren Namen. Bei status removed ist das Item nicht mehr im Shop; nenne dann den Patch und, falls vorhanden, den Nachfolger aus removed.successor. successor_item enthält dann die aktuelle Itemkarte des Nachfolgers mit Werten, Kosten, Stufe und Historie; beantworte Fragen zum alten Item mit den Werten des Nachfolgers und sage dabei, dass es die Werte des Nachfolgers sind. Ist successor_item.facts.truncated true, rufe get_item mit successor_item.identity.entity_id auf. Fragt jemand, ob das alte Item gut ist oder sich auf einem Helden lohnt, gib mit diesen Werten und den Heldendaten eine klare, begründete Einschätzung zum Nachfolger; fehlende Metastatistiken verhindern diese Einschätzung nicht, sie werden nur als fehlend benannt. history zeigt die letzten Patchnotiz-Zeilen zum Item. Belege enthalten den beobachteten Quellenstand, keinen bestätigten offiziellen Patch. Kartenziele und Spielmechaniken wie Guardian, Walker, Patron, Base Guardian, Shrine bzw. Schrein, Mid Boss, Urn, Sinner's Sacrifice bzw. Vaults und Rejuvenator werden auch mit Tippfehlern erkannt: match mechanic liefert das Feld mechanics; rufe dann get_mechanic mit diesem mechanic auf und nimm keinen ähnlich klingenden Helden an.".into(),
             input_schema:json!({"type":"object","additionalProperties":false,"required":["text"],"properties":{
                 "text":{"type":"string","minLength":1,"maxLength":128},
                 "kind":{"type":"string","enum":["hero","ability","item","weapon","timer","rule"]},
@@ -526,6 +529,71 @@ async fn attach_lineage(
     }
     entity["lineage"] = lineage;
     crate::pg_asset_tools::attach_successor(connection, entity, 3).await
+}
+
+fn entity_json(row: sqlx::postgres::PgRow) -> Result<Value, PortError> {
+    let entity_id = row.try_get::<i64, _>("entity_id").map_err(database_error)?;
+    let identity = row
+        .try_get::<Value, _>("identity")
+        .map_err(database_error)?;
+    let similarity = row
+        .try_get::<f32, _>("similarity")
+        .map_err(database_error)?;
+    if entity_id <= 0 || !similarity.is_finite() {
+        return Err(invalid());
+    }
+    Ok(json!({"entity_id":entity_id,
+        "kind":row.try_get::<String,_>("kind").map_err(database_error)?,
+        "key":row.try_get::<String,_>("key").map_err(database_error)?,
+        "name_en":identity["name_en"], "name_de":identity["name_de"],
+        "score":similarity,
+        "alias":row.try_get::<String,_>("alias_norm").map_err(database_error)?,
+        "language":row.try_get::<String,_>("lang").map_err(database_error)?,
+        "citation":row.try_get::<String,_>("citation").map_err(database_error)?,
+        "patch":null,"source_revision":row.try_get::<String,_>("source_revision").map_err(database_error)?,
+        "identity":identity}))
+}
+
+fn strong_suggestion(rows: &[sqlx::postgres::PgRow]) -> bool {
+    rows.first()
+        .and_then(|row| row.try_get::<f32, _>("similarity").ok())
+        .is_some_and(|similarity| similarity >= STRONG_SUGGESTION)
+}
+
+async fn mechanic_match(
+    connection: &mut PgConnection,
+    mechanics: &[MechanicKind],
+) -> Result<Option<Value>, PortError> {
+    let mut entities = Vec::new();
+    let mut found = Vec::new();
+    for mechanic in mechanics {
+        let alias = format!("mechanic_{}", mechanic.as_str());
+        let rows = sqlx::query(EXACT)
+            .bind(&alias)
+            .bind("rule")
+            .bind(MAX_MECHANIC_ENTITIES)
+            .fetch_all(&mut *connection)
+            .await
+            .map_err(database_error)?;
+        if rows.is_empty() {
+            continue;
+        }
+        found.push(mechanic.as_str());
+        for row in rows {
+            let mut entity = entity_json(row)?;
+            entity["mechanic"] = mechanic.as_str().into();
+            entities.push(entity);
+        }
+    }
+    if found.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(
+        json!({"entities":entities,"match":"mechanic","mechanics":found,
+        "ambiguous":found.len()>1,"resolved":found.len()==1,
+        "next":"get_mechanic mit mechanic aus mechanics aufrufen",
+        "truncated":false,"omitted_count":0,"omitted_count_is_lower_bound":false}),
+    ))
 }
 
 fn citations(value: &Value, ids: &mut BTreeMap<i64, String>) -> Result<(), PortError> {
