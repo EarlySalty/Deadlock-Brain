@@ -7,7 +7,7 @@ use brain_contracts::{
 use serde_json::{json, Value};
 use sqlx::{Connection, PgConnection, PgPool};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     time::{Duration, Instant},
 };
 
@@ -207,8 +207,19 @@ const SEARCH: &str = "WITH catalog AS MATERIALIZED (
             m.* FROM matched m WHERE m.hits>0
         ORDER BY m.patch_id,regexp_replace(btrim(m.value->>'line_text'),'^[-*•][[:space:]]*',''),m.id
     ), ranked AS MATERIALIZED (
-        SELECT * FROM distinct_lines d
-        ORDER BY d.hits DESC,d.released_at DESC,d.patch_id DESC,d.id DESC LIMIT 60
+        SELECT d.*,sc.score FROM distinct_lines d CROSS JOIN LATERAL (
+            SELECT COALESCE(max(power(g.hits,1.75)*(CASE WHEN g.changed THEN 1.75 ELSE 1 END)
+                /(1+ln(1+g.words::float8/20))),0) AS score
+            FROM (SELECT (SELECT sum(CASE WHEN lower(x.seg) ~ ('\\m'||t) THEN 1.0
+                        WHEN strpos(lower(x.seg),t)>0 THEN 0.5 ELSE 0 END)::float8
+                    FROM unnest($1::text[]) t) AS hits,
+                cardinality(regexp_split_to_array(btrim(x.seg),'\\s+')) AS words,
+                (jsonb_typeof(d.value->'new') IN ('number','string')
+                    OR x.seg ~* '\\mfrom\\s+[-+]?[0-9.][^;]{0,48}?\\mto\\s+[-+]?[0-9.]') AS changed
+            FROM unnest(regexp_split_to_array(d.value->>'line_text','\\s+-\\s+')) x(seg)) g
+            WHERE g.hits>0
+        ) sc
+        ORDER BY sc.score DESC,d.released_at DESC,d.patch_id DESC,d.id DESC LIMIT 60
     ), scored AS (
         SELECT * FROM ranked m
         WHERE EXISTS(SELECT 1 FROM serve.published_receipt r WHERE r.id=m.receipt_id
@@ -223,7 +234,7 @@ const SEARCH: &str = "WITH catalog AS MATERIALIZED (
         'url_citation',s.url_receipt_id::text,'binding_citation',NULL::text,'entity_citation',NULL::text,
         'stat_citation',NULL::text)
     FROM scored s
-    ORDER BY s.hits DESC,s.released_at DESC,s.patch_id DESC,s.id DESC LIMIT 20";
+    ORDER BY s.score DESC,s.released_at DESC,s.patch_id DESC,s.id DESC LIMIT 20";
 const SEARCH_TERMS: usize = 8;
 const LATEST_WINDOW: usize = 56;
 const PATCH_CITATIONS: [&str; 4] = [
@@ -233,6 +244,7 @@ const PATCH_CITATIONS: [&str; 4] = [
     "url_citation",
 ];
 const LATEST_CAPACITY: usize = 64;
+const ANSWER_CAPACITY: usize = 32;
 const RECEIPTS: &str = "SELECT jsonb_build_object('receipt_id',receipt_id,'source_id',source_id,
     'evidence_revision',evidence_revision,'receipt',receipt)
     FROM serve.p4_patch_receipt WHERE receipt_id=ANY($1::bigint[]) ORDER BY receipt_id LIMIT 172";
@@ -241,6 +253,33 @@ const RECEIPTS: &str = "SELECT jsonb_build_object('receipt_id',receipt_id,'sourc
 struct LatestState {
     generation: String,
     entries: BTreeMap<String, ToolExecution>,
+    answers: VecDeque<(String, ToolExecution)>,
+}
+
+impl LatestState {
+    fn refresh(&mut self, generation: &str) {
+        if self.generation != generation {
+            self.generation = generation.to_owned();
+            self.entries.clear();
+            self.answers.clear();
+        }
+    }
+
+    fn answer(&mut self, generation: &str, key: &str) -> Option<ToolExecution> {
+        self.refresh(generation);
+        self.answers
+            .iter()
+            .find(|(cached, _)| cached == key)
+            .map(|(_, execution)| execution.clone())
+    }
+
+    fn remember(&mut self, generation: &str, key: String, execution: ToolExecution) {
+        self.refresh(generation);
+        if self.answers.len() >= ANSWER_CAPACITY {
+            self.answers.pop_front();
+        }
+        self.answers.push_back((key, execution));
+    }
 }
 
 #[derive(Default)]
@@ -255,7 +294,7 @@ pub async fn execute_patch_history(
     id: &str,
     request: &ToolRequest,
 ) -> Result<ToolExecution, PortError> {
-    run_patch_history(pool, None, query, context, id, request).await
+    run_patch_history(pool, None, true, query, context, id, request).await
 }
 
 pub async fn execute_cached_patch_history(
@@ -266,19 +305,20 @@ pub async fn execute_cached_patch_history(
     id: &str,
     request: &ToolRequest,
 ) -> Result<ToolExecution, PortError> {
-    run_patch_history(pool, Some(cache), query, context, id, request).await
+    run_patch_history(pool, Some(cache), true, query, context, id, request).await
 }
 
 async fn run_patch_history(
     pool: &PgPool,
     cache: Option<&LatestPatchCache>,
+    reuse: bool,
     query: &Query,
     context: &AuthorizedContext,
     id: &str,
     request: &ToolRequest,
 ) -> Result<ToolExecution, PortError> {
     let started = Instant::now();
-    let execution = patch_history_execution(pool, cache, query, context, id, request).await;
+    let execution = patch_history_execution(pool, cache, reuse, query, context, id, request).await;
     eprintln!(
         "{}",
         json!({
@@ -308,6 +348,7 @@ fn call_shape(request: &ToolRequest) -> Value {
 async fn patch_history_execution(
     pool: &PgPool,
     cache: Option<&LatestPatchCache>,
+    reuse: bool,
     query: &Query,
     context: &AuthorizedContext,
     id: &str,
@@ -365,9 +406,24 @@ async fn patch_history_execution(
                 "Patchabfrage benötigt den freigegebenen Lesezugang.".into(),
             ));
         }
-        let execution = match state.as_deref_mut() {
-            Some(state) => cached_execution(&mut transaction, state, id, request, history).await?,
-            None => history_execution(&mut transaction, id, request, history).await?,
+        let execution = match (state.as_deref_mut(), cache) {
+            (Some(state), _) => {
+                cached_execution(&mut transaction, state, id, request, history).await?
+            }
+            (None, Some(cache))
+                if reuse && history.text.is_some() && !query.request_id.is_empty() =>
+            {
+                answer_execution(
+                    &mut transaction,
+                    cache,
+                    &query.request_id,
+                    id,
+                    request,
+                    history,
+                )
+                .await?
+            }
+            _ => history_execution(&mut transaction, id, request, history).await?,
         };
         transaction.commit().await.map_err(database_error)?;
         Ok::<_, PortError>(execution)
@@ -387,14 +443,8 @@ async fn cached_execution(
     request: &ToolRequest,
     history: &CanonicalPatchHistoryRequest,
 ) -> Result<ToolExecution, PortError> {
-    let generation: String = sqlx::query_scalar("SELECT serve.site_generation()")
-        .fetch_one(&mut *connection)
-        .await
-        .map_err(database_error)?;
-    if state.generation != generation {
-        state.generation = generation;
-        state.entries.clear();
-    }
+    let generation = site_generation(connection).await?;
+    state.refresh(&generation);
     let key = request.arguments().to_string();
     if let Some(cached) = state.entries.get(&key) {
         let mut execution = cached.clone();
@@ -408,13 +458,43 @@ async fn cached_execution(
     Ok(execution)
 }
 
+async fn answer_execution(
+    connection: &mut PgConnection,
+    cache: &LatestPatchCache,
+    request_id: &str,
+    id: &str,
+    request: &ToolRequest,
+    history: &CanonicalPatchHistoryRequest,
+) -> Result<ToolExecution, PortError> {
+    let generation = site_generation(connection).await?;
+    let key = format!("{request_id}\n{}", request.arguments());
+    if let Some(mut execution) = cache.state.lock().await.answer(&generation, &key) {
+        execution.result.call_id = id.into();
+        return Ok(execution);
+    }
+    let execution = history_execution(connection, id, request, history).await?;
+    cache
+        .state
+        .lock()
+        .await
+        .remember(&generation, key, execution.clone());
+    Ok(execution)
+}
+
+async fn site_generation(connection: &mut PgConnection) -> Result<String, PortError> {
+    sqlx::query_scalar("SELECT serve.site_generation()")
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(database_error)
+}
+
 pub async fn validate_patch_dependency(
     pool: &PgPool,
     query: &Query,
     context: &AuthorizedContext,
     dependency: &ToolEvidenceDependency,
 ) -> Result<(), PortError> {
-    revalidate(pool, None, query, context, dependency).await
+    revalidate(pool, None, false, query, context, dependency).await
 }
 
 pub async fn validate_cached_patch_dependency(
@@ -424,12 +504,23 @@ pub async fn validate_cached_patch_dependency(
     context: &AuthorizedContext,
     dependency: &ToolEvidenceDependency,
 ) -> Result<(), PortError> {
-    revalidate(pool, Some(cache), query, context, dependency).await
+    revalidate(pool, Some(cache), false, query, context, dependency).await
+}
+
+pub async fn validate_provider_patch_dependency(
+    pool: &PgPool,
+    cache: &LatestPatchCache,
+    query: &Query,
+    context: &AuthorizedContext,
+    dependency: &ToolEvidenceDependency,
+) -> Result<(), PortError> {
+    revalidate(pool, Some(cache), true, query, context, dependency).await
 }
 
 async fn revalidate(
     pool: &PgPool,
     cache: Option<&LatestPatchCache>,
+    reuse: bool,
     query: &Query,
     context: &AuthorizedContext,
     dependency: &ToolEvidenceDependency,
@@ -440,6 +531,7 @@ async fn revalidate(
     let current = run_patch_history(
         pool,
         cache,
+        reuse,
         query,
         context,
         "revalidation",

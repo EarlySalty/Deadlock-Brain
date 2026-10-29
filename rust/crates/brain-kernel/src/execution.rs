@@ -594,6 +594,7 @@ pub(super) fn answer_tools<R: RetrievalPort, P: AnswerProviderPort>(
                 ProviderTurn::ToolCalls { blocks, .. } => {
                     stage = "tool_execution";
                     conversation.unsupported_numbers.clear();
+                    rejected_numbers = None;
                     let calls = blocks
                         .iter()
                         .filter_map(|block| match block {

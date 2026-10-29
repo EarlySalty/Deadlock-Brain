@@ -180,7 +180,20 @@ impl PatchExtractor {
             }
         }
         let room = limits::ROWS.saturating_sub(set.entities.len() + set.facts.len());
-        for note in note_lines(&content).into_iter().take(room.min(NOTE_LINES)) {
+        let notes = note_lines(&content);
+        let kept = room.min(NOTE_LINES);
+        if notes.len() > kept {
+            eprintln!(
+                "{}",
+                serde_json::json!({
+                    "event": "patch_notes_truncated",
+                    "patch": key,
+                    "notes": notes.len(),
+                    "kept": kept,
+                })
+            );
+        }
+        for note in notes.into_iter().take(kept) {
             set.facts.push(Fact {
                 entity_key: key.clone(),
                 stat_key: format!("patch_note_{}_{}", note.line, note.piece),

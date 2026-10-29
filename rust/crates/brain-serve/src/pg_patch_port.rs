@@ -167,13 +167,24 @@ impl<T: ToolExecutionPort> ToolExecutionPort for PgPatchToolPort<T> {
         let mut delegated = Vec::new();
         for dependency in dependencies {
             if canonical(&dependency.request) {
-                self.drive(crate::pg_patch_tools::validate_cached_patch_dependency(
-                    &self.pool,
-                    &self.cache,
-                    query,
-                    context,
-                    dependency,
-                ))?;
+                match purpose {
+                    ToolValidationPurpose::Provider => {
+                        self.drive(crate::pg_patch_tools::validate_provider_patch_dependency(
+                            &self.pool,
+                            &self.cache,
+                            query,
+                            context,
+                            dependency,
+                        ))?
+                    }
+                    _ => self.drive(crate::pg_patch_tools::validate_cached_patch_dependency(
+                        &self.pool,
+                        &self.cache,
+                        query,
+                        context,
+                        dependency,
+                    ))?,
+                }
             } else {
                 delegated.push(dependency.clone());
             }

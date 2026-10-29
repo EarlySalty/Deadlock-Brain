@@ -376,6 +376,15 @@ async fn assert_cached_latest_matches(db: &Database, uncached: &ToolExecution) {
         )
         .await
         .unwrap();
+        p4_unit_contracts::validate_provider_patch_dependency(
+            &db.reader,
+            &cache,
+            &query,
+            &context,
+            &execution.dependencies[0],
+        )
+        .await
+        .unwrap();
     }
 }
 

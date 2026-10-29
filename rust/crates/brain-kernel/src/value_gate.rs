@@ -54,6 +54,25 @@ fn german_dates(text: &str) -> Vec<String> {
     ]
 }
 
+fn replace_bounded(text: &str, label: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut output = String::with_capacity(text.len());
+    let mut rest = 0;
+    for (start, _) in text.match_indices(label) {
+        let end = start + label.len();
+        let glued_before = start > 0 && matches!(bytes[start - 1], b'0'..=b'9' | b'.' | b',');
+        let glued_after = bytes.get(end).is_some_and(u8::is_ascii_digit);
+        if glued_before || glued_after {
+            continue;
+        }
+        output.push_str(&text[rest..start]);
+        output.push(' ');
+        rest = end;
+    }
+    output.push_str(&text[rest..]);
+    output
+}
+
 fn complement(value: &str) -> Option<String> {
     let number = value.parse::<f64>().ok()?;
     (number > 0.0 && number < 100.0 && number.fract() == 0.0)
@@ -357,7 +376,7 @@ impl ValueLedger {
             .collect();
         labels.sort_by_key(|label| std::cmp::Reverse(label.len()));
         let text = labels.into_iter().fold(answer.text.clone(), |text, label| {
-            text.replace(label.as_str(), " ")
+            replace_bounded(&text, label)
         });
         let names: BTreeSet<&str> = answer
             .cited_evidence_ids
@@ -626,5 +645,28 @@ mod tests {
             result: json!({"citation":"health", "entity_id":780, "source_revision":"780", "nested":{"citation":"foreign","value":780}}),
             evidence_ids: vec!["health".into()], is_error: false });
         assert!(!ledger.accepts(&answer(780, "health")));
+    }
+
+    #[test]
+    fn short_date_labels_do_not_erase_digits_of_other_numbers() {
+        let mut ledger = ValueLedger::default();
+        ledger.insert(&ToolResult {
+            call_id: "patch".into(),
+            name: ToolName::PatchHistory,
+            result: json!({"changes":[{"citation":"line","released_at":"2026-06-05T10:00:00+00:00",
+                "line_text":"Cooldown reduced from 1s"}]}),
+            evidence_ids: vec!["line".into()],
+            is_error: false,
+        });
+        let cited = |text: &str| ProviderAnswer {
+            text: text.into(),
+            cited_evidence_ids: vec!["line".into()],
+            claims: Vec::new(),
+            usage: Usage::default(),
+        };
+        assert!(ledger.accepts(&cited("Seit 5.6. gilt 1 Sekunde.")));
+        assert!(ledger.accepts(&cited("Seit dem 05.06.2026 gilt 1 Sekunde.")));
+        assert!(!ledger.accepts(&cited("Der Wert ist 15.6.")));
+        assert!(!ledger.accepts(&cited("Seit 5.6.27 gilt 1 Sekunde.")));
     }
 }
