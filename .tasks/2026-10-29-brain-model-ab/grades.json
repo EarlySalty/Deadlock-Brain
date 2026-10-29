@@ -35,19 +35,19 @@
  },
  "F03": {
   "haiku": {
-   "grade": "fail",
-   "wrong_facts": 1,
-   "note": "Claims 06-30-2026 reverted to 10/15/20/25; current is 12/18/24/30."
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Says 06-30-2026 restored 10/15/20/25; verified: Minor Update 06-30-2026 'Spawns at 10/15/20/25/etc'. Probe expectation stale."
   },
   "opus": {
-   "grade": "pass",
-   "wrong_facts": 0,
-   "note": "10/15/20/25 until 05-28-2026, now 12/18/24/30."
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Claims 12/18/24/30 still current; superseded on 2026-06-30."
   },
   "sonnet": {
-   "grade": "pass",
-   "wrong_facts": 0,
-   "note": "Correct history and current 12-minute start, 6-minute interval."
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Claims 12/18/24/30 still current; superseded on 2026-06-30."
   }
  },
  "F04": {
@@ -422,6 +422,856 @@
    "grade": "pass",
    "wrong_facts": 0,
    "note": "1375."
+  }
+ },
+ "O05": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Correctly says 5500 is lane Guardian, declines Base Guardian HP (4000)."
+  },
+  "opus": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Same, adds 1000 bounty."
+  },
+  "sonnet": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Same, adds 1000 bounty."
+  }
+ },
+ "O06": {
+  "haiku": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Says all Walkers equal at 6000; actual 6000/9000/12000."
+  },
+  "opus": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Says yes, all equal 6000."
+  },
+  "sonnet": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Sees only 6000, implies equal."
+  }
+ },
+ "O07": {
+  "haiku": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "opus": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Says 7000 current (12-16-2025); missed 03-06-2026 5000/10000."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "status unavailable: tool answer could not be completed (not quota)."
+  }
+ },
+ "O08": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "10 then every 5; correct since 2026-06-30 rework. Probe expectation stale."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "10 + every 5, reward 250 + 70/min."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "10 + every 5."
+  }
+ },
+ "O09": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "No value; notes 06-04-2026 capture-point rework. Deposit is instant since 2026-06-30, not mentioned."
+  },
+  "opus": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Says 5s now on favored side; deposit is instant since 2026-06-30."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  }
+ },
+ "O10": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "180s."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "180s."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "180s."
+  }
+ },
+ "O11": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "6s."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "7->6 on 2026-03-06."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  }
+ },
+ "O12": {
+  "haiku": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "opus": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "sonnet": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Declines crystal count, adds unrelated rejuv data."
+  }
+ },
+ "I01": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "65->60 on 2026-05-22."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "65->60 dated."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "65->60 dated."
+  }
+ },
+ "I02": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "110->50 on 2026-07-28."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "110->50 dated, main target only."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "110->50, undated."
+  }
+ },
+ "I03": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "25->28 on 2026-09-16."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "30->25->28 dated."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "25->28, undated."
+  }
+ },
+ "I04": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "30s + imbued cooldown, full history."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "30s + imbued cooldown, full history."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "30s + imbued cooldown since 2026-07-28."
+  }
+ },
+ "I05": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "-30->-35 on 2026-04-10."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "-30->-35 dated."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "-35, undated."
+  }
+ },
+ "I06": {
+  "haiku": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "50->60->65 dated."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "status unavailable: tool answer could not be completed."
+  }
+ },
+ "H01": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "5s, 6 is radius."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "5s, 6 is radius."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "5s, 6 is radius."
+  }
+ },
+ "H02": {
+  "haiku": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "75->60, scaling 0.75->0.5 on 2026-09-16."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "75->60, scaling 0.75->0.5 on 2026-09-16."
+  }
+ },
+ "H03": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "3 per headshot."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "3 per headshot."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "3 per headshot."
+  }
+ },
+ "H04": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "80->75->100% dated, hedges."
+  },
+  "opus": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "status unavailable: tool answer could not be completed."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  }
+ },
+ "H05": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Declines expand time, lists upgrades."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1.5->3.5 on 2026-06-30."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  }
+ },
+ "T01": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Base Guardian 1000 right, fails to resolve 'Shiren' as Shrine."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Shrine 2000, Base Guardian 1000, super troopers."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Shrine 2000, Base Guardian 1000."
+  }
+ },
+ "T02": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "0 souls, 12000+12000 HP; misses that killing Patron wins the game."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "0 souls, wins the game, 12000+12000."
+  },
+  "sonnet": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "0 souls, 12000+12000, comparison; misses win."
+  }
+ },
+ "T03": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "830 HP, regen 2."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "830 + 46 per boon."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "830 + 46 per boon."
+  }
+ },
+ "T04": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 1,
+   "note": "Correct card values but claims a patch cut charge time to 12s; actual 10-02-2025 change was 12->14."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "40 dmg, 14s, 12->14 dated."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "40 dmg, 14s, 800 souls."
+  }
+ },
+ "T05": {
+  "haiku": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence; expected: last change 10-02-2025 cooldown 12->14 (nerf)."
+  },
+  "opus": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  }
+ },
+ "T06": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1375; odd self-introduction appended."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1375, 25% nearby."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1375."
+  }
+ },
+ "T07": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "3675."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "3675."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "3675."
+  }
+ },
+ "T08": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "No live scrim data, points to announcement-scrims and signup."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Same deflection with channels and page."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  }
+ },
+ "T09": {
+  "haiku": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "opus": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Nothing on TetraHex, offers clarification and tournament chronicles."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  }
+ },
+ "T10": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "50/50 now, 60/40->65/35 dated, cannot date the move to 50/50, misses 2025 60/40."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Full chain 60/40 -> 65/35 -> 60/40 (2025-11-21) -> 50/50 (2026-06-30)."
+  },
+  "sonnet": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "50/50 now, 2024 and 2026 steps, misses 2025-11-21 return to 60/40."
+  }
+ },
+ "T11": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "100/102, 50/50 split."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "100/102, 50/50 split."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "100/102, 50/50 split."
+  }
+ },
+ "T12": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "50 in orb."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "50 in orb, deny note."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "50 in orb."
+  }
+ },
+ "T13": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "All three changes dated."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "All three changes dated."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "All three changes dated, hedges."
+  }
+ },
+ "T14": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Lists patches but says a 40/60 split is not in data, does not confirm it existed 2025-11-21 to 2026-06-30."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Confirms 40/60 between 2025-11-21 and 2026-06-30, now 50/50."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Confirms 40% orb existed, now 50/50."
+  }
+ },
+ "T15": {
+  "haiku": {
+   "grade": "fail",
+   "wrong_facts": 0,
+   "note": "Known failure persists: no resist values, only bounty and 9000 HP."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Bullet resist 15->25, spirit 40->30, fireball -10%, ally aura +15% at 28m."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Bullet resist 15->25, aura +15% at 28m, fireball -10%."
+  }
+ },
+ "T16": {
+  "haiku": {
+   "grade": "fail",
+   "wrong_facts": 0,
+   "note": "Known failure persists: only cooldown 4.5s, then trooper soul data."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Stun, troopers stunnable since 2026-05-28, urn runner, reload pause, Rebuttal -1.75s; misses objective reset and dash cancel."
+  },
+  "sonnet": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Troopers, urn, reload pause correct; no cooldown or other specs."
+  }
+ },
+ "T17": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Only 9000 for empowered stage, declines base value."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "6000/9000/12000 since 2026-03-06."
+  },
+  "sonnet": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Only 9000, declines base value."
+  }
+ },
+ "T18": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Declines, no walker resist found."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "25%, 15->25 on 2026-04-30."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "25%, 15->25 on 2026-04-30."
+  }
+ },
+ "T19": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "0/8/16/24/32/40% by attacker count, hedged."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Same plus 25% bullet resist."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Same, hedged."
+  }
+ },
+ "T20": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Declines, aura not found."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "+15% bullet/spirit, 32->28m, introduced 2024 at 25%."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "+15% bullet/spirit, 32->28m."
+  }
+ },
+ "T21": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "5500."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "5500."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "5500."
+  }
+ },
+ "T22": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "10."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "10."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "10, raw field name exposed."
+  }
+ },
+ "T23": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Declines, separates Guardian 5500 correctly."
+  },
+  "opus": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "4000 since 2026-03-06."
+  }
+ },
+ "T24": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Declines HP, gives 2000 bounty."
+  },
+  "opus": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "7000; actual 5000/10000 since 2026-03-06."
+  },
+  "sonnet": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Declines HP, gives 2000 bounty."
+  }
+ },
+ "T25": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Declines backdoor value, gives bounty."
+  },
+  "opus": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  }
+ },
+ "T26": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "60/40->65/35 and 50/50 now, misses 2025 60/40."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Confirms, 65/35, later 40% orb again, now 50/50."
+  },
+  "sonnet": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "2024 and 2026 steps, misses 2025-11-21."
+  }
+ },
+ "T27": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Declines HP (12000 + 12000 known in T02)."
+  },
+  "opus": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "sonnet": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Declines HP."
+  }
+ },
+ "T28": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1375."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1375."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1375."
+  }
+ },
+ "T29": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1000."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1000."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1000."
+  }
+ },
+ "T30": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "2000."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "2000."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "2000."
+  }
+ },
+ "T31": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Raw DamageScale 60, cannot say percent."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "+60%, 40->60 on 2026-03-06."
+  },
+  "sonnet": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Raw DamageScale 60, cannot say percent."
   }
  }
 }
