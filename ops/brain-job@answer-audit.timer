@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Deadlock Brain answer probe guard and trace audit
+
+[Timer]
+OnCalendar=*-*-* 04:10:00
+RandomizedDelaySec=10min
+Persistent=yes
+Unit=brain-job@answer-audit.service
+
+[Install]
+WantedBy=timers.target

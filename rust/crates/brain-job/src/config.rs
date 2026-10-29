@@ -68,6 +68,32 @@ impl Config {
         Ok(config)
     }
 
+    pub async fn secret(
+        &self,
+        name: &str,
+    ) -> anyhow::Result<impl std::ops::Deref<Target = String>> {
+        ensure!(
+            self.auth == Auth::Infisical && std::env::var_os("INFISICAL_TOKEN_FILE").is_none(),
+            "Geheimnisse nur über Infisical"
+        );
+        let values = deadlock_brain_core::pg::infisical_environment(
+            self.infisical_config
+                .as_deref()
+                .context("Infisical-Konfiguration fehlt")?,
+        )
+        .await?;
+        let value = values
+            .into_iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value)
+            .with_context(|| format!("{name} fehlt in Infisical"))?;
+        ensure!(
+            !value.is_empty() && value.len() <= 4096 && !value.chars().any(char::is_control),
+            "Ungültiges Geheimnis {name}"
+        );
+        Ok(value)
+    }
+
     pub async fn pool(&self) -> anyhow::Result<PgPool> {
         ensure!(
             std::env::var_os("PGOPTIONS").is_none(),

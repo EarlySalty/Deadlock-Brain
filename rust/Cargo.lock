@@ -355,6 +355,8 @@ dependencies = [
  "dbrain-sources",
  "deadlock-brain-core",
  "html5ever",
+ "regex",
+ "reqwest",
  "scraper",
  "serde",
  "serde_json",

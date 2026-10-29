@@ -78,7 +78,7 @@ fn printable(text: &str) -> String {
         .collect()
 }
 
-fn short(text: &str, limit: usize) -> String {
+pub(crate) fn short(text: &str, limit: usize) -> String {
     let flat = printable(&text.split_whitespace().collect::<Vec<_>>().join(" "));
     if flat.chars().count() <= limit {
         return flat;

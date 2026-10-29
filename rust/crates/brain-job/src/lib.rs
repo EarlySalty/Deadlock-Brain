@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
+pub mod answer_audit;
 pub mod assets;
+pub mod claims;
 pub mod config;
 pub mod docs;
 pub mod freshness;
@@ -10,6 +12,7 @@ pub mod mechanics;
 pub mod meta_source;
 pub mod meta_stats;
 pub mod patch_extract;
+pub mod probe_guard;
 pub mod questions;
 pub mod registry;
 pub mod sources;

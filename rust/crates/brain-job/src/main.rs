@@ -1,6 +1,7 @@
 use brain_job::{
+    answer_audit,
     config::Config,
-    freshness, ingest_then, questions,
+    freshness, ingest_then, probe_guard, questions,
     registry::EXTRACTORS,
     sources::{self, SOURCES},
     GameFactsStore,
@@ -13,10 +14,12 @@ use std::{
 };
 
 const USAGE: &str =
-    "Aufruf: brain-job --config <brain-job.json> ingest <source> [--input <git-repository>] | brain-job --config <brain-job.json> audit-receipts | brain-job --config <brain-job.json> freshness [--since <date>] | brain-job --config <brain-job.json> freshness-history <git-repository> | brain-job --config <brain-job.json> questions [--since <7d|24h|date>] [--status <not_answered|status>] [--limit <n>]";
+    "Aufruf: brain-job --config <brain-job.json> ingest <source> [--input <git-repository>] | brain-job --config <brain-job.json> audit-receipts | brain-job --config <brain-job.json> freshness [--since <date>] | brain-job --config <brain-job.json> freshness-history <git-repository> | brain-job --config <brain-job.json> questions [--since <7d|24h|date>] [--status <not_answered|status>] [--limit <n>] | brain-job --config <brain-job.json> answer-probe [--url <http://127.0.0.1:8788>] | brain-job --config <brain-job.json> answer-audit [--since <24h|date>] [--trace <id>] [--limit <n>] [--record]";
 const FRESHNESS_SINCE: &str = "2026-08-01";
 const QUESTIONS_SINCE: &str = "7d";
 const QUESTIONS_LIMIT: i64 = 50;
+const AUDIT_SINCE: &str = "24h";
+const AUDIT_LIMIT: i64 = 5000;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -92,6 +95,12 @@ async fn run() -> anyhow::Result<()> {
     if let [flag, config, command, rest @ ..] = args.as_slice() {
         if flag == "--config" && command == "questions" {
             return questions_command(Path::new(config), rest).await;
+        }
+        if flag == "--config" && command == "answer-probe" {
+            return probe_command(Path::new(config), rest).await;
+        }
+        if flag == "--config" && command == "answer-audit" {
+            return answer_audit_command(Path::new(config), rest).await;
         }
     }
     let (config_path, source, input) = match args.as_slice() {
@@ -309,6 +318,87 @@ async fn questions_command(path: &Path, rest: &[OsString]) -> anyhow::Result<()>
     let filter = questions_filter(rest)?;
     let pool = Config::load(path)?.pool().await?;
     let result = questions::report(&pool, &filter).await;
+    pool.close().await;
+    result
+}
+
+async fn probe_command(path: &Path, rest: &[OsString]) -> anyhow::Result<()> {
+    let url = match rest {
+        [] => probe_guard::DEFAULT_URL.to_owned(),
+        [flag, url] if flag == "--url" => url
+            .to_str()
+            .filter(|url| {
+                url.starts_with("http://127.0.0.1:") || url.starts_with("http://localhost:")
+            })
+            .ok_or_else(|| usage("Nur lokale Brain-Adressen"))?
+            .trim_end_matches('/')
+            .to_owned(),
+        _ => return Err(usage("Ungültiger Aufruf")),
+    };
+    let config = Config::load(path)?;
+    let token = config.secret(probe_guard::TOKEN_SECRET).await?;
+    let pool = config.pool().await?;
+    let result = async {
+        PgStore::new(pool.clone()).check_gamefacts_schema().await?;
+        probe_guard::run(&pool, &url, &token).await.map(|_| ())
+    }
+    .await;
+    pool.close().await;
+    result
+}
+
+fn audit_options(rest: &[OsString]) -> anyhow::Result<answer_audit::Options> {
+    let mut since = AUDIT_SINCE.to_owned();
+    let mut trace = None;
+    let mut limit = AUDIT_LIMIT;
+    let mut record = false;
+    let mut args = rest.iter();
+    while let Some(flag) = args.next() {
+        if flag == "--record" {
+            record = true;
+            continue;
+        }
+        let value = args
+            .next()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| usage("Ungültiger Wert"))?;
+        match flag.to_str() {
+            Some("--since") => since = value.to_owned(),
+            Some("--trace") => {
+                trace = Some(
+                    value
+                        .parse::<i64>()
+                        .map_err(|_| usage("Ungültige Trace-ID"))?,
+                )
+            }
+            Some("--limit") => {
+                limit = value
+                    .parse::<i64>()
+                    .map_err(|_| usage("Ungültiges Limit"))?
+                    .clamp(1, 50_000)
+            }
+            _ => return Err(usage("Ungültiger Aufruf")),
+        }
+    }
+    if record && trace.is_some() {
+        return Err(usage("--record gilt nur für Tagesläufe"));
+    }
+    Ok(answer_audit::Options {
+        since: questions::parse_since(&since, chrono::Utc::now())?,
+        trace,
+        record,
+        limit,
+    })
+}
+
+async fn answer_audit_command(path: &Path, rest: &[OsString]) -> anyhow::Result<()> {
+    let options = audit_options(rest)?;
+    let pool = Config::load(path)?.pool().await?;
+    let result = async {
+        PgStore::new(pool.clone()).check_gamefacts_schema().await?;
+        answer_audit::run(&pool, &options).await
+    }
+    .await;
     pool.close().await;
     result
 }

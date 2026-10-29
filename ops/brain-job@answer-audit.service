@@ -1,0 +1,23 @@
+[Unit]
+Description=Deadlock Brain answer probe guard and trace audit
+After=network-online.target brain-serve.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Slice=system.slice
+User=nathanael
+Group=nathanael
+WorkingDirectory=/opt/deadlock-brain/current
+LoadCredential=infisical-token:/home/nathanael/.config/infisical-tokens/infisical-token-bots
+ExecStart=-/opt/deadlock-brain/current/bin/brain-job --config /etc/deadlock-brain/brain-job.json answer-probe
+ExecStart=/opt/deadlock-brain/current/bin/brain-job --config /etc/deadlock-brain/brain-job.json answer-audit --since 24h --record
+TimeoutStartSec=100min
+TimeoutStopSec=10s
+Restart=no
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+MemoryAccounting=yes
+MemoryMax=1G
+MemorySwapMax=0
