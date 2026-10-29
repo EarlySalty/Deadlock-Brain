@@ -35,9 +35,13 @@ WITH ability_names AS MATERIALIZED (
         btrim(c.payload->>'line_text',E' \t\r\n*-​') AS line,c.stat_key
     FROM candidates c
     CROSS JOIN LATERAL (
-        SELECT p.label,p.released_at,p.extractor,p.ingest_run_id FROM serve.p4_patch_catalog p
+        SELECT p.label,coalesce(l.ledger_released_at,p.released_at) AS released_at,p.extractor,
+            p.ingest_run_id
+        FROM serve.p4_patch_catalog p
+        LEFT JOIN serve.patch_ledger_member l ON l.patch_id=p.patch_id
         WHERE p.patch_id=c.entity_id AND p.raw_object_id=c.raw_object_id
             AND p.ingest_run_id=c.valid_from_run
+            AND (l.disposition IS NULL OR l.disposition='primary')
         OFFSET 0
     ) p
     CROSS JOIN LATERAL (
