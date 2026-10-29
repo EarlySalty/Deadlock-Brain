@@ -31,7 +31,7 @@ const MEANINGS: &[(&str, &str)] = &[
     ("objectiveparams_tier2goldkill", "Walker (npc_boss_tier2): Seelen beim Zerstören"),
     ("objectiveparams_baseguardiansgoldkill", "Base Guardian (npc_barrack_boss): Seelen beim Zerstören"),
     ("objectiveparams_shrinesgoldkill", "Shrine (Schrein): Seelen beim Zerstören"),
-    ("objectiveparams_patronphase1goldkill", "Patron (npc_boss_tier3): Seelen beim Besiegen der ersten Phase"),
+    ("objectiveparams_patronphase1goldkill", "Patron (npc_boss_tier3): Seelen beim Besiegen der ersten Phase; der Wert ist die Seelenzahl, auch wenn er 0 ist, und wird dann als 0 Seelen genannt"),
     ("objectiveparams_nearplayersplitpct", "Prozentwert der Objective-Seelen für Spieler in der Nähe des Ziels; wie Team und Spieler in der Nähe genau aufgeteilt werden, steht nicht in den Daten"),
     ("objectiveparams_", "Objective-Seelen: *GoldKill = Seelen beim Zerstören, *GoldOrbs und GoldPerOrb = Seelen als Seelenorbs"),
     ("citadel_no_orbs_on_objective_kill", "true = beim Zerstören von Objectives entstehen keine Seelenorbs"),

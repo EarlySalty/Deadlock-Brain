@@ -246,11 +246,7 @@ impl<T> PgTools<T> {
                     if !exact {
                         rows = sqlx::query(FUZZY).bind(&text).bind(kind).bind((limit + 1) as i64)
                             .fetch_all(&mut *connection).await.map_err(database_error)?;
-                        let mechanics = if kind.is_none_or(|kind| kind == "rule") {
-                            mechanic_terms::resolve(&text)
-                        } else {
-                            Vec::new()
-                        };
+                        let mechanics = mechanic_terms::resolve(&text);
                         if !mechanics.is_empty() && !strong_suggestion(&rows) {
                             matched = mechanic_match(&mut connection, &mechanics, limit).await?;
                         }
