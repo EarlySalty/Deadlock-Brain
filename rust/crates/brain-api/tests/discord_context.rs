@@ -1222,10 +1222,6 @@ async fn direct_history_requires_trusted_identity_and_server_owned_projection() 
         .header("x-discord-read-access", "disabled")
         .json(&json!({"query": query("missing-identity", "Abrams"), "user_questions": ["PRIVATE_CANARY_äöüß"]})).send().await.unwrap();
     assert_eq!(response.status().as_u16(), 403);
-    let response = http.post(format!("{endpoint}/v1/answer")).bearer_auth("fixture")
-        .header("x-discord-user-id", "42")
-        .json(&json!({"query": query("missing-read-restriction", "Abrams"), "user_questions": ["PRIVATE_CANARY_äöüß"]})).send().await.unwrap();
-    assert_eq!(response.status().as_u16(), 403);
     let mut headers = reqwest::header::HeaderMap::new();
     headers.append("x-discord-user-id", "42".parse().unwrap());
     headers.append("x-discord-user-id", "43".parse().unwrap());
@@ -1233,6 +1229,76 @@ async fn direct_history_requires_trusted_identity_and_server_owned_projection() 
         .headers(headers).header("x-discord-read-access", "disabled")
         .json(&json!({"query": query("duplicate-identity", "Abrams"), "user_questions": ["PRIVATE_CANARY_äöüß"]})).send().await.unwrap();
     assert_eq!(response.status().as_u16(), 400);
+    server.abort();
+}
+
+struct AskerReadsKernel(Arc<Mutex<Vec<Option<u64>>>>);
+
+impl AnswerKernelPort for AskerReadsKernel {
+    fn answer(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> brain_contracts::AnswerResponse {
+        let discord = context
+            .discord
+            .as_ref()
+            .expect("Direktverlauf mit Lesefreigabe braucht Anfragekontext");
+        assert!(discord.allow_discord_reads);
+        assert!(context.principal.scopes.contains("bot.public"));
+        assert!(context.principal.provider_egress.contains("public"));
+        self.0.lock().unwrap().extend([discord.user_id]);
+        brain_contracts::AnswerResponse {
+            contract_version: brain_contracts::CONTRACT_VERSION.into(),
+            request_id: query.request_id.clone(),
+            knowledge_release: context.knowledge_release.clone(),
+            status: AnswerStatus::InsufficientEvidence,
+            text: "Diese Frage erreicht den Kernel.".into(),
+            citations: Vec::new(),
+            usage: Default::default(),
+        }
+    }
+    fn answer_for_publication(
+        &self,
+        query: &Query,
+        context: &AuthorizedContext,
+    ) -> brain_contracts::AnswerResponse {
+        self.answer(query, context)
+    }
+}
+
+#[tokio::test]
+async fn direct_history_with_reads_carries_the_asker_into_the_kernel() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let service = ApiService::new(
+        PolicyEngine::new(CredentialRegistry::new(vec![AuthGrant::from_secret(
+            "fixture",
+            "bot",
+            "discord",
+            BTreeSet::from(["bot.public".into()]),
+            BTreeSet::from(["public".into()]),
+        )])),
+        AskerReadsKernel(seen.clone()),
+        "context-release",
+        5000,
+        Budget::default(),
+    )
+    .with_discord_consumers(BTreeSet::from([("bot".into(), "discord".into())]));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, router(service)).await.unwrap() });
+    let client = AsyncBrainClient::new_local(&endpoint, "fixture", Duration::from_secs(5)).unwrap();
+    let history = vec!["Was war bei den Scrims?".to_string()];
+    client
+        .answer_for_discord_with_history_and_read_access(
+            &query("direct-reads", "Und bei den Teams?"),
+            42,
+            &history,
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(*seen.lock().unwrap(), vec![Some(42)]);
     server.abort();
 }
 

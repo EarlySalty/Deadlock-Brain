@@ -308,7 +308,7 @@ where
                         .get(&consumer)
                         .is_some_and(|capabilities| capabilities.contains(&task.capability.into()))
             }) || claimed_user.is_none_or(|id| id == 0)
-                || allow_discord_reads
+                || (allow_discord_reads && task.is_some())
                 || !self.discord_consumers.contains(&consumer)
                 || query.requested_scopes != std::collections::BTreeSet::from(["bot.public".into()])
                 || query.domain.is_some()
@@ -383,7 +383,10 @@ where
                 .provider_egress
                 .retain(|scope| scope == "public");
         }
-        if context.principal.scopes.contains("bot.public") && task.is_none() && !local_context {
+        if context.principal.scopes.contains("bot.public")
+            && task.is_none()
+            && (!local_context || allow_discord_reads)
+        {
             use std::io::Read;
             let mut nonce = [0u8; 32];
             if std::fs::File::open("/dev/urandom")
