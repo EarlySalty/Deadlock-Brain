@@ -59,10 +59,10 @@ def main():
             tokens_out += result["output_tokens"]
             gate += result["gate_rejections"]
             statuses[result["status"]] += 1
-            if not usage and result["status"] != "unavailable":
+            if not evs and result["status"] != "unavailable":
                 missing.append(result["request_id"])
         if missing:
-            sys.exit(f"{model}: no usage events for {len(missing)} answered requests, check since: {missing[:3]}")
+            sys.exit(f"{model}: no journal events for {len(missing)} requests, check since: {missing[:3]}")
         summary[model] = {
             "served_models": sorted(m for m in served if m),
             "statuses": dict(statuses),

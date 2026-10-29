@@ -82,6 +82,6 @@ Suggested next step (needs approval, as it is a model and cost change): run Opus
 - `run1.jsonl`/`run1.log` (rows 1 to 25 valid, also as `run1-valid.jsonl`), `run2.jsonl`/`run2.log`/`run2.ids`/`run2.start`
 - `run1-valid-enriched.jsonl`, `run2-enriched.jsonl` (rounds and tokens per row)
 - `grades.json`
-- Reproduce: `python3 -I ab_summary.py grades.json run1-valid.jsonl run2.jsonl`; `python3 -I ab_metrics.py run1-valid.jsonl "2026-10-29 09:30"` and `python3 -I ab_metrics.py run2.jsonl "2026-10-29 12:32"` (aborts if an answered request has no usage events in the journal)
+- Reproduce: `python3 -I ab_summary.py grades.json run1-valid.jsonl run2.jsonl`; `python3 -I ab_metrics.py run1-valid.jsonl "2026-10-29 09:30"` and `python3 -I ab_metrics.py run2.jsonl "2026-10-29 12:32"` (aborts if a non-unavailable request has no journal event at all, e.g. wrong since)
 
 Temporary gateway slots and the provider were removed and dl-ai-gateway restarted (PID 322846 to 909974, 0 error lines, `brain_answer` model `claude-haiku-5-5`, live 8788 `/readyz` 200).
