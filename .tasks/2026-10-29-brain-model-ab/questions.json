@@ -1,0 +1,634 @@
+[
+ {
+  "id": "F01",
+  "source": "probe",
+  "topic": "trooper flying orb split (reference case)",
+  "question": "War das nicht mal 60/40? Dachte das wäre immer noch so",
+  "history": [
+   "Wie viel bringt mir ein Trooper bei Minute 0/1"
+  ],
+  "expected": "Orb share 50% (2025-11-21 50->40, 2026-06-30 40->50). Trooper bounty 100 + 2/min since 2026-06-30."
+ },
+ {
+  "id": "F02",
+  "source": "probe",
+  "topic": "base guardian HP",
+  "question": "Hatten die nicht mal 5500?",
+  "history": [
+   "Wie viel HP hat ein Base Guardian?"
+  ],
+  "expected": "Yes, 5500 until 2026-03-06, now 4000."
+ },
+ {
+  "id": "F03",
+  "source": "probe",
+  "topic": "urn spawn times",
+  "question": "War das nicht früher alle 5 Minuten ab Minute 10?",
+  "history": [
+   "Wann spawnt die Urne?"
+  ],
+  "expected": "Yes, 10/15/20/25 until 2026-05-28, now 12/18/24/30."
+ },
+ {
+  "id": "F04",
+  "source": "probe",
+  "topic": "Echo Shard fire rate",
+  "question": "Hatte das nicht früher Feuerrate drauf?",
+  "history": [
+   "Was macht Echo Shard?"
+  ],
+  "expected": "Yes, +5% fire rate removed 2026-07-28; cooldown now 30s + imbued ability cooldown."
+ },
+ {
+  "id": "F05",
+  "source": "probe",
+  "topic": "trooper bounty history",
+  "question": "Und war das früher mehr?",
+  "history": [
+   "Wie viele Seelen gibt ein Trooper?"
+  ],
+  "expected": "Before 2026-06-30: 116 + 1.16/min; now 100 + 2/min (less before 20 min)."
+ },
+ {
+  "id": "G01",
+  "source": "probe",
+  "topic": "flying orb share",
+  "question": "Ist der Anteil vom Trooper-Orb, den man sichern oder denien kann, immer noch 40%?",
+  "history": [],
+  "expected": "No, 50% since 2026-06-30 (was 40% from 2025-11-21)."
+ },
+ {
+  "id": "G02",
+  "source": "probe",
+  "topic": "trooper bounty",
+  "question": "Trooper geben doch 116 Seelen plus 1,16 pro Minute, oder?",
+  "history": [],
+  "expected": "No, 100 + 2/min since 2026-06-30."
+ },
+ {
+  "id": "G03",
+  "source": "probe",
+  "topic": "starting souls",
+  "question": "Man startet doch mit 400 Seelen, oder?",
+  "history": [],
+  "expected": "No, 600 since 2025-11-21."
+ },
+ {
+  "id": "G04",
+  "source": "probe",
+  "topic": "first blood bounty",
+  "question": "Wie viele Seelen gibt First Blood?",
+  "history": [],
+  "expected": "125 since 2026-06-30 (was 150)."
+ },
+ {
+  "id": "G05",
+  "source": "probe",
+  "topic": "base hero kill bounty",
+  "question": "Ist der Basis-Kill-Bounty für einen Helden immer noch 250?",
+  "history": [],
+  "expected": "No, 200 since 2026-06-30 (max still 2200 at 40 min)."
+ },
+ {
+  "id": "G06",
+  "source": "probe",
+  "topic": "respawn at 20 min",
+  "question": "Respawn bei Minute 20 dauert 35 Sekunden, stimmt das noch?",
+  "history": [],
+  "expected": "No, 38s since 2026-09-16."
+ },
+ {
+  "id": "G07",
+  "source": "probe",
+  "topic": "respawn at 30 min",
+  "question": "Waren das bei Minute 30 nicht 75 Sekunden Respawn?",
+  "history": [],
+  "expected": "Was 75, now 70 (2025-12-29 / 2026-01-20)."
+ },
+ {
+  "id": "G08",
+  "source": "probe",
+  "topic": "net worth respawn penalty",
+  "question": "Respawnt man länger, wenn man reicher ist als das gegnerische Team?",
+  "history": [],
+  "expected": "Yes, +6 to +22s penalty scaling with net worth lead (2025-12-29)."
+ },
+ {
+  "id": "G09",
+  "source": "probe",
+  "topic": "trooper wave interval",
+  "question": "Kommen Trooper-Wellen immer noch alle 25 Sekunden?",
+  "history": [],
+  "expected": "Every 20s starting at 35 minutes since 2026-03-06."
+ },
+ {
+  "id": "G10",
+  "source": "probe",
+  "topic": "objective bounty share nearby heroes",
+  "question": "Kriegen die Helden in der Nähe immer noch 40% vom Objective-Bounty?",
+  "history": [],
+  "expected": "No, 40->30 (2026-07-09) ->25% (2026-09-16), rest split across all 6."
+ },
+ {
+  "id": "G11",
+  "source": "probe",
+  "topic": "trooper ally split",
+  "question": "Ist der Trooper-Seelen-Split mit Teammates noch 100/65/28/15/12/8?",
+  "history": [],
+  "expected": "No, 1/0.54/0.36/0.25/0.2/0.16 since 2025-11-21."
+ },
+ {
+  "id": "G12",
+  "source": "probe",
+  "topic": "hero kill split efficiency",
+  "question": "Bei Kills mit 3 Leuten bekommt man doch 90% Split-Effizienz, oder?",
+  "history": [],
+  "expected": "No, 85% since 2025-11-21 (100/100/85/70/55/50)."
+ },
+ {
+  "id": "G13",
+  "source": "probe",
+  "topic": "minimum unsecured souls drop",
+  "question": "Beim Tod droppen mindestens 150 ungesicherte Seelen, oder?",
+  "history": [],
+  "expected": "No, minimum 50 + 5/min since 2026-06-30."
+ },
+ {
+  "id": "G14",
+  "source": "probe",
+  "topic": "golden egg goose",
+  "question": "Die Golden Egg Goose gibt 75 Seelen pro Minute, richtig?",
+  "history": [],
+  "expected": "No, 90/min since 2026-03-06."
+ },
+ {
+  "id": "G15",
+  "source": "probe",
+  "topic": "medic trooper HP",
+  "question": "Medic Trooper haben 260 HP, oder?",
+  "history": [],
+  "expected": "No, 350 since 2025-12-16 (default trooper 300)."
+ },
+ {
+  "id": "G16",
+  "source": "probe",
+  "topic": "sinner's sacrifice return damage",
+  "question": "Sinner's Sacrifice macht 60 Return Damage, oder?",
+  "history": [],
+  "expected": "No, 80 since 2025-11-21."
+ },
+ {
+  "id": "O01",
+  "source": "probe",
+  "topic": "mid boss base HP",
+  "question": "Hat der Midboss noch 12500 Basis-HP?",
+  "history": [],
+  "expected": "No, base 13000 (2026-03-06: 11900->13000), growth 230/min since 2025-11-21."
+ },
+ {
+  "id": "O02",
+  "source": "probe",
+  "topic": "mid boss bounty",
+  "question": "Wie viele Seelen gibt der Midboss?",
+  "history": [],
+  "expected": "Base 3000 since 2026-03-06 (was 2000), +50/min."
+ },
+ {
+  "id": "O03",
+  "source": "probe",
+  "topic": "walker bounty",
+  "question": "Ein Walker gibt 4000 Seelen, oder?",
+  "history": [],
+  "expected": "No, 3500 since 2026-06-30, +5% on 2026-09-16."
+ },
+ {
+  "id": "O04",
+  "source": "probe",
+  "topic": "guardian bounty",
+  "question": "Guardians geben 1500 Seelen, richtig?",
+  "history": [],
+  "expected": "No, 1250 since 2026-06-30, +10% on 2026-09-16."
+ },
+ {
+  "id": "O05",
+  "source": "probe",
+  "topic": "base guardian HP",
+  "question": "Base Guardians haben doch 5500 HP?",
+  "history": [],
+  "expected": "No, 4000 since 2026-03-06."
+ },
+ {
+  "id": "O06",
+  "source": "probe",
+  "topic": "walker HP",
+  "question": "Haben alle Walker gleich viel Leben?",
+  "history": [],
+  "expected": "No, escalating 6000/9000/12000 since 2026-03-06 (was 8000/11000/14000 from 2025-11-21)."
+ },
+ {
+  "id": "O07",
+  "source": "probe",
+  "topic": "shrine HP",
+  "question": "Shrines haben 3000 HP, oder?",
+  "history": [],
+  "expected": "No, 5000 first / 10000 second since 2026-03-06; shrine bounty 2000."
+ },
+ {
+  "id": "O08",
+  "source": "probe",
+  "topic": "urn spawn times",
+  "question": "Die Urne spawnt bei Minute 10, 15, 20 und so weiter, oder?",
+  "history": [],
+  "expected": "No, 12/18/24/30 since 2026-05-28."
+ },
+ {
+  "id": "O09",
+  "source": "probe",
+  "topic": "urn deposit timers",
+  "question": "Abgeben der Urne dauert auf der eigenen Seite 3 Sekunden, stimmt das?",
+  "history": [],
+  "expected": "No, favored/neutral/unfavored 5/10/15s since 2026-05-22."
+ },
+ {
+  "id": "O10",
+  "source": "probe",
+  "topic": "rejuv buff duration",
+  "question": "Der Rejuv-Buff hält 4 Minuten, oder?",
+  "history": [],
+  "expected": "No, 3 minutes since 2026-06-30."
+ },
+ {
+  "id": "O11",
+  "source": "probe",
+  "topic": "rejuv drop duration",
+  "question": "Wie lange liegt der Rejuv-Drop am Boden? Immer noch 7 Sekunden?",
+  "history": [],
+  "expected": "No, 6s since 2026-03-06."
+ },
+ {
+  "id": "O12",
+  "source": "probe",
+  "topic": "2nd midboss rejuv credits",
+  "question": "Der zweite Midboss droppt doch 4 Rejuv-Kristalle?",
+  "history": [],
+  "expected": "No, 3 since 2025-10-02."
+ },
+ {
+  "id": "I01",
+  "source": "probe",
+  "topic": "Unstoppable cooldown",
+  "question": "Unstoppable hat 65 Sekunden Cooldown, oder?",
+  "history": [],
+  "expected": "No, 60s since 2026-05-22."
+ },
+ {
+  "id": "I02",
+  "source": "probe",
+  "topic": "Spirit Burn explosion damage",
+  "question": "Spirit Burn Explosion macht doch 110 Schaden?",
+  "history": [],
+  "expected": "No, 50 since 2026-07-28; cooldown now per target."
+ },
+ {
+  "id": "I03",
+  "source": "probe",
+  "topic": "Leech lifesteal",
+  "question": "Leech gibt 25% Lifesteal, richtig?",
+  "history": [],
+  "expected": "No, 28% since 2026-09-16 (was 25 from 2026-04-30)."
+ },
+ {
+  "id": "I04",
+  "source": "probe",
+  "topic": "Echo Shard cooldown",
+  "question": "Echo Shard hat 35 Sekunden Cooldown?",
+  "history": [],
+  "expected": "No, 30s + the imbued ability cooldown since 2026-07-28."
+ },
+ {
+  "id": "I05",
+  "source": "probe",
+  "topic": "Toxic Bullets anti-heal",
+  "question": "Toxic Bullets hat -30% Anti-Heal, oder?",
+  "history": [],
+  "expected": "No, -35% since 2026-04-10."
+ },
+ {
+  "id": "I06",
+  "source": "probe",
+  "topic": "Return Fire reflect",
+  "question": "Return Fire wirft 50% vom Kugelschaden zurück?",
+  "history": [],
+  "expected": "No, 65% since 2026-04-30."
+ },
+ {
+  "id": "H01",
+  "source": "probe",
+  "topic": "Abrams Seismic Impact T3",
+  "question": "Abrams Seismic Impact T3 gibt 6 Sekunden Unstoppable, oder?",
+  "history": [],
+  "expected": "No, 5s since 2026-09-16 (was 6 from 2026-05-22)."
+ },
+ {
+  "id": "H02",
+  "source": "probe",
+  "topic": "Wraith Card Trick heart heal",
+  "question": "Wraith Card Trick Herz heilt 75, stimmt das noch?",
+  "history": [],
+  "expected": "No, 60 since 2026-09-16, spirit scaling 0.5."
+ },
+ {
+  "id": "H03",
+  "source": "probe",
+  "topic": "Haze Fixation headshot stacks",
+  "question": "Haze Fixation gibt 2 Stacks pro Headshot, oder?",
+  "history": [],
+  "expected": "No, 3 since 2026-09-16."
+ },
+ {
+  "id": "H04",
+  "source": "probe",
+  "topic": "Lady Geist Life Drain heal",
+  "question": "Lady Geist Life Drain heilt 75% vom Schaden, oder?",
+  "history": [],
+  "expected": "No, 100% damage-to-heal since 2026-07-28 (DPS lowered)."
+ },
+ {
+  "id": "H05",
+  "source": "probe",
+  "topic": "Seven Storm Cloud expand time",
+  "question": "Seven Storm Cloud braucht 1,5 Sekunden zum Ausdehnen?",
+  "history": [],
+  "expected": "No, 3.5s since 2026-06-30."
+ },
+ {
+  "id": "T01",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Was bringt mir ein Shiren und ein Base Guardien wenn ich die kille",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T02",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Was bringt es, den Patron zu töten?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T03",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viel Leben hat Shiv?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T04",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Was macht das Item Mystic Burst?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T05",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Und wurde es zuletzt generft?",
+  "history": [
+   "Was macht das Item Mystic Burst?"
+  ],
+  "expected": ""
+ },
+ {
+  "id": "T06",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Was bekomme ich für einen Guardian?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T07",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viele Seelen gibt ein Walker?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T08",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Was ist so in der letzten Zeit bei den Scrims von uns und den Teams passiert",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T09",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Und was war bei TetraHex genau los?",
+  "history": [
+   "Was ist so in der letzten Zeit bei den Scrims von uns und den Teams passiert"
+  ],
+  "expected": ""
+ },
+ {
+  "id": "T10",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "War das nicht mal 60/40? Dachte das wäre immer noch so",
+  "history": [
+   "Wie viele Seelen gibt ein Trooper in Minute 0/1?",
+   "Und wie viel davon landet im Orb?"
+  ],
+  "expected": ""
+ },
+ {
+  "id": "T11",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viele Seelen gibt ein Trooper in Minute 0/1?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T12",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Und wie viel davon landet im Orb?",
+  "history": [
+   "Wie viele Seelen gibt ein Trooper in Minute 0/1?"
+  ],
+  "expected": ""
+ },
+ {
+  "id": "T13",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wann wurde geändert, wie viele Trooper-Seelen im Orb landen?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T14",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "War die Trooper-Seelen-Aufteilung zwischen Orb und Boden nicht mal 40/60?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T15",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie ist das mit den Walkern und den Resists",
+  "history": [
+   "War das nicht mal 60/40? Dachte das wäre immer noch so",
+   "Was bringt mir ein Shiren und ein Base Guardien wenn ich die kille",
+   "Was ist so in der Letzten ZEit bei den Scrims von uns und den Teams passiert",
+   "Kann ichbei den Scrims mitmachen"
+  ],
+  "expected": ""
+ },
+ {
+  "id": "T16",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie ist das mit dem Parry  Auf gegner  Trooper usw was geht was nicht was sind da so die ganzen Spezifikationen",
+  "history": [
+   "Was bringt mir ein Shiren und ein Base Guardien wenn ich die kille",
+   "Was ist so in der Letzten ZEit bei den Scrims von uns und den Teams passiert",
+   "Kann ichbei den Scrims mitmachen",
+   "Wie ist das mit den Walkern und den Resists"
+  ],
+  "expected": ""
+ },
+ {
+  "id": "T17",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viel HP hat ein Walker?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T18",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viel Kugelresistenz hat ein Walker?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T19",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Bekommt ein Walker mehr Resistenz, wenn mehrere Gegner in der Nähe sind?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T20",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Welche Aura gibt ein Walker verbündeten Helden?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T21",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viel HP hat ein Guardian?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T22",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viel Kugelresistenz hat ein Guardian?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T23",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viel HP hat ein Base Guardian?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T24",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viel HP hat ein Shrine?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T25",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viel Backdoor-Resistenz hat ein Shrine?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T26",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "War das nicht mal 60/40?",
+  "history": [
+   "Wie viele Seelen gibt ein Trooper in Minute 0/1?",
+   "Und wie viel davon landet im Orb?"
+  ],
+  "expected": ""
+ },
+ {
+  "id": "T27",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viel HP hat der Patron?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T28",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viele Seelen gibt ein Guardian?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T29",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viele Seelen gibt ein Base Guardian?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T30",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viele Seelen gibt ein Shrine?",
+  "history": [],
+  "expected": ""
+ },
+ {
+  "id": "T31",
+  "source": "answer_trace",
+  "topic": "",
+  "question": "Wie viel mehr Schaden machen Super-Trooper?",
+  "history": [],
+  "expected": ""
+ }
+]

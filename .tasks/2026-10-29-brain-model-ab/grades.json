@@ -1,0 +1,427 @@
+{
+ "F01": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Correct 50/50 now and 06-30-2026 40->50, but says it cannot date the change and omits 2025-11-21 50->40."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Full chain 60/40->65/35->60/40->50/50 with dates, 100 souls split 50/50."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Correct 50/50 now with 2024 and 2026 changes; skips 2025-11-21 step."
+  }
+ },
+ "F02": {
+  "haiku": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Confuses Base Guardian (4000 HP) with lane Guardian; claims 5500 now."
+  },
+  "opus": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Same entity confusion, says 5500 still current."
+  },
+  "sonnet": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Same entity confusion, says 5500 still current."
+  }
+ },
+ "F03": {
+  "haiku": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Claims 06-30-2026 reverted to 10/15/20/25; current is 12/18/24/30."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "10/15/20/25 until 05-28-2026, now 12/18/24/30."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Correct history and current 12-minute start, 6-minute interval."
+  }
+ },
+ "F04": {
+  "haiku": {
+   "grade": "fail",
+   "wrong_facts": 0,
+   "note": "Does not resolve Echo Shard from history, asks which item."
+  },
+  "opus": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  }
+ },
+ "F05": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Names 116 + 1.16/min -> 100 + 2/min on 06-30-2026, less before minute 20."
+  },
+  "opus": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Correct current value and older changes, but says it cannot give old absolute values."
+  },
+  "sonnet": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Correct current value, no old absolute values."
+  }
+ },
+ "G01": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "50% since 06-30-2026, prior 50->40 dated."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "50% since 06-30-2026."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Both steps dated."
+  }
+ },
+ "G02": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Corrects to 100 + 2/min."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Corrects to 100 + 2/min, adds verified 2025 history."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  }
+ },
+ "G03": {
+  "haiku": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "600."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  }
+ },
+ "G04": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "125."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "125."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "125."
+  }
+ },
+ "G05": {
+  "haiku": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "250->200 on 06-30-2026, max 2200 at 40 min."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "200 now, max 2200."
+  }
+ },
+ "G06": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "38s."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "38s."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "38s, notes old 35s ramp."
+  }
+ },
+ "G07": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "70s correct but denies it was ever 75."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "75->70 with patch date."
+  },
+  "sonnet": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "70s, cannot say whether it was 75."
+  }
+ },
+ "G08": {
+  "haiku": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Claims respawn does not depend on net worth."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "+6 to +22s, 15-30% lead, 10-25 min."
+  },
+  "sonnet": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Claims no net worth penalty exists."
+  }
+ },
+ "G09": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "30/25/20 schedule."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "30/25/20 with patch history."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "30/25/20."
+  }
+ },
+ "G10": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "25% correct, no history."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "40->30->25 dated, rest split across 6."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "40->30->25, rest split across 6."
+  }
+ },
+ "G11": {
+  "haiku": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Old 1/0.65/... -> 1/0.54/0.36/0.25/0.2/0.16 on 2025-11-21."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "Current 100/54/36/25/20/16, no date."
+  }
+ },
+ "G12": {
+  "haiku": {
+   "grade": "partial",
+   "wrong_facts": 0,
+   "note": "Correct 28.3% per head (=85% total) but says the question value is not in data."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "No, 28.3% each at 3 (=85% total), 125/57.5 comparison."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "No, 28.3% each at 3, comparison values."
+  }
+ },
+ "G13": {
+  "haiku": {
+   "grade": "fail",
+   "wrong_facts": 1,
+   "note": "Says no fixed minimum drop exists, treats 150 as container threshold."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "150 -> 50 + 5/min on 2026-06-30, prior 100 -> 150."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "150 -> 50 + 5/min on 2026-06-30."
+  }
+ },
+ "G14": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "80/min after 90->80 (probe expectation 90 is stale, 2026-09-16 nerf verified)."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "80/min, 90->80 on 2026-09-16."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "80/min, buff every 80 souls."
+  }
+ },
+ "G15": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "350."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "350, 260 dated to 2024-05-23."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "350."
+  }
+ },
+ "G16": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "60->80 on 2025-11-21, hedges."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "40->60->80 dated."
+  },
+  "sonnet": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  }
+ },
+ "O01": {
+  "haiku": {
+   "grade": "silent",
+   "wrong_facts": 0,
+   "note": "insufficient_evidence."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "13000 + 195/min (230 x 0.85 after -15% HP), 11900->13000 dated."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "13000 + 195/min, dated."
+  }
+ },
+ "O02": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "3000 + 50/min."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "3000 + 50/min."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "3000 + 50/min."
+  }
+ },
+ "O03": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "3675."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "3675, 25% to nearby."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "3675."
+  }
+ },
+ "O04": {
+  "haiku": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1375."
+  },
+  "opus": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1375."
+  },
+  "sonnet": {
+   "grade": "pass",
+   "wrong_facts": 0,
+   "note": "1375."
+  }
+ }
+}
