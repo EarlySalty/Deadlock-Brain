@@ -901,15 +901,17 @@ mod tests {
             }
         });
 
+        let mut context = context();
+        context.budget.max_input_tokens = 32_000;
         let result = provider(format!("http://{address}"))
-            .answer(&query(), &context(), &[])
+            .answer(&query(), &context, &[])
             .unwrap();
         assert_eq!(result.text, "Abrams Antwort");
         assert_eq!(result.usage.network_rounds, 2);
         assert!(result.usage.input_tokens > 12);
-        assert!(result.usage.input_tokens <= context().budget.max_input_tokens as u64);
+        assert!(result.usage.input_tokens <= context.budget.max_input_tokens as u64);
         assert!(result.usage.output_tokens > 3);
-        assert!(result.usage.output_tokens <= context().budget.max_output_tokens as u64);
+        assert!(result.usage.output_tokens <= context.budget.max_output_tokens as u64);
         server.join().unwrap();
     }
 

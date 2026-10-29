@@ -40,6 +40,11 @@ fn context() -> AuthorizedContext {
         budget: Budget::default(),
     }
 }
+fn retry_context() -> AuthorizedContext {
+    let mut context = context();
+    context.budget.max_input_tokens = 32_000;
+    context
+}
 fn json_response(status: &str, body: &str) -> String {
     format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len())
 }
@@ -834,7 +839,7 @@ fn fehlerabrechnung_erfolg_traegt_messung_und_retriereservierung_getrennt() {
         |config| {
             OpenAiCompatibleProvider::new(config)
                 .unwrap()
-                .answer_accounted(&query(), &context(), &[])
+                .answer_accounted(&query(), &retry_context(), &[])
         },
     );
     assert_eq!(calls, 2);
@@ -2015,7 +2020,7 @@ fn server_error_retries_but_retry_after_beyond_deadline_does_not() {
         |c| {
             OpenAiCompatibleProvider::new(c)
                 .unwrap()
-                .answer(&query(), &context(), &[])
+                .answer(&query(), &retry_context(), &[])
         },
     );
     assert!(result.is_ok());
@@ -2024,7 +2029,7 @@ fn server_error_retries_but_retry_after_beyond_deadline_does_not() {
     let (result, calls) = fixture(vec![(Duration::ZERO, response)], |c| {
         OpenAiCompatibleProvider::new(c)
             .unwrap()
-            .answer(&query(), &context(), &[])
+            .answer(&query(), &retry_context(), &[])
     });
     assert_eq!(result.unwrap_err(), PortError::BudgetExceeded);
     assert_eq!(calls, 1);
