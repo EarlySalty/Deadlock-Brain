@@ -135,13 +135,35 @@ pub(super) async fn read(
     }
     let mut value = present(request, rows);
     if request.mechanic == MechanicKind::LaneTroopers {
-        let history = sqlx::query_scalar::<_, Value>(ORB_HISTORY)
-            .fetch_all(connection)
-            .await
-            .map_err(super::database_error)?;
-        insert_orb_history(&mut value, &history);
+        if let Some(history) = orb_history(connection).await {
+            insert_orb_history(&mut value, &history);
+        }
     }
     Ok(Some(value))
+}
+
+async fn orb_history(connection: &mut PgConnection) -> Option<Vec<Value>> {
+    let mut savepoint = sqlx::Connection::begin(&mut *connection).await.ok()?;
+    let started = std::time::Instant::now();
+    let history = match sqlx::query_scalar::<_, Value>(ORB_HISTORY)
+        .fetch_all(&mut *savepoint)
+        .await
+    {
+        Ok(rows) => savepoint.commit().await.map(|_| rows),
+        Err(error) => {
+            let _ = savepoint.rollback().await;
+            Err(error)
+        }
+    };
+    eprintln!(
+        "{}",
+        json!({
+            "event": "brain_orb_history",
+            "ok": history.is_ok(),
+            "elapsed_ms": started.elapsed().as_millis(),
+        })
+    );
+    history.ok()
 }
 
 fn insert_orb_history(value: &mut Value, history: &[Value]) {

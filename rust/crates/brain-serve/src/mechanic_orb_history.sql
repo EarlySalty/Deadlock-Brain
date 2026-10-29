@@ -1,21 +1,18 @@
-WITH facts AS MATERIALIZED (
+WITH hits AS MATERIALIZED (
+    SELECT t.id,t.entity_id,t.stat_key FROM serve.patch_line_text t
+    WHERE t.text_lower ~ '(kill/orb|flying orb)'
+), facts AS MATERIALIZED (
     SELECT c.patch_id,c.label,c.released_at,c.extractor,c.raw_object_id,
-        c.ingest_run_id,f.id,f.receipt_id,f.value_text::text AS body
-    FROM serve.p4_patch_catalog c CROSS JOIN LATERAL (
-        SELECT * FROM serve.current_fact f WHERE f.entity_id=c.patch_id
-            AND f.stat_key COLLATE "C" >= 'patch_change_r' AND f.stat_key COLLATE "C" < 'patch_change_s'
-            AND f.stat_key ~ '^patch_change_r[0-9a-f]{64}_[0-9]+$'
-        UNION ALL
-        SELECT * FROM serve.current_fact f WHERE f.entity_id=c.patch_id
-            AND f.stat_key COLLATE "C" >= 'patch_line_r' AND f.stat_key COLLATE "C" < 'patch_line_s'
-            AND f.stat_key ~ '^patch_line_r[0-9a-f]{64}_[0-9]+_[0-9]+$'
-        UNION ALL
-        SELECT * FROM serve.current_fact f WHERE f.entity_id=c.patch_id
-            AND f.stat_key COLLATE "C" >= 'patch_note_' AND f.stat_key COLLATE "C" < 'patch_note`'
-            AND f.stat_key ~ '^patch_note_[0-9]+_[0-9]+$'
-    ) f
-    WHERE f.raw_object_id=c.raw_object_id AND f.valid_from_run=c.ingest_run_id
-        AND strpos(lower(f.value_text::text),'orb')>0
+        c.ingest_run_id,cf.id,cf.receipt_id,cf.value_text::text AS body
+    FROM hits h
+    CROSS JOIN LATERAL (
+        SELECT * FROM serve.current_fact cf
+        WHERE cf.entity_id=h.entity_id AND cf.stat_key=h.stat_key OFFSET 0
+    ) cf
+    CROSS JOIN LATERAL (
+        SELECT * FROM serve.p4_patch_catalog c WHERE c.patch_id=cf.entity_id OFFSET 0
+    ) c
+    WHERE cf.id=h.id AND cf.raw_object_id=c.raw_object_id AND cf.valid_from_run=c.ingest_run_id
 ), lines AS (
     SELECT f.*,r.source_revision,x.seg,x.ord FROM facts f
     JOIN serve.published_receipt r ON r.id=f.receipt_id

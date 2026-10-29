@@ -484,3 +484,53 @@ fn orb_share_history_lists_dated_kill_orb_changes_after_derived_rows() {
     let bytes = serde_json::to_vec(&result).map_or(usize::MAX, |v| v.len());
     assert!(bytes + evidence < 16_384, "{bytes}");
 }
+
+#[test]
+fn orb_history_failure_keeps_the_core_transaction_usable() {
+    let pg = crate::scratch_pg::ScratchPg::start();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    runtime.block_on(async {
+        let options = sqlx::postgres::PgConnectOptions::new_without_pgpass()
+            .host(&pg.directory.join("socket").to_string_lossy())
+            .port(55439)
+            .username("brain_core_test")
+            .database("postgres")
+            .password("");
+        let admin = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(options.clone())
+            .await
+            .expect("scratch DB");
+        sqlx::raw_sql("CREATE ROLE brain_migrate NOLOGIN; CREATE ROLE brain_ingest NOLOGIN; CREATE ROLE brain_service LOGIN; CREATE ROLE brain_readonly LOGIN; GRANT CREATE ON DATABASE postgres TO brain_migrate; GRANT USAGE,CREATE ON SCHEMA public TO brain_migrate")
+            .execute(&admin)
+            .await
+            .expect("scratch roles");
+        brain_storage::PgStore::new(admin.clone())
+            .migrate_gamefacts()
+            .await
+            .expect("migrations");
+        let pool = super::super::tool_pool(
+            options.username("brain_readonly"),
+            std::time::Duration::from_secs(2),
+            1,
+        );
+        let mut blocker = admin.begin().await.expect("blocking transaction");
+        sqlx::query("LOCK TABLE canon.fact IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *blocker)
+            .await
+            .expect("block history source");
+        let mut connection = pool.begin().await.expect("tool transaction");
+        assert_eq!(orb_history(&mut connection).await, None);
+        blocker.rollback().await.expect("release history source");
+        assert_eq!(orb_history(&mut connection).await, Some(Vec::new()));
+        let alive: i32 = sqlx::query_scalar("SELECT 1")
+            .fetch_one(&mut *connection)
+            .await
+            .expect("core transaction survives history failure");
+        assert_eq!(alive, 1);
+        connection.commit().await.expect("core commit");
+    });
+}
