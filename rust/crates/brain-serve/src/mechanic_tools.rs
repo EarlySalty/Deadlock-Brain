@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 
 pub(super) const QUERY: &str = include_str!("mechanic_query.sql");
 const ORB_HISTORY: &str = include_str!("mechanic_orb_history.sql");
-const ORB_SHARE_MEANING: &str = "Verlauf aus den Patchnotes: Prozentanteil der Seelen eines Lane-Troopers, der im fliegenden Seelenorb landet und gesichert oder gedeniet werden kann; der Rest kommt sofort beim Kill. Bei kill/orb-Angaben wie 60/40 ist die zweite Zahl der Orb-Anteil. old_orb_share_percent gilt vor, value und new_orb_share_percent ab released_at.";
+const ORB_SHARE_MEANING: &str = "Verlauf aus den Patchnotes: Prozentanteil der Seelen eines Lane-Troopers, der im fliegenden Seelenorb landet und gesichert oder gedeniet werden kann. Bei kill/orb-Angaben wie 60/40 ist die zweite Zahl der Orb-Anteil. old_orb_share_percent gilt vor, value und new_orb_share_percent ab released_at.";
 const MAX_ROWS: usize = 120;
 const QUERY_LIMIT: usize = 401;
 const REFERENCE_MINUTES: [u16; 4] = [0, 10, 20, 30];
@@ -166,6 +166,9 @@ fn orb_share_change(line: &Value) -> Option<Value> {
     line["source_revision"]
         .as_str()
         .filter(|revision| !revision.is_empty())?;
+    let released_at = line["released_at"]
+        .as_str()
+        .filter(|released| !released.is_empty())?;
     let lower = text.to_lowercase();
     let (_, values) = lower.split_once("from ")?;
     let (old, new) = values.split_once(" to ")?;
@@ -195,7 +198,6 @@ fn orb_share_change(line: &Value) -> Option<Value> {
         "value":format(new_share),
         "condition":{
             "meaning":ORB_SHARE_MEANING,
-            "released_at":line["released_at"],
             "patch_label":line["patch"],
             "line_text":text,
             "old_text":old,
@@ -203,6 +205,7 @@ fn orb_share_change(line: &Value) -> Option<Value> {
             "old_orb_share_percent":format(old_share),
             "new_orb_share_percent":format(new_share)
         },
+        "released_at":released_at,
         "citation":line["citation"],
         "source_revision":line["source_revision"],
         "patch":null

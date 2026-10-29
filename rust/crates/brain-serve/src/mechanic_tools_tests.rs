@@ -430,6 +430,8 @@ fn orb_share_history_lists_dated_kill_orb_changes_after_derived_rows() {
             "14",
         ),
         json!({"patch":"y","released_at":"2026-01-02T00:00:00+00:00","line_text":"Amount in the flying orb reduced from 50% to 40%","citation":"15","source_revision":""}),
+        json!({"patch":"z","released_at":"","line_text":"Amount in the flying orb reduced from 50% to 40%","citation":"16","source_revision":"rev"}),
+        json!({"patch":"z","line_text":"Amount in the flying orb reduced from 50% to 40%","citation":"17","source_revision":"rev"}),
     ];
     let mut result = present(&request(MechanicKind::LaneTroopers, None), rows);
     insert_orb_history(&mut result, &history);
@@ -443,7 +445,7 @@ fn orb_share_history_lists_dated_kill_orb_changes_after_derived_rows() {
         .iter()
         .map(|(_, row)| {
             (
-                row["condition"]["released_at"].as_str().unwrap_or_default(),
+                row["released_at"].as_str().unwrap_or_default(),
                 row["condition"]["old_orb_share_percent"]
                     .as_str()
                     .unwrap_or_default(),
