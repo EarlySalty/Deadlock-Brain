@@ -13,7 +13,7 @@ Minor Update 06-30-2026 (30.06.2026) changed it back from 40 to 50, so 50/50 sin
 
 1. Patch extraction only kept hero sections and subject-prefixed lines, so `[ General ]` lines like the orb split never reached canon.
 2. The Discord DM context resolver in brain-serve returned empty turns, so follow-ups lost their topic.
-3. The value gate rejected German dates of cited patches, numbers the user wrote and the 100-x complement of a cited split.
+3. The value gate rejected German dates of cited patches and the 100-x complement of a cited split.
 4. Identical rejections were retried until the round limit.
 
 ## Changes
@@ -21,7 +21,7 @@ Minor Update 06-30-2026 (30.06.2026) changed it back from 40 to 50, so 50/50 sin
 - brain-job `patchnotes` extractor v6 emits `patch_note_<line>_<piece>` facts for non-hero bullet lines.
 - `patch_history` takes an optional `text` search across all patches and sections (terms ranked, then date).
 - brain-serve DM context projects prior questions to a fixed list of public game terms.
-- Value gate: German dates of cited patches, question numbers, complements of cited percentages in (0,100).
+- Value gate: German dates of cited patches; the 100-x complement of a cited percentage only in split notation next to it (40/60). Numbers from the question stay unsupported unless evidenced.
 - Kernel stops retrying when the unsupported set is unchanged from the previous round.
 
 ## Verification
