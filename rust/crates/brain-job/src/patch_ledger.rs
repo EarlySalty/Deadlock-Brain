@@ -3,6 +3,8 @@ use sqlx::PgPool;
 use std::collections::{BTreeMap, BTreeSet};
 
 const WINDOW_MICROS: i64 = 36 * 3_600_000_000;
+const CONTENT_WINDOW_MICROS: i64 = 7 * 24 * 3_600_000_000;
+const CONTENT_MIN_LINES: usize = 3;
 const SAME_TITLE_MICROS: i64 = 3_600_000_000;
 const MAJOR_CHARS: usize = 15_000;
 const GAMEPLAY_CHARS: usize = 1_500;
@@ -111,10 +113,19 @@ fn stub_of(stub: &Prepared, other: &Prepared) -> bool {
             .contains(&other.post.title.trim().to_lowercase())
 }
 
+fn same_notes(a: &Prepared, b: &Prepared, min_lines: usize) -> bool {
+    let (small, large) = if a.lines.len() <= b.lines.len() {
+        (&a.lines, &b.lines)
+    } else {
+        (&b.lines, &a.lines)
+    };
+    small.len() >= min_lines.max(1) && small.intersection(large).count() * 5 >= small.len() * 4
+}
+
 fn duplicate(a: &Prepared, b: &Prepared) -> bool {
     let gap = (a.post.posted_micros - b.post.posted_micros).abs();
     if gap > WINDOW_MICROS {
-        return false;
+        return gap <= CONTENT_WINDOW_MICROS && same_notes(a, b, CONTENT_MIN_LINES);
     }
     if stub_of(a, b) || stub_of(b, a) {
         return true;
@@ -127,12 +138,7 @@ fn duplicate(a: &Prepared, b: &Prepared) -> bool {
     if !a.post.raw_content.is_empty() && a.post.raw_content.trim() == b.post.raw_content.trim() {
         return true;
     }
-    let (small, large) = if a.lines.len() <= b.lines.len() {
-        (&a.lines, &b.lines)
-    } else {
-        (&b.lines, &a.lines)
-    };
-    !small.is_empty() && small.intersection(large).count() * 5 >= small.len() * 4
+    same_notes(a, b, 1)
 }
 
 fn root(parent: &mut [usize], mut node: usize) -> usize {
@@ -149,7 +155,9 @@ fn groups(prepared: &[Prepared]) -> Vec<Vec<usize>> {
     let mut parent: Vec<usize> = (0..prepared.len()).collect();
     for (position, &a) in order.iter().enumerate() {
         for &b in &order[position + 1..] {
-            if prepared[b].post.posted_micros - prepared[a].post.posted_micros > WINDOW_MICROS {
+            if prepared[b].post.posted_micros - prepared[a].post.posted_micros
+                > CONTENT_WINDOW_MICROS
+            {
                 break;
             }
             if duplicate(&prepared[a], &prepared[b]) {
