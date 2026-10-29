@@ -72,7 +72,7 @@ def match(turn, window, rows, used):
         row for row in rows
         if row["id"] not in used
         and window["first"] <= row["recorded_us"] <= window["last"] + TRACE_SLACK_US
-        and row["status"] == trace_status(turn["status"])
+        and row["status"] in (turn["status"], trace_status(turn["status"]))
         and turn["latency_ms"] - LATENCY_SLACK_MS <= row["latency_ms"] <= turn["latency_ms"]
     ]
     exact = [row for row in candidates if row["digest"] == digest]
