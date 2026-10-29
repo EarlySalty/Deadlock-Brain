@@ -63,3 +63,7 @@ Die beiden Releasezeiger wechseln einzeln atomar. Vorher wird `.deploy-pending.j
 Der Helfer entfernt nur seine Build-Zwischenartefakte und fehlgeschlagene eigene Bundles. Historische Bundles werden nicht anhand ihres Alters gelöscht: Laufende und mögliche Rückfallstände bleiben erhalten. Worktree- und allgemeines Cargo-Cache-Aufräumen liegen außerhalb dieses Helfers. Ein neues Helferbinary darf erst installiert werden, wenn `pgrep -x brain-release` keinen Prozess findet.
 
 Die Tests prüfen echte Dateien, Symlinks, Hardlinks, Hashes, Prozessabbrüche und flock sowie einen kleinen echten Cargo-Releasebau. Die Herkunftsprüfung wird gegen veränderte Bundlebytes und passend gefälschte Hashes geprüft. Der vollständige Brain-Release und die laufenden Dienste müssen nach dem Merge separat geprüft werden.
+
+## Answer probe around install
+
+Run the answer probe against the live service before and after every `install`; see `.tasks/2026-10-29-brain-data-coverage/README.md`. `release_check.sh before <state>` records the baseline, `release_check.sh after <state> <previous sha>` exits non-zero on any per-probe regression and prints the `rollback` command. A full run costs about $0.5 in provider tokens and takes 30 to 40 minutes.

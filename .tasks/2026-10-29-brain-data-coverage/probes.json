@@ -1,0 +1,901 @@
+[
+ {
+  "id": "D01",
+  "kind": "data",
+  "topic": "Walker HP",
+  "turns": [
+   "Wie viel HP hat ein Walker?"
+  ],
+  "expected": "6000, then 9000 and 12000 after each destroyed Walker",
+  "expect": [
+   [
+    "6000"
+   ],
+   [
+    "9000"
+   ],
+   [
+    "12000"
+   ]
+  ]
+ },
+ {
+  "id": "D02",
+  "kind": "data",
+  "topic": "Walker bullet resist",
+  "turns": [
+   "Wie viel Kugelresistenz hat ein Walker?"
+  ],
+  "expected": "35 % bullet resist",
+  "expect": [
+   [
+    "35"
+   ]
+  ]
+ },
+ {
+  "id": "D03",
+  "kind": "data",
+  "topic": "Walker nearby-enemy resist",
+  "turns": [
+   "Bekommt ein Walker mehr Resistenz, wenn mehrere Gegner in der Nähe sind?"
+  ],
+  "expected": "0/0/0/20/30/40/50 by number of enemies within 50.8 m",
+  "expect": [
+   [
+    "20"
+   ],
+   [
+    "50"
+   ]
+  ]
+ },
+ {
+  "id": "D04",
+  "kind": "data",
+  "topic": "Walker ally aura",
+  "turns": [
+   "Welche Aura gibt ein Walker verbündeten Helden?"
+  ],
+  "expected": "15 % bullet and spirit resist within 28 m",
+  "expect": [
+   [
+    "15"
+   ],
+   [
+    "28"
+   ]
+  ]
+ },
+ {
+  "id": "D05",
+  "kind": "data",
+  "topic": "Guardian HP",
+  "turns": [
+   "Wie viel HP hat ein Guardian?"
+  ],
+  "expected": "5500",
+  "expect": [
+   [
+    "5500"
+   ]
+  ]
+ },
+ {
+  "id": "D06",
+  "kind": "data",
+  "topic": "Guardian bullet resist",
+  "turns": [
+   "Wie viel Kugelresistenz hat ein Guardian?"
+  ],
+  "expected": "10 %",
+  "expect": [
+   [
+    "10"
+   ]
+  ]
+ },
+ {
+  "id": "D07",
+  "kind": "data",
+  "topic": "Base Guardian HP",
+  "turns": [
+   "Wie viel HP hat ein Base Guardian?"
+  ],
+  "expected": "4000",
+  "expect": [
+   [
+    "4000"
+   ]
+  ]
+ },
+ {
+  "id": "D08",
+  "kind": "data",
+  "topic": "Base Guardian backdoor",
+  "turns": [
+   "Wie funktioniert der Backdoor-Schutz beim Base Guardian?"
+  ],
+  "expected": "40 % extra bullet resist, minus 20 per hero nearby",
+  "expect": [
+   [
+    "40"
+   ],
+   [
+    "20"
+   ]
+  ]
+ },
+ {
+  "id": "D09",
+  "kind": "data",
+  "topic": "Shrine HP",
+  "turns": [
+   "Wie viel HP hat ein Shrine?"
+  ],
+  "expected": "5000, 10000 after the first shrine dies",
+  "expect": [
+   [
+    "5000"
+   ],
+   [
+    "10000"
+   ]
+  ]
+ },
+ {
+  "id": "D10",
+  "kind": "data",
+  "topic": "Shrine backdoor",
+  "turns": [
+   "Wie viel Backdoor-Resistenz hat ein Shrine?"
+  ],
+  "expected": "60 %, minus 20 per hero",
+  "expect": [
+   [
+    "60"
+   ],
+   [
+    "20"
+   ]
+  ]
+ },
+ {
+  "id": "D11",
+  "kind": "data",
+  "topic": "Patron HP",
+  "turns": [
+   "Wie viel HP hat der Patron?"
+  ],
+  "expected": "12000 per phase",
+  "expect": [
+   [
+    "12000"
+   ]
+  ]
+ },
+ {
+  "id": "D12",
+  "kind": "data",
+  "topic": "Guardian reward",
+  "turns": [
+   "Wie viele Seelen gibt ein Guardian?"
+  ],
+  "expected": "1375",
+  "expect": [
+   [
+    "1375"
+   ]
+  ]
+ },
+ {
+  "id": "D13",
+  "kind": "data",
+  "topic": "Walker reward",
+  "turns": [
+   "Wie viele Seelen gibt ein Walker?"
+  ],
+  "expected": "3675",
+  "expect": [
+   [
+    "3675"
+   ]
+  ]
+ },
+ {
+  "id": "D14",
+  "kind": "data",
+  "topic": "Base Guardian reward",
+  "turns": [
+   "Wie viele Seelen gibt ein Base Guardian?"
+  ],
+  "expected": "1000",
+  "expect": [
+   [
+    "1000"
+   ]
+  ]
+ },
+ {
+  "id": "D15",
+  "kind": "data",
+  "topic": "Shrine reward",
+  "turns": [
+   "Wie viele Seelen gibt ein Shrine?"
+  ],
+  "expected": "2000",
+  "expect": [
+   [
+    "2000"
+   ]
+  ]
+ },
+ {
+  "id": "D16",
+  "kind": "data",
+  "topic": "super trooper damage",
+  "turns": [
+   "Wie viel mehr Schaden machen Super-Trooper?"
+  ],
+  "expected": "+60 % damage after shrines are down",
+  "expect": [
+   [
+    "60"
+   ]
+  ]
+ },
+ {
+  "id": "D17",
+  "kind": "data",
+  "topic": "super trooper bounty",
+  "turns": [
+   "Geben Super-Trooper weniger Seelen?"
+  ],
+  "expected": "15 % less (0.85)",
+  "expect": [
+   [
+    "15"
+   ]
+  ]
+ },
+ {
+  "id": "D18",
+  "kind": "data",
+  "topic": "trooper bounty",
+  "turns": [
+   "Wie viele Seelen gibt ein Trooper?"
+  ],
+  "expected": "100 + 2 per minute",
+  "expect": [
+   [
+    "100"
+   ],
+   [
+    "2"
+   ]
+  ]
+ },
+ {
+  "id": "D19",
+  "kind": "data",
+  "topic": "mid boss bounty",
+  "turns": [
+   "Wie viele Seelen gibt der Mid Boss?"
+  ],
+  "expected": "3000 + 50 per minute",
+  "expect": [
+   [
+    "3000"
+   ],
+   [
+    "50"
+   ]
+  ]
+ },
+ {
+  "id": "D20",
+  "kind": "data",
+  "topic": "hero kill bounty",
+  "turns": [
+   "Wie viele Seelen gibt ein Hero-Kill minimal und maximal?"
+  ],
+  "expected": "200 to 2200",
+  "expect": [
+   [
+    "200"
+   ],
+   [
+    "2200"
+   ]
+  ]
+ },
+ {
+  "id": "D21",
+  "kind": "data",
+  "topic": "item tiers",
+  "turns": [
+   "Was kosten die Item-Stufen?"
+  ],
+  "expected": "800/1600/3200/6400",
+  "expect": [
+   [
+    "800"
+   ],
+   [
+    "1600"
+   ],
+   [
+    "3200"
+   ],
+   [
+    "6400"
+   ]
+  ]
+ },
+ {
+  "id": "D22",
+  "kind": "data",
+  "topic": "trooper share two players",
+  "turns": [
+   "Wie werden Trooper-Seelen geteilt, wenn zwei Spieler in der Nähe sind?"
+  ],
+  "expected": "0.54 each",
+  "expect": [
+   [
+    "54"
+   ]
+  ]
+ },
+ {
+  "id": "D23",
+  "kind": "data",
+  "topic": "rejuvenator duration",
+  "turns": [
+   "Wie lange hält der Rejuvenator-Buff?"
+  ],
+  "expected": "180 s",
+  "expect": [
+   [
+    "180",
+    "3 Minuten"
+   ]
+  ]
+ },
+ {
+  "id": "D24",
+  "kind": "data",
+  "topic": "parry stun",
+  "turns": [
+   "Wie lange betäubt ein Parry?"
+  ],
+  "expected": "2.75 s",
+  "expect": [
+   [
+    "2.75"
+   ]
+  ]
+ },
+ {
+  "id": "D25",
+  "kind": "data",
+  "topic": "parry damage amp",
+  "turns": [
+   "Wie viel mehr Schaden nimmt ein geparrierter Gegner?"
+  ],
+  "expected": "+25 % damage taken",
+  "expect": [
+   [
+    "25"
+   ]
+  ]
+ },
+ {
+  "id": "D26",
+  "kind": "data",
+  "topic": "parry cooldown",
+  "turns": [
+   "Welchen Cooldown hat Parry?"
+  ],
+  "expected": "4.5 s",
+  "expect": [
+   [
+    "4.5"
+   ]
+  ]
+ },
+ {
+  "id": "D27",
+  "kind": "data",
+  "topic": "dash cost",
+  "turns": [
+   "Wie viel Ausdauer kostet ein Dash?"
+  ],
+  "expected": "1 stamina",
+  "expect": [
+   [
+    "1"
+   ]
+  ]
+ },
+ {
+  "id": "D28",
+  "kind": "data",
+  "topic": "down dash cost",
+  "turns": [
+   "Wie viel Ausdauer kostet ein Down-Dash?"
+  ],
+  "expected": "0.5 stamina",
+  "expect": [
+   [
+    "0.5"
+   ]
+  ]
+ },
+ {
+  "id": "D29",
+  "kind": "data",
+  "topic": "wall jump",
+  "turns": [
+   "Wie viel Ausdauer kostet ein Wall Jump?"
+  ],
+  "expected": "0.5, first one free",
+  "expect": [
+   [
+    "0.5"
+   ],
+   [
+    "erste",
+    "ersten",
+    "1"
+   ]
+  ]
+ },
+ {
+  "id": "D30",
+  "kind": "data",
+  "topic": "Shiv HP",
+  "turns": [
+   "Wie viel Leben hat Shiv?"
+  ],
+  "expected": "830",
+  "expect": [
+   [
+    "830"
+   ]
+  ]
+ },
+ {
+  "id": "D31",
+  "kind": "data",
+  "topic": "Haze HP",
+  "turns": [
+   "Wie viel HP hat Haze?"
+  ],
+  "expected": "730",
+  "expect": [
+   [
+    "730"
+   ]
+  ]
+ },
+ {
+  "id": "D32",
+  "kind": "data",
+  "topic": "Infernus HP",
+  "turns": [
+   "Wie viel HP hat Infernus?"
+  ],
+  "expected": "830",
+  "expect": [
+   [
+    "830"
+   ]
+  ]
+ },
+ {
+  "id": "D33",
+  "kind": "data",
+  "topic": "Bebop HP",
+  "turns": [
+   "Wie viel HP hat Bebop?"
+  ],
+  "expected": "880",
+  "expect": [
+   [
+    "880"
+   ]
+  ]
+ },
+ {
+  "id": "D34",
+  "kind": "data",
+  "topic": "Wraith HP",
+  "turns": [
+   "Wie viel HP hat Wraith?"
+  ],
+  "expected": "730",
+  "expect": [
+   [
+    "730"
+   ]
+  ]
+ },
+ {
+  "id": "D35",
+  "kind": "data",
+  "topic": "Yamato HP",
+  "turns": [
+   "Wie viel HP hat Yamato?"
+  ],
+  "expected": "730",
+  "expect": [
+   [
+    "730"
+   ]
+  ]
+ },
+ {
+  "id": "D36",
+  "kind": "data",
+  "topic": "Extra Health",
+  "turns": [
+   "Was kostet Extra Health und wie viel HP gibt es?"
+  ],
+  "expected": "800, +210 HP",
+  "expect": [
+   [
+    "800"
+   ],
+   [
+    "210"
+   ]
+  ]
+ },
+ {
+  "id": "D37",
+  "kind": "data",
+  "topic": "Headshot Booster",
+  "turns": [
+   "Wie viel Bonusschaden macht Headshot Booster?"
+  ],
+  "expected": "45",
+  "expect": [
+   [
+    "45"
+   ]
+  ]
+ },
+ {
+  "id": "D38",
+  "kind": "data",
+  "topic": "Echo Shard cooldown",
+  "turns": [
+   "Welchen Cooldown hat Echo Shard?"
+  ],
+  "expected": "30 s",
+  "expect": [
+   [
+    "30"
+   ]
+  ]
+ },
+ {
+  "id": "D39",
+  "kind": "data",
+  "topic": "Mystic Burst cooldown",
+  "turns": [
+   "Welchen Cooldown hat Mystic Burst?"
+  ],
+  "expected": "14 s",
+  "expect": [
+   [
+    "14"
+   ]
+  ]
+ },
+ {
+  "id": "D40",
+  "kind": "data",
+  "topic": "Extra Stamina",
+  "turns": [
+   "Was gibt Extra Stamina?"
+  ],
+  "expected": "+1 stamina, 800",
+  "expect": [
+   [
+    "1"
+   ],
+   [
+    "800"
+   ]
+  ]
+ },
+ {
+  "id": "D41",
+  "kind": "data",
+  "topic": "Fleetfoot",
+  "turns": [
+   "Was kostet Fleetfoot?"
+  ],
+  "expected": "1600",
+  "expect": [
+   [
+    "1600"
+   ]
+  ]
+ },
+ {
+  "id": "D42",
+  "kind": "data",
+  "topic": "Unstoppable cooldown",
+  "turns": [
+   "Welchen Cooldown hat Unstoppable?"
+  ],
+  "expected": "60 s",
+  "expect": [
+   [
+    "60"
+   ]
+  ]
+ },
+ {
+  "id": "D43",
+  "kind": "data",
+  "topic": "Monster Rounds",
+  "turns": [
+   "Wie viel Waffenschaden gegen NPCs gibt Monster Rounds?"
+  ],
+  "expected": "+25 %",
+  "expect": [
+   [
+    "25"
+   ]
+  ]
+ },
+ {
+  "id": "D44",
+  "kind": "data",
+  "topic": "Spirit Strike cooldown",
+  "turns": [
+   "Welchen Cooldown hat Spirit Strike?"
+  ],
+  "expected": "8 s",
+  "expect": [
+   [
+    "8"
+   ]
+  ]
+ },
+ {
+  "id": "D45",
+  "kind": "data",
+  "topic": "level souls",
+  "turns": [
+   "Wie viele Seelen braucht man für Level 1 und Level 2?"
+  ],
+  "expected": "200 and 500",
+  "expect": [
+   [
+    "200"
+   ],
+   [
+    "500"
+   ]
+  ]
+ },
+ {
+  "id": "M01",
+  "kind": "member",
+  "topic": "shrine + base guardian reward (trace 1327)",
+  "turns": [
+   "Was bringt mir ein Shiren und ein Base Guardien wenn ich die kille"
+  ],
+  "expected": "Shrine 2000, Base Guardian 1000",
+  "expect": [
+   [
+    "2000"
+   ],
+   [
+    "1000"
+   ]
+  ]
+ },
+ {
+  "id": "M02",
+  "kind": "member",
+  "topic": "patron kill (trace 1328)",
+  "turns": [
+   "Was bringt es, den Patron zu töten?"
+  ],
+  "expected": "Killing the Patron ends the match; no soul bounty since 2024-10-24",
+  "expect": [
+   [
+    "Sieg",
+    "gewinn",
+    "gewonnen",
+    "Spiel"
+   ]
+  ]
+ },
+ {
+  "id": "M03",
+  "kind": "member",
+  "topic": "Shiv HP (trace 1329)",
+  "turns": [
+   "Wie viel Leben hat Shiv?"
+  ],
+  "expected": "830",
+  "expect": [
+   [
+    "830"
+   ]
+  ]
+ },
+ {
+  "id": "M04",
+  "kind": "member",
+  "topic": "Mystic Burst + nerf (traces 1330/1331)",
+  "turns": [
+   "Was macht das Item Mystic Burst?",
+   "Und wurde es zuletzt generft?"
+  ],
+  "expected": "Cooldown 12 -> 14 on 2025-10-02",
+  "expect": [
+   [
+    "14"
+   ],
+   [
+    "12"
+   ]
+  ]
+ },
+ {
+  "id": "M05",
+  "kind": "member",
+  "topic": "Guardian reward (trace 1333)",
+  "turns": [
+   "Was bekomme ich für einen Guardian?"
+  ],
+  "expected": "1375",
+  "expect": [
+   [
+    "1375"
+   ]
+  ]
+ },
+ {
+  "id": "M06",
+  "kind": "member",
+  "topic": "Walker souls (trace 1334)",
+  "turns": [
+   "Wie viele Seelen gibt ein Walker?"
+  ],
+  "expected": "3675",
+  "expect": [
+   [
+    "3675"
+   ]
+  ]
+ },
+ {
+  "id": "M07",
+  "kind": "member",
+  "topic": "orb split follow-up (trace 1342)",
+  "turns": [
+   "Wie viele Seelen gibt ein Trooper in Minute 0/1?",
+   "War das nicht mal 60/40? Dachte das wäre immer noch so"
+  ],
+  "expected": "Orb share now 50 %",
+  "expect": [
+   [
+    "50"
+   ]
+  ]
+ },
+ {
+  "id": "M08",
+  "kind": "member",
+  "topic": "trooper minute 0/1 (trace 1343)",
+  "turns": [
+   "Wie viele Seelen gibt ein Trooper in Minute 0/1?"
+  ],
+  "expected": "100 at minute 0, 102 at minute 1",
+  "expect": [
+   [
+    "100"
+   ],
+   [
+    "102"
+   ]
+  ]
+ },
+ {
+  "id": "M09",
+  "kind": "member",
+  "topic": "orb share (trace 1345)",
+  "turns": [
+   "Wie viele Seelen gibt ein Trooper in Minute 0/1?",
+   "Und wie viel davon landet im Orb?"
+  ],
+  "expected": "50 %",
+  "expect": [
+   [
+    "50"
+   ]
+  ]
+ },
+ {
+  "id": "M10",
+  "kind": "member",
+  "topic": "orb split change date (trace 1348)",
+  "turns": [
+   "Wann wurde geändert, wie viele Trooper-Seelen im Orb landen?"
+  ],
+  "expected": "2025-11-21 to 40 %, 2026-06-30 back to 50 %",
+  "expect": [
+   [
+    "2026"
+   ]
+  ]
+ },
+ {
+  "id": "M11",
+  "kind": "member",
+  "topic": "40/60 split (trace 1350)",
+  "turns": [
+   "War die Trooper-Seelen-Aufteilung zwischen Orb und Boden nicht mal 40/60?"
+  ],
+  "expected": "Now 50/50",
+  "expect": [
+   [
+    "50"
+   ]
+  ]
+ },
+ {
+  "id": "W01",
+  "kind": "trigger",
+  "topic": "Walker resists (trace 1357)",
+  "turns": [
+   "Wie ist das mit den Walkern und den Resists"
+  ],
+  "expected": "35 % bullet resist; up to +50 with many enemies near; 15 % aura for allies",
+  "expect": [
+   [
+    "35"
+   ],
+   [
+    "15"
+   ],
+   [
+    "50"
+   ]
+  ]
+ },
+ {
+  "id": "P01",
+  "kind": "trigger",
+  "topic": "Parry (trace 1359)",
+  "turns": [
+   "Wie ist das mit dem Parry Auf gegner Trooper usw was geht was nicht was sind da so die ganzen Spezifikationen"
+  ],
+  "expected": "Stun 2.75 s, +25 % damage, cooldown 4.5 s, troopers stunned without cooldown reset, guardian not stunned",
+  "expect": [
+   [
+    "2.75"
+   ],
+   [
+    "25"
+   ],
+   [
+    "Trooper"
+   ],
+   [
+    "Guardian",
+    "Boss",
+    "Objekt",
+    "Objective"
+   ]
+  ]
+ }
+]
