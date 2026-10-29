@@ -37,7 +37,7 @@ const MEANINGS: &[(&str, &str)] = &[
     ("citadel_no_orbs_on_objective_kill", "true = beim Zerstören von Objectives entstehen keine Seelenorbs"),
     ("citadel_super_trooper_gold_mult", "Super Trooper: Faktor auf die Seelen je Super Trooper (Quelle: Mult Gold Bounty from Super Troopers by this amount)"),
     ("shrinesdownbuffmodifier_healthscale", "Super Trooper (ShrinesDownBuffModifier, aktiv wenn Shrines zerstört sind): Faktor auf das Leben des Troopers"),
-    ("shrinesdownbuffmodifier_damagescale", "Super Trooper (ShrinesDownBuffModifier, aktiv wenn Shrines zerstört sind): Schadensbonus des Troopers in Prozent"),
+    ("shrinesdownbuffmodifier_damagescale", "Super Trooper (ShrinesDownBuffModifier, aktiv wenn Shrines zerstört sind): Wert DamageScale des Modifiers; ob das Prozent oder ein Faktor ist, steht nicht in den Daten, deshalb den Wert nur als DamageScale nennen"),
     ("npc_boss_tier1_", "Guardian (npc_boss_tier1)"),
     ("npc_boss_tier2_", "Walker (npc_boss_tier2)"),
     ("npc_boss_tier3_", "Patron (npc_boss_tier3)"),
