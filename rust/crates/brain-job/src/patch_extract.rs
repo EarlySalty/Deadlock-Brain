@@ -1,3 +1,5 @@
+#[path = "patch_line.rs"]
+pub mod line;
 #[path = "patch_source.rs"]
 pub mod source;
 

@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use brain_job::{
     answer_audit,
     config::Config,
@@ -14,7 +15,7 @@ use std::{
 };
 
 const USAGE: &str =
-    "Aufruf: brain-job --config <brain-job.json> ingest <source> [--input <git-repository>] | brain-job --config <brain-job.json> audit-receipts | brain-job --config <brain-job.json> freshness [--since <date>] | brain-job --config <brain-job.json> freshness-history <git-repository> | brain-job --config <brain-job.json> questions [--since <7d|24h|date>] [--status <not_answered|status>] [--limit <n>] | brain-job --config <brain-job.json> answer-probe [--url <http://127.0.0.1:8788>] | brain-job --config <brain-job.json> answer-audit [--since <24h|date>] [--trace <id>] [--limit <n>] [--record]";
+    "Aufruf: brain-job --config <brain-job.json> ingest <source> [--input <git-repository>] | brain-job --config <brain-job.json> audit-receipts | brain-job --config <brain-job.json> freshness [--since <date>] | brain-job --config <brain-job.json> freshness-history <git-repository> | brain-job --config <brain-job.json> questions [--since <7d|24h|date>] [--status <not_answered|status>] [--limit <n>] | brain-job --config <brain-job.json> answer-probe [--url <http://127.0.0.1:8788>] | brain-job --config <brain-job.json> answer-audit [--since <24h|date>] [--trace <id>] [--limit <n>] [--record] | brain-job --config <brain-job.json> patch-line-import <korrekturen.tsv>";
 const FRESHNESS_SINCE: &str = "2026-08-01";
 const QUESTIONS_SINCE: &str = "7d";
 const QUESTIONS_LIMIT: i64 = 50;
@@ -102,6 +103,9 @@ async fn run() -> anyhow::Result<()> {
         if flag == "--config" && command == "answer-audit" {
             return answer_audit_command(Path::new(config), rest).await;
         }
+        if let ([tsv], true) = (rest, flag == "--config" && command == "patch-line-import") {
+            return patch_line_import(Path::new(config), Path::new(tsv)).await;
+        }
     }
     let (config_path, source, input) = match args.as_slice() {
         [flag, config, command, source] if flag == "--config" && command == "ingest" => {
@@ -178,6 +182,11 @@ async fn run() -> anyhow::Result<()> {
             );
             let changed = brain_job::patch_ledger::refresh(&pool, report.run_id).await?;
             println!("patch_ledger_changed={changed}");
+            let lines = brain_job::patch_extract::line::refresh(&pool, report.run_id).await?;
+            println!(
+                "patch_line_rows={} patch_line_written={} patch_line_deleted={}",
+                lines.rows, lines.written, lines.deleted
+            );
         }
         if source == brain_job::item_lineage::SOURCE {
             match brain_job::item_lineage::log_alias_conflicts(&pool).await {
@@ -314,6 +323,17 @@ fn questions_filter(rest: &[OsString]) -> anyhow::Result<questions::Filter> {
         status,
         limit,
     })
+}
+
+async fn patch_line_import(config: &Path, tsv: &Path) -> anyhow::Result<()> {
+    let text = std::fs::read_to_string(tsv)
+        .with_context(|| format!("Korrekturdatei {} nicht lesbar", tsv.display()))?;
+    let corrections = brain_job::patch_extract::line::parse_corrections(&text)?;
+    let pool = Config::load(config)?.pool().await?;
+    let result = brain_job::patch_extract::line::import(&pool, &corrections).await;
+    pool.close().await;
+    println!("patch_line_imported={}", result?);
+    Ok(())
 }
 
 async fn questions_command(path: &Path, rest: &[OsString]) -> anyhow::Result<()> {
