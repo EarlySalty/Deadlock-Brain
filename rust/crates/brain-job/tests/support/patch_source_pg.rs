@@ -669,3 +669,107 @@ async fn ledger_refresh_runs_as_ingest_role_and_merges_mirrors() {
         ]
     );
 }
+
+#[tokio::test]
+async fn patch_line_refresh_keeps_corrections_and_import_is_atomic() {
+    let (pg, admin, reader) = setup().await;
+    sqlx::query(
+        "INSERT INTO patchnotes.changelog_posts (id,title,url,posted_at,raw_content) VALUES
+         (1,'10-01-2026 Update','https://forums.playdeadlock.com/threads/10-01-2026-update.1/','2026-10-01 20:00+00',$1)",
+    )
+    .bind("[ General ]\n- Urn: Gold reward reduced from 100 to 80\n- Fixed a crash\n- Fixed a sound bug\n")
+    .execute(&admin)
+    .await
+    .unwrap();
+    let store = store(&admin).await;
+    let report = ingest(
+        &store,
+        "deadlock_patchnotes_db",
+        stream(config(), reader),
+        &[&PatchExtractor],
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("ALTER ROLE brain_ingest LOGIN")
+        .execute(&admin)
+        .await
+        .unwrap();
+    let ingest_role = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            PgConnectOptions::new_without_pgpass()
+                .host(&pg.directory.join("socket").to_string_lossy())
+                .port(55439)
+                .username("brain_ingest")
+                .database("postgres")
+                .password(""),
+        )
+        .await
+        .unwrap();
+    crate::patch_ledger::refresh(&ingest_role, report.run_id)
+        .await
+        .unwrap();
+    let line = crate::patch_extract::line::refresh(&ingest_role, report.run_id);
+    let first = line.await.unwrap();
+    assert_eq!((first.rows, first.written, first.deleted), (3, 3, 0));
+    let header = crate::patch_extract::line::IMPORT_COLUMNS.join("\t");
+    let fix = "1\t2\t0\tGeneral\tgeneral\t\t\t\t\t\tbugfix\t\t\t\t- Fixed a crash\trelink-consensus-2026-10-30\tFABLE-7\ttrue";
+    let corrections =
+        crate::patch_extract::line::parse_corrections(&format!("{header}\n{fix}\n")).unwrap();
+    assert_eq!(
+        crate::patch_extract::line::import(&ingest_role, &corrections)
+            .await
+            .unwrap(),
+        1
+    );
+    sqlx::query(
+        "INSERT INTO canon.patch_line (ledger_id,line_no,piece,section,entity_type,change_type,
+            raw_line,source,correction_ref) VALUES (1,9,0,'General','general','added','- Manual note',
+            'manual','FABLE-8')",
+    )
+    .execute(&admin)
+    .await
+    .unwrap();
+    crate::patch_ledger::refresh(&ingest_role, report.run_id)
+        .await
+        .unwrap();
+    let again = crate::patch_extract::line::refresh(&ingest_role, report.run_id)
+        .await
+        .unwrap();
+    assert_eq!((again.rows, again.written, again.deleted), (3, 0, 0));
+    let kept: Vec<(i32, String, bool)> = sqlx::query_as(
+        "SELECT line_no,source,needs_review FROM canon.patch_line WHERE source<>'extract' ORDER BY line_no",
+    )
+    .fetch_all(&admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        kept,
+        [
+            (2, "relink-consensus-2026-10-30".into(), true),
+            (9, "manual".into(), false)
+        ]
+    );
+    let missing =
+        "1\t50\t0\tGeneral\tgeneral\t\t\t\t\t\tnerf\t\t\t\t- Nope\tmanual\tFABLE-9\tfalse";
+    let urn = "1\t1\t0\tGeneral\tgeneral\t\t\t\t\t\tnerf\t\t\t\t- Urn: Gold reward reduced from 100 to 80\tmanual\tFABLE-9\tfalse";
+    let broken =
+        crate::patch_extract::line::parse_corrections(&format!("{header}\n{urn}\n{missing}\n"))
+            .unwrap();
+    assert!(crate::patch_extract::line::import(&ingest_role, &broken)
+        .await
+        .is_err());
+    let urn_row: (String, String) = sqlx::query_as(
+        "SELECT entity_type,source FROM canon.patch_line WHERE ledger_id=1 AND line_no=1 AND piece=0",
+    )
+    .fetch_one(&admin)
+    .await
+    .unwrap();
+    assert_eq!(urn_row, ("objective".into(), "extract".into()));
+    let invalid = urn.replace("nerf", "boost");
+    let rejected =
+        crate::patch_extract::line::parse_corrections(&format!("{header}\n{invalid}\n")).unwrap();
+    assert!(crate::patch_extract::line::import(&ingest_role, &rejected)
+        .await
+        .is_err());
+}
