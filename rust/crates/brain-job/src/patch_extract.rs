@@ -316,7 +316,7 @@ impl Extractor for PatchExtractor {
         "patchnotes"
     }
     fn version(&self) -> &'static str {
-        "6"
+        "7"
     }
     fn accepts(&self, source: &str, path: &str) -> bool {
         source == SOURCE
@@ -440,6 +440,7 @@ fn note_lines(content: &str) -> Vec<NoteLine<'_>> {
     let mut output: Vec<NoteLine<'_>> = Vec::new();
     let mut section = None;
     let mut open = false;
+    let flattened = content.trim().lines().count() == 1;
     for (line, text) in content.lines().enumerate() {
         if text.trim().is_empty() {
             open = false;
@@ -451,6 +452,15 @@ fn note_lines(content: &str) -> Vec<NoteLine<'_>> {
                 Chunk::Section(name) => {
                     section = Some(name);
                     open = false;
+                }
+                Chunk::Text(body) if flattened => {
+                    for part in pieces(body) {
+                        for text in flat_bullets(part) {
+                            open = !hero_section(section)
+                                && flat_note(&mut output, open, text, section, line, piece);
+                            piece += 1;
+                        }
+                    }
                 }
                 Chunk::Text(body) => {
                     for part in pieces(body) {
@@ -480,6 +490,60 @@ fn note_lines(content: &str) -> Vec<NoteLine<'_>> {
         }
     }
     output
+}
+
+fn numeric_range(text: &str, index: usize) -> bool {
+    let bytes = text.as_bytes();
+    index
+        .checked_sub(1)
+        .and_then(|before| bytes.get(before))
+        .is_some_and(u8::is_ascii_digit)
+        && bytes.get(index + 3).is_some_and(u8::is_ascii_digit)
+}
+
+fn flat_bullets(part: &str) -> Vec<&str> {
+    let mut output = Vec::new();
+    let mut start = 0;
+    for (index, _) in part.match_indices(" - ") {
+        if numeric_range(part, index) {
+            continue;
+        }
+        if !part[start..index].trim().is_empty() {
+            output.push(&part[start..index]);
+        }
+        start = index + 1;
+    }
+    output.push(&part[start..]);
+    output
+}
+
+fn flat_note<'a>(
+    output: &mut Vec<NoteLine<'a>>,
+    open: bool,
+    text: &'a str,
+    section: Option<&'a str>,
+    line: usize,
+    piece: usize,
+) -> bool {
+    if open && qualifier(text) {
+        return output.last_mut().is_some_and(|note| note.extend(text));
+    }
+    if subject(text).is_some() {
+        return false;
+    }
+    let note = note_line(text, section, line, piece);
+    let open = note.is_some();
+    output.extend(note);
+    open
+}
+
+fn qualifier(part: &str) -> bool {
+    let body = bullet(part).unwrap_or(part.trim());
+    annotation(body)
+        || body
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_lowercase() || first == '(')
 }
 
 fn note_line<'a>(

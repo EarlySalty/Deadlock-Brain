@@ -89,6 +89,42 @@ fn statements_index_every_piece_of_a_flattened_line() {
     assert_eq!(statement_text("  - Fixed a crash "), "Fixed a crash");
 }
 
+fn statement_texts(line: &str) -> Vec<&str> {
+    statements(line)
+        .into_iter()
+        .filter_map(|piece| match piece {
+            Piece::Statement { text, .. } => Some(text),
+            Piece::Section(_) => None,
+        })
+        .collect()
+}
+
+#[test]
+fn only_digit_dash_digit_is_a_numeric_range() {
+    assert_eq!(
+        statement_texts("[ General ] - Movement powerup duration increased from 30s to 50s - Fire Rate powerup duration increased from 35s to 45s and +15% Fire Rate to +18%"),
+        [
+            "Movement powerup duration increased from 30s to 50s",
+            "Fire Rate powerup duration increased from 35s to 45s and +15% Fire Rate to +18%",
+        ]
+    );
+    assert_eq!(
+        statement_texts("[ General ] - After 20 minutes, trooper spawn time is reduced from 30s to 25s - Trooper bounty growth reduced from 1.5 to 1.2"),
+        [
+            "After 20 minutes, trooper spawn time is reduced from 30s to 25s",
+            "Trooper bounty growth reduced from 1.5 to 1.2",
+        ]
+    );
+    assert_eq!(
+        statement_texts("- Spirit scaling changed from 20 - 40 to 30 - 50"),
+        ["Spirit scaling changed from 20 - 40 to 30 - 50"]
+    );
+    assert_eq!(
+        statement_texts("A increased - B reduced"),
+        ["A increased", "B reduced"]
+    );
+}
+
 #[test]
 fn rows_follow_the_canonical_contract() {
     let built = rows(POST, &catalog());

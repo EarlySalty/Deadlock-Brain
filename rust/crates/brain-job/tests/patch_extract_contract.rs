@@ -165,6 +165,47 @@ fn patch_note_continuations_stay_with_their_statement_and_drop_values() {
     assert_eq!(notes[4]["new"], Value::Null);
 }
 
+fn note_texts(content: &str) -> Vec<String> {
+    accepted("42", &envelope(content))
+        .facts
+        .iter()
+        .filter(|fact| fact.stat_key.starts_with("patch_note_"))
+        .map(|fact| serde_json::from_str::<Value>(text(&fact.value)).unwrap())
+        .map(|note| note["line_text"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+#[test]
+fn flattened_posts_split_every_statement_into_its_own_note() {
+    assert_eq!(
+        note_texts("[ General ] - Movement powerup duration increased from 30s to 50s - Fire Rate powerup duration increased from 35s to 45s and +15% Fire Rate to +18% - Regeneration powerup duration increased from 25s to 45s"),
+        [
+            "Movement powerup duration increased from 30s to 50s",
+            "Fire Rate powerup duration increased from 35s to 45s and +15% Fire Rate to +18%",
+            "Regeneration powerup duration increased from 25s to 45s",
+        ]
+    );
+    assert_eq!(
+        note_texts("[ General ] - After 20 minutes, trooper spawn time is reduced from 30s to 25s - Trooper bounty growth reduced from 1.5 to 1.2 - Removed the teleporters behind the Walkers"),
+        [
+            "After 20 minutes, trooper spawn time is reduced from 30s to 25s",
+            "Trooper bounty growth reduced from 1.5 to 1.2",
+            "Removed the teleporters behind the Walkers",
+        ]
+    );
+    assert_eq!(
+        note_texts("[ General ] - Spirit scaling changed from 20 - 40 to 30 - 50 - Rejuv duration reduced from 4 to 3 minutes"),
+        [
+            "Spirit scaling changed from 20 - 40 to 30 - 50",
+            "Rejuv duration reduced from 4 to 3 minutes",
+        ]
+    );
+    assert_eq!(
+        note_texts("[ General ] - Walker health increased - Guardian armor reduced"),
+        ["Walker health increased", "Guardian armor reduced"]
+    );
+}
+
 fn parse(content: &str) -> Vec<Value> {
     changes(&accepted("42", &envelope(content)))
 }
@@ -205,7 +246,7 @@ fn complete_statements_emit_patch_owned_alias_text_and_source_stat_labels() {
         let fingerprint = Sha256::digest(reference.as_bytes());
         assert_eq!(*key, format!("patch_change_r{fingerprint:x}_{index}"));
     }
-    assert_eq!(PatchExtractor.version(), "6");
+    assert_eq!(PatchExtractor.version(), "7");
     let rows = parse("- Baba: Damage increased from 1 to 2");
     assert_eq!(rows[0]["stat_label"], "Damage");
 }

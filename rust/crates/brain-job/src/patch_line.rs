@@ -1,6 +1,6 @@
 use super::{
-    annotation, bullet, chunks, explicit_values, first_word, indent, label, qualification_word,
-    structural_heading, subject, Chunk, SUBJECT_CHARS, SUBJECT_WORDS,
+    annotation, bullet, chunks, explicit_values, first_word, indent, label, numeric_range,
+    qualification_word, structural_heading, subject, Chunk, SUBJECT_CHARS, SUBJECT_WORDS,
 };
 use anyhow::{bail, Context};
 use sqlx::{PgConnection, PgPool, Row as _};
@@ -783,18 +783,27 @@ pub enum Piece<'a> {
 
 const STATEMENT_SEPARATORS: [&str; 3] = [" - ", " * ", " • "];
 
+fn next_separator(body: &str, from: usize) -> Option<(usize, usize)> {
+    STATEMENT_SEPARATORS
+        .into_iter()
+        .filter_map(|separator| {
+            body[from..]
+                .match_indices(separator)
+                .map(|(index, _)| index + from)
+                .find(|&index| separator != " - " || !numeric_range(body, index))
+                .map(|index| (index, separator.len()))
+        })
+        .min()
+}
+
 fn split_statements(body: &str) -> Vec<&str> {
     let mut output = Vec::new();
-    let mut rest = body;
-    while let Some((index, width)) = STATEMENT_SEPARATORS
-        .into_iter()
-        .filter_map(|separator| rest.find(separator).map(|index| (index, separator.len())))
-        .min()
-    {
-        output.extend([rest[..index].trim()]);
-        rest = &rest[index + width..];
+    let mut start = 0;
+    while let Some((index, width)) = next_separator(body, start) {
+        output.extend([body[start..index].trim()]);
+        start = index + width;
     }
-    output.extend([rest.trim()]);
+    output.extend([body[start..].trim()]);
     output
         .into_iter()
         .map(strip_marker)
