@@ -42,7 +42,7 @@ const MEANINGS: &[(&str, &str)] = &[
     ("citadel_no_orbs_on_objective_kill", "true = beim Zerstören von Objectives entstehen keine Seelenorbs"),
     ("citadel_super_trooper_gold_mult", "Super Trooper (nach zerstörtem Shrine der Lane): Faktor auf das Kopfgeld je Super Trooper; 0,85 = 15 % weniger Seelen"),
     ("shrinesdownbuffmodifier_damagescale", "Super Trooper (nach zerstörtem Shrine der Lane): Bonus auf den Schaden pro Sekunde in Prozent; 60 = 60 % mehr Schaden"),
-    ("citadel_ability_melee_parry_parriedstuntime", "Parry (Parieren): Sekunden, die ein erfolgreich parierter Gegner betäubt ist und mehr Schaden nimmt; das gilt auch für Guardian und andere Objectives, sie sind nach einem Parry wie betäubt außer Gefecht"),
+    ("citadel_ability_melee_parry_parriedstuntime", "Parry (Parieren): Sekunden, die ein erfolgreich parierter Gegner betäubt ist und mehr Schaden nimmt; das gilt auch für Guardian und andere Objectives, sie sind nach einem Parry wie betäubt außer Gefecht (im Spiel geprüft am 30.10.2026; ersetzt die ältere Guardian-Patchzeile vom 01.08.2024)"),
     ("citadel_ability_melee_parry_victimdamagetakenscale", "Parry (Parieren): der parierte Gegner nimmt während der Betäubung so viel Prozent mehr Schaden aus allen Quellen"),
     ("citadel_ability_melee_parry_abilitycooldown_value", "Parry (Parieren): Abklingzeit in Sekunden"),
     ("citadel_player_dash_down_stamina_cost", "Dash nach unten (Down Dash): Ausdauerkosten in Ausdauerpunkten"),

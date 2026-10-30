@@ -85,7 +85,7 @@ fn scope_terms(request: &GetMechanicRequest) -> Option<(&'static str, &'static s
         MechanicKind::Levels => (r"\mboons?\M|ability points?|power increase", ""),
         MechanicKind::CoreAbilities => (
             r"\mparry|\mparried|\mdash|wall jump|wall slide|stamina",
-            r"parr.*(to be stunned|repeatedly melee)",
+            r"guardian.*to be stunned",
         ),
         MechanicKind::StreetBrawl => (STREET_BRAWL, ""),
         MechanicKind::ItemTiers => return None,
@@ -96,7 +96,7 @@ fn objective(kind: Option<ObjectiveKind>) -> (&'static str, &'static str) {
     match kind {
         Some(ObjectiveKind::Guardian) => (
             r"\mguardians?\M",
-            r"base guardian|guardian ward|barrack|parr.*(to be stunned|repeatedly melee)",
+            r"base guardian|guardian ward|barrack|guardian.*to be stunned",
         ),
         Some(ObjectiveKind::Walker) => (r"\mwalkers?\M", r"veil ?walker"),
         Some(ObjectiveKind::Patron) => (r"\mpatron", ""),
@@ -104,7 +104,7 @@ fn objective(kind: Option<ObjectiveKind>) -> (&'static str, &'static str) {
         Some(ObjectiveKind::Shrine) => (r"\mshrines?\M|super troopers?", ""),
         None => (
             r"\mguardians?\M|\mwalkers?\M|\mpatron|\mshrines?\M|objective|super troopers?",
-            r"guardian ward|veil ?walker|parr.*(to be stunned|repeatedly melee)",
+            r"guardian ward|veil ?walker|guardian.*to be stunned",
         ),
     }
 }
