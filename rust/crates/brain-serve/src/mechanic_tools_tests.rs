@@ -619,6 +619,21 @@ fn patch_note_changes_follow_current_values_and_precede_raw_rows() {
         .iter()
         .any(|row| row["stat_key"] == "citadel_unexplained_raw"));
     assert_eq!(result["patch_history_meaning"], history::MEANING);
+    assert_eq!(result["patch_history_truncated"], true);
+    assert_eq!(result["patch_history_omitted_count"], 1);
+}
+
+#[test]
+fn capped_patch_history_reports_rows_beyond_the_limit() {
+    let mut result = present(&request(MechanicKind::LaneTroopers, None), Vec::new());
+    let lines: Vec<Value> = (0..12)
+        .map(|index| json!({"patch":"p","released_at":format!("2025-07-{:02}T00:00:00+00:00", index + 1),"line_text":"Trooper bounty growth reduced from 1.5 to 1.2","citation":"7","source_revision":"rev","total":40}))
+        .collect();
+    let at = primary_len(&result);
+    history::insert(&mut result, &lines, at);
+    assert_eq!(result["patch_history_truncated"], true);
+    assert_eq!(result["patch_history_omitted_count"], 28);
+    assert_eq!(result["patch_history_omitted_count_is_lower_bound"], false);
 }
 
 #[test]

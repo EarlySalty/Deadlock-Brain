@@ -165,6 +165,30 @@ fn patch_note_continuations_stay_with_their_statement_and_drop_values() {
     assert_eq!(notes[4]["new"], Value::Null);
 }
 
+#[test]
+fn flattened_posts_keep_every_general_bullet_of_long_sections() {
+    let filler = " - Underground tunnels have more light".repeat(60);
+    let content = format!(
+        "[ Misc Gameplay ] - Movement powerup duration increased from 30s to 50s{filler} - Fire Rate powerup duration increased from 35s to 45s and +15% Fire Rate to +18% [ Item Gameplay ] - Extra Charge: CD reduction increased from +7% to +8%"
+    );
+    let notes: Vec<Value> = accepted("42", &envelope(&content))
+        .facts
+        .iter()
+        .filter(|fact| fact.stat_key.starts_with("patch_note_"))
+        .map(|fact| serde_json::from_str(text(&fact.value)).unwrap())
+        .collect();
+    assert_eq!(notes.len(), 62);
+    assert_eq!(
+        notes[0]["line_text"],
+        "Movement powerup duration increased from 30s to 50s"
+    );
+    assert_eq!(notes[61]["section"], "Misc Gameplay");
+    assert_eq!(
+        notes[61]["line_text"],
+        "Fire Rate powerup duration increased from 35s to 45s and +15% Fire Rate to +18%"
+    );
+}
+
 fn parse(content: &str) -> Vec<Value> {
     changes(&accepted("42", &envelope(content)))
 }
@@ -205,7 +229,7 @@ fn complete_statements_emit_patch_owned_alias_text_and_source_stat_labels() {
         let fingerprint = Sha256::digest(reference.as_bytes());
         assert_eq!(*key, format!("patch_change_r{fingerprint:x}_{index}"));
     }
-    assert_eq!(PatchExtractor.version(), "6");
+    assert_eq!(PatchExtractor.version(), "7");
     let rows = parse("- Baba: Damage increased from 1 to 2");
     assert_eq!(rows[0]["stat_label"], "Damage");
 }

@@ -314,7 +314,7 @@ impl Extractor for PatchExtractor {
         "patchnotes"
     }
     fn version(&self) -> &'static str {
-        "6"
+        "7"
     }
     fn accepts(&self, source: &str, path: &str) -> bool {
         source == SOURCE
@@ -438,6 +438,7 @@ fn note_lines(content: &str) -> Vec<NoteLine<'_>> {
     let mut output: Vec<NoteLine<'_>> = Vec::new();
     let mut section = None;
     let mut open = false;
+    let flattened = content.trim().lines().count() == 1;
     for (line, text) in content.lines().enumerate() {
         if text.trim().is_empty() {
             open = false;
@@ -452,6 +453,7 @@ fn note_lines(content: &str) -> Vec<NoteLine<'_>> {
                 }
                 Chunk::Text(body) => {
                     for part in pieces(body) {
+                        let mut advance = 1;
                         let continues = open
                             && piece == 0
                             && output.last().is_some_and(|note| {
@@ -465,18 +467,39 @@ fn note_lines(content: &str) -> Vec<NoteLine<'_>> {
                         } else if !hero_section(section)
                             && subject_line(part, line, piece).is_none()
                         {
-                            let note = note_line(part, section, line, piece);
-                            open = note.is_some();
-                            output.extend(note);
+                            let parts = if flattened {
+                                flat_bullets(part)
+                            } else {
+                                vec![part]
+                            };
+                            advance = parts.len();
+                            for (offset, text) in parts.into_iter().enumerate() {
+                                let note = note_line(text, section, line, piece + offset);
+                                open = note.is_some();
+                                output.extend(note);
+                            }
                         } else {
                             open = false;
                         }
-                        piece += 1;
+                        piece += advance;
                     }
                 }
             }
         }
     }
+    output
+}
+
+fn flat_bullets(part: &str) -> Vec<&str> {
+    let mut output = Vec::new();
+    let mut start = 0;
+    for (index, _) in part.match_indices(" - ") {
+        if index > start {
+            output.push(&part[start..index]);
+        }
+        start = index + 1;
+    }
+    output.push(&part[start..]);
     output
 }
 
