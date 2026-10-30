@@ -107,6 +107,8 @@ def grade(probe, final):
     if final["status"] != "answered":
         return "fail"
     text = normalize(final["answer"])
+    if any(re.search(pattern, text, re.IGNORECASE) for pattern in probe.get("forbid", [])):
+        return "fail"
     hit = sum(any(hits(text, alt) for alt in group) for group in probe["expect"])
     if hit == len(probe["expect"]):
         return "pass"

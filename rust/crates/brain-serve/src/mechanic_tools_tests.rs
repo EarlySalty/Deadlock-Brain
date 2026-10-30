@@ -745,4 +745,19 @@ fn parry_rules_come_from_dated_patch_rows_not_the_description() {
     let description = definition().description;
     assert!(!description.contains("nicht betäubt"));
     assert!(description.contains("Parry-Regeln zu Troopern, Objectives"));
+    assert!(description.contains("nie als Stun oder Betäubung"));
+}
+
+#[test]
+fn parry_meanings_never_call_the_effect_a_stun() {
+    for key in [
+        "citadel_ability_melee_parry_parriedstuntime",
+        "citadel_ability_melee_parry_victimdamagetakenscale",
+    ] {
+        let text = meaning(&fact(key, "1", "c"))
+            .unwrap_or_default()
+            .to_lowercase();
+        assert!(text.contains("parry-wirkung"), "{key}");
+        assert!(!text.contains("betäub") && !text.contains("stun"), "{key}");
+    }
 }
