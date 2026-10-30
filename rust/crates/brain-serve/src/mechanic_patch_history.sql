@@ -53,15 +53,17 @@ WITH hits AS MATERIALIZED (
     SELECT *,row_number() OVER (
         PARTITION BY bucket
         ORDER BY line ~* '^fix(ed|es)?\M',released_at DESC,line ~ '[0-9]' DESC,patch_id DESC,id
-    ) AS bucket_rank FROM bucketed
+    ) AS bucket_rank,row_number() OVER (
+        ORDER BY released_at DESC,line ~ '[0-9]' DESC,patch_id DESC,id
+    ) AS recency,count(*) OVER () AS total FROM bucketed
 )
 SELECT jsonb_build_object(
     'patch',label,'released_at',released_at,'section',nullif(section,''),'line_text',line,
-    'citation',receipt_id::text,'source_revision',source_revision
+    'citation',receipt_id::text,'source_revision',source_revision,'total',total
 )
 FROM (
     SELECT * FROM ranked
-    ORDER BY CASE WHEN bucket_rank<=keep THEN bucket_rank END NULLS LAST,
+    ORDER BY recency=1 DESC,CASE WHEN bucket_rank<=keep THEN bucket_rank END NULLS LAST,
         line ~ '[0-9]' DESC,released_at DESC,patch_id DESC,id
     LIMIT $3
 ) picked

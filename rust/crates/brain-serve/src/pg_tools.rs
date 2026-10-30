@@ -751,16 +751,24 @@ fn trim_row(value: &mut Value) -> bool {
         if rows.is_empty() {
             continue;
         }
-        rows.pop();
-        let omitted = object
-            .get("omitted_count")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        object.insert("omitted_count".into(), json!(omitted.saturating_add(1)));
-        object.insert("truncated".into(), json!(true));
+        let popped = rows.pop();
+        if popped.is_some_and(|row| row["stat_key"] == "patch_note_change") {
+            count_omission(
+                object,
+                "patch_history_omitted_count",
+                "patch_history_truncated",
+            );
+        }
+        count_omission(object, "omitted_count", "truncated");
         return true;
     }
     false
+}
+
+fn count_omission(object: &mut serde_json::Map<String, Value>, count: &str, flag: &str) {
+    let omitted = object.get(count).and_then(Value::as_u64).unwrap_or(0);
+    object.insert(count.into(), json!(omitted.saturating_add(1)));
+    object.insert(flag.into(), json!(true));
 }
 
 fn replace_citations(
