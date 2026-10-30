@@ -168,6 +168,10 @@ async fn run() -> anyhow::Result<()> {
                 recorded.load(std::sync::atomic::Ordering::Relaxed)
             );
         }
+        if source == brain_job::patch_extract::SOURCE {
+            let synced = dbrain_normalize::sync_patchnote_posts(&pool, false).await?;
+            println!("patchnote_sync={synced}");
+        }
         if source == brain_job::item_lineage::SOURCE {
             match brain_job::item_lineage::log_alias_conflicts(&pool).await {
                 Ok(conflicts) => println!("alias_conflicts={conflicts}"),

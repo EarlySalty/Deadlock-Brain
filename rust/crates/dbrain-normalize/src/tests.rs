@@ -96,7 +96,7 @@ async fn parse_patchnotes_is_count_stable_and_idempotent() {
     let before = count(&pool, "patch_events").await;
     let before_max = max_id(&pool, "patch_events").await;
 
-    let summary = parse_patchnotes(&pool, false)
+    let summary = parse_patchnotes(&pool, false, false)
         .await
         .expect("parse patchnotes");
     let inserted = summary["events_inserted"]

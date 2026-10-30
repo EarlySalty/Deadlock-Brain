@@ -757,6 +757,16 @@ enum ParseCommands {
 struct ParsePatchnotesArgs {
     #[arg(long, help = "Loescht patch_events vorher neu.")]
     rebuild: bool,
+    #[arg(
+        long = "dry-run",
+        help = "Nur Plan und Zaehler ausgeben, keine DB-Aenderungen schreiben."
+    )]
+    dry_run: bool,
+    #[arg(
+        long,
+        help = "Nur neue Posts aus dem Patchnotes-Feed übernehmen und noch ungeparste Patches ergänzen."
+    )]
+    feed: bool,
 }
 
 #[derive(Debug, Args)]
@@ -3464,8 +3474,11 @@ async fn run_normalize(pool: &PgPool, target: NormalizeCommands) -> Result<()> {
 
 async fn run_parse(pool: &PgPool, target: ParseCommands) -> Result<()> {
     match target {
+        ParseCommands::Patchnotes(args) if args.feed => {
+            print_json(&dbrain_normalize::sync_patchnote_posts(pool, args.dry_run).await?)
+        }
         ParseCommands::Patchnotes(args) => {
-            print_json(&dbrain_normalize::parse_patchnotes(pool, args.rebuild).await?)
+            print_json(&dbrain_normalize::parse_patchnotes(pool, args.rebuild, args.dry_run).await?)
         }
         ParseCommands::ForumClaims(args) => {
             print_json(&dbrain_normalize::parse_forum_claims(pool, args.rebuild).await?)

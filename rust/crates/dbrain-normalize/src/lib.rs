@@ -11,6 +11,9 @@ mod forum_claims;
 mod legacy;
 mod lineage;
 mod patch;
+mod patch_identity;
+mod patch_reconcile;
+mod patch_sync;
 mod reddit_claims;
 mod resolve_gaps;
 mod sheet_stats;
@@ -25,8 +28,12 @@ pub use error::{NormalizeError, Result};
 pub use patch::{classify_change_type, has_change_action};
 pub use util::normalize_alias;
 
-pub async fn parse_patchnotes(pool: &PgPool, rebuild: bool) -> Result<Value> {
-    patch::parse_patchnotes(pool, rebuild).await
+pub async fn parse_patchnotes(pool: &PgPool, rebuild: bool, dry_run: bool) -> Result<Value> {
+    patch::parse_patchnotes(pool, rebuild, dry_run).await
+}
+
+pub async fn sync_patchnote_posts(pool: &PgPool, dry_run: bool) -> Result<Value> {
+    patch_sync::sync_patchnote_posts(pool, dry_run).await
 }
 
 pub async fn normalize_entities(pool: &PgPool, rebuild: bool) -> Result<Value> {

@@ -352,6 +352,7 @@ dependencies = [
  "anyhow",
  "brain-storage",
  "chrono",
+ "dbrain-normalize",
  "dbrain-sources",
  "deadlock-brain-core",
  "html5ever",
@@ -750,8 +751,10 @@ name = "dbrain-normalize"
 version = "0.1.0"
 dependencies = [
  "brain-contracts",
+ "chrono",
  "deadlock-brain-core",
  "regex",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "sqlx",

@@ -1,9 +1,14 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use regex::Regex;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 
+use crate::patch_identity::{canonical_snapshot_ids, SnapshotIdentity};
+use crate::patch_reconcile::{
+    apply_plan, insert_events, load_stored_events, plan_reconcile, retire_snapshot_events,
+    ReconcilePlan,
+};
 use crate::util::{
     clean_subject, clear_patch_events, normalize_key, normalize_scan_text, object_json_string,
     stable_hash_text, table_count, value_to_string,
@@ -36,6 +41,23 @@ const POSITIVE_STATS: &[&str] = &[
 ];
 const NEGATIVE_STATS: &[&str] = &["cooldown", "recharge", "delay", "cost", "falloff"];
 const GENERIC_INTERNAL_KEYS: &[&str] = &["melee"];
+const OBJECTIVE_ALIASES: &[(&str, &str, &[&str])] = &[
+    (
+        "objective",
+        "Unstable Rift",
+        &["Unstable Rift", "King of the Hill", "KOTH"],
+    ),
+    ("objective", "Urn", &["Urn", "Urns", "Soul Urn"]),
+    (
+        "objective_entity",
+        "Rift Troopers",
+        &["Rift Trooper", "Rift Troopers"],
+    ),
+    ("objective", "Mid Boss", &["Mid Boss", "Midboss"]),
+    ("objective", "Patron", &["Patron", "Weakened Patron"]),
+    ("objective", "Walker", &["Walker", "Walkers"]),
+    ("objective", "Guardian", &["Guardian", "Guardians"]),
+];
 
 #[derive(Debug, Default)]
 pub(crate) struct EntityIndex {
@@ -46,6 +68,7 @@ pub(crate) struct EntityIndex {
     ability_names: HashMap<String, String>,
     internal_ability_names: HashMap<String, String>,
     internal_names: HashMap<String, String>,
+    objective_names: HashMap<String, (String, String)>,
 }
 
 impl EntityIndex {
@@ -55,30 +78,11 @@ impl EntityIndex {
         section: Option<&str>,
     ) -> (String, Option<String>, f64) {
         let cleaned = clean_subject(Some(name));
-        let key = normalize_key(&cleaned);
-        if key.is_empty() {
+        if normalize_key(&cleaned).is_empty() {
             return ("general".to_string(), None, 0.35);
         }
-        if let Some(name) = self.hero_names.get(&key) {
-            return ("hero".to_string(), Some(name.clone()), 0.95);
-        }
-        if let Some(name) = self.hero_internal_names.get(&key) {
-            return ("hero_internal".to_string(), Some(name.clone()), 0.75);
-        }
-        if let Some(name) = self.item_names.get(&key) {
-            return ("item".to_string(), Some(name.clone()), 0.92);
-        }
-        if let Some(name) = self.special_item_names.get(&key) {
-            return ("item_special".to_string(), Some(name.clone()), 0.85);
-        }
-        if let Some(name) = self.ability_names.get(&key) {
-            return ("ability".to_string(), Some(name.clone()), 0.9);
-        }
-        if let Some(name) = self.internal_ability_names.get(&key) {
-            return ("ability_internal".to_string(), Some(name.clone()), 0.65);
-        }
-        if let Some(name) = self.internal_names.get(&key) {
-            return ("weapon_or_internal".to_string(), Some(name.clone()), 0.7);
+        if let Some((entity_type, name, confidence)) = self.known(&cleaned) {
+            return (entity_type, Some(name), confidence);
         }
         if section == Some("Heroes") {
             return ("hero".to_string(), Some(cleaned), 0.78);
@@ -87,6 +91,45 @@ impl EntityIndex {
             return ("item".to_string(), Some(cleaned), 0.75);
         }
         ("general".to_string(), Some(cleaned), 0.45)
+    }
+
+    pub(crate) fn known(&self, name: &str) -> Option<(String, String, f64)> {
+        let key = normalize_key(name);
+        if key.is_empty() {
+            return None;
+        }
+        [
+            (&self.hero_names, "hero", 0.95),
+            (&self.hero_internal_names, "hero_internal", 0.75),
+            (&self.item_names, "item", 0.92),
+            (&self.special_item_names, "item_special", 0.85),
+            (&self.ability_names, "ability", 0.9),
+            (&self.internal_ability_names, "ability_internal", 0.65),
+            (&self.internal_names, "weapon_or_internal", 0.7),
+        ]
+        .into_iter()
+        .find_map(|(names, entity_type, confidence)| {
+            names
+                .get(&key)
+                .map(|name| (entity_type.to_string(), name.clone(), confidence))
+        })
+        .or_else(|| {
+            self.objective_names
+                .get(&key)
+                .map(|(entity_type, name)| (entity_type.clone(), name.clone(), 0.85))
+        })
+    }
+
+    fn with_objectives(mut self) -> Self {
+        for (entity_type, canonical, aliases) in OBJECTIVE_ALIASES {
+            for alias in *aliases {
+                self.objective_names.insert(
+                    normalize_key(alias),
+                    (entity_type.to_string(), canonical.to_string()),
+                );
+            }
+        }
+        self
     }
 }
 
@@ -98,74 +141,318 @@ struct PatchSnapshot {
     payload_json: String,
 }
 
-#[derive(Debug)]
-struct PatchEventInsert {
-    patch_snapshot_id: i64,
-    legacy_patch_snapshot_id: i64,
-    patch_external_id: String,
-    patch_title: Option<String>,
-    patch_url: Option<String>,
-    source_kind: String,
-    posted_at: Option<String>,
-    line_index: i64,
-    section: Option<String>,
-    entity_type: String,
-    entity_name: Option<String>,
-    subject: Option<String>,
-    change_type: String,
-    raw_line: String,
-    normalized_line: String,
-    old_value: Option<String>,
-    new_value: Option<String>,
-    confidence: f64,
-    metadata: BTreeMap<String, Value>,
-    event_hash: String,
+#[derive(Debug, Clone)]
+pub(crate) struct PatchEventInsert {
+    pub(crate) patch_snapshot_id: i64,
+    pub(crate) legacy_patch_snapshot_id: i64,
+    pub(crate) patch_external_id: String,
+    pub(crate) patch_title: Option<String>,
+    pub(crate) patch_url: Option<String>,
+    pub(crate) source_kind: String,
+    pub(crate) posted_at: Option<String>,
+    pub(crate) line_index: i64,
+    pub(crate) section: Option<String>,
+    pub(crate) entity_type: String,
+    pub(crate) entity_name: Option<String>,
+    pub(crate) subject: Option<String>,
+    pub(crate) change_type: String,
+    pub(crate) raw_line: String,
+    pub(crate) normalized_line: String,
+    pub(crate) old_value: Option<String>,
+    pub(crate) new_value: Option<String>,
+    pub(crate) confidence: f64,
+    pub(crate) metadata: BTreeMap<String, Value>,
+    pub(crate) event_hash: String,
 }
 
-pub async fn parse_patchnotes(pool: &PgPool, rebuild: bool) -> Result<Value> {
+pub async fn parse_patchnotes(pool: &PgPool, rebuild: bool, dry_run: bool) -> Result<Value> {
     let before_total = table_count(pool, "patch_events").await?;
-    let deleted = if rebuild {
+    let deleted = if rebuild && !dry_run {
         clear_patch_events(pool).await?
     } else {
         0
     };
     let index = build_entity_index(pool).await?;
-    let rows = load_patch_snapshots(pool).await?;
+    let parsed = parse_all_snapshots(pool, &index).await?;
+    let canonical = canonical_snapshot_ids(
+        &parsed
+            .iter()
+            .map(ParsedSnapshot::identity)
+            .collect::<Vec<_>>(),
+    );
+    let selected = select_cluster_events(&parsed, &canonical);
+    let mut stored = load_stored_events(pool).await?;
+    let mut summary = ReconcileSummary::default();
+    for snapshot in &parsed {
+        let rows = stored.remove(&snapshot.id).unwrap_or_default();
+        let is_canonical = canonical.get(&snapshot.id) == Some(&snapshot.id);
+        let events = selected.get(&snapshot.id).map(Vec::as_slice).unwrap_or(&[]);
+        summary.add_skipped(snapshot, is_canonical);
+        summary.snapshots.push(json!([
+            snapshot.id,
+            canonical.get(&snapshot.id),
+            snapshot.title,
+            snapshot.posted_at,
+            snapshot.importer,
+            snapshot.events.len(),
+            events.len(),
+            rows.len(),
+        ]));
+        if events.is_empty() {
+            summary.retired_snapshots += 1;
+            summary.deleted += rows.len();
+            if !dry_run {
+                retire_snapshot_events(pool, &rows).await?;
+            }
+            continue;
+        }
+        let plan = plan_reconcile(&rows, events);
+        summary.add_plan(&plan, events);
+        if !dry_run {
+            apply_plan(pool, &plan, events).await?;
+        }
+    }
+    let canonical_patches = canonical.iter().filter(|(id, root)| id == root).count();
+    Ok(summary.into_json(json!({
+        "dry_run": dry_run,
+        "patches": parsed.len(),
+        "canonical_patches": canonical_patches,
+        "events_before": before_total,
+        "events_total": table_count(pool, "patch_events").await?,
+        "deleted_before_parse": deleted,
+    })))
+}
 
-    let mut inserted = 0_i64;
-    let mut parsed_patches = 0_i64;
-    let mut skipped_lines = 0_i64;
-    let mut source_kinds: BTreeMap<String, i64> = BTreeMap::new();
+pub(crate) async fn append_unparsed_patches(
+    pool: &PgPool,
+    staged: &[(String, Value)],
+    dry_run: bool,
+) -> Result<Value> {
+    let index = build_entity_index(pool).await?;
+    let mut parsed = parse_all_snapshots(pool, &index).await?;
+    for (position, (external_id, payload)) in staged.iter().enumerate() {
+        let id = -1 - position as i64;
+        parsed.push(parse_snapshot(id, id, external_id, payload, &index)?);
+    }
+    let canonical = canonical_snapshot_ids(
+        &parsed
+            .iter()
+            .map(ParsedSnapshot::identity)
+            .collect::<Vec<_>>(),
+    );
+    let stored = load_stored_events(pool).await?;
+    let stored_roots = parsed
+        .iter()
+        .filter(|snapshot| {
+            stored
+                .get(&snapshot.id)
+                .is_some_and(|rows| !rows.is_empty())
+        })
+        .filter_map(|snapshot| canonical.get(&snapshot.id).copied())
+        .collect::<HashSet<_>>();
+    let selected = select_cluster_events(&parsed, &canonical);
+    let pending = parsed
+        .iter()
+        .filter(|snapshot| {
+            canonical
+                .get(&snapshot.id)
+                .is_some_and(|root| !stored_roots.contains(root))
+        })
+        .flat_map(|snapshot| selected.get(&snapshot.id).into_iter().flatten())
+        .collect::<Vec<_>>();
+    let patches = pending
+        .iter()
+        .filter_map(|event| event.patch_title.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    if !dry_run && !pending.is_empty() {
+        insert_events(pool, &pending).await?;
+    }
+    Ok(json!({
+        "dry_run": dry_run,
+        "patches": patches,
+        "events_inserted": pending.len(),
+    }))
+}
 
-    for row in rows {
+fn select_cluster_events(
+    parsed: &[ParsedSnapshot],
+    canonical: &HashMap<i64, i64>,
+) -> HashMap<i64, Vec<PatchEventInsert>> {
+    let by_id = parsed
+        .iter()
+        .map(|snapshot| (snapshot.id, snapshot))
+        .collect::<HashMap<_, _>>();
+    let mut order = parsed.iter().collect::<Vec<_>>();
+    order.sort_by_key(|snapshot| {
+        (
+            canonical.get(&snapshot.id) != Some(&snapshot.id),
+            std::cmp::Reverse(snapshot.events.len()),
+            snapshot.id,
+        )
+    });
+    let mut covered: HashMap<i64, HashSet<String>> = HashMap::new();
+    let mut selected = HashMap::new();
+    for snapshot in order {
+        let root_id = canonical.get(&snapshot.id).copied().unwrap_or(snapshot.id);
+        let root = by_id.get(&root_id).copied().unwrap_or(snapshot);
+        let seen = covered.entry(root_id).or_default();
+        let events = snapshot
+            .events
+            .iter()
+            .filter(|event| seen.insert(normalize_key(&event.normalized_line)))
+            .map(|event| relabel_for_patch(event, root))
+            .collect::<Vec<_>>();
+        selected.insert(snapshot.id, events);
+    }
+    selected
+}
+
+fn relabel_for_patch(event: &PatchEventInsert, root: &ParsedSnapshot) -> PatchEventInsert {
+    let mut event = event.clone();
+    if event.patch_snapshot_id != root.id {
+        event.patch_title = root.title.clone();
+        event.patch_url = root.url.clone();
+        event.posted_at = root.posted_at.clone();
+    }
+    event
+}
+
+struct ParsedSnapshot {
+    id: i64,
+    title: Option<String>,
+    url: Option<String>,
+    posted_at: Option<String>,
+    content: String,
+    importer: Option<String>,
+    source_kind: String,
+    events: Vec<PatchEventInsert>,
+    skipped: i64,
+}
+
+impl ParsedSnapshot {
+    fn identity(&self) -> SnapshotIdentity {
+        SnapshotIdentity::new(
+            self.id,
+            self.title.as_deref(),
+            self.url.as_deref(),
+            self.posted_at.as_deref(),
+            &self.content,
+            self.events
+                .iter()
+                .map(|event| normalize_key(&event.normalized_line))
+                .filter(|key| !key.is_empty())
+                .collect(),
+        )
+    }
+}
+
+async fn parse_all_snapshots(pool: &PgPool, index: &EntityIndex) -> Result<Vec<ParsedSnapshot>> {
+    let mut parsed = Vec::new();
+    for row in load_patch_snapshots(pool).await? {
         let payload: Value = serde_json::from_str(&row.payload_json)?;
-        let (events, skipped) = parse_patchnote_snapshot(
+        parsed.push(parse_snapshot(
             row.id,
             row.legacy_snapshot_id,
             &row.external_id,
             &payload,
-            &index,
-        )?;
-        skipped_lines += skipped;
-        let source_kind = classify_source_kind(optional_string(&payload, "url").as_deref());
-        *source_kinds.entry(source_kind).or_default() += 1;
-        for event in events {
-            if insert_patch_event(pool, &event).await? {
-                inserted += 1;
-            }
+            index,
+        )?);
+    }
+    Ok(parsed)
+}
+
+fn parse_snapshot(
+    id: i64,
+    legacy_snapshot_id: i64,
+    external_id: &str,
+    payload: &Value,
+    index: &EntityIndex,
+) -> Result<ParsedSnapshot> {
+    let (mut events, skipped) =
+        parse_patchnote_snapshot(id, legacy_snapshot_id, external_id, payload, index)?;
+    let mut seen = HashSet::new();
+    events.retain(|event| seen.insert(event.event_hash.clone()));
+    let title = optional_string(payload, "title");
+    let url = optional_string(payload, "url");
+    Ok(ParsedSnapshot {
+        id,
+        posted_at: optional_string(payload, "posted_at")
+            .or_else(|| title_date_rfc3339(title.as_deref())),
+        title,
+        source_kind: classify_source_kind(url.as_deref()),
+        url,
+        content: optional_string(payload, "raw_content")
+            .or_else(|| optional_string(payload, "translated_content"))
+            .unwrap_or_default(),
+        importer: optional_string(payload, "importer"),
+        events,
+        skipped,
+    })
+}
+
+#[derive(Default)]
+struct ReconcileSummary {
+    retired_snapshots: usize,
+    unchanged: usize,
+    updated: usize,
+    inserted: usize,
+    deleted: usize,
+    skipped_lines: i64,
+    source_kinds: BTreeMap<String, i64>,
+    snapshots: Vec<Value>,
+    planned: Vec<Value>,
+}
+
+impl ReconcileSummary {
+    fn add_skipped(&mut self, snapshot: &ParsedSnapshot, is_canonical: bool) {
+        self.skipped_lines += snapshot.skipped;
+        if is_canonical {
+            *self
+                .source_kinds
+                .entry(snapshot.source_kind.clone())
+                .or_default() += 1;
         }
-        parsed_patches += 1;
     }
 
-    Ok(json!({
-        "patches": parsed_patches,
-        "events_inserted": inserted,
-        "events_total": table_count(pool, "patch_events").await?,
-        "events_before": before_total,
-        "skipped_lines": skipped_lines,
-        "deleted_before_parse": deleted,
-        "source_kinds": source_kinds,
-    }))
+    fn add_plan(&mut self, plan: &ReconcilePlan, events: &[PatchEventInsert]) {
+        self.unchanged += plan.unchanged;
+        self.updated += plan.updates.len();
+        self.inserted += plan.inserts.len();
+        self.deleted += plan.deletes.len();
+        self.planned.extend(events.iter().map(|event| {
+            json!([
+                event.patch_title,
+                event.posted_at,
+                event.entity_type,
+                event.entity_name,
+                event.change_type,
+                event.normalized_line,
+                event.raw_line,
+            ])
+        }));
+    }
+
+    fn into_json(self, mut base: Value) -> Value {
+        let Some(object) = base.as_object_mut() else {
+            return base;
+        };
+        let dry_run = object
+            .get("dry_run")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        object.insert("retired_snapshots".into(), json!(self.retired_snapshots));
+        object.insert("events_unchanged".into(), json!(self.unchanged));
+        object.insert("events_updated".into(), json!(self.updated));
+        object.insert("events_inserted".into(), json!(self.inserted));
+        object.insert("events_deleted".into(), json!(self.deleted));
+        object.insert("skipped_lines".into(), json!(self.skipped_lines));
+        object.insert("source_kinds".into(), json!(self.source_kinds));
+        if dry_run {
+            object.insert("snapshots".into(), Value::Array(self.snapshots));
+            object.insert("planned_events".into(), Value::Array(self.planned));
+        }
+        base
+    }
 }
 
 async fn load_patch_snapshots(pool: &PgPool) -> Result<Vec<PatchSnapshot>> {
@@ -210,9 +497,7 @@ fn parse_patchnote_snapshot(
     let patch_external_id = normalize_patch_external_id(external_id);
     let source_kind = classify_source_kind(url.as_deref());
     let mut section: Option<String> = None;
-    let mut current_group: Option<String> = None;
-    let mut current_group_type: Option<String> = None;
-    let mut current_group_confidence = 0.0_f64;
+    let mut current_group: Option<(String, String, f64)> = None;
     let mut events = Vec::new();
     let mut skipped = 0_i64;
 
@@ -225,8 +510,11 @@ fn parse_patchnote_snapshot(
         if let Some(section_candidate) = detect_section(line) {
             section = Some(section_candidate);
             current_group = None;
-            current_group_type = None;
-            current_group_confidence = 0.0;
+            continue;
+        }
+
+        if is_media_or_link_line(line) {
+            skipped += 1;
             continue;
         }
 
@@ -234,62 +522,51 @@ fn parse_patchnote_snapshot(
             (has_change_action(line) && index.canonical(line, None).0 == "general")
                 .then(|| line.to_string())
         }) else {
-            if let Some(maybe_group) = standalone_group_name(line) {
-                let (entity_type, canonical, confidence) =
-                    index.canonical(&maybe_group, section.as_deref());
-                current_group = canonical.or(Some(maybe_group));
-                current_group_type = Some(entity_type);
-                current_group_confidence = confidence;
-            } else {
+            current_group = standalone_group_name(line).and_then(|name| index.known(&name));
+            if current_group.is_none() {
                 skipped += 1;
             }
             continue;
         };
 
         let (subject, mut body) = split_subject(&bullet_body);
-        let (entity_type, entity_name, confidence, event_subject) =
-            if let Some(subject_text) = subject {
-                let (entity_type, mut entity_name, confidence) =
-                    index.canonical(&subject_text, section.as_deref());
-                if entity_type == "general" {
-                    entity_name = None;
-                }
-                if looks_like_group_heading(&body) && !has_change_action(&body) {
-                    current_group = entity_name
-                        .clone()
-                        .or(Some(clean_subject(Some(&subject_text))));
-                    current_group_type = Some(entity_type.clone());
-                    current_group_confidence = confidence;
-                    body = clean_subject(Some(&body));
-                } else if current_group.as_deref() != entity_name.as_deref() {
-                    current_group = None;
-                    current_group_type = None;
-                    current_group_confidence = 0.0;
-                }
-                (entity_type, entity_name, confidence, Some(subject_text))
-            } else if let Some(group) = current_group.clone() {
-                (
-                    current_group_type
-                        .clone()
-                        .unwrap_or_else(|| "general".to_string()),
-                    Some(group.clone()),
-                    current_group_confidence.max(0.7),
-                    Some(group),
-                )
-            } else if let Some((entity_type, entity_name, confidence)) =
-                infer_entities_from_line(&bullet_body, index)
-                    .into_iter()
-                    .next()
+        let (entity_type, entity_name, confidence, event_subject) = if let Some(subject_text) =
+            subject
+        {
+            let (entity_type, mut entity_name, confidence) =
+                index.canonical(&subject_text, section.as_deref());
+            if entity_type == "general" {
+                entity_name = None;
+            }
+            if looks_like_group_heading(&body) && !has_change_action(&body) {
+                current_group = index.known(&subject_text);
+                body = clean_subject(Some(&body));
+            } else if current_group.as_ref().map(|group| group.1.as_str()) != entity_name.as_deref()
             {
-                (
-                    entity_type,
-                    Some(entity_name.clone()),
-                    confidence,
-                    Some(entity_name),
-                )
-            } else {
-                ("general".to_string(), None, 0.45, None)
-            };
+                current_group = None;
+            }
+            (entity_type, entity_name, confidence, Some(subject_text))
+        } else if let Some((group_type, group_name, group_confidence)) = current_group.clone() {
+            (
+                group_type,
+                Some(group_name.clone()),
+                group_confidence.max(0.7),
+                Some(group_name),
+            )
+        } else if let Some((entity_type, entity_name, confidence)) =
+            infer_entities_from_line(&bullet_body, index)
+                .into_iter()
+                .next()
+        {
+            (
+                entity_type,
+                Some(entity_name.clone()),
+                confidence,
+                Some(entity_name),
+            )
+        } else {
+            ("general".to_string(), None, 0.45, None)
+        };
 
         let normalized_line = normalize_patch_line(&body);
         if normalized_line.is_empty() {
@@ -427,7 +704,7 @@ fn is_inline_bullet_start(ch: char) -> bool {
 
 async fn build_entity_index(pool: &PgPool) -> Result<EntityIndex> {
     if let Some(index) = build_entity_index_from_entities(pool).await? {
-        return Ok(index);
+        return Ok(index.with_objectives());
     }
 
     let mut index = EntityIndex::default();
@@ -478,7 +755,7 @@ async fn build_entity_index(pool: &PgPool) -> Result<EntityIndex> {
             }
         }
     }
-    Ok(index)
+    Ok(index.with_objectives())
 }
 
 pub(crate) async fn build_entity_index_from_entities(pool: &PgPool) -> Result<Option<EntityIndex>> {
@@ -768,6 +1045,28 @@ fn standalone_group_name(line: &str) -> Option<String> {
     Some(cleaned)
 }
 
+fn is_media_or_link_line(line: &str) -> bool {
+    let text = bullet_body_from_line(line).unwrap_or_else(|| line.to_string());
+    let lower = clean_subject(Some(&text)).to_lowercase();
+    if lower.starts_with("view attachment") || lower.starts_with("{steam_clan_image}") {
+        return true;
+    }
+    if lower.is_empty() || lower.contains(char::is_whitespace) {
+        return false;
+    }
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("www.") {
+        return true;
+    }
+    let Some((stem, extension)) = lower.rsplit_once('.') else {
+        return false;
+    };
+    const MEDIA_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "mp4", "webm", "mov"];
+    MEDIA_EXTENSIONS.contains(&extension)
+        || (stem.contains(|ch: char| ch.is_ascii_alphabetic())
+            && (2..=6).contains(&extension.len())
+            && extension.chars().all(|ch| ch.is_ascii_alphabetic()))
+}
+
 fn looks_like_group_heading(text: &str) -> bool {
     let cleaned = text.trim().trim_end_matches(':');
     !cleaned.is_empty()
@@ -815,6 +1114,11 @@ fn infer_entities_from_line(text: &str, index: &EntityIndex) -> Vec<(String, Str
         "ability_internal",
         0.45,
     );
+    for (key, (entity_type, name)) in &index.objective_names {
+        if let Some(position) = lower.find(&format!(" {key} ")) {
+            found.push((position, entity_type.clone(), name.clone(), 0.55));
+        }
+    }
     found.sort_by(|left, right| {
         left.0
             .cmp(&right.0)
@@ -860,10 +1164,11 @@ pub fn has_change_action(text: &str) -> bool {
         .rsplit_once(" - ")
         .map_or(remainder.as_str(), |(_, change)| change)
         .trim();
-    remainder
-        .split_whitespace()
-        .zip(remainder.split_whitespace().skip(1))
-        .any(|(word, _)| matches!(word, "now" | "adjusted" | "changed" | "updated"))
+    remainder.contains("no longer ")
+        || remainder
+            .split_whitespace()
+            .zip(remainder.split_whitespace().skip(1))
+            .any(|(word, _)| matches!(word, "now" | "adjusted" | "changed" | "updated"))
         || change.split_once(" to ").is_some_and(|(old, new)| {
             old.chars().any(|character| character.is_ascii_digit())
                 && new.chars().any(|character| character.is_ascii_digit())
@@ -883,7 +1188,7 @@ pub fn classify_change_type(text: &str) -> String {
         "bugfix"
     } else if lower.contains("added") || lower.contains("new ") || lower.starts_with("new") {
         "added"
-    } else if lower.contains("removed") || lower.contains("no longer") {
+    } else if lower.contains("removed") {
         "removed"
     } else if lower.contains("reworked")
         || lower.contains("rework")
@@ -1057,48 +1362,10 @@ fn extract_mm_dd_yyyy(value: &str) -> Option<(u32, u32, u32)> {
     None
 }
 
-async fn insert_patch_event(pool: &PgPool, event: &PatchEventInsert) -> Result<bool> {
-    let metadata_json = object_json_string(event.metadata.clone())?;
-    let result = sqlx::query!(
-        r#"
-        INSERT INTO brain.patch_events(
-          patch_snapshot_id, legacy_patch_snapshot_id, patch_external_id, patch_title, patch_url,
-          source_kind, posted_at, line_index, section, entity_type,
-          entity_name, subject, change_type, raw_line, normalized_line,
-          old_value, new_value, confidence, metadata, event_hash, created_at
-        )
-        VALUES(
-          $1, $2, $3, $4, $5,
-          $6, CASE WHEN $7 ~ '^-?[0-9]+$' THEN to_timestamp($7::double precision) ELSE $7::text::timestamptz END, $8, $9, $10,
-          $11, $12, $13, $14, $15,
-          $16, $17, $18, $19::text::jsonb, $20, now()
-        )
-        ON CONFLICT (event_hash) DO NOTHING
-        "#,
-        event.patch_snapshot_id,
-        event.legacy_patch_snapshot_id,
-        event.patch_external_id,
-        event.patch_title,
-        event.patch_url,
-        event.source_kind,
-        event.posted_at,
-        event.line_index,
-        event.section,
-        event.entity_type,
-        event.entity_name,
-        event.subject,
-        event.change_type,
-        event.raw_line,
-        event.normalized_line,
-        event.old_value,
-        event.new_value,
-        event.confidence,
-        metadata_json,
-        event.event_hash,
-    )
-    .execute(pool)
-    .await?;
-    Ok(result.rows_affected() > 0)
+impl PatchEventInsert {
+    pub(crate) fn metadata_json(&self) -> Result<String> {
+        object_json_string(self.metadata.clone())
+    }
 }
 
 fn optional_string(payload: &Value, key: &str) -> Option<String> {
@@ -1330,6 +1597,81 @@ mod tests {
         for (line, expected) in cases {
             assert_eq!(classify_change_type(line), expected, "{line}");
         }
+    }
+
+    fn parse_content(content: &str) -> Vec<PatchEventInsert> {
+        let payload = json!({ "raw_content": content });
+        parse_patchnote_snapshot(5, 5, "patch_5", &payload, &hero_index("Yamato"))
+            .expect("parse snapshot")
+            .0
+    }
+
+    #[test]
+    fn known_hero_header_still_owns_following_bullets() {
+        let events =
+            parse_content("[ Heroes ]\nYamato\n- Bullet damage growth increased from 0.4 to 0.5");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].entity_type, "hero");
+        assert_eq!(events[0].entity_name.as_deref(), Some("Yamato"));
+    }
+
+    #[test]
+    fn unknown_headings_do_not_become_entities_for_later_lines() {
+        let events = parse_content(
+            "[ Heroes ]\nYamato\n- Bullet damage increased from 1 to 2\nLocalization additions and improvements\n- Successfully parrying objectives no longer resets your Parry cooldown\n**Custom Hideout Camera:**\n- Fixed troopers walking too slowly",
+        );
+        let labels = events
+            .iter()
+            .map(|event| (event.entity_type.as_str(), event.entity_name.as_deref()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            labels,
+            vec![
+                ("hero", Some("Yamato")),
+                ("general", None),
+                ("general", None),
+            ]
+        );
+    }
+
+    #[test]
+    fn media_and_link_lines_are_skipped() {
+        let events = parse_content(
+            "[ Heroes ]\nfinal_shop_1.png\nstore.steampowered.com\nhttps://example.com/x.mp4\n- Fixed troopers walking too slowly",
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].entity_name, None);
+    }
+
+    #[test]
+    fn general_lines_naming_an_objective_link_to_it() {
+        let payload = json!({
+            "title": "06-06-2024 Update",
+            "url": "https://forums.playdeadlock.com/threads/06-06-2024-update.1/",
+            "raw_content": "- Walker bomb damage reduced from 300 to 200\n- Troopers now take 28% more damage from Guardians\n- Added settings option to allow weapon zoom to be a toggle",
+        });
+        let index = hero_index("Yamato").with_objectives();
+        let (events, _) = parse_patchnote_snapshot(5, 5, "patch_5", &payload, &index).unwrap();
+        let labels = events
+            .iter()
+            .map(|event| (event.entity_type.as_str(), event.entity_name.as_deref()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            labels,
+            [
+                ("objective", Some("Walker")),
+                ("objective", Some("Guardian")),
+                ("general", None),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_longer_is_an_action_but_not_a_removal() {
+        let line = "Unstoppable state no longer blocks anti-heal";
+        assert!(has_change_action(line));
+        assert_ne!(classify_change_type(line), "removed");
+        assert_eq!(classify_change_type("Removed Mystic Slow"), "removed");
     }
 
     #[test]
