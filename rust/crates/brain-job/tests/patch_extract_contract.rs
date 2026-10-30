@@ -189,6 +189,42 @@ fn flattened_posts_keep_every_general_bullet_of_long_sections() {
     );
 }
 
+#[test]
+fn flattened_bullets_keep_qualifiers_and_skip_subject_lines() {
+    let filler = " - Underground tunnels have more light".repeat(60);
+    let content = format!(
+        "[ General ] - Fleetfoot: Stamina increased from 2 to 3{filler} - Trooper bounty increased from 40 to 50 - only against objectives - Note: applies after 10 minutes - 4 Strong camps replaced"
+    );
+    let notes: Vec<Value> = accepted("42", &envelope(&content))
+        .facts
+        .iter()
+        .filter(|fact| fact.stat_key.starts_with("patch_note_"))
+        .map(|fact| serde_json::from_str(text(&fact.value)).unwrap())
+        .collect();
+    assert!(notes
+        .iter()
+        .all(|note| !note["line_text"].as_str().unwrap().contains("Fleetfoot")));
+    let bounty = notes
+        .iter()
+        .find(|note| {
+            note["line_text"]
+                .as_str()
+                .unwrap()
+                .starts_with("Trooper bounty")
+        })
+        .unwrap();
+    assert_eq!(
+        bounty["line_text"],
+        "Trooper bounty increased from 40 to 50 only against objectives Note: applies after 10 minutes"
+    );
+    assert!(bounty["old"].is_null());
+    assert_eq!(
+        notes.last().unwrap()["line_text"],
+        "4 Strong camps replaced"
+    );
+    assert_eq!(notes.len(), 62);
+}
+
 fn parse(content: &str) -> Vec<Value> {
     changes(&accepted("42", &envelope(content)))
 }

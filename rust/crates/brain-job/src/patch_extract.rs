@@ -453,8 +453,11 @@ fn note_lines(content: &str) -> Vec<NoteLine<'_>> {
                 }
                 Chunk::Text(body) => {
                     for part in pieces(body) {
-                        let mut advance = 1;
-                        let continues = open
+                        let general = !hero_section(section)
+                            && (flattened && annotation(bullet(part).unwrap_or(part.trim()))
+                                || subject_line(part, line, piece).is_none());
+                        let continues = !flattened
+                            && open
                             && piece == 0
                             && output.last().is_some_and(|note| {
                                 indent(part) > note.indent
@@ -464,24 +467,29 @@ fn note_lines(content: &str) -> Vec<NoteLine<'_>> {
                             });
                         if continues {
                             open = output.last_mut().is_some_and(|note| note.extend(part));
-                        } else if !hero_section(section)
-                            && subject_line(part, line, piece).is_none()
-                        {
-                            let parts = if flattened {
-                                flat_bullets(part)
-                            } else {
-                                vec![part]
-                            };
-                            advance = parts.len();
-                            for (offset, text) in parts.into_iter().enumerate() {
-                                let note = note_line(text, section, line, piece + offset);
-                                open = note.is_some();
-                                output.extend(note);
+                            piece += 1;
+                        } else if general && flattened {
+                            let parts = flat_bullets(part);
+                            for (offset, text) in parts.iter().copied().enumerate() {
+                                open = flat_note(
+                                    &mut output,
+                                    open,
+                                    text,
+                                    section,
+                                    line,
+                                    piece + offset,
+                                );
                             }
+                            piece += parts.len();
+                        } else if general {
+                            let note = note_line(part, section, line, piece);
+                            open = note.is_some();
+                            output.extend(note);
+                            piece += 1;
                         } else {
                             open = false;
+                            piece += 1;
                         }
-                        piece += advance;
                     }
                 }
             }
@@ -501,6 +509,35 @@ fn flat_bullets(part: &str) -> Vec<&str> {
     }
     output.push(&part[start..]);
     output
+}
+
+fn flat_note<'a>(
+    output: &mut Vec<NoteLine<'a>>,
+    open: bool,
+    text: &'a str,
+    section: Option<&'a str>,
+    line: usize,
+    piece: usize,
+) -> bool {
+    if open && qualifier(text) {
+        return output.last_mut().is_some_and(|note| note.extend(text));
+    }
+    if subject(text).is_some() {
+        return false;
+    }
+    let note = note_line(text, section, line, piece);
+    let open = note.is_some();
+    output.extend(note);
+    open
+}
+
+fn qualifier(part: &str) -> bool {
+    let body = bullet(part).unwrap_or(part.trim());
+    annotation(body)
+        || body
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_lowercase() || first == '(')
 }
 
 fn note_line<'a>(

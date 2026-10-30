@@ -416,6 +416,18 @@ fn trimming_keeps_identity_name_receipts_and_reports_omissions() {
 }
 
 #[test]
+fn trimming_a_patch_history_row_updates_history_truncation() {
+    let mut mechanic = json!({"facts":[{"stat_key":"derived_x"},{"stat_key":"patch_note_change"},{"stat_key":"raw"}],
+        "truncated":false,"omitted_count":0,"patch_history_truncated":false,"patch_history_omitted_count":0});
+    assert!(trim_row(&mut mechanic));
+    assert_eq!(mechanic["patch_history_truncated"], false);
+    assert!(trim_row(&mut mechanic));
+    assert_eq!(mechanic["patch_history_truncated"], true);
+    assert_eq!(mechanic["patch_history_omitted_count"], 1);
+    assert_eq!(mechanic["omitted_count"], 2);
+}
+
+#[test]
 fn cited_rows_and_truncation_preserve_identity_and_strict_output_bounds() {
     let fact = json!({"stat_key":"health","value":780,"citation":"42","source_revision":"r1","patch":null,"condition":{}});
     let mut ids = BTreeMap::new();
