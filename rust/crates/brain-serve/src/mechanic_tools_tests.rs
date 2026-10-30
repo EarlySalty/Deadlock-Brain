@@ -584,7 +584,7 @@ fn patch_note_changes_expose_old_and_new_values() {
 }
 
 #[test]
-fn patch_note_changes_follow_derived_rows_and_precede_config_rows() {
+fn patch_note_changes_follow_current_values_and_precede_raw_rows() {
     let rows = vec![
         fact("citadel_respawn_time_min", "8", "1"),
         fact("citadel_unexplained_raw", "3", "2"),
@@ -594,7 +594,8 @@ fn patch_note_changes_follow_derived_rows_and_precede_config_rows() {
         json!({"patch":"Minor Update - 09-16-2026","released_at":"2026-09-16T20:00:00+00:00","line_text":"Respawn Time at 20 minutes increased from 35s to 38s","citation":"7","source_revision":"rev"}),
         json!({"patch":"x","released_at":"","line_text":"Respawn time at 30 minutes reduced from 75s to 70s","citation":"8","source_revision":"rev"}),
     ];
-    history::insert(&mut result, &lines);
+    let at = primary_len(&result);
+    history::insert(&mut result, &lines, at);
     let facts = result["facts"].as_array().cloned().unwrap_or_default();
     let changes: Vec<usize> = facts
         .iter()
@@ -606,7 +607,7 @@ fn patch_note_changes_follow_derived_rows_and_precede_config_rows() {
     let change = &facts[changes[0]];
     assert_eq!(change["condition"]["old_text"], "35s");
     assert_eq!(change["condition"]["new_text"], "38s");
-    assert_eq!(change["released_at"], "2026-09-16T20:00:00+00:00");
+    assert_eq!(change["released_at"], "2026-09-16");
     let derived = |row: &Value| {
         row["stat_key"]
             .as_str()
@@ -616,8 +617,51 @@ fn patch_note_changes_follow_derived_rows_and_precede_config_rows() {
     assert!(facts[changes[0] + 1..].iter().all(|row| !derived(row)));
     assert!(facts[changes[0] + 1..]
         .iter()
-        .any(|row| row["stat_key"] == "citadel_respawn_time_min"));
+        .any(|row| row["stat_key"] == "citadel_unexplained_raw"));
     assert_eq!(result["patch_history_meaning"], history::MEANING);
+}
+
+#[test]
+fn walker_resist_table_precedes_history_so_trimming_drops_history_first() {
+    let mut rows = vec![fact(
+        "npc_boss_tier2_intrinsicmodifiers_0_bullet_armor_damage_resist",
+        "35",
+        "c",
+    )];
+    rows.extend(
+        [(3, "20"), (4, "30"), (5, "40"), (6, "50")].map(|(enemies, resist)| {
+            fact(
+                &format!("npc_boss_tier2_nearbyenemyresist_resistvalues_{enemies}"),
+                resist,
+                "c",
+            )
+        }),
+    );
+    let mut walker = request(MechanicKind::Objectives, None);
+    walker.objective = Some(ObjectiveKind::Walker);
+    let mut result = present(&walker, rows);
+    let lines: Vec<Value> = (1..=12)
+        .rev()
+        .map(|day| json!({"patch":format!("Update {day}"),"released_at":format!("2026-06-{day:02}T00:00:00+00:00"),"line_text":format!("Walker bullet resist increased from {day} to {}", day + 1),"citation":format!("{day}"),"source_revision":"rev"}))
+        .collect();
+    let at = primary_len(&result);
+    history::insert(&mut result, &lines, at);
+    let facts = result["facts"].as_array().cloned().unwrap_or_default();
+    let first_change = facts
+        .iter()
+        .position(|row| row["stat_key"] == "patch_note_change")
+        .unwrap_or(facts.len());
+    let table = facts
+        .iter()
+        .rposition(|row| {
+            row["stat_key"]
+                .as_str()
+                .is_some_and(|stat| stat.contains("nearbyenemyresist"))
+        })
+        .unwrap_or(usize::MAX);
+    assert!(table < first_change);
+    assert_eq!(facts.len() - first_change, lines.len());
+    assert_eq!(facts[first_change]["released_at"], "2026-06-12");
 }
 
 #[test]
@@ -633,44 +677,50 @@ fn every_mechanic_except_item_tiers_has_a_patch_scope() {
 }
 
 #[test]
-fn live_urn_and_core_ability_histories_fit_before_raw_rows() {
+fn live_urn_and_core_ability_current_values_and_newest_history_fit() {
     let cases = [
         (
             MechanicKind::Urn,
             include_str!("../tests/fixtures/mechanic_urn.json"),
             include_str!("../tests/fixtures/mechanic_urn_history.json"),
+            "2026-06-30",
         ),
         (
             MechanicKind::CoreAbilities,
             include_str!("../tests/fixtures/mechanic_core_abilities.json"),
             include_str!("../tests/fixtures/mechanic_core_abilities_history.json"),
+            "2025-04-18",
         ),
     ];
-    for (mechanic, rows, lines) in cases {
+    for (mechanic, rows, lines, oldest_kept) in cases {
         let rows: Vec<Value> = serde_json::from_str(rows).unwrap_or_default();
         let lines: Vec<Value> = serde_json::from_str(lines).unwrap_or_default();
         let mut result = present(&request(mechanic, None), rows);
-        history::insert(&mut result, &lines);
+        let current = primary_len(&result);
+        history::insert(&mut result, &lines, current);
         let facts = result["facts"].as_array().cloned().unwrap_or_default();
-        let needed = facts
-            .iter()
-            .rposition(|row| row["stat_key"] == "patch_note_change")
-            .map_or(0, |last| last + 1);
-        assert_eq!(
-            facts[..needed]
+        let budget = |kept: &[Value]| {
+            let mut bounded = result.clone();
+            bounded["facts"] = Value::Array(kept.to_vec());
+            let citations: BTreeSet<&str> = kept
                 .iter()
-                .filter(|row| row["stat_key"] == "patch_note_change")
-                .count(),
-            lines.len(),
+                .filter_map(|row| row["citation"].as_str())
+                .collect();
+            serde_json::to_vec(&bounded).map_or(usize::MAX, |v| v.len())
+                + citations.len() * 96
+                + 1100
+        };
+        let mut kept = facts.len();
+        while kept > current && budget(&facts[..kept]) >= 16_384 {
+            kept -= 1;
+        }
+        assert!(budget(&facts[..kept]) < 16_384, "{mechanic:?}");
+        assert!(kept > current, "{mechanic:?}");
+        assert!(
+            facts[current..kept]
+                .iter()
+                .any(|row| row["released_at"] == oldest_kept),
             "{mechanic:?}"
         );
-        result["facts"] = Value::Array(facts[..needed].to_vec());
-        let citations: BTreeSet<&str> = facts[..needed]
-            .iter()
-            .filter_map(|row| row["citation"].as_str())
-            .collect();
-        let evidence = citations.len() * 96 + 1100;
-        let bytes = serde_json::to_vec(&result).map_or(usize::MAX, |v| v.len());
-        assert!(bytes + evidence < 16_384, "{mechanic:?} {bytes}");
     }
 }

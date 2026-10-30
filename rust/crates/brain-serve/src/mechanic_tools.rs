@@ -147,9 +147,33 @@ pub(super) async fn read(
         let lines = history::lines(connection, scope)
             .await
             .ok_or_else(history_unavailable)?;
-        history::insert(&mut value, &lines);
+        let at = primary_len(&value);
+        history::insert(&mut value, &lines, at);
     }
     Ok(Some(value))
+}
+
+pub(super) fn primary_len(value: &Value) -> usize {
+    let Some(facts) = value["facts"].as_array() else {
+        return 0;
+    };
+    let inputs: BTreeSet<&str> = facts
+        .iter()
+        .filter_map(|row| row["condition"]["inputs"].as_array())
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    facts
+        .iter()
+        .rposition(|row| {
+            row["stat_key"].as_str().is_some_and(|stat| {
+                stat.starts_with("derived_")
+                    || stat.starts_with("patch_")
+                    || inputs.contains(stat)
+                    || meaning(row).is_some()
+            })
+        })
+        .map_or(0, |last| last + 1)
 }
 
 fn history_unavailable() -> PortError {

@@ -6,7 +6,7 @@ const QUERY: &str = include_str!("mechanic_patch_history.sql");
 const LIMIT: i64 = 12;
 const CORE_ABILITY_LIMIT: i64 = 16;
 const ATTEMPTS: u8 = 2;
-pub(super) const MEANING: &str = "patch_note_change-Zeilen sind Patchnotiz-Zeilen zu dieser Mechanik mit Datum, neueste zuerst. Steht in line_text from X to Y, galt old_text bis released_at und new_text gilt ab released_at. Nennt der Nutzer einen früheren Wert, mit diesen Zeilen sagen, wann er galt und seit wann der aktuelle Wert gilt. Regeln, die nur in diesen Zeilen stehen, gelten ab released_at, solange keine neuere Zeile sie ändert. Aktuelle Zahlenwerte stehen in den übrigen Zeilen.";
+pub(super) const MEANING: &str = "patch_note_change-Zeilen sind Patchnotiz-Zeilen zu dieser Mechanik mit Datum, neueste zuerst. Steht in line_text from X to Y, galt old_text bis released_at und new_text gilt ab released_at. Nennt der Nutzer einen früheren Wert, mit diesen Zeilen sagen, wann er galt und seit wann der aktuelle Wert gilt. Regeln, die nur in diesen Zeilen stehen, gelten ab released_at, solange keine neuere Zeile sie ändert. Die aktuellen Werte stehen in den Zeilen vor den patch_note_change-Zeilen und haben Vorrang: nenne sie immer vollständig, die Patchzeilen nur ergänzend als Verlauf.";
 
 #[derive(Clone, Copy)]
 pub(super) struct Scope {
@@ -153,7 +153,7 @@ async fn attempt_lines(
     history.ok()
 }
 
-pub(super) fn insert(value: &mut Value, history: &[Value]) {
+pub(super) fn insert(value: &mut Value, history: &[Value], at: usize) {
     let rows: Vec<Value> = history.iter().filter_map(change).collect();
     if rows.is_empty() {
         return;
@@ -161,14 +161,7 @@ pub(super) fn insert(value: &mut Value, history: &[Value]) {
     let Some(facts) = value["facts"].as_array_mut() else {
         return;
     };
-    let at = facts
-        .iter()
-        .rposition(|row| {
-            row["stat_key"]
-                .as_str()
-                .is_some_and(|stat| stat.starts_with("derived_") || stat.starts_with("patch_"))
-        })
-        .map_or(0, |last| last + 1);
+    let at = at.min(facts.len());
     facts.splice(at..at, rows);
     value["patch_history_meaning"] = json!(MEANING);
 }
@@ -182,18 +175,15 @@ fn change(line: &Value) -> Option<Value> {
     let released_at = line["released_at"]
         .as_str()
         .filter(|released| !released.is_empty())?;
-    let (old, new) = from_to(text).unzip();
+    let mut condition = json!({"patch_label":line["patch"],"line_text":text});
+    if let Some((old, new)) = from_to(text) {
+        condition["old_text"] = old.into();
+        condition["new_text"] = new.into();
+    }
     Some(json!({
         "stat_key":"patch_note_change",
-        "value":new,
-        "condition":{
-            "patch_label":line["patch"],
-            "section":line["section"],
-            "line_text":text,
-            "old_text":old,
-            "new_text":new
-        },
-        "released_at":released_at,
+        "condition":condition,
+        "released_at":released_at.get(..10).unwrap_or(released_at),
         "citation":line["citation"],
         "source_revision":line["source_revision"],
         "patch":null

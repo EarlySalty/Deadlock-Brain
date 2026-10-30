@@ -83,8 +83,16 @@ def run_turns(probe, token, run_id):
     return turns
 
 
+def iso_dates(answer):
+    return re.sub(
+        r"(?<![\d.])(\d{1,2})\.(\d{1,2})\.(\d{4})(?!\d)",
+        lambda m: f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}",
+        answer,
+    )
+
+
 def normalize(answer):
-    text = re.sub(r"(?<=\d)[\u00a0\u202f ](?=\d{3}\b)", "", answer)
+    text = re.sub(r"(?<=\d)[\u00a0\u202f](?=\d{3}\b)", "", iso_dates(answer))
     text = re.sub(r"(?<=\d)\.(?=\d{3}(?!\d))", "", text)
     return re.sub(r"(?<=\d),(?=\d)", ".", text)
 
