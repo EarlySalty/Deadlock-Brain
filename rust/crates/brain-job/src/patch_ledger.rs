@@ -398,12 +398,7 @@ async fn replace(
     .bind(run_id)
     .execute(&mut *transaction)
     .await?;
-    sqlx::query(
-        "DELETE FROM canon.patch_line l WHERE l.source='extract'
-            AND NOT EXISTS(SELECT 1 FROM ops.patch_ledger p WHERE p.ledger_id=l.ledger_id)",
-    )
-    .execute(&mut *transaction)
-    .await?;
+    crate::patch_extract::line::sync(transaction, run_id).await?;
     Ok(())
 }
 

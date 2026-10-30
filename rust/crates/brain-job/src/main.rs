@@ -184,8 +184,8 @@ async fn run() -> anyhow::Result<()> {
             println!("patch_ledger_changed={changed}");
             let lines = brain_job::patch_extract::line::refresh(&pool, report.run_id).await?;
             println!(
-                "patch_line_rows={} patch_line_written={} patch_line_deleted={}",
-                lines.rows, lines.written, lines.deleted
+                "patch_line_rows={} patch_line_written={} patch_line_deleted={} patch_line_remapped={} patch_line_archived={}",
+                lines.rows, lines.written, lines.deleted, lines.remapped, lines.archived
             );
         }
         if source == brain_job::item_lineage::SOURCE {
