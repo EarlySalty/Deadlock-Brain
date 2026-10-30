@@ -9,7 +9,7 @@ Recorded 2026-10-30 from the operator's in-game test on the current game build (
 
 ## Superseded stored source
 
-- 01.08.2024 "Parrying a Guardian attack will no longer cause the Guardian to be stunned" (`game-wiki/pages/deadlock-data/patchnote.md`, 08-01-2024 Update). Observation 1 contradicts it, get_mechanic keeps returning this dated line, and the stun-duration meaning states that the observation replaces it. Stun duration and damage bonus on objectives are not verified.
+- 01.08.2024 "Parrying a Guardian attack will no longer cause the Guardian to be stunned" (`game-wiki/pages/deadlock-data/patchnote.md`, 08-01-2024 Update). Observation 1 contradicts it. Open: no stored source backs observation 1 yet, so get_mechanic does not state it and still returns this dated line. Stun duration and damage bonus on objectives are not verified.
 
 ## Still valid stored sources
 

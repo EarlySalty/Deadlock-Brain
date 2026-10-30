@@ -879,7 +879,7 @@
   "turns": [
    "Wie ist das mit dem Parry Auf gegner Trooper usw was geht was nicht was sind da so die ganzen Spezifikationen"
   ],
-  "expected": "Stun 2.75 s, +25 % damage, cooldown 4.5 s, troopers stunned without cooldown reset since 28.05.2026, objectives stunned and no cooldown reset since 29.09.2026",
+  "expected": "Stun 2.75 s, +25 % damage, cooldown 4.5 s, troopers stunned without cooldown reset since 28.05.2026, no cooldown reset on objectives since 29.09.2026",
   "expect": [
    [
     "2.75"
