@@ -1,0 +1,10 @@
+[Unit]
+Description=Catch Brain releases the path watch missed
+
+[Timer]
+OnBootSec=10min
+OnUnitInactiveSec=10min
+Unit=brain-probe-guard.service
+
+[Install]
+WantedBy=timers.target

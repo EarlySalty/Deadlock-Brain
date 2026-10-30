@@ -1,0 +1,9 @@
+[Unit]
+Description=Run the Brain probe guard after every brain-release install or rollback
+
+[Path]
+PathChanged=/opt/deadlock-brain
+Unit=brain-probe-guard.service
+
+[Install]
+WantedBy=default.target

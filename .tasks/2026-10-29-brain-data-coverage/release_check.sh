@@ -14,8 +14,12 @@ unset DISCORD_BRAIN_CLIENT_TOKEN
 PROBE_PREFIX=probe-bdc- python3 -I "$harness/enrich.py" "$out" "$started" > "$state/$mode.enriched.jsonl" 2> "$state/$mode.cost.json"
 cat "$state/$mode.cost.json"
 if [ "$mode" = after ]; then
-  if ! python3 -I "$here/compare.py" "$state/before.jsonl" "$out"; then
+  status=0
+  python3 -I "$here/compare.py" "$state/before.jsonl" "$out" || status=$?
+  if [ "$status" = 1 ]; then
     echo "probe regression; roll back with: sudo -n -- /usr/local/libexec/brain-release rollback ${3:-<previous sha>}" >&2
-    exit 1
+  elif [ "$status" = 2 ]; then
+    echo "provider unavailable for some probes; rerun them before judging" >&2
   fi
+  exit "$status"
 fi
