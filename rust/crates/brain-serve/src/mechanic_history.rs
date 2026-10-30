@@ -6,7 +6,7 @@ const QUERY: &str = include_str!("mechanic_patch_history.sql");
 const LIMIT: i64 = 12;
 const CORE_ABILITY_LIMIT: i64 = 16;
 const ATTEMPTS: u8 = 2;
-pub(super) const MEANING: &str = "patch_note_change-Zeilen sind Patchnotiz-Zeilen zu dieser Mechanik mit Datum, neueste zuerst. Steht in line_text from X to Y, galt old_text bis released_at und new_text gilt ab released_at. Nennt der Nutzer einen früheren Wert, mit diesen Zeilen sagen, wann er galt und seit wann der aktuelle Wert gilt. Regeln, die nur in diesen Zeilen stehen, gelten ab released_at, solange keine neuere Zeile sie ändert. Die aktuellen Werte stehen in den Zeilen vor den patch_note_change-Zeilen und haben Vorrang: nenne sie immer vollständig, die Patchzeilen nur ergänzend als Verlauf.";
+pub(super) const MEANING: &str = "patch_note_change-Zeilen sind Patchnotiz-Zeilen zu dieser Mechanik mit Datum, neueste zuerst. Steht in line_text from X to Y, galt old_text bis released_at und new_text gilt ab released_at. Nennt der Nutzer einen früheren Wert, mit diesen Zeilen sagen, wann er galt und seit wann der aktuelle Wert gilt. Regeln, die nur in diesen Zeilen stehen, gelten ab released_at, solange keine neuere Zeile sie ändert. Die aktuellen Werte stehen in allen übrigen Zeilen und haben Vorrang: nenne sie immer vollständig, die Patchzeilen nur ergänzend als Verlauf.";
 
 #[derive(Clone, Copy)]
 pub(super) struct Scope {
