@@ -46,14 +46,84 @@ CREATE INDEX patch_line_entity ON canon.patch_line (entity_id,ledger_id) WHERE e
 CREATE INDEX patch_line_ability ON canon.patch_line (ability_id,ledger_id) WHERE ability_id IS NOT NULL;
 CREATE INDEX patch_line_type ON canon.patch_line (entity_type,ledger_id);
 
+CREATE TABLE ops.patch_line_correction_archive (
+    archive_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ledger_id bigint NOT NULL,
+    line_no integer NOT NULL,
+    piece integer NOT NULL,
+    section text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id bigint,
+    entity_name text,
+    ability_id bigint,
+    ability_name text,
+    alias_used text,
+    change_type text,
+    stat_name text,
+    old_value text,
+    new_value text,
+    raw_line text NOT NULL,
+    source text NOT NULL CHECK (source<>'extract'),
+    correction_ref text NOT NULL,
+    needs_review boolean NOT NULL,
+    line_run_id bigint,
+    archived_at timestamptz NOT NULL DEFAULT now(),
+    reason text NOT NULL CHECK (reason IN ('ledger_vanished','key_vanished','raw_line_changed')),
+    run_id bigint NOT NULL REFERENCES ops.ingest_run(id)
+);
+CREATE INDEX patch_line_correction_archive_key ON ops.patch_line_correction_archive (ledger_id,line_no,piece);
+
+CREATE FUNCTION ops.patch_line_entities()
+RETURNS TABLE(id bigint,kind text,name text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $entities$
+    SELECT e.id,e.kind::text,n.name
+    FROM serve.current_entity e
+    LEFT JOIN LATERAL (
+        SELECT nullif(btrim(f.value_text::text),'') AS name FROM serve.current_fact f
+        WHERE f.entity_id=e.id AND f.stat_key='name_en'
+        OFFSET 0
+    ) n ON true
+    WHERE e.kind::text IN ('hero','ability','item')
+    ORDER BY e.id
+$entities$;
+
+CREATE FUNCTION ops.patch_line_aliases()
+RETURNS TABLE(entity_id bigint,alias text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $aliases$
+    SELECT DISTINCT a.entity_id,a.alias_norm::text
+    FROM serve.current_alias a
+    JOIN serve.current_entity e ON e.id=a.entity_id
+    WHERE e.kind::text IN ('hero','ability','item') AND a.lang IN ('en','und')
+    ORDER BY 1,2
+$aliases$;
+
+CREATE FUNCTION ops.patch_line_relations()
+RETURNS TABLE(hero_id bigint,ability_id bigint)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $relations$
+    SELECT DISTINCT r.from_entity,r.to_entity
+    FROM serve.current_relation r
+    JOIN serve.current_entity h ON h.id=r.from_entity AND h.kind::text='hero'
+    JOIN serve.current_entity a ON a.id=r.to_entity AND a.kind::text='ability'
+    WHERE r.kind='has_ability'
+    ORDER BY 1,2
+$relations$;
+
 CREATE VIEW serve.patch_change_v2 AS
 SELECT l.ledger_id,l.line_no,l.piece,p.patch_id,p.label,p.kind,p.released_at,p.source_url,
-    p.released_at_receipt_id,p.source_revision,
+    p.released_at_receipt_id,p.source_revision AS released_at_source_revision,
+    t.text_receipt_id,t.source_revision,
     l.section,l.entity_type,l.entity_id,l.entity_name,l.ability_id,l.ability_name,l.alias_used,
     l.change_type,l.stat_name,l.old_value,l.new_value,l.raw_line,l.source,l.correction_ref,
     l.needs_review
 FROM canon.patch_line l
-JOIN serve.patch_ledger p ON p.ledger_id=l.ledger_id;
+JOIN serve.patch_ledger p ON p.ledger_id=l.ledger_id
+CROSS JOIN LATERAL (
+    SELECT r.id AS text_receipt_id,r.source_revision
+    FROM serve.p4_patch_catalog c
+    JOIN serve.published_receipt r ON r.id=c.official_receipt_id AND r.raw_object_id=c.raw_object_id
+    WHERE c.patch_id=p.patch_id AND c.official_url=p.source_url
+    OFFSET 0
+) t;
 
 CREATE OR REPLACE FUNCTION serve.site_generation()
 RETURNS text
@@ -86,8 +156,11 @@ BEGIN
 END
 $generation$;
 
-REVOKE ALL ON canon.patch_line,serve.patch_change_v2 FROM PUBLIC;
+REVOKE ALL ON canon.patch_line,serve.patch_change_v2,ops.patch_line_correction_archive FROM PUBLIC;
+REVOKE ALL ON FUNCTION ops.patch_line_entities(),ops.patch_line_aliases(),ops.patch_line_relations() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ops.patch_line_entities(),ops.patch_line_aliases(),ops.patch_line_relations() TO brain_ingest;
 GRANT SELECT,INSERT,UPDATE,DELETE ON canon.patch_line TO brain_ingest;
+GRANT SELECT,INSERT ON ops.patch_line_correction_archive TO brain_ingest;
 GRANT SELECT ON serve.patch_change_v2 TO brain_tool;
 
 COMMIT;

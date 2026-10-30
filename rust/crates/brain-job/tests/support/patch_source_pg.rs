@@ -671,21 +671,24 @@ async fn ledger_refresh_runs_as_ingest_role_and_merges_mirrors() {
 }
 
 #[tokio::test]
-async fn patch_line_refresh_keeps_corrections_and_import_is_atomic() {
+async fn patch_line_refresh_reconciles_corrections_and_import_is_atomic() {
     let (pg, admin, reader) = setup().await;
+    let content =
+        "[ General ]\n- Urn: Gold reward reduced from 100 to 80\n- Fixed a crash\n- Fixed a sound bug\n";
     sqlx::query(
         "INSERT INTO patchnotes.changelog_posts (id,title,url,posted_at,raw_content) VALUES
          (1,'10-01-2026 Update','https://forums.playdeadlock.com/threads/10-01-2026-update.1/','2026-10-01 20:00+00',$1)",
     )
-    .bind("[ General ]\n- Urn: Gold reward reduced from 100 to 80\n- Fixed a crash\n- Fixed a sound bug\n")
+    .bind(content)
     .execute(&admin)
     .await
     .unwrap();
     let store = store(&admin).await;
+    let source = || stream(config(), reader.clone());
     let report = ingest(
         &store,
         "deadlock_patchnotes_db",
-        stream(config(), reader),
+        source(),
         &[&PatchExtractor],
     )
     .await
@@ -706,49 +709,41 @@ async fn patch_line_refresh_keeps_corrections_and_import_is_atomic() {
         )
         .await
         .unwrap();
-    crate::patch_ledger::refresh(&ingest_role, report.run_id)
+    assert!(crate::patch_ledger::refresh(&ingest_role, report.run_id)
+        .await
+        .unwrap());
+    let lines = |ledger: i64| {
+        sqlx::query_as::<_, (i32, String, String)>(
+            "SELECT line_no,source,raw_line FROM canon.patch_line WHERE ledger_id=$1 ORDER BY line_no",
+        )
+        .bind(ledger)
+        .fetch_all(&admin)
+    };
+    assert_eq!(lines(1).await.unwrap().len(), 3);
+    let first = crate::patch_extract::line::refresh(&ingest_role, report.run_id)
         .await
         .unwrap();
-    let line = crate::patch_extract::line::refresh(&ingest_role, report.run_id);
-    let first = line.await.unwrap();
-    assert_eq!((first.rows, first.written, first.deleted), (3, 3, 0));
+    assert_eq!(
+        (
+            first.rows,
+            first.written,
+            first.deleted,
+            first.remapped,
+            first.archived
+        ),
+        (3, 0, 0, 0, 0)
+    );
     let header = crate::patch_extract::line::IMPORT_COLUMNS.join("\t");
-    let fix = "1\t2\t0\tGeneral\tgeneral\t\t\t\t\t\tbugfix\t\t\t\t- Fixed a crash\trelink-consensus-2026-10-30\tFABLE-7\ttrue";
+    let crash = "1\t2\t0\tGeneral\tgeneral\t\t\t\t\t\tbugfix\t\t\t\t- Fixed a crash\trelink-consensus-2026-10-30\tFABLE-7\ttrue";
+    let sound = "1\t3\t0\tGeneral\tgeneral\t\t\t\t\t\tbugfix\t\t\t\tFixed a sound bug\tmanual\tFABLE-10\tfalse";
     let corrections =
-        crate::patch_extract::line::parse_corrections(&format!("{header}\n{fix}\n")).unwrap();
+        crate::patch_extract::line::parse_corrections(&format!("{header}\n{crash}\n{sound}\n"))
+            .unwrap();
     assert_eq!(
         crate::patch_extract::line::import(&ingest_role, &corrections)
             .await
             .unwrap(),
-        1
-    );
-    sqlx::query(
-        "INSERT INTO canon.patch_line (ledger_id,line_no,piece,section,entity_type,change_type,
-            raw_line,source,correction_ref) VALUES (1,9,0,'General','general','added','- Manual note',
-            'manual','FABLE-8')",
-    )
-    .execute(&admin)
-    .await
-    .unwrap();
-    crate::patch_ledger::refresh(&ingest_role, report.run_id)
-        .await
-        .unwrap();
-    let again = crate::patch_extract::line::refresh(&ingest_role, report.run_id)
-        .await
-        .unwrap();
-    assert_eq!((again.rows, again.written, again.deleted), (3, 0, 0));
-    let kept: Vec<(i32, String, bool)> = sqlx::query_as(
-        "SELECT line_no,source,needs_review FROM canon.patch_line WHERE source<>'extract' ORDER BY line_no",
-    )
-    .fetch_all(&admin)
-    .await
-    .unwrap();
-    assert_eq!(
-        kept,
-        [
-            (2, "relink-consensus-2026-10-30".into(), true),
-            (9, "manual".into(), false)
-        ]
+        2
     );
     let missing =
         "1\t50\t0\tGeneral\tgeneral\t\t\t\t\t\tnerf\t\t\t\t- Nope\tmanual\tFABLE-9\tfalse";
@@ -772,4 +767,143 @@ async fn patch_line_refresh_keeps_corrections_and_import_is_atomic() {
     assert!(crate::patch_extract::line::import(&ingest_role, &rejected)
         .await
         .is_err());
+    sqlx::query(
+        "INSERT INTO canon.patch_line (ledger_id,line_no,piece,section,entity_type,change_type,
+            raw_line,source,correction_ref) VALUES (1,9,0,'General','general','added','Manual note',
+            'manual','FABLE-8')",
+    )
+    .execute(&admin)
+    .await
+    .unwrap();
+    let kept = crate::patch_extract::line::refresh(&ingest_role, report.run_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            kept.rows,
+            kept.written,
+            kept.deleted,
+            kept.remapped,
+            kept.archived
+        ),
+        (3, 0, 0, 0, 1)
+    );
+    assert_eq!(
+        lines(1).await.unwrap(),
+        [
+            (
+                1,
+                "extract".into(),
+                "Urn: Gold reward reduced from 100 to 80".into()
+            ),
+            (
+                2,
+                "relink-consensus-2026-10-30".into(),
+                "Fixed a crash".into()
+            ),
+            (3, "manual".into(), "Fixed a sound bug".into()),
+        ]
+    );
+    let archived = || {
+        sqlx::query_as::<_, (i64, i32, String, String)>(
+            "SELECT ledger_id,line_no,raw_line,reason FROM ops.patch_line_correction_archive
+             ORDER BY archive_id",
+        )
+        .fetch_all(&admin)
+    };
+    assert_eq!(
+        archived().await.unwrap(),
+        [(1, 9, "Manual note".into(), "key_vanished".into())]
+    );
+    sqlx::query("UPDATE patchnotes.changelog_posts SET raw_content=$1 WHERE id=1")
+        .bind(content.replace("sound bug", "sound glitch"))
+        .execute(&admin)
+        .await
+        .unwrap();
+    let edited = ingest(
+        &store,
+        "deadlock_patchnotes_db",
+        source(),
+        &[&PatchExtractor],
+    )
+    .await
+    .unwrap();
+    crate::patch_ledger::refresh(&ingest_role, edited.run_id)
+        .await
+        .unwrap();
+    let changed = crate::patch_extract::line::refresh(&ingest_role, edited.run_id)
+        .await
+        .unwrap();
+    assert_eq!((changed.archived, changed.remapped), (1, 0));
+    assert_eq!(
+        lines(1).await.unwrap()[1..],
+        [
+            (
+                2,
+                "relink-consensus-2026-10-30".into(),
+                "Fixed a crash".into()
+            ),
+            (3, "extract".into(), "Fixed a sound glitch".into()),
+        ]
+    );
+    assert_eq!(
+        archived().await.unwrap()[1..],
+        [(1, 3, "Fixed a sound bug".into(), "raw_line_changed".into())]
+    );
+    sqlx::query(
+        "INSERT INTO patchnotes.changelog_posts (id,title,url,posted_at,raw_content) VALUES
+         (2,'10-01-2026 Update','https://store.steampowered.com/news/app/1422450/view/2','2026-10-01 21:00+00',$1)",
+    )
+    .bind(content.replace("sound bug", "sound glitch"))
+    .execute(&admin)
+    .await
+    .unwrap();
+    let mirrored = ingest(
+        &store,
+        "deadlock_patchnotes_db",
+        source(),
+        &[&PatchExtractor],
+    )
+    .await
+    .unwrap();
+    assert!(crate::patch_ledger::refresh(&ingest_role, mirrored.run_id)
+        .await
+        .unwrap());
+    assert!(lines(1).await.unwrap().is_empty());
+    assert_eq!(
+        lines(2).await.unwrap(),
+        [
+            (
+                1,
+                "extract".into(),
+                "Urn: Gold reward reduced from 100 to 80".into()
+            ),
+            (
+                2,
+                "relink-consensus-2026-10-30".into(),
+                "Fixed a crash".into()
+            ),
+            (3, "extract".into(), "Fixed a sound glitch".into()),
+        ]
+    );
+    assert_eq!(archived().await.unwrap().len(), 2);
+    let served: Vec<(i64, i64, String)> = sqlx::query_as(
+        "SELECT v.ledger_id,v.text_receipt_id,v.source_revision
+         FROM serve.patch_change_v2 v ORDER BY v.line_no",
+    )
+    .fetch_all(&admin)
+    .await
+    .unwrap();
+    let text: (i64, String) = sqlx::query_as(
+        "SELECT r.id,r.source_revision FROM serve.published_receipt r
+         JOIN canon.entity e ON e.key='patch_2'
+         JOIN serve.current_entity c ON c.id=e.id AND c.receipt_id=r.id",
+    )
+    .fetch_one(&admin)
+    .await
+    .unwrap();
+    assert_eq!(served.len(), 3);
+    assert!(served
+        .iter()
+        .all(|row| (row.0, row.1, row.2.clone()) == (2, text.0, text.1.clone())));
 }

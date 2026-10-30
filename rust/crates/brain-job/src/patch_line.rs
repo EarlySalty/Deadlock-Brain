@@ -1,6 +1,6 @@
 use super::{
-    bullet, chunks, explicit_values, label, pieces, structural_heading, subject, Chunk,
-    SUBJECT_CHARS, SUBJECT_WORDS,
+    annotation, bullet, chunks, explicit_values, first_word, indent, label, qualification_word,
+    structural_heading, subject, Chunk, SUBJECT_CHARS, SUBJECT_WORDS,
 };
 use anyhow::{bail, Context};
 use sqlx::{PgConnection, PgPool, Row as _};
@@ -39,6 +39,17 @@ const LOWER_BETTER: &[&str] = &[
     "cooldown", "cost", "delay", "windup", "reload", "recoil", "spread", "penalty", "taken",
     "cycle",
 ];
+const REDUCERS: &[&str] = &[
+    "reduction",
+    "reductions",
+    "reducer",
+    "resist",
+    "resists",
+    "resistance",
+    "resistances",
+];
+const LESSER: &[&str] = &["reduced", "decreased", "lower", "lowered", "less"];
+const VALUE_WORDS: &[&str] = &["from", "to", "by"];
 const CHANGE_VERBS: &[&str] = &[
     "changed",
     "adjusted",
@@ -93,6 +104,7 @@ enum Kind {
 pub struct Catalog {
     kinds: BTreeMap<i64, Kind>,
     names: BTreeMap<i64, String>,
+    labels: BTreeMap<i64, String>,
     aliases: BTreeMap<Vec<String>, BTreeSet<i64>>,
     abilities: BTreeMap<i64, Vec<(Vec<String>, i64)>>,
     owners: BTreeMap<i64, BTreeSet<i64>>,
@@ -144,6 +156,14 @@ pub struct Refresh {
     pub rows: usize,
     pub written: u64,
     pub deleted: u64,
+    pub remapped: usize,
+    pub archived: usize,
+}
+
+enum Mention<'a> {
+    Absent,
+    One(i64, &'a str),
+    Ambiguous,
 }
 
 struct Token<'a> {
@@ -215,6 +235,12 @@ impl Catalog {
         for (id, alias) in aliases {
             if catalog.kinds.contains_key(id) {
                 spelled.entry(*id).or_default().insert(words(alias));
+                if !alias.trim().is_empty() {
+                    catalog
+                        .labels
+                        .entry(*id)
+                        .or_insert_with(|| alias.trim().to_owned());
+                }
             }
         }
         for (id, keys) in &spelled {
@@ -247,11 +273,15 @@ impl Catalog {
             .flatten()
     }
 
-    fn name(&self, id: i64, fallback: &str) -> String {
+    fn name(&self, id: i64, printed: &str) -> Option<String> {
         self.names
             .get(&id)
             .cloned()
-            .unwrap_or_else(|| fallback.trim().to_owned())
+            .or_else(|| {
+                let printed = printed.trim();
+                (!printed.is_empty()).then(|| printed.to_owned())
+            })
+            .or_else(|| self.labels.get(&id).cloned())
     }
 
     fn owner(&self, ability: i64, context: Option<i64>) -> Option<i64> {
@@ -263,10 +293,12 @@ impl Catalog {
         (owners.len() == 1).then_some(first)
     }
 
-    fn ability_in<'a>(&self, hero: i64, text: &'a str) -> Option<(i64, &'a str)> {
+    fn ability_in<'a>(&self, hero: i64, text: &'a str) -> Mention<'a> {
         let found = tokens(text);
-        let owned = self.abilities.get(&hero)?;
-        let mut best: Vec<(usize, i64, &'a str)> = Vec::new();
+        let Some(owned) = self.abilities.get(&hero) else {
+            return Mention::Absent;
+        };
+        let mut matches: Vec<(usize, usize, i64)> = Vec::new();
         for start in 0..found.len() {
             for (key, ability) in owned {
                 let end = start + key.len();
@@ -276,16 +308,39 @@ impl Catalog {
                         .zip(key)
                         .all(|(token, word)| &token.word == word)
                 {
-                    best.push((key.len(), *ability, span(text, &found[start..end])));
+                    matches.extend([(start, end, *ability)]);
                 }
             }
         }
-        let longest = best.iter().map(|(length, _, _)| *length).max()?;
-        best.retain(|(length, _, _)| *length == longest);
-        let ids: BTreeSet<i64> = best.iter().map(|(_, id, _)| *id).collect();
-        (ids.len() == 1)
-            .then(|| best.first().map(|(_, id, printed)| (*id, *printed)))
-            .flatten()
+        let outer: Vec<(usize, usize, i64)> = matches
+            .iter()
+            .filter(|(start, end, _)| {
+                !matches.iter().any(|(other_start, other_end, _)| {
+                    other_start <= start
+                        && end <= other_end
+                        && other_end - other_start > end - start
+                })
+            })
+            .copied()
+            .collect();
+        let ids: BTreeSet<i64> = outer.iter().map(|(_, _, id)| *id).collect();
+        let chosen = match ids.len() {
+            0 => None,
+            1 => outer.first(),
+            _ => {
+                let leading: Vec<&(usize, usize, i64)> =
+                    outer.iter().filter(|(start, _, _)| *start == 0).collect();
+                let lead_ids: BTreeSet<i64> = leading.iter().map(|(_, _, id)| *id).collect();
+                if lead_ids.len() != 1 {
+                    return Mention::Ambiguous;
+                }
+                leading.first().copied()
+            }
+        };
+        match chosen {
+            Some((start, end, id)) => Mention::One(*id, span(text, &found[*start..*end])),
+            None => Mention::Absent,
+        }
     }
 }
 
@@ -338,20 +393,57 @@ fn change_type(statement: &str, entity_type: &str) -> Option<&'static str> {
         return Some("changed");
     }
     if matches!(entity_type, "hero" | "ability" | "item") {
-        if let Some(position) = words.iter().position(|word| {
-            word == "improved" || UP.contains(&word.as_str()) || DOWN.contains(&word.as_str())
-        }) {
+        if let Some(position) = verb(&words) {
             if words[position] == "improved" {
                 return Some("buff");
             }
             let up = UP.contains(&words[position].as_str());
-            let inverse = words[..position]
-                .iter()
-                .any(|word| LOWER_BETTER.contains(&word.as_str()));
+            let inverse = lower_is_better(stat_phrase(&words, position));
             return Some(if up != inverse { "buff" } else { "nerf" });
         }
     }
     has(CHANGE_VERBS).then_some("changed")
+}
+
+fn verb(words: &[String]) -> Option<usize> {
+    let candidate = |word: &String| {
+        word == "improved" || UP.contains(&word.as_str()) || DOWN.contains(&word.as_str())
+    };
+    let followed = |index: usize| {
+        words.get(index + 1).is_none_or(|next| {
+            VALUE_WORDS.contains(&next.as_str()) || next.starts_with(|ch: char| ch.is_ascii_digit())
+        })
+    };
+    (0..words.len())
+        .find(|index| candidate(&words[*index]) && followed(*index))
+        .or_else(|| words.iter().position(candidate))
+}
+
+fn stat_phrase(words: &[String], position: usize) -> &[String] {
+    if position > 0 {
+        return &words[..position];
+    }
+    let rest = &words[1..];
+    let end = rest
+        .iter()
+        .position(|word| VALUE_WORDS.contains(&word.as_str()))
+        .unwrap_or(rest.len());
+    &rest[..end]
+}
+
+fn lower_is_better(phrase: &[String]) -> bool {
+    let mut inverse = false;
+    let mut previous: Option<&str> = None;
+    for word in phrase {
+        let word = word.as_str();
+        if REDUCERS.contains(&word) {
+            inverse = false;
+        } else if LOWER_BETTER.contains(&word) {
+            inverse = !previous.is_some_and(|before| LESSER.contains(&before));
+        }
+        previous = Some(word);
+    }
+    inverse
 }
 
 fn clean_value(value: &str) -> Option<String> {
@@ -431,10 +523,11 @@ impl<'a> Binding<'a> {
     }
 
     fn unresolved(entity_type: &'static str, printed: &str) -> Self {
+        let printed = printed.trim();
         Binding {
             entity_type,
             entity_id: None,
-            entity_name: Some(printed.trim().to_owned()),
+            entity_name: (!printed.is_empty()).then(|| printed.to_owned()),
             ability: None,
             alias_used: None,
             needs_review: true,
@@ -449,57 +542,75 @@ struct Scene<'c> {
 }
 
 impl<'c> Scene<'c> {
-    fn hero<'a>(&self, hero: i64, printed: Option<&str>, statement: &'a str) -> Binding<'a> {
-        let entity_name = self.catalog.name(hero, printed.unwrap_or_default());
-        let hero_alias = printed.and_then(|printed| differs(printed, &entity_name));
+    fn hero<'a>(
+        &self,
+        hero: i64,
+        printed: Option<&str>,
+        fallback: &str,
+        statement: &'a str,
+    ) -> Binding<'a> {
+        let entity_name = self.catalog.name(hero, printed.unwrap_or(fallback));
+        let hero_alias = printed.and_then(|printed| {
+            entity_name
+                .as_deref()
+                .and_then(|name| differs(printed, name))
+        });
+        let unnamed = entity_name.is_none();
+        let plain = |needs_review: bool| Binding {
+            entity_type: "hero",
+            entity_id: Some(hero),
+            entity_name: entity_name.clone(),
+            ability: None,
+            alias_used: hero_alias.clone(),
+            needs_review: needs_review || unnamed,
+        };
         match self.catalog.ability_in(hero, statement) {
-            Some((ability, spelled)) => {
-                let ability_name = self.catalog.name(ability, spelled);
-                Binding {
+            Mention::One(ability, spelled) => match self.catalog.name(ability, spelled) {
+                Some(ability_name) => Binding {
                     entity_type: "ability",
                     entity_id: Some(hero),
-                    alias_used: differs(spelled, &ability_name).or(hero_alias),
-                    entity_name: Some(entity_name),
+                    alias_used: differs(spelled, &ability_name).or(hero_alias.clone()),
+                    entity_name: entity_name.clone(),
                     ability: Some((ability, ability_name, spelled)),
-                    needs_review: false,
-                }
-            }
-            None => Binding {
-                entity_type: "hero",
-                entity_id: Some(hero),
-                entity_name: Some(entity_name),
-                ability: None,
-                alias_used: hero_alias,
-                needs_review: false,
+                    needs_review: unnamed,
+                },
+                None => plain(true),
             },
+            Mention::Absent => plain(false),
+            Mention::Ambiguous => plain(true),
         }
     }
 
     fn entity<'a>(&self, id: i64, kind: Kind, printed: &str, statement: &'a str) -> Binding<'a> {
         let heading_hero = self.heading_hero();
         match kind {
-            Kind::Hero => self.hero(id, Some(printed), statement),
+            Kind::Hero => self.hero(id, Some(printed), printed, statement),
             Kind::Item => {
                 let entity_name = self.catalog.name(id, printed);
                 Binding {
                     entity_type: "item",
                     entity_id: Some(id),
-                    alias_used: differs(printed, &entity_name),
-                    entity_name: Some(entity_name),
+                    alias_used: entity_name
+                        .as_deref()
+                        .and_then(|name| differs(printed, name)),
+                    needs_review: entity_name.is_none(),
+                    entity_name,
                     ability: None,
-                    needs_review: false,
                 }
             }
             Kind::Ability => {
                 let owner = self.catalog.owner(id, heading_hero);
-                let ability_name = self.catalog.name(id, printed);
-                Binding {
-                    entity_type: "ability",
-                    entity_id: owner,
-                    entity_name: owner.map(|hero| self.catalog.name(hero, "")),
-                    alias_used: differs(printed, &ability_name),
-                    ability: Some((id, ability_name, "")),
-                    needs_review: owner.is_none(),
+                let owner_name = owner.and_then(|hero| self.catalog.name(hero, ""));
+                match self.catalog.name(id, printed) {
+                    Some(ability_name) => Binding {
+                        entity_type: "ability",
+                        entity_id: owner,
+                        needs_review: owner_name.is_none(),
+                        entity_name: owner_name,
+                        alias_used: differs(printed, &ability_name),
+                        ability: Some((id, ability_name, "")),
+                    },
+                    None => Binding::unresolved("ability", printed),
                 }
             }
         }
@@ -512,11 +623,19 @@ impl<'c> Scene<'c> {
             .map(|(id, _)| id)
     }
 
+    fn unresolved_scope(&self, printed: &str) -> Option<Binding<'static>> {
+        match self.scope {
+            Scope::Hero => Some(Binding::unresolved("hero", printed)),
+            Scope::Item => Some(Binding::unresolved("item", printed)),
+            Scope::Other => None,
+        }
+    }
+
     fn by_heading<'a>(&self, statement: &'a str, is_bullet: bool) -> Binding<'a> {
         if let Some(heading) = self.heading {
             if let Some((id, kind)) = self.catalog.resolve(heading) {
                 return match kind {
-                    Kind::Hero => self.hero(id, None, statement),
+                    Kind::Hero => self.hero(id, None, heading, statement),
                     _ => {
                         let mut binding = self.entity(id, kind, heading, statement);
                         binding.alias_used = None;
@@ -527,6 +646,9 @@ impl<'c> Scene<'c> {
             if let Some((name, _)) = objective_at(heading, 1, true) {
                 return Binding::objective(name, name);
             }
+            if let Some(binding) = self.unresolved_scope(heading) {
+                return binding;
+            }
         }
         match objective_at(statement, OBJECTIVE_WORDS, false).filter(|_| is_bullet) {
             Some((name, printed)) => Binding::objective(name, printed),
@@ -534,10 +656,9 @@ impl<'c> Scene<'c> {
         }
     }
 
-    fn bind<'a>(&self, part: &'a str) -> (Binding<'a>, &'a str) {
-        let body = bullet(part).unwrap_or(part.trim());
-        let Some((name, rest)) = subject(part) else {
-            return (self.by_heading(body, bullet(part).is_some()), body);
+    fn bind<'a>(&self, body: &'a str, bulleted: bool) -> (Binding<'a>, &'a str) {
+        let Some((name, rest)) = subject(body) else {
+            return (self.by_heading(body, bulleted), body);
         };
         if let Some((id, kind)) = self.catalog.resolve(name) {
             return (self.entity(id, kind, name, rest), rest);
@@ -546,28 +667,25 @@ impl<'c> Scene<'c> {
             return (Binding::objective(objective, printed), rest);
         }
         if let Some(hero) = self.heading_hero() {
-            return (self.hero(hero, None, body), body);
+            let heading = self.heading.unwrap_or_default();
+            return (self.hero(hero, None, heading, body), body);
         }
-        let binding = match self.scope {
-            Scope::Hero => Binding::unresolved("hero", name),
-            Scope::Item => Binding::unresolved("item", name),
-            Scope::Other => Binding::general(),
-        };
+        let binding = self.unresolved_scope(name).unwrap_or_else(Binding::general);
         (binding, rest)
     }
 }
 
-fn row(part: &str, line_no: usize, piece: usize, section: String, context: &Scene) -> Row {
-    let (binding, statement) = context.bind(part);
+fn row(body: &str, bulleted: bool, key: (usize, usize), section: String, context: &Scene) -> Row {
+    let (binding, statement) = context.bind(body, bulleted);
     let printed_ability = binding
         .ability
         .as_ref()
         .map(|(_, _, printed)| *printed)
         .filter(|printed| !printed.is_empty());
     let (stat_name, old_value, new_value) = stat(statement, printed_ability);
-    Row {
-        line_no: i32::try_from(line_no).unwrap_or(i32::MAX),
-        piece: i32::try_from(piece).unwrap_or(i32::MAX),
+    sanitize(Row {
+        line_no: i32::try_from(key.0).unwrap_or(i32::MAX),
+        piece: i32::try_from(key.1).unwrap_or(i32::MAX),
         section,
         entity_type: binding.entity_type,
         entity_id: binding.entity_id,
@@ -579,58 +697,228 @@ fn row(part: &str, line_no: usize, piece: usize, section: String, context: &Scen
         stat_name,
         old_value,
         new_value,
-        raw_line: part.trim().to_owned(),
+        raw_line: body.trim().to_owned(),
         needs_review: binding.needs_review,
-    }
+    })
 }
 
-fn sub_heading(part: &str) -> bool {
-    let name = label(part);
-    bullet(part).is_none()
-        && structural_heading(part)
+fn filled(value: Option<String>) -> Option<String> {
+    value.filter(|text| !text.trim().is_empty())
+}
+
+fn change_word(value: &Option<String>) -> bool {
+    value
+        .as_deref()
+        .is_some_and(|text| CHANGE_WORDS.contains(&text.trim().to_lowercase().as_str()))
+}
+
+fn sanitize(mut row: Row) -> Row {
+    row.entity_name = filled(row.entity_name);
+    row.ability_name = filled(row.ability_name);
+    row.alias_used = filled(row.alias_used);
+    row.stat_name = filled(row.stat_name);
+    if change_word(&row.stat_name) {
+        row.stat_name = None;
+    }
+    row.old_value = filled(row.old_value);
+    row.new_value = filled(row.new_value);
+    if row.old_value.is_none()
+        || row.new_value.is_none()
+        || change_word(&row.old_value)
+        || change_word(&row.new_value)
+    {
+        row.old_value = None;
+        row.new_value = None;
+    }
+    if row.entity_type == "ability" && row.ability_name.is_none() {
+        row.entity_type = if row.entity_id.is_some() {
+            "hero"
+        } else {
+            "general"
+        };
+        row.needs_review = true;
+    }
+    if row.entity_type != "ability" {
+        row.ability_id = None;
+        row.ability_name = None;
+    }
+    if row.entity_type == "general" {
+        row.entity_id = None;
+    }
+    row
+}
+
+fn qualifier_row(parent: &Row, body: &str, key: (usize, usize), section: String) -> Row {
+    sanitize(Row {
+        line_no: i32::try_from(key.0).unwrap_or(i32::MAX),
+        piece: i32::try_from(key.1).unwrap_or(i32::MAX),
+        section,
+        entity_type: parent.entity_type,
+        entity_id: parent.entity_id,
+        entity_name: parent.entity_name.clone(),
+        ability_id: parent.ability_id,
+        ability_name: parent.ability_name.clone(),
+        alias_used: None,
+        change_type: change_type(body, parent.entity_type),
+        stat_name: None,
+        old_value: None,
+        new_value: None,
+        raw_line: body.trim().to_owned(),
+        needs_review: parent.needs_review,
+    })
+}
+
+fn sub_heading(body: &str) -> bool {
+    let name = label(body);
+    structural_heading(body)
         && name.chars().count() <= SUBJECT_CHARS
         && name.split_whitespace().count() <= SUBJECT_WORDS
 }
 
-pub fn rows(content: &str, catalog: &Catalog) -> Vec<Row> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Piece<'a> {
+    Section(&'a str),
+    Statement { text: &'a str, bulleted: bool },
+}
+
+const STATEMENT_SEPARATORS: [&str; 3] = [" - ", " * ", " • "];
+
+fn split_statements(body: &str) -> Vec<&str> {
     let mut output = Vec::new();
+    let mut rest = body;
+    while let Some((index, width)) = STATEMENT_SEPARATORS
+        .into_iter()
+        .filter_map(|separator| rest.find(separator).map(|index| (index, separator.len())))
+        .min()
+    {
+        output.extend([rest[..index].trim()]);
+        rest = &rest[index + width..];
+    }
+    output.extend([rest.trim()]);
+    output
+        .into_iter()
+        .map(strip_marker)
+        .filter(|piece| !piece.is_empty())
+        .collect()
+}
+
+fn strip_marker(piece: &str) -> &str {
+    let piece = piece.trim();
+    match piece.strip_prefix(['-', '*', '•']) {
+        Some(rest) if rest.is_empty() || rest.starts_with(char::is_whitespace) => rest.trim(),
+        _ => piece,
+    }
+}
+
+pub fn statements(line: &str) -> Vec<Piece<'_>> {
+    let mut output = Vec::new();
+    for chunk in chunks(line) {
+        match chunk {
+            Chunk::Section(name) => output.extend([Piece::Section(name)]),
+            Chunk::Text(body) => {
+                let (rest, bulleted) = match bullet(body) {
+                    Some(rest) => (rest, true),
+                    None => (body.trim(), false),
+                };
+                for (index, text) in split_statements(rest).into_iter().enumerate() {
+                    output.extend([Piece::Statement {
+                        text,
+                        bulleted: bulleted || index > 0,
+                    }]);
+                }
+            }
+        }
+    }
+    output
+}
+
+pub fn statement_text(raw: &str) -> String {
+    bullet(raw).unwrap_or(raw.trim()).trim().to_owned()
+}
+
+fn inline_qualifier(body: &str) -> bool {
+    subject(body).is_none()
+        && (annotation(body) || first_word(body).is_some_and(qualification_word))
+}
+
+struct Open {
+    parent: usize,
+    indent: usize,
+}
+
+pub fn rows(content: &str, catalog: &Catalog) -> Vec<Row> {
+    let mut output: Vec<Row> = Vec::new();
     let mut top = "General".to_owned();
     let mut heading: Option<String> = None;
+    let mut open: Option<Open> = None;
     for (line_no, text) in content.lines().enumerate() {
-        let parts = chunks(text);
-        let single = parts.len() == 1;
+        if text.trim().is_empty() {
+            open = None;
+            continue;
+        }
+        let parts = statements(text);
+        let alone = parts.len() == 1;
+        let line_indent = indent(text);
         let mut piece = 0;
-        for chunk in parts {
-            match chunk {
-                Chunk::Section(name) => {
+        let mut first = true;
+        for part in parts {
+            let (body, bulleted) = match part {
+                Piece::Section(name) => {
                     top = if name.is_empty() { "General" } else { name }.to_owned();
                     heading = None;
+                    open = None;
+                    first = false;
+                    continue;
                 }
-                Chunk::Text(body) => {
-                    let split = pieces(body);
-                    let alone = single && split.len() == 1;
-                    for part in split {
-                        let index = piece;
-                        piece += 1;
-                        if part.trim().is_empty() {
-                            continue;
-                        }
-                        if alone && sub_heading(part) {
-                            heading = Some(label(part).to_owned());
-                            continue;
-                        }
-                        let section = match &heading {
-                            Some(name) => format!("{top}/{name}"),
-                            None => top.clone(),
-                        };
-                        let context = Scene {
-                            catalog,
-                            heading: heading.as_deref(),
-                            scope: scope(&top),
-                        };
-                        output.push(row(part, line_no, index, section, &context));
-                    }
+                Piece::Statement { text, bulleted } => (text, bulleted),
+            };
+            let key = (line_no, piece);
+            piece += 1;
+            let leading = first;
+            first = false;
+            let heading_line = alone && !bulleted && sub_heading(body);
+            let continues = open.as_ref().is_some_and(|open| {
+                if leading {
+                    line_indent > open.indent
+                        || annotation(body)
+                        || (!bulleted && subject(body).is_none() && !heading_line)
+                } else {
+                    inline_qualifier(body)
                 }
+            });
+            let section = match &heading {
+                Some(name) => format!("{top}/{name}"),
+                None => top.clone(),
+            };
+            if let (true, Some(parent)) = (continues, open.as_ref().map(|open| open.parent)) {
+                if let Some(row) = output.get_mut(parent) {
+                    row.stat_name = None;
+                    row.old_value = None;
+                    row.new_value = None;
+                }
+                if subject(body).is_none() {
+                    let qualifier = output
+                        .get(parent)
+                        .map(|row| qualifier_row(row, body, key, section));
+                    output.extend(qualifier);
+                    continue;
+                }
+            } else if heading_line {
+                heading = Some(label(body).to_owned());
+                open = None;
+                continue;
+            }
+            let context = Scene {
+                catalog,
+                heading: heading.as_deref(),
+                scope: scope(&top),
+            };
+            output.extend([row(body, bulleted, key, section, &context)]);
+            if !continues {
+                open = Some(Open {
+                    parent: output.len() - 1,
+                    indent: line_indent,
+                });
             }
         }
     }
@@ -640,36 +928,173 @@ pub fn rows(content: &str, catalog: &Catalog) -> Vec<Row> {
 type EntityRow = (i64, String, Option<String>);
 
 async fn load_catalog(connection: &mut PgConnection) -> anyhow::Result<Catalog> {
-    let entities: Vec<EntityRow> = sqlx::query_as(
-        "SELECT e.id,e.kind::text,n.name FROM canon.entity e
-         LEFT JOIN LATERAL (
-            SELECT f.value_text::text AS name FROM canon.fact f
-            WHERE f.entity_id=e.id AND f.stat_key='name_en' AND f.value_text IS NOT NULL
-                AND NOT EXISTS(SELECT 1 FROM canon.receipt_quarantine q WHERE q.receipt_id=f.receipt_id)
-            ORDER BY f.valid_to_run IS NULL DESC,f.valid_from_run DESC LIMIT 1
-         ) n ON true
-         WHERE e.kind IN ('hero','ability','item') ORDER BY e.id",
-    )
-    .fetch_all(&mut *connection)
-    .await?;
-    let aliases: Vec<(i64, String)> = sqlx::query_as(
-        "SELECT DISTINCT a.entity_id,a.alias_norm::text FROM canon.alias a
-         JOIN canon.entity e ON e.id=a.entity_id
-         WHERE e.kind IN ('hero','ability','item') AND a.lang IN ('en','und')
-            AND NOT EXISTS(SELECT 1 FROM canon.receipt_quarantine q WHERE q.receipt_id=a.receipt_id)
-         ORDER BY 1,2",
-    )
-    .fetch_all(&mut *connection)
-    .await?;
-    let relations: Vec<(i64, i64)> = sqlx::query_as(
-        "SELECT DISTINCT r.from_entity,r.to_entity FROM canon.relation r
-         WHERE r.kind='has_ability'
-            AND NOT EXISTS(SELECT 1 FROM canon.receipt_quarantine q WHERE q.receipt_id=r.receipt_id)
-         ORDER BY 1,2",
-    )
-    .fetch_all(&mut *connection)
-    .await?;
+    let entities: Vec<EntityRow> =
+        sqlx::query_as("SELECT id,kind,name FROM ops.patch_line_entities()")
+            .fetch_all(&mut *connection)
+            .await?;
+    let aliases: Vec<(i64, String)> =
+        sqlx::query_as("SELECT entity_id,alias FROM ops.patch_line_aliases()")
+            .fetch_all(&mut *connection)
+            .await?;
+    let relations: Vec<(i64, i64)> =
+        sqlx::query_as("SELECT hero_id,ability_id FROM ops.patch_line_relations()")
+            .fetch_all(&mut *connection)
+            .await?;
     Ok(Catalog::new(&entities, &aliases, &relations))
+}
+
+pub type Key = (i64, i32, i32);
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Plan {
+    pub remap: Vec<(Key, Key)>,
+    pub archive: Vec<(Key, &'static str)>,
+}
+
+pub fn plan(
+    held: &[(Key, String)],
+    ledgers: &BTreeSet<i64>,
+    groups: &BTreeMap<i64, i64>,
+    fresh: &BTreeMap<Key, String>,
+) -> Plan {
+    let held_keys: BTreeSet<Key> = held.iter().map(|(key, _)| *key).collect();
+    let mut taken = BTreeSet::new();
+    let mut output = Plan::default();
+    for (key, raw_line) in held {
+        if !ledgers.contains(&key.0) {
+            let target = groups.get(&key.0).and_then(|group| {
+                let mut found = fresh
+                    .iter()
+                    .filter(|(candidate, text)| candidate.0 == *group && *text == raw_line)
+                    .map(|(candidate, _)| *candidate);
+                match (found.next(), found.next()) {
+                    (Some(only), None) => Some(only),
+                    _ => None,
+                }
+            });
+            match target {
+                Some(target) if !held_keys.contains(&target) && taken.insert(target) => {
+                    output.remap.extend([(*key, target)]);
+                }
+                _ => output.archive.extend([(*key, "ledger_vanished")]),
+            }
+            continue;
+        }
+        match fresh.get(key) {
+            None => output.archive.extend([(*key, "key_vanished")]),
+            Some(text) if text != raw_line => output.archive.extend([(*key, "raw_line_changed")]),
+            Some(_) => {}
+        }
+    }
+    output
+}
+
+async fn reconcile(
+    connection: &mut PgConnection,
+    run_id: i64,
+    keyed: &[(i64, Row)],
+) -> anyhow::Result<Plan> {
+    let held: Vec<(i64, i32, i32, String)> = sqlx::query_as(
+        "SELECT ledger_id,line_no,piece,raw_line FROM canon.patch_line
+         WHERE source<>'extract' ORDER BY ledger_id,line_no,piece",
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    if held.is_empty() {
+        return Ok(Plan::default());
+    }
+    let ledgers: Vec<i64> = sqlx::query_scalar("SELECT ledger_id FROM ops.patch_ledger")
+        .fetch_all(&mut *connection)
+        .await?;
+    let groups: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT post_id,ledger_id FROM ops.patch_ledger_post WHERE ledger_id IS NOT NULL",
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    let fresh: BTreeMap<Key, String> = keyed
+        .iter()
+        .map(|(ledger, row)| ((*ledger, row.line_no, row.piece), row.raw_line.clone()))
+        .collect();
+    let held: Vec<(Key, String)> = held
+        .into_iter()
+        .map(|(ledger, line, piece, raw)| ((ledger, line, piece), raw))
+        .collect();
+    let decided = plan(
+        &held,
+        &ledgers.into_iter().collect(),
+        &groups.into_iter().collect(),
+        &fresh,
+    );
+    archive(connection, run_id, &decided.archive).await?;
+    remap(connection, &decided.remap).await?;
+    Ok(decided)
+}
+
+async fn archive(
+    connection: &mut PgConnection,
+    run_id: i64,
+    archived: &[(Key, &'static str)],
+) -> anyhow::Result<()> {
+    if archived.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "WITH k AS (SELECT * FROM unnest($1::bigint[],$2::int[],$3::int[],$4::text[])
+                AS k(ledger_id,line_no,piece,reason)),
+            moved AS (DELETE FROM canon.patch_line l USING k
+                WHERE l.ledger_id=k.ledger_id AND l.line_no=k.line_no AND l.piece=k.piece
+                    AND l.source<>'extract'
+                RETURNING l.*,k.reason)
+         INSERT INTO ops.patch_line_correction_archive (ledger_id,line_no,piece,section,entity_type,
+            entity_id,entity_name,ability_id,ability_name,alias_used,change_type,stat_name,old_value,
+            new_value,raw_line,source,correction_ref,needs_review,line_run_id,reason,run_id)
+         SELECT ledger_id,line_no,piece,section,entity_type,entity_id,entity_name,ability_id,
+            ability_name,alias_used,change_type,stat_name,old_value,new_value,raw_line,source,
+            correction_ref,needs_review,run_id,reason,$5 FROM moved",
+    )
+    .bind(archived.iter().map(|(key, _)| key.0).collect::<Vec<_>>())
+    .bind(archived.iter().map(|(key, _)| key.1).collect::<Vec<_>>())
+    .bind(archived.iter().map(|(key, _)| key.2).collect::<Vec<_>>())
+    .bind(archived.iter().map(|(_, reason)| *reason).collect::<Vec<_>>())
+    .bind(run_id)
+    .execute(&mut *connection)
+    .await?;
+    Ok(())
+}
+
+async fn remap(connection: &mut PgConnection, moves: &[(Key, Key)]) -> anyhow::Result<()> {
+    if moves.is_empty() {
+        return Ok(());
+    }
+    let column = |pick: fn(&(Key, Key)) -> i64| moves.iter().map(pick).collect::<Vec<_>>();
+    let small = |pick: fn(&(Key, Key)) -> i32| moves.iter().map(pick).collect::<Vec<_>>();
+    sqlx::query(
+        "DELETE FROM canon.patch_line l
+         USING unnest($1::bigint[],$2::int[],$3::int[]) AS t(ledger_id,line_no,piece)
+         WHERE l.ledger_id=t.ledger_id AND l.line_no=t.line_no AND l.piece=t.piece
+            AND l.source='extract'",
+    )
+    .bind(column(|(_, to)| to.0))
+    .bind(small(|(_, to)| to.1))
+    .bind(small(|(_, to)| to.2))
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query(
+        "UPDATE canon.patch_line l SET ledger_id=m.to_ledger,line_no=m.to_line,piece=m.to_piece
+         FROM unnest($1::bigint[],$2::int[],$3::int[],$4::bigint[],$5::int[],$6::int[])
+            AS m(ledger_id,line_no,piece,to_ledger,to_line,to_piece)
+         WHERE l.ledger_id=m.ledger_id AND l.line_no=m.line_no AND l.piece=m.piece
+            AND l.source<>'extract'",
+    )
+    .bind(column(|(from, _)| from.0))
+    .bind(small(|(from, _)| from.1))
+    .bind(small(|(from, _)| from.2))
+    .bind(column(|(_, to)| to.0))
+    .bind(small(|(_, to)| to.1))
+    .bind(small(|(_, to)| to.2))
+    .execute(&mut *connection)
+    .await?;
+    Ok(())
 }
 
 async fn upsert(
@@ -741,13 +1166,19 @@ async fn delete_stale(connection: &mut PgConnection, keyed: &[(i64, Row)]) -> an
 pub async fn refresh(pool: &PgPool, run_id: i64) -> anyhow::Result<Refresh> {
     let mut transaction = pool.begin().await?;
     sqlx::query(LEDGER_LOCK).execute(&mut *transaction).await?;
-    let catalog = load_catalog(&mut transaction).await?;
+    let result = sync(&mut transaction, run_id).await?;
+    transaction.commit().await?;
+    Ok(result)
+}
+
+pub async fn sync(connection: &mut PgConnection, run_id: i64) -> anyhow::Result<Refresh> {
+    let catalog = load_catalog(connection).await?;
     let posts: Vec<(i64, String)> = sqlx::query_as(
         "SELECT s.post_id,s.raw_content FROM ops.patch_ledger_source() s
          JOIN ops.patch_ledger_post p ON p.post_id=s.post_id AND p.disposition='primary'
          ORDER BY s.post_id",
     )
-    .fetch_all(&mut *transaction)
+    .fetch_all(&mut *connection)
     .await?;
     let keyed: Vec<(i64, Row)> = posts
         .iter()
@@ -757,14 +1188,28 @@ pub async fn refresh(pool: &PgPool, run_id: i64) -> anyhow::Result<Refresh> {
                 .map(move |row| (*ledger, row))
         })
         .collect();
-    let written = upsert(&mut transaction, run_id, &keyed).await?;
-    let deleted = delete_stale(&mut transaction, &keyed).await?;
-    transaction.commit().await?;
-    Ok(Refresh {
+    let decided = reconcile(connection, run_id, &keyed).await?;
+    let written = upsert(connection, run_id, &keyed).await?;
+    let deleted = delete_stale(connection, &keyed).await?;
+    let result = Refresh {
         rows: keyed.len(),
         written,
         deleted,
-    })
+        remapped: decided.remap.len(),
+        archived: decided.archive.len(),
+    };
+    if result.remapped + result.archived > 0 {
+        eprintln!(
+            "{}",
+            serde_json::json!({
+                "event": "patch_line_corrections_reconciled",
+                "run_id": run_id,
+                "remapped": result.remapped,
+                "archived": result.archived,
+            })
+        );
+    }
+    Ok(result)
 }
 
 fn unescape(field: &str) -> String {
@@ -847,7 +1292,9 @@ fn correction(fields: &[&str], line: usize) -> anyhow::Result<Correction> {
         stat_name: optional(stat_name),
         old_value: optional(old_value),
         new_value: optional(new_value),
-        raw_line: required(raw_line, "raw_line", line)?,
+        raw_line: Some(statement_text(&required(raw_line, "raw_line", line)?))
+            .filter(|text| !text.is_empty())
+            .with_context(|| format!("Zeile {line}: Pflichtfeld raw_line fehlt"))?,
         source,
         correction_ref: required(correction_ref, "correction_ref", line)?,
         needs_review: flag(needs_review, line)?,
