@@ -724,3 +724,16 @@ fn live_urn_and_core_ability_current_values_and_newest_history_fit() {
         );
     }
 }
+
+#[test]
+fn parry_on_objectives_is_a_stun_not_a_hand_written_exception() {
+    let description = definition().description;
+    assert!(!description.contains("nicht betäubt"));
+    assert!(description.contains("Parry-Regeln zu Troopern, Objectives"));
+    let stun = meaning(&fact(
+        "citadel_ability_melee_parry_parriedstuntime",
+        "2.75",
+        "c",
+    ));
+    assert!(stun.is_some_and(|text| text.contains("Guardian") && text.contains("wie betäubt")));
+}
