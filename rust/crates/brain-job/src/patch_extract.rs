@@ -514,14 +514,20 @@ fn flat_bullets(part: &str) -> Vec<&str> {
 }
 
 fn numeric_range(part: &str, index: usize) -> bool {
-    let digit = |at: usize| part.as_bytes().get(at).is_some_and(u8::is_ascii_digit);
-    index > 0
-        && digit(index - 1)
-        && digit(index + 3)
-        && part
-            .get(index + 3..)
-            .and_then(|rest| rest.split_whitespace().nth(1))
-            .is_none_or(|word| !word.starts_with(char::is_uppercase))
+    let number = |text: &str| text.parse::<f64>().ok();
+    let left = part.get(..index).and_then(|head| {
+        let start = head
+            .rfind(|ch: char| !ch.is_ascii_digit() && ch != '.')
+            .map_or(0, |at| at + 1);
+        number(&head[start..])
+    });
+    let right = part.get(index + 3..).and_then(|tail| {
+        let end = tail
+            .find(|ch: char| !ch.is_ascii_digit() && ch != '.')
+            .unwrap_or(tail.len());
+        number(&tail[..end])
+    });
+    left.zip(right).is_some_and(|(left, right)| right > left)
 }
 
 fn flat_note<'a>(

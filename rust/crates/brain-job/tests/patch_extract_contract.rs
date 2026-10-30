@@ -199,7 +199,7 @@ fn flattened_bullets_keep_qualifiers_and_skip_subject_lines() {
 fn flattened_bullets_case(repeat: usize) {
     let filler = " - Underground tunnels have more light".repeat(repeat);
     let content = format!(
-        "[ General ] - Fleetfoot: Stamina increased from 2 to 3{filler} - Trooper bounty increased from 40 to 50 - only against objectives - Note: applies after 10 minutes - Respawn delay now 5 - 10 seconds - Breakable souls from 40 to 50 - 4 Strong camps replaced"
+        "[ General ] - Fleetfoot: Stamina increased from 2 to 3{filler} - Trooper bounty increased from 40 to 50 - only against objectives - Note: applies after 10 minutes - Respawn delay now 5 - 10 seconds - Now deals 20 - 40 Spirit Damage - Bonus 10 - 20% Fire Rate - Breakable souls from 40 to 50 - 4 Strong camps replaced"
     );
     let notes: Vec<Value> = accepted("42", &envelope(&content))
         .facts
@@ -225,8 +225,16 @@ fn flattened_bullets_case(repeat: usize) {
     );
     assert!(bounty["old"].is_null());
     assert_eq!(
-        notes[notes.len() - 3]["line_text"],
+        notes[notes.len() - 5]["line_text"],
         "Respawn delay now 5 - 10 seconds"
+    );
+    assert_eq!(
+        notes[notes.len() - 4]["line_text"],
+        "Now deals 20 - 40 Spirit Damage"
+    );
+    assert_eq!(
+        notes[notes.len() - 3]["line_text"],
+        "Bonus 10 - 20% Fire Rate"
     );
     assert_eq!(
         notes[notes.len() - 2]["line_text"],
@@ -236,7 +244,7 @@ fn flattened_bullets_case(repeat: usize) {
         notes.last().unwrap()["line_text"],
         "4 Strong camps replaced"
     );
-    assert_eq!(notes.len(), repeat + 4);
+    assert_eq!(notes.len(), repeat + 6);
 }
 
 fn parse(content: &str) -> Vec<Value> {
