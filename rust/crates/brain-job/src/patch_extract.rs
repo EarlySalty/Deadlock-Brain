@@ -454,8 +454,7 @@ fn note_lines(content: &str) -> Vec<NoteLine<'_>> {
                 Chunk::Text(body) => {
                     for part in pieces(body) {
                         let general = !hero_section(section)
-                            && (flattened && annotation(bullet(part).unwrap_or(part.trim()))
-                                || subject_line(part, line, piece).is_none());
+                            && (flattened || subject_line(part, line, piece).is_none());
                         let continues = !flattened
                             && open
                             && piece == 0
@@ -502,6 +501,10 @@ fn flat_bullets(part: &str) -> Vec<&str> {
     let mut output = Vec::new();
     let mut start = 0;
     for (index, _) in part.match_indices(" - ") {
+        let digit = |at: usize| part.as_bytes().get(at).is_some_and(u8::is_ascii_digit);
+        if index > 0 && digit(index - 1) && digit(index + 3) {
+            continue;
+        }
         if index > start {
             output.push(&part[start..index]);
         }
