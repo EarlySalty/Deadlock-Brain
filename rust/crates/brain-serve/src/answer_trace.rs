@@ -1,4 +1,5 @@
 use super::pg_tools::blocking;
+use brain_contracts::bot_conversation::{ConversationAudit, ConversationAuditPort};
 use brain_contracts::{
     canonical_receipt::CanonicalReceipt, tools::BuildPlanRequest, Accounted, AnswerContext,
     AnswerResponse, AnswerStatus, AuthorizedContext, Evidence, PinnedGameContext, PortError,
@@ -280,6 +281,50 @@ pub(super) trait TraceSink: Send + Sync {
     fn write(&self, record: TraceRecord) -> Result<(), PortError>;
 }
 
+pub(super) struct ConversationTrace {
+    sink: Arc<dyn TraceSink>,
+}
+
+impl ConversationTrace {
+    pub(super) fn new(sink: Arc<dyn TraceSink>) -> Self {
+        Self { sink }
+    }
+}
+
+fn conversation_record(audit: ConversationAudit) -> TraceRecord {
+    let question = audit.question.unwrap_or_default();
+    TraceRecord {
+        question_sha256: Sha256::digest(question.as_bytes()).into(),
+        tool_calls: Vec::new(),
+        citation_ids: Vec::new(),
+        status: audit.status,
+        tokens: json!({"input": audit.usage.input_tokens, "output": audit.usage.output_tokens}),
+        latency_ms: i32::try_from(audit.latency_ms).unwrap_or(i32::MAX),
+        source: bounded(
+            &printable(&format!("{}-{}", audit.actor_id, audit.channel)),
+            SOURCE_CHARS,
+        ),
+        route: Some(format!("bot_task:{}", audit.capability.as_str())),
+        question: stored(&question, QUESTION_CHARS),
+        history: Vec::new(),
+        answer_text: audit.answer_text.map(|text| stored(&text, ANSWER_CHARS)),
+        not_answered_stage: audit.reason.map(|_| "bot_task".to_owned()),
+        not_answered_reason: audit.reason.and_then(slug),
+        provider_rounds: 0,
+    }
+}
+
+impl ConversationAuditPort for ConversationTrace {
+    fn record(&self, audit: ConversationAudit) {
+        if self.sink.write(conversation_record(audit)).is_err() {
+            eprintln!(
+                "{}",
+                json!({"event":"answer_trace_failed", "reason":"conversation_audit"})
+            );
+        }
+    }
+}
+
 pub(super) struct PgTraceWriter {
     pool: PgPool,
     runtime: tokio::runtime::Handle,
@@ -389,6 +434,7 @@ impl<K> TracedKernel<K> {
         let usage = accounting.map_or(&answer.usage, |value| &value.observed);
         let request = brain_contracts::answer_trace::current_request().unwrap_or_else(|| {
             brain_contracts::answer_trace::TraceRequest {
+                capability: None,
                 question: brain_contracts::discord_task::without_platform_ids(&query.text),
                 history: Vec::new(),
             }
@@ -409,7 +455,7 @@ impl<K> TracedKernel<K> {
                 )),
                 SOURCE_CHARS,
             ),
-            route: route(query),
+            route: request.capability.clone().or_else(|| route(query)),
             question: stored(&request.question, QUESTION_CHARS),
             history: request
                 .history

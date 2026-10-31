@@ -134,6 +134,39 @@ fn message_line(
     ))
 }
 
+fn within_readable(mut facts: Facts, readable: &BTreeSet<u64>) -> Facts {
+    let readable_id = |id: &str| id.parse::<u64>().is_ok_and(|id| readable.contains(&id));
+    let parents: HashSet<String> = facts
+        .channels
+        .iter()
+        .filter(|channel| readable_id(&channel.id))
+        .filter_map(|channel| channel.parent_id.clone())
+        .collect();
+    facts
+        .channels
+        .retain(|channel| readable_id(&channel.id) || parents.contains(&channel.id));
+    facts
+        .voice_counts
+        .retain(|count| readable_id(&count.channel_id));
+    facts.bot_infos.retain(|info| readable_id(&info.channel_id));
+    facts
+        .messages
+        .retain(|history| readable_id(&history.channel_id));
+    facts
+        .tempvoice
+        .category_ids
+        .retain(|id| parents.contains(id) || readable_id(id));
+    facts
+        .tempvoice
+        .join_channel_ids
+        .retain(|id| readable_id(id));
+    facts
+        .tempvoice
+        .open_lanes
+        .retain(|lane| readable_id(&lane.channel_id));
+    facts
+}
+
 fn evidence(facts: Facts) -> Result<(Instant, Evidence), PortError> {
     let received = Instant::now();
     let observed = DateTime::parse_from_rfc3339(&facts.observed_at).map_err(|_| denied())?;
@@ -344,7 +377,12 @@ impl DiscordLive {
         channel_terms: &[String],
     ) -> Result<(Instant, Evidence), PortError> {
         let request = context.discord.as_ref().ok_or_else(denied)?;
-        if !request.allow_discord_reads {
+        if !request.allow_discord_reads
+            || request
+                .readable_channels
+                .as_ref()
+                .is_some_and(|set| channel_id.is_some_and(|id| !set.contains(&id)))
+        {
             return Err(denied());
         }
         let mut arguments = serde_json::Map::new();
@@ -355,7 +393,12 @@ impl DiscordLive {
             arguments.insert("channel_terms".into(), json!(channel_terms));
         }
         let text = self.call(context, "public_server_facts", Value::Object(arguments))?;
-        let (expires, mut item) = evidence(serde_json::from_str(&text).map_err(|_| denied())?)?;
+        let facts: Facts = serde_json::from_str(&text).map_err(|_| denied())?;
+        let facts = match &request.readable_channels {
+            Some(readable) => within_readable(facts, readable),
+            None => facts,
+        };
+        let (expires, mut item) = evidence(facts)?;
         item.allowed_scopes = BTreeSet::from([request.scope.clone()]);
         Ok((expires, item))
     }
@@ -462,6 +505,7 @@ pub(crate) fn observation_key(
                 &request.request_id,
                 &request.scope,
                 request.allow_discord_reads,
+                &request.readable_channels,
             )
         }),
     ))
@@ -796,6 +840,7 @@ mod tests {
                 request_id: query.request_id.clone(),
                 scope: "discord.request:fixture".into(),
                 allow_discord_reads: false,
+                readable_channels: None,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "fixture".into(),
@@ -1000,6 +1045,7 @@ mod tests {
                     request_id: "fixture-request".into(),
                     scope: "discord.request:fixture-owner".into(),
                     allow_discord_reads: false,
+                    readable_channels: None,
                 }),
                 principal: Principal {
                     actor_id: "fixture".into(),
@@ -1096,6 +1142,63 @@ mod tests {
     }
 
     #[test]
+    fn readable_scope_removes_foreign_channels_and_denies_direct_reads() {
+        let facts: Facts = serde_json::from_value(json!({
+            "schema": "fixture",
+            "guild_id": "1",
+            "observed_at": "2026-10-31T00:00:00Z",
+            "cache_seconds": 60,
+            "audience": "public",
+            "channels": [
+                {"id": "7", "name": "patchnotes", "type": 0, "topic": null, "position": 1, "parent_id": "3"},
+                {"id": "3", "name": "news", "type": 4, "topic": null, "position": 0, "parent_id": null},
+                {"id": "9", "name": "team", "type": 0, "topic": "geheim", "position": 2, "parent_id": "4"},
+                {"id": "4", "name": "intern", "type": 4, "topic": null, "position": 3, "parent_id": null}
+            ],
+            "voice_counts": [{"channel_id": "9", "count": 2}],
+            "bot_infos": [{"channel_id": "9", "message_id": "1", "text": "geheim"}],
+            "messages": [
+                {"channel_id": "7", "messages": [{"id": "10", "text": "offen"}]},
+                {"channel_id": "9", "messages": [{"id": "11", "text": "geheim"}]}
+            ]
+        }))
+        .unwrap();
+        let facts = within_readable(facts, &BTreeSet::from([7]));
+        let channels: Vec<&str> = facts.channels.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(channels, ["7", "3"]);
+        assert!(facts.voice_counts.is_empty());
+        assert!(facts.bot_infos.is_empty());
+        assert_eq!(facts.messages.len(), 1);
+        assert_eq!(facts.messages[0].channel_id, "7");
+
+        let live = DiscordLive::new("fixture".into()).unwrap();
+        let context = AuthorizedContext {
+            discord: Some(brain_contracts::DiscordRequestContext {
+                user_id: Some(42),
+                request_id: "r".into(),
+                scope: "discord.request:fixture".into(),
+                allow_discord_reads: true,
+                readable_channels: Some(BTreeSet::from([7])),
+            }),
+            principal: brain_contracts::Principal {
+                actor_id: "bot".into(),
+                channel: "fixture".into(),
+                scopes: BTreeSet::from(["bot.public".into(), "discord.request:fixture".into()]),
+                provider_egress: BTreeSet::from(["public".into(), "discord_request".into()]),
+            },
+            conversation_id: "c".into(),
+            knowledge_release: "fixture".into(),
+            deadline_ms: 1000,
+            budget: brain_contracts::Budget::default(),
+            request_deadline: None,
+        };
+        assert!(matches!(
+            live.read_channel(&context, Some(9), &[]),
+            Err(PortError::PermissionDenied(_))
+        ));
+    }
+
+    #[test]
     fn private_read_gate_verhindert_io_und_erhaelt_gespeichertes_wissen() {
         use brain_contracts::{AnswerProviderPort, AnswerStatus, ProviderAnswer};
         use brain_kernel::{AnswerKernelPort, Kernel};
@@ -1176,6 +1279,7 @@ mod tests {
                 request_id: "r".into(),
                 scope: "discord.request:fixture".into(),
                 allow_discord_reads: false,
+                readable_channels: None,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -1372,6 +1476,7 @@ mod tests {
                 request_id: "r".into(),
                 scope: "discord.request:fixture".into(),
                 allow_discord_reads: true,
+                readable_channels: None,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -1539,6 +1644,7 @@ mod tests {
                     request_id: "r".into(),
                     scope: "discord.request:unbound".into(),
                     allow_discord_reads: true,
+                    readable_channels: None,
                 }),
                 principal: brain_contracts::Principal {
                     actor_id: "bot".into(),
@@ -1704,6 +1810,7 @@ mod tests {
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
                 allow_discord_reads: true,
+                readable_channels: None,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -1766,6 +1873,7 @@ mod tests {
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
                 allow_discord_reads: true,
+                readable_channels: None,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "interne-live-pruefung".into(),
@@ -1820,6 +1928,7 @@ mod tests {
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
                 allow_discord_reads: true,
+                readable_channels: None,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -1947,6 +2056,7 @@ mod tests {
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
                 allow_discord_reads: true,
+                readable_channels: None,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -2013,6 +2123,7 @@ mod tests {
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
                 allow_discord_reads: true,
+                readable_channels: None,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -2128,6 +2239,7 @@ mod tests {
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
                 allow_discord_reads: true,
+                readable_channels: None,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -2277,6 +2389,7 @@ mod tests {
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
                 allow_discord_reads: true,
+                readable_channels: None,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -2377,6 +2490,7 @@ mod tests {
                 request_id: "r".into(),
                 scope: "discord.request:unbound".into(),
                 allow_discord_reads: true,
+                readable_channels: None,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),
@@ -2516,6 +2630,7 @@ mod tests {
                 request_id: "r".into(),
                 scope: "discord.request:fixture".into(),
                 allow_discord_reads: true,
+                readable_channels: None,
             }),
             principal: brain_contracts::Principal {
                 actor_id: "bot".into(),

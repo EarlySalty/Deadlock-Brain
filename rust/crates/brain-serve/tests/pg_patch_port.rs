@@ -39,6 +39,7 @@ mod pg_tools;
 #[path = "../src/game_text.rs"]
 mod game_text;
 
+#[allow(dead_code)]
 #[path = "../src/answer_trace.rs"]
 mod answer_trace;
 
@@ -941,6 +942,7 @@ async fn actual_owner_and_patch_receipts_match_byte_for_byte_in_the_kernel_loop(
     let kernel = answer_trace::TracedKernel::new(kernel, Some(Arc::new(trace_writer)));
     let accounted = brain_contracts::answer_trace::with_request(
         brain_contracts::answer_trace::TraceRequest {
+            capability: None,
             question: "Welche Patches betreffen Abrams?".into(),
             history: vec!["Vorherige Frage".into()],
         },

@@ -1,0 +1,1 @@
+Wenn der User sich einen Paten, Mentor oder eine feste Bezugsperson wünscht, setze "pate_request": true. Setze es nicht, wenn er nur wissen will, was ein Pate ist.

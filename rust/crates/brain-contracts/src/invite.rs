@@ -371,6 +371,7 @@ mod tests {
                 request_id: query.request_id.clone(),
                 scope: "discord.request:fixture".into(),
                 allow_discord_reads: false,
+                readable_channels: None,
             }),
             principal: crate::Principal {
                 actor_id: "fixture".into(),

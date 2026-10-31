@@ -4,9 +4,11 @@ use brain_contracts::{AnswerResponse, AnswerStatus, Budget, Query, Usage, CONTRA
 use brain_kernel::AnswerKernelPort;
 use brain_policy::{PolicyEngine, PolicyError};
 use sha2::{Digest, Sha256};
+mod conversation;
 mod diagnostics;
 mod http;
 pub mod internal;
+mod persona;
 mod public_text;
 mod retrieval;
 mod task;
@@ -32,6 +34,9 @@ pub struct ApiService<K> {
         Option<std::sync::Arc<dyn brain_contracts::discord_task::DiscordContextResolver>>,
     bot_task_consumers: task::TaskConsumers,
     twitch_title: Option<std::sync::Arc<dyn brain_contracts::bot_tasks::TwitchTitlePort>>,
+    conversation: Option<std::sync::Arc<dyn brain_contracts::bot_tasks::ConversationPort>>,
+    conversation_audit:
+        Option<std::sync::Arc<dyn brain_contracts::bot_conversation::ConversationAuditPort>>,
     artifacts: Option<std::sync::Arc<dyn brain_contracts::AnswerArtifactPort>>,
     artifact_consumers: std::collections::BTreeSet<(String, String)>,
 }
@@ -42,6 +47,8 @@ struct AnswerInput {
     local_context: bool,
     claimed_user: Option<u64>,
     allow_discord_reads: bool,
+    readable_channels: Option<std::collections::BTreeSet<u64>>,
+    trace_capability: Option<String>,
     task: Option<brain_contracts::discord_task::DiscordAnswerTask>,
 }
 
@@ -68,6 +75,8 @@ where
             discord_context: None,
             bot_task_consumers: task::TaskConsumers::new(),
             twitch_title: None,
+            conversation: None,
+            conversation_audit: None,
             artifacts: None,
             artifact_consumers: std::collections::BTreeSet::new(),
         }
@@ -261,6 +270,8 @@ where
                 local_context,
                 claimed_user,
                 allow_discord_reads,
+                readable_channels: None,
+                trace_capability: None,
                 task,
             },
             deadline,
@@ -286,6 +297,8 @@ where
             local_context,
             claimed_user,
             allow_discord_reads,
+            readable_channels,
+            trace_capability,
             task,
         } = input;
         if query.validate().is_err() {
@@ -308,7 +321,11 @@ where
                         .get(&consumer)
                         .is_some_and(|capabilities| capabilities.contains(&task.capability.into()))
             }) || claimed_user.is_none_or(|id| id == 0)
-                || (allow_discord_reads && task.is_some())
+                || !task_reads_allowed(
+                    task.as_ref(),
+                    allow_discord_reads,
+                    readable_channels.as_ref(),
+                )
                 || !self.discord_consumers.contains(&consumer)
                 || query.requested_scopes != std::collections::BTreeSet::from(["bot.public".into()])
                 || query.domain.is_some()
@@ -384,8 +401,8 @@ where
                 .retain(|scope| scope == "public");
         }
         if context.principal.scopes.contains("bot.public")
-            && task.is_none()
-            && (!local_context || allow_discord_reads)
+            && (readable_channels.is_some()
+                || (task.is_none() && (!local_context || allow_discord_reads)))
         {
             use std::io::Read;
             let mut nonce = [0u8; 32];
@@ -417,6 +434,7 @@ where
                 request_id: query.request_id.clone(),
                 scope,
                 allow_discord_reads,
+                readable_channels,
             });
         }
         if task.is_some() || local_context {
@@ -442,6 +460,7 @@ where
                 .push_str(&serde_json::to_string(&projection).expect("Geprüfte Kontextprojektion"));
         }
         let trace = brain_contracts::answer_trace::TraceRequest {
+            capability: trace_capability,
             question: asked,
             history: user_questions
                 .iter()
@@ -481,6 +500,22 @@ where
             return deadline_response();
         }
         public_answer_response(&answer, artifacts)
+    }
+}
+
+fn task_reads_allowed(
+    task: Option<&brain_contracts::discord_task::DiscordAnswerTask>,
+    allow_discord_reads: bool,
+    readable_channels: Option<&std::collections::BTreeSet<u64>>,
+) -> bool {
+    use brain_contracts::discord_task::DiscordAnswerCapability::Concierge;
+    match readable_channels {
+        Some(readable) => {
+            allow_discord_reads
+                && !readable.is_empty()
+                && task.is_some_and(|task| task.capability == Concierge)
+        }
+        None => task.is_none() || !allow_discord_reads,
     }
 }
 

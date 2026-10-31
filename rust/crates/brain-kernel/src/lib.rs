@@ -831,6 +831,7 @@ mod tests {
             request_id: "r1".into(),
             scope: "discord.request:own".into(),
             allow_discord_reads: true,
+            readable_channels: None,
         });
         let answer = kernel.answer(&query(AnswerProfile::Explain), &context);
         assert_eq!(answer.status, AnswerStatus::UnauthorizedEvidence);

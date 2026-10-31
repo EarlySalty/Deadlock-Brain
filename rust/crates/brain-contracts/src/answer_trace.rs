@@ -2,6 +2,7 @@ use std::cell::RefCell;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TraceRequest {
+    pub capability: Option<String>,
     pub question: String,
     pub history: Vec<String>,
 }
@@ -72,6 +73,7 @@ mod tests {
         assert!(current_request().is_none());
         let inner = with_request(
             TraceRequest {
+                capability: None,
                 question: "Frage".into(),
                 history: vec!["Vorher".into()],
             },

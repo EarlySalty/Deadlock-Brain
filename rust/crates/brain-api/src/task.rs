@@ -1,10 +1,13 @@
 use crate::{bearer_token, deadline_response, json_error, AnswerInput, ApiResponse, ApiService};
+use brain_contracts::bot_conversation::{
+    BotReply, ConversationAudit, ConversationAuditPort, ConversationTask,
+};
 use brain_contracts::bot_tasks::{
     BotCapability, BotIdentity, BotPlatform, BotTask, BotTaskRequest, BotTaskResponse,
-    BotTaskResult, CapabilityAvailability, TaskFailure, TaskUsage, TwitchTitleInput,
-    TwitchTitlePort,
+    BotTaskResult, CapabilityAvailability, CapabilityState, ConversationPort, TaskFailure,
+    TaskUsage, TwitchTitleInput, TwitchTitlePort,
 };
-use brain_contracts::discord_task::DiscordAnswerTask;
+use brain_contracts::discord_task::{DiscordAnswerCapability, DiscordAnswerTask};
 use brain_contracts::{AnswerProfile, Principal, PublicAnswerResponse, Query, RequestDeadline};
 use brain_kernel::AnswerKernelPort;
 use serde_json::{json, Value};
@@ -15,6 +18,14 @@ use std::{
 };
 
 pub(crate) type TaskConsumers = BTreeMap<(String, String), BTreeSet<BotCapability>>;
+
+pub(crate) struct KernelAsk<'a> {
+    pub capability: DiscordAnswerCapability,
+    pub trace: BotCapability,
+    pub question: &'a str,
+    pub user_questions: Vec<String>,
+    pub readable: Option<BTreeSet<u64>>,
+}
 
 impl<K> ApiService<K>
 where
@@ -30,6 +41,16 @@ where
 
     pub fn with_twitch_title(mut self, port: Arc<dyn TwitchTitlePort>) -> Self {
         self.twitch_title = Some(port);
+        self
+    }
+
+    pub fn with_conversation(mut self, port: Arc<dyn ConversationPort>) -> Self {
+        self.conversation = Some(port);
+        self
+    }
+
+    pub fn with_conversation_audit(mut self, port: Arc<dyn ConversationAuditPort>) -> Self {
+        self.conversation_audit = Some(port);
         self
     }
 
@@ -79,12 +100,8 @@ where
         let result = match &request.task {
             BotTask::CapabilityStatus { capability } => BotTaskResult::CapabilityStatus {
                 capability: *capability,
-                availability: if allowed && self.capability_ready(*capability) {
-                    CapabilityAvailability::Available
-                } else {
-                    CapabilityAvailability::Unavailable
-                },
-                capabilities: Vec::new(),
+                availability: self.availability(&principal, *capability),
+                capabilities: self.capability_states(&principal, request.identity.platform()),
             },
             _ if !allowed => {
                 return (
@@ -100,10 +117,18 @@ where
                 Ok(result) => result,
                 Err(response) => return (response, None),
             },
-            BotTask::Conversation(task) => BotTaskResult::Failed {
-                capability: task.capability(),
-                failure: TaskFailure::ProviderUnavailable,
-            },
+            BotTask::Conversation(task) => {
+                let (result, kernel_final) = self.conversation(token, &request, task, &deadline);
+                match result {
+                    Ok(result) => {
+                        if !kernel_final {
+                            self.audit_conversation(&principal, task, &result, started);
+                        }
+                        result
+                    }
+                    Err(response) => return (response, None),
+                }
+            }
         };
         let event = task_event(&request, &result, started);
         let response = BotTaskResponse::new(&request, result);
@@ -146,14 +171,89 @@ where
             }
     }
 
+    fn availability(
+        &self,
+        principal: &Principal,
+        capability: BotCapability,
+    ) -> CapabilityAvailability {
+        if self.task_allowed(principal, capability) && self.capability_ready(capability) {
+            CapabilityAvailability::Available
+        } else {
+            CapabilityAvailability::Unavailable
+        }
+    }
+
+    fn capability_states(
+        &self,
+        principal: &Principal,
+        platform: BotPlatform,
+    ) -> Vec<CapabilityState> {
+        BotCapability::ALL
+            .iter()
+            .filter(|capability| capability.platform() == platform)
+            .map(|capability| CapabilityState {
+                capability: *capability,
+                availability: self.availability(principal, *capability),
+            })
+            .collect()
+    }
+
+    fn conversation_ready(&self) -> bool {
+        self.conversation
+            .as_ref()
+            .is_some_and(|port| port.available())
+    }
+
     fn capability_ready(&self, capability: BotCapability) -> bool {
-        match capability.platform() {
-            BotPlatform::Discord => self.core_not_ready().is_none(),
-            BotPlatform::Twitch => self
+        let core = || self.core_not_ready().is_none();
+        match capability {
+            BotCapability::DiscordConcierge | BotCapability::DiscordFaq => core(),
+            BotCapability::DiscordPassiveHelp => core() && self.conversation_ready(),
+            BotCapability::DiscordInviteLounge | BotCapability::TwitchStandardReply => true,
+            BotCapability::TwitchTitle => self
                 .twitch_title
                 .as_ref()
                 .is_some_and(|port| port.available()),
+            _ => self.conversation_ready(),
         }
+    }
+
+    fn audit_conversation(
+        &self,
+        principal: &Principal,
+        task: &ConversationTask,
+        result: &BotTaskResult,
+        started: Instant,
+    ) {
+        let Some(port) = &self.conversation_audit else {
+            return;
+        };
+        let (status, answer_text, reason, usage) = match result {
+            BotTaskResult::Conversation { reply, usage, .. } => match reply {
+                BotReply::Answered { text, .. } => ("answered", Some(text.clone()), None, *usage),
+                BotReply::Silent { reason } => {
+                    ("insufficient_evidence", None, Some(reason.as_str()), *usage)
+                }
+            },
+            BotTaskResult::Failed { failure, .. } => (
+                "provider_error",
+                None,
+                Some(failure.as_str()),
+                TaskUsage::default(),
+            ),
+            _ => return,
+        };
+        port.record(ConversationAudit {
+            capability: task.capability(),
+            actor_id: principal.actor_id.clone(),
+            channel: principal.channel.clone(),
+            question: task.audit_question().map(str::to_owned),
+            status,
+            answer_text,
+            reason,
+            usage,
+            latency_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        });
     }
 
     fn discord_answer(
@@ -177,15 +277,40 @@ where
         else {
             return Err(invalid_task());
         };
+        self.kernel_answer(
+            token,
+            &request.request_id,
+            *channel_id,
+            *user_id,
+            KernelAsk {
+                capability: *capability,
+                trace: (*capability).into(),
+                question,
+                user_questions: user_questions.clone(),
+                readable: None,
+            },
+            deadline,
+        )
+    }
+
+    pub(crate) fn kernel_answer(
+        &self,
+        token: &str,
+        request_id: &str,
+        channel_id: u64,
+        user_id: u64,
+        ask: KernelAsk<'_>,
+        deadline: RequestDeadline,
+    ) -> Result<PublicAnswerResponse, ApiResponse> {
         if let Some(response) = self.core_not_ready() {
             return Err(response);
         }
         let query = Query {
             answer_context: None,
             domain: None,
-            request_id: request.request_id.clone(),
-            conversation_id: request.request_id.clone(),
-            text: question.clone(),
+            request_id: request_id.to_owned(),
+            conversation_id: request_id.to_owned(),
+            text: ask.question.to_owned(),
             requested_scopes: BTreeSet::from(["bot.public".into()]),
             profile: AnswerProfile::Explain,
             patch: None,
@@ -195,13 +320,15 @@ where
             token,
             AnswerInput {
                 query,
-                user_questions: user_questions.clone(),
-                local_context: !user_questions.is_empty(),
-                claimed_user: Some(*user_id),
-                allow_discord_reads: false,
+                local_context: !ask.user_questions.is_empty(),
+                user_questions: ask.user_questions,
+                claimed_user: Some(user_id),
+                allow_discord_reads: ask.readable.is_some(),
+                readable_channels: ask.readable,
+                trace_capability: Some(format!("bot_task:{}", ask.trace.as_str())),
                 task: Some(DiscordAnswerTask {
-                    capability: *capability,
-                    channel_id: *channel_id,
+                    capability: ask.capability,
+                    channel_id,
                 }),
             },
             deadline,

@@ -201,6 +201,17 @@ pub enum ConversationTask {
 }
 
 impl ConversationTask {
+    pub fn audit_question(&self) -> Option<&str> {
+        match self {
+            Self::DiscordConcierge { question, .. }
+            | Self::DiscordFaq { question, .. }
+            | Self::TwitchDashboardAssistant { question, .. }
+            | Self::TwitchSelfExplainer { question, .. }
+            | Self::TwitchAnalysisChat { question, .. } => Some(question),
+            _ => None,
+        }
+    }
+
     pub fn capability(&self) -> BotCapability {
         match self {
             Self::DiscordConcierge { .. } => BotCapability::DiscordConcierge,
@@ -543,4 +554,21 @@ pub struct GeneratedReply {
     pub text: String,
     pub model: String,
     pub usage: TaskUsage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationAudit {
+    pub capability: BotCapability,
+    pub actor_id: String,
+    pub channel: String,
+    pub question: Option<String>,
+    pub status: &'static str,
+    pub answer_text: Option<String>,
+    pub reason: Option<&'static str>,
+    pub usage: TaskUsage,
+    pub latency_ms: u64,
+}
+
+pub trait ConversationAuditPort: Send + Sync {
+    fn record(&self, audit: ConversationAudit);
 }

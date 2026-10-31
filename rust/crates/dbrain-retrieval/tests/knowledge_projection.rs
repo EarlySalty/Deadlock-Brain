@@ -1176,6 +1176,7 @@ async fn normal_texts_read_stored_compact_documents_with_fresh_original_proofs()
         request_id: "q1".into(),
         scope: request_scope,
         allow_discord_reads: true,
+        readable_channels: None,
     });
     let mut denied_query = query("Wie viel MaxHealth ist für Wächter gespeichert?");
     denied_query.patch = None;

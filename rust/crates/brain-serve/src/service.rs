@@ -24,8 +24,8 @@ use brain_contracts::{
 use brain_kernel::{CachedKernel, Kernel};
 use brain_policy::{CredentialRegistry, PolicyEngine};
 use brain_providers::{
-    CodexSubscriptionProvider, GenerationEndpoint, OpenAiCompatibleProvider, PriceCeiling,
-    ProviderConfig, TextGenerationProvider, TwitchTitleGenerator,
+    CodexSubscriptionProvider, ConversationGenerator, GenerationEndpoint, OpenAiCompatibleProvider,
+    PriceCeiling, ProviderConfig, TextGenerationProvider, TwitchTitleGenerator,
 };
 use brain_storage::{LocalPgPoolStats, LocalPgReader};
 use dbrain_retrieval::ReleaseRetriever;
@@ -133,6 +133,7 @@ pub struct Prepared {
     mirror_password: Option<String>,
     trace_options: Option<sqlx::postgres::PgConnectOptions>,
     twitch_title: Option<Arc<TwitchTitleGenerator>>,
+    conversation: Option<Arc<ConversationGenerator>>,
     shutdown: Arc<Shutdown>,
     startup_deadline: Instant,
 }
@@ -161,7 +162,7 @@ impl Prepared {
             mirror_password,
             twitch_title_key,
         } = secrets;
-        let twitch_title = twitch_title_generator(&config, twitch_title_key)?;
+        let (twitch_title, conversation) = task_generators(&config, twitch_title_key)?;
         let discord_live = discord_live_token
             .map(DiscordLive::new)
             .transpose()?
@@ -252,6 +253,7 @@ impl Prepared {
             mirror_password,
             trace_options,
             twitch_title,
+            conversation,
             shutdown,
             startup_deadline: deadline,
         })
@@ -262,20 +264,22 @@ impl Prepared {
     }
 }
 
-fn twitch_title_generator(
-    config: &Config,
-    key: Option<String>,
-) -> Result<Option<Arc<TwitchTitleGenerator>>, Error> {
+type TaskGenerators = (
+    Option<Arc<TwitchTitleGenerator>>,
+    Option<Arc<ConversationGenerator>>,
+);
+
+fn task_generators(config: &Config, key: Option<String>) -> Result<TaskGenerators, Error> {
     let Some(title) = config
         .task_providers
         .as_ref()
         .and_then(|providers| providers.twitch_title.as_ref())
     else {
-        return Ok(None);
+        return Ok((None, None));
     };
     let Some(key) = key else {
         log_event("twitch_title_key_missing");
-        return Ok(None);
+        return Ok((None, None));
     };
     let provider = TextGenerationProvider::new(GenerationEndpoint::new(
         key,
@@ -285,11 +289,18 @@ fn twitch_title_generator(
         title.max_response_bytes,
     ))
     .map_err(|_| Error::ProviderConfig)?;
-    Ok(Some(Arc::new(TwitchTitleGenerator::new(
-        provider,
-        title.model_selection_path.clone(),
-        title.max_output_tokens,
-    ))))
+    Ok((
+        Some(Arc::new(TwitchTitleGenerator::new(
+            provider.clone(),
+            title.model_selection_path.clone(),
+            title.max_output_tokens,
+        ))),
+        Some(Arc::new(ConversationGenerator::new(
+            provider,
+            title.model_selection_path.clone(),
+            title.max_output_tokens,
+        ))),
+    ))
 }
 
 fn startup_database_error(error: PortError) -> Error {
@@ -567,6 +578,18 @@ pub async fn run(prepared: &Prepared) -> Result<(), Error> {
         Some(generator) => api.with_twitch_title(generator.clone()),
         None => api,
     };
+    if let Some(generator) = &prepared.conversation {
+        api = api.with_conversation(generator.clone());
+    }
+    if let Some(options) = prepared.trace_options.clone() {
+        api = api.with_conversation_audit(Arc::new(answer_trace::ConversationTrace::new(
+            Arc::new(answer_trace::PgTraceWriter::new(
+                options,
+                tokio::runtime::Handle::current(),
+                Duration::from_millis(prepared.config.timeouts.postgres_pool_wait_ms),
+            )),
+        )));
+    }
     if let Some(port) = answer_artifacts {
         api = api.with_answer_artifacts(
             port,

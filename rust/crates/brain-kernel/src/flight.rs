@@ -187,6 +187,7 @@ pub(super) fn request_key(
                 &request.request_id,
                 &request.scope,
                 request.allow_discord_reads,
+                &request.readable_channels,
             )
         }),
         &query.text,
@@ -217,6 +218,7 @@ fn private_read_gate_trennt_flightbindung_bei_gleicher_frage() {
             request_id: "r".into(),
             scope: "discord.request:fixture".into(),
             allow_discord_reads: true,
+            readable_channels: None,
         }),
         principal: brain_contracts::Principal {
             actor_id: "bot".into(),

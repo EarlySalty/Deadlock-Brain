@@ -35,6 +35,7 @@ pub struct PriceCeiling {
 mod audit;
 pub use audit::OutputDeviation;
 mod circuit;
+mod conversation;
 mod embeddings;
 mod evidence_alias;
 mod generation;
@@ -42,6 +43,7 @@ mod hardening;
 mod model_selection;
 mod transport;
 mod twitch_title;
+pub use conversation::ConversationGenerator;
 pub use generation::{
     GeneratedText, GenerationEndpoint, GenerationError, GenerationMessage, TextGenerationProvider,
     TextGenerationRequest,

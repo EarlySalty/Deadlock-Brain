@@ -296,6 +296,7 @@ pub struct DiscordRequestContext {
     pub request_id: String,
     pub scope: String,
     pub allow_discord_reads: bool,
+    pub readable_channels: Option<BTreeSet<u64>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

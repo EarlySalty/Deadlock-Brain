@@ -563,14 +563,14 @@ async fn twitch_title_failures_are_typed_and_never_fall_back() {
         &[],
     )
     .await;
-    assert_eq!(
+    assert!(matches!(
         parsed(&response).result,
         BotTaskResult::CapabilityStatus {
             capability: BotCapability::TwitchTitle,
             availability: CapabilityAvailability::Unavailable,
-            capabilities: Vec::new(),
+            ..
         }
-    );
+    ));
     let (response, log) = send(
         &state,
         Route::Task,
@@ -596,14 +596,14 @@ async fn twitch_title_failures_are_typed_and_never_fall_back() {
         &[],
     )
     .await;
-    assert_eq!(
+    assert!(matches!(
         parsed(&response).result,
         BotTaskResult::CapabilityStatus {
             capability: BotCapability::TwitchTitle,
             availability: CapabilityAvailability::Available,
-            capabilities: Vec::new(),
+            ..
         }
-    );
+    ));
     let (response, log) = send(
         &state,
         Route::Task,
