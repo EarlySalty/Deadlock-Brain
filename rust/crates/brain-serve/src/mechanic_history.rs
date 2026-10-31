@@ -20,7 +20,7 @@ pub(super) struct Scope {
 const STREET_BRAWL: &str = r"street brawl";
 const URN_BUCKETS: &[(&str, i32)] = &[
     (
-        r"deposit.*(timer|phase|immediately)|drop ?off channel|capture point|king of the hill",
+        r"deposit.*(timer|phase|immediately)|drop[ -]?off channel|capture point|king of the hill",
         5,
     ),
     (r"\mparr", 1),
@@ -73,10 +73,10 @@ fn scope_terms(request: &GetMechanicRequest) -> Option<(&'static str, &'static s
         ),
         MechanicKind::Respawn => (
             r"respawn",
-            r"neutral|\mcamps?\M|denizen|sinner|mid ?boss|\murn\M|breakable|crystal|rejuv|music|sound",
+            r"neutral|\mcamps?\M|denizen|sinner|mid[ -]?boss|\murn\M|breakable|crystal|rejuv|music|sound",
         ),
         MechanicKind::Objectives => objective(request.objective),
-        MechanicKind::MidBoss => (r"mid ?boss", ""),
+        MechanicKind::MidBoss => (r"mid[ -]?boss", ""),
         MechanicKind::Rejuvenator => (r"rejuv|crystal", r"rejuvenating"),
         MechanicKind::Urn => (r"\murn\M|\midol\M", r"^unstable rift"),
         MechanicKind::Denizens => (r"neutrals?\M|denizen|\mcamps?\M", r"neutral shop"),
