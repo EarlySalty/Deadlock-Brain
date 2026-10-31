@@ -10,6 +10,7 @@ pub mod answer_contract;
 pub mod answer_trace;
 mod deadline;
 pub use deadline::RequestDeadline;
+pub mod bot_conversation;
 pub mod bot_tasks;
 pub mod canonical_receipt;
 pub mod discord_task;

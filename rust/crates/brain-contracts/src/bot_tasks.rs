@@ -1,3 +1,4 @@
+pub use crate::bot_conversation::*;
 use crate::{discord_task::DiscordAnswerCapability, PublicAnswerResponse, RequestDeadline};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -67,14 +68,77 @@ impl BotIdentity {
 pub enum BotCapability {
     DiscordConcierge,
     DiscordFaq,
+    DiscordPassiveHelp,
+    DiscordVoiceHint,
+    DiscordInviteLounge,
     TwitchTitle,
+    TwitchChat,
+    TwitchPromoPitch,
+    TwitchInviteReply,
+    TwitchLfgReply,
+    TwitchStandardReply,
+    TwitchTip,
+    TwitchDashboardAssistant,
+    TwitchSelfExplainer,
+    TwitchAnalysisChat,
 }
 
 impl BotCapability {
+    pub const ALL: [Self; 15] = [
+        Self::DiscordConcierge,
+        Self::DiscordFaq,
+        Self::DiscordPassiveHelp,
+        Self::DiscordVoiceHint,
+        Self::DiscordInviteLounge,
+        Self::TwitchTitle,
+        Self::TwitchChat,
+        Self::TwitchPromoPitch,
+        Self::TwitchInviteReply,
+        Self::TwitchLfgReply,
+        Self::TwitchStandardReply,
+        Self::TwitchTip,
+        Self::TwitchDashboardAssistant,
+        Self::TwitchSelfExplainer,
+        Self::TwitchAnalysisChat,
+    ];
+
     pub fn platform(self) -> BotPlatform {
         match self {
-            Self::DiscordConcierge | Self::DiscordFaq => BotPlatform::Discord,
-            Self::TwitchTitle => BotPlatform::Twitch,
+            Self::DiscordConcierge
+            | Self::DiscordFaq
+            | Self::DiscordPassiveHelp
+            | Self::DiscordVoiceHint
+            | Self::DiscordInviteLounge => BotPlatform::Discord,
+            Self::TwitchTitle
+            | Self::TwitchChat
+            | Self::TwitchPromoPitch
+            | Self::TwitchInviteReply
+            | Self::TwitchLfgReply
+            | Self::TwitchStandardReply
+            | Self::TwitchTip
+            | Self::TwitchDashboardAssistant
+            | Self::TwitchSelfExplainer
+            | Self::TwitchAnalysisChat => BotPlatform::Twitch,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DiscordConcierge => "discord_concierge",
+            Self::DiscordFaq => "discord_faq",
+            Self::DiscordPassiveHelp => "discord_passive_help",
+            Self::DiscordVoiceHint => "discord_voice_hint",
+            Self::DiscordInviteLounge => "discord_invite_lounge",
+            Self::TwitchTitle => "twitch_title",
+            Self::TwitchChat => "twitch_chat",
+            Self::TwitchPromoPitch => "twitch_promo_pitch",
+            Self::TwitchInviteReply => "twitch_invite_reply",
+            Self::TwitchLfgReply => "twitch_lfg_reply",
+            Self::TwitchStandardReply => "twitch_standard_reply",
+            Self::TwitchTip => "twitch_tip",
+            Self::TwitchDashboardAssistant => "twitch_dashboard_assistant",
+            Self::TwitchSelfExplainer => "twitch_self_explainer",
+            Self::TwitchAnalysisChat => "twitch_analysis_chat",
         }
     }
 }
@@ -113,6 +177,7 @@ pub enum BotTask {
     CapabilityStatus {
         capability: BotCapability,
     },
+    Conversation(ConversationTask),
 }
 
 impl BotTask {
@@ -121,6 +186,7 @@ impl BotTask {
             Self::DiscordAnswer { capability, .. } => (*capability).into(),
             Self::TwitchTitle { .. } => BotCapability::TwitchTitle,
             Self::CapabilityStatus { capability } => *capability,
+            Self::Conversation(task) => task.capability(),
         }
     }
 
@@ -129,6 +195,7 @@ impl BotTask {
             Self::DiscordAnswer { .. } => "discord_answer",
             Self::TwitchTitle { .. } => "twitch_title",
             Self::CapabilityStatus { .. } => "capability_status",
+            Self::Conversation(_) => "conversation",
         }
     }
 
@@ -165,6 +232,7 @@ impl BotTask {
             {
                 Err(BotTaskError::InvalidGeneration)
             }
+            Self::Conversation(task) => task.validate(),
             _ => Ok(()),
         }
     }
@@ -180,6 +248,17 @@ pub struct BotTaskRequest {
 }
 
 impl BotTaskRequest {
+    pub fn scoped_reads(&self) -> Option<&std::collections::BTreeSet<u64>> {
+        match &self.task {
+            BotTask::Conversation(task) => task.readable_channel_ids(),
+            _ => None,
+        }
+    }
+
+    fn direct_message(&self) -> bool {
+        matches!(self.identity, BotIdentity::Discord { guild_id: None, .. })
+    }
+
     pub fn validate(&self) -> Result<(), BotTaskError> {
         if self.contract_version != BOT_TASK_VERSION {
             return Err(BotTaskError::VersionMismatch);
@@ -188,6 +267,9 @@ impl BotTaskRequest {
             return Err(BotTaskError::InvalidRequestId);
         }
         if !self.identity.valid() || self.identity.platform() != self.task.capability().platform() {
+            return Err(BotTaskError::InvalidBinding);
+        }
+        if self.scoped_reads().is_some() && !self.direct_message() {
             return Err(BotTaskError::InvalidBinding);
         }
         self.task.validate()
@@ -199,6 +281,13 @@ impl BotTaskRequest {
 pub enum CapabilityAvailability {
     Available,
     Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CapabilityState {
+    pub capability: BotCapability,
+    pub availability: CapabilityAvailability,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -242,6 +331,16 @@ pub enum BotTaskResult {
     CapabilityStatus {
         capability: BotCapability,
         availability: CapabilityAvailability,
+        #[serde(default)]
+        capabilities: Vec<CapabilityState>,
+    },
+    Conversation {
+        capability: BotCapability,
+        reply: BotReply,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(default)]
+        usage: TaskUsage,
     },
     Failed {
         capability: BotCapability,
@@ -289,6 +388,12 @@ impl BotTaskResponse {
                 },
                 BotTaskResult::CapabilityStatus { capability, .. },
             ) if capability == expected => Ok(()),
+            (
+                BotTask::Conversation(task),
+                BotTaskResult::Conversation {
+                    capability, reply, ..
+                },
+            ) if *capability == task.capability() && reply.valid() => Ok(()),
             (task, BotTaskResult::Failed { capability, .. })
                 if *capability == task.capability() =>
             {
@@ -312,6 +417,23 @@ pub struct GeneratedTitle {
     pub text: String,
     pub model: String,
     pub usage: TaskUsage,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversationPrompt {
+    pub system: String,
+    pub user: String,
+    pub max_tokens: u32,
+    pub temperature: f32,
+}
+
+pub trait ConversationPort: Send + Sync {
+    fn available(&self) -> bool;
+    fn generate(
+        &self,
+        prompt: &ConversationPrompt,
+        deadline: &RequestDeadline,
+    ) -> Result<GeneratedReply, TaskFailure>;
 }
 
 pub trait TwitchTitlePort: Send + Sync {
@@ -344,6 +466,8 @@ pub enum BotTaskError {
     InvalidGeneration,
     #[error("Ergebnisart passt nicht zur Aufgabe")]
     ResultMismatch,
+    #[error("Ungültige Gesprächsaufgabe")]
+    InvalidConversation,
     #[error("Ungültige öffentliche Antwort")]
     InvalidAnswer,
 }

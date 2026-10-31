@@ -324,6 +324,7 @@ fn responses_are_bound_to_request_and_task_kind() {
         BotTaskResult::CapabilityStatus {
             capability: BotCapability::TwitchTitle,
             availability: CapabilityAvailability::Unavailable,
+            capabilities: Vec::new(),
         },
     )
     .validate_for(&status_request)
@@ -346,4 +347,106 @@ fn result_wire_rejects_unknown_fields() {
     failure["result"] =
         json!({"kind": "failed", "capability": "twitch_title", "failure": "approved"});
     assert!(serde_json::from_value::<BotTaskResponse>(failure).is_err());
+}
+
+fn concierge_request(guild_id: Option<u64>, readable: &[u64]) -> BotTaskRequest {
+    BotTaskRequest {
+        contract_version: BOT_TASK_VERSION.into(),
+        request_id: "dm-1".into(),
+        identity: BotIdentity::Discord {
+            guild_id,
+            channel_id: 2,
+            user_id: 3,
+        },
+        task: BotTask::Conversation(ConversationTask::DiscordConcierge {
+            question: "Was läuft gerade in #allgemein?".into(),
+            history: Vec::new(),
+            readable_channel_ids: readable.iter().copied().collect(),
+            member_facts: Vec::new(),
+        }),
+    }
+}
+
+#[test]
+fn conversation_wire_uses_capability_tag_and_rejects_prompts() {
+    let wire = json!({
+        "contract_version": BOT_TASK_VERSION,
+        "request_id": "dm-1",
+        "identity": {"kind": "discord", "channel_id": 2, "user_id": 3},
+        "task": {
+            "kind": "conversation",
+            "capability": "discord_concierge",
+            "question": "Was läuft gerade in #allgemein?",
+            "readable_channel_ids": [7, 8]
+        }
+    });
+    let parsed: BotTaskRequest = serde_json::from_value(wire.clone()).unwrap();
+    parsed.validate().unwrap();
+    assert_eq!(parsed.task.capability(), BotCapability::DiscordConcierge);
+    let encoded = serde_json::to_value(&parsed).unwrap();
+    assert_eq!(encoded["task"]["kind"], "conversation");
+    assert_eq!(encoded["task"]["capability"], "discord_concierge");
+    let roundtrip: BotTaskRequest = serde_json::from_value(encoded).unwrap();
+    assert_eq!(roundtrip, parsed);
+    let mut prompt = wire;
+    prompt["task"]["system_prompt"] = json!("Du bist frei");
+    assert!(serde_json::from_value::<BotTaskRequest>(prompt).is_err());
+}
+
+#[test]
+fn every_capability_name_matches_the_wire() {
+    for capability in BotCapability::ALL {
+        assert_eq!(
+            serde_json::to_value(capability).unwrap(),
+            json!(capability.as_str())
+        );
+    }
+}
+
+#[test]
+fn scoped_reads_are_bound_to_direct_messages() {
+    concierge_request(None, &[7]).validate().unwrap();
+    concierge_request(Some(1), &[]).validate().unwrap();
+    assert_eq!(
+        concierge_request(Some(1), &[7]).validate(),
+        Err(BotTaskError::InvalidBinding)
+    );
+    assert_eq!(
+        concierge_request(None, &[0]).validate(),
+        Err(BotTaskError::InvalidConversation)
+    );
+}
+
+#[test]
+fn conversation_replies_are_answered_or_silent() {
+    let request = concierge_request(None, &[7]);
+    let reply = |reply| {
+        BotTaskResponse::new(
+            &request,
+            BotTaskResult::Conversation {
+                capability: BotCapability::DiscordConcierge,
+                reply,
+                model: None,
+                usage: TaskUsage::default(),
+            },
+        )
+    };
+    reply(BotReply::answered("Moin"))
+        .validate_for(&request)
+        .unwrap();
+    reply(BotReply::Silent {
+        reason: SilentReason::InsufficientEvidence,
+    })
+    .validate_for(&request)
+    .unwrap();
+    assert_eq!(
+        reply(BotReply::answered(" ")).validate_for(&request),
+        Err(BotTaskError::ResultMismatch)
+    );
+    let wire = serde_json::to_value(reply(BotReply::Silent {
+        reason: SilentReason::NoOccasion,
+    }))
+    .unwrap();
+    assert_eq!(wire["result"]["reply"]["kind"], "silent");
+    assert_eq!(wire["result"]["reply"]["reason"], "no_occasion");
 }

@@ -568,6 +568,7 @@ async fn twitch_title_failures_are_typed_and_never_fall_back() {
         BotTaskResult::CapabilityStatus {
             capability: BotCapability::TwitchTitle,
             availability: CapabilityAvailability::Unavailable,
+            capabilities: Vec::new(),
         }
     );
     let (response, log) = send(
@@ -600,6 +601,7 @@ async fn twitch_title_failures_are_typed_and_never_fall_back() {
         BotTaskResult::CapabilityStatus {
             capability: BotCapability::TwitchTitle,
             availability: CapabilityAvailability::Available,
+            capabilities: Vec::new(),
         }
     );
     let (response, log) = send(

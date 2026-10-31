@@ -84,6 +84,7 @@ where
                 } else {
                     CapabilityAvailability::Unavailable
                 },
+                capabilities: Vec::new(),
             },
             _ if !allowed => {
                 return (
@@ -98,6 +99,10 @@ where
             BotTask::TwitchTitle { .. } => match self.twitch_title(&request, &deadline) {
                 Ok(result) => result,
                 Err(response) => return (response, None),
+            },
+            BotTask::Conversation(task) => BotTaskResult::Failed {
+                capability: task.capability(),
+                failure: TaskFailure::ProviderUnavailable,
             },
         };
         let event = task_event(&request, &result, started);
@@ -261,6 +266,7 @@ fn invalid_task() -> ApiResponse {
 fn task_event(request: &BotTaskRequest, result: &BotTaskResult, started: Instant) -> Value {
     let (model, usage) = match result {
         BotTaskResult::TwitchTitle { model, usage, .. } => (Some(model.as_str()), *usage),
+        BotTaskResult::Conversation { model, usage, .. } => (model.as_deref(), *usage),
         _ => (None, TaskUsage::default()),
     };
     let outcome = match result {
@@ -271,6 +277,7 @@ fn task_event(request: &BotTaskRequest, result: &BotTaskResult, started: Instant
         BotTaskResult::CapabilityStatus { availability, .. } => {
             serde_json::to_value(availability).unwrap_or(Value::Null)
         }
+        BotTaskResult::Conversation { reply, .. } => json!(reply.outcome()),
         BotTaskResult::Failed { failure, .. } => json!(failure.as_str()),
     };
     let purpose = match &request.task {

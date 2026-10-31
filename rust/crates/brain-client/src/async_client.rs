@@ -137,7 +137,7 @@ impl AsyncBrainClient {
             .validate()
             .map_err(|error| ClientError::InvalidQuery(error.to_string()))?;
         let private = match &request.task {
-            BotTask::TwitchTitle { .. } => true,
+            BotTask::TwitchTitle { .. } | BotTask::Conversation(_) => true,
             BotTask::DiscordAnswer { user_questions, .. } => !user_questions.is_empty(),
             BotTask::CapabilityStatus { .. } => false,
         };
